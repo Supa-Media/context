@@ -74,7 +74,15 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { readGoogleClientSecret, refuseAttempt, requireActor, requireGoogleClientId } from "./googleConnect";
+import {
+  accountSlugFor,
+  defaultGoogleDestinationFolder,
+  takenAccountSlugs,
+  readGoogleClientSecret,
+  refuseAttempt,
+  requireActor,
+  requireGoogleClientId,
+} from "./googleConnect";
 
 /** Same width and lifetime as the Gmail attempt — see `googleConnect.ts`. */
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
@@ -146,6 +154,9 @@ export const parkCalendarAttempt = internalMutation({
     startedBy: v.id("users"),
     redirectUri: v.string(),
     hashedCompletion: v.string(),
+    flow: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+    ),
     products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
   },
   returns: v.null(),
@@ -167,6 +178,7 @@ export const parkCalendarAttempt = internalMutation({
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
       redirectUri: args.redirectUri,
+      flow: args.flow,
       products: args.products,
       // Gmail's own connect-time choices. Absent here, same as the schema
       // already allows — a Calendar attempt carries no Gmail fields because
@@ -242,6 +254,7 @@ export const startCalendarConnect = action({
       workspaceId: args.workspaceId,
       startedBy: userId,
       redirectUri: args.redirectUri,
+      flow: "calendar",
       products,
     });
 
@@ -494,7 +507,26 @@ export const applyCalendarConnectionBinding = internalMutation({
         // A reconnect keeps the cursor: it is the same account, and
         // resetting it would force a needless full resync. Cleared only by
         // `disconnectGoogleConnection`, exactly like Gmail's `historyId`.
+        // Recorded at connect, like Gmail's — see `applyChatConnectionBinding`
+        // for the whole argument. An absent folder is one a later edit to
+        // `defaultGoogleDestinationFolder` answers differently, which would
+        // move where an existing customer's days are written without them
+        // doing anything.
+        /*
+          This account's own folder, since 2026-09-18 — two Google accounts
+          used to write one file between them, which no folder rule in
+          `privacy.md` could tell apart. Recorded here, like every other
+          destination, so a later connect or disconnect can never rename the
+          folder somebody's calendar is already in.
+        */
+        destinationFolder:
+          existing?.calendar?.destinationFolder ??
+          defaultGoogleDestinationFolder(
+            "calendar",
+            accountSlugFor(args.address, existing, await takenAccountSlugs(ctx, args.workspaceId, args.address)),
+          ),
         syncToken: existing?.calendar?.syncToken,
+        lastFullSyncDate: existing?.calendar?.lastFullSyncDate,
         lastSyncedAt: existing?.calendar?.lastSyncedAt,
       },
       chat: existing?.chat ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) } : undefined,

@@ -3,6 +3,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,20 +26,26 @@ import { viewportHeight } from "../design/css";
 import { layout, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import {
+  asideToggleFor,
+  clampAsideWidth,
   clampExplorerWidth,
   closesOnSelect,
   densityFor,
   explorerToggleFor,
   floatingGapFor,
+  focusToggleFor,
   initialFrame,
+  lightsInBarFor,
   panelsClearedFor,
-  railToggleFor,
   regionsFor,
+  topBarLeadFor,
   type Density,
   type FrameState,
   type Regions,
 } from "./frame";
 import { setBottomChromeHeight } from "./bottomChrome";
+import { useShellBandAbovePx, useShellLightsLeadPx } from "./ShellTitleBandView";
+import { setTopChromeHoldsLights } from "./topChrome";
 
 /**
  * The application frame.
@@ -93,31 +101,47 @@ export interface FrameApi {
   regions: Regions;
   state: FrameState;
   /**
-   * The drawer button, and ⌘⇧E on web.
+   * The drawer button, and ⌘B on web.
    *
    * What toggling the explorer *means* is `explorerToggleFor`'s to decide, and
    * at a density where it answers `null` — medium and wide, where the explorer
    * is a permanent column and there is nothing to pull in — this genuinely
-   * does nothing. It used to toggle `railCollapsed` there, which made ⌘⇧E a
-   * second ⌘B that never once touched the explorer.
+   * does nothing. It used to toggle `railCollapsed` there, which made its
+   * chord a second ⌘B that never once touched the explorer — and ⌘B is now
+   * this command's own, the rail having folded into the switcher.
    */
   toggleExplorer: () => void;
   /**
-   * ⌘B.
+   * The right panel — chat and meetings — and ⌘J on web.
    *
-   * Collapses the rail to its marks on a pointer layout and does nothing on a
-   * phone, where there is no rail to collapse and none to bring in —
-   * `railToggleFor` owns which, for the same reason `explorerToggleFor` owns
-   * the other one. It used to pull the sheet in at compact; the contexts are on
-   * the strip now.
+   * `asideToggleFor` owns what it means, exactly as `explorerToggleFor` owns
+   * the tree's: at compact it answers `null` and this is a genuine no-op,
+   * because a phone has no right panel and a command that writes a field no
+   * layout reads is the ⌘B mistake `frame.ts` keeps a paragraph about.
    */
-  toggleRail: () => void;
-  closeDrawer: () => void;
+  toggleAside: () => void;
+  /** Medium and wide: drag the right panel's edge. */
+  setAsideWidth: (width: number) => void;
   /**
-   * Dismisses the rail sheet. Clears the flag at any density; there is only
-   * anything to see at compact, where the sheet is the thing being dismissed.
+   * ⌘\, and the pill on the focus edge.
+   *
+   * Folds both panels away for the length of a read and restores them exactly
+   * as they were — `FrameState.focus` is one boolean *over* the two
+   * preferences, not a snapshot of them, so there is no second copy to drift.
+   * Nothing on a phone, where there is no panel to fold; `focusToggleFor` owns
+   * that, for the reason the other two commands have their own owners.
    */
-  closeNav: () => void;
+  toggleFocus: () => void;
+  /**
+   * The pointer arriving at, or leaving, the folded tree's seam.
+   *
+   * Hover state rather than a command, which is why it takes the value instead
+   * of toggling: two `onHoverOut`s in a row must not bring the peek back. The
+   * *delay* before the pointer counts as resting is the seam's business — this
+   * is only told the answer.
+   */
+  setExplorerPeeking: (peeking: boolean) => void;
+  closeDrawer: () => void;
   /**
    * Puts away whatever panel is over the editor, and says whether there was
    * one.
@@ -126,8 +150,26 @@ export interface FrameApi {
    * whatever is open, wherever you are"; the boolean is how a caller keeps
    * that promise honest, returning `false` so the browser's own Escape
    * behaviour survives when nothing was open.
+   *
+   * It closes the drawer and the peek — the panels this component renders —
+   * **and** whatever registered itself through `registerDismissable`,
+   * nearest first.
    */
   closeOverlays: () => boolean;
+  /**
+   * Put a panel this frame does not render into Escape's reach, and take it
+   * out again when it unmounts.
+   *
+   * The promise above was only ever true of the two panels below. A find bar
+   * over the note is neither, so ⌘F could open something Escape could not
+   * close as soon as focus left the editor — reported, accurately, as "isn't
+   * dismissable". A closer answers whether it closed anything, so
+   * `closeOverlays` can keep returning an honest boolean.
+   *
+   * Returns the unregistration, which makes it the whole body of an effect:
+   * `useEffect(() => registerDismissable(close), [registerDismissable])`.
+   */
+  registerDismissable: (close: () => boolean) => () => void;
   setExplorerWidth: (width: number) => void;
   /**
    * True on a phone: choosing a note has to dismiss the drawer, because the
@@ -239,18 +281,24 @@ const FrameContext = createContext<FrameApi | null>(null);
 export function useFrame(): FrameApi {
   const fallbackDensity = densityFor(useWindowDimensions().width);
   const provided = useContext(FrameContext);
+  const fallbackRegions = regionsFor(fallbackDensity, initialFrame);
   return (
     provided ?? {
       density: fallbackDensity,
-      regions: regionsFor(fallbackDensity, initialFrame),
+      regions: fallbackRegions,
       state: initialFrame,
       toggleExplorer: noop,
-      toggleRail: noop,
+      toggleAside: noop,
+      setAsideWidth: noop,
+      toggleFocus: noop,
+      setExplorerPeeking: noop,
       closeDrawer: noop,
-      closeNav: noop,
       closeOverlays: () => false,
+      // Nothing outside a provider has a frame to be closed by, so the
+      // registration is real and the unregistration is a no-op.
+      registerDismissable: () => noop,
       setExplorerWidth: noop,
-      closesOnSelect: closesOnSelect(fallbackDensity),
+      closesOnSelect: closesOnSelect(fallbackRegions.explorer),
       contentInsets: NO_CONTENT_INSETS,
       viewportInsets: NO_CONTENT_INSETS,
       framed: false,
@@ -319,6 +367,23 @@ export interface AppFrameProps {
    * ever becomes pressable again, the label comes back with it.
    */
   switcher: ReactNode;
+  /**
+   * The open notes, hanging from the foot of the title bar. **Pointer layouts
+   * only** — tabs are a pointer instrument and a phone has `RecentSheet`.
+   *
+   * A slot in the frame rather than a strip the editor region draws, because
+   * the thing that makes a tab look like a tab is the *boundary*: the active
+   * one is filled in `pageSurface` against the bar's `chromeSurface`, so it
+   * reads as the front edge of the page below. A strip drawn on the page has
+   * no boundary to meet and the active tab disappears into its own ground —
+   * measured, in exactly that state, before this moved.
+   *
+   * Absent draws nothing at all, which is what a route with no tabs open
+   * passes — and a compact layout is refused the slot whether it passes one or
+   * not, because a prop whose contract lives only in its callers is a contract
+   * one caller can break silently. See the render.
+   */
+  tabs?: ReactNode;
   /** Storage chip, avatar — the trailing edge of the top bar. */
   topTrailing?: ReactNode;
   /**
@@ -356,38 +421,27 @@ export interface AppFrameProps {
    * `ConsoleRail.AccountBlock`.
    */
   accountSlot?: ReactNode;
+  /**
+   * **Compact only.** Whether the notes are in the bucket, on a phone.
+   *
+   * A phone has no status strip (`regionsFor` answers `statusBar: false` at
+   * compact), and the strip is where a pointer layout says Offline, "3 notes
+   * waiting to sync" and "1 note needs you". Without a surface of its own on a
+   * phone, none of that was said anywhere a phone could see — so this is that
+   * surface: its own floating object in the top row, ahead of the trailing
+   * capsule and pushed to the trailing side with it.
+   *
+   * Its own slot rather than a child of `topTrailing`, because the capsule is
+   * a row of 44pt icon targets that meet (`topTrailCompact`'s `gap: 0`) and
+   * this is words. It renders nothing at a pointer density whatever is passed,
+   * for the reason `tabs` is refused at compact: the strip says it there, and a
+   * contract that lived only in the caller is one a caller can break. What goes
+   * in it — and that it is absent when there is nothing to say — is the
+   * caller's; see `features/console/files/SyncSheet.tsx`.
+   */
+  syncSlot?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
-  /**
-   * The rail, told how much room it has and what shape it is in.
-   *
-   * The three modes are `Regions.rail` minus `hidden`, passed straight through
-   * rather than folded into two: a phone sheet has the width for labels *and*
-   * needs targets a thumb can hit, and collapsing it to `full` here is what
-   * made the sheet inherit a pointer layout's 35pt rows.
-   *
-   * **Amended, in the change that reversed it.** This used to read: "Reachable
-   * at every density — a column on a pointer layout, a sheet the top bar brings
-   * in on a phone. It is not optional and must not become so: the app-level
-   * panes, the other contexts and sign-out are reachable through this node and
-   * no other, so a density with no way to reach it is a density you cannot
-   * navigate out of."
-   *
-   * The premise in that sentence is the half that expired — *through this node
-   * and no other*. On a phone the other contexts are the navigation band
-   * inside the scroller (`features/console/NavBand.tsx`), the signed-in
-   * identity is the `accountSlot` in the top bar, and the app's other
-   * places are keys on the bottom row; none of the three is behind a control,
-   * so none of them can be missing. The conclusion still holds wherever the
-   * premise does, which is medium and wide: there this is a permanent column
-   * and it is not optional.
-   *
-   * At compact it is not rendered at all — `regions.rail` is `"hidden"` and
-   * there is no sheet — so the slot is still a function rather than a node,
-   * now because a pointer layout asks for exactly one of three modes rather
-   * than because a phone mounts it late.
-   */
-  rail: (mode: "full" | "icons" | "sheet") => ReactNode;
   /**
    * The file tree, rendered as a column or inside the drawer.
    *
@@ -399,6 +453,17 @@ export interface AppFrameProps {
   explorer?: ReactNode;
   /** Counts and save state, on the bottom edge of a pointer layout. */
   status?: ReactNode;
+  /**
+   * The right panel's contents: chat, and the meeting that is running.
+   *
+   * A slot rather than something the editor draws, for the reason `explorer`
+   * is one: it is a *region of the frame*, so the frame is what decides
+   * whether it is a column beside the note or an overlay over it, and the
+   * console does not have to know which. Absent on every surface that has no
+   * panel to put there — the landing page's picture of the console, the
+   * fixtures — and `AppFrame` draws nothing and offers no toggle when it is.
+   */
+  aside?: ReactNode;
   /** Thumb-reach verbs, on the bottom edge of a phone. */
   bottomBar?: ReactNode;
   /** The editor. */
@@ -407,11 +472,13 @@ export interface AppFrameProps {
 
 export function AppFrame({
   switcher,
+  tabs,
   topTrailing,
   accountSlot,
+  syncSlot,
   onSearch,
-  rail,
   explorer,
+  aside,
   status,
   bottomBar,
   children,
@@ -422,6 +489,66 @@ export function AppFrame({
   const [state, setState] = useState<FrameState>(initialFrame);
 
   const density = densityFor(width);
+
+  /*
+    THE TRAFFIC LIGHTS: WHO HOLDS THEM, AND WHAT THAT COSTS THIS FRAME.
+
+    Inside the desktop shell on macOS the window is frameless with inset
+    traffic lights, and something has to keep the console's own content out
+    from under them. Two candidates, and the frame picks between them here:
+
+     - **This bar**, at a pointer density. It is exactly the height the
+       buttons want (`SHELL_TITLE_BAND_PX` is `layout.topBarHeight`), so it
+       pays a leading inset and the root band stands down — which is the whole
+       of the change: 45pt of blank strip above the console becomes 45pt of
+       note list.
+     - **The root band**, otherwise. At compact this bar is absolute,
+       transparent and lying over a document that scrolls under it, so buttons
+       placed in it would sit on the note; and a console window narrowed past
+       `narrowBreakpoint` is that layout on a Mac. `lightsInBarFor` is the
+       density half of the rule and `shellLightsLeadPx` the platform half.
+
+    `lightsLeadPx` is therefore non-zero only when all of it holds — a Mac,
+    inside the shell, at a density whose bar can carry them — which makes it
+    the honest answer to "is this frame holding them", and what the handshake
+    publishes.
+  */
+  const lightsLeadPx = useShellLightsLeadPx(lightsInBarFor(density));
+  const holdsLights = lightsLeadPx > 0;
+
+  /*
+    What the desktop shell's title band still takes out of the window above
+    this frame. Zero when this frame took the job, and zero everywhere there
+    are no buttons at all, including an ordinary browser tab.
+
+    The frame is sized in viewport units rather than `flex: 1` (see
+    `design/css.ts` for why the unit has to be `dvh`), so a band drawn above
+    it does not shorten it the way a flex parent would — it pushed a full
+    viewport down by the band instead, and the bottom of the console, which
+    is where the context switcher and the sync row live, was off the bottom of
+    the window with no way to scroll to it.
+  */
+  const shellBandPx = useShellBandAbovePx(holdsLights);
+
+  /*
+    Tell the band mounted *above* this frame to stand down, because this bar
+    is reserving the buttons' corner itself. The mirror of the
+    `setBottomChromeHeight` call below, and `topChrome.ts` is the argument for
+    why both are module stores rather than context.
+
+    **A layout effect rather than `useEffect`**, and this is the one place the
+    difference is visible: the band is an ancestor, so standing it down is a
+    parent re-render driven from a child. React flushes layout effects and the
+    renders they schedule before the browser paints — with `useEffect` the
+    first frame would show band *and* bar, 90pt of chrome, and collapse to 45
+    one paint later. That flash is the whole defect, briefly, on every cold
+    load.
+  */
+  const lightsClaim = useId();
+  useLayoutEffect(() => {
+    setTopChromeHoldsLights(lightsClaim, holdsLights);
+    return () => setTopChromeHoldsLights(lightsClaim, false);
+  }, [lightsClaim, holdsLights]);
   const hasExplorer = explorer != null;
   const regions = regionsFor(density, state, { hasExplorer });
 
@@ -438,43 +565,103 @@ export function AppFrame({
 
   // One command with one meaning per density, and `frame.ts` owns which. The
   // field it names is toggled; a `null` is a real no-op, not a licence to do
-  // something else — toggling the rail here is what made ⌘⇧E a duplicate of
+  // something else — toggling the rail here is what made this a duplicate of
   // ⌘B on every layout that has an explorer column.
   const toggleExplorer = useCallback(() => {
     setState((current) => {
-      // `hasExplorer` still travels because `explorerToggleFor` still takes it
-      // — the day a density gets a drawer back it is the flag that decides
-      // whether there is anything to pull in. Today the answer is `null` at
-      // every density and this is a genuine no-op, which is the thing to keep:
-      // "does nothing" must mean *nothing*, not "does the other command".
+      // A command that names a panel which is not on the screen brings the
+      // panels back rather than writing a preference nobody can see change.
+      // Leaving focus is the whole of what the first press does — see
+      // `toggleFocus`.
+      if (current.focus) return { ...current, focus: false };
+      /*
+        `hasExplorer` decides whether there is anything to fold: it is `false`
+        on Map and Connections, and writing `explorerHidden` there would set a
+        preference on a pane that cannot show it, discovered later as a missing
+        tree back on Browse. `explorerToggleFor` owns that and answers `null`,
+        which must stay a genuine no-op — "does nothing" means *nothing*, not
+        "does the other command", which is what made this a second ⌘B.
+      */
       const field = explorerToggleFor(densityFor(width), { hasExplorer });
       if (field === null) return current;
-      return { ...current, [field]: !current[field] };
+      // The peek goes with the fold in both directions: opening the column
+      // leaves no seam to have been resting on, and closing it must not open
+      // straight into a peek the pointer never asked for.
+      return { ...current, [field]: !current[field], explorerPeeking: false };
     });
   }, [width, hasExplorer]);
 
+  /**
+   * The right panel, opened and closed.
+   *
+   * `toggleExplorer`'s shape, with two differences worth stating rather than
+   * leaving to be inferred:
+   *
+   *  - **no `hasExplorer` term.** The panel is about the context, not the file
+   *    tree, so Map and Connections may have it open beside them;
+   *  - **the peek is cleared too.** A peek is the folded tree lying over the
+   *    editor, and opening the panel moves the editor out from under it, so a
+   *    peek that survived would be hovering over a note that is no longer
+   *    where the pointer thought it was.
+   */
+  const toggleAside = useCallback(() => {
+    setState((current) => {
+      // Same first press as `toggleExplorer`: a command naming a panel that
+      // focus mode has taken away brings the panels back instead of writing a
+      // preference nobody can see change.
+      if (current.focus) return { ...current, focus: false };
+      const field = asideToggleFor(densityFor(width));
+      if (field === null) return current;
+      return { ...current, [field]: !current[field], explorerPeeking: false };
+    });
+  }, [width]);
+
+  const setAsideWidth = useCallback(
+    (next: number) => setState((current) => ({ ...current, asideWidth: clampAsideWidth(next) })),
+    [],
+  );
+
   // Same rule as `toggleExplorer`: `frame.ts` owns what the command means and
-  // `null` is a real no-op. At compact there is no rail to collapse and no
-  // sheet to bring in — the contexts are on the strip — so ⌘B does nothing
-  // there rather than writing a preference nothing reads, which is the bug
-  // `railToggleFor` was extracted to end.
-  const toggleRail = useCallback(
+  const toggleFocus = useCallback(
     () =>
       setState((current) => {
-        const field = railToggleFor(densityFor(width));
-        if (field === null) return current;
-        return { ...current, [field]: !current[field] };
+        if (!focusToggleFor(densityFor(width))) return current;
+        return { ...current, focus: !current.focus, explorerPeeking: false };
       }),
     [width],
+  );
+  /*
+    Idempotent on purpose. The seam sends `false` on hover-out and the peek
+    panel sends `false` when the pointer leaves it too, so the same value
+    arrives twice on the way out of one gesture; returning `current` is what
+    keeps that from being a second render of the whole frame.
+  */
+  const setExplorerPeeking = useCallback(
+    (peeking: boolean) =>
+      setState((current) =>
+        current.explorerPeeking === peeking ? current : { ...current, explorerPeeking: peeking },
+      ),
+    [],
   );
   const closeDrawer = useCallback(
     () => setState((current) => (current.drawerOpen ? { ...current, drawerOpen: false } : current)),
     [],
   );
-  const closeNav = useCallback(
-    () => setState((current) => (current.navOpen ? { ...current, navOpen: false } : current)),
-    [],
-  );
+  /**
+   * The panels this frame does not render, newest registration last.
+   *
+   * A ref rather than state: nothing on screen depends on the list, and a
+   * render per editor mount on the console's most expensive route is a price
+   * for nothing. `closeOverlays` reads it at press time, which is also the only
+   * moment the answer is knowable.
+   */
+  const dismissables = useRef<(() => boolean)[]>([]);
+  const registerDismissable = useCallback((close: () => boolean) => {
+    dismissables.current = [...dismissables.current, close];
+    return () => {
+      dismissables.current = dismissables.current.filter((one) => one !== close);
+    };
+  }, []);
   /**
    * The scrim covers whichever panel is up, so it dismisses whichever panel is
    * up — and Escape means the same thing.
@@ -486,10 +673,53 @@ export function AppFrame({
    * key.
    */
   const closeOverlays = useCallback(() => {
-    const wasOpen = state.drawerOpen || state.navOpen;
-    if (wasOpen) setState((current) => ({ ...current, drawerOpen: false, navOpen: false }));
+    /*
+      Nearest first, which is last registered first: a find bar lies over the
+      note inside the drawer's console, so one Escape must not take both. The
+      loop stops at the first closer that actually closed something — the rest
+      are further away, and a person pressing Escape means the thing in front
+      of them.
+
+      Read into a local first: a closer is free to unmount the thing it closed,
+      which unregisters it, and `registerDismissable` answers that by replacing
+      the array rather than splicing it. Iterating the live `.current` would
+      then walk a different list than it started on, and skip the panel behind
+      the one that just went away.
+    */
+    const registered = dismissables.current;
+    for (let at = registered.length - 1; at >= 0; at -= 1) {
+      if (registered[at]?.() === true) return true;
+    }
+    /*
+      Then the frame's own panels, which are the outermost thing Escape can
+      reach and so genuinely the last resort — including the two the folding
+      tree added. The peek is over the editor and focus mode has taken the
+      panels away, and Escape is the key everybody tries for either.
+    */
+    /*
+      The right panel joins them, and **only where it is over the editor**.
+
+      Escape closes what is in front of you. At `wide` the panel is a column
+      beside the note — it is not in front of anything, and closing a column
+      somebody arranged their window around because they pressed Escape in the
+      note is the same mistake as dismissing a permanent tree on select. At
+      `medium` it is an overlay with a scrim, which is exactly the thing this
+      is for. `regions.aside` is read rather than `state.asideOpen`, so the
+      density decides, in the one place that owns that decision.
+    */
+    const asideOverEditor = regions.aside === "overlay";
+    const wasOpen =
+      state.drawerOpen || state.explorerPeeking || state.focus || asideOverEditor;
+    if (wasOpen)
+      setState((current) => ({
+        ...current,
+        drawerOpen: false,
+        explorerPeeking: false,
+        focus: false,
+        asideOpen: asideOverEditor ? false : current.asideOpen,
+      }));
     return wasOpen;
-  }, [state.drawerOpen, state.navOpen]);
+  }, [state.drawerOpen, state.explorerPeeking, state.focus, regions.aside]);
   const setExplorerWidth = useCallback(
     (next: number) =>
       setState((current) => ({ ...current, explorerWidth: clampExplorerWidth(next) })),
@@ -497,6 +727,37 @@ export function AppFrame({
   );
 
   const compact = density === "compact";
+
+  /**
+   * Whether there is a right panel here for a toggle to act on.
+   *
+   * Both halves are needed and neither implies the other: `asideToggleFor`
+   * answers the *density* question — a phone has no such panel at all — and
+   * `aside != null` answers the *surface* one, because the landing page's
+   * picture of the console and the fixtures supply no panel to open. Asked of
+   * the frame function rather than re-derived, for `explorerFoldable`'s
+   * reason: a control that toggles where the command does nothing is a button
+   * that lies.
+   */
+  const asideToggle = asideToggleFor(density) !== null && aside != null;
+
+  /**
+   * Whether there is a folded tree here that a seam could bring back.
+   *
+   * Asked of `explorerToggleFor` rather than re-derived, because it is the same
+   * question the command asks and the answer has to be one answer: a control
+   * that folds where ⌘B does nothing is a button that lies, and a control that
+   * does not exist where ⌘B works is a chord nobody can discover.
+   *
+   * It says `null` on a phone, which has no left panel at all, and on Map and
+   * Connections, which have no tree — and both of those were drawing a closed
+   * seam until a render test caught it. Focus is excluded on top: the tree is
+   * hidden there too, but by a mode that owns its own way back, and a seam
+   * offering to restore one of the two panels would be a third thing to put the
+   * layout right with.
+   */
+  const explorerFoldable =
+    explorerToggleFor(density, { hasExplorer }) !== null && !state.focus;
 
   /**
    * The two bands the floating chrome occupies, as content padding.
@@ -610,12 +871,15 @@ export function AppFrame({
       regions,
       state,
       toggleExplorer,
-      toggleRail,
+      toggleAside,
+      setAsideWidth,
+      toggleFocus,
+      setExplorerPeeking,
       closeDrawer,
-      closeNav,
       closeOverlays,
+      registerDismissable,
       setExplorerWidth,
-      closesOnSelect: closesOnSelect(density),
+      closesOnSelect: closesOnSelect(regions.explorer),
       contentInsets,
       viewportInsets,
       framed: true,
@@ -628,10 +892,13 @@ export function AppFrame({
       regions,
       state,
       toggleExplorer,
-      toggleRail,
+      toggleAside,
+      setAsideWidth,
+      toggleFocus,
+      setExplorerPeeking,
       closeDrawer,
-      closeNav,
       closeOverlays,
+      registerDismissable,
       setExplorerWidth,
       contentInsets,
       viewportInsets,
@@ -646,7 +913,7 @@ export function AppFrame({
       <View
         style={[
           styles.frame,
-          viewportHeight(),
+          viewportHeight(shellBandPx),
           /*
             The notch, and only where the layout keeps the document out of it.
 
@@ -668,7 +935,28 @@ export function AppFrame({
             styles.topBar,
             compact && styles.topBarCompact,
             compact && { paddingTop: insets.top, height: contentInsets.top },
+            /*
+              The bar holds the shell's traffic lights: it starts its own
+              content clear of them and becomes the window's drag handle.
+
+              `paddingLeft` rather than a spacer `View`, because the buttons
+              are drawn by the OS over this bar and not by anything in this
+              tree — there is no element to reserve, only room to leave. And
+              the drag region is the bar rather than a strip inside it so that
+              the top edge of the window is grabbable along its whole width,
+              which is the property `docs/decisions/desktop.md` records the
+              settings overlay keeping ("the window stays draggable by its top
+              edge") and which this bar now owes on the console too.
+
+              Every slot below sets `no-drag` on itself — see `topLead`. What
+              stays draggable is the bar's own background: the gaps between
+              slots, the run between the chip and the tabs, and the air above
+              the tabs, which hang from the foot.
+            */
+            holdsLights && { paddingLeft: lightsLeadPx },
+            holdsLights && styles.topBarDrag,
           ]}
+          testID="app-top-bar"
         >
           {/*
             The phone's top row, in two parts: a pinned account mark and the
@@ -687,7 +975,7 @@ export function AppFrame({
             At medium and wide the switcher is unchanged and still the leading
             element of a real bar with a surface and a hairline.
           */}
-          {compact ? (
+          {topBarLeadFor(density) === "account" ? (
             <>
               {accountSlot == null ? null : (
                 /*
@@ -703,12 +991,41 @@ export function AppFrame({
           )}
 
           {/*
-            Search sits in the top bar where there is a pointer and in the
-            bottom toolbar where there is a thumb. Rendering it in both places
-            would put the same control twice on the one screen that has least
-            room for it.
+            THE OPEN NOTES, IN THE TITLE BAR, HANGING FROM ITS FOOT.
+
+            **They were a band of their own between this bar and the note**,
+            drawn by `EditorRegion` at the top edge of the editor region — with
+            a `surface2` ground, a hairline under it, a right rule between every
+            tab and an accent rule over the active one. Three horizontal bands
+            stacked down a 900pt window, the middle one saying nothing the
+            other two did not.
+
+            Here they are what every browser and every editor with a real title
+            bar draws: tabs hanging from the bottom edge of the chrome, with
+            the active one filled in the *page's* own surface so it reads as
+            the front edge of what is below it. That is why this slot is in
+            the frame rather than in the region — the effect is the tab meeting
+            the page across the boundary between two surfaces, and a strip
+            drawn on the page has no boundary to meet.
+
+            `alignSelf: "flex-end"` on the slot rather than a taller bar: the
+            bar keeps `topBarHeight` and the tabs are shorter than it, which is
+            what leaves the air above them.
+
+            Compact draws none of this, and **the frame is where that is
+            enforced** rather than only where it is described. Tabs are a
+            pointer instrument (`TabStrip.tsx`: "there is no mobile half any
+            more") and a phone has `RecentSheet` over `history.ts` instead.
+
+            `_layout.tsx` also guards with `!phone`, and that guard is worth
+            keeping — it avoids building a strip nothing will draw. But a prop
+            whose contract lives only in its callers is a contract one caller
+            can break silently, and one did: the visual fixture passed `tabs`
+            unconditionally, so a 390pt board came back with a pointer tab
+            strip across the top of the phone's note. Nothing failed; it was
+            visible only in a screenshot.
           */}
-          {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
+          {tabs == null || compact ? null : <View style={styles.topTabs}>{tabs}</View>}
 
           {/*
             The trailing slot, which on a phone is **the** grouped container.
@@ -731,27 +1048,89 @@ export function AppFrame({
             hairline, the chips have room, and a container around them would be
             a box in a box — so `topTrail` alone, unfilled.
           */}
-          {topTrailing == null ? null : (
-            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>{topTrailing}</View>
+          {/*
+            The trailing group, and search is part of it.
+
+            Search sits in the top bar where there is a pointer and in the
+            bottom toolbar where there is a thumb — rendering it in both would
+            put the same control twice on the screen with least room. What
+            changed is *where* in the bar: it was centred, on its own
+            `marginLeft: "auto"`, which put two auto margins in one row and
+            split the free space between them — so it sat in the middle of the
+            band looking like a browser's omnibox rather than beside the other
+            actions. One group, one push to the trailing edge, and the centre
+            of the bar is free for what belongs there.
+          */}
+          {/*
+            The phone's sync pill, leading the trailing side.
+
+            It takes the row's one auto margin when it is drawn, and the capsule
+            gives its up: two auto margins in one row split the free space
+            between them, which would float this in the middle of the glass —
+            the mistake the search comment below records once already.
+          */}
+          {compact && syncSlot != null ? <View style={styles.syncLead}>{syncSlot}</View> : null}
+          {topTrailing == null && !(onSearch && !compact) && !asideToggle ? null : (
+            <View
+              style={[
+                styles.topTrail,
+                compact && styles.topTrailCompact,
+                compact && syncSlot != null && styles.topTrailAfterSync,
+              ]}
+            >
+              {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
+              {topTrailing}
+              {/*
+                The right panel's toggle, last in the trailing group and so at
+                the trailing end of the bar — the mirror of the explorer's,
+                which the status bar carries at the leading end.
+
+                Drawn only where there is a panel to open: `asideToggleFor`
+                answers `null` at compact and `aside` is absent on every
+                surface that supplies none, and a control for a region that
+                does not exist is the pair `frame.ts` spends a section keeping
+                honest.
+
+                The glyph says which state a press produces rather than which
+                state is current, the way the note's read toggle does: a filled
+                trailing pane means "this will open", and an outline means
+                "this will close". One mark cannot carry both, and the label
+                below says it in words for anyone who cannot see the mark at
+                all.
+              */}
+              {asideToggle ? (
+                <FrameIconButton
+                  label={regions.aside === "hidden" ? "Show chat and meetings" : "Hide chat and meetings"}
+                  icon={regions.aside === "hidden" ? "panelRight" : "panelLeft"}
+                  onPress={toggleAside}
+                  testID="frame-aside-toggle"
+                />
+              ) : null}
+            </View>
           )}
         </View>
 
         <View style={styles.body}>
-          {regions.rail === "full" || regions.rail === "icons" ? (
-            <View
-              style={[styles.rail, regions.rail === "icons" && styles.railIcons]}
-              role="navigation"
-              aria-label="Console"
-            >
-              {rail(regions.rail)}
-            </View>
+          {regions.explorer === "column" ? (
+            <View style={[styles.explorerColumn, { width: state.explorerWidth }]}>{explorer}</View>
           ) : null}
 
-          {regions.explorer === "column" ? (
-            <View style={[styles.explorerColumn, { width: state.explorerWidth }]}>
-              {explorer}
-              <ExplorerResizer width={state.explorerWidth} onResize={setExplorerWidth} />
-            </View>
+          {/*
+            What is left where the tree was: a seam that is wider than the one
+            between two panels, because it is the only thing standing where a
+            whole column stood, and because it is a control rather than a rule.
+
+            Drawn for `peek` as well as `hidden` — the peek floats *over* the
+            editor and does not take the seam's place, so the seam has to stay
+            put underneath it or the pointer resting on it would be resting on
+            nothing and the peek would close the instant it opened.
+          */}
+          {explorerFoldable && (regions.explorer === "hidden" || regions.explorer === "peek") ? (
+            <ClosedExplorerSeam
+              peeking={regions.explorer === "peek"}
+              onOpen={toggleExplorer}
+              onPeek={setExplorerPeeking}
+            />
           ) : null}
 
           {/*
@@ -773,6 +1152,57 @@ export function AppFrame({
           </View>
 
           {/*
+            The tree's drag handle, **after the editor rather than inside the
+            column it resizes**, and that is a hit-testing fact rather than a
+            preference.
+
+            It straddles the column's border — a target you can grab is wider
+            than a hairline, and people aim *at* the edge rather than a few
+            points inside it — so part of it lies over the editor. As the
+            column's last child it was drawn there and pressed nowhere: later
+            siblings are on top, the editor is a later sibling, and it took
+            every press that landed on the outer half of the strip. What that
+            felt like is a handle that ignored the first grab and answered the
+            second, or answered only a pull that started well inside the tree.
+
+            So it is a sibling of the editor, laid over the border from the
+            width the column was given, and painted before the scrim and the
+            peek, which still cover it.
+          */}
+          {regions.explorer === "column" ? (
+            <ExplorerResizer
+              width={state.explorerWidth}
+              onResize={setExplorerWidth}
+              onClose={toggleExplorer}
+            />
+          ) : null}
+
+          {/*
+            The right panel as a column, a flex sibling after the editor.
+
+            After it rather than before, because that is where it is on the
+            glass and because a row's order is its reading order for a screen
+            reader: the tree, the note, then the conversation about the note.
+            It takes part in the row, so opening it narrows the note rather
+            than covering it — which is the difference between this and the
+            `overlay` arm below, and the whole reason `wide` gets one and
+            `medium` gets the other.
+          */}
+          {regions.aside === "column" ? (
+            <View style={[styles.asideColumn, { width: state.asideWidth }]}>{aside}</View>
+          ) : null}
+
+          {/*
+            Its drag handle, a sibling laid over the column's leading border
+            for `ExplorerResizer`'s hit-testing reason — a target you can grab
+            is wider than a hairline, so part of it lies over the editor, and
+            as the column's own child the editor would take those presses.
+          */}
+          {regions.aside === "column" ? (
+            <AsideResizer width={state.asideWidth} onResize={setAsideWidth} />
+          ) : null}
+
+          {/*
             The panels are painted last so they lie over the editor without any
             z-index arithmetic — in React Native, later siblings are on top, and
             `zIndex` is the thing that behaves differently between the two
@@ -781,7 +1211,25 @@ export function AppFrame({
           */}
           {regions.scrim ? (
             <Pressable
-              style={styles.scrim}
+              style={[
+                styles.scrim,
+                /*
+                  **The scrim starts where the editor does, not where the body
+                  does.**
+
+                  At `medium` the right panel is over the *note* while the tree
+                  keeps its column, so a full-body scrim would grey out and
+                  make inert a region that is still live — and the way out of
+                  the panel is often "press the file I actually wanted", which
+                  a scrim over the tree would swallow. `appFrame.test.ts` states
+                  the region half of this rule and says out loud that the "not
+                  covered by it" half is a drawing fact, which is this line.
+
+                  Zero when the tree is not a column, which is every drawer
+                  case: there is no column to keep clear of.
+                */
+                regions.explorer === "column" ? { left: state.explorerWidth } : null,
+              ]}
               onPress={closeOverlays}
               // It is focusable — `Pressable` gives it a tab stop — so it needs
               // a role as well as a name. Labelled and roleless, a screen
@@ -791,6 +1239,86 @@ export function AppFrame({
               testID="frame-scrim"
             />
           ) : null}
+
+          {/*
+            The right panel as an overlay, at `medium`, painted after the scrim
+            so it lies over it — later siblings are on top, which is the same
+            ordering rule the peek below relies on.
+          */}
+          {regions.aside === "overlay" ? (
+            <View style={[styles.asideOverlay, { width: state.asideWidth }]}>{aside}</View>
+          ) : null}
+
+          {/*
+            The peek: the folded tree, back over the editor while the pointer
+            rests on its seam.
+
+            **Absolutely positioned rather than a flex sibling, which is the
+            point of it.** A panel that took part in the row would push the
+            editor across every time the pointer crossed the seam, and the
+            paragraph somebody is reading would jump under their eyes. This
+            floats, so nothing reflows, and the note stays exactly where it was
+            — which is what makes folding the tree away a cheap decision rather
+            than a commitment.
+
+            No scrim, deliberately, and that is why `peek` is its own arm of
+            `Regions.explorer` rather than the `drawer` with the scrim
+            suppressed: it is dismissed by moving the pointer away, and a scrim
+            would grey out and make inert the note being peeked at in order to
+            reach.
+
+            `left` is arithmetic on tokens rather than a measurement, so it is
+            correct on the first frame. Measuring the rail would put the panel
+            at zero for a frame and slide it into place, which reads as a bug.
+          */}
+          {regions.explorer === "peek" ? (
+            <Pressable
+              style={[
+                styles.explorerPeek,
+                styles.panelRounded,
+                {
+                  left: layout.seamWidth + layout.seamClosedWidth,
+                  width: state.explorerWidth,
+                },
+              ]}
+              /*
+                The pointer leaving the panel ends the peek, exactly as it
+                leaving the seam does. Both send `false`, and `setExplorerPeeking`
+                is idempotent so the pair costs one render rather than two.
+              */
+              onHoverOut={() => setExplorerPeeking(false)}
+              onHoverIn={() => setExplorerPeeking(true)}
+              /*
+                A hover surface, so not a tab stop. `Pressable` gives every
+                instance a `tabIndex` and the scrim a few lines down states the
+                rule this would otherwise break: labelled and roleless, a screen
+                reader announces a stop it cannot describe — and this one would
+                be roleless *and* nameless, sitting between the rail and the
+                note. The tree inside carries the semantics; this only carries
+                the pointer.
+
+                `tabIndex` rather than `focusable`: react-native-web's
+                `Pressable` reads the first and ignores the second, so the
+                obvious spelling compiles, renders `tabindex="0"` anyway, and is
+                only caught by asserting the attribute.
+              */
+              tabIndex={-1}
+              testID="explorer-peek"
+            >
+              {explorer}
+            </Pressable>
+          ) : null}
+
+          {/*
+            Focus mode's way back.
+
+            A strip of the leading edge that draws nothing and holds a pill once
+            the pointer arrives, because the edge of the window is where a hand
+            goes looking for a panel that was there a moment ago. ⌘\ and Escape
+            both do the same thing; this is for the hand that reaches before it
+            remembers.
+          */}
+          {state.focus && !compact ? <FocusEdge onLeave={toggleFocus} /> : null}
 
           {regions.explorer === "drawer" ? (
             <View
@@ -843,72 +1371,50 @@ export function AppFrame({
             </View>
           ) : null}
 
-          {/*
-            The rail, over the editor rather than beside it. Full labels, not
-            the icon rail: a sheet has the width, and a phone has no hover to
-            recover a glyph's meaning with. It carries the account block too,
-            which is why sign-out *was* unreachable on a phone until this
-            existed.
-
-            **No density reaches this branch, and neither does the drawer above
-            it or the scrim above that.** `regionsFor` answers `rail: "hidden"`,
-            `explorer: "hidden"` and `scrim: false` at compact and never
-            `"sheet"` or `"drawer"` anywhere; a phone's navigation is the
-            context strip and the bottom row, and sign-out is on the pinned
-            account mark in that strip.
-
-            They are on `frame.ts`'s "what is deliberately kept" list, and this
-            is the *rendering* half of that entry rather than a second decision.
-            The list keeps the `sheet` and `drawer` arms of `Regions`, the
-            `scrim` flag and the two panel flags on `FrameState` because
-            `AppFrame`'s API — `closeDrawer`, `closeNav`, `closeOverlays`,
-            `closesOnSelect` — is held outside this feature, so retiring the
-            representation is one coordinated change made where those callers
-            are. A representable region with nothing that can draw it is exactly
-            the hole that list exists to keep out, so the drawings stay for as
-            long as the arms do and go in the same change.
-
-            What separates that from `Explorer`'s `touch` fork, which was
-            deleted rather than kept: that fork was a second *presentation* of a
-            region, decided by a density, with one caller inside this feature and
-            no representation depending on it.
-          */}
-          {regions.rail === "sheet" ? (
-            <View
-              /*
-                The home indicator. `insets.bottom` is applied to the bottom bar
-                and nowhere else, and Map and Connections have no bottom bar —
-                which is to say the panes you land on after signing in are
-                exactly the ones where a full-height panel runs to the edge of
-                the glass. The account block is pinned to the foot of this
-                sheet, so without this, sign-out sits under the indicator on the
-                one surface it is reachable from.
-              */
-              style={[
-                styles.navSheet,
-                compact && styles.panelRounded,
-                compact
-                  ? {
-                      // The tree drawer's arithmetic, and for its reasons — see
-                      // the comment there. The two panels are one object in two
-                      // sizes; the toggle crosses off both of them and the
-                      // toolbar is put away under both of them.
-                      paddingTop: insets.top + layout.panelGutter,
-                      paddingBottom: insets.bottom,
-                    }
-                  : { paddingBottom: insets.bottom },
-              ]}
-              accessibilityViewIsModal
-              role="navigation"
-              aria-label="Console"
-              testID="frame-nav-sheet"
-            >
-              {rail("sheet")}
-            </View>
-          ) : null}
         </View>
 
-        {regions.statusBar && status ? <View style={styles.status}>{status}</View> : null}
+        {regions.statusBar && status ? (
+          <View style={styles.status}>
+            {/*
+              The two panel toggles, at the leading edge where VS Code, Zed and
+              every editor with a foldable sidebar put them.
+
+              They are the frame's own and not part of the `status` node
+              because they are geometry, which is the only thing this component
+              knows about — the counts and the save state beside them belong to
+              whatever is in the editor.
+
+              Two controls for one action, with the seam, is deliberate and the
+              split is clean: **the seam is the gesture and the status bar is
+              the state**. The seam costs nothing at rest because it is only
+              revealed under the pointer, and a person who has folded something
+              away and forgotten what needs somewhere that never moves to look.
+              It is also the only one of the two a keyboard can reach by
+              tabbing, and the only one left standing in focus mode.
+            */}
+            {hasExplorer ? (
+              <PanelToggle
+                testID="status-toggle-explorer"
+                label="File tree"
+                chord="⌘B"
+                state={regions.explorer === "column" ? "open" : "off"}
+                onPress={toggleExplorer}
+              />
+            ) : null}
+            <View style={styles.statusDivider} />
+            {/*
+              The bar takes the rest of the row, which is what puts its
+              trailing group against the trailing edge.
+
+              Without this it shrank to its contents and the whole strip — the
+              path, the counts, the save state and the bucket — sat bunched
+              against the toggle with 900pt of empty bar after it. The
+              `StatusBar` has always had the spacer that separates its two
+              groups; it had nothing to spread across.
+            */}
+            <View style={styles.statusFill}>{status}</View>
+          </View>
+        ) : null}
 
         {/*
           The toolbar's room, and both of its edges.
@@ -1009,13 +1515,14 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
       testID="frame-search"
       style={[styles.search, hovered && styles.searchHover]}
     >
-      <Icon name="search" size={15} color={colors.muted} />
-      <Text variant="rowSub">Search this context</Text>
+      <Icon name="search" size={13} color={colors.chromeMuted} />
       {Platform.OS === "web" ? (
-        <View style={styles.kbd}>
-          <Text variant="treeMeta">⌘K</Text>
-        </View>
-      ) : null}
+        <Text variant="treeMeta" style={styles.kbd}>
+          ⌘K
+        </Text>
+      ) : (
+        <Text variant="rowSub">Search</Text>
+      )}
     </Pressable>
   );
 }
@@ -1037,7 +1544,6 @@ export function FrameIconButton({
   label,
   icon,
   onPress,
-  selected = false,
   round = false,
   grouped = false,
   testID,
@@ -1045,7 +1551,18 @@ export function FrameIconButton({
   label: string;
   icon: IconName;
   onPress: () => void;
-  selected?: boolean;
+  /*
+    There is no `selected` here, and its removal is the point rather than a
+    tidy-up. It lit this button with `accentDim` for exactly one caller — the
+    note's read toggle — on the argument that one mark cannot draw both "will
+    hide the markup" and "will bring it back", so the state had to live in the
+    fill. That toggle now swaps its glyph between `eye` and `pencil`, which says
+    the same thing in the place a reader is already looking, and a lit *pencil*
+    would have contradicted it: a lit control here means "this mode is on",
+    while the pencil means "press to start editing". The prop went with its last
+    caller rather than staying as a facility nobody uses and the next person has
+    to reason about. See `docs/decisions/app-and-console.md`.
+  */
   /** The phone's shape: a filled circle lying over the document. */
   round?: boolean;
   /**
@@ -1082,17 +1599,72 @@ export function FrameIconButton({
         // lights the way it does under a thumb instead — this is reachable on
         // a narrowed desktop browser, which is a real surface here.
         hovered && (round ? styles.iconButtonPressed : styles.iconButtonHover),
-        selected && styles.iconButtonOn,
         (round || grouped) && pressed && styles.iconButtonPressed,
       ]}
     >
-      <Icon
-        name={icon}
-        size={round || grouped ? 20 : 17}
-        color={selected ? colors.accentText : colors.text2}
-      />
+      <Icon name={icon} size={round || grouped ? 20 : 17} color={colors.text2} />
     </Pressable>
   );
+}
+
+/**
+ * Hold the document still for the length of a drag, and hand it back.
+ *
+ * **A pointer moving with the button down is a text selection, as far as a
+ * browser is concerned, and that is what used to kill this gesture.**
+ * react-native-web's responder system listens for `selectionchange` on the
+ * document and terminates the current responder the moment the selection
+ * becomes a real one — a non-empty string with a text node at either end
+ * (`isSelectionValid`) — asking `onResponderTerminationRequest` first, which
+ * defaults to yes. Mid-drag that is `onPanResponderTerminate`: the gesture
+ * ends, and nothing says so except the column stopping under the pointer.
+ *
+ * It read as a one-directional handle. Dragging the seam **left** puts the
+ * pointer over the tree's note names as soon as it gets ahead of the column,
+ * so the browser starts selecting and the drag dies a few pixels in; dragging
+ * **right** puts it over CodeMirror's editing host, where a selection begun
+ * outside does not extend, so that direction never hit it. What was left
+ * worked only when it was moved slowly enough to stay inside the 7pt handle,
+ * which is the one strip on that side with no text in it.
+ *
+ * Refusing the termination request is what keeps the gesture (see the
+ * responder below). This is what keeps the page from painting a selection
+ * across the tree underneath it, and keeps the resize cursor on the pointer
+ * once it is past the handle. Returning the restore rather than a second
+ * exported function keeps the pair impossible to mismatch.
+ */
+function holdDocumentStill(): () => void {
+  if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
+  const { style } = document.body;
+  /*
+    Set through `setProperty` and in both spellings, because **Safari's CSSOM
+    has no `userSelect` property at all**: `style.userSelect = "none"` is a
+    silent no-op there, leaving the page as selectable as it was, and reading it
+    back answers `undefined` rather than anything a test would notice. The
+    WebKit run of `panels.spec.ts` is what says so, which is what that suite is
+    for.
+  */
+  const held = [
+    ["user-select", "none"],
+    ["-webkit-user-select", "none"],
+    ["cursor", "col-resize"],
+  ] as const;
+  const previous = held.map(([name]) => [name, style.getPropertyValue(name)] as const);
+  for (const [name, value] of held) style.setProperty(name, value);
+  /*
+    Nothing clears an existing selection here, and the absence is deliberate:
+    the browser collapses one on the press by itself — measured in Chromium, on
+    a page that turns `user-select` off in the same handler this one does — and
+    a `removeAllRanges` for the engines where that might not hold would be a
+    line no test in this repository can fail on. What the gesture actually needs
+    from the selection is below, where it refuses to be terminated by one.
+  */
+  return () => {
+    for (const [name, value] of previous) {
+      if (value === "") style.removeProperty(name);
+      else style.setProperty(name, value);
+    }
+  };
 }
 
 /**
@@ -1107,12 +1679,30 @@ export function FrameIconButton({
 function ExplorerResizer({
   width,
   onResize,
+  onClose,
 }: {
   width: number;
   onResize: (next: number) => void;
+  /** Called on release, when the drag went far enough past the floor. */
+  onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [active, setActive] = useState(false);
+  /**
+   * Whether releasing now would fold the column away.
+   *
+   * **The clamp is not weakened by this and that is the whole of the design.**
+   * `clampExplorerWidth` still refuses to render anything below the floor,
+   * because the floor is where a kebab-case name under two indents stops being
+   * readable. What it used to do past that point was simply refuse, and its
+   * comment gave the reason: dragging to zero is how somebody hides a region
+   * and then wonders where it went. That reason is answered now by the seam
+   * that stays behind, so the drag can mean something past the floor instead of
+   * meeting a wall — it arms, it says so, and releasing above the floor snaps
+   * back.
+   */
+  const [arming, setArming] = useState(false);
+  const armed = useRef(false);
 
   /**
    * The live width, and the width this drag started from.
@@ -1139,6 +1729,37 @@ function ExplorerResizer({
     liveWidth.current = width;
   }, [width]);
   const startWidth = useRef(width);
+  /*
+    `onClose` goes through a ref for the reason above, which applies to it more
+    sharply than to `onResize`. `setExplorerWidth` is stable; `toggleExplorer`
+    is not — it closes over the window width — so listing it here would rebuild
+    the responder on any resize, and the paragraph above is about what a rebuild
+    mid-gesture costs. The deps stay "nothing a drag can change", which is the
+    invariant, rather than "nothing a drag happens to change today".
+  */
+  const liveClose = useRef(onClose);
+  useEffect(() => {
+    liveClose.current = onClose;
+  }, [onClose]);
+
+  /**
+   * What `holdDocumentStill` handed back, for as long as the drag runs.
+   *
+   * Cleared by the release and by a terminate, and those two are the whole of
+   * it — including the case that looks like it needs a third. The column can
+   * go away mid-gesture (⌘⇧E, or a window narrowed out of this density), and
+   * react-native-web's `removeNode` terminates the responder it is unmounting,
+   * so the terminate arm covers an unmount as well; an effect cleanup beside it
+   * would be a guard that never runs, and `appFrameRender` holds the claim
+   * instead. It matters that something does: a page left unselectable with a
+   * resize cursor on it is a worse bug than the one this fixes, and the only
+   * way back from it is a reload.
+   */
+  const releaseDocument = useRef<(() => void) | null>(null);
+  const endHold = useCallback(() => {
+    releaseDocument.current?.();
+    releaseDocument.current = null;
+  }, []);
 
   const responder = useMemo(
     () =>
@@ -1147,27 +1768,399 @@ function ExplorerResizer({
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
           startWidth.current = liveWidth.current;
+          releaseDocument.current = holdDocumentStill();
           setActive(true);
         },
-        onPanResponderMove: (_event, gesture) => onResize(startWidth.current + gesture.dx),
-        onPanResponderRelease: () => setActive(false),
-        onPanResponderTerminate: () => setActive(false),
+        onPanResponderMove: (_event, gesture) => {
+          const raw = startWidth.current + gesture.dx;
+          /*
+            The *raw* width decides whether the close is armed, and the clamped
+            one is what gets rendered. Reading the clamped value here would make
+            this unreachable: it can never be below the floor, so the drag would
+            arm at exactly the moment it stopped being able to.
+          */
+          const next = raw < layout.explorerMinWidth - layout.explorerCloseOvershoot;
+          if (next !== armed.current) {
+            armed.current = next;
+            setArming(next);
+          }
+          onResize(raw);
+        },
+        /*
+          **A drag on this handle is not up for negotiation, and that is the
+          fix.** The default answer is yes, which hands the gesture to whatever
+          asks — and on the web the thing that asks is the browser's own text
+          selection, every time the pointer crosses a note's name on its way
+          left. See `holdDocumentStill` above for what that looked like.
+
+          It costs nothing a resize wants: `selectionchange`, `scroll` and
+          `contextmenu` are the only events routed through this request, and
+          none of them should end a drag somebody is in the middle of. A real
+          cancel — `dragstart`, a lost touch — does not ask, and still
+          terminates below.
+        */
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderRelease: () => {
+          endHold();
+          setActive(false);
+          if (armed.current) liveClose.current();
+          armed.current = false;
+          setArming(false);
+        },
+        /*
+          A terminated gesture is not a release. The pointer was taken away by
+          something else — a browser drag, a lost capture — and folding a panel
+          on the strength of that is the surprise this whole design is trying
+          not to be, so it only disarms.
+        */
+        onPanResponderTerminate: () => {
+          endHold();
+          setActive(false);
+          armed.current = false;
+          setArming(false);
+        },
       }),
-    [onResize],
+    [endHold, onResize],
   );
 
   return (
     <View
       {...responder.panHandlers}
-      style={[styles.resizer, active && styles.resizerActive]}
+      style={[
+        styles.resizer,
+        { left: width - layout.explorerSeamOverhang },
+        active && styles.resizerActive,
+        arming && styles.resizerArming,
+      ]}
       accessibilityLabel="Resize the file tree"
       role="separator"
       testID="explorer-resizer"
+    >
+      {/*
+        A marker, not a button, and that is the one real constraint this seam
+        has. A press target in the middle of a drag handle takes the most
+        natural place to grab a divider and makes it do something else — so the
+        seam behind a resizable panel drags, the seam behind a folded or
+        fixed-width one is pressed, and the status bar carries the toggle that
+        works the same way for both. What this draws is the answer to "what will
+        releasing do", which only a drag can ask.
+      */}
+      {arming ? <View style={styles.seamArmMark} testID="explorer-seam-arming" /> : null}
+    </View>
+  );
+}
+
+/**
+ * The right panel's drag handle.
+ *
+ * **A smaller component than `ExplorerResizer`, on purpose.** That one carries
+ * a whole second behaviour — dragging past the floor *arms a close*, with its
+ * own state, its own marker and a paragraph explaining why the clamp is not
+ * weakened by it. The panel does not need it: the tree's seam exists because
+ * folding the tree leaves a 10pt strip somebody has to find again, whereas
+ * this panel's toggle is a labelled button in the top bar that is there
+ * whether it is open or shut. A drag that could close it would be a second way
+ * to do something the first way already does well, with a state machine
+ * attached.
+ *
+ * What it does share is the two things that are about *dragging* rather than
+ * about the tree: `holdDocumentStill`, because on the web the browser's own
+ * text selection grabs the gesture the moment the pointer crosses a word; and
+ * the refs-not-deps rule, whose reasoning is written out at length on
+ * `ExplorerResizer` and is exactly as true here.
+ */
+function AsideResizer({
+  width,
+  onResize,
+}: {
+  width: number;
+  onResize: (next: number) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [active, setActive] = useState(false);
+
+  const liveWidth = useRef(width);
+  useEffect(() => {
+    liveWidth.current = width;
+  }, [width]);
+  const startWidth = useRef(width);
+
+  const releaseDocument = useRef<(() => void) | null>(null);
+  const endHold = useCallback(() => {
+    releaseDocument.current?.();
+    releaseDocument.current = null;
+  }, []);
+
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          startWidth.current = liveWidth.current;
+          releaseDocument.current = holdDocumentStill();
+          setActive(true);
+        },
+        /*
+          **Minus `dx`, where the tree's is plus.** This column is pinned to
+          the trailing edge, so dragging left makes it wider. Getting this
+          backwards is the kind of thing that reads fine and feels broken, so
+          it is a sign rather than a comment.
+        */
+        onPanResponderMove: (_event, gesture) => onResize(startWidth.current - gesture.dx),
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderRelease: () => {
+          endHold();
+          setActive(false);
+        },
+        onPanResponderTerminate: () => {
+          endHold();
+          setActive(false);
+        },
+      }),
+    [endHold, onResize],
+  );
+
+  return (
+    <View
+      {...responder.panHandlers}
+      style={[
+        styles.asideResizer,
+        // Placed from the right, because the column is. `right` is the
+        // column's own width less the overhang, so the strip straddles the
+        // border it is drawn on — the mirror of `resizer`'s `left`.
+        { right: width - layout.explorerSeamOverhang },
+        active && styles.asideResizerActive,
+      ]}
+      accessibilityLabel="Resize the chat panel"
+      role="separator"
+      testID="aside-resizer"
     />
   );
 }
 
+/**
+ * The seam left standing where the folded tree was.
+ *
+ * Two controls in one 10pt strip, and they are different gestures on purpose:
+ * **pressing** it brings the column back for good, **resting** on it brings the
+ * tree back for as long as the pointer stays. One is a decision and the other
+ * is a glance, and a person who only wants to check where a note lives should
+ * not have to reflow their editor twice to do it.
+ *
+ * The delay before a rest counts is what keeps a pointer crossing the seam on
+ * its way somewhere else from opening anything.
+ */
+function ClosedExplorerSeam({
+  peeking,
+  onOpen,
+  onPeek,
+}: {
+  peeking: boolean;
+  onOpen: () => void;
+  onPeek: (peeking: boolean) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [hovered, setHovered] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancel = useCallback(() => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }, []);
+
+  /*
+    A pending timer outliving the component would call `onPeek` on a frame that
+    is gone — which is what happens every time somebody navigates from Browse to
+    Map with the pointer sitting on this seam.
+  */
+  useEffect(() => cancel, [cancel]);
+
+  return (
+    <Pressable
+      style={[styles.seamClosed, (hovered || peeking) && styles.seamClosedActive]}
+      onPress={() => {
+        cancel();
+        onOpen();
+      }}
+      onHoverIn={() => {
+        setHovered(true);
+        cancel();
+        timer.current = setTimeout(() => onPeek(true), PEEK_DELAY_MS);
+      }}
+      /*
+        Hovering out cancels a pending peek but does not close one that is
+        already up: the pointer leaving this seam is usually the pointer moving
+        *onto* the panel that opened beside it, and closing here would make the
+        peek impossible to reach. The panel reports its own exit.
+      */
+      onHoverOut={() => {
+        setHovered(false);
+        cancel();
+      }}
+      role="button"
+      accessibilityLabel="Open the file tree"
+      testID="explorer-seam-closed"
+    >
+      <SeamPill shown={hovered || peeking} direction="expand" />
+    </Pressable>
+  );
+}
+
+/**
+ * How long the pointer has to rest on the closed seam before the tree peeks.
+ *
+ * Short enough to feel like a property of the seam rather than a wait; long
+ * enough that crossing it on the way to the editor opens nothing. Exported for
+ * the render test, which drives it with fake timers rather than guessing.
+ */
+export const PEEK_DELAY_MS = 300;
+
+/**
+ * The chevron centred on a seam, revealed under the pointer.
+ *
+ * A drawing rather than a control: the seam it sits on is the button, and one
+ * press target inside another is how a click lands on the wrong one. It is
+ * rendered at `opacity: 0` rather than not at all so that revealing it is a
+ * fade and not a layout change under the pointer that caused it.
+ */
+function SeamPill({ shown, direction }: { shown: boolean; direction: "collapse" | "expand" }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  return (
+    <View
+      style={[styles.seamPill, shown && styles.seamPillShown]}
+      /*
+        **A drawing must not take pointer events, and this one was.** The pill is
+        18pt wide on a 7pt or 10pt seam — deliberately, because a chevron inside
+        a hairline is unreadable — so it overhangs its own seam by several points
+        on each side. As a plain child it therefore sat *on top of* whatever was
+        next to it: with the tree folded, the closed seam's pill covered the
+        rail's seam, and clicking the rail's seam re-opened the file tree
+        instead. Found by the browser fixture; jsdom has no pointers to
+        intercept, so nothing in the render suite could have seen it.
+      */
+      pointerEvents="none"
+    >
+      <Icon
+        name={direction === "expand" ? "chevronRight" : "chevronLeft"}
+        size={12}
+        color={colors.text2}
+      />
+    </View>
+  );
+}
+
+/**
+ * The leading edge in focus mode, and the pill that ends it.
+ *
+ * Nothing is drawn until the pointer arrives. The strip exists because the edge
+ * of the window is where a hand goes for a panel that was there a moment ago,
+ * and finding the note there instead is the moment somebody decides the mode
+ * ate their sidebar.
+ */
+function FocusEdge({ onLeave }: { onLeave: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [near, setNear] = useState(false);
+  return (
+    <Pressable
+      style={styles.focusEdge}
+      onHoverIn={() => setNear(true)}
+      onHoverOut={() => setNear(false)}
+      onPress={onLeave}
+      role="button"
+      accessibilityLabel="Bring the panels back"
+      testID="frame-focus-edge"
+    >
+      {near ? (
+        <View style={styles.focusExit} testID="frame-focus-exit">
+          <Icon name="panelLeft" size={14} color={colors.text2} />
+          <Text variant="treeMeta">Panels</Text>
+          <Text variant="treeMeta">⌘\</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * One of the two panel toggles in the status bar.
+ *
+ * Draws the layout rather than naming it: a cell for the panel and a wider one
+ * for the document, so the glyph is a two-pane picture that fills in when the
+ * panel is out and thins to a bar when the rail is down to its icons. A word
+ * would be just as clear and twice as wide, and this bar is 26pt tall.
+ */
+function PanelToggle({
+  state,
+  label,
+  chord,
+  onPress,
+  testID,
+}: {
+  state: "open" | "half" | "off";
+  label: string;
+  chord: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      style={[styles.panelToggle, hovered && styles.panelTogglePressed]}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      role="switch"
+      aria-checked={state === "open"}
+      accessibilityLabel={`${label} (${chord})`}
+      testID={testID}
+    >
+      <View style={styles.toggleGlyph}>
+        <View
+          style={[styles.toggleCell, state === "open" && styles.toggleCellOn]}
+        />
+        <View style={styles.toggleDoc} />
+      </View>
+    </Pressable>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
+
+/**
+ * WHAT A CLICK IN THE TITLE BAR DOES, WHEN THE BAR IS THE WINDOW'S HANDLE.
+ *
+ * On the web `-webkit-app-region` means nothing and these are inert; inside
+ * the desktop shell the bar is `drag`, so the window moves with the pointer —
+ * and a control inside it would move the window instead of activating, which
+ * is the one rule `docs/decisions/desktop.md` warned this change would need
+ * and the reason it was not smuggled into the change that added the band.
+ *
+ * **`no-drag` goes on the frame's own slots, never on the controls a route
+ * passes into them.** A route can put anything in `switcher`, `tabs`,
+ * `topTrailing`, `accountSlot` or `syncSlot`; if the guard lived on those, it
+ * would hold for exactly the controls somebody remembered, and the next chip
+ * added to the trailing group would drag the window with no diff that looks
+ * wrong on its own. On the slot it is structural: whatever is handed in is
+ * inside a region that has already opted out.
+ *
+ * Each slot hugs its content, which is what makes that safe — `topTabs` is
+ * `alignSelf: "flex-end"` and only as tall as the tabs hanging from the bar's
+ * foot, so the air above them stays the bar's, and draggable. What is left to
+ * grab: that air, the gaps between slots, and the run between the chip and
+ * the tabs.
+ *
+ * Asserted through the injected stylesheet in `shellTitleBand.test.ts` —
+ * jsdom drops the declaration from the CSSOM, so `getComputedStyle` cannot
+ * see it, the same way it cannot see `dvh`.
+ */
+const DRAG_REGION = { WebkitAppRegion: "drag" } as unknown as ViewStyle;
+const NO_DRAG_REGION = { WebkitAppRegion: "no-drag" } as unknown as ViewStyle;
 
 const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   frame: {
@@ -1181,10 +2174,21 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "center",
     gap: space.x3,
     paddingHorizontal: space.x3,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    backgroundColor: colors.surface2,
+    // The title bar is chrome and reads as chrome by being chrome-coloured;
+    // the rule under it was the same line doing a value's job.
+    backgroundColor: colors.chromeSurface,
   },
+  /**
+   * The bar as the window's drag handle, applied only when it is also the
+   * thing holding the traffic lights. See `DRAG_REGION` for what the slots
+   * inside it owe in return, and why they and not their contents carry it.
+   *
+   * Conditional rather than always-on because it is a claim: a bar that is
+   * not reserving the buttons' corner has no business also saying it is the
+   * title bar, and on a phone it would make the note's own top chrome
+   * un-selectable for a shell that is never there.
+   */
+  topBarDrag: DRAG_REGION,
   /**
    * The phone's top edge, which is not a bar.
    *
@@ -1232,7 +2236,32 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderBottomWidth: 0,
     backgroundColor: "transparent",
   },
-  topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
+  topLead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    minWidth: 0,
+    ...NO_DRAG_REGION,
+  },
+  /**
+   * The tabs' room in the title bar.
+   *
+   * `flex: 1` so the strip gets the middle of the bar and scrolls inside it
+   * rather than pushing the trailing group off the edge; `minWidth: 0` so it
+   * really can shrink, which a flex child does not do by default.
+   *
+   * `alignSelf: "flex-end"` and `alignItems: "flex-end"` are the whole visual
+   * idea: the tabs hang from the bar's foot and meet the page, instead of
+   * floating in the middle of a row that is centring everything else.
+   */
+  topTabs: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: "flex-end",
+    alignItems: "flex-end",
+    flexDirection: "row",
+    ...NO_DRAG_REGION,
+  },
   /**
    * The account mark, pinned at the leading end of a phone's top row.
    *
@@ -1241,12 +2270,27 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * the moment somebody joins a fourth workspace. The strip is what gives way,
    * because the strip is what scrolls.
    */
-  accountLead: { flexGrow: 0, flexShrink: 0 },
+  accountLead: { flexGrow: 0, flexShrink: 0, ...NO_DRAG_REGION },
+  /**
+   * The sync pill's box. `flexShrink: 1` and `minWidth: 0` so on a narrow
+   * phone it is the pill's words that ellipsise, never the account mark or the
+   * capsule's targets.
+   */
+  syncLead: {
+    marginLeft: "auto",
+    flexShrink: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    ...NO_DRAG_REGION,
+  },
+  topTrailAfterSync: { marginLeft: 0, flexShrink: 0 },
   topTrail: {
     marginLeft: "auto",
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
+    ...NO_DRAG_REGION,
   },
   /**
    * Obsidian's trailing group: one floating capsule, however many actions.
@@ -1272,30 +2316,37 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
 
   search: {
-    flexShrink: 1,
-    maxWidth: 420,
-    minWidth: 200,
-    marginHorizontal: "auto",
+    /*
+      A control at the trailing edge, not a field across the middle.
+
+      It was a 420pt bordered input centred in the title bar — browser
+      furniture, and the widest object in the band, for a feature whose whole
+      interface is a keystroke. Centred, it also forced the band into three
+      fixed slots, so there was nowhere for tabs to go. As a button beside the
+      other actions it costs about 60pt and gives the centre back.
+
+      The label goes with the width: on web the shortcut *is* the label, and a
+      magnifier beside it says what it opens. Native keeps a word, having no
+      shortcut to show.
+    */
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
-    paddingVertical: 5,
-    paddingHorizontal: space.x3,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: radii.sm,
+    /*
+      A resting fill, the same one the switcher chip wears.
+
+      It was transparent until hovered, which reads as a word floating in the
+      bar rather than a control — and the canvas draws both ends of this bar
+      the same way, because a title bar with a filled chip at one end and
+      nothing at the other looks unfinished rather than quiet.
+    */
+    backgroundColor: colors.chipFill,
   },
-  searchHover: { borderColor: colors.lineStrong },
-  kbd: {
-    marginLeft: "auto",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radii.xs,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface3,
-  },
+  searchHover: { backgroundColor: colors.surface3 },
+  kbd: { color: colors.chromeMuted },
 
   /** The three columns. `flex: 1` plus `minHeight: 0` is what makes the
       children scroll instead of the frame growing past the viewport. */
@@ -1306,35 +2357,236 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     position: "relative",
   },
 
-  rail: {
-    width: layout.railWidth,
-    borderRightWidth: 1,
-    borderRightColor: colors.line,
-    backgroundColor: colors.surface,
-  },
-  railIcons: { width: layout.railIconWidth },
-
+  /*
+    No border. The explorer and the page were both `surface` — one value across
+    two regions — so a hairline had to be drawn between them to say they were
+    different things. They are different values now (`chromeSurface` against
+    `pageSurface`), which is what separates panels in this design; the only
+    hairlines left in the frame are the seams, and a seam is a 7pt drag target
+    that has to be visible to be usable.
+  */
   explorerColumn: {
-    borderRightWidth: 1,
-    borderRightColor: colors.line,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.chromeSurface,
     position: "relative",
   },
 
-  editor: { flex: 1, minWidth: 0, backgroundColor: colors.surface },
+  editor: { flex: 1, minWidth: 0, backgroundColor: colors.pageSurface },
+
+  /**
+   * The right panel as a column.
+   *
+   * `chromeSurface` like the tree, and deliberately: the two are the same kind
+   * of thing — chrome either side of the page — and giving this one its own
+   * colour would make the console read as three materials rather than two.
+   * `borderLeftWidth` where the tree has none, because the tree's edge is
+   * drawn by its own resizer and this one's leading edge has to exist even
+   * while nothing is being dragged.
+   */
+  asideColumn: {
+    backgroundColor: colors.chromeSurface,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.line,
+    position: "relative",
+  },
+
+  /** Its drag handle, straddling the leading border. See `resizer`. */
+  asideResizer: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: layout.seamWidth,
+    ...(Platform.OS === "web" ? ({ cursor: "col-resize" } as unknown as ViewStyle) : null),
+  },
+  asideResizerActive: { backgroundColor: colors.accentDim },
+
+  /**
+   * The right panel as an overlay, at `medium`.
+   *
+   * Absolutely positioned and pinned to the trailing edge, so opening it does
+   * not reflow the note underneath — the same property the peek has, and for
+   * the same reason: a paragraph that jumps sideways when a panel opens is a
+   * paragraph somebody loses their place in. Unlike the peek it has a scrim,
+   * because it is dismissed by pressing away rather than by moving off a seam.
+   */
+  asideOverlay: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    backgroundColor: colors.chromeSurface,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.line,
+  },
 
   resizer: {
     position: "absolute",
     top: 0,
     bottom: 0,
-    // Straddles the border so the target is comfortable without being visible.
-    right: -3,
-    width: 7,
+    /*
+      Placed from the left, because it is no longer a child of the column it
+      belongs to — see the frame's body. `left` is the column's own width less
+      the overhang, so the strip straddles the border it is drawn on rather
+      than sitting beside it: `explorerSeamOverhang` of it lies over the
+      editor and the rest over the tree.
+    */
+    width: layout.seamWidth,
     // RN's `CursorValue` is `"auto" | "pointer"` only; every other CSS cursor
     // needs the same escape hatch `css.ts` uses for gradients and masks.
     ...(Platform.OS === "web" ? ({ cursor: "col-resize" } as unknown as ViewStyle) : null),
   },
   resizerActive: { backgroundColor: colors.accentDim },
+  /** Past the floor: releasing here folds the column away rather than snapping back. */
+  resizerArming: { backgroundColor: colors.warnWash },
+  /** The bar drawn inside an arming seam, so the state is visible and not only felt. */
+  seamArmMark: {
+    position: "absolute",
+    top: "50%",
+    left: 1,
+    width: 5,
+    height: layout.seamPillHeight,
+    marginTop: -layout.seamPillHeight / 2,
+    borderRadius: radii.xs,
+    backgroundColor: colors.warn,
+  },
+
+  /**
+   * The seam between two panels.
+   *
+   * A hairline the layout needed anyway, drawn as a border rather than a fill so
+   * that at rest it is exactly the rule it replaced — the control costs nothing
+   * on the screen until a pointer goes looking for it.
+   */
+  seam: {
+    width: layout.seamWidth,
+    borderRightWidth: 1,
+    borderRightColor: colors.line,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as unknown as ViewStyle) : null),
+  },
+  seamHot: { borderRightColor: colors.accent },
+
+  /**
+   * The seam left where a folded panel was: wider, and lit.
+   *
+   * Wider because it is the only thing standing where a whole column stood, and
+   * because it is a control rather than a rule — 7pt is a comfortable target
+   * beside something; 10pt is a comfortable target beside nothing.
+   */
+  seamClosed: {
+    width: layout.seamClosedWidth,
+    borderRightWidth: 1,
+    borderRightColor: colors.line,
+    /*
+      `surface3`, not `surface2`, and the difference is the whole point of the
+      strip. On the light palette `surface2` is #FAFAFA against a #FFFFFF
+      ground — a browser check showed it reading as nothing at all, so the only
+      thing saying a panel could come back was a hairline indistinguishable
+      from the rule between two columns. A recessed strip says "there is
+      something here" before anybody hovers it.
+    */
+    backgroundColor: colors.surface3,
+    alignItems: "center",
+    justifyContent: "center",
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as unknown as ViewStyle) : null),
+  },
+  seamClosedActive: { backgroundColor: colors.accentDim, borderRightColor: colors.accent },
+
+  seamPill: {
+    width: layout.seamPillWidth,
+    height: layout.seamPillHeight,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.chrome,
+    alignItems: "center",
+    justifyContent: "center",
+    /*
+      Drawn and invisible rather than absent, so that revealing it is a fade
+      rather than a node appearing under the pointer that caused it — and so the
+      seam's own width never changes, which would move the editor.
+    */
+    opacity: 0,
+    boxShadow: shadows.floating,
+  },
+  seamPillShown: { opacity: 1 },
+
+  /**
+   * The peek: the folded tree, over the editor rather than beside it.
+   *
+   * Absolute, so nothing reflows when it arrives — see the branch that renders
+   * it. `left` and `width` are supplied there; everything that is a constant is
+   * here.
+   */
+  explorerPeek: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    zIndex: 2,
+    boxShadow: shadows.floating,
+  },
+
+  /** The warm strip down the leading edge in focus mode. Draws nothing itself. */
+  focusEdge: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: layout.focusEdgeWidth,
+    zIndex: 3,
+  },
+  focusExit: {
+    position: "absolute",
+    top: space.x4,
+    left: space.x3,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.chrome,
+    boxShadow: shadows.floating,
+  },
+
+  /**
+   * A panel toggle in the status bar: a two-cell picture of the layout.
+   *
+   * The panel, then the document. Filled when the panel is out, a thin bar when
+   * the rail is down to its icons, empty when it is folded away — so the glyph
+   * is the layout rather than a label for it, which is what fits in 26pt.
+   */
+  panelToggle: {
+    height: layout.statusBarHeight - 8,
+    paddingHorizontal: space.x2,
+    borderRadius: radii.xs,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  panelTogglePressed: { backgroundColor: colors.surface3 },
+  toggleGlyph: { flexDirection: "row", alignItems: "center", gap: 1 },
+  toggleCell: {
+    width: 4,
+    height: 11,
+    borderRadius: 1,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+  },
+  toggleCellOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  toggleDoc: { width: 8, height: 11, borderRadius: 1, backgroundColor: colors.line },
+  /** The room the status node spreads into. `minWidth: 0` so a long path clips. */
+  statusFill: { flex: 1, minWidth: 0 },
+
+  statusDivider: {
+    width: 1,
+    height: 12,
+    marginHorizontal: space.x2,
+    backgroundColor: colors.line,
+  },
 
   scrim: {
     position: "absolute",
@@ -1480,5 +2732,4 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   iconButtonHover: { backgroundColor: colors.surface3 },
   iconButtonPressed: { backgroundColor: colors.chromePressed },
-  iconButtonOn: { backgroundColor: colors.accentDim },
 });

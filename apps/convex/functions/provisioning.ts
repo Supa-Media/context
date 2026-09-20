@@ -46,6 +46,7 @@ import {
   scaffoldContext,
 } from "./lib/scaffold";
 import { countNotes } from "./lib/noteCount";
+import { readStorageLayoutState } from "../../mcp/src/storageLayout.js";
 import {
   type ProbeResult,
   redactSecrets,
@@ -156,6 +157,16 @@ export interface VerificationOutcome {
   writable: boolean;
   /** Observed, never declared. `false` on B2/Wasabi and any backend that lies. */
   conditionalWrite: boolean;
+  conditionalCreate?: boolean;
+  conditionalDelete?: boolean;
+  /**
+   * Whether the bucket enforced both preconditions of a same-store copy.
+   *
+   * Absent means the probe never got that far, never absent-means-false: the
+   * row's field is optional for the same reason and `sweepUnprobedCapabilities`
+   * is what fills it in for a binding older than the field.
+   */
+  serverSideCopy?: boolean;
   scaffolded: boolean;
   scaffoldReason: ScaffoldState;
   /**
@@ -200,7 +211,7 @@ export interface StructureChoice {
   /** Validated by `applyStructure` before it gets here. Empty for `para`. */
   folders: CustomFolder[];
   /**
-   * Personal brain or shared workspace, read off the workspace row by
+   * Personal or shared, read off the workspace row by
    * `applyStructure`.
    *
    * It travels with the request for the same reason `template` does — one
@@ -216,7 +227,7 @@ export interface StructureChoice {
    * Optional, and absent means `personal`. A deployment mid-rollout can have an
    * older mutation scheduling a job this newer action runs, and the argument it
    * did not send must resolve to the conservative branch — an all-private
-   * scaffold is thin, and the alternative default would open a personal brain's
+   * scaffold is thin, and the alternative default would open a personal workspace's
    * folders to a `team` scope its owner never asked for.
    */
   kind?: "personal" | "shared";
@@ -253,7 +264,7 @@ const structureChoiceValidator = v.object({
  * Either way the no-overwrite rule is the scaffolder's, not this function's:
  * `scaffoldContext` refuses outright against a bucket that already holds a
  * context, and `get`s every key before it `put`s it. A caller that asks for a
- * layout on a live brain gets `existing-context` and an untouched bucket.
+ * layout on a live workspace gets `existing-context` and an untouched bucket.
  *
  * INTERNAL ACTION. It decrypts, so it is unreachable from any client by
  * construction. Running it twice is harmless.
@@ -282,12 +293,17 @@ export const verifyStorageBinding = internalAction({
      * write". Meaningless without `structure`, and ignored without it.
      */
     resume: v.optional(v.boolean()),
+    /** Retry a newly minted managed credential until this absolute deadline. */
+    retryUntil: v.optional(v.number()),
   },
   returns: v.object({
     verified: v.boolean(),
     reachable: v.boolean(),
     writable: v.boolean(),
     conditionalWrite: v.boolean(),
+    conditionalCreate: v.optional(v.boolean()),
+    conditionalDelete: v.optional(v.boolean()),
+    serverSideCopy: v.optional(v.boolean()),
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
     scaffoldMissing: v.optional(v.array(v.string())),
@@ -356,7 +372,7 @@ export const verifyStorageBinding = internalAction({
       // exercises is the store that will serve the workspace. A probe that
       // addressed the storage differently would certify a configuration that
       // does not actually work.
-      store = storeForBinding(credential) as unknown as ScaffoldStore;
+      store = storeForBinding(credential, undefined, { probeCapabilities: true }) as unknown as ScaffoldStore;
     } catch (error) {
       // Bad configuration rather than a bad bucket: an endpoint whose
       // addressing style is ambiguous, a bucket name with a slash in it.
@@ -420,6 +436,9 @@ export const verifyStorageBinding = internalAction({
         reachable: summary.reachable,
         writable: summary.writable,
         conditionalWrite: summary.capabilities.conditionalWrite,
+        conditionalCreate: summary.capabilities.conditionalCreate,
+        conditionalDelete: summary.capabilities.conditionalDelete,
+        serverSideCopy: summary.capabilities.serverSideCopy,
         scaffolded: false,
         scaffoldReason: "not-attempted",
         error: redactSecrets(summary.error ?? "Verification failed.", secrets),
@@ -436,7 +455,7 @@ export const verifyStorageBinding = internalAction({
     if (args.structure === undefined) {
       // Look, do not touch. `hasExistingContext` is the same detector the
       // scaffolder runs as its first guard, listing **with a delimiter** — a
-      // flat listing of a real brain returns `.history/…` first and comes back
+      // flat listing of a real workspace returns `.history/…` first and comes back
       // looking empty, which would tell onboarding to prompt for a layout over
       // the top of a live context.
       scaffoldReason = (await hasExistingContext(store))
@@ -470,11 +489,14 @@ export const verifyStorageBinding = internalAction({
     const outcome = await record(ctx, args, {
       // A bucket we could not lay a context into is still connected: the
       // failure is a write we did not need to make, and the owner's existing
-      // brain is exactly as it was.
+      // workspace is exactly as it was.
       verified: true,
       reachable: true,
       writable: true,
       conditionalWrite: summary.capabilities.conditionalWrite,
+      conditionalCreate: summary.capabilities.conditionalCreate,
+      conditionalDelete: summary.capabilities.conditionalDelete,
+      serverSideCopy: summary.capabilities.serverSideCopy,
       scaffolded,
       scaffoldReason,
       scaffoldMissing,
@@ -498,6 +520,33 @@ export const verifyStorageBinding = internalAction({
       }
     }
 
+    /*
+      And where the storage-layout migration got to, from the bucket's own
+      state file, in the same credential open as the count above.
+
+      This costs one `get` and it closes the gap that kept the update being
+      offered to people who had already run it: the column that answers the
+      console's offer was only ever written by a migration pass, so every
+      context migrated before that column existed looked exactly like one that
+      had never run it. A verification — on connect, or the one an owner asks
+      for from Settings — now answers the question without running anything.
+
+      A bucket that would not answer records nothing, exactly as the count
+      does. `observed: false` is the absence of an observation, and writing it
+      down as one would close the offer on a context that may still need it.
+    */
+    const layout = await readStorageLayoutState(store);
+    if (layout.observed) {
+      try {
+        await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+          workspaceId: args.workspaceId,
+          ...(layout.state === null ? {} : { state: layout.state }),
+        });
+      } catch {
+        // Disconnected while we were looking. Same race `record` tolerates.
+      }
+    }
+
     return {
       ...outcome,
       noteCount: counted?.notes,
@@ -515,9 +564,29 @@ export const verifyStorageBinding = internalAction({
  */
 async function record(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; actorUserId?: Id<"users"> },
+  args: {
+    workspaceId: Id<"workspaces">;
+    actorUserId?: Id<"users">;
+    structure?: StructureChoice;
+    resume?: boolean;
+    retryUntil?: number;
+  },
   outcome: VerificationOutcome,
 ): Promise<VerificationOutcome> {
+  if (
+    !outcome.verified &&
+    args.retryUntil !== undefined &&
+    Number.isFinite(args.retryUntil) &&
+    Date.now() < args.retryUntil
+  ) {
+    const delay = Math.min(5_000, Math.max(0, args.retryUntil - Date.now()));
+    await ctx.scheduler.runAfter(
+      delay,
+      internal.functions.provisioning.verifyStorageBinding,
+      args,
+    );
+    return outcome;
+  }
   const error = outcome.error
     ? truncate(outcome.error, MAX_RECORDED_ERROR_LENGTH)
     : undefined;
@@ -525,13 +594,18 @@ async function record(
     await ctx.runMutation(internal.functions.storage.recordVerification, {
       workspaceId: args.workspaceId,
       ok: outcome.verified,
-      capabilities: { conditionalWrite: outcome.conditionalWrite },
+      capabilities: {
+        conditionalWrite: outcome.conditionalWrite,
+        conditionalCreate: outcome.conditionalCreate ?? false,
+        conditionalDelete: outcome.conditionalDelete ?? false,
+        serverSideCopy: outcome.serverSideCopy ?? false,
+      },
       error,
       errorCode: outcome.errorCode,
       // Only when we actually looked. A probe that failed before it reached the
       // bucket knows nothing new about what is in it, and overwriting a
       // previous `existing-context` with `not-attempted` would turn a transient
-      // DNS blip into onboarding offering to scaffold over a live brain.
+      // DNS blip into onboarding offering to scaffold over a live workspace.
       scaffolded: outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffolded,
       scaffoldReason:
         outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffoldReason,

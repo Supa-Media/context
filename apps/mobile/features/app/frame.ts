@@ -1,13 +1,13 @@
 /**
  * Which regions of the console are on screen, at what width.
  *
- * The console is one application with four regions — rail, explorer, editor,
+ * The console is one application with three regions — explorer, editor,
  * status — and the whole of the responsive design is deciding which of them
  * exist at a given width and which one owns the screen. That decision is here,
  * as a pure function, rather than as a pile of `width < 880 &&` scattered
- * through the components: there are three densities and four regions, and the
+ * through the components: there are three densities and three regions, and the
  * combinations that are wrong (an explorer drawer *and* an explorer column, a
- * bottom bar on a desktop, a rail with nowhere to go) are exactly the ones
+ * bottom bar on a desktop) are exactly the ones
  * nobody notices until somebody rotates a tablet.
  *
  * ## Neither surface is the other one degraded
@@ -21,12 +21,12 @@
  * layout stretched out gives you a 1400px column of chrome with nothing in it.
  *
  * So each density is designed on its own terms. `wide` is a real desktop
- * application: three columns at once, a resizable explorer, a status bar, and
- * every operation on a keyboard chord. `compact` is a real phone application:
- * the editor owns the screen, the tree is a drawer, and the verbs sit on a
- * bottom toolbar within thumb reach, the way Obsidian mobile does it. `medium`
- * is the honest middle — a tablet has room for the explorer column but not for
- * the rail's labels too, and it says so.
+ * application: a resizable explorer beside the note, a status bar, and every
+ * operation on a keyboard chord. `compact` is a real phone application: the
+ * editor owns the screen and the verbs sit on a bottom toolbar within thumb
+ * reach, the way Obsidian mobile does it. `medium` is the honest middle — a
+ * tablet has room for the explorer column beside the note and for nothing
+ * else, and it says so.
  *
  * What they share is this function and the models underneath it, which is the
  * point: the *rules* are one implementation, so a refusal or a permission
@@ -38,29 +38,52 @@
  * tests, and the combinations that are wrong fail in CI rather than on a device
  * somebody happens to pick up.
  *
- * ## Why the drawer and the column are the same region
+ * ## Why every presentation of the tree is the same region
  *
- * `explorer: "drawer" | "column" | "hidden"` is one field on purpose. The file
- * tree has one selection, one expansion set and one scroll position no matter
- * how it is presented, and modelling the drawer as a separate thing is how you
- * end up with a tablet that opens the drawer, rotates, and shows you a column
- * scrolled somewhere else.
+ * `explorer: "column" | "drawer" | "peek" | "hidden"` is one field on purpose.
+ * The file tree has one selection, one expansion set and one scroll position no
+ * matter how it is presented, and modelling a second presentation as a separate
+ * thing is how you end up with a tablet that opens the drawer, rotates, and
+ * shows you a column scrolled somewhere else.
  *
- * `rail: "full" | "icons" | "sheet" | "hidden"` is one field for the same
- * reason.
+ * ## The panels fold away, and the seam between them is the control
  *
- * ## `compact` answers `rail: "hidden"` again, and this time it is not a hole
+ * On a pointer layout both left panels can be put away, which is what
+ * `explorerHidden`, `explorerPeeking` and `focus` on `FrameState` are for. The
+ * rules are all here; the drawing is `AppFrame`'s.
  *
- * **Amended, and the version it replaces is stated rather than deleted.** This
- * paragraph used to argue for the `sheet` arm: `compact` answered
- * `rail: "hidden"` and put *nothing* in its place, so a phone had the pane it
- * landed on and no way to leave it — Map and Connections, every other context
- * and sign-out are all in the rail, and landing on the map after signing in was
- * the end of the session. That was true, and the sheet fixed it.
+ *  - **`explorerHidden`** folds the column away entirely. `explorerToggleFor`
+ *    used to be a constant `null` above a comment reserving this exact change;
+ *    it is taken now, and the comment there says so rather than being deleted.
+ *  - **`explorerPeeking`** brings the folded tree back *over* the editor while
+ *    the pointer rests on its closed seam — which is what makes folding it a
+ *    cheap decision rather than a commitment, and which is why `peek` is an arm
+ *    of `explorer` and not a `drawer` with the scrim suppressed. See
+ *    `Regions.explorer`.
+ *  - **`focus`** folds both for the length of a read, and keeps the status bar,
+ *    which is the way back out.
  *
- * What has changed is not the requirement but the answer to it. A phone now has
- * **no left panel at all** — no rail sheet, no file-tree drawer, no toggle for
- * either and no scrim from either — because navigation moved to two surfaces
+ * The first three are **preferences and a mode** in the sense this file already
+ * uses: `explorerHidden` survives a resize because it is a choice about how you
+ * like the app, while `explorerPeeking` and `focus` are cleared by
+ * `panelsClearedFor` because they are claims about what is on the screen right
+ * now. Getting that split wrong in either direction is the failure mode: a
+ * cleared preference is a resize that rewrites what somebody chose, and an
+ * uncleared mode is a rotation that returns you to a stripped app.
+ *
+ * ## There is no rail, at any density
+ *
+ * **`Regions` has no `rail` field, and `FrameState` has no `navOpen` or
+ * `railCollapsed`.** They are gone rather than kept, because the list two
+ * sections down is about arms with callers outside this feature and the rail
+ * had none left: the contexts, the app-level panes, a claim, a new workspace,
+ * Meetings and sign-out are all in `features/console/SwitcherMenu.tsx`, under
+ * the name already in the title bar. A 216pt column of them beside a 260pt
+ * file tree beside the note made three columns where the design draws two.
+ *
+ * This reverses nothing about a phone. A phone has
+ * **no left panel at all** — no file-tree drawer, no toggle for it and no scrim
+ * from it — because navigation moved to two surfaces
  * that are always on the glass and are not panels: a horizontally scrolling
  * **context strip** (`features/console/NavBand.tsx`, at the top of the
  * scroller, above the path) and a seventh key on the bottom row. Neither has to
@@ -74,8 +97,8 @@
  * with the document. What is left pinned in the top row is the `accountSlot`
  * and the trailing capsule.
  *
- * The old invariant — "every compact layout offers `navToggle` or
- * `drawerToggle`" — is therefore retired rather than dropped, and
+ * The old invariant — "every compact layout offers a panel toggle" — is
+ * therefore retired rather than dropped, and
  * `appFrame.test.ts` carries the rule that replaced it: at compact there is
  * always a context strip and always a bottom row. A toggle for a panel that
  * does not exist is not navigation, which is what made the old assertion the
@@ -88,24 +111,26 @@
  * it is enforced by being read: the day something else here stops being
  * reachable it is added with its reason or it goes.
  *
- *  - **The `sheet` and `drawer` arms of `Regions`, the `scrim`, and the two
- *    panel flags on `FrameState`.** `AppFrame`'s API (`closeDrawer`,
- *    `closeNav`, `closeOverlays`, `closesOnSelect`) is consumed outside this
- *    feature — the file tree and the console layout both hold it — and retiring
- *    the representation is one change, made where those callers are, rather
- *    than a hole opened here for somebody else to find.
- *  - **The three branches in `AppFrame` that draw them**, and the styles those
+ *  - **The `drawer` arm of `Regions.explorer`, the `scrim`, and `drawerOpen`
+ *    on `FrameState`.** `AppFrame`'s API (`closeDrawer`, `closeOverlays`,
+ *    `closesOnSelect`) is consumed outside this feature — the file tree and the
+ *    console layout both hold it — and retiring the representation is one
+ *    change, made where those callers are, rather than a hole opened here for
+ *    somebody else to find.
+ *  - **The two branches in `AppFrame` that draw them**, and the styles those
  *    branches use. This is the same entry seen one layer down rather than a
  *    second decision: a representable region with nothing that can draw it is
  *    precisely the hole the line above refuses to open, so the arms and their
  *    drawings go together or not at all. `appFrameRender.test.ts` asserts that
- *    none of the three renders at any density, which is what stops "kept" from
- *    quietly becoming "reachable again".
+ *    neither renders at any density, which is what stops "kept" from quietly
+ *    becoming "reachable again".
  *
- *    The rail sheet's comment carried a live-sounding claim for a while —
- *    "which is why sign-out was unreachable on a phone until this exists" — and
- *    it is in the past tense now, beside a statement that no density reaches
- *    the branch. Sign-out is on the account mark pinned to the context strip.
+ *    **The rail's arms and its sheet went that way rather than onto this
+ *    list**, in one change: `Regions.rail`, `Regions.navToggle`,
+ *    `FrameState.navOpen`, `FrameState.railCollapsed`, `railToggleFor`,
+ *    `AppFrame`'s `rail` slot and `closeNav`, the column, the seam, the sheet
+ *    and `ConsoleRail` itself. Sign-out is on the account mark pinned to the
+ *    phone's top row, and in `SwitcherMenu` on a pointer layout.
  *  - **`menu.ts`'s `platform: "touch"` arm**, which decides that a surface with
  *    no keyboard prints no chords and is offered no "Open in new tab". That is
  *    a *rule* rather than a rendering fork, `menu.ts` is its single owner, and
@@ -128,11 +153,10 @@ import { layout } from "../design/tokens";
 /**
  * How much room there is, in three named steps.
  *
- *  - `compact` — a phone, or a narrow window. One region owns the screen; the
- *    rail and the explorer are sheets over it and the bottom bar carries the
- *    verbs.
+ *  - `compact` — a phone, or a narrow window. One region owns the screen and
+ *    the bottom bar carries the verbs.
  *  - `medium` — a tablet, a split-screen laptop window. The explorer earns a
- *    permanent column, but the rail collapses to icons to pay for it.
+ *    permanent column beside the editor.
  *  - `wide` — a real desktop window. Everything is visible at once.
  */
 export type Density = "compact" | "medium" | "wide";
@@ -147,40 +171,125 @@ export function densityFor(width: number): Density {
  * What the person has toggled.
  *
  * Deliberately *preferences*, not answers: `drawerOpen` is meaningless at
- * `wide` and `railCollapsed` is meaningless at `compact`, and neither is
- * cleared when the window resizes. Somebody who collapses the rail, narrows the
- * window and widens it again gets their collapsed rail back — clearing the
+ * `wide` and `explorerHidden` is meaningless at `compact`, and neither is
+ * cleared when the window resizes. Somebody who folds the tree away, narrows
+ * the window and widens it again gets their folded tree back — clearing the
  * preference on every resize is the behaviour that feels broken.
  */
 export interface FrameState {
   /** Compact only: the explorer drawer is pulled in over the editor. */
   drawerOpen: boolean;
-  /** Compact only: the rail is pulled in over the editor as a sheet. */
-  navOpen: boolean;
-  /** Wide only: the rail is reduced to its icons. */
-  railCollapsed: boolean;
   /** Medium and wide: the explorer column's width, in points. */
   explorerWidth: number;
+  /**
+   * Medium and wide: the explorer column is folded away entirely.
+   *
+   * A **preference**, and a second field beside `explorerWidth` rather than a
+   * width of zero. One number meaning both would make a 40pt tree
+   * representable — which is exactly what `clampExplorerWidth`'s floor exists
+   * to refuse — and re-opening would have to invent a width instead of
+   * restoring the one somebody dragged to.
+   */
+  explorerHidden: boolean;
+  /**
+   * Medium and wide: the folded tree is peeking over the editor.
+   *
+   * A **mode**, not a preference: it is pointer hover state, so it is either
+   * true of what is under the pointer right now or it is stale. Read only
+   * while `explorerHidden` — a peek beside an open column would be two trees
+   * on one screen.
+   */
+  explorerPeeking: boolean;
+  /**
+   * Medium and wide: both panels are folded away for the length of a read.
+   *
+   * One boolean *over* the two preferences rather than a snapshot *of* them,
+   * which is what makes leaving it free: `explorerHidden` and `explorerWidth`
+   * are untouched while this is set, so clearing it restores exactly what was
+   * there with no second copy of the state to keep in step.
+   */
+  focus: boolean;
+  /**
+   * Medium and wide: the right panel — chat and meetings — is open.
+   *
+   * A **preference**, like `explorerHidden` and for the same reason: it is a
+   * choice about how somebody likes the app, not a claim about what is on the
+   * screen right now. Somebody who opens it, narrows the window and widens it
+   * again gets it back.
+   *
+   * It stays a preference even at `medium`, where the panel draws *over* the
+   * note rather than beside it — which is the one place this differs from
+   * `drawerOpen`, so it is worth saying why. `drawerOpen` was cleared because
+   * nothing could put it away: no density drew a drawer, so a stale flag waited
+   * forever. This is put away by its own toggle, by the scrim over the note,
+   * and by focus mode; and what it holds is a conversation somebody is in the
+   * middle of, which is the thing a rotation must not throw away.
+   *
+   * `false` at rest. A person who never presses the toggle never sees a panel.
+   */
+  asideOpen: boolean;
+  /** Medium and wide: the right panel's width, in points. */
+  asideWidth: number;
 }
 
 export const initialFrame: FrameState = {
   drawerOpen: false,
-  navOpen: false,
-  railCollapsed: false,
   explorerWidth: layout.explorerWidth,
+  explorerHidden: false,
+  explorerPeeking: false,
+  focus: false,
+  asideOpen: false,
+  asideWidth: layout.asideWidth,
 };
 
 export interface Regions {
   /**
-   * `full` shows labels, `icons` shows only the marks, `sheet` is the same
-   * full-width rail pulled in over the editor on a phone, `hidden` is not
-   * rendered.
+   * `column` sits beside the editor; `drawer` slides over it behind a scrim;
+   * `peek` slides over it without one.
+   *
+   * ## Why `peek` is its own arm and not `drawer` with a flag
+   *
+   * The invariant below — and `appFrame.test.ts` — promises the scrim exists
+   * *if and only if* a panel is over the editor, and asserts it by naming
+   * `drawer`. The peek is over the editor and must **not** have a
+   * scrim: it is dismissed by moving the pointer away, and a scrim would grey
+   * out and make inert the note somebody is peeking in order to reach.
+   *
+   * The alternative was to keep one `drawer` arm and loosen the invariant's
+   * word to "modal". This costs one more arm in a union that is already this
+   * file's subject, and keeps a proven assertion literally true instead of
+   * weakening the word it rests on. Recorded in
+   * `docs/decisions/app-and-console.md`.
    */
-  rail: "full" | "icons" | "sheet" | "hidden";
-  /** `column` sits beside the editor; `drawer` slides over it. */
-  explorer: "column" | "drawer" | "hidden";
+  explorer: "column" | "drawer" | "peek" | "hidden";
   /** The editor is always rendered — there is no density with nothing to read. */
   editor: true;
+  /**
+   * The right panel: chat and meetings.
+   *
+   * `column` sits beside the editor at `wide`; `overlay` comes in over it
+   * behind a scrim at `medium`, where a third column would leave the note
+   * about 300pt wide; `hidden` is every other case, including every compact
+   * layout.
+   *
+   * ## Why a phone answers `hidden` rather than growing an arm
+   *
+   * It already has this conversation. `VoiceButton` raises `AgentPanel` over
+   * the editor at compact — a finished surface, with the microphone and the
+   * meeting beside it. A right *panel* there would be a second door into one
+   * room, on the density with the least space for either, and the design this
+   * draws was chosen for the desktop out loud after the phone's version
+   * confused the question.
+   *
+   * ## Why `overlay` is its own arm and not the explorer's `drawer`
+   *
+   * `Regions.explorer` is the *tree's* presentations and this is a different
+   * region with a different selection, a different scroll position and a
+   * different thing inside it. Sharing an arm would make "the tree is in a
+   * drawer and the panel is over the note" unrepresentable, which is a real
+   * state at `medium`.
+   */
+  aside: "column" | "overlay" | "hidden";
   /** The scrim that dismisses whichever panel is over the editor. */
   scrim: boolean;
   /** Thumb-reach verbs. Compact only; a pointer has the menu and the keyboard. */
@@ -197,16 +306,6 @@ export interface Regions {
    * honest.
    */
   drawerToggle: boolean;
-  /**
-   * The control in the top bar that pulls the rail in. **False at every
-   * density**, for `drawerToggle`'s reason.
-   *
-   * It used to be compact-only, and only where the file tree was not there to
-   * carry the switcher at its foot. Both halves of that are gone with the
-   * panels: a phone's navigation is the context strip and the bottom row, which
-   * are on the screen rather than behind a control.
-   */
-  navToggle: boolean;
 }
 
 /**
@@ -217,8 +316,6 @@ export interface Regions {
  *
  *  - nothing is ever a permanent region and a panel over the editor at once,
  *    and the scrim exists if and only if some panel is over the editor;
- *  - the rail sheet and the explorer drawer are **never** up together. They
- *    occupy the same place on the screen and share the one scrim;
  *  - the bottom bar and the status bar are **never** both present. They are two
  *    answers to "what goes along the bottom edge", and a screen with both has
  *    28px of chrome saying nothing and a toolbar the thumb cannot reach.
@@ -244,42 +341,223 @@ export function regionsFor(
       A phone has no left panel. Not a hidden one, not one behind a toggle —
       none, at either route, whether or not there is a file tree.
 
-      The two panels used to come in over the editor from the same edge under
-      one scrim, and the state's two flags decided which. Both flags are still
-      on `FrameState` and neither is read here, which is the whole of the
-      change: navigation moved onto the glass, to the context strip along the
-      top and the seventh key on the bottom row, and a panel that has to be
-      summoned is not what a phone offers any more. See the file header for
-      what that retires and why the reason it retires is not the reason the
-      sheet was added.
+      The tree used to come in over the editor under a scrim, and `drawerOpen`
+      decided whether it was up. That flag is still on `FrameState` and is not
+      read here, which is the whole of the change: navigation moved onto the
+      glass, to the context strip along the top and the seventh key on the
+      bottom row, and a panel that has to be summoned is not what a phone
+      offers any more. See the file header for what that retires and why the
+      reason it retires is not the reason the drawer was added.
     */
     return {
-      rail: "hidden",
       explorer: "hidden",
+      // And no right panel either, for the reason `Regions.aside` gives: the
+      // phone already has this conversation, over the editor, on a control it
+      // already has.
+      aside: "hidden",
       editor: true,
       scrim: false,
       bottomBar: true,
       statusBar: false,
       drawerToggle: false,
-      navToggle: false,
     };
   }
 
+  /*
+    Focus mode: the panels go, the instruments stay.
+
+    Answered before anything else because it overrides both preferences without
+    writing to it — see `FrameState.focus`. The status bar deliberately
+    survives: it carries the save state, the conflict-check mode and the tree's
+    own toggle, so it is the way back out, and a mode that hides its own escape
+    hatch is one people enter exactly once. Removing the *panel* is the point;
+    removing the *instruments* is a different feature nobody asked for.
+  */
+  if (state.focus) {
+    return {
+      explorer: "hidden",
+      // "The panels go, the instruments stay" now means both of them. The
+      // preference is not written, so leaving focus restores whichever were
+      // open — the property `FrameState.focus` argues for over `explorerHidden`
+      // and which `asideOpen` inherits unchanged.
+      aside: "hidden",
+      editor: true,
+      scrim: false,
+      bottomBar: false,
+      statusBar: true,
+      drawerToggle: false,
+    };
+  }
+
+  /*
+    `explorerPeeking` is read on the closed branch and nowhere else, which is
+    what makes "a peek and a column at once" unrepresentable rather than merely
+    untested: a stale peek flag beside an open column draws a column.
+  */
+  const explorer: Regions["explorer"] = !hasExplorer
+    ? "hidden"
+    : !state.explorerHidden
+      ? "column"
+      : state.explorerPeeking
+        ? "peek"
+        : "hidden";
+
+  /*
+    The right panel, and the density is the whole of the decision.
+
+    `wide` starts at 1180pt. A 260pt tree and a 340pt panel leave the note
+    about 580pt, which is a measure prose reads in. At `medium` the same sum
+    leaves about 300pt, and `frame.ts`'s own line about that density — "room
+    for the explorer column beside the note and for nothing else" — is the
+    reason this comes in over the note there rather than beside it.
+
+    There is deliberately no `hasExplorer` term. The panel is about the
+    context, not about the file tree, so Map and Connections may have it open
+    beside them; a route with no tree is a route with more room for it, not
+    less.
+  */
+  const aside: Regions["aside"] = !state.asideOpen
+    ? "hidden"
+    : density === "wide"
+      ? "column"
+      : "overlay";
+
   return {
-    // A medium window has room for the explorer column or the rail's labels,
-    // not both — unless there is no explorer, in which case the rail may as
-    // well be readable.
-    rail: (density === "medium" && hasExplorer) || state.railCollapsed ? "icons" : "full",
-    explorer: hasExplorer ? "column" : "hidden",
+    /*
+      **No rail at any pointer density**, which is why this branch no longer
+      weighs one against the explorer column.
+
+      It was a 216pt column of workspaces and offers beside a 260pt file tree
+      beside the note — three columns, where the design draws two. Five
+      workspaces and four offers do not earn a permanent column; they earn a
+      menu under the name already in the title bar, which is where you look to
+      know whose notes are open. `SwitcherMenu` is that menu and carries
+      `railGroup`'s list unchanged.
+
+      This reverses "The contexts moved into the scroller" (§1007) **for
+      pointer densities only** — that decision is about a phone, where a strip
+      of pills lay across somebody's note at every scroll position, and
+      `compact` still answers `hidden` here for its own reasons, untouched. It
+      moves "The rail is one list, with the personal workspace pinned to the
+      top" (§1464) without changing it: same `railGroup`, same pin, same
+      marker, different container. Both are recorded in
+      `docs/decisions/app-and-console.md`.
+
+      `railCollapsed` and `navOpen` are gone from `FrameState` rather than
+      kept unread. Stored frame state is read field by field, so a persisted
+      copy carrying either one is ignored and needs no migration — and a field
+      nobody asks for is a field the next reader has to work out the fate of.
+    */
+    explorer,
+    aside,
     editor: true,
-    scrim: false,
+    /*
+      The peek is the one panel over the editor that raises no scrim; see
+      `Regions.explorer` for why that is an arm of its own and not a flag.
+
+      The aside's overlay is the other panel over the editor, and it **does**
+      raise one — it is dismissed by pressing away from it, which is what a
+      scrim is for, where a peek is dismissed by moving the pointer off a seam.
+      So this is no longer a constant, and `appFrame.test.ts` states the rule
+      over both panels rather than by naming one arm.
+    */
+    scrim: aside === "overlay",
     bottomBar: false,
     statusBar: true,
     drawerToggle: false,
-    // The rail is a permanent column here. A control that pulls it in would be
-    // pulling in something already on the screen.
-    navToggle: false,
   };
+}
+
+/**
+ * What stands at the leading end of the top bar.
+ *
+ * `"switcher"` is `SwitcherMenu` — the open workspace's name, and behind it
+ * every other workspace, Meetings, a claim, a new workspace, Settings and
+ * sign-out. `"account"` is the signed-in mark, pinned alone in the corner.
+ *
+ * One fork, in the file that owns where things live, because two callers read
+ * it and they must not drift: `AppFrame` draws the bar, and
+ * `reachability.ts` decides at which densities a door claimed on the switcher
+ * is allowed to be claimed. That guard used to read `Regions.rail` — the rail
+ * *was* the pointer layout's navigation — and when the rail folded into the
+ * switcher there was no field left to read, which is the moment a guard
+ * quietly starts agreeing with everything.
+ *
+ * A phone gets the account mark rather than the switcher because its
+ * navigation is the band inside the scroller (`features/console/NavBand.tsx`)
+ * and a second switcher in the bar would be the same list twice on a 390pt
+ * screen. What the corner has instead is the product's only sign-out, which
+ * cannot scroll away.
+ */
+export function topBarLeadFor(density: Density): "switcher" | "account" {
+  return density === "compact" ? "account" : "switcher";
+}
+
+/**
+ * Whether the top bar can hold the desktop shell's traffic lights itself,
+ * instead of an empty band above the whole app reserving room for them.
+ *
+ * A density question rather than a platform one — the platform half is
+ * `shellTitleBand.ts`'s and stays there. What is asked here is only whether
+ * the bar on screen at this width is the kind of object that can carry three
+ * OS buttons at its leading edge:
+ *
+ *  - `medium` and `wide` — yes. The bar is a real region with a surface of its
+ *    own, exactly `SHELL_TITLE_BAND_PX` tall, and its leading element is a
+ *    chip that can start 84pt in.
+ *  - `compact` — no, and this is the case the handshake exists for. The phone
+ *    bar is `position: "absolute"`, transparent, and lying *over* a document
+ *    that scrolls under it (see `topBarCompact`): buttons placed in it would
+ *    sit on the note. A console window narrowed past `narrowBreakpoint` is
+ *    this layout on a Mac, so it is reachable by dragging an edge and not
+ *    only by owning a phone.
+ *
+ * The frame publishes the answer through `topChrome.ts` and the root band
+ * stands down for it; nothing here knows or asks whether there is a shell.
+ */
+export function lightsInBarFor(density: Density): boolean {
+  return density !== "compact";
+}
+
+/**
+ * How wide a document column is — the note's own measure, in points.
+ *
+ * `layout.readingMeasureEm` is a multiple of the note's type size rather than
+ * a width (see that token for why), so this is the one place that multiplies
+ * the two out. **It is exported because a note is not the only document on
+ * this surface**: a folder listing is a page in the same column
+ * (`FolderView`), and a column stated twice is two columns the day either
+ * number moves.
+ *
+ * Read it with `alignSelf: "center"` and `width: "100%"`, which is the same
+ * centring `noteGutterFor` describes in CSS: at a width narrower than this the
+ * `maxWidth` cannot bind and the surface's own padding governs, exactly as the
+ * editor's `max(0, …)` floors at its gutter.
+ */
+export const noteColumnWidth = layout.readingMeasureEm * layout.noteFontSize;
+
+/**
+ * Where the note's first character is, measured from the left of its region.
+ *
+ * The note is a centred column: `LiveEditor.web.tsx` gives its scroller
+ * `layout.notePadX` either side and cuts `layout.readingMeasureEm` of measure
+ * out of what is left with `padding-inline: max(0, (100% - 40em) / 2)`. So the
+ * first character sits at the gutter plus half of whatever the measure did not
+ * use, and it is that number — not the region's own edge — that anything
+ * drawn *above* the note has to line up with.
+ *
+ * **One function because there are two callers and they must not drift**, the
+ * same rule `floatingGapFor` is stated under. The editor spends it in CSS
+ * against its own box; the breadcrumb spends it as `paddingLeft` against the
+ * region it was measured from. Two copies of this sum is how a header ends up
+ * four points off the text under it at one width and level at another.
+ *
+ * At a width where the measure cannot bind — a phone, a narrow split — the
+ * `max` floors at the gutter, which is exactly what the CSS does.
+ */
+export function noteGutterFor(width: number): number {
+  const inside = width - layout.notePadX * 2;
+  return layout.notePadX + Math.max(0, (inside - noteColumnWidth) / 2);
 }
 
 /**
@@ -297,95 +575,116 @@ export function clampExplorerWidth(width: number): number {
 }
 
 /**
- * What toggling the explorer means at this density.
+ * The right panel's width, held between a floor and a ceiling.
  *
- * One command (`toggleExplorer`, ⌘⇧E on web, the drawer button on a phone)
- * resolved here so neither the keymap nor the button has to know the density.
- * Returning the *field to change* rather than mutating keeps this callable from
- * a reducer.
+ * `clampExplorerWidth`'s reasoning with different numbers: the floor is where
+ * a conversation turns into a ladder of two-word lines, the ceiling is where
+ * the note's own measure suffers on the narrowest window that draws this as a
+ * column at all.
  *
- * This is the single owner of that meaning, and `AppFrame.toggleExplorer` is
- * its only caller: for a while the frame implemented a different rule of its
- * own, this function was imported by nothing but its own test, and ⌘⇧E toggled
- * the *rail* on any layout with an explorer column — a duplicate of ⌘B that
- * never touched the region it is named after.
- *
- * `null` means the command does nothing here, and nothing is what it must do.
- * Medium and wide have a permanent explorer column: there is no drawer to pull
- * in, and hiding the column outright is a product decision nobody has taken.
- * The day somebody takes it, this is where it lands — one function, one
- * meaning, and every caller follows.
- *
- * **It now answers `null` at every density, compact included.** A phone has no
- * file-tree drawer to pull in (see the file header), so the one arm that
- * returned a field has nothing left to write. That makes this a constant, and
- * it stays a function anyway for the reason it was extracted: ⌘⇧E and the
- * button that used to press it must not each carry their own idea of what
- * toggling the explorer means, and a constant *here* is a single owner
- * answering "nothing", where a deleted function is every caller deciding for
- * itself. `AppFrame.toggleExplorer` is still its only caller and is still a
- * genuine no-op rather than a licence to do something else — toggling the rail
- * there is what once made ⌘⇧E a duplicate of ⌘B.
+ * A separate function rather than a parameterised one, because the two
+ * columns' floors answer different questions — a file name's legibility and a
+ * paragraph's — and one function taking a token bundle would read as though
+ * they were the same question with different constants.
  */
-export function explorerToggleFor(
-  _density: Density,
-  /**
-   * Whether this route has a file tree, exactly as `regionsFor` takes it. Kept
-   * on the signature — every caller already has it and the day a density gets
-   * a drawer back it is the flag that decides — and unread today.
-   */
-  _options: { hasExplorer?: boolean } = {},
-): "drawerOpen" | null {
-  return null;
+export function clampAsideWidth(width: number): number {
+  if (!Number.isFinite(width)) return layout.asideWidth;
+  return Math.min(layout.asideMaxWidth, Math.max(layout.asideMinWidth, Math.round(width)));
 }
 
 /**
- * What toggling the *rail* means at this density.
+ * What toggling the right panel means at this density.
  *
- * One command — ⌘B, and the switcher in the top bar — with two honest
- * meanings, resolved here for the same reason `explorerToggleFor` exists: so
- * neither the keymap nor the button has to know the density.
+ * `null` at compact, for the reason `explorerToggleFor` returns `null` there:
+ * a chord or a button that wrote a field no compact layout reads is the ⌘B
+ * failure this pair of functions exists to keep from happening again. A phone
+ * has no right panel — `Regions.aside` says why — so there is nothing to fold.
  *
- * On a pointer layout the rail is a permanent column and the command collapses
- * it to its marks.
- *
- * **On a phone it now answers `null`, and that reverses what this comment used
- * to say.** It used to answer `"navOpen"`, because compact had no column to
- * collapse and the rail was a sheet the command brought in — and the sentence
- * before that one is worth keeping, because it is the failure this must not go
- * back to: writing `railCollapsed` at compact set a preference no compact
- * layout reads, so ⌘B did nothing and the phone had no navigation at all.
- *
- * A phone has no rail at all now (see the file header), so there is genuinely
- * no field to write and `null` is the honest answer. What makes that different
- * from the old bug is *where the navigation went*: it is the context strip and
- * the bottom row, on the screen, rather than nothing.
- *
- * At medium and wide it still answers `"railCollapsed"`, and still writes a
- * preference you may only see later: a medium window with an explorer column
- * renders the rail as icons whichever way the flag points, so there the command
- * changes something visible on a pane with no tree. Pre-existing, and stated
- * here rather than in a comment claiming otherwise.
+ * Unlike `explorerToggleFor` there is no `hasExplorer` term, because the panel
+ * is not about the tree; see `regionsFor`.
  */
-export function railToggleFor(density: Density): "railCollapsed" | null {
-  return density === "compact" ? null : "railCollapsed";
+export function asideToggleFor(density: Density): "asideOpen" | null {
+  return density === "compact" ? null : "asideOpen";
+}
+
+/**
+ * What toggling the explorer means at this density.
+ *
+ * One command (`toggleExplorer`, ⌘B on web, the pill on the tree's seam)
+ * resolved here so neither the keymap nor the button has to know the density.
+ * Returning the *field to change* rather than mutating keeps this callable
+ * from a reducer.
+ *
+ * This is the single owner of that meaning, and `AppFrame.toggleExplorer` is
+ * its only caller: for a while the frame implemented a different rule of its
+ * own, this function was imported by nothing but its own test, and its chord
+ * toggled the *rail* on any layout with an explorer column — a duplicate of
+ * ⌘B that never touched the region it is named after. ⌘B is this command's own
+ * chord now: the rail folded into the switcher, so there is one left panel and
+ * one chord for it.
+ *
+ * **It answers `"explorerHidden"` at medium and wide now, and that reverses
+ * what this comment used to say.** It used to be a constant `null`, because
+ * "medium and wide have a permanent explorer column: there is no drawer to
+ * pull in, and hiding the column outright is a product decision nobody has
+ * taken. The day somebody takes it, this is where it lands — one function, one
+ * meaning, and every caller follows." It landed, and it landed here.
+ *
+ * Two arms still answer `null`, and neither is a leftover:
+ *
+ *  - **`compact`**, which has no left panel at all (see the file header). Not
+ *    "the decision has not been taken there" — there is no panel for it to be
+ *    about.
+ *  - **A route with no file tree**, which is Map and Connections. Writing
+ *    `explorerHidden` there would set a preference on a pane that cannot show
+ *    it, and you would discover it later as a missing tree back on Browse.
+ *    That is the same shape as the bug this function was extracted to end,
+ *    where `"drawerOpen"` was answered on a pane whose `regionsFor` discarded
+ *    it and the keystroke looked inert while writing state. It is also why the
+ *    flag stays on the signature: it was kept unread for exactly this.
+ */
+export function explorerToggleFor(
+  density: Density,
+  options: { hasExplorer?: boolean } = {},
+): "explorerHidden" | null {
+  if (density === "compact") return null;
+  return (options.hasExplorer ?? true) ? "explorerHidden" : null;
+}
+
+/**
+ * Whether ⌘\ has anything to fold at this density.
+ *
+ * A boolean rather than a field name, because unlike `explorerToggleFor` focus
+ * has exactly one field and no per-density meaning — what varies is only
+ * whether there is anything on the screen for it to act on.
+ *
+ * `false` at compact for `explorerToggleFor`'s reason rather than a new one: a
+ * phone has no left panel, so there is nothing to fold away, and a chord that
+ * wrote `focus` there would be setting a mode no compact layout reads — which
+ * is precisely the ⌘B failure (`railCollapsed` written on a surface that never
+ * looked at it) that this pair of functions exists to keep from happening
+ * again. That failure outlived the field: ⌘B, `railCollapsed` and the rail are
+ * all gone, and the shape of the mistake is what is being guarded here.
+ */
+export function focusToggleFor(density: Density): boolean {
+  return density !== "compact";
 }
 
 /**
  * The panels, put away when the layout stops having anywhere to put them.
  *
  * `FrameState` above argues that a resize must not rewrite what somebody
- * chose, and that argument is right — about `railCollapsed` and
- * `explorerWidth`, which are *preferences*. `drawerOpen` and `navOpen` are
- * not preferences. They are "a panel is currently over your editor", which is
- * a thing that is either true of what is on the screen or is stale.
+ * chose, and that argument is right — about `explorerHidden` and
+ * `explorerWidth`, which are *preferences*. `drawerOpen` is not a preference.
+ * It is "a panel is currently over your editor", which is a thing that is
+ * either true of what is on the screen or is stale.
  *
- * Left uncleared they are write-once-and-stuck: there is no sheet, no scrim and
- * no toggle at any density now, so nothing can put them away and they wait.
+ * Left uncleared they are write-once-and-stuck: there is no drawer, no scrim
+ * and no toggle at any density now, so nothing can put them away and they wait.
  * That used to be a description of medium and wide only, and the case it was
- * written for was real — open the rail on an iPad in portrait (820pt is under
- * `narrowBreakpoint`, so compact), rotate to landscape, work in the rail
- * column, rotate back, and a sheet nobody asked for is sitting over the note
+ * written for was real — open the tree on an iPad in portrait (820pt is under
+ * `narrowBreakpoint`, so compact), rotate to landscape, work in the explorer
+ * column, rotate back, and a drawer nobody asked for is sitting over the note
  * behind a full-body scrim.
  *
  * **The compact exemption is gone with the panels.** It existed because compact
@@ -399,8 +698,8 @@ export function railToggleFor(density: Density): "railCollapsed" | null {
  * call from a state updater on every density change.
  */
 export function panelsClearedFor(_density: Density, state: FrameState): FrameState {
-  if (!state.drawerOpen && !state.navOpen) return state;
-  return { ...state, drawerOpen: false, navOpen: false };
+  if (!state.drawerOpen && !state.explorerPeeking && !state.focus) return state;
+  return { ...state, drawerOpen: false, explorerPeeking: false, focus: false };
 }
 
 /**
@@ -549,18 +848,25 @@ export function surfacePadding({
 /**
  * Whether a selection in the tree should dismiss the explorer.
  *
- * **False everywhere now, and the reason it used to be true on a phone is worth
- * keeping**: the drawer was covering the thing you had just asked to read, so
- * leaving it open meant every note opened behind a panel. On a column it must
- * stay put — dismissing a permanent region because somebody clicked inside it
- * is the behaviour that makes people stop using the tree.
+ * **This takes the explorer's presentation now, not the density, and that is
+ * the change its previous comment predicted.** It used to read
+ * `closesOnSelect(density)` and answer `false` everywhere, above a note saying
+ * it "stays a function of the density because that is the question it answers,
+ * and the day a density puts the tree over the document again this is the line
+ * that changes rather than the call site in `Explorer`". The tree is over the
+ * document again — as a peek rather than a drawer, and at wide rather than at
+ * compact — so the density was never the question. The presentation is.
  *
- * There is no drawer at any density (see the file header), so the first half
- * has nothing to be true of and the second half is the only case left. It stays
- * a function of the density because that is the question it answers, and the
- * day a density puts the tree over the document again this is the line that
- * changes rather than the call site in `Explorer`.
+ * The rule itself is unchanged and is the one the drawer was written for: a
+ * tree lying **over** the editor is covering the note you have just asked to
+ * read, so leaving it up opens every note behind a panel. A tree **beside** the
+ * editor must stay put — dismissing a permanent region because somebody clicked
+ * inside it is how people stop using a file tree.
+ *
+ * `drawer` keeps its arm here although no density reaches it, for the reason
+ * the file header gives: the representation and the rules about it are retired
+ * together or not at all.
  */
-export function closesOnSelect(_density: Density): boolean {
-  return false;
+export function closesOnSelect(explorer: Regions["explorer"]): boolean {
+  return explorer === "drawer" || explorer === "peek";
 }

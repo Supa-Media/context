@@ -10,12 +10,21 @@
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
-import { mutation, query } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
+import { PINNED_CONTEXT_ROLE, isSingleEmoji } from "@context/shared";
+import { pinnedContextWorkspace, reachesPinnedContext } from "./lib/pinnedContext";
+/*
+  The gateway's own gate on this value, not a second one. An offer
+  `normalizeMeetingFolder` refuses is an offer the meeting write then rejects,
+  so a setting validated any other way could be saved and silently ignored.
+*/
+import { MEETINGS_FOLDER, normalizeMeetingFolder } from "../../../packages/meetings/src/paths.js";
+import { isProductionTestAccount } from "./lib/testAccount";
 import {
   type FolderRejection,
   MAX_CUSTOM_FOLDERS,
@@ -75,6 +84,23 @@ const WORKSPACE_CREATE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_MEMBERS_RETURNED = 200;
 const MAX_WORKSPACES_RETURNED = 100;
 
+/**
+ * The mark a workspace draws, as it crosses the wire.
+ *
+ * A union rather than two optional fields, matching the schema: a mark shows
+ * one thing, and "photo set, emoji also set" would leave every drawing surface
+ * to invent its own tie-break. See `@context/shared`'s `workspaceIcon` module.
+ *
+ * A photo arrives as its **leaf, not its bytes**. The console asks for the
+ * bytes separately, once, and caches them on the leaf — which is a content
+ * hash, so the cache is sound forever. Inlining a megabyte per row into a query
+ * every console paint re-runs would make the context list a download.
+ */
+const workspaceIconValidator = v.union(
+  v.object({ kind: v.literal("photo"), leaf: v.string() }),
+  v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+);
+
 const workspaceSummary = v.object({
   workspaceId: v.id("workspaces"),
   slug: v.string(),
@@ -82,8 +108,62 @@ const workspaceSummary = v.object({
   kind: v.string(),
   structureTemplate: v.string(),
   role: v.string(),
+  /** Absent is the letter, which is what every workspace drew before this. */
+  icon: v.optional(workspaceIconValidator),
+  /**
+   * Where meetings land in this context, when somebody has chosen.
+   *
+   * Absent means the default, and the *console* resolves that rather than this
+   * query substituting one: `MEETINGS_FOLDER` lives in `packages/meetings`,
+   * which is the gateway's own gate on the same value, and a second copy here
+   * would be a second place for the default to drift.
+   */
+  meetingsFolder: v.optional(v.string()),
+  /**
+   * When this context last changed, and when this member last caught up.
+   *
+   * The pair, rather than a boolean, because the console decides what to draw
+   * from it — a dot on this context's mark when the first is newer than the
+   * second — and a server-computed `hasNew` would be a second place for that
+   * rule to live. Both are absent for a context nothing has been recorded in
+   * and a member who has never looked, which reads as "nothing to say" and is
+   * the right answer for a context that has just been created.
+   *
+   * Neither is a count. A count would have to be a count of what *this* reader
+   * may see, which is a per-member question over a shared row — the number
+   * lives in the context itself, one press away.
+   *
+   * **`activityAt` is already narrowed to this reader** by the query: an owner
+   * is served the context's own stamp, and everybody else the team-tier one,
+   * so the dot never reports the time of a private change to somebody the file
+   * itself would refuse. See `schema.ts`, `activityTeamAt`.
+   */
+  activityAt: v.optional(v.number()),
+  activitySeenAt: v.optional(v.number()),
   joinedAt: v.number(),
   createdAt: v.number(),
+  /**
+   * True on the one row that is here because it is **pinned for everybody**
+   * rather than because this person is a member of it — see
+   * `lib/pinnedContext.ts`.
+   *
+   * Optional, and absent is false, so every existing consumer keeps reading
+   * exactly what it read before. It is on the row rather than in a second query
+   * because every consumer that needs it already has the row, and because the
+   * two things that must treat it differently would otherwise have to re-derive
+   * "is this the pinned one" from the slug:
+   *
+   *  - **The console draws it apart** — last in the rail, under a rule, marked
+   *    read-only (`features/console/rail.ts`).
+   *  - **Onboarding must not count it.** The `(app)` gate asks "is there
+   *    anything here for you" off this same list, so without this flag a
+   *    brand-new account would arrive with one reachable context, skip
+   *    `/welcome`, and never claim a name. `standingFrom` filters on it.
+   *
+   * A real membership wins and is reported as an ordinary row: somebody who
+   * owns or edits that workspace sees their real role and no flag.
+   */
+  pinned: v.optional(v.boolean()),
 });
 
 /**
@@ -122,6 +202,8 @@ export const createWorkspace = mutation({
   }),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const user = await ctx.db.get(userId);
+    const isTestAccount = isProductionTestAccount(user);
 
     const displayName = args.displayName.trim();
     if (displayName.length === 0) {
@@ -143,7 +225,7 @@ export const createWorkspace = mutation({
       .query("workspaceMembers")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .take(MAX_WORKSPACES_PER_USER + 1);
-    if (owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
+    if (!isTestAccount && owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
       throw new ConvexError({
         code: "WORKSPACE_LIMIT_REACHED",
         message: `You can own at most ${MAX_WORKSPACES_PER_USER} contexts.`,
@@ -155,11 +237,13 @@ export const createWorkspace = mutation({
     // a creation that goes on to fail rolls the increment back with it. That
     // is the right unit here — a failed claim takes nothing out of the
     // namespace — but see `lib/rateLimit.ts` for what it does not protect.
-    await consumeRateLimit(ctx, {
-      key: `workspace.create:${userId}`,
-      limit: WORKSPACE_CREATE_LIMIT,
-      windowMs: WORKSPACE_CREATE_WINDOW_MS,
-    });
+    if (!isTestAccount) {
+      await consumeRateLimit(ctx, {
+        key: `workspace.create:${userId}`,
+        limit: WORKSPACE_CREATE_LIMIT,
+        windowMs: WORKSPACE_CREATE_WINDOW_MS,
+      });
+    }
 
     // Check first so a bad slug fails before we write anything. `claimName`
     // re-checks inside the same transaction, which is what actually enforces
@@ -287,7 +371,7 @@ function folderRejectionError(
  * an answer instead of a silent no-op — and it is emphatically not the
  * enforcement. `scaffoldContext` refuses against a non-empty bucket and `get`s
  * every key before it `put`s it, so this mutation's checks could be wrong, or
- * bypassed entirely, and a live brain would still come through untouched.
+ * bypassed entirely, and a live workspace would still come through untouched.
  *
  * Owner-only, for `bindStorage`'s reason: it spends the workspace's budget and
  * writes into the workspace's bucket.
@@ -321,11 +405,11 @@ export const applyStructure = mutation({
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
     // Read here, and handed to the scaffolder below, because it decides what
-    // `privacy.md` says the new folders default to: a personal brain starts
+    // `privacy.md` says the new folders default to: a personal workspace starts
     // all-private, a shared workspace starts team-visible to its members. See
     // `startingVisibility` in `lib/scaffold.ts` for why that is not a widening.
     // Loaded from the row rather than taken as an argument — `kind` is fixed at
-    // creation, and a client that could name it could scaffold somebody's brain
+    // creation, and a client that could name it could scaffold somebody's workspace
     // open.
     // `requireWorkspaceRole` already proved the membership, so this can only be
     // null if the row was deleted between the two reads. Same error either way,
@@ -471,6 +555,25 @@ export const applyStructure = mutation({
  *
  * An authenticated session resolves to a *set* of contexts even while that set
  * has exactly one element today. Clients must not assume `[0]`.
+ *
+ * ## The pinned context, appended after the sort
+ *
+ * One row can be here without a membership backing it: `@context-lc`, which
+ * every account reaches (`lib/pinnedContext.ts`). It carries `pinned: true`,
+ * and two things about where it sits are rules rather than tidiness.
+ *
+ * **After the sort, not in it.** The rest of this list is ordered oldest-first
+ * and the rail's stated rule is that everything after its own pinned top row
+ * "keeps the order the control plane sent". The pinned context is older than
+ * almost every account that will see it, so sorting it in by `createdAt` would
+ * put it *first* — at the head of the list, above the person's own workspace,
+ * on every surface that trusts this order. It belongs at the end.
+ *
+ * **It does not make the query non-empty for somebody with nothing.** That
+ * sounds like a property of this function and is really a property of its
+ * consumers, which is why `pinned` is on the row: `standingFrom` in the app
+ * subtracts it before asking "does this person have anywhere to go", and
+ * `ownedContexts` never counted it anyway (it is `shared`/`member`).
  */
 export const listMyWorkspaces = query({
   args: {},
@@ -494,11 +597,58 @@ export const listMyWorkspaces = query({
         kind: workspace.kind,
         structureTemplate: workspace.structureTemplate,
         role: membership.role,
+        icon: workspace.icon,
+        meetingsFolder: workspace.meetingsFolder,
+        /*
+          The owner's stamp counts every line; everybody else's counts the
+          `team` ones. Narrowed here rather than on the client, because a
+          number that reaches a device has been disclosed whatever the device
+          then does with it.
+        */
+        activityAt:
+          membership.role === "owner" ? workspace.activityAt : workspace.activityTeamAt,
+        activitySeenAt: membership.activitySeenAt,
         joinedAt: membership.joinedAt,
         createdAt: workspace.createdAt,
       });
     }
-    return summaries.sort((a, b) => a.createdAt - b.createdAt);
+    summaries.sort((a, b) => a.createdAt - b.createdAt);
+
+    const pinned = await pinnedContextWorkspace(ctx);
+    if (
+      pinned !== null &&
+      !summaries.some((summary) => summary.workspaceId === pinned._id)
+    ) {
+      summaries.push({
+        workspaceId: pinned._id,
+        slug: pinned.slug,
+        displayName: pinned.displayName,
+        kind: pinned.kind,
+        structureTemplate: pinned.structureTemplate,
+        role: PINNED_CONTEXT_ROLE,
+        icon: pinned.icon,
+        meetingsFolder: pinned.meetingsFolder,
+        /*
+          A pinned reader has no membership row, so there is nothing that could
+          hold "when did they last look" — and a mark that lights for everybody
+          and never goes out is worse than one that never lights. The shared
+          context's own activity is still there when they open it.
+        */
+        activityAt: undefined,
+        activitySeenAt: undefined,
+        /*
+          Nobody joined, so there is no join time. The workspace's own creation
+          is the only honest date available and is what the field means for a
+          row that has always been there — and it is never read as "when this
+          person joined" for this row, because `pinned` says it was not joined.
+        */
+        joinedAt: pinned.createdAt,
+        createdAt: pinned.createdAt,
+        pinned: true,
+      });
+    }
+
+    return summaries;
   },
 });
 
@@ -517,6 +667,7 @@ export const getWorkspace = query({
     kind: v.string(),
     structureTemplate: v.string(),
     role: v.string(),
+    icon: v.optional(workspaceIconValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
     memberCount: v.number(),
@@ -544,6 +695,7 @@ export const getWorkspace = query({
       kind: workspace.kind,
       structureTemplate: workspace.structureTemplate,
       role: membership.role,
+      icon: workspace.icon,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       memberCount: members.length,
@@ -677,6 +829,304 @@ export const removeMember = mutation({
     });
 
     return { removed: true };
+  },
+});
+
+/**
+ * Choose where meetings land in this context.
+ *
+ * ## Why this exists
+ *
+ * It is the one capture destination a person could not change. A Google
+ * account carries an editable folder per service; forwarded mail carries a
+ * target folder; a meeting carried `MEETINGS_FOLDER`, a constant, interpolated
+ * into a sentence on the settings panel with no control beside it. Somebody
+ * who files meetings under `2-areas/meetings` had to move every note by hand,
+ * forever.
+ *
+ * ## What it does not change
+ *
+ * **The destination is still asked for every time, before the microphone
+ * opens.** `features/meetings/destination.ts` argues that at length and it is
+ * untouched: the first offer is always the person's own workspace, the page they
+ * are standing on is offered second with its audience named, and no remembered
+ * setting answers silently. This names the folder the *first offer points at*.
+ * Those are two decisions, and conflating them is why this setting did not
+ * exist.
+ *
+ * ## The validator is the gateway's own
+ *
+ * `normalizeMeetingFolder` is what `packages/meetings` uses to decide whether a
+ * folder a client asked for is one it will file into, and an offer it refuses
+ * is an offer the write then rejects. Calling anything else here would let a
+ * person save a folder the gateway will not honour — a setting that appears to
+ * work and silently files somewhere else, which is the exact defect that
+ * module exists to close.
+ *
+ * Owner-only, and personal-only. Only the personal-inbox offer reads this, so
+ * on a shared workspace it would be a control with no effect.
+ */
+export const setMeetingsFolder = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    /** A folder, or `null` to go back to the default. */
+    folder: v.union(v.string(), v.null()),
+  },
+  returns: v.object({ folder: v.string() }),
+  handler: async (ctx, args) => {
+    const actorId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    /*
+      The helper, not a literal. `workspaceAuth.ts` is the one place this error
+      is constructed so that "not a member" and "does not exist" stay
+      byte-identical, and `workspaceAuth.test.ts` fails if the string appears
+      anywhere else in `functions/` — which is how this line was caught.
+    */
+    if (workspace === null) throw workspaceNotFound();
+    if (workspace.kind !== "personal") {
+      throw new ConvexError({
+        code: "MEETINGS_FOLDER_NOT_PERSONAL",
+        message:
+          "Meetings are offered your own workspace first, so the folder is a setting on a personal workspace rather than on a shared one.",
+      });
+    }
+
+    /*
+      `null` clears the choice rather than storing the default's spelling. A
+      stored "0-inbox/meetings" would stop following the default if it ever
+      moved, which is how a person who never expressed a preference ends up
+      pinned to an old one.
+    */
+    const folder =
+      args.folder === null ? null : normalizeMeetingFolder(args.folder);
+    if (args.folder !== null && folder === null) {
+      throw new ConvexError({
+        code: "MEETINGS_FOLDER_INVALID",
+        message: "Use a folder inside this context — not the root, and not a note.",
+      });
+    }
+
+    await ctx.db.patch(args.workspaceId, {
+      meetingsFolder: folder ?? undefined,
+      updatedAt: Date.now(),
+    });
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: actorId,
+      action: "meetings.folder_set",
+      details: { meetingsFolder: folder ?? MEETINGS_FOLDER },
+    });
+
+    return { folder: folder ?? MEETINGS_FOLDER };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                        what a workspace looks like                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Choose the emoji this workspace draws in its mark, or go back to the letter.
+ *
+ * ## Why this setting exists
+ *
+ * `WorkspaceMark` derives one letter from the slug, and a person with `@seyi`
+ * and `@supa` gets **S** twice, in the same square, in the same colour, in a
+ * control whose whole job is telling them apart. The letter is a good default
+ * and a poor identity.
+ *
+ * ## Owner-only, like every other fact about the workspace
+ *
+ * An editor writes notes; the workspace's name, its storage and now its face
+ * are the owner's. The line matters more here than for `meetingsFolder`,
+ * because this one is **seen by everybody**: an icon is rendered in the rail of
+ * every member of a shared context, so an editor setting it would be an editor
+ * changing what somebody else's screen looks like.
+ *
+ * ## Why `null` clears rather than storing a letter
+ *
+ * The same argument `setMeetingsFolder` makes about its default: storing the
+ * derived letter would freeze today's derivation, so a workspace that was
+ * renamed — or a change to which letter `WorkspaceMark` picks — would leave an
+ * old answer behind on a row nobody thinks of as holding one. Absent means "no
+ * choice was made", and the mark re-derives every time.
+ *
+ * ## The photo half is not here
+ *
+ * A photo's bytes go in the customer's bucket, so setting one is a file
+ * operation and lives beside its siblings in `files.ts`
+ * (`setWorkspaceIconPhoto`). This writes only what belongs on the row.
+ */
+export const setWorkspaceIcon = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    /** One emoji, or `null` to go back to the letter. */
+    emoji: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const actorId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    /*
+      The helper rather than a literal, so "not a member" and "does not exist"
+      stay byte-identical — `workspaceAuth.test.ts` fails if this string is
+      built anywhere else in `functions/`.
+    */
+    if (workspace === null) throw workspaceNotFound();
+
+    if (args.emoji === null) {
+      /*
+        THE BUCKET OBJECT IS DELIBERATELY LEFT WHERE IT IS.
+
+        Deleting the photo on clear looks tidy and is wrong twice. The store is
+        content-addressed, so those bytes may equally be another workspace's
+        icon in the same bucket or the target of a paste in a note, and a delete
+        here would break both. And it is the customer's bucket: an object we put
+        there is theirs to keep or remove.
+      */
+      await ctx.db.patch(args.workspaceId, { icon: undefined, updatedAt: Date.now() });
+      await recordAudit(ctx, {
+        workspaceId: args.workspaceId,
+        actorUserId: actorId,
+        action: "workspace.icon_cleared",
+        details: { was: workspace.icon?.kind ?? "none" },
+      });
+      return null;
+    }
+
+    /*
+      THE VALIDATOR IS SHARED, AND IT IS STRUCTURAL.
+
+      Not a length check. This value is drawn in an 18pt square on the screen of
+      every member of the workspace, so what has to be refused is not "too long"
+      but "not one glyph": a right-to-left override, a stack of combining marks
+      that draws over the row above, or plain text. `isSingleEmoji` answers that
+      shape question, and the console pre-flights the same function so the
+      picker can never offer what this refuses.
+    */
+    if (!isSingleEmoji(args.emoji)) {
+      throw new ConvexError({
+        code: "WORKSPACE_ICON_INVALID",
+        message: "A workspace icon is a single emoji.",
+      });
+    }
+
+    await ctx.db.patch(args.workspaceId, {
+      icon: { kind: "emoji", emoji: args.emoji },
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: actorId,
+      action: "workspace.icon_set",
+      /*
+        The emoji is in the audit detail; a photo's leaf is too. Neither is note
+        content and neither is a secret — the leaf is a content hash of a
+        picture the workspace already shows everybody — and an audit line
+        reading "an icon was set" answers none of the questions an audit trail
+        is read for.
+      */
+      details: { icon: "emoji", emoji: args.emoji },
+    });
+    return null;
+  },
+});
+
+/**
+ * Record a photo that `setWorkspaceIconPhoto` has already written to the bucket.
+ *
+ * Internal, and it takes a leaf it does not check, which is safe for exactly
+ * one reason: **the only caller has just produced that leaf itself**, from a
+ * content hash, through `workspaceIconLeaf`, and written the object under it.
+ * There is no path from a client argument to this value. If that ever stops
+ * being true this needs the leaf rule applied here as well.
+ *
+ * The role check is repeated rather than trusted. The action checked `owner`
+ * before it wrote the bytes, and this is a second entry point into the same
+ * row — an internal one today, which is a fact about today.
+ */
+export const recordWorkspaceIconPhoto = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    leaf: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireWorkspaceRole(ctx, args.workspaceId, args.actorUserId, "owner");
+    await ctx.db.patch(args.workspaceId, {
+      icon: { kind: "photo", leaf: args.leaf },
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      action: "workspace.icon_set",
+      details: { icon: "photo", leaf: args.leaf },
+    });
+    return null;
+  },
+});
+
+/**
+ * The leaf this workspace's icon photo is stored under, for a caller who may
+ * see this workspace at all.
+ *
+ * **This is the whole security argument for workspace icon photos, so it is
+ * worth being slow about.**
+ *
+ * An image in the opaque store has no visibility of its own — it borrows the
+ * visibility of the notes that reference it, which is what keeps the store from
+ * drifting out of step with `privacy.md`. `readNoteImage` is built on exactly
+ * that: name a note you can see, and the image must be mentioned in it.
+ *
+ * A workspace icon has no note, so that gate cannot answer for it. The
+ * temptation is to relax the gate. What happens instead is that **the caller
+ * never names the object**: this query takes a `workspaceId` and reads the leaf
+ * off the row. There is no argument through which a leaf can be supplied, so
+ * the read path that uses this cannot be turned into a general object reader
+ * however it is called — which makes it strictly narrower than the note path,
+ * not wider. `workspaceIcon.test.ts` pins that by asserting the action's
+ * argument shape as well as its refusals.
+ *
+ * `member` is the floor, and it is the honest one: an icon is drawn in the rail
+ * of everyone who can reach the workspace, so every member is already meant to
+ * see it. A non-member gets `workspaceNotFound` through `requireWorkspaceAccess`
+ * — the same error as for an id that never existed.
+ */
+export const workspaceIconLeaf = internalQuery({
+  args: { workspaceId: v.id("workspaces"), actorUserId: v.id("users") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    /*
+      THE PIN IS REACH WITHOUT A MEMBERSHIP ROW, AND THIS HAS TO KNOW THAT.
+
+      `requireWorkspaceAccess` answers from `workspaceMembers`, and nobody is a
+      member of `@context-lc` — so asking it alone would refuse the one
+      workspace that is in *every* account's rail, after `authorizeFileAccess`
+      (which does know about the pin) had already admitted the caller. The two
+      gates would disagree on exactly one row in the product.
+
+      Tried before the membership read rather than after a caught failure, for
+      the reason `authorizeFileAccess` gives: the refusal is byte-identical for
+      "not a member" and "no such workspace", so catching it would mean guessing
+      which one this was. Asking the narrower question first needs no guess.
+    */
+    if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+      const pinned = await ctx.db.get(args.workspaceId);
+      return pinned?.icon?.kind === "photo" ? pinned.icon.leaf : null;
+    }
+    const { workspace } = await requireWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      args.actorUserId,
+    );
+    return workspace.icon?.kind === "photo" ? workspace.icon.leaf : null;
   },
 });
 

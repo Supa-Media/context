@@ -31,7 +31,7 @@ export function runCalendarContactChecks(check) {
   check("an attendee with no display name falls back to their address", drafts.find((draft) => draft.identifiers[0].value === "priya@example.com")?.name === "priya@example.com");
   check(
     "the activity entry points at the real event anchor and the real day path",
-    drafts[0].activity[0].path === "0-inbox/calendar/2026-09-07.md" && drafts[0].activity[0].channel === "calendar"
+    drafts[0].activity[0].path === "0-inbox/calendar/2026/09/2026-09-07.md" && drafts[0].activity[0].channel === "calendar"
   );
   check("the activity label is the event's own title", drafts[0].activity[0].label === "Quarterly review");
   check("an untitled event still gets a label, never a blank one", contactDraftsFromEvent(meetingEvent({ title: "" }))[0].activity[0].label === "(untitled event)");

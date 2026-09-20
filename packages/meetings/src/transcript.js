@@ -204,6 +204,7 @@ export function speakersIn(segments) {
 /**
  * @typedef {Object} TranscriptTurn
  * @property {string|null} speaker
+ * @property {TranscriptSegment["channel"]} channel Which stream it was heard on.
  * @property {number} startMs
  * @property {number} endMs
  * @property {string} text
@@ -217,6 +218,18 @@ export function speakersIn(segments) {
  * three-word fragments. A speaker change always breaks a turn; a gap longer
  * than `maxGapMs` breaks it too, because a long silence is a hand-back even
  * when the same person resumes.
+ *
+ * **A channel change breaks a turn too, and that is not a tidiness rule.**
+ * Neither transcription engine diarizes: the gateway sets `speaker: null` on
+ * every segment it returns and says so in its own comment, and the on-device
+ * one has nothing to say about who spoke either. So on a two-sided call the
+ * only fact anybody has about *who* is `channel` — this machine's microphone
+ * against the audio it was playing — stamped by the recorder precisely because
+ * "the far end hears one file and cannot know". Merging across it published a
+ * block of text attributed to one speaker, half of which the other side said.
+ * Splitting is the honest floor: what a turn is labelled is a separate
+ * question, and an open one (see `docs/decisions/meetings.md`, *The channel is
+ * the only speaker signal this product has*).
  *
  * @param {TranscriptSegment[]} segments
  * @param {{maxGapMs?: number}} [options]
@@ -233,7 +246,10 @@ export function groupIntoTurns(segments, options = {}) {
   for (const segment of mergeSegments(segments ?? [], [])) {
     const open = turns[turns.length - 1];
     const continues =
-      open !== undefined && open.speaker === segment.speaker && segment.startMs - open.endMs <= maxGapMs;
+      open !== undefined &&
+      open.speaker === segment.speaker &&
+      open.channel === segment.channel &&
+      segment.startMs - open.endMs <= maxGapMs;
     if (continues) {
       open.text = `${open.text} ${segment.text}`;
       open.endMs = Math.max(open.endMs, segment.endMs);
@@ -242,6 +258,7 @@ export function groupIntoTurns(segments, options = {}) {
     }
     turns.push({
       speaker: segment.speaker,
+      channel: segment.channel,
       startMs: segment.startMs,
       endMs: segment.endMs,
       text: segment.text,

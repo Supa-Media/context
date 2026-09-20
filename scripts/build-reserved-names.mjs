@@ -1,0 +1,185 @@
+#!/usr/bin/env node
+/**
+ * Vendor the public username blocklists into a generated file.
+ *
+ *     node scripts/build-reserved-names.mjs
+ *
+ * ## Why vendor at all
+ *
+ * `RESERVED_NAMES` in `apps/convex/functions/lib/names.ts` is hand-written and
+ * every entry there carries a reason. That is the right way to *decide* a name
+ * and a bad way to *cover* the space: measured against the two blocklists most
+ * services vendor, it held 66 of the 834 applicable entries. The other 768 are
+ * names somebody else already got wrong first — `wpad`, `null`, `sudo`,
+ * `paypal`, `autodiscover` — and rediscovering them one incident at a time is
+ * the whole thing a blocklist exists to avoid.
+ *
+ * The hand-written list stays exactly as it is. This is added underneath it, so
+ * the reasoned entries keep their reasons and the bulk arrives as bulk.
+ *
+ * ## Why the whole union rather than a chosen subset
+ *
+ * Pruning means re-deciding 834 times on a judgement the lists already made,
+ * and the names it would buy back are ones nobody is owed. The cost is real but
+ * small and it is stated: `@test`, `@demo`, `@beta` and `@premium` stop being
+ * claimable, along with every HTTP status code and a pile of SSH cipher names
+ * that will never be asked for.
+ *
+ * ## What this cannot promise, stated rather than implied
+ *
+ * `build-editor-bundle.mjs` hashes **repo** files, so its test can recompute
+ * the hash offline and prove the artifact is current. These sources are remote
+ * and CI has no network, so the equivalent guard here is weaker on purpose: the
+ * generated file records each source's URL, its own version marker, and a
+ * SHA-256 of the bytes fetched, and `reservedNames.test.ts` checks the file
+ * against *itself* — that the digest matches the names, so it was not
+ * hand-edited. It does **not** prove the vendored copy matches upstream today.
+ * Re-running this script is what does that, and the recorded digests are what
+ * make the diff readable when somebody does.
+ */
+
+import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, "..");
+const out = join(repoRoot, "apps", "convex", "functions", "lib", "reservedNames.generated.ts");
+
+const SOURCES = [
+  {
+    name: "shouldbee/reserved-usernames",
+    url: "https://raw.githubusercontent.com/shouldbee/reserved-usernames/master/reserved-usernames.txt",
+    note: "URL-collision list: app routes, infrastructure hostnames, placeholders.",
+  },
+  {
+    name: "marteinn/The-Big-Username-Blocklist",
+    url: "https://raw.githubusercontent.com/marteinn/The-Big-Username-Blocklist/master/list_raw.txt",
+    note: "Privileges, code keywords, financial lures, site sections, user actions.",
+  },
+];
+
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+/**
+ * The charset and length `validateName` accepts.
+ *
+ * Entries outside it are dropped rather than transformed: `_domainkey` and
+ * `.well-known` cannot be claimed as written, so reserving a rewritten form of
+ * them would reserve a *different* name under their authority.
+ */
+const CLAIMABLE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
+
+/**
+ * The charset a source's own version marker has to fit.
+ *
+ * `version` is the one field in the emitted record that **upstream** writes:
+ * the others are constants in `SOURCES` or a digest computed here. It is
+ * captured by `/^#\s*VERSION=(\S+)/`, and non-whitespace includes the two
+ * characters that end a block comment — which is the comment this script
+ * interpolates it into, in a file `apps/convex` imports. A remote file could
+ * therefore close that comment and carry on as TypeScript.
+ *
+ * Filtered rather than escaped, matching `CLAIMABLE` above: a marker outside
+ * this charset is not a version we can render, so the digest fallback below
+ * answers instead. Escaping would keep an unreadable string in the record for
+ * no benefit, and the fallback is already the honest answer for a source with
+ * no marker at all.
+ *
+ * `apps/convex/__tests__/reservedNames.test.ts` asserts the same charset on
+ * the committed artifact, because this script does not run in CI and the
+ * artifact is what ships.
+ */
+const SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+:-]{0,63}$/;
+
+async function fetchList(source) {
+  const response = await fetch(source.url);
+  if (!response.ok) throw new Error(`${source.name}: HTTP ${response.status}`);
+  const text = await response.text();
+  const claimed = /^#\s*VERSION=(\S+)/m.exec(text)?.[1];
+  const version =
+    claimed !== undefined && SAFE_VERSION.test(claimed)
+      ? claimed
+      // No marker in this source, or one this cannot render; the digest is the
+      // version. See `SAFE_VERSION`.
+      : `sha256:${sha256(text).slice(0, 12)}`;
+  const names = text
+    .split("\n")
+    .map((line) => line.trim().toLowerCase())
+    .filter((line) => line !== "" && !line.startsWith("#"));
+  return { ...source, version, digest: sha256(text), names, lines: names.length };
+}
+
+const fetched = await Promise.all(SOURCES.map(fetchList));
+
+const union = new Set();
+const dropped = new Set();
+for (const source of fetched) {
+  for (const name of source.names) {
+    if (CLAIMABLE.test(name)) union.add(name);
+    else dropped.add(name);
+  }
+}
+const names = [...union].sort();
+
+const header = fetched
+  .map(
+    (source) =>
+      ` *  - ${source.name}\n` +
+      ` *    ${source.url}\n` +
+      ` *    version ${source.version}, sha256 ${source.digest.slice(0, 16)}…, ${source.lines} entries`,
+  )
+  .join("\n");
+
+const file = `/**
+ * AUTOGENERATED by \`scripts/build-reserved-names.mjs\`. Do not edit by hand.
+ *
+ * The public username blocklists, vendored. See that script for why the whole
+ * union is taken rather than a chosen subset, and for what the digest below
+ * does and does not prove.
+ *
+ * Sources, as fetched:
+ *
+${header}
+ *
+ * ${dropped.size} upstream entries were dropped as unclaimable under this
+ * namespace's own charset and length rules — they could never have been
+ * registered, and reserving a rewritten form of one would reserve a different
+ * name under its authority.
+ */
+
+/** Where the names below came from, so a re-sync is a readable diff. */
+export const VENDORED_BLOCKLIST_SOURCES: ReadonlyArray<{
+  readonly name: string;
+  readonly url: string;
+  readonly version: string;
+  readonly digest: string;
+  readonly note: string;
+}> = [
+${fetched
+  .map(
+    (source) =>
+      `  {\n    name: ${JSON.stringify(source.name)},\n    url: ${JSON.stringify(source.url)},\n    version: ${JSON.stringify(source.version)},\n    digest: ${JSON.stringify(source.digest)},\n    note: ${JSON.stringify(source.note)},\n  },`,
+  )
+  .join("\n")}
+];
+
+/**
+ * SHA-256 of the names below, joined by newline.
+ *
+ * Checked by \`reservedNames.test.ts\` so a hand-edit of this file fails rather
+ * than quietly un-reserving a name. It says nothing about whether the vendored
+ * copy still matches upstream; re-running the script is what answers that.
+ */
+export const VENDORED_BLOCKLIST_DIGEST = ${JSON.stringify(sha256(names.join("\n")))};
+
+export const VENDORED_BLOCKLIST: readonly string[] = [
+${names.map((name) => `  ${JSON.stringify(name)},`).join("\n")}
+];
+`;
+
+writeFileSync(out, file);
+console.log(
+  `wrote ${out.replace(`${repoRoot}/`, "")} — ${names.length} names from ${fetched.length} sources, ${dropped.size} dropped as unclaimable`,
+);

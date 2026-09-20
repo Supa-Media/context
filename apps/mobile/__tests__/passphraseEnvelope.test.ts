@@ -197,12 +197,96 @@ describe("what the console refuses", () => {
           { ...parseEncryptedNote(VECTOR.document)!.recipients[0], kdf: { ...VECTOR.kdf, ...kdf } },
         ],
       });
-    for (const bad of [{ m: 4194304 }, { m: 1 }, { t: 100000 }, { v: 0x10 }, { salt: "AA" }]) {
+    for (const bad of [
+      { m: 4194304 },
+      { m: 1 },
+      { t: 100000 },
+      { v: 0x10 },
+      { salt: "AA" },
+      /*
+        THE LANE FLOOR NEEDS MORE THAN ONE LANE TO BE VISIBLE.
+
+        `m: 1` above is the only other case aimed at `m < 8 * p`, and it cannot
+        reach it: with `p: 1` the floor is 8 KiB, exactly the flat minimum, so
+        the minimum refuses first and the floor never runs. Deleting the floor
+        left the whole mobile suite green.
+
+        **Masking, not subsumption** — an isolating input exists, because any
+        `p > 1` lifts the floor above the minimum. `m: 8, p: 2` is inside every
+        other bound and below argon2's requirement for the lanes it asks for.
+      */
+      { m: 8, p: 2 },
+    ]) {
       expect(() => parseEncryptedNote(of(bad))).toThrow(NoteCryptoError);
       // ...and the gateway agrees, which is what stops one of them storing what
       // the other cannot read.
       expect(() => gateway.parseEncryptedNote(of(bad))).toThrow();
     }
+  });
+
+  it("refuses a malformed IV by the IV guard, before Web Crypto is asked", async () => {
+    /*
+      The same shape the gateway's own suite carried until this was measured:
+      a check that only asked whether *something* threw could not tell the
+      guard's refusal from AES-GCM's authentication failure downstream, because
+      `decryptWithPassphrase` turns both into a `NoteCryptoError`.
+
+      So this reads the message, which separates them, and counts calls into
+      `crypto.subtle.decrypt`. The count is the half the name is about:
+      `assertIv` sits in the *argument* to that call, so argument evaluation is
+      what makes "before it is asked" true rather than a figure of speech.
+    */
+    const document = await encryptForPassphrase(PLAINTEXT, {
+      workspaceId: WORKSPACE,
+      kek: kek(11),
+      kdf: CHEAP_KDF,
+    });
+    const shortIv = renderEncryptedNote({
+      ...parseEncryptedNote(document)!,
+      iv: parseEncryptedNote(document)!.iv.slice(0, 4),
+    });
+
+    const real = globalThis.crypto.subtle.decrypt.bind(globalThis.crypto.subtle);
+    let calls = 0;
+    const spy = (...args: Parameters<SubtleCrypto["decrypt"]>) => {
+      calls += 1;
+      return real(...args);
+    };
+    (globalThis.crypto.subtle as unknown as { decrypt: unknown }).decrypt = spy;
+    let error: unknown;
+    try {
+      error = await decryptWithPassphrase(shortIv, {
+        workspaceId: WORKSPACE,
+        kek: kek(11),
+      }).catch((thrown: unknown) => thrown);
+    } finally {
+      (globalThis.crypto.subtle as unknown as { decrypt: unknown }).decrypt = real;
+    }
+
+    expect(error).toBeInstanceOf(NoteCryptoError);
+    expect((error as NoteCryptoError).message).toMatch(/malformed IV/);
+    // One call unwraps the note key. The body's decrypt must never be reached.
+    expect(calls).toBe(1);
+  });
+
+  it("refuses a recipient that claims another algorithm", () => {
+    /*
+      Nothing checked this in any of the three runtimes. A recipient claiming a
+      different algorithm is malformed — this build wraps note keys one way —
+      and a build that shrugged at the label would unwrap it as A256GCM anyway,
+      turning a structural refusal into an authentication failure further in.
+
+      Asserted on the message, because `parseEncryptedNote` throws for a dozen
+      reasons and "it threw" is satisfied by every one of them.
+    */
+    const foreign = renderEncryptedNote({
+      ...parseEncryptedNote(VECTOR.document)!,
+      recipients: [{ ...parseEncryptedNote(VECTOR.document)!.recipients[0], alg: "A128GCM" }],
+    });
+    expect(() => parseEncryptedNote(foreign)).toThrow(/unsupported algorithm/);
+    // ...and the gateway agrees, which is what stops one storing what the other
+    // cannot read.
+    expect(() => gateway.parseEncryptedNote(foreign)).toThrow(/unsupported algorithm/);
   });
 
   it("refuses an envelope version it does not know rather than guessing", () => {

@@ -301,125 +301,135 @@ export function argon2id(input: Argon2idInput): Uint8Array {
   const laneLength = segmentLength * SLICES;
   const blocks = laneLength * parallelism;
   const words = new Uint32Array(blocks * WORDS_PER_BLOCK);
-
-  // The two seed blocks per lane.
   const seed = new Uint8Array(72);
-  seed.set(h0, 0);
-  for (let lane = 0; lane < parallelism; lane += 1) {
-    seed.set(le32(lane), 68);
-    for (const index of [0, 1]) {
-      seed.set(le32(index), 64);
-      const block = hashPrime(1024, seed);
-      const at = (lane * laneLength + index) * WORDS_PER_BLOCK;
-      for (let i = 0; i < WORDS_PER_BLOCK; i += 1) {
-        const o = i * 4;
-        words[at + i] =
-          block[o] ^ (block[o + 1] << 8) ^ (block[o + 2] << 16) ^ (block[o + 3] << 24);
-      }
-    }
-  }
-
   const zeroBlock = new Uint32Array(WORDS_PER_BLOCK);
   const inputBlock = new Uint32Array(WORDS_PER_BLOCK);
   const addressBlock = new Uint32Array(WORDS_PER_BLOCK);
+  const final = new Uint32Array(WORDS_PER_BLOCK);
+  const finalBytes = new Uint8Array(1024);
 
-  for (let pass = 0; pass < iterations; pass += 1) {
-    for (let slice = 0; slice < SLICES; slice += 1) {
-      for (let lane = 0; lane < parallelism; lane += 1) {
-        // Argon2id: data-independent addressing for the first half of the first
-        // pass, data-dependent afterwards. That split is the whole of the "id".
-        const independent = pass === 0 && slice < SLICES / 2;
-        if (independent) {
-          inputBlock.fill(0);
-          inputBlock[0] = pass;
-          inputBlock[2] = lane;
-          inputBlock[4] = slice;
-          inputBlock[6] = blocks;
-          inputBlock[8] = iterations;
-          inputBlock[10] = TYPE_ARGON2ID;
-          inputBlock[12] = 0;
-        }
-
-        let index = pass === 0 && slice === 0 ? 2 : 0;
-        if (independent && index === 2) nextAddresses(inputBlock, addressBlock, zeroBlock);
-
-        for (; index < segmentLength; index += 1) {
-          const current = lane * laneLength + slice * segmentLength + index;
-          const previous = current % laneLength === 0 ? current + laneLength - 1 : current - 1;
-
-          let j1: number;
-          let j2: number;
-          if (independent) {
-            if (index % ADDRESSES_PER_BLOCK === 0) {
-              nextAddresses(inputBlock, addressBlock, zeroBlock);
-            }
-            j1 = addressBlock[(index % ADDRESSES_PER_BLOCK) * 2];
-            j2 = addressBlock[(index % ADDRESSES_PER_BLOCK) * 2 + 1];
-          } else {
-            j1 = words[previous * WORDS_PER_BLOCK];
-            j2 = words[previous * WORDS_PER_BLOCK + 1];
+  try {
+    // The two seed blocks per lane.
+    seed.set(h0, 0);
+    for (let lane = 0; lane < parallelism; lane += 1) {
+      seed.set(le32(lane), 68);
+      for (const index of [0, 1]) {
+        seed.set(le32(index), 64);
+        const block = hashPrime(1024, seed);
+        try {
+          const at = (lane * laneLength + index) * WORDS_PER_BLOCK;
+          for (let i = 0; i < WORDS_PER_BLOCK; i += 1) {
+            const o = i * 4;
+            words[at + i] =
+              block[o] ^ (block[o + 1] << 8) ^ (block[o + 2] << 16) ^ (block[o + 3] << 24);
           }
-
-          const refLane = pass === 0 && slice === 0 ? lane : (j2 >>> 0) % parallelism;
-          const sameLane = refLane === lane;
-          let areaSize: number;
-          if (pass === 0) {
-            if (slice === 0) areaSize = index - 1;
-            else if (sameLane) areaSize = slice * segmentLength + index - 1;
-            else areaSize = slice * segmentLength + (index === 0 ? -1 : 0);
-          } else if (sameLane) {
-            areaSize = laneLength - segmentLength + index - 1;
-          } else {
-            areaSize = laneLength - segmentLength + (index === 0 ? -1 : 0);
-          }
-
-          let relative = mulShift32(j1 >>> 0, j1 >>> 0);
-          relative = areaSize - 1 - mulShift32(areaSize, relative);
-          const start =
-            pass === 0 ? 0 : slice === SLICES - 1 ? 0 : (slice + 1) * segmentLength;
-          const reference = refLane * laneLength + ((start + relative) % laneLength);
-
-          fillBlock(
-            words,
-            previous * WORDS_PER_BLOCK,
-            words,
-            reference * WORDS_PER_BLOCK,
-            words,
-            current * WORDS_PER_BLOCK,
-            pass !== 0,
-          );
+        } finally {
+          block.fill(0);
         }
       }
     }
-  }
 
-  // The last block of every lane, XORed together, hashed to the tag.
-  const final = new Uint32Array(WORDS_PER_BLOCK);
-  for (let lane = 0; lane < parallelism; lane += 1) {
-    const at = (lane * laneLength + laneLength - 1) * WORDS_PER_BLOCK;
-    for (let i = 0; i < WORDS_PER_BLOCK; i += 1) final[i] = final[i] ^ words[at + i];
-  }
-  const finalBytes = new Uint8Array(1024);
-  for (let i = 0; i < WORDS_PER_BLOCK; i += 1) {
-    const o = i * 4;
-    finalBytes[o] = final[i] & 0xff;
-    finalBytes[o + 1] = (final[i] >>> 8) & 0xff;
-    finalBytes[o + 2] = (final[i] >>> 16) & 0xff;
-    finalBytes[o + 3] = (final[i] >>> 24) & 0xff;
-  }
+    for (let pass = 0; pass < iterations; pass += 1) {
+      for (let slice = 0; slice < SLICES; slice += 1) {
+        for (let lane = 0; lane < parallelism; lane += 1) {
+          // Argon2id: data-independent addressing for the first half of the first
+          // pass, data-dependent afterwards. That split is the whole of the "id".
+          const independent = pass === 0 && slice < SLICES / 2;
+          if (independent) {
+            inputBlock.fill(0);
+            inputBlock[0] = pass;
+            inputBlock[2] = lane;
+            inputBlock[4] = slice;
+            inputBlock[6] = blocks;
+            inputBlock[8] = iterations;
+            inputBlock[10] = TYPE_ARGON2ID;
+            inputBlock[12] = 0;
+          }
 
-  // Nothing here is a secret this process gets to keep: the memory holds the
-  // whole derivation, and a lingering copy of it is a lingering copy of the
-  // passphrase's strength. Zeroing is best-effort in a garbage-collected
-  // runtime and is done anyway, because the alternative is not doing it.
-  const tag = hashPrime(tagLength, finalBytes);
-  words.fill(0);
-  final.fill(0);
-  finalBytes.fill(0);
-  blockR.fill(0);
-  blockTmp.fill(0);
-  p.fill(0);
-  return tag;
+          let index = pass === 0 && slice === 0 ? 2 : 0;
+          if (independent && index === 2) nextAddresses(inputBlock, addressBlock, zeroBlock);
+
+          for (; index < segmentLength; index += 1) {
+            const current = lane * laneLength + slice * segmentLength + index;
+            const previous = current % laneLength === 0 ? current + laneLength - 1 : current - 1;
+
+            let j1: number;
+            let j2: number;
+            if (independent) {
+              if (index % ADDRESSES_PER_BLOCK === 0) {
+                nextAddresses(inputBlock, addressBlock, zeroBlock);
+              }
+              j1 = addressBlock[(index % ADDRESSES_PER_BLOCK) * 2];
+              j2 = addressBlock[(index % ADDRESSES_PER_BLOCK) * 2 + 1];
+            } else {
+              j1 = words[previous * WORDS_PER_BLOCK];
+              j2 = words[previous * WORDS_PER_BLOCK + 1];
+            }
+
+            const refLane = pass === 0 && slice === 0 ? lane : (j2 >>> 0) % parallelism;
+            const sameLane = refLane === lane;
+            let areaSize: number;
+            if (pass === 0) {
+              if (slice === 0) areaSize = index - 1;
+              else if (sameLane) areaSize = slice * segmentLength + index - 1;
+              else areaSize = slice * segmentLength + (index === 0 ? -1 : 0);
+            } else if (sameLane) {
+              areaSize = laneLength - segmentLength + index - 1;
+            } else {
+              areaSize = laneLength - segmentLength + (index === 0 ? -1 : 0);
+            }
+
+            let relative = mulShift32(j1 >>> 0, j1 >>> 0);
+            relative = areaSize - 1 - mulShift32(areaSize, relative);
+            const start =
+              pass === 0 ? 0 : slice === SLICES - 1 ? 0 : (slice + 1) * segmentLength;
+            const reference = refLane * laneLength + ((start + relative) % laneLength);
+
+            fillBlock(
+              words,
+              previous * WORDS_PER_BLOCK,
+              words,
+              reference * WORDS_PER_BLOCK,
+              words,
+              current * WORDS_PER_BLOCK,
+              pass !== 0,
+            );
+          }
+        }
+      }
+    }
+
+    // The last block of every lane, XORed together, hashed to the tag.
+    for (let lane = 0; lane < parallelism; lane += 1) {
+      const at = (lane * laneLength + laneLength - 1) * WORDS_PER_BLOCK;
+      for (let i = 0; i < WORDS_PER_BLOCK; i += 1) final[i] = final[i] ^ words[at + i];
+    }
+    for (let i = 0; i < WORDS_PER_BLOCK; i += 1) {
+      const o = i * 4;
+      finalBytes[o] = final[i] & 0xff;
+      finalBytes[o + 1] = (final[i] >>> 8) & 0xff;
+      finalBytes[o + 2] = (final[i] >>> 16) & 0xff;
+      finalBytes[o + 3] = (final[i] >>> 24) & 0xff;
+    }
+
+    // Nothing here is a secret this process gets to keep: the memory holds the
+    // whole derivation, and a lingering copy of it is a lingering copy of the
+    // passphrase's strength. Zeroing is best-effort in a garbage-collected
+    // runtime and is done anyway, because the alternative is not doing it.
+    return hashPrime(tagLength, finalBytes);
+  } finally {
+    h0.fill(0);
+    words.fill(0);
+    seed.fill(0);
+    zeroBlock.fill(0);
+    inputBlock.fill(0);
+    addressBlock.fill(0);
+    final.fill(0);
+    finalBytes.fill(0);
+    blockR.fill(0);
+    blockTmp.fill(0);
+    p.fill(0);
+  }
 }
 
 /** RFC 9106's `next_addresses`: two compressions over a counter block. */

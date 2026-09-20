@@ -69,7 +69,12 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
-import { mailConnectEnabled } from "./googleConnect";
+import {
+  accountSlugFor,
+  defaultGoogleDestinationFolder,
+  mailConnectEnabled,
+  takenAccountSlugs,
+} from "./googleConnect";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -223,6 +228,9 @@ export const parkChatAttempt = internalMutation({
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
     redirectUri: v.string(),
+    flow: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+    ),
     products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
   },
   returns: v.null(),
@@ -249,6 +257,7 @@ export const parkChatAttempt = internalMutation({
       workspaceId: args.workspaceId,
       startedBy: args.startedBy,
       redirectUri: args.redirectUri,
+      flow: args.flow,
       products: args.products,
       expiresAt: now + ATTEMPT_TTL_MS,
       createdAt: now,
@@ -332,6 +341,7 @@ export const startChatConnect = action({
       workspaceId: args.workspaceId,
       startedBy: userId,
       redirectUri: args.redirectUri,
+      flow: "chat",
       products,
     });
 
@@ -576,6 +586,26 @@ export const applyChatConnectionBinding = internalMutation({
         spaceSettings: existing?.chat?.spaceSettings,
         cursors: existing?.chat?.cursors,
         nonceSeed: existing?.chat?.nonceSeed ?? generateNonceSeed(),
+        // Recorded at connect, the way Gmail's always has been, rather than
+        // left absent for `defaultGoogleDestinationFolder` to answer again on
+        // every pass. A Chat pass re-renders every day the contribution store
+        // still holds, so a later edit to that constant would rewrite a year
+        // of somebody's conversations at new keys — and an exception they had
+        // set on one of those days (`note_overrides` names one exact path)
+        // would not follow, the way `remapPrivacy` makes it follow a move.
+        /*
+          This account's own folder, since 2026-09-18 — two Google accounts
+          used to write one file between them, which no folder rule in
+          `privacy.md` could tell apart. Recorded here, like every other
+          destination, so a later connect or disconnect can never rename the
+          folder somebody's chat is already in.
+        */
+        destinationFolder:
+          existing?.chat?.destinationFolder ??
+          defaultGoogleDestinationFolder(
+            "chat",
+            accountSlugFor(args.address, existing, await takenAccountSlugs(ctx, args.workspaceId, args.address)),
+          ),
         lastSyncedAt: existing?.chat?.lastSyncedAt,
       },
       health: (starved.length ? "reconnect_required" : "backfilling") as
@@ -649,13 +679,11 @@ export const setChatSpaceState = mutation({
 });
 
 /**
- * Record the cursors a completed sync pass advanced to. Called by whatever
- * schedules `apps/mcp`'s `syncGoogleChat` with the `cursors` it returned —
- * not yet built; see `docs/decisions/communications.md`, "What phase 1 does
- * NOT wire up" for the identical gap Gmail's own sync has. Merges rather than
- * replaces, so a sync pass that only touched some of this connection's
- * spaces cannot clobber another space's cursor from a concurrent or partial
- * run.
+ * Record cursors from a completed Chat pass. The scheduled account runner now
+ * commits through `googleSync.recordGoogleForwardSyncPass` so the cursor and
+ * account-level schedule move together; this narrower helper remains for an
+ * internal partial-space caller. It merges rather than replaces, so a pass
+ * that touched only some spaces cannot clobber another space's cursor.
  */
 export const recordChatCursors = internalMutation({
   args: { connectionId: v.id("googleConnections"), cursors: v.record(v.string(), v.string()) },

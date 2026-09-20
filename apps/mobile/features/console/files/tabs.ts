@@ -1,12 +1,17 @@
 /**
  * Open tabs, as data.
  *
- * The console keeps several notes open at once, and the same model drives both
- * shapes of the UI: a tab strip on desktop, and on mobile the Obsidian
- * arrangement — a count button in the bottom toolbar that opens a switcher
- * sheet. Neither shape is in here. There is no React, no React Native and no
- * DOM in this file, because the transitions worth being sure about are not
- * visual ones:
+ * The console keeps several notes open at once, behind a tab strip. **On a
+ * pointer only** — a phone used to draw a count button and a switcher sheet
+ * over this same state, and could not open a second tab to put in them: the
+ * only verb that does is web-gated in `menu.ts`, on a row menu inside an
+ * Explorer that `frame.ts` hides at compact. The count read `1` for the life of
+ * the app. That half is now `files/RecentSheet.tsx`, over `history.ts`, and
+ * nothing here changed to make it so.
+ *
+ * No shape of the UI is in this file. There is no React, no React Native and no
+ * DOM in it, because the transitions worth being sure about are not visual
+ * ones:
  *
  *  - **Closing the active tab.** Which tab you land on afterwards is the
  *    difference between "that was fine" and "where did my place go" — the
@@ -31,7 +36,9 @@
  * deliberately untouched here.
  */
 
-import { baseName, parentPath } from "./paths";
+import { drawingName } from "@context/drawings";
+
+import { baseName, parentPath, withoutSortPrefix } from "./paths";
 import type { FolderListing } from "./types";
 
 export interface Tab {
@@ -63,13 +70,49 @@ export const emptyTabs: TabsState = { tabs: [], activePath: null, closed: [] };
 export const MAX_REOPENABLE = 10;
 
 export type TabsAction =
-  | { type: "opened"; path: string; mode: "preview" | "pinned" }
+  | {
+      type: "opened";
+      path: string;
+      mode: "preview" | "pinned";
+      /**
+       * Where a *new* tab goes in the strip.
+       *
+       * `"end"`, the default, appends — which is what walking a folder or
+       * reopening with ⌘⇧T wants, because a tab that appears in the middle of
+       * a strip you were reading left to right is a tab you have to find.
+       *
+       * `"afterActive"` puts it immediately right of the tab it came from, and
+       * is what **following a link** asks for: the note you are reading and
+       * the note it sent you to are one thing, and they belong next to each
+       * other however many tabs are open beyond them. Browsers have done this
+       * with a followed link for fifteen years.
+       */
+      at?: "end" | "afterActive";
+      /**
+       * Whether the strip moves to it. Default `true`.
+       *
+       * `false` is ⌘-click: the tab opens and the person stays where they
+       * were. It is the whole of what "open behind" means in a data structure
+       * — and it has to be expressible here rather than by re-activating the
+       * old tab afterwards, because that second dispatch is a second render in
+       * which the strip has already moved.
+       */
+      activate?: boolean;
+    }
   | { type: "pinned"; path: string }
   /** Marks the tab dirty and pins it. */
   | { type: "edited"; path: string }
   | { type: "saved"; path: string }
   | { type: "closed"; path: string }
   | { type: "closedOthers"; path: string }
+  /**
+   * Close everything to the right of a tab, keeping it and everything left.
+   *
+   * The close "Close others" cannot express: it takes the tabs on the left too,
+   * and those are usually the ones still being worked through. Six tabs opened
+   * from a search and one of them worth keeping is the case.
+   */
+  | { type: "closedToRight"; path: string }
   | { type: "reopened" }
   | { type: "activated"; path: string }
   /** A rename must follow the tab, draft and all. */
@@ -119,8 +162,25 @@ function without(state: TabsState, path: string): { tabs: Tab[]; activePath: str
   return { tabs, activePath: neighbour?.path ?? null };
 }
 
+/** Insert a tab at the end, or immediately right of the active one. */
+function placed(tabs: readonly Tab[], tab: Tab, at: "end" | "afterActive", active: string | null): Tab[] {
+  if (at === "end") return [...tabs, tab];
+  const source = tabs.findIndex((existing) => existing.path === active);
+  // No active tab is the first tab in an empty strip, and "right of nothing"
+  // is the end. Falling through rather than refusing keeps the link-following
+  // path working on a strip somebody has just emptied.
+  if (source < 0) return [...tabs, tab];
+  return [...tabs.slice(0, source + 1), tab, ...tabs.slice(source + 1)];
+}
+
 /** Open a path, or activate it if it is already open. */
-function open(state: TabsState, path: string, mode: "preview" | "pinned"): TabsState {
+function open(
+  state: TabsState,
+  path: string,
+  mode: "preview" | "pinned",
+  at: "end" | "afterActive" = "end",
+  activate = true,
+): TabsState {
   const existing = state.tabs.find((tab) => tab.path === path);
   if (existing) {
     // Never a duplicate, and never a demotion: a tab you pinned stays pinned
@@ -128,12 +188,22 @@ function open(state: TabsState, path: string, mode: "preview" | "pinned"): TabsS
     const tabs = existing.preview && mode === "pinned"
       ? state.tabs.map((tab) => (tab.path === path ? { ...tab, preview: false } : tab))
       : state.tabs;
-    return { ...state, tabs, activePath: path };
+    /*
+      A background open of a note that is *already* open moves nothing at all,
+      which is the only reading of ⌘-click that does not surprise: the tab is
+      there, you asked not to go to it, and the answer is that you are still
+      where you were.
+    */
+    return { ...state, tabs, activePath: activate ? path : state.activePath };
   }
 
   const tab: Tab = { path, preview: mode === "preview", dirty: false };
   if (mode === "pinned") {
-    return { ...state, tabs: [...state.tabs, tab], activePath: path };
+    return {
+      ...state,
+      tabs: placed(state.tabs, tab, at, state.activePath),
+      activePath: activate ? path : state.activePath,
+    };
   }
 
   // There is only ever one preview tab, and a new preview takes its slot rather
@@ -143,9 +213,9 @@ function open(state: TabsState, path: string, mode: "preview" | "pinned"): TabsS
   // typing into a preview tab pins it (see `edited`).
   const slot = state.tabs.findIndex((existingTab) => existingTab.preview);
   const tabs = slot < 0
-    ? [...state.tabs, tab]
+    ? placed(state.tabs, tab, at, state.activePath)
     : state.tabs.map((existingTab, index) => (index === slot ? tab : existingTab));
-  return { ...state, tabs, activePath: path };
+  return { ...state, tabs, activePath: activate ? path : state.activePath };
 }
 
 /** A change to one open tab. Unknown paths are a no-op, not a crash. */
@@ -162,7 +232,7 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
     case "reset":
       return emptyTabs;
     case "opened":
-      return open(state, action.path, action.mode);
+      return open(state, action.path, action.mode, action.at ?? "end", action.activate ?? true);
 
     case "pinned":
       return amend(state, action.path, { preview: false });
@@ -181,8 +251,8 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       // A dirty tab closes. Whether to ask first is a question about a modal,
       // and a modal decision has no business living inside a data structure —
       // the reducer publishes `dirty`, `dirtyCount` and `isTabDirty`, and the
-      // UI confirms before dispatching. For a long time nothing did: the ×,
-      // the switcher sheet and ⌘W all reached this case directly, and this
+      // UI confirms before dispatching. For a long time nothing did: the × and
+      // ⌘W both reached this case directly, and this
       // paragraph described a guard that was never written. See
       // `app/(app)/console/_layout.tsx`, which now asks. A reducer that refused would also be undoable only
       // by a second, differently-named action, which is how "close anyway"
@@ -202,6 +272,36 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
         tabs: [{ ...kept, preview: false }],
         activePath: kept.path,
         closed: remember(state.closed, others.map((tab) => tab.path)),
+      };
+    }
+
+    case "closedToRight": {
+      const at = state.tabs.findIndex((tab) => tab.path === action.path);
+      if (at === -1) return state;
+      const dropped = state.tabs.slice(at + 1);
+      // The rightmost tab has nothing to its right. Returning `state` itself
+      // rather than an equal copy keeps the strip from re-rendering and keeps
+      // the reopen stack from growing an empty entry.
+      if (dropped.length === 0) return state;
+      const kept = state.tabs.slice(0, at + 1);
+      return {
+        tabs: kept,
+        /*
+          The active tab may be one of the ones that went, and it must not be
+          left pointing outside the strip — that is a pane drawing a note with
+          nothing selected above it. It falls back to the tab you kept, which is
+          the one under the pointer and the only defensible choice.
+
+          A tab to the *left* of the cut is still in `kept`, so it stays where
+          it was: this close is about the right-hand side and must not move
+          somebody off what they were reading.
+        */
+        activePath: kept.some((tab) => tab.path === state.activePath)
+          ? state.activePath
+          : action.path,
+        // In strip order, like `closedOthers`, so ⌘⇧T walks left to right and
+        // rebuilds the strip in the order it had.
+        closed: remember(state.closed, dropped.map((tab) => tab.path)),
       };
     }
 
@@ -260,7 +360,6 @@ export function tabAt(state: TabsState, index: number): string | null {
   return state.tabs[index].path;
 }
 
-/** What the tab strip and the mobile count button show. */
 /**
  * Whether closing this tab would throw a draft away.
  *
@@ -318,15 +417,29 @@ export function dirtyCount(state: TabsState): number {
  * noise — except when two open tabs share one, which in a PARA context is
  * routine (`1-projects/notes.md` and `2-areas/notes.md`). Then both get their
  * folder, and neither is a coin toss.
+ *
+ * `drawingName` rather than a `.md` trim, because a drawing carries two
+ * extensions: `plan.excalidraw.md` is a file called `plan`, and it is the same
+ * trim `noteHeading` and `crumbsFor` make. Using it for the collision test too
+ * is what keeps `plan.md` and `plan.excalidraw.md` from opening as two tabs
+ * that look identical.
+ *
+ * `withoutSortPrefix` for the same reason and in the same two places. A sort
+ * number is filing rather than a name, so a tab drawn `1-plan` names the folder
+ * it sits in twice over — and the collision test has to make the same trim, or
+ * `1-plan.md` and `plan.md` open as two tabs both labelled `plan`. The folder
+ * that disambiguates them is trimmed too: the qualifier exists to say *which*
+ * `plan`, and `1-projects/plan` beside `2-areas/plan` answers that with
+ * `projects/plan` and `areas/plan`.
  */
 export function tabLabel(state: TabsState, path: string): string {
-  const name = baseName(path).replace(/\.md$/i, "");
+  const name = withoutSortPrefix(drawingName(path));
   const ambiguous = state.tabs.some(
-    (tab) => tab.path !== path && baseName(tab.path).replace(/\.md$/i, "") === name,
+    (tab) => tab.path !== path && withoutSortPrefix(drawingName(tab.path)) === name,
   );
   if (!ambiguous) return name;
   const folder = parentPath(path);
-  return folder === "" ? name : `${baseName(folder)}/${name}`;
+  return folder === "" ? name : `${withoutSortPrefix(baseName(folder))}/${name}`;
 }
 
 /**

@@ -261,12 +261,57 @@
  * `status` must be `"active"` for the gateway to build a store. Any other value
  * — `"pending"`, `"failed"`, `"disconnected"` — is treated exactly like `null`.
  *
- * `capabilities.conditionalWrite` is the *probed* capability, not an
- * aspiration. B2 and Wasabi accept `If-Match` and ignore it, so the control
- * plane starts a binding at `false` and only a real probe may turn it on.
+ * `capabilities.conditionalWrite`, `capabilities.conditionalCreate`,
+ * `capabilities.conditionalDelete`, and `capabilities.serverSideCopy` are
+ * *probed* capabilities, not aspirations. B2 and Wasabi accept conditional
+ * headers and ignore some of them, so the control plane starts a binding at
+ * `false` and only a real probe may turn it on.
  *
  * **This response contains a decrypted secret. It is fetched per request and
  * never cached.** See `session.js` for why.
+ *
+ * ----------------------------------------------------------------------------
+ * 2c. POST /gateway/provider — fetch a workspace's model account
+ * ----------------------------------------------------------------------------
+ * request:
+ *   { "accessToken":         "<the same bearer token, verbatim>",
+ *     "expectedWorkspaceId": "<id the gateway believes this is>" | null,
+ *     "provider":            "anthropic" | "openai" }
+ *
+ * response 200:
+ *   { "credential": { "provider": "anthropic", "apiKey": "<the key>" } }
+ *   { "credential": null }
+ *
+ * The customer connects their own Anthropic or OpenAI account and the agent
+ * spends it — their bill, no markup, nothing a cancellation of ours could
+ * strand. So this response carries a credential, and every rule route 2 states
+ * applies here word for word: the gateway secret first, an independent
+ * resolution of `accessToken` to a live grant second, the workspace derived
+ * from *that grant*, and `expectedWorkspaceId` selecting only within the set
+ * that grant covers. There must be no code path in which it selects a row.
+ *
+ * **Everything that is not a hit is `{ "credential": null }`** — an unknown
+ * token, an expired or revoked grant, a workspace outside the set, a provider
+ * this build does not know, a provider nobody connected, and a decrypt that
+ * failed. A caller must not be able to tell those apart; in particular the
+ * provider set must not be enumerable by asking.
+ *
+ * **Two flat fields, and nothing beside them.** No workspace id, no
+ * fingerprint, no grant id. That is not tidiness: #661 was a `v.object` whose
+ * shape drifted, and the validation error serialized everything the object
+ * carried — including a live storage secret — into the production logs. A
+ * response shape with nothing in it but the credential is one that cannot
+ * spill a second thing.
+ *
+ * It is a route rather than another sibling on route 2 for the same reason.
+ * `searchIndex`, `encryptionKey` and `rotation` all became siblings there to
+ * avoid opening a new door; a model key folded in would share a returns
+ * validator with `secretAccessKey`, so one drift could spill both. It also
+ * means the key is opened only by the request that is about to spend it, not
+ * on every ordinary MCP call.
+ *
+ * **This response contains a decrypted secret. It is fetched per request and
+ * never cached.**
  *
  * ----------------------------------------------------------------------------
  * 3. POST /gateway/clients/register — RFC 7591 dynamic client registration
@@ -713,6 +758,44 @@ export function createControlPlane(env, options = {}) {
       };
     },
 
+    /**
+     * Fetch the model account for the workspace **the user's token names**.
+     *
+     * A route of its own rather than a fifth sibling on `/gateway/binding`, and
+     * `apps/convex/http.ts`'s own header for `/gateway/provider` carries the
+     * argument: folding a model key into `openStorageBinding`'s return would
+     * put it inside the same `v.object` as `secretAccessKey`, where #661 showed
+     * that one drifted field serializes everything beside it into a log. Two
+     * flat fields behind their own door is the smaller blast radius, and the
+     * door spends the identical two proofs this file's contract already
+     * describes — the gateway secret, and the user's access token, with
+     * `expectedWorkspaceId` selecting inside the token's own set and never
+     * outside it.
+     *
+     * It also means the key is opened only by the request about to spend it,
+     * rather than decrypted on every `list_notes` in the product.
+     *
+     * `credential` keeps `required`'s null-vs-missing discipline: an explicit
+     * `null` is "nothing connected, or nothing you may reach", and a *missing*
+     * key is a control plane answering some other contract, which must not be
+     * read as "no credential" — for the reason `required` gives.
+     *
+     * @param {string} accessToken the bearer token exactly as presented
+     * @param {string|null} expectedWorkspaceId the gateway's own conclusion
+     * @param {string} provider "anthropic" or "openai"; the closed set is the
+     *   control plane's, and an unknown one comes back `null` rather than as a
+     *   distinguishable error
+     * @returns {Promise<{provider: string, apiKey: string}|null>}
+     */
+    async getProviderCredential(accessToken, expectedWorkspaceId, provider) {
+      const parsed = await post("/gateway/provider", {
+        accessToken,
+        expectedWorkspaceId,
+        provider,
+      });
+      return required(parsed, "credential");
+    },
+
     async registerClient(registration) {
       const parsed = await post("/gateway/clients/register", registration);
       if (required(parsed, "ok") !== true) throw new ControlPlaneError("registration refused");
@@ -814,6 +897,107 @@ export function createControlPlane(env, options = {}) {
         state: progress.state,
         errorCode: progress.errorCode,
       });
+    },
+
+    /**
+     * Say that a line landed in this context's `activity.md`.
+     *
+     * A workspace id and a tier, and it could not be more: what changed, who
+     * changed it and where are in the customer's bucket, and this route exists
+     * for a single pixel — the dot on another workspace's mark, which the
+     * console draws from the workspace row rather than by opening every bucket
+     * it can reach. The control plane takes the timestamp itself.
+     *
+     * The tier is not a fact about the note. It says which of the two stamps
+     * on the workspace row may move: a member who is not the owner reads the
+     * team-tier one, so that a private line never tells them its time. False
+     * is the safe answer and the default.
+     *
+     * @param {string} workspaceId
+     * @param {boolean} teamVisible
+     */
+    async reportActivity(workspaceId, teamVisible) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      return await post("/gateway/activity", {
+        workspaceId,
+        teamVisible: teamVisible === true,
+      });
+    },
+
+    async createGatewayJob(accessToken, expectedWorkspaceId, job) {
+      const parsed = await post("/gateway/jobs/create", {
+        accessToken,
+        expectedWorkspaceId,
+        job,
+      });
+      const ticket = required(parsed, "ticket");
+      if (typeof ticket !== "string" || ticket.length === 0) {
+        throw new ControlPlaneError("malformed job ticket");
+      }
+      return ticket;
+    },
+
+    async openGatewayJob(ticket) {
+      const parsed = await post("/gateway/jobs/open", { ticket });
+      const job = required(parsed, "job");
+      if (job === null) return null;
+      if (!job || typeof job !== "object") throw new ControlPlaneError("malformed job");
+      return job;
+    },
+
+    async reportGatewayJob(ticket, result) {
+      await post("/gateway/jobs/report", { ticket, result });
+    },
+
+    /**
+     * Mint a link and get back its URL.
+     *
+     * **The URL rather than the token**, which is the whole point of the
+     * route: an agent that assembled an address would be guessing at `/s/`
+     * versus `/share/`, at whether the readable slug is there, and at the
+     * origin of a self-hosted deployment. The control plane builds it from the
+     * same function the console's Copy link uses.
+     *
+     * `null` for every refusal — not an owner, not a note, already encrypted,
+     * not team-visible. One answer, so nothing here reconstructs a reason the
+     * control plane deliberately did not give.
+     */
+    async createLink(accessToken, expectedWorkspaceId, request) {
+      const parsed = await post("/gateway/links/create", {
+        accessToken,
+        expectedWorkspaceId,
+        ...request,
+      });
+      const link = required(parsed, "link");
+      if (link === null) return null;
+      if (!link || typeof link !== "object") throw new ControlPlaneError("malformed link");
+      const shortRefused = parsed.shortRefused ?? null;
+      return { link, shortRefused: typeof shortRefused === "string" ? shortRefused : null };
+    },
+
+    /** Every live link in this context, or `null` for a caller who may not ask. */
+    async listLinks(accessToken, expectedWorkspaceId) {
+      const parsed = await post("/gateway/links/list", {
+        accessToken,
+        expectedWorkspaceId,
+      });
+      const links = required(parsed, "links");
+      if (links === null) return null;
+      if (!Array.isArray(links)) throw new ControlPlaneError("malformed links");
+      return links;
+    },
+
+    /**
+     * Take one back. `false` covers "not yours", "already revoked" and "no
+     * such id" — the same three the console's own revoke refuses as one.
+     */
+    async revokeLink(accessToken, expectedWorkspaceId, shareId) {
+      const parsed = await post("/gateway/links/revoke", {
+        accessToken,
+        expectedWorkspaceId,
+        shareId,
+      });
+      return required(parsed, "revoked") === true;
     },
   };
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { isApplePlatform } from "./applePlatform";
 import { resolve, type Command, type Scope } from "./keymap";
 
 /**
@@ -29,50 +30,6 @@ export interface KeymapOptions {
   /** Fired when a chord resolves. Return true if handled (suppresses default). */
   onCommand: (command: Command) => boolean | void;
   enabled?: boolean;
-}
-
-/**
- * `navigator.userAgentData.platform` on Chromium, `navigator.platform`
- * everywhere else. The values are not the same vocabulary — the modern API says
- * `"macOS"`, the deprecated one says `"MacIntel"` — so both spellings are
- * listed rather than normalized.
- */
-const APPLE_PLATFORMS: ReadonlySet<string> = new Set([
-  "macOS",
-  "MacIntel",
-  "iPhone",
-  "iPad",
-  "iPod",
-]);
-
-interface UserAgentData {
-  platform?: unknown;
-}
-
-/**
- * Which modifier `mod` means here.
- *
- * Every access is guarded, and the whole thing is wrapped: `userAgentData` does
- * not exist in Safari or Firefox, `navigator.platform` is deprecated (and empty
- * in a few embedded webviews), and a hostile or unusual embedder can make
- * either one throw. This runs on the first keystroke of the session, so a throw
- * would not be a wrong shortcut — it would be an uncaught error out of a
- * listener on `document`, on every key the person presses. Unknown degrades to
- * "not Apple", which is the Ctrl-shaped majority of the web.
- */
-function detectApple(): boolean {
-  if (typeof navigator === "undefined") return false;
-  try {
-    const modern = (navigator as Navigator & { userAgentData?: UserAgentData }).userAgentData;
-    const reported = modern?.platform;
-    // An empty string is "no answer", not an answer, so fall through to the
-    // deprecated property rather than concluding non-Apple from it.
-    if (typeof reported === "string" && reported !== "") return APPLE_PLATFORMS.has(reported);
-    const legacy = navigator.platform;
-    return typeof legacy === "string" && APPLE_PLATFORMS.has(legacy);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -149,10 +106,22 @@ export function useKeymap(options: KeymapOptions): void {
     if (!enabled) return;
     if (typeof document === "undefined") return;
 
-    // Once per registration, not once per keystroke: the platform cannot change
-    // under a mounted listener, and a module-level cache would be a global that
-    // no test could reset and no page could recover from.
-    const apple = detectApple();
+    /*
+      Once per registration, not once per keystroke: the platform cannot change
+      under a mounted listener, and a module-level cache would be a global that
+      no test could reset and no page could recover from.
+
+      **Through `isApplePlatform`, which is what "one answer" means.** This used
+      to be a private detector with its own allowlist — compared
+      case-sensitively, without `"mac"`, and with nothing behind an empty
+      `navigator.platform` even though its own comment conceded the property is
+      empty in some embedded webviews. `applePlatform`'s header names this exact
+      copy as one of the three it was written to replace, and it had never been
+      replaced: on those browsers the menus printed the Command glyph while this
+      listener waited for `Ctrl`, which is the sentence that header claims to
+      have retired.
+    */
+    const apple = isApplePlatform();
 
     const onKeyDown = (event: KeyboardEvent) => {
       /**
@@ -164,6 +133,30 @@ export function useKeymap(options: KeymapOptions): void {
        * older WebKit and Chromium send *instead* of it, so both are checked.
        */
       if (event.isComposing || event.keyCode === 229) return;
+
+      /**
+       * A keystroke a focused widget has already consumed is not a command.
+       *
+       * This listener is on `document` and bubbles, so anything with its own
+       * keymap — CodeMirror in the note editor, above all — has already run and
+       * has already called `preventDefault()` on the chords it handled. Without
+       * this line the same press runs twice: once in the widget and once here,
+       * against whatever this table says the chord means *somewhere else*.
+       *
+       * It is not hypothetical in either direction. ⌘B bolds the selection in
+       * the note and toggles the rail everywhere else, and before this it did
+       * both at once. And ⌘S is bound in `editorSetup.ts` *and* is `save` here,
+       * so the day `readFocus` learns to see a contenteditable — the Live
+       * Preview editor is a `div`, not a `textarea`, so the `editor` scope does
+       * not currently resolve for it — the note would be written twice from one
+       * press, the second write conditional on an etag the first had already
+       * moved: a conflict dialog over somebody's own keystroke.
+       *
+       * The guard is `preventDefault`, not "was the editor focused", because
+       * the question is whether the keystroke was *answered*, and the widget
+       * that answered it is the only thing that knows.
+       */
+      if (event.defaultPrevented) return;
 
       const command = resolve(
         {

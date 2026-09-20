@@ -123,7 +123,12 @@ describe("an error is recoverable without the credential", () => {
     expect(healed?.errorCode).toBeUndefined();
     expect(healed?.lastVerifiedAt).toBeTypeOf("number");
     // Observed, not assumed: this backend honours `If-Match`.
-    expect(healed?.capabilities).toEqual({ conditionalWrite: true });
+    expect(healed?.capabilities).toEqual({
+      conditionalWrite: true,
+      conditionalCreate: true,
+      conditionalDelete: true,
+      serverSideCopy: true,
+    });
   });
 
   /**
@@ -328,7 +333,7 @@ describe("the rate limit engages", () => {
   /** The limit is per workspace, so one context's budget is not another's. */
   test("a second workspace has its own budget", async () => {
     const { t, owner, workspaceId } = await boundWorkspace({ status: "error" });
-    const second = await createWorkspace(t, owner, "beta");
+    const second = await createWorkspace(t, owner, "bravo");
     await seedStorageBinding(t, {
       workspaceId: second,
       boundBy: owner,

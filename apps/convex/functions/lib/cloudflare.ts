@@ -426,6 +426,27 @@ export function r2Endpoint(
 export const R2_REGION = "auto";
 
 /**
+ * How long a freshly minted R2 credential is allowed to take to start working.
+ *
+ * Creating a bucket and minting a key scoped to it do not make that key usable
+ * at the S3 endpoint: Cloudflare documents R2 IAM changes as eventually
+ * consistent for up to a minute, and the first production journey proved the
+ * consequence by probing a new key 266ms after minting it and painting the
+ * connection red (`docs/decisions/storage-and-credentials.md`).
+ *
+ * So **every path that mints an R2 credential and then uses it waits on this
+ * window** rather than believing the first refusal — managed provisioning, the
+ * managed copy's readiness gate, and the customer's own "create a bucket for
+ * me". It lives here, next to the calls that do the minting, because it is a
+ * fact about R2 rather than about any one of those flows, and three copies of
+ * it would be three chances to fix the race in only two places.
+ *
+ * It does **not** apply to a credential somebody pasted: that one is as old as
+ * they are and a refusal is an answer, not a wait. See `bindStorage`.
+ */
+export const R2_CREDENTIAL_SETTLE_MS = 2 * 60 * 1000;
+
+/**
  * The resource selector that scopes a token to exactly one bucket.
  *
  * `com.cloudflare.edge.r2.bucket.<ACCOUNT_ID>_<JURISDICTION>_<BUCKET_NAME>`,
@@ -695,7 +716,7 @@ function describeErrors(envelope: CloudflareEnvelope<unknown>, raw: string): str
   return stripCredentialFields(raw).slice(0, 200);
 }
 
-/** One entry of `GET /user/tokens/permission_groups`. */
+/** One entry of `GET /accounts/:id/tokens/permission_groups`. */
 interface PermissionGroup {
   id?: string;
   name?: string;
@@ -703,6 +724,13 @@ interface PermissionGroup {
 
 /**
  * Resolve the write permission group's id, by name, at runtime.
+ *
+ * This is deliberately the account-owned-token endpoint. A real account token
+ * with permission to create and enumerate account tokens returns the groups
+ * here, while Cloudflare rejects that same credential at the similarly named
+ * `/user/tokens/permission_groups` endpoint with 403/9109. Managed storage
+ * uses an account-owned token, so the user-level endpoint makes every live
+ * provisioning attempt fail before bucket creation.
  *
  * Only the *read* group's id is published, so there is nothing to hardcode for
  * the write group even if hardcoding were wise. Refusing when the name is
@@ -712,12 +740,13 @@ interface PermissionGroup {
  */
 export async function resolvePermissionGroupId(options: {
   apiToken: string;
+  accountId: string;
   name: string;
 }): Promise<string> {
   const groups = await cloudflareRequest<PermissionGroup[]>({
     apiToken: options.apiToken,
     method: "GET",
-    path: "/user/tokens/permission_groups",
+    path: `/accounts/${options.accountId}/tokens/permission_groups`,
   });
   const match = (Array.isArray(groups) ? groups : []).find(
     (group) => group.name === options.name && typeof group.id === "string",
@@ -943,4 +972,44 @@ export async function revokeApiToken(options: {
   } catch {
     return false;
   }
+}
+
+type R2ObjectRow = { key?: string };
+
+/**
+ * Empty and delete one R2 bucket through Cloudflare's account API.
+ * Re-listing the first page after each batch avoids trusting a pagination
+ * cursor whose contents are changing while objects are removed.
+ */
+export async function emptyAndDeleteR2Bucket(options: {
+  apiToken: string;
+  accountId: string;
+  bucket: string;
+}): Promise<void> {
+  const bucketPath = `/accounts/${options.accountId}/r2/buckets/${encodeURIComponent(options.bucket)}`;
+  for (;;) {
+    const objects = await cloudflareRequest<R2ObjectRow[]>({
+      apiToken: options.apiToken,
+      method: "GET",
+      path: `${bucketPath}/objects`,
+    });
+    const keys = objects.flatMap((row) => typeof row.key === "string" ? [row.key] : []);
+    if (keys.length === 0) break;
+    for (const key of keys) {
+      // Cloudflare requires slashes in object keys to remain literal.
+      const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+      await cloudflareRequest<unknown>({
+        apiToken: options.apiToken,
+        method: "DELETE",
+        path: `${bucketPath}/objects/${encodedKey}`,
+        resultOptional: true,
+      });
+    }
+  }
+  await cloudflareRequest<unknown>({
+    apiToken: options.apiToken,
+    method: "DELETE",
+    path: bucketPath,
+    resultOptional: true,
+  });
 }

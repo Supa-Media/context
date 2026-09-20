@@ -239,7 +239,25 @@ describe("the modifier follows the platform", () => {
     restore();
   });
 
-  test("a `navigator` that throws on access degrades to non-Apple", () => {
+  test("a `navigator` that throws on access falls through rather than deciding", () => {
+    /*
+      **This test changed when the binder stopped keeping its own detector**,
+      and the new answer is the better one rather than merely different.
+
+      The private `detectApple` wrapped every read in ONE `try`, so a hostile
+      embedder throwing on the modern getter returned `false` — discarding the
+      `MacIntel` sitting in `navigator.platform` right beside it and telling a
+      Mac to press Ctrl. `isApplePlatform` guards the two reads separately, so a
+      throwing modern getter is *"no answer"* and the deprecated property still
+      decides. That is the same rule the canonical module already applied to an
+      **empty** `userAgentData.platform`, for the same reason and in its own
+      words: an absent answer is not a denial.
+
+      What this test was written for is unchanged and still asserted: a throw
+      from a listener on `document`, on every key somebody presses, is the
+      failure that matters. The modifier below is now ⌘ because the platform
+      genuinely is Apple.
+    */
     const nav = navigator as unknown as Record<string, unknown>;
     const previous = Object.getOwnPropertyDescriptor(nav, "userAgentData");
     Object.defineProperty(nav, "userAgentData", {
@@ -261,6 +279,8 @@ describe("the modifier follows the platform", () => {
     mount({ scope: "global", onCommand: seen.onCommand });
 
     expect(() => press({ key: "k", ctrl: true })).not.toThrow();
+    expect(seen.commands).toEqual([]);
+    expect(() => press({ key: "k", meta: true })).not.toThrow();
     expect(seen.commands).toEqual(["palette"]);
 
     restorePlatform();
@@ -472,6 +492,53 @@ describe("the browser keeps its own behaviour unless we handled the key", () => 
 /* -------------------------------------------------------------------------- */
 /*                          registration and lifetime                         */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * A keystroke a focused widget has already answered is not a command.
+ *
+ * This listener is on `document` and bubbles, so CodeMirror — which binds ⌘S,
+ * ⌘F, Tab and now ⌘B/⌘I/⌘⇧X on the note's own content element — has already run
+ * and has already called `preventDefault()` on whatever it handled. Without the
+ * guard the same press runs twice: once in the editor, once here, against
+ * whatever this table says the chord means *somewhere else*.
+ *
+ * ⌘B is the live case — bold in a note, the rail everywhere else — and ⌘S is
+ * the one that would cost somebody something: `save` here plus `editorSetup`'s
+ * own `Mod-s` is two conditional writes from one press, the second against an
+ * etag the first has already moved.
+ */
+describe("a keystroke something else already handled is left alone", () => {
+  test("a prevented event never reaches the handler", () => {
+    const restore = APPLE();
+    const seen = recorder();
+    mount({ scope: "global", ...seen });
+
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    act(() => {
+      document.dispatchEvent(event);
+    });
+
+    expect(seen.commands).toEqual([]);
+    restore();
+  });
+
+  test("and the same chord fires when nothing answered it", () => {
+    const restore = APPLE();
+    const seen = recorder();
+    mount({ scope: "global", ...seen });
+
+    press({ key: "k", meta: true });
+
+    expect(seen.commands).toEqual(["palette"]);
+    restore();
+  });
+});
 
 describe("the listener's lifetime", () => {
   test("nothing fires after unmount", () => {

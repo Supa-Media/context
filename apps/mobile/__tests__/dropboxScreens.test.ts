@@ -5,6 +5,7 @@
 import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { ConvexProvider } from "convex/react";
 
 /**
  * `DropboxCallbackBody` and `StorageChoiceBody` use no router and no Convex client.
@@ -71,12 +72,14 @@ interface Screen {
 function mount(node: ReturnType<typeof createElement>): Screen {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  const root = createRoot(container, {
+    onUncaughtError: () => {},
+    onCaughtError: () => {},
+  });
   act(() => {
     root.render(node);
   });
-  const q = (testID: string) =>
-    container.querySelector(`[data-testid="${testID}"]`) as HTMLElement | null;
+  const q = (testID: string) => container.querySelector(`[data-testid="${testID}"]`) as HTMLElement | null;
   return {
     get text() {
       return container.textContent ?? "";
@@ -93,10 +96,7 @@ function mount(node: ReturnType<typeof createElement>): Screen {
       const element = q(testID) as HTMLInputElement | null;
       if (element === null) throw new Error(`no field called ${testID}`);
       act(() => {
-        const setter = Object.getOwnPropertyDescriptor(
-          window.HTMLInputElement.prototype,
-          "value",
-        )?.set;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
         setter?.call(element, value);
         element.dispatchEvent(new Event("input", { bubbles: true }));
       });
@@ -119,26 +119,28 @@ function mountCard(
     state?: DropboxStartState;
     start?: () => void;
     note?: string;
+    managed?: { price: string; onChoose: () => void };
   } = {},
 ): Screen {
   return mount(
     createElement(StorageChoiceBody, {
       dropboxReady: overrides.dropboxReady ?? true,
-      redirectUri:
-        overrides.redirectUri === undefined
-          ? "https://context.lc/connect/dropbox"
-          : overrides.redirectUri,
+      redirectUri: overrides.redirectUri === undefined ? "https://context.lc/connect/dropbox" : overrides.redirectUri,
       dropboxState: overrides.state ?? { kind: "idle" },
       startDropbox: overrides.start ?? (() => {}),
       connect: async () => ({ status: "unverified" }),
       dropboxNote: overrides.note,
+      managed: overrides.managed,
     }),
   );
 }
 
 describe("the callback screen's body", () => {
   test("while the exchange runs it says what it is doing", () => {
-    const screen = mountBody({ kind: "working", message: "Finishing the connection…" });
+    const screen = mountBody({
+      kind: "working",
+      message: "Finishing the connection…",
+    });
     expect(screen.q("dropbox-working")).not.toBe(null);
     expect(screen.text).toContain("Finishing the connection…");
     screen.unmount();
@@ -170,10 +172,7 @@ describe("the callback screen's body", () => {
 
   test("success points at the context that was connected, and says the files are plain", () => {
     const seen: string[] = [];
-    const screen = mountBody(
-      { kind: "connected", href: "/console/seyi/settings" },
-      (href) => seen.push(href),
-    );
+    const screen = mountBody({ kind: "connected", href: "/console/seyi/settings" }, (href) => seen.push(href));
     expect(screen.text).toContain("Dropbox is connected");
     expect(screen.text).toContain("plain Markdown");
     screen.click("dropbox-primary");
@@ -183,9 +182,7 @@ describe("the callback screen's body", () => {
 
   test("a timeout is a wait, not a verdict, and still has a way on", () => {
     const seen: string[] = [];
-    const screen = mountBody({ kind: "timeout", message: DROPBOX_TIMEOUT_MESSAGE }, (href) =>
-      seen.push(href),
-    );
+    const screen = mountBody({ kind: "timeout", message: DROPBOX_TIMEOUT_MESSAGE }, (href) => seen.push(href));
     expect(screen.text).toContain("Nothing is lost");
     screen.click("dropbox-primary");
     expect(seen).toEqual(["/console"]);
@@ -235,24 +232,22 @@ describe("the callback screen's body", () => {
   });
 });
 
-describe("the storage choice: two cards, details behind the click", () => {
-  /**
-   * Seyi's spec, verbatim enough to test: "just two options, simple square
-   * cards next to each other", the bucket first because it is the one we
-   * recommend, and the details only after a card is chosen.
-   */
-  test("both cards are present, the bucket first and marked recommended", () => {
-    const screen = mountCard();
-    const bucket = screen.q("choose-bucket");
-    const dropbox = screen.q("choose-dropbox");
-    expect(bucket).not.toBe(null);
-    expect(dropbox).not.toBe(null);
-    // First in the DOM is first on the screen: reading order and layout order
-    // agree in a flex row.
-    expect(
-      bucket!.compareDocumentPosition(dropbox!) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).not.toBe(0);
-    expect(screen.text).toContain("Recommended");
+describe("the storage choice: two paths, provider details behind the click", () => {
+  test("starts with control versus convenience and gives managed storage its 50 GB", () => {
+    const screen = mountCard({
+      managed: { price: "$5/month", onChoose: () => {} },
+    });
+    const own = screen.q("choose-own-storage");
+    const managed = screen.q("choose-managed");
+    expect(own).not.toBe(null);
+    expect(managed).not.toBe(null);
+    expect(own!.compareDocumentPosition(managed!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(screen.text).toContain("Bring your own storage");
+    expect(screen.text).toContain("Context-managed Premium storage");
+    expect(screen.text).toContain("50 GB");
+    expect(screen.text).not.toContain("Recommended");
+    expect(screen.q("choose-bucket")).toBe(null);
+    expect(screen.q("choose-dropbox")).toBe(null);
     screen.unmount();
   });
 
@@ -267,6 +262,7 @@ describe("the storage choice: two cards, details behind the click", () => {
 
   test("choosing the bucket reveals the credential form, and choosing again hides it", () => {
     const screen = mountCard();
+    screen.click("choose-own-storage");
     screen.click("choose-bucket");
     expect(screen.q("connect-endpoint")).not.toBe(null);
     screen.click("choose-bucket");
@@ -282,6 +278,7 @@ describe("the storage choice: two cards, details behind the click", () => {
   test("pressing Dropbox starts the flow immediately, asking nothing", () => {
     let starts = 0;
     const screen = mountCard({ start: () => (starts += 1) });
+    screen.click("choose-own-storage");
     screen.click("choose-dropbox");
     expect(starts).toBe(1);
     // No folder field ever rendered — the second-context question does not
@@ -292,6 +289,7 @@ describe("the storage choice: two cards, details behind the click", () => {
 
   test("the consent promise is on the card before anybody presses it", () => {
     const screen = mountCard();
+    screen.click("choose-own-storage");
     // "its own folder" — the same words the Dropbox consent screen uses for an
     // App Folder scoped app.
     expect(screen.text).toContain("its own folder");
@@ -308,6 +306,7 @@ describe("the storage choice: two cards, details behind the click", () => {
     let starts = 0;
     const screen = mountCard({ redirectUri: null, start: () => (starts += 1) });
     expect(screen.q("dropbox-unavailable")).toBe(null);
+    screen.click("choose-own-storage");
     screen.click("choose-dropbox");
     expect(starts).toBe(0);
     expect(screen.q("dropbox-unavailable")).not.toBe(null);
@@ -333,16 +332,54 @@ describe("the storage choice: two cards, details behind the click", () => {
 
   test("while starting, the Dropbox card is busy and not pressable twice", () => {
     let starts = 0;
-    const screen = mountCard({ state: { kind: "starting" }, start: () => (starts += 1) });
+    const screen = mountCard({
+      state: { kind: "starting" },
+      start: () => (starts += 1),
+    });
+    screen.click("choose-own-storage");
     screen.click("choose-dropbox");
     expect(starts).toBe(0);
     screen.unmount();
   });
 
   test("the note about leaving the page renders beside a working card only", () => {
-    const withButton = mountCard({ note: "Leaving finishes onboarding early." });
+    const withButton = mountCard({
+      note: "Leaving finishes onboarding early.",
+    });
     expect(withButton.text).toContain("Leaving finishes onboarding early.");
     withButton.unmount();
+  });
+});
+
+describe("storage settings import", () => {
+  test("offers the Obsidian or Markdown importer after storage is connected", () => {
+    const watch = {
+      localQueryResult: () => null,
+      onUpdate: () => () => {},
+      journal: () => undefined,
+    };
+    const client = {
+      action: async () => ({}),
+      mutation: async () => ({}),
+      watchQuery: () => watch,
+    } as never;
+    const screen = mount(
+      createElement(
+        ConvexProvider,
+        { client },
+        createElement(SettingsPane, {
+          data: consoleData({ connected: true }),
+          onClose: () => {},
+          section: "storage",
+        }),
+      ),
+    );
+    expect(screen.q("settings-vault-import")).not.toBe(null);
+    expect(screen.text).toContain("Have an Obsidian vault or existing Markdown notes?");
+    expect(screen.text).toContain("How should these notes be added?");
+    expect(screen.text).toContain("Merge without replacing");
+    expect(screen.text).toContain("Keep it in its own folder");
+    screen.unmount();
   });
 });
 
@@ -351,7 +388,14 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
     demo: false,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     contexts: [
-      { id: "w1", slug: "seyi", displayName: "Seyi", role: "owner", kind: "personal", status: "ok" },
+      {
+        id: "w1",
+        slug: "seyi",
+        displayName: "Seyi",
+        role: "owner",
+        kind: "personal",
+        status: "ok",
+      },
     ],
     selectedContextId: "w1",
     selectContext: () => {},
@@ -376,8 +420,51 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
     ingestionAddress: "seyi@context.lc",
     ingestion: { settings: null, loading: false },
     files: { listings: {} },
-    members: { members: [], loading: false },
+    /*
+      A whole members view, not the two fields this file's own subject needs:
+      the settings pane renders People now, so a stub missing `invitations`
+      crashes a section this test is not about. Complete rather than tolerated.
+    */
+    members: {
+      members: [],
+      invitations: [],
+      loading: false,
+      failure: null,
+      canInvite: false,
+    },
+    /*
+      Same reason as `members` above: the settings pane now renders Shared
+      links and Advanced too, so a stub missing either crashes a section this
+      file is not about.
+    */
+    shares: { shares: [], loading: false, failure: null },
+    groups: { groups: [], loading: false },
+    advanced: {
+      moves: { jobs: [], loading: false, failure: null },
+      audit: { events: [], loading: false, failure: null },
+    },
     fastSearch: { status: { state: "off", canChange: false }, loading: false },
+    /*
+      And the same reason a third time, which is now the rule this fixture
+      follows rather than three exceptions: the settings pane renders Plugins,
+      and its view is a union with no tolerable absent member — `undefined`
+      there is not "no plugins", it is a pane that throws. `idle` is what a
+      live console rests at before anybody asks for a scan, so it is also the
+      right stub.
+    */
+    plugins: { state: "idle" },
+    // Same reason as `plugins` above: the settings pane renders this section
+    // whatever else it is showing, and its view has no tolerable absent member.
+    // `loading` is where a live console rests until the read lands.
+    contextPlugins: { state: "loading" },
+    // And again for the third plugin read. This fixture is `as never`, so a
+    // field added to `ConsoleData` does not fail typecheck here — it fails at
+    // render, which is how this one arrived. `loading` is where a live console
+    // rests until the pointer read lands.
+    pluginInstalls: { state: "loading", read: async () => {} },
+    pluginGrants: { grants: [], loading: false },
+    pluginBrowse: { query: "", limit: 20, searching: false, failure: null },
+    pluginRuntime: { states: [], loading: false },
     loading: false,
     failure: null,
   } as never;
@@ -385,7 +472,10 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
 
 function mountSettings(storage: Partial<ConsoleStorage>): Screen {
   return mount(
-    createElement(SettingsPane, { data: consoleData(storage), onClose: () => {} }),
+    createElement(SettingsPane, {
+      data: consoleData(storage),
+      onClose: () => {},
+    }),
   );
 }
 
@@ -406,7 +496,9 @@ describe("a Dropbox binding on the settings pane", () => {
    * still unset (a binding mid-connect, before the exchange has landed).
    */
   test("says which Dropbox account is connected", () => {
-    const connected = mountSettings({ dropboxAccountId: "dbid:AAAAAAAAAAAAAAAAAAAA" });
+    const connected = mountSettings({
+      dropboxAccountId: "dbid:AAAAAAAAAAAAAAAAAAAA",
+    });
     expect(connected.text).toContain("Connected as");
     expect(connected.text).toContain("dbid:AAAAAAAAAAAAAAAAAAAA");
     connected.unmount();
@@ -486,7 +578,10 @@ describe("a Dropbox binding on the settings pane", () => {
    * silent about it and the crash only shows up under a finger.
    */
   test("rotating a key on a row with a missing field does not crash the form", () => {
-    const screen = mountSettings({ provider: "s3-compatible", bucket: "example-bucket" });
+    const screen = mountSettings({
+      provider: "s3-compatible",
+      bucket: "example-bucket",
+    });
     screen.click("storage-rebind");
     expect(screen.q("connect-endpoint")).not.toBe(null);
     expect((screen.q("connect-endpoint") as HTMLInputElement).value).toBe("");
@@ -506,6 +601,20 @@ describe("a Dropbox binding on the settings pane", () => {
     expect(screen.text).toContain("example-bucket");
     expect(screen.q("storage-rebind")?.textContent).toContain("Rotate key");
     expect(screen.text).toContain("Revoke the key at your provider");
+    screen.unmount();
+  });
+
+  test("managed storage cannot offer controls for a credential the customer does not own", () => {
+    const screen = mountSettings({
+      provider: "r2",
+      managed: true,
+      bucket: "ctx-example",
+      endpoint: "https://example.invalid",
+      region: "auto",
+    });
+    expect(screen.text).toContain("Context-managed storage");
+    expect(screen.q("storage-rebind")).toBeNull();
+    expect(screen.q("storage-disconnect")).toBeNull();
     screen.unmount();
   });
 });

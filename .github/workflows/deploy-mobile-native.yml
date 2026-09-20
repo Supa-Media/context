@@ -62,7 +62,9 @@ name: Deploy Mobile Native (build + submit)
 # on credentials, run `eas credentials` locally once — the fix is on the EAS
 # account, not in this file.
 #
-# `EXPO_PUBLIC_CONVEX_URL` and `EAS_PROJECT_ID` are not read directly by the
+# `EXPO_PUBLIC_CONVEX_URL`, `EAS_PROJECT_ID`, and `ASC_APP_ID` are not committed
+# because they are account identifiers in this public repository. The first two
+# are not read directly by the
 # build itself. A native build's env comes from `eas.json`'s per-profile `env`
 # block, evaluated on EAS — so setting them as *this job's* env would be a
 # value that looks authoritative and is ignored. That is the opposite of the
@@ -73,9 +75,10 @@ name: Deploy Mobile Native (build + submit)
 # working copy — because those two are account identifiers this repository
 # does not commit (CLAUDE.md: "no internal hostnames, no account identifiers").
 #
-# `APPLE_TEAM_ID` IS an ordinary step env, because `eas submit` reads it
-# straight from `EXPO_APPLE_TEAM_ID` in its own process environment rather
-# than from a config file EAS evaluates remotely.
+# `APPLE_TEAM_ID` IS an ordinary step env, because both `eas build` (when it
+# provisions a newly-added target) and `eas submit` read it straight from
+# `EXPO_APPLE_TEAM_ID` in their own process environment rather than from a
+# config file EAS evaluates remotely.
 
 on:
   workflow_dispatch:
@@ -109,7 +112,8 @@ permissions:
 jobs:
   build:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
-    runs-on: ubuntu-latest
+    # IPA validation uses Apple's `codesign`, `security` and `plutil`.
+    runs-on: macos-latest
     environment: production
     env:
       # `eas build`/`eas submit` resolve the project locally (in this runner)
@@ -137,6 +141,7 @@ jobs:
           EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
           # Passed as env rather than interpolated into the node script below,
           # so a profile or platform name can never become JavaScript. They are
           # `choice` inputs today, but that is a property of this file's `on:`
@@ -187,17 +192,25 @@ jobs:
             exit 1
           fi
 
+          if [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "both" ]; then
+            if [ -z "${APPLE_TEAM_ID:-}" ]; then
+              echo "ERROR: missing 'APPLE_TEAM_ID' in the 'production' environment, needed by"
+              echo "'eas build --platform ios' to provision every target (read as"
+              echo "EXPO_APPLE_TEAM_ID). It is in scripts/secrets-allowlist.json; run the Sync"
+              echo "Secrets workflow."
+              exit 1
+            fi
+          fi
+
           if [ "${{ inputs.submit }}" != "true" ]; then
             echo "Submit not requested; skipping submit-profile checks."
             exit 0
           fi
 
           if [ "${PLATFORM}" = "ios" ] || [ "${PLATFORM}" = "both" ]; then
-            if [ -z "${APPLE_TEAM_ID:-}" ]; then
-              echo "ERROR: missing 'APPLE_TEAM_ID' in the 'production' environment, needed for"
-              echo "'eas submit --platform ios' (read as EXPO_APPLE_TEAM_ID). It is in"
-              echo "scripts/secrets-allowlist.json; run the Sync Secrets workflow, or re-run with"
-              echo "submit=false."
+            if [ -z "${ASC_APP_ID:-}" ]; then
+              echo "ERROR: missing 'ASC_APP_ID' in the 'production' environment, needed by"
+              echo "'eas submit --platform ios --non-interactive' to select the App Store record."
               exit 1
             fi
           fi
@@ -236,11 +249,20 @@ jobs:
       # worker that evaluates `app.config.js` itself using exactly this file's
       # per-profile `env` block, so the real values have to land here, in the
       # ephemeral working copy this run made from git — never committed.
-      - name: Inject build-time values into eas.json
+      - name: Inject account values into eas.json
         working-directory: apps/mobile
         env:
           EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
           EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+          EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+          EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+          PROFILE: ${{ inputs.profile }}
+          SUBMIT: ${{ inputs.submit }}
         run: |
           set -euo pipefail
           node -e '
@@ -251,6 +273,16 @@ jobs:
               EAS_PROJECT_ID: process.env.EAS_PROJECT_ID,
               EXPO_PUBLIC_CONVEX_URL: process.env.EXPO_PUBLIC_CONVEX_URL,
             };
+            const observability = {
+              EXPO_PUBLIC_SENTRY_DSN: process.env.EXPO_PUBLIC_SENTRY_DSN,
+              EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1",
+              EXPO_PUBLIC_POSTHOG_KEY: process.env.EXPO_PUBLIC_POSTHOG_KEY,
+              EXPO_PUBLIC_POSTHOG_HOST: process.env.EXPO_PUBLIC_POSTHOG_HOST,
+              EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1",
+              SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+              SENTRY_ORG: process.env.SENTRY_ORG,
+              SENTRY_PROJECT: process.env.SENTRY_PROJECT,
+            };
             let replaced = 0;
             for (const profile of Object.values(eas.build || {})) {
               if (!profile.env) continue;
@@ -260,22 +292,54 @@ jobs:
                   replaced++;
                 }
               }
+              for (const [key, value] of Object.entries(observability)) {
+                if (value) profile.env[key] = value;
+                else delete profile.env[key];
+              }
+            }
+            if (process.env.SUBMIT === "true") {
+              const submitProfile = eas.submit?.[process.env.PROFILE];
+              if (!submitProfile?.ios) {
+                console.error(`eas.json has no submit.${process.env.PROFILE}.ios configuration.`);
+                process.exit(1);
+              }
+              if (!process.env.ASC_APP_ID) {
+                console.error("ASC_APP_ID is required for a non-interactive iOS submission.");
+                process.exit(1);
+              }
+              submitProfile.ios.ascAppId = process.env.ASC_APP_ID;
             }
             if (replaced === 0) {
               console.error("No REPLACED_BY_CI placeholder found in eas.json build.*.env.");
               process.exit(1);
             }
             fs.writeFileSync(path, JSON.stringify(eas, null, 2) + "\n");
-            console.log(`Injected build-time values into ${replaced} eas.json env entr${replaced === 1 ? "y" : "ies"}.`);
+            console.log(`Injected ephemeral account values into eas.json (${replaced} build env entr${replaced === 1 ? "y" : "ies"}).`);
           '
 
-      # Waits for the build rather than `--no-wait`, because the submit steps
-      # below use `--latest` and a submission that does not wait would pick up
-      # whatever finished last — quite possibly the previous release.
+      # Waits for the build and records its ID, because submission below uses
+      # that exact validated artifact rather than a race-prone latest lookup.
       - name: Build iOS
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
         working-directory: apps/mobile
-        run: eas build --platform ios --profile ${{ inputs.profile }} --non-interactive
+        env:
+          # EAS needs the team identifier during the build too: adding a native
+          # extension creates a second target whose provisioning profile must
+          # be resolved before the remote build can be created.
+          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          umask 077
+          BUILD_JSON=/tmp/context-build.json
+          IPA_PATH=/tmp/context-build.ipa
+          BUILD_ID_FILE=/tmp/context-build-id
+          eas build --platform ios --profile ${{ inputs.profile }} --non-interactive --json > "$BUILD_JSON"
+          BUILD_ID=$(node ../../scripts/eas-build-artifact.cjs id "$BUILD_JSON")
+          # eas build:download treats the app archive as a tar.gz and fails on
+          # the IPA ZIP. Download the applicationArchiveUrl from this exact
+          # build JSON, without printing the signed URL or using a latest build.
+          node ../../scripts/eas-build-artifact.cjs download "$BUILD_JSON" "$IPA_PATH" | grep -Fxq "$BUILD_ID"
+          node ../../scripts/validate-ios-ipa.cjs "$IPA_PATH"
+          echo "$BUILD_ID" > "$BUILD_ID_FILE"
 
       - name: Build Android
         if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
@@ -290,7 +354,7 @@ jobs:
           # commits an `appleTeamId`, since it is an account identifier this
           # public repository does not hold.
           EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: eas submit --platform ios --latest --profile ${{ inputs.profile }} --non-interactive
+        run: eas submit --platform ios --path /tmp/context-build.ipa --profile ${{ inputs.profile }} --non-interactive
 
       - name: Submit Android to Play Console
         if: ${{ inputs.submit && (inputs.platform == 'android' || inputs.platform == 'both') }}
@@ -310,3 +374,10 @@ jobs:
             echo ""
             echo "A submitted build still needs a release created in App Store Connect."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up native artifacts
+        if: always()
+        run: |
+          umask 077
+          trap 'rm -f /tmp/context-build.json /tmp/context-build.ipa /tmp/context-build-id' EXIT
+          rm -f /tmp/context-build.json /tmp/context-build.ipa /tmp/context-build-id

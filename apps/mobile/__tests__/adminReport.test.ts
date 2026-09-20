@@ -1,14 +1,30 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  ADMIN_TABS,
+  DEFAULT_WINDOW,
   KNOWN_SECRETS,
   METRIC_ORDER,
+  MIN_SEGMENT_PERCENT,
+  WINDOW_CHOICES,
   barHeights,
+  bindingStatusTone,
+  compositionOf,
   dayOverDay,
   formatCount,
   formatDelta,
+  formatLastUsed,
+  formatMoney,
+  formatRatio,
+  formatSigned,
   formatTotal,
+  funnelRows,
+  isAdminTab,
   metricLabel,
   orderSeries,
+  periodCaption,
+  planLabel,
+  planTone,
+  providerLabel,
   relativeTime,
   shortDay,
   unsetKnownSecrets,
@@ -200,6 +216,12 @@ describe("the known-integration list", () => {
     expect(names).toContain("SEARCH_D1_API_TOKEN");
     expect(names).toContain("SEARCH_D1_ACCOUNT_ID");
   });
+
+  test("managed storage is offered and the environment-only webhook secret is not", () => {
+    const names = KNOWN_SECRETS.map((known) => known.name);
+    expect(names).toContain("MANAGED_R2_API_TOKEN");
+    expect(names).not.toContain("STRIPE_WEBHOOK_SECRET");
+  });
 });
 
 describe("a total the server stopped counting", () => {
@@ -212,5 +234,200 @@ describe("a total the server stopped counting", () => {
     // past its ceiling the server genuinely does not know the total. Printing
     // "10,000" would be a figure somebody quotes.
     expect(formatTotal({ count: 10_000, isFloor: true })).toBe("10.0K+");
+  });
+});
+
+// -- the census redesign --------------------------------------------------
+
+describe("change, at the size this product actually is", () => {
+  test("the period comparison prints both halves and the difference", () => {
+    // A percentage is the wrong instrument here: three signups against one is
+    // "+200%", which is a number somebody repeats in a board update and which
+    // means nothing at this scale. The three facts do.
+    expect(periodCaption(3, 1)).toBe("+2 — 3 vs 1 before");
+  });
+
+  test("no change says so, rather than reading as no data", () => {
+    expect(periodCaption(2, 2)).toBe("±0 — 2 vs 2 before");
+    expect(periodCaption(0, 0)).toBe("±0 — 0 vs 0 before");
+  });
+
+  test("a fall uses a real minus sign, matching the percentage formatter", () => {
+    expect(formatSigned(-3)).toBe("−3");
+    expect(formatSigned(4)).toBe("+4");
+    expect(formatSigned(0)).toBe("±0");
+  });
+});
+
+describe("money", () => {
+  test("whole dollars from cents, never a float", () => {
+    expect(formatMoney(0)).toBe("$0");
+    expect(formatMoney(500)).toBe("$5");
+    expect(formatMoney(1_500)).toBe("$15");
+  });
+
+  test("a part-dollar total is shown to the cent rather than rounded away", () => {
+    expect(formatMoney(1_250)).toBe("$12.50");
+  });
+});
+
+describe("ratios and last-used", () => {
+  test("one decimal, and an em dash where there was nothing to divide by", () => {
+    expect(formatRatio(1.6)).toBe("1.6");
+    expect(formatRatio(2)).toBe("2.0");
+    expect(formatRatio(null)).toBe("—");
+  });
+
+  test("a client that has never been used says so", () => {
+    // "never" is a fact about the grant; an em dash would read as a figure the
+    // page failed to fetch.
+    expect(formatLastUsed(null)).toBe("never");
+    expect(formatLastUsed(Date.now() - 3_600_000)).toBe("1h ago");
+  });
+});
+
+describe("composition bars", () => {
+  const part = (key: string, count: number) => ({
+    key,
+    label: key,
+    count,
+    tone: "accent" as const,
+  });
+
+  test("proportional when every slice is comfortably visible", () => {
+    const segments = compositionOf([part("a", 3), part("b", 1)]);
+    expect(segments.map((s) => s.percent)).toEqual([75, 25]);
+  });
+
+  test("empty parts are dropped rather than drawn as slivers", () => {
+    const segments = compositionOf([part("a", 3), part("b", 0)]);
+    expect(segments.map((s) => s.key)).toEqual(["a"]);
+  });
+
+  test("an all-zero composition is nothing, not a bar", () => {
+    // So the screen can say "no contexts yet" instead of drawing a shape that
+    // looks like data.
+    expect(compositionOf([part("a", 0), part("b", 0)])).toEqual([]);
+  });
+
+  test("a slice too small to see is lifted off zero, and the bar still totals 100", () => {
+    // The case this exists for: one paying context out of four hundred is
+    // 0.25% of the bar, which is no pixels at any width — and "one" and "none"
+    // are the two states this page exists to tell apart.
+    const segments = compositionOf([part("free", 399), part("paying", 1)]);
+    const paying = segments.find((s) => s.key === "paying");
+    expect(paying?.percent).toBe(MIN_SEGMENT_PERCENT);
+    expect(
+      segments.reduce((sum, s) => sum + s.percent, 0),
+    ).toBeCloseTo(100);
+    // And the count beside it is untouched — the widths are a picture, the
+    // numbers are the truth.
+    expect(paying?.count).toBe(1);
+  });
+
+  test("many tiny slices fall back to an even split rather than overflowing", () => {
+    const segments = compositionOf(
+      Array.from({ length: 80 }, (_, i) => part(`k${i}`, 1)),
+    );
+    expect(segments).toHaveLength(80);
+    expect(segments.reduce((sum, s) => sum + s.percent, 0)).toBeCloseTo(100);
+    for (const segment of segments) {
+      expect(segment.percent).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("the funnel", () => {
+  const steps = [
+    { step: "signed-up", count: 4 },
+    { step: "made-a-context", count: 3 },
+    { step: "connected-storage", count: 1 },
+    { step: "connected-a-client", count: 2 },
+    { step: "paying", count: 1 },
+  ];
+
+  test("every step is a share of everybody who signed up", () => {
+    const rows = funnelRows(steps);
+    expect(rows[0].share).toBe(1);
+    expect(rows[1].share).toBeCloseTo(0.75);
+    expect(rows.map((row) => row.label)).toEqual([
+      "Signed up",
+      "Made a context",
+      "Connected storage",
+      "Connected a client",
+      "Paying",
+    ]);
+  });
+
+  test("a step larger than the one above it reports a rise, and is not hidden", () => {
+    // Somebody connected a client to a context whose bucket never verified.
+    // That is the customer to go and find, so the row says `+1` rather than
+    // being clamped into a tidy staircase.
+    const rows = funnelRows(steps);
+    expect(rows[2].change).toBe(-2);
+    expect(rows[3].change).toBe(1);
+    expect(rows[3].share).toBeCloseTo(0.5);
+  });
+
+  test("the first step has nothing above it to compare against", () => {
+    expect(funnelRows(steps)[0].change).toBeNull();
+  });
+
+  test("an empty deployment divides by nothing rather than by zero", () => {
+    const rows = funnelRows([
+      { step: "signed-up", count: 0 },
+      { step: "paying", count: 0 },
+    ]);
+    expect(rows.every((row) => row.share === 0)).toBe(true);
+  });
+});
+
+describe("names for what the census counts", () => {
+  test("a provider the server adds shows up under its raw key, not dropped", () => {
+    // Same rule `metricLabel` follows: a new one should look unfinished rather
+    // than vanish from a total somebody is reading.
+    expect(providerLabel("r2")).toBe("Cloudflare R2");
+    expect(providerLabel("some-new-store")).toBe("some-new-store");
+  });
+
+  test("an unverified bucket is amber, not neutral", () => {
+    // A bucket nothing has reached is not a neutral state on a console whose
+    // job is to notice one.
+    expect(bindingStatusTone("connected")).toBe("ok");
+    expect(bindingStatusTone("unverified")).toBe("warn");
+    expect(bindingStatusTone("error")).toBe("crit");
+  });
+
+  test("a declined card reads louder than a cancellation", () => {
+    // A cancellation is a decision; a past-due card is money that was supposed
+    // to arrive and did not, and is the one to act on today.
+    expect(planTone("active")).toBe("ok");
+    expect(planTone("past_due")).toBe("crit");
+    expect(planTone("canceled")).toBe("warn");
+    expect(planTone("none")).toBe("neutral");
+    expect(planLabel("none")).toBe("Free");
+  });
+});
+
+describe("the tabs", () => {
+  test("the four errands are distinct and growth comes first", () => {
+    expect(ADMIN_TABS.map((tab) => tab.key)).toEqual([
+      "growth",
+      "estate",
+      "activity",
+      "credentials",
+    ]);
+    expect(isAdminTab("growth")).toBe(true);
+    expect(isAdminTab("secrets")).toBe(false);
+  });
+
+  test("the offered windows are all inside what the server will clamp to", () => {
+    // 90 is `MAX_REPORT_DAYS`. Offering 180 would silently hand back 90 under
+    // a label that said otherwise.
+    for (const choice of WINDOW_CHOICES) {
+      expect(choice).toBeGreaterThanOrEqual(1);
+      expect(choice).toBeLessThanOrEqual(90);
+    }
+    expect(WINDOW_CHOICES).toContain(DEFAULT_WINDOW);
   });
 });

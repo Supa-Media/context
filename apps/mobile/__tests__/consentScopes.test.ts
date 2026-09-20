@@ -1,4 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
+import { readFileSync } from "fs";
+import { join } from "path";
 import {
   clampScopes,
   grantableTiers as backendGrantableTiers,
@@ -6,6 +8,8 @@ import {
   SCOPE_PRIVATE,
   SCOPE_READ,
   SCOPE_WRITE,
+  SUPPORTED_SCOPES as BACKEND_SUPPORTED_SCOPES,
+  visibilityTierOf,
 } from "@context/convex/functions/lib/consentScopes";
 import {
   grantableTiers,
@@ -40,6 +44,65 @@ import {
  * the private wording cannot quietly rewrite what these tests mean.
  */
 const TEAM = "team" as const;
+
+/**
+ * The scope vocabulary, read out of the files that own it.
+ *
+ * Three copies of this list exist — `apps/mcp/src/session.js` (what
+ * `/oauth/authorize` accepts and both discovery documents publish),
+ * `functions/lib/consentScopes.ts`, and this file — and the second one's own
+ * comment says the first "holds the same list; they must change together or a
+ * client discovers a scope the authorization endpoint then rejects". Nothing
+ * asserted that. These helpers are what makes the sentence true.
+ */
+const GATEWAY_SESSION_PATH = join(__dirname, "..", "..", "mcp", "src", "session.js");
+const BACKEND_SCOPES_PATH = join(
+  __dirname, "..", "..", "convex", "functions", "lib", "consentScopes.ts",
+);
+const MOBILE_SCOPES_PATH = join(__dirname, "..", "features", "consent", "scopes.ts");
+
+/** Resolve a `const NAME = "literal"` in the same source, or keep the literal. */
+function literalsOf(source: string, entries: string[]): string[] {
+  return entries.map((entry) => {
+    const quoted = /^"([^"]*)"$/.exec(entry);
+    if (quoted) return quoted[1];
+    const declared = new RegExp(`(?:export )?const ${entry}\\s*=\\s*"([^"]+)"`, "m").exec(source);
+    if (declared === null) throw new Error(`cannot resolve ${entry}`);
+    return declared[1];
+  });
+}
+
+function arrayMembers(source: string, pattern: RegExp): string[] {
+  const match = pattern.exec(source);
+  if (match === null) throw new Error(`no match for ${pattern}`);
+  return literalsOf(
+    source,
+    match[1].split(",").map((entry) => entry.trim()).filter((entry) => entry.length > 0),
+  );
+}
+
+function advertisedByTheGateway(): string[] {
+  const source = readFileSync(GATEWAY_SESSION_PATH, "utf8");
+  return arrayMembers(source, /export const SUPPORTED_SCOPES\s*=\s*\[([\s\S]*?)\]/);
+}
+
+/** Every spelling the control plane reads as "reaches private notes". */
+function backendTierAliases(): string[] {
+  const source = readFileSync(BACKEND_SCOPES_PATH, "utf8");
+  return arrayMembers(
+    source,
+    /const PRIVATE_TIER_ALIASES: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\)/,
+  );
+}
+
+/** Every spelling the consent screen reads the same way. */
+function screenTierAliases(): string[] {
+  const source = readFileSync(MOBILE_SCOPES_PATH, "utf8");
+  return arrayMembers(
+    source,
+    /const PRIVATE_TIER_SCOPES: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\)/,
+  );
+}
 
 const ids = (scopes: string | string[], tier: "private" | "team" | "unknown" = TEAM) =>
   scopeSentences(scopes, tier).map((line) => line.id);
@@ -291,9 +354,27 @@ describe("the screen offers exactly what the control plane will accept", () => {
  * through warnings, which is the opposite of what a consent screen is for.
  */
 describe("every advertised scope is described", () => {
-  // Mirrors SUPPORTED_SCOPES in apps/mcp/src/session.js. If the gateway grows
-  // a scope, this list and SCOPE_ALIASES must both grow with it.
-  const ADVERTISED = ["context:read", "context:write", "context:capture"];
+  /*
+    READ FROM THE GATEWAY, NOT COPIED FROM IT.
+
+    This list used to be three strings typed out here under a comment saying it
+    "mirrors SUPPORTED_SCOPES in apps/mcp/src/session.js" and that it must grow
+    when the gateway does. That is the same arrangement as the defect this block
+    exists to catch: `context:capture` was added to the gateway, nothing here
+    grew, and the consent screen told an owner it could not describe the one
+    scope every client is expected to ask for.
+
+    A hand-copied guard against a hand-copy going stale goes stale the same way,
+    and it already had: the gateway advertises FOUR scopes and the copy listed
+    three. (`context:private` is described — it is the tier — so nothing was
+    broken. Nothing was checked either.)
+
+    So it is derived. Reading the artifact rather than importing it is the
+    idiom `lintRuns.test.ts` uses on `ci.yml`: `session.js` is Workers code and
+    pulling it into jest would drag the store factory and the D1 client in with
+    it, to learn the value of one array.
+  */
+  const ADVERTISED = advertisedByTheGateway();
 
   for (const scope of ADVERTISED) {
     test(`${scope} is not shown as undescribable`, () => {
@@ -303,6 +384,70 @@ describe("every advertised scope is described", () => {
       const [line] = scopeSentences([scope], "private");
       expect(line.sentence).not.toMatch(/can't describe|cannot describe/i);
       expect(line.sentence.length).toBeGreaterThan(0);
+    });
+  }
+});
+
+/**
+ * THE VOCABULARY LIVES IN THREE PLACES, AND THE CLAIM THAT THEY AGREE WAS
+ * WRITTEN DOWN BEFORE ANYTHING CHECKED IT.
+ *
+ * `functions/lib/consentScopes.ts` says of its own `SUPPORTED_SCOPES`:
+ *
+ *   "The gateway holds the same list; they must change together or a client
+ *    discovers a scope the authorization endpoint then rejects."
+ *
+ * That is the failure exactly: discovery is served from the gateway's copy and
+ * `/oauth/authorize` validates against it, so a scope in one and not the other
+ * is either advertised-then-refused or accepted-but-undescribed. The sentence
+ * is right. It was also the only thing holding it.
+ */
+describe("the three copies of the scope vocabulary agree", () => {
+  test("the control plane's list is the gateway's list", () => {
+    expect([...BACKEND_SUPPORTED_SCOPES]).toEqual(advertisedByTheGateway());
+  });
+
+  test("and the consent screen is checked against the gateway, not against a copy", () => {
+    // Belt and braces on the derivation itself: if the regex ever stopped
+    // matching, `ADVERTISED` would quietly become empty and every test in the
+    // block above would pass by iterating nothing — this repository's most
+    // repeated failure shape.
+    expect(advertisedByTheGateway().length).toBeGreaterThanOrEqual(4);
+    expect(advertisedByTheGateway()).toContain(SCOPE_PRIVATE);
+  });
+});
+
+/**
+ * THE TIER ALIAS MIRROR, IN BOTH DIRECTIONS AND OVER EVERY SPELLING.
+ *
+ * The block above asserts four of the seven spellings, and only in the
+ * direction "what the screen calls the tier, the backend strips". The other
+ * direction is the dangerous one and was unasserted: a spelling the CONTROL
+ * PLANE reads as private that the SCREEN does not is a grant that carries
+ * private access behind a screen that said `team`. The person approving reads
+ * the narrower of the two and gets the wider.
+ *
+ * Both sets are read from their own source files, so this grows when either
+ * does rather than when somebody remembers to extend a literal here.
+ */
+describe("the screen and the control plane read the same spellings as the tier", () => {
+  const union = [...new Set([...screenTierAliases(), ...backendTierAliases()])];
+
+  test("the union is the real one, not an empty list a broken regex produced", () => {
+    expect(union).toContain(SCOPE_PRIVATE);
+    expect(union.length).toBeGreaterThanOrEqual(7);
+  });
+
+  for (const spelling of union) {
+    test(`${spelling} means the same thing on both sides`, () => {
+      // `visibilityTierOf` is what the console renders a grant with and what a
+      // stored grant is read back as; `isTierScope` is what the screen splits
+      // the request by. Disagreement here is the screen describing the grant
+      // wrongly, which is the one thing a consent screen may never do.
+      expect([spelling, isTierScope(spelling)]).toEqual([
+        spelling,
+        visibilityTierOf([spelling]) === "private",
+      ]);
     });
   }
 });

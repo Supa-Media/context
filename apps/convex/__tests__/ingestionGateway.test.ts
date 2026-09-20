@@ -717,6 +717,44 @@ describe("the ticket is the whole of the second proof", () => {
     expect(body.binding.secretAccessKey.length).toBeGreaterThan(0);
   });
 
+  /**
+   * The capability object, on the route that carries a credential.
+   *
+   * `ready()` seeds `seedStorageBinding`'s default `{ conditionalWrite: true }`
+   * — the shape a binding written before 2026-09-12 holds — so every test
+   * above passed while this route's return validator still restated the
+   * three-field capability object inline. Once `serverSideCopy` was written on
+   * every probe and backfilled onto every row, `v.object` refused the answer
+   * this route had just built, and inbound mail to every context bounced as
+   * `storage_unavailable`. See `capabilityBackfill.test.ts` for the same fault
+   * on `/gateway/binding`.
+   */
+  test("it carries every probed capability, not the three it used to", async () => {
+    const t = setupTest();
+    const ownerId = await createUser(t, OWNER_EMAIL);
+    const workspaceId = await createWorkspace(t, ownerId, "seyi", { kind: "personal" });
+    const probed = {
+      conditionalWrite: true,
+      conditionalCreate: true,
+      conditionalDelete: true,
+      serverSideCopy: true,
+    };
+    await seedStorageBinding(t, {
+      workspaceId,
+      boundBy: ownerId,
+      status: "connected",
+      capabilities: probed,
+    });
+
+    const ticket = await resolvedTicket(t, "seyi");
+    const response = await ingestPost(t, BINDING, { ticket });
+
+    // A 200 is half of it: the validator throws after the handler returns, so
+    // the route answers 500 and the worker bounces the message.
+    expect(response.status).toBe(200);
+    expect((await response.json()).binding.capabilities).toEqual(probed);
+  });
+
   test("it is single-use", async () => {
     const { t } = await ready();
     const ticket = await resolvedTicket(t, "seyi");

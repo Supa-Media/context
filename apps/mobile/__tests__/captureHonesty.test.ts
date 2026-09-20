@@ -171,7 +171,6 @@ function card(state: IngestionState): Rendered {
     createElement(IngestionCard, {
       state,
       fallbackAddress: "seyi@context.lc",
-      folders: ["0-inbox", "1-projects"],
     }),
   );
 }
@@ -614,7 +613,7 @@ describe("the gate is the control plane's answer, not a client-side guess", () =
         onOpenConsole: () => {},
       }),
     );
-    expect(done.text).toMatch(/it lands in your brain/);
+    expect(done.text).toMatch(/it lands in your workspace/);
     expect(done.html).toMatch(/Copy your capture address/i);
   });
 });

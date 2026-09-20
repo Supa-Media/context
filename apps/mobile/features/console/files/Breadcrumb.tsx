@@ -5,14 +5,17 @@ import {
   useWindowDimensions,
   type StyleProp,
   type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
-import { CHAR_WIDTH_PX, crumbsFor, type Crumb } from "./crumbs";
-import type { Visibility } from "./types";
+import { fonts, layout, pointerType as t, radii, space } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { useRightClick } from "./rightClick";
+import { crumbsFor, type Crumb } from "./crumbs";
+import { isGroupVisibility, type Visibility } from "./types";
 
 /**
  * Where the open note lives, and who can see it.
@@ -74,8 +77,7 @@ import type { Visibility } from "./types";
  *
  * - **The leaf, and the folders, and nothing else.** This is a *position*: the
  *   line answers "where am I" completely, or it does not answer it. See the
- *   header for what deleting the leaf cost, and `crumbs.ts` for the cap that
- *   keeps a deep path a bounded row rather than one that grows with the tree.
+ *   header for what deleting the leaf cost.
  * - **No visibility chip.** A note carries it as a Properties row and a folder
  *   states it in a sentence directly beneath. Both are fuller than the brief
  *   chip, and both are already on screen.
@@ -101,77 +103,38 @@ import type { Visibility } from "./types";
  * unchanged — **no label is ever shortened**, the row gets longer, the scroll
  * absorbs it.
  *
- * What the row cannot absorb is **depth**, and that is a different question the
- * same rule was answering badly. The segment that scrolls off the trailing edge
- * is the leaf, which is the one this line exists to state. So `crumbs.ts` caps
- * the **count** at `MAX_FOLDER_CRUMBS` and elides the middle to `…`; every
- * label that is drawn is drawn whole. The cap bounds the row rather than
- * guaranteeing a fit — names are the customer's, so no count is a width, and
- * `crumbs.ts` records what was measured at 390pt and what it actually buys.
+ * **What the row used to be unable to absorb was depth, and that expired.**
+ * The segment that scrolls off the trailing edge can be the leaf, and for a
+ * while that was answered by capping the folder count and eliding the middle
+ * to `…` — `crumbs.ts` carried `MAX_FOLDER_CRUMBS`, and a caller that needed
+ * the leaf's fit *guaranteed* rather than merely bounded passed it a character
+ * budget (`phoneRowBudget`, once below this comment). Both are gone: the row
+ * is already a `ScrollView`, so it answers "what fits" for free, correctly, at
+ * every width and every font size — a question the elision was only ever
+ * approximating. `crumbs.ts`'s header has the fuller argument and
+ * `docs/decisions/app-and-console.md`'s "Two, not three" and "A count cannot
+ * guarantee a fit" record what this supersedes and why it is not a reversal:
+ * every segment is reachable now, where a cap only kept two of them so.
  *
  * The scroller is one level up because the context button scrolls **with** these
  * segments: they are one line, and a button that stayed still while its own path
- * slid out from under it is two controls pretending to be one.
+ * slid out from under it is two controls pretending to be one. It starts at its
+ * leading edge — the pill and the ancestors nearest it — because the leaf is
+ * already stated a line below, as the note's own inline title; a control you
+ * cannot reach is worse than a fact you may have to scroll to.
  */
-/**
- * The characters `crumbsFor` may spend on the phone's row, given the screen
- * it is drawn on and the pill in front of it.
- *
- * A pixel budget rather than a character one is what the screen actually
- * offers, so this is the one place that converts — everything downstream of
- * it, in `crumbs.ts`, is plain arithmetic on a number of characters and has no
- * idea a screen exists. Every constant here is an estimate of a real style
- * elsewhere, kept in points and named for what it stands for rather than
- * folded into one guess, so the next person to retune it can tell which piece
- * moved:
- *
- * - **The band's own margin**, `layout.readingMargin` on both sides —
- *   `NavBand`'s `gutter` prop, which is what `BrowsePane` passes it.
- * - **The trailing fade**, 24pt — `NavBand`'s own number for the same falloff,
- *   duplicated with a comment rather than imported because it is a decoration
- *   this module has no other reason to depend on.
- * - **The pill**, estimated rather than measured: `space.x2` of padding on
- *   each side, the 6pt gap before its label, an 8pt dot, and the label itself
- *   at `wsSwitch`'s 13px body face. Body glyphs run wider than the row's own
- *   11px monospace, so this is deliberately generous — a budget that assumes
- *   a bigger pill than the real one leaves the row *more* room than it has,
- *   which is the wrong direction to be wrong in. Erring the other way here
- *   would spend characters `crumbs.ts` does not actually have.
- * - **A flat safety margin**, `SLACK_PX`. `breadcrumb-shots.ts` photographed
- *   this against the real font before that constant existed and the leaf was
- *   still fading out under `NavBand`'s gradient — every other number here was
- *   individually a fair estimate, and the row still ran 18pt over, which is
- *   what a flex row's own gaps cost between segments and none of these
- *   estimates were charged for. The margin is what stops the next rounding
- *   error from being a fade nobody sees coming; `crumbs.ts`'s `SEPARATOR_CHARS`
- *   is the corresponding correction on the *characters* side of the divide.
- *
- * Conservative is the only direction this is allowed to be wrong in: the
- * whole point is that the leaf fits, so a number that overestimates the room
- * available is the one defect this function must never have. `CHAR_WIDTH_PX`
- * carries the same bias for the row's own glyphs. `breadcrumb-shots.ts` is
- * where this gets checked against a real browser rather than arithmetic.
- */
-function phoneRowBudget(windowWidthPx: number, contextLabel: string): { chars: number } {
-  const gutterPx = layout.readingMargin * 2;
-  const fadePx = 24;
-  const pillChromePx = space.x2 * 2 + 6 + 8;
-  const pillLabelPx = contextLabel.length * 7.5; // ~13px body glyph, generously
-  const slackPx = 12;
-  const availablePx = windowWidthPx - gutterPx - fadePx - pillChromePx - pillLabelPx - slackPx;
-  return { chars: Math.max(0, Math.floor(availablePx / CHAR_WIDTH_PX)) };
-}
 
 export function Breadcrumb({
   path,
   title,
-  contextLabel,
   visibility,
   inherited,
   exception,
   readOnly,
   onSelectFolder,
+  onFolderMenu,
   pathOnly,
+  history,
 }: {
   path: string;
   /**
@@ -193,46 +156,71 @@ export function Breadcrumb({
    * what the leaf says.
    */
   title?: string;
-  /** "@seyi" — the context is the first segment, and it is the product's root. */
-  contextLabel: string;
   visibility: Visibility;
   inherited: Visibility;
   exception: boolean;
   readOnly: boolean;
   onSelectFolder?: (folder: string) => void;
   /**
+   * Right-click on a folder segment.
+   *
+   * The breadcrumb is the fastest route to a parent folder's verbs and offered
+   * none of them — the tree is the only place a folder could be created in,
+   * addressed or have its visibility set, and the crumb naming that very folder
+   * was inert to the second mouse button.
+   *
+   * Folder segments only. The leaf is not a control here (pressing it would
+   * re-select what is already open) and giving it a menu would make it one
+   * halfway. Returns whether a menu opened — see `rightClick.web.ts`.
+   */
+  onFolderMenu?: (folder: string, anchor: { x: number; y: number }) => boolean;
+  /**
    * Draw the path and nothing else — see the header. The phone's shape.
    *
    * The whole path — every ancestor **and** the place itself, whichever kind
-   * it names — capped in the middle at `MAX_FOLDER_CRUMBS` so the leaf is on
-   * screen without scrolling. What it drops is the context segment and the
-   * visibility chip, both of which the surfaces around it already carry.
+   * it names. What it drops is the context segment and the visibility chip,
+   * both of which the surfaces around it already carry.
    */
   pathOnly?: boolean;
+  /**
+   * `‹` and `›`, at the head of the line.
+   *
+   * **This is the pointer's half of a control the phone has had all along.**
+   * `history.ts` held the stack and `ConsoleBottomBar` drew the pair, and
+   * `frame.ts` draws that bar at `compact` only — so on a desktop the console
+   * kept a full history of where somebody had been and offered no way to walk
+   * it. "The note I was just looking at" was reachable by finding it in the
+   * tree again, which is the defect the phone's toolbar was built to fix.
+   *
+   * Here rather than in the tab strip above, because tabs are a *set* of open
+   * notes and this is an *order* of visits — two tabs can be open while you
+   * have moved between them six times. And at the head of the path because
+   * that is where every browser and Obsidian put them, which is the whole
+   * reason they need no label.
+   *
+   * Absent on `pathOnly`: that is the phone, and the bottom bar already draws
+   * them under the thumb. Two of the same control on one 390pt screen is what
+   * the drawer toggle was deleted for being.
+   */
+  history?: {
+    canBack: boolean;
+    canForward: boolean;
+    onBack: () => void;
+    onForward: () => void;
+  };
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const windowWidth = useWindowDimensions().width;
   const compact = densityFor(windowWidth) === "compact";
   /*
-    The whole path, leaf included, and capped only where the width demands it.
-
-    `pathOnly` is the phone: a context pill, then this, on a 390pt row that
-    scrolls. `MAX_FOLDER_CRUMBS` keeps the leaf reachable without dragging —
-    see `crumbs.ts` for why scrolling is not an answer for the one segment that
-    says where you are. The pointer layout asks for no cap: it has the width for
-    the whole path and a visibility chip beside it.
-
-    A cap **bounds** the row; it does not fit it — a scroll is still how a long
-    but ordinary path is read. `budget` is the difference: on a phone the leaf's
-    fit is not left to a scroll and a fade, it is guaranteed, so it is passed
-    only here. `phoneRowBudget` turns the screen this is actually drawn on into
-    the characters `crumbsFor` spends.
+    The whole path, leaf included, on both densities. `pathOnly` is the phone:
+    a context pill, then this, on a `ScrollView` row — see the header for why
+    that scroller is the answer to "does the leaf fit" rather than a folder
+    count or a character budget. The pointer layout draws the same crumbs
+    beside a visibility chip it has the width for.
   */
-  const crumbs = crumbsFor(path, {
-    title,
-    maxFolders: pathOnly === true ? undefined : null,
-    budget: pathOnly === true ? phoneRowBudget(windowWidth, contextLabel) : null,
-  });
+  const crumbs = crumbsFor(path, { title });
 
   if (pathOnly === true) {
     /*
@@ -243,8 +231,8 @@ export function Breadcrumb({
     if (crumbs.length === 0) return null;
     return (
       <>
-        {crumbs.map((crumb, index) => (
-          <Fragment key={keyFor(crumb, index)}>
+        {crumbs.map((crumb) => (
+          <Fragment key={keyFor(crumb)}>
             {/*
               A separator in front of every crumb, the first included — because
               the thing to its left is the context button, and `@seyi 1-projects`
@@ -255,13 +243,21 @@ export function Breadcrumb({
             <Segment
               crumb={crumb}
               onSelectFolder={onSelectFolder}
+              onFolderMenu={onFolderMenu}
               /*
                 The leaf is the only thing on a phone naming what is open once
                 the document has scrolled, so it carries the weight — and the
                 body face when it is a *title* somebody wrote rather than a file
-                name. See `leafText`.
+                name. See `Segment`'s own `titled` prop, below.
               */
               leafStyle={styles.pathLeaf}
+              /*
+                `NavBand`'s row is already `layout.minTouchTarget` tall —
+                `CurrentContextPill`'s own target holds it there — so growing a
+                folder segment's pressable to match costs nothing visible here.
+                See `segmentTouch` and `Segment`'s own `folderStyle` prop.
+              */
+              folderStyle={styles.segmentTouch}
               titled={title !== undefined}
             />
           </Fragment>
@@ -270,70 +266,134 @@ export function Breadcrumb({
     );
   }
 
+  /*
+    THE POINTER LINE IS THE NOTE'S FOLDERS, AND NOTHING THE PAGE ALREADY SAYS.
+
+    It was `@seyi / 1-projects / Context.LC — build decisions`, and two thirds
+    of that is drawn twice within 90pt: the workspace is the switcher chip in
+    the title bar, directly above, and the note's own name is the H1 directly
+    below, at 30pt. A line that repeats its neighbours in a smaller face is a
+    line a reader learns to skip, and the canvas draws neither — `spirit /
+    bible-study / kings`, the folders and the folders only, which is the one
+    fact on that line nothing else on screen carries.
+
+    The phone keeps both. `pathOnly` returns above this: there is no switcher
+    and no 30pt title up there, the pill in front of the line *is* the context,
+    and the leaf is how you know which note the toolbar is about.
+  */
+  const folders = compact ? crumbs : crumbs.filter((crumb) => crumb.kind === "folder");
+
   return (
     <View style={[styles.bar, compact && styles.barCompact]}>
-      {compact ? null : (
-        <Text variant="mono" style={styles.context} numberOfLines={1}>
-          {contextLabel}
-        </Text>
+      {history === undefined ? null : (
+        <View style={styles.history}>
+          <Step
+            direction="back"
+            enabled={history.canBack}
+            onPress={history.onBack}
+            colors={colors}
+            styles={styles}
+          />
+          <Step
+            direction="forward"
+            enabled={history.canForward}
+            onPress={history.onForward}
+            colors={colors}
+            styles={styles}
+          />
+        </View>
       )}
-
-      {crumbs.map((crumb, index) => (
-        <Fragment key={keyFor(crumb, index)}>
+      {folders.map((crumb, index) => (
+        <Fragment key={keyFor(crumb)}>
           {/*
-            A separator joins two things. With the context segment dropped at
-            `compact` there is nothing to the left of the first crumb, and an
-            unconditional one renders the path as "/ 1-projects / note" — a
-            leading slash that reads as an absolute path into the bucket root,
-            which is precisely the addressing this product does not use.
+            A separator joins two things, and there is nothing to the left of
+            the first crumb now that the context segment is gone from this
+            density too. An unconditional one renders the path as "/ 1-projects
+            / note" — a leading slash that reads as an absolute path into the
+            bucket root, which is precisely the addressing this product does
+            not use.
           */}
-          {compact && index === 0 ? null : <Separator />}
+          {index === 0 ? null : <Separator />}
           <Segment
             crumb={crumb}
             onSelectFolder={onSelectFolder}
+            onFolderMenu={onFolderMenu}
             leafStyle={[styles.leaf, compact && styles.leafCompact]}
             titled={title !== undefined}
           />
         </Fragment>
       ))}
 
-      <View style={styles.spacer} />
+      {/*
+        WHO CAN SEE THIS, AS PART OF THE LINE RATHER THAN A BADGE ON IT.
 
-      <View
-        style={[
-          styles.chip,
-          readOnly
-            ? styles.chipGenerated
-            : visibility === "team"
-              ? styles.chipTeam
-              : styles.chipPrivate,
-        ]}
-      >
+        It was a filled, bordered pill against the trailing edge — and at
+        `team` it was a green capsule, which made "this note follows its
+        folder" the loudest object on the page. That is a status nobody needs
+        shouted: the note's audience is the ordinary state of a note, and the
+        cases worth noticing (an exception set here, a group, a generated file)
+        are the ones the *words* already name.
+        
+        So it joins the path: a separator, the state's own glyph, and the
+        sentence, in the state's own text colour. The colour still tells the
+        four apart at a glance; the box is what goes. And it sits beside the
+        crumbs rather than pushed to the far edge, because a line that names
+        where the note is and who can see it is one sentence, not two ends of
+        a bar.
+      */}
+      <Text style={styles.separator}>·</Text>
+      <View style={styles.access}>
+        {/*
+          One grey, and one exception to it.
+
+          Four states in four colours was the badge's logic surviving the badge:
+          a hue per case is how a *chip* tells them apart, and this is a clause
+          in a sentence. The canvas draws it in the same grey as the path. What
+          keeps its colour is the one state that WIDENS who can read the note —
+          `team`, and a named group — in the same violet the file tree marks it
+          with, because that is the only case where the reader is being told
+          something they might want to change. `private` narrowing access is the
+          safe direction and does not need a colour to say so.
+        */}
+        <Icon
+          name={readOnly ? "gear" : visibility === "private" ? "lock" : "people"}
+          size={11}
+          color={
+            !readOnly && (visibility === "team" || isGroupVisibility(visibility))
+              ? colors.markTeam
+              : colors.chromeMuted
+          }
+        />
         <Text
           style={[
             styles.chipLabel,
-            readOnly
-              ? styles.chipGeneratedLabel
-              : visibility === "team"
-                ? styles.chipTeamLabel
-                : styles.chipPrivateLabel,
+            !readOnly && (visibility === "team" || isGroupVisibility(visibility))
+              ? styles.chipTeamLabel
+              : styles.chipQuietLabel,
           ]}
         >
-          {describe({ visibility, inherited, exception, readOnly, brief: compact })}
+          {/*
+            The phone's shorter wording at every density. `describe`'s long form
+            — "team — follows its folder" — was written for a line that also
+            carried the workspace and the note's name and had room for a clause;
+            on the line the canvas draws it is the longest thing there. The
+            distinction it exists to draw survives the trim: `set here` and
+            `inherited` are still two different answers.
+          */}
+          {describe({ visibility, inherited, exception, readOnly, brief: true })}
         </Text>
       </View>
+      <View style={styles.spacer} />
     </View>
   );
 }
 
 /**
- * A React key that survives elision.
- *
- * The folder path is unique and stable, and the gap has no path of its own —
- * it stands for several — so it is keyed by position. There is at most one.
+ * A React key. The path is unique and stable, so there is no need for the
+ * index this once fell back to for a gap that stood for several at once.
  */
-function keyFor(crumb: Crumb, index: number): string {
-  return crumb.kind === "gap" ? `gap-${index}` : `${crumb.kind}:${crumb.path}`;
+function keyFor(crumb: Crumb): string {
+  return `${crumb.kind}:${crumb.path}`;
 }
 
 /**
@@ -341,43 +401,51 @@ function keyFor(crumb: Crumb, index: number): string {
  *
  * A folder is a control — pressing it lists that folder, which is what a
  * breadcrumb is *for*; a path you can only read is a label. The leaf is not:
- * pressing it would re-select what is already open. The gap is neither, and
- * says out loud which folders it stands for so a screen reader is not handed a
- * bare ellipsis.
+ * pressing it would re-select what is already open.
  */
 function Segment({
   crumb,
   onSelectFolder,
+  onFolderMenu,
   leafStyle,
+  folderStyle,
   titled,
 }: {
   crumb: Crumb;
   onSelectFolder?: (folder: string) => void;
+  /** Right-click, on a folder segment. See `Breadcrumb`'s own prop. */
+  onFolderMenu?: (folder: string, anchor: { x: number; y: number }) => boolean;
   leafStyle: StyleProp<TextStyle>;
-  /** Whether the leaf's label is a title somebody wrote. See `leafText`. */
+  /**
+   * Extra layout on top of `segment`, for the caller that needs the folder
+   * pressable's own box grown past what it draws — see `pathOnly`'s
+   * `segmentTouch` below. `undefined` everywhere else: the pointer bar's row
+   * is not `minTouchTarget` tall the way `NavBand`'s already is, so growing
+   * its folder segments to the floor would grow the *row*, not just the
+   * target — a visible regression this file has no reason to ship on a
+   * surface a mouse, not a thumb, presses.
+   */
+  folderStyle?: StyleProp<ViewStyle>;
+  /**
+   * Whether the leaf's label is a title somebody wrote rather than the note's
+   * filename — decides the body face below, where `crumb.kind === "leaf"` is
+   * drawn.
+   */
   titled: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
-
-  if (crumb.kind === "gap") {
-    return (
-      <Text
-        variant="mono"
-        style={styles.folder}
-        /*
-          Not `aria-hidden`. It is standing in for real folders and a reader
-          that skipped it would be told a path that is missing its middle with
-          nothing marking the join.
-        */
-        accessibilityLabel={`${crumb.hidden.length} more ${
-          crumb.hidden.length === 1 ? "folder" : "folders"
-        }: ${crumb.hidden.join(", ")}`}
-        testID="breadcrumb-gap"
-      >
-        …
-      </Text>
-    );
-  }
+  /*
+    A wrapper, for the reason `FolderView`'s rows use one: react-native-web
+    forwards no `onContextMenu`, so the real node is reached through a plain
+    `View`. Declared before the leaf's early return because hooks are not
+    conditional — the leaf simply never attaches it, which is the same answer
+    `useRightClick(undefined)` gives.
+  */
+  const rightClick = useRightClick(
+    onFolderMenu === undefined || crumb.kind === "leaf"
+      ? undefined
+      : (anchor) => onFolderMenu(crumb.path, anchor),
+  );
 
   if (crumb.kind === "leaf") {
     return (
@@ -392,14 +460,6 @@ function Segment({
         style={leafStyle}
         numberOfLines={1}
         testID="breadcrumb-leaf"
-        /*
-          Only set when a width budget shortened the label — a screen reader
-          gets the whole name, which the screen itself no longer has room for.
-          `undefined` rather than always passing `crumb.label` twice: a real
-          `accessibilityLabel` on a plain word is a second thing that can drift
-          from the visible one.
-        */
-        accessibilityLabel={crumb.fullLabel}
       >
         {crumb.label}
       </Text>
@@ -407,17 +467,72 @@ function Segment({
   }
 
   return (
+    <View ref={rightClick.ref} collapsable={false}>
+      <PressRow
+        accessibilityLabel={`Open ${crumb.path}`}
+        onPress={() => onSelectFolder?.(crumb.path)}
+        radius={radii.xs}
+        style={[styles.segment, folderStyle]}
+        hoverStyle={styles.segmentHover}
+        testID={`breadcrumb-folder-${crumb.path}`}
+      >
+        <Text variant="mono" style={styles.folder} numberOfLines={1}>
+          {crumb.label}
+        </Text>
+      </PressRow>
+    </View>
+  );
+}
+
+/** Bought back around a 24pt box to reach `layout.minTouchTarget`. */
+const STEP_SLOP = Math.round((layout.minTouchTarget - 24) / 2);
+
+/**
+ * One of `‹` `›`.
+ *
+ * **Dimmed in place rather than removed at the ends of the history**, which is
+ * `ConsoleBottomBar`'s rule for the same pair and is right for the same
+ * reason: these two spend most of a session with at least one of them
+ * unavailable, and a line whose first two positions come and go moves every
+ * segment beside them each time somebody navigates.
+ *
+ * Unavailable is `disabled`, which `PressRow` passes to `Pressable`: it stops
+ * the press, takes the row out of the tab order, and — the part that was
+ * missing when this was only an absent handler — announces the control as
+ * unavailable rather than letting a screen reader offer "Go back" on a console
+ * with nowhere to go back to.
+ */
+function Step({
+  direction,
+  enabled,
+  onPress,
+  colors,
+  styles,
+}: {
+  direction: "back" | "forward";
+  enabled: boolean;
+  onPress: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
     <PressRow
-      accessibilityLabel={`Open ${crumb.path}`}
-      onPress={() => onSelectFolder?.(crumb.path)}
-      radius={radii.xs}
-      style={styles.segment}
-      hoverStyle={styles.segmentHover}
-      testID={`breadcrumb-folder-${crumb.path}`}
+      accessibilityLabel={direction === "back" ? "Go back" : "Go forward"}
+      onPress={enabled ? onPress : undefined}
+      // Drawn, and honest about having nothing behind it. See `PressRow`.
+      disabled={!enabled}
+      style={styles.step}
+      hoverStyle={enabled ? styles.stepHover : undefined}
+      radius={radii.md}
+      // The drawn box is 24pt and the target is not: `minTouchTarget` is bought
+      // back in slop, which is this file's own rule for a row shorter than it.
+      hitSlop={{ top: STEP_SLOP, bottom: STEP_SLOP, left: STEP_SLOP, right: STEP_SLOP }}
     >
-      <Text variant="mono" style={styles.folder} numberOfLines={1}>
-        {crumb.label}
-      </Text>
+      <Icon
+        name={direction === "back" ? "chevronLeft" : "chevronRight"}
+        size={13}
+        color={enabled ? colors.chromeMuted : colors.line}
+      />
     </PressRow>
   );
 }
@@ -469,15 +584,54 @@ export function describe({
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  /**
+   * The pointer layout's line, and it is a line rather than a bar.
+   *
+   * **No fill and no rule**, which reverses what this style used to be. It had
+   * `surface` behind it and a hairline under it, so it read as a band of
+   * chrome with the note starting below — and once the frame's top bar and the
+   * status bar were counted, that was three horizontal rules stacked down one
+   * window. The frame separates its regions by *value* now
+   * (`chromeSurface`/`pageSurface`, see `tokens.ts`), and this sits on the
+   * page, so a fill of its own would be a fourth surface and the rule would be
+   * drawing a boundary that is not there.
+   *
+   * `paddingHorizontal` is gone with them: `BrowsePane` indents the crumb to
+   * `noteGutterFor` so the path starts at the note's own first character,
+   * which a fixed gutter cannot do — the column is centred and moves with the
+   * width. The trailing actions are outside that padding and keep the
+   * region's edge.
+   *
+   * The vertical padding grows, because a line with no rule under it needs the
+   * air to separate it from the note instead.
+   */
+  /**
+   * `‹ ›`, tight against each other and looser against the path.
+   *
+   * Its own row rather than two children of `bar`, so the 6pt gap between
+   * crumbs does not also separate a pair that reads as one control.
+   */
+  history: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 1,
+    marginRight: 2,
+  },
+  step: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepHover: { backgroundColor: colors.surface2 },
   bar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 7,
-    paddingHorizontal: space.x4,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    backgroundColor: colors.surface,
+    paddingTop: space.x4,
+    paddingBottom: space.x2,
+    paddingRight: space.x4,
+    backgroundColor: "transparent",
   },
   /** See the file comment. */
   barCompact: {
@@ -503,7 +657,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * `barCompact` reserves height for a `Button` because the full line used to
    * hold Share; there is no button here — the phone's actions are in the top
    * bar's group — so the row is type on both counts and the floor comes off.
-   * The touch targets are the segments' own, widened by `segment`.
+   * The touch targets are the segments' own, widened by `segmentTouch`.
    *
    * **And no horizontal padding**: `NavBand` pays it for both of its rows, so
    * the pills above this line and the segments on it start at the same
@@ -511,12 +665,54 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * margin.
    */
   barPath: { paddingTop: 0, paddingBottom: space.x2, paddingHorizontal: 0, minHeight: 0 },
-  context: { color: colors.text2, fontSize: 11 },
-  separator: { color: colors.heroDim, fontSize: 11 },
+  context: { color: colors.text2, fontSize: t.label },
+  separator: { color: colors.heroDim, fontSize: t.label },
+  /**
+   * The folder segment's own visual box — `layout.crumbSegmentHeight` tall (an
+   * 11px mono label inside 1pt of vertical padding, 22.15pt), on **every**
+   * density. `segmentTouch`, below, is what a caller adds on top of this for
+   * the one row that can afford to grow the pressable to the touch floor.
+   */
   segment: { paddingHorizontal: 3, paddingVertical: 1, borderRadius: radii.xs },
+  /**
+   * What `NavBand`'s `pathOnly` row adds to `segment`, via `Segment`'s own
+   * `folderStyle` prop — `minHeight: layout.minTouchTarget`, centred, so the
+   * drawn label sits exactly where it did before.
+   *
+   * **This used to be `hitSlop`, and it stopped being that.** `hitSlop` is a
+   * `Pressable` prop, and react-native-web's `View` drops it from what it
+   * forwards to the DOM before it ever reaches an element the platform hit-tests
+   * against — checked live in a real Chromium build of this page:
+   * `document.elementFromPoint` a few pixels above a folder segment's visible
+   * box returned the row's plain container, never the segment, at every offset
+   * up to the box's own edge. `hitSlop` was real on native and a no-op on the
+   * one build this product actually ships to phones as — see
+   * `features/design/components/Menu.web.tsx`'s own header. `explorerRowSlop`
+   * (`FolderView.tsx`) has the identical hole and is not fixed here; this file
+   * only owns the breadcrumb.
+   *
+   * `minHeight` is a real layout property on both platforms, so hit-testing
+   * (native and web) is against the pressable's own actual box rather than a
+   * platform-specific extension of it — no asterisk. **It does not grow
+   * `NavBand`'s row**: `CurrentContextPill`'s own target (`ContextStrip.tsx`)
+   * is already `minTouchTarget` tall, so the row's cross-axis size — the
+   * tallest child of an `alignItems: "center"` flex row — was 44 before this
+   * segment ever grew to match it; this only stops being the one child
+   * shorter than the row it sits in.
+   *
+   * **Scoped to `pathOnly` on purpose** — checked live, the other way round,
+   * against the pointer bar's own row (`bar`/`barCompact`, below): that row is
+   * *not* already 44 tall, so an earlier version of this fix applied
+   * `minHeight` to `segment` itself and grew the pointer breadcrumb from
+   * 22.15pt to 44pt — a real, visible regression on a surface a mouse, not a
+   * thumb, presses, and one neither this PR nor the codebase before it ever
+   * shipped. `Segment`'s `folderStyle` prop is what keeps that row out of
+   * reach of this style.
+   */
+  segmentTouch: { minHeight: layout.minTouchTarget, justifyContent: "center" },
   segmentHover: { backgroundColor: colors.surface3 },
-  folder: { color: colors.muted, fontSize: 11 },
-  leaf: { color: colors.text, fontSize: 11 },
+  folder: { color: colors.muted, fontSize: t.label },
+  leaf: { color: colors.text, fontSize: t.label },
   /**
    * The note's own name, at the size a title is read at.
    *
@@ -525,7 +721,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * is on screen, and the folders in front of it are the supporting detail
    * rather than the other way round.
    */
-  leafCompact: { fontSize: 14, fontWeight: "600" },
+  leafCompact: { fontSize: t.ui, fontWeight: "600" },
   /**
    * The leaf on the phone's band, which is a **row of controls** rather than a
    * line above a document.
@@ -537,21 +733,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * and the full-strength colour are what separate *where you are* from the
    * ancestors leading to it.
    */
-  pathLeaf: { color: colors.text, fontSize: 11, fontWeight: "600" },
+  pathLeaf: { color: colors.text, fontSize: t.label, fontWeight: "600" },
   spacer: { flex: 1, minWidth: space.x3 },
 
-  chip: {
-    flexShrink: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 1,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-  },
-  chipLabel: { fontSize: 10, fontFamily: fonts.body },
-  chipTeam: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
-  chipTeamLabel: { color: colors.okText },
-  chipPrivate: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },
-  chipPrivateLabel: { color: colors.text2 },
-  chipGenerated: { backgroundColor: "transparent", borderColor: colors.line },
-  chipGeneratedLabel: { color: colors.muted },
+  /** The glyph and the sentence, as one run of the line. */
+  access: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
+  chipLabel: { fontSize: t.label, fontFamily: fonts.body },
+  /*
+    Two tones where there were four. See the use site: `team` and a named group
+    are the states that widen who can read the note, and they keep the violet
+    the file tree marks `team` with; everything else is the line's own grey.
+
+    The four fills that went with the four tones went when the chip became a
+    clause — `chipTeam`, `chipPrivate`, `chipGroup` and `chipGenerated` were
+    already unreferenced by then and are deleted rather than left as a
+    stylesheet describing a control that is not drawn.
+  */
+  chipTeamLabel: { color: colors.markTeam },
+  chipQuietLabel: { color: colors.chromeMuted },
 });

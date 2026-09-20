@@ -10,7 +10,7 @@ import { defaultContext, landingHref } from "../features/console/nav";
  * would recognise. So an account that owns `@agent` and was invited into
  * `@seyi` signed in and got **`@seyi`**: a context they are a guest in,
  * filtered to team level, with a "Team access — notes marked private are not
- * shown here" line across the top and their own brain nowhere on the screen.
+ * shown here" line across the top and their own workspace nowhere on the screen.
  * Every part of that is working as designed and the whole of it is the wrong
  * first screen.
  *
@@ -21,10 +21,10 @@ import { defaultContext, landingHref } from "../features/console/nav";
  *
  * ## Why owning is the rule rather than, say, the newest
  *
- * A brain is what the product is: where capture lands, where the privacy
+ * A workspace is what the product is: where capture lands, where the privacy
  * manifest lives, and the only context whose private notes the signed-in person
  * can see at all. A context somebody shared with you is a place you visit.
- * There is exactly one personal context per person (`CLAUDE.md`, "Brain"), so
+ * There is exactly one personal context per person (`CLAUDE.md`, "Vocabulary"), so
  * "one you own" is not ambiguous in practice — and where it somehow is, the
  * first of the owned ones is still strictly better than the first of all of
  * them.

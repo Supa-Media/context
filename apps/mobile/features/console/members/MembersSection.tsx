@@ -60,6 +60,7 @@ export function MembersSection({
   view,
   viewerRole,
   shareBackWith,
+  showReachRule = true,
 }: {
   view: MembersView;
   /** The caller's role in this context. Absent until the context list lands. */
@@ -73,6 +74,21 @@ export function MembersSection({
    * from nothing. See `shareBackSuggestions` in `members.ts`.
    */
   shareBackWith?: readonly string[];
+  /**
+   * Whether to print the owner's paragraph about what having members hands
+   * over. On by default, and off in exactly one place: Sharing & Access, where
+   * the Privacy block two blocks below states the same rule in the words that
+   * section is held to.
+   *
+   * `PrivacyPanel`'s own docstring made this call the other way round when the
+   * two were separate screens — it dropped `memberReachSentence` from *its*
+   * copy and left the paragraph here, "one point, two voices, one screen
+   * apart". They are not a screen apart any more, so the same rule now points
+   * the other way: the block whose whole subject is who can read what keeps
+   * the sentence, and the member list stops repeating it in retired
+   * vocabulary.
+   */
+  showReachRule?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const { actions } = view;
@@ -84,7 +100,7 @@ export function MembersSection({
     alone" on somebody else's context would be reading a claim about the wrong
     person's notes.
   */
-  const reach = memberReachSentence(viewerRole);
+  const reach = showReachRule ? memberReachSentence(viewerRole) : null;
   /*
     And the reader's half, which had nowhere to be drawn.
 
@@ -107,7 +123,15 @@ export function MembersSection({
   // permanent "Loading…", which is how both halves of this card would otherwise
   // read. It only reaches here at all because `useMembers` subscribes with
   // `useQueries`; a `useQuery` threw it past every layout in the app.
-  if (view.failure !== null) {
+  /*
+    Truthiness rather than `!== null`: the type says `ConsoleFailure | null`,
+    and a view assembled without the field at all — which is what a fixture
+    that only cares about storage produces — is `undefined`, which is not
+    `null` and would take this branch to read `.headline` off nothing. Both
+    absences mean the same thing here, and this component now has more than
+    one caller.
+  */
+  if (view.failure) {
     return (
       <View testID="members-failure">
         <FormError

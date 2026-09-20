@@ -9,7 +9,7 @@ limit on real contexts — measured live at 154 notes — and cannot rank.
 
 ## Where it lives
 
-One object per bucket: `.index/search-v1.json`. Dot-prefixed on purpose:
+One object per bucket: `.context/search/search-v1.json`. Dot-prefixed on purpose:
 `isPlumbing` already hides every dot-segment key from every tool and every
 scope, so the index is unreachable through the note surface without a single
 new rule. It is written only by the gateway's own maintenance path
@@ -160,7 +160,7 @@ paid-plan deployment raises it with `SEARCH_SUBREQUEST_BUDGET` in the
 environment — clamped, and unparseable values fall back to the default,
 because a typo'd var must not take search down or unbounded):
 
-1. `store.get(".index/search-v1.json")` → parse (null ⇒ empty index). An
+1. `store.get(".context/search/search-v1.json")` → parse (null ⇒ empty index). An
    object larger than `INDEX_PARSE_BYTE_CAP` is **refused unparsed** and
    treated exactly like a corrupt one: `JSON.parse` of a many-MB index
    inflates several-fold in a 128MB heap, and an index big enough to kill the
@@ -192,7 +192,7 @@ it degrades instead of throwing `Too many subrequests`.
 # The sharded index — format contract (v2)
 
 v1's single object has a hard ceiling: it must be parsed whole, so
-`INDEX_PARSE_BYTE_CAP` bounds it, and a brain whose capped index exceeds that
+`INDEX_PARSE_BYTE_CAP` bounds it, and a workspace whose capped index exceeds that
 bound plateaus at partial coverage forever — measured live at roughly a
 thousand docs of contact-heavy vocabulary. v2 removes the whole-object parse:
 many small shards, each always under its own cap, streamed at query time so
@@ -200,7 +200,7 @@ peak memory is one shard.
 
 ## Objects
 
-- `.index/v2/manifest.json` — **the query surface**, and the pass's single
+- `.context/search/v2/manifest.json` — **the query surface**, and the pass's single
   commit point. Carries `{version: 3, shardCount, generatedAt, stats, filters,
   freshness}` where `stats` is an array of per-shard `{docCount, lenTotals:
   {title, headings, tags, body}}`, `filters` is an array of `shardCount` base64
@@ -208,7 +208,7 @@ peak memory is one shard.
   must treat as "read that shard"), and `freshness` is
   `{listedAt, pending, truncated}` — what the last pass that listed the bucket
   found. A query reads this object and no other bookkeeping.
-- `.index/v2/docmap.json` — **the diff surface**, read by maintenance and by
+- `.context/search/v2/docmap.json` — **the diff surface**, read by maintenance and by
   nothing else. `{version: 3, shardCount, docsByShard}`, where `docsByShard` is
   an array of `shardCount` arrays of `[path, version]` pairs (the same
   listing-derived token v1 stores). Serialized as arrays of pairs throughout —
@@ -232,14 +232,14 @@ peak memory is one shard.
   diff into both objects to keep an older reader happy would be one list
   authored twice, and the direction that fails is two copies disagreeing about
   what a shard holds.
-- `.index/v2/shard-<nnn>.json` — `nnn` is the zero-padded decimal shard id.
+- `.context/search/v2/shard-<nnn>.json` — `nnn` is the zero-padded decimal shard id.
   Written as `{version: 3, generatedAt, docs, terms}` over only its docs, where
   `docs` is a sorted array of `[path, meta]` pairs and each posting in `terms`
   is `[docIndex, tf]` — the doc's position in that `docs` array, not its path.
   The interning is load-bearing, not cosmetic: path-keyed postings repeat every
   doc's path once per unique term (~150-250 terms against 50-80-byte paths),
   which crossed `SHARD_PARSE_BYTE_CAP` at about half of the 300-doc target and
-  plateaued the live brain's backfill permanently — every pass rebuilt the same
+  plateaued the live workspace's backfill permanently — every pass rebuilt the same
   oversized shard and had its write refused. Readers also accept the earlier
   `{version: 2, docs, terms}` dialect (postings keyed by path string), because
   refusing it would rebuild every under-cap shard a working index already
@@ -271,7 +271,7 @@ is re-sharded by this — while a bundled note can, which is the point.
 
 The count **may grow on a later pass**, in place, when the volume or the
 placement asks for it; it never shrinks, and shrinking is still "delete the
-manifest" (everything here is disposable). A one-note brain gets one shard, so
+manifest" (everything here is disposable). A one-note workspace gets one shard, so
 small contexts pay v1's costs plus one manifest read.
 
 ## Caps
@@ -556,7 +556,7 @@ derivative, is free to take. `src/search/commsIndex.js` owns the split:
 one sub-document (the note's own path, whole-file-capped, exactly as before)
 for anything that is not a channel-day note, and one sub-document per message
 for one that is. **A note that is not a channel-day note is indexed exactly as
-it is today** — nothing about this reaches a brain with no mailbox connected.
+it is today** — nothing about this reaches a workspace with no mailbox connected.
 
 ## Placement, shape and the fields added to a doc entry
 

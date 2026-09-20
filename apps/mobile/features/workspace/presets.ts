@@ -5,7 +5,7 @@
  *
  * PARA is a personal-productivity taxonomy. `1-projects` / `2-areas` /
  * `3-resources` sorts *one person's* work by how permanent it is, and it is a
- * good default for a brain for exactly that reason. A company's context is
+ * good default for a workspace for exactly that reason. A company's context is
  * sorted by something else — who owns a thing, and which outside party it is
  * about — and a team handed five folders named after somebody else's
  * productivity system files nothing into them.
@@ -140,7 +140,7 @@ export const WORKSPACE_PRESETS: readonly WorkspacePreset[] = [
   {
     key: "para",
     label: "Standard (PARA)",
-    summary: "The same five folders a personal brain starts with. Familiar if the team already uses it.",
+    summary: "The same five folders a personal workspace starts with. Familiar if the team already uses it.",
     folders: null,
   },
   {

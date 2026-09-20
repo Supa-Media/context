@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, radii } from "../../design/tokens";
+import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   ACKNOWLEDGEMENT_CONFIRM,
@@ -215,7 +215,7 @@ function makeStyles(colors: Colors) {
     problem: { color: colors.warnText },
     input: {
       fontFamily: fonts.mono,
-      fontSize: 13,
+      fontSize: t.ui,
       color: colors.text,
       paddingVertical: 10,
       paddingHorizontal: 12,

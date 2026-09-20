@@ -53,6 +53,10 @@ const NOT_SYNCED = new Map([
     "GH_ADMIN_TOKEN",
     "The other half of the bootstrap — the PAT that writes GitHub secrets. Same reason.",
   ],
+  [
+    "Sentry",
+    "Local development reads the Sentry item's dsn field; no deploy workflow reads a Sentry secret today.",
+  ],
 ]);
 
 function readAllowlist() {
@@ -134,10 +138,19 @@ function main() {
     );
   }
 
-  // 3. Local dev never reads a production credential. This is the one that put
-  //    the live storage encryption key on laptops.
+  // 3. A local `op://` reference is either synced to GitHub too, or somebody
+  //    wrote down why it is laptop-only. This catches the quiet half-configured
+  //    deploy: `.env.example` knew a value existed, but no workflow could ever
+  //    receive it from the vault.
   const envExample = readFileSync(join(ROOT, ".env.example"), "utf8");
   for (const { name, field } of opReferences(envExample)) {
+    if (!allowlist.has(name) && !NOT_SYNCED.has(name)) {
+      problems.push(
+        `.env.example reads op://…/${name}/${field}, but the 1Password sync\n` +
+          `    allowlist does not name ${name}. Add it to scripts/secrets-allowlist.json,\n` +
+          `    or to NOT_SYNCED in this file with the reason it is local-only.`,
+      );
+    }
     if (field === "dev" || field === "dsn") continue;
     problems.push(
       `.env.example reads op://…/${name}/${field} — local dev must read the\n` +
@@ -189,13 +202,19 @@ function selfTest() {
   expect("reads the field", refs[0].field === "production");
   expect("reads the second field", refs[1].field === "dev");
   expect("finds nothing in empty text", opReferences("").length === 0);
+  const allowlist = readAllowlist();
+  const envExample = readFileSync(join(ROOT, ".env.example"), "utf8");
+  const unsyncedRefs = opReferences(envExample).filter(
+    ({ name }) => !allowlist.has(name) && !NOT_SYNCED.has(name),
+  );
+  expect("every local op reference is allowlisted or exempt", unsyncedRefs.length === 0);
 
   if (failures.length > 0) {
     console.error("Self-test failed:");
     for (const failure of failures) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log(`Self-test passed (${9} checks).`);
+  console.log(`Self-test passed (${10} checks).`);
 }
 
 if (process.argv.includes("--self-test")) selfTest();

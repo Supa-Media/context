@@ -91,8 +91,7 @@ const mockInsets = { top: 59, bottom: 34, left: 0, right: 0 };
  * enough while every shot was of a note already open. It stopped being enough
  * when the way up became a **control that navigates**: the pill at the head of
  * the band presses to `/console/@seyi`, and a router that swallowed that left
- * the file-browsing shot with no way to reach the context's own page. See
- * `breadcrumb-shots.ts`, which is this pattern's own file.
+ * the file-browsing shot with no way to reach the context's own page.
  */
 const mockUrl: { pathname: string; note?: string } = { pathname: "/console/@seyi" };
 

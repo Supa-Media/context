@@ -105,6 +105,33 @@ function roleCanWrite(role) {
   return role === "owner" || role === "editor";
 }
 
+/**
+ * May this connection take part in a form — submit, edit its own answer, vote?
+ *
+ * **This is the one write a `member` can make, and it is deliberately not a
+ * scope the role clamp can grant.** `effectiveScopes` drops `context:write`
+ * for every role below editor, which is right for note writing and is exactly
+ * what makes a view-only workspace useless for collecting a bug report. So the
+ * *role* clamp is relaxed here and the *grant* is not:
+ *
+ *  - the grant must itself have asked for write, so a client its person
+ *    deliberately connected read-only stays read-only — submitting a form
+ *    changes a file in their bucket, and "read-only" has to mean that;
+ *  - `context:capture` is not enough. Capture reaches `0-inbox` and nothing
+ *    else, and a form response is a write to a path an editor chose.
+ *
+ * What the relaxation cannot do is decide *which* form: that is the block's
+ * own `submit` policy, read from the note at call time, and the role is
+ * compared against it there. This answers only "may this connection use the
+ * form tools at all", which is why it is a boolean and not a scope.
+ */
+export function participatesInForms(session) {
+  const granted = new Set(session?.grantScopes || session?.scopes || []);
+  if (!granted.has(SCOPE_WRITE)) return false;
+  return typeof session?.role === "string" && session.role !== "";
+}
+
+
 /** A refusal the caller may see. Carries no tenant detail, ever. */
 export class SessionRefusal extends Error {
   constructor(status, code, description) {
@@ -221,6 +248,19 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // the username `meetings` would have been the workspace every meeting client
   // in the product appeared to be addressing.
   "meetings",
+  // The agent turn, `POST /agent`. The same defect `meetings` above records,
+  // caught the same way — by a route that answered 404 while the suite was
+  // green — and it lands the same way: whoever claimed the handle `agent` would
+  // have been the workspace every agent turn in the product appeared to be
+  // addressed to, and, because ingestion is on the apex, the mailbox too.
+  "agent",
+  // The presence socket, `GET /presence`. Third instance of the same defect
+  // `meetings` and `agent` above record, and listed here before it could become
+  // one: without this line `/presence` reads as "the context called presence",
+  // so whoever claimed that handle would have been the workspace every open
+  // editor in the product appeared to be joining — and, because ingestion is on
+  // the apex, would hold the mailbox too.
+  "presence",
 ]);
 
 /* --------------------------- session resolution --------------------------- */
@@ -279,10 +319,20 @@ export async function resolveSession(token, slug, controlPlane) {
     grantId: session.grantId,
     workspaceId: workspace.workspaceId,
     workspaceSlug: workspace.slug,
+    workspaceKind: workspace.kind,
     role: workspace.role,
     scope: visibilityTierForGrant(scopes, workspace.role),
     actorUserId: session.actorUserId,
     actorClientId: session.clientId,
+    /*
+      Display text, not identity. The activity file is a document a person
+      opens, and "@sayo's Claude" is the sentence it has to be able to write;
+      every authorization decision reads `actorClientId`, which the control
+      plane issued, and never this, which the client asserted at registration.
+      Absent on a connection the control plane has no client row for.
+    */
+    actorClientName:
+      typeof session.clientName === "string" && session.clientName ? session.clientName : null,
     scopes,
     /**
      * The grant's own scopes, before this workspace's role clamped them, and
@@ -326,13 +376,13 @@ export async function resolveSession(token, slug, controlPlane) {
  * **This is the whole of cross-context reach, and it is one function on
  * purpose.** A grant now covers every context its person is a live member of
  * (see `resolveGrantByAccessToken`), so a client connected once can act in a
- * brain shared with its owner — which is what was asked for. What must not
+ * workspace shared with its owner — which is what was asked for. What must not
  * follow is authority travelling with it, so every clamp `resolveSession`
  * applies to the default context is applied here to the addressed one, from the
  * grant's own scopes and the *target's* role:
  *
  *  - `effectiveScopes` intersects the grant with what that role can back up, so
- *    a `member` reaches somebody's brain read-only however wide the grant;
+ *    a `member` reaches somebody's workspace read-only however wide the grant;
  *  - `visibilityTierForGrant` reads the tier off the clamped set, so anybody
  *    who is not that context's owner sees `team` and no private note.
  *
@@ -361,6 +411,7 @@ export function sessionForContext(session, name) {
     ...session,
     workspaceId: covered.workspaceId,
     workspaceSlug: covered.slug,
+    workspaceKind: covered.kind,
     role: covered.role,
     scope: visibilityTierForGrant(scopes, covered.role),
     scopes,
@@ -412,8 +463,9 @@ function normalizeSession(raw) {
     if (!entry || typeof entry !== "object") throw fail();
     if (typeof entry.workspaceId !== "string" || !entry.workspaceId) throw fail();
     if (typeof entry.role !== "string" || !entry.role) throw fail();
+    const kind = entry.kind === "shared" ? "shared" : "personal";
     const slug = typeof entry.slug === "string" ? entry.slug.toLowerCase() : null;
-    return { workspaceId: entry.workspaceId, slug, role: entry.role };
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   return {
@@ -424,6 +476,13 @@ function normalizeSession(raw) {
     workspaces: normalized,
     defaultWorkspaceId,
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
+    /*
+      Optional, and unvalidated beyond its type: it is the name the client
+      asserted at registration, it decides nothing, and a control plane older
+      than the field simply omits it. Every other field here throws on a
+      surprise because every other field decides something.
+    */
+    clientName: typeof raw.clientName === "string" && raw.clientName ? raw.clientName : null,
   };
 }
 
@@ -505,7 +564,7 @@ export function hasScope(session, scope) {
  *
  * `tools/list` is a courtesy and `callToolForSession`'s gate is the control, so
  * this may only ever be too generous — and being too *mean* is the failure that
- * actually turns up. Somebody whose client is connected to a brain they are
+ * actually turns up. Somebody whose client is connected to a workspace they are
  * only a `member` of would otherwise be shown no write tools at all, in a
  * session where they own another context and can write there; an agent cannot
  * ask for a tool it was never told about, so a listing filtered by the current
@@ -525,6 +584,46 @@ export function writesAnywhere(session) {
   return (session?.workspaces || []).some((entry) =>
     effectiveScopes(granted, entry.role).includes(SCOPE_WRITE)
   );
+}
+
+/**
+ * What this connection may actually do in a context where its person holds
+ * `role` — the tier it reads at there, and whether it may write.
+ *
+ * `writesAnywhere`'s question asked of one context instead of all of them, and
+ * here for the same reason that one is: the clamp that answers it is this
+ * module's, and a second copy of `effectiveScopes` reasoning is the drift this
+ * file exists to prevent. `orient` describes every context a connection
+ * reaches, and it described them from the *role* alone — which is neither
+ * half of the answer. A read-only grant held by an `editor` was announced as
+ * writable; an `owner` was described as reading private notes on a grant that
+ * carries no `context:private` and reads that context at `team`.
+ *
+ * It answers from the grant's own scopes, never the connection's already
+ * clamped set, exactly as `sessionForContext` does: re-clamping intersects two
+ * roles and would describe a context somebody owns by the role they hold
+ * somewhere else.
+ *
+ * This is a description, never a decision. The gate in `callToolForSession`
+ * still decides, from the session `sessionForContext` builds — but both read
+ * the same clamp, so what orientation promises and what the call does cannot
+ * disagree.
+ */
+export function reachForRole(session, role) {
+  const granted = session?.grantScopes || session?.scopes || [];
+  const scopes = effectiveScopes(granted, role);
+  return {
+    tier: visibilityTierForGrant(scopes, role),
+    canWrite: scopes.includes(SCOPE_WRITE),
+    /*
+      Which of the two halves said no, because the remedies differ and
+      `callToolForSession` already refuses in exactly these two voices. A grant
+      that was never given write is a reconnection the person can make; a role
+      that cannot back one up is not, and telling them to reconnect for write
+      they can never hold there sends them round a loop that cannot end.
+    */
+    grantWrites: new Set(granted).has(SCOPE_WRITE),
+  };
 }
 
 /**
@@ -734,6 +833,38 @@ export async function storeForSession(session, env, controlPlane) {
         rotation: readRotation(response.rotation),
       };
     },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  return store;
+}
+
+export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
+  const binding = opened?.binding;
+  if (binding === null) throw new StorageUnavailable("not bound");
+  if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
+  if (binding.status !== "active") throw new StorageUnavailable("not active");
+  if (typeof binding.workspaceId !== "string" || binding.workspaceId !== expectedWorkspaceId) {
+    throw new StorageUnavailable("workspace mismatch");
+  }
+
+  const store = storeForBinding(binding, env);
+  store.provider = typeof binding.provider === "string" ? binding.provider : null;
+  Object.defineProperty(store, "searchIndex", {
+    value: readSearchIndexBinding({ searchIndex: opened?.searchIndex }),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  Object.defineProperty(store, "encryptionKey", {
+    value: readEncryptionKey(opened?.encryptionKey),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  Object.defineProperty(store, "encryptionRotation", {
+    value: readRotation(opened?.rotation),
     enumerable: false,
     writable: false,
     configurable: true,

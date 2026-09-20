@@ -17,8 +17,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rank, type Match, type PaletteItem } from "../../console/files/palette";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
+import { isApplePlatform } from "../applePlatform";
 import { resolve } from "../keymap";
-import { fonts, layout, radii, space } from "../tokens";
+import { fonts, layout, pointerType as t, radii, space, touchType } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
@@ -184,6 +185,21 @@ export interface PaletteSearch {
    * AI client reads off this field, never a fourth version of it.
    */
   reducedRecallNotes?: readonly string[];
+  /**
+   * A sentence about where the answer came from, drawn in the same fixed
+   * place as the shed-note caveat — e.g. "Searched the copy on this device.
+   * Only 340 of 1,204 notes are on this device yet." (`deviceSearchNotice` in
+   * `features/offline/mirrorCopy.ts`). Fixed above the list for the same
+   * reason: it qualifies every row, so it must be on screen with the first.
+   */
+  notice?: string | null;
+  /**
+   * What an answered search with no rows says, when the caller's own
+   * `noMatchMessage` would be wrong for it — a search of the device's copy
+   * that found nothing must not tell somebody to "keep typing to search the
+   * rest of this context".
+   */
+  emptyMessage?: string;
 }
 
 export interface PaletteProps {
@@ -215,6 +231,16 @@ export interface PaletteProps {
    * keystroke exactly when the overlay has failed to answer.
    */
   onSeeAll?: (query: string) => void;
+  /**
+   * Hand the query to the agent, and open the panel it answers in.
+   *
+   * Absent on every surface with no panel to answer in — a phone, the landing
+   * page's picture of the console — and the row is absent with it, which is
+   * the same rule `onSeeAll` follows and the reason neither is a button in the
+   * chrome: a row that exists only where it works is a row the keyboard and
+   * the pointer agree about.
+   */
+  onAsk?: (query: string) => void;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
 }
@@ -242,6 +268,41 @@ export function seeAllItem(query: string, offered: boolean): PaletteItem | null 
   };
 }
 
+/**
+ * The other handoff: hand the query to the agent instead of to search.
+ *
+ * `SEE_ALL_ID`'s reasoning, for a second destination. The two are genuinely
+ * different questions — "find the note called this" and "answer this" — and
+ * the palette is where somebody has already typed the words for either.
+ *
+ * ## Why it is below `See all` and not above
+ *
+ * Because the palette is a navigator first. Somebody typing `pricing` almost
+ * always wants the note, and a row that answers a question costs a model call
+ * and several seconds, so it must never be what Enter reaches by accident. The
+ * ordering is the whole guard: the cursor rests on the first row, and this is
+ * the last one.
+ *
+ * The one case where it is a good default is the one where nothing matched —
+ * and that case needs no special rule, because the two handoff rows are then
+ * the only rows and `See all` is still the first of them. A person who wanted
+ * an answer presses ↓ once, which is exactly the cost of the second-best
+ * guess.
+ */
+export const ASK_ID = "\u0000ask";
+
+/** The row, or `null` where there is nobody to ask. */
+export function askItem(query: string, offered: boolean): PaletteItem | null {
+  const trimmed = query.trim();
+  if (!offered || trimmed === "") return null;
+  return {
+    id: ASK_ID,
+    label: `Ask about “${trimmed}”`,
+    detail: "Answers from your notes, in the panel",
+    kind: "command",
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                  platform                                  */
 /* -------------------------------------------------------------------------- */
@@ -252,12 +313,17 @@ export function seeAllItem(query: string, offered: boolean): PaletteItem | null 
  * Only consulted for chords that carry a modifier, and the overlay scope has
  * none — but `resolve` takes the flag, and handing it a guess that is wrong on
  * half the machines is how a modifier rule stops being exact.
+ *
+ * **`isApplePlatform` decides it, here as everywhere else.** This was a private
+ * regex over `navigator.platform || navigator.userAgent`, and `applePlatform`'s
+ * own header names it as one of the three answers it was written to replace —
+ * accurately, and it had never been replaced. The platform branch it opened
+ * with is not lost: the native half of that module *is* the `Platform.OS`
+ * check, so a bare import gets it on native and the browser answer on web,
+ * which is the whole arrangement of that pair.
  */
 function onApplePlatform(): boolean {
-  if (Platform.OS === "ios" || Platform.OS === "macos") return true;
-  if (Platform.OS !== "web" || typeof navigator === "undefined") return false;
-  const platform = navigator.platform || navigator.userAgent || "";
-  return /Mac|iPhone|iPad|iPod/.test(platform);
+  return isApplePlatform();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -386,6 +452,7 @@ export function Palette({
   noMatchMessage,
   search,
   onSeeAll,
+  onAsk,
   onChoose,
   onDismiss,
 }: PaletteProps) {
@@ -439,14 +506,22 @@ export function Palette({
     () => seeAllItem(query, onSeeAll !== undefined),
     [query, onSeeAll],
   );
+  const ask = useMemo(() => askItem(query, onAsk !== undefined), [query, onAsk]);
   const matches = useMemo(() => {
     const rows = [...local, ...remote];
-    if (handoff === null) return rows;
+    /*
+      Both handoffs at the end, search before ask, and the order is the guard
+      rather than a preference — see `askItem`. A `filter(Boolean)` over a
+      fixed pair rather than two conditionals, so adding a third destination
+      is one entry in the list rather than a branch.
+    */
+    const tail = [handoff, ask].filter((item): item is PaletteItem => item !== null);
+    if (tail.length === 0) return rows;
     return [
       ...rows,
-      { item: handoff, score: 0, ranges: [] as readonly [number, number][] },
+      ...tail.map((item) => ({ item, score: 0, ranges: [] as readonly [number, number][] })),
     ];
-  }, [local, remote, handoff]);
+  }, [local, remote, handoff, ask]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
@@ -473,8 +548,9 @@ export function Palette({
     const match = matches[selected];
     if (match === undefined) return;
     if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
+    else if (match.item.id === ASK_ID) onAsk?.(query);
     else onChoose(match.item);
-  }, [matches, selected, onChoose, onSeeAll, query]);
+  }, [matches, selected, onChoose, onSeeAll, onAsk, query]);
 
   /**
    * Wraps, in both directions. The alternative — stopping dead at the ends —
@@ -616,6 +692,7 @@ export function Palette({
     if (search?.state === "failed") {
       return "That search could not be run. Only loaded folders were filtered.";
     }
+    if (search?.state === "ready" && search.emptyMessage) return search.emptyMessage;
     return noMatchMessage ?? "Nothing matches. Try fewer letters.";
   })();
 
@@ -637,6 +714,12 @@ export function Palette({
   const reducedRecallNotice = reducedRecallText ? (
     <View style={styles.notice} testID="palette-reduced-recall">
       <Text variant="rowSub">{reducedRecallText}</Text>
+    </View>
+  ) : null;
+  /* Where the answer came from — the device's copy — in the same fixed place. */
+  const sourceNotice = search?.notice ? (
+    <View style={styles.notice} testID="palette-search-notice">
+      <Text variant="rowSub">{search.notice}</Text>
     </View>
   ) : null;
 
@@ -696,6 +779,7 @@ export function Palette({
             onPress={() => {
               setCursor(index);
               if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
+              else if (match.item.id === ASK_ID) onAsk?.(query);
               else onChoose(match.item);
             }}
             testID={`palette-row-${index}`}
@@ -754,6 +838,7 @@ export function Palette({
             />
           </View>
           {heading}
+          {sourceNotice}
           {reducedRecallNotice}
           {list}
         </KeyboardAvoidingView>
@@ -788,6 +873,7 @@ export function Palette({
             {field}
           </View>
           {heading}
+          {sourceNotice}
           {reducedRecallNotice}
           {list}
         </Pressable>
@@ -851,14 +937,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.body,
     color: colors.text,
   },
-  inputPointer: { fontSize: 15, paddingVertical: 13 },
+  inputPointer: { fontSize: t.lede, paddingVertical: 13 },
   /**
    * 17, not 15. RN-Web renders this as a real `<input>`, and mobile Safari
    * zooms the whole page when one under 16px takes focus — a zoom the person
    * then has to pinch their way back out of, on the screen they opened to
    * find one note.
    */
-  inputTouch: { fontSize: 17, paddingVertical: 11, paddingHorizontal: space.x2 },
+  inputTouch: { fontSize: touchType.lede, paddingVertical: 11, paddingHorizontal: space.x2 },
 
   /* -------------------------------- list --------------------------------- */
 

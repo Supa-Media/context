@@ -129,7 +129,9 @@ export const STORABLE_IMAGE_TYPES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /** The opaque, unlistable store images are written into. */
-export const IMAGE_STORE_PREFIX = ".images/";
+import { IMAGE_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
+
+export const IMAGE_STORE_PREFIX = IMAGE_PREFIX;
 
 /** The extension for a content type we will store, or null for one we will not. */
 export function storableImageExtension(contentType: string): string | null {

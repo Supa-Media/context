@@ -10,12 +10,15 @@
 // (a Convex action, today; see this file's header note on the connection row)
 // to persist beside that one workspace's own connection record.
 
+import { placeDayNote } from "./dayPlacement.js";
 import {
   DEFAULT_HORIZON_DAYS,
   addCalendarDays,
   applyIncremental,
   calendarDayNotePath,
   horizonDates,
+  isValidTimeZone,
+  isCalendarDayNote,
   planSyncRequest,
   projectDay,
   pruneCacheToWindow,
@@ -36,6 +39,7 @@ import { fetchAllPages, normalizeGoogleEvent, SyncTokenExpiredError } from "./ca
  * @property {string} calendarId    The provider's calendar id, e.g. "primary".
  * @property {string} timezone      IANA zone the owner's day boundaries are drawn in.
  * @property {string} [root]        The customer's chosen root prefix, if any.
+ * @property {string} [destinationFolder] The customer's chosen daily-note folder.
  * @property {string} accessToken   Bearer token. Never logged, never returned.
  * @property {boolean} [disconnected] When true, sync is a no-op that leaves notes alone.
  * @property {string|null} syncToken
@@ -74,15 +78,17 @@ import { fetchAllPages, normalizeGoogleEvent, SyncTokenExpiredError } from "./ca
 /**
  * Sync one connection's calendar into its own workspace's notes.
  *
- * @param {{connection: CalendarConnection, store: NoteStore, fetchImpl: typeof fetch, now: string}} args
+ * @param {{connection: CalendarConnection, store: NoteStore, fetchImpl: typeof fetch, now: string,
+ *          materialize?: boolean}} args
  * @returns {Promise<{
  *   skipped: boolean, reason?: string, mode?: "full"|"incremental",
  *   syncToken: string|null, lastFullSyncDate: string|null,
- *   eventCache: Map<string, {event: object, dates: string[]}>,
+ *   eventCache: Map<string, {event: object, dates: string[]}>, timezone: string,
+ *   datesTouched: string[],
  *   writes: Array<{path: string, action: "write"|"delete"}>
  * }>}
  */
-export async function syncCalendarAccount({ connection, store, fetchImpl, now }) {
+export async function syncCalendarAccount({ connection, store, fetchImpl, now, materialize = true }) {
   // Disconnect makes sync a no-op, and it keeps notes: no fetch, no store
   // call, nothing. A disconnected connection carries whatever
   // syncToken/lastFullSyncDate/eventCache it last had, unchanged, so a later
@@ -94,12 +100,18 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
       syncToken: connection?.syncToken ?? null,
       lastFullSyncDate: connection?.lastFullSyncDate ?? null,
       eventCache: connection?.eventCache ?? new Map(),
+      timezone: connection?.timezone ?? "UTC",
+      datesTouched: [],
       writes: [],
     };
   }
 
-  const timezone = connection.timezone;
-  const today = zonedDateKey(now, timezone);
+  const knownTimezone =
+    typeof connection.timezone === "string" && isValidTimeZone(connection.timezone)
+      ? connection.timezone
+      : null;
+  let timezone = knownTimezone ?? "UTC";
+  let today = zonedDateKey(now, timezone);
   const horizonDays = connection.horizonDays ?? DEFAULT_HORIZON_DAYS;
   // The window this connection keeps written. `planSyncRequest` computes the
   // same bound for a *full* request's own `windowStart`/`windowEnd`; this is
@@ -110,15 +122,40 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
   // Incremental mode is only ever chosen when `lastFullSyncDate === today`
   // (see `planSyncRequest`), so `today` here is the same `today` the last
   // full sync computed its window from — there is nothing stale to track.
-  const windowStart = today;
-  const windowEnd = addCalendarDays(today, horizonDays);
+  let windowStart = today;
+  let windowEnd = addCalendarDays(today, horizonDays);
 
-  const plan = planSyncRequest({
-    syncToken: connection.syncToken ?? null,
-    lastFullSyncDate: connection.lastFullSyncDate ?? null,
-    today,
-    horizonDays,
-  });
+  /*
+   * A connection created before the runner landed has no timezone stored in
+   * Convex, and event content is not allowed there. The Events collection
+   * itself returns the calendar's IANA timezone under the existing
+   * events.readonly scope. The first request therefore over-fetches one UTC
+   * day at each edge, learns that timezone, then prunes to the exact local
+   * horizon before anything is persisted. Every real timezone offset fits
+   * inside that margin, so discovery cannot drop an owner's early morning or
+   * late evening event.
+   */
+  const discoveringTimezone = knownTimezone === null;
+  const requestWindowStart = discoveringTimezone
+    ? addCalendarDays(windowStart, -1)
+    : windowStart;
+  const requestWindowEnd = discoveringTimezone
+    ? addCalendarDays(windowEnd, 1)
+    : windowEnd;
+
+  const plan = discoveringTimezone
+    ? {
+        mode: "full",
+        syncToken: null,
+        windowStart: requestWindowStart,
+        windowEnd: requestWindowEnd,
+      }
+    : planSyncRequest({
+        syncToken: connection.syncToken ?? null,
+        lastFullSyncDate: connection.lastFullSyncDate ?? null,
+        today,
+        horizonDays,
+      });
 
   const fetchArgs = {
     fetchImpl,
@@ -143,7 +180,22 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
     // 410 Gone: the token no longer resolves. Fall back to a full request for
     // the same window a fresh full sync would ask for today.
     mode = "full";
-    page = await fetchAllPages({ ...fetchArgs, syncToken: null, windowStart, windowEnd });
+    page = await fetchAllPages({
+      ...fetchArgs,
+      syncToken: null,
+      windowStart: requestWindowStart,
+      windowEnd: requestWindowEnd,
+    });
+  }
+
+  if (discoveringTimezone) {
+    if (typeof page.timeZone !== "string" || !isValidTimeZone(page.timeZone)) {
+      throw new TypeError("Google Calendar did not return a valid timezone");
+    }
+    timezone = page.timeZone;
+    today = zonedDateKey(now, timezone);
+    windowStart = today;
+    windowEnd = addCalendarDays(today, horizonDays);
   }
 
   const events = page.items.map((item) => normalizeGoogleEvent(item, { account: connection.account, calendarId: connection.calendarId }));
@@ -167,10 +219,37 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
   }
 
   const writes = [];
-  for (const date of datesToWrite) {
-    const path = calendarDayNotePath({ date }, { root: connection.root });
+  if (materialize) for (const date of datesToWrite) {
+    /*
+      The dated tree for a day this bucket has not seen, and the flat note for
+      a day that already has one — `dayPlacement.js` holds why a day that is
+      regenerated on every pass must not change folders under itself.
+    */
+    const path = await placeDayNote(
+      store,
+      calendarDayNotePath({ date }, { root: connection.root, folder: connection.destinationFolder }),
+    );
     const dayEvents = projectDay(cache, date);
     const existing = await store.get(path);
+    // A DESTINATION IS THE OWNER'S TO CHOOSE, SO A PATH IS NO LONGER PROOF.
+    //
+    // While this always wrote `0-inbox/calendar/`, every key it touched was
+    // one it had written itself. A configured destination ends that: the
+    // control plane happily accepts `2-areas/communications/daily` — its own
+    // test picks exactly that — and `YYYY-MM-DD.md` is how the owner's
+    // Obsidian daily notes in that folder are already named, in a bucket this
+    // product syncs to Obsidian on purpose. A full pass walks all fourteen
+    // horizon days and deletes the note at every date with no events, so
+    // without this the first scheduled pass after somebody points Calendar at
+    // their daily notes deletes two weeks of them.
+    //
+    // So ask whose note this is before destroying it. `isCalendarDayNote`
+    // reads the frontmatter the renderer always emits, and is false for
+    // anything it cannot read as one — including ciphertext, which is the
+    // gateway's own rule (`sealNoteContent`: a note this request cannot open
+    // is a note it cannot write) arriving here through the call graph rather
+    // than a second check somebody has to remember.
+    if (existing && !isCalendarDayNote(existing.text)) continue;
     if (!dayEvents.length) {
       if (existing) {
         await store.delete(path);
@@ -215,6 +294,8 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now })
     syncToken: page.nextSyncToken ?? (mode === "full" ? null : connection.syncToken ?? null),
     lastFullSyncDate: mode === "full" ? today : connection.lastFullSyncDate ?? null,
     eventCache: cache,
+    timezone,
+    datesTouched: datesToWrite,
     writes,
   };
 }

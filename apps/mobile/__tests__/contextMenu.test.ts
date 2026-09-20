@@ -2,38 +2,66 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { describe, expect, test } from "@jest/globals";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { contextMenuItems } from "../features/console/contextMenu";
-import { ConsoleRail } from "../features/console/ConsoleRail";
-import type { ConsoleData } from "../features/console/types";
+import { ContextRowMenu } from "../features/console/ContextRowMenu";
 import type { ConsoleRoute } from "../features/console/nav";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * The right-click menu on a rail context.
+ * The per-context menu — a long press on the phone's context strip.
  *
  * Two layers, tested at their own levels. The *contents* are a pure function
  * (`contextMenuItems`) — every item must lead to a destination that exists
  * today, because a menu item pointing nowhere is the "undefined" pill again.
- * The *behavior* is mounted for real, because the wiring is exactly the part
- * that silently breaks: react-native-web strips `onContextMenu`, so the
- * listener is attached to the DOM node through a ref (the PR #504 paste
- * lesson), and a refactor that loses the ref loses the feature with every
- * pure test still green.
+ * The *behavior* is mounted for real, because dismissal and the two-press
+ * Leave are wiring rather than data.
+ *
+ * ## It used to be a right-click on a rail row, and that is the half that went
+ *
+ * The rail folded into `SwitcherMenu` (`docs/decisions/app-and-console.md`), so
+ * its rows — and `RightClickTarget`, the wrapper that reached the real DOM node
+ * to attach a `contextmenu` listener react-native-web would otherwise strip —
+ * are gone with it. A menu row has no second menu behind it. What a pointer
+ * layout has instead is the two verbs this menu offers, as rows in the
+ * switcher's own menu: Settings for the context you are in, and Leave where
+ * the server would allow it.
+ *
+ * So this mounts `ContextRowMenu` itself rather than a surface that opens it.
+ * That is weaker than what it replaced in exactly one way — nothing here
+ * proves a *gesture* reaches it — and `ContextStrip` is where that belongs;
+ * the whole of what this file can still hold is what the menu does once it is
+ * open, which is where the two-press Leave and the dismissal pair live.
  */
 
 describe("what the menu offers", () => {
   test("every item is a real destination", () => {
     const items = contextMenuItems("agent");
-    expect(items.map((item) => item.key)).toEqual(["open", "settings", "sharing"]);
+    expect(items.map((item) => item.key)).toEqual(["open", "settings"]);
     expect(items[0].route).toEqual({ kind: "context", slug: "agent", view: "browse" });
     expect(items[1].route).toEqual({ kind: "context", slug: "agent", view: "settings" });
-    // Sharing lives in Connections (MembersSection is mounted there), so the
-    // item goes where the answer actually is.
-    expect(items[2].route).toEqual({ kind: "app", section: "connections" });
+  });
+
+  test("nothing sends anybody out of the context they right-clicked", () => {
+    /*
+      "Manage sharing…" pointed at the app-level Connections pane. Sharing has
+      since moved into the context's own settings — `MembersSection` is mounted
+      under Settings → People — so the row answered a per-context question by
+      navigating away from the context, and the owner took it off.
+
+      Pinned as a property rather than as a missing key: every route this menu
+      offers is *this context's*, which is the rule the removed row broke and
+      the one a re-added app-level row would break again.
+    */
+    for (const item of contextMenuItems("agent", { canLeave: true })) {
+      if (!item.route) continue;
+      expect(`${item.key}: ${item.route.kind}`).toBe(`${item.key}: context`);
+    }
   });
 
   test("a shared context also offers Leave; an owned one never does", () => {
@@ -48,58 +76,32 @@ describe("what the menu offers", () => {
   });
 });
 
-function context(
-  id: string,
-  slug: string,
-  role: "owner" | "editor",
-  kind: "personal" | "shared" = "personal",
-) {
-  return { id, slug, displayName: slug, role, kind, status: "ok" };
-}
-
-/** The least ConsoleData the rail needs: its two reads are contexts and loading. */
-function railData(
-  contexts = [
-    context("ctx-1", "agent", "owner"),
-    // Somebody else's brain, reached by invitation. Leave is offered here.
-    context("ctx-2", "friend", "editor"),
-    // A workspace the viewer created. It sits in the Workspaces group beside
-    // workspaces they were invited into, and Leave must NOT be offered on it —
-    // `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`). This row is the
-    // reason the menu takes a role rather than a rail section.
-    context("ctx-3", "acme-eng", "owner", "shared"),
-  ],
-): ConsoleData {
-  return { loading: false, contexts } as unknown as ConsoleData;
-}
-
-function mountRail(
-  onNavigate: (route: ConsoleRoute) => void,
-  onLeaveContext?: (id: string) => void,
-  data: ConsoleData = railData(),
+function mountMenu(
+  options: {
+    slug?: string;
+    canLeave?: boolean;
+    pinned?: boolean;
+    onSelect?: (route: ConsoleRoute) => void;
+    onLeave?: () => void;
+    onDismiss?: () => void;
+  } = {},
 ): { host: HTMLElement; root: Root } {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   act(() => {
     root.render(
-      createElement(ConsoleRail as never, {
-        data,
-        route: { kind: "app", section: "map" },
-        mode: "full",
-        onNavigate,
-        account: null,
-        onLeaveContext,
+      createElement(ContextRowMenu as never, {
+        slug: options.slug ?? "agent",
+        canLeave: options.canLeave ?? false,
+        pinned: options.pinned ?? false,
+        onSelect: options.onSelect ?? (() => {}),
+        onLeave: options.onLeave,
+        onDismiss: options.onDismiss ?? (() => {}),
       } as never),
     );
   });
   return { host, root };
-}
-
-function rightClick(node: Element) {
-  act(() => {
-    node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
-  });
 }
 
 function click(node: Element) {
@@ -111,53 +113,57 @@ function click(node: Element) {
 }
 
 describe("the menu, mounted for real", () => {
-  test("right-click opens it; choosing Settings navigates there and closes it", () => {
+  test("choosing Settings navigates there and leaves closing to the caller", () => {
     const seen: ConsoleRoute[] = [];
-    const { host, root } = mountRail((route) => seen.push(route));
+    const dismissed: number[] = [];
+    const { host, root } = mountMenu({
+      onSelect: (route) => seen.push(route),
+      onDismiss: () => dismissed.push(1),
+    });
     try {
-      const entry = host.querySelector('[aria-label="Open @agent"]');
-      expect(entry).not.toBeNull();
-
-      expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
-      rightClick(entry!);
       expect(host.querySelector('[data-testid="context-menu"]')).not.toBeNull();
 
       click(host.querySelector('[data-testid="context-menu-settings"]')!);
       expect(seen).toEqual([{ kind: "context", slug: "agent", view: "settings" }]);
-      expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
+      /*
+        The menu does not close itself: "closing is the caller's move" is on
+        the prop, and it is what lets the strip clear its own `menuSlug` in the
+        same act as the navigation rather than racing it.
+      */
+      expect(dismissed).toEqual([]);
     } finally {
       act(() => root.unmount());
       host.remove();
     }
   });
 
-  test("Escape closes it without navigating", () => {
-    const onNavigate = jest.fn();
-    const { host, root } = mountRail(onNavigate as never);
+  test("Escape asks to be dismissed, without navigating", () => {
+    const seen: ConsoleRoute[] = [];
+    const dismissed: number[] = [];
+    const { host, root } = mountMenu({
+      onSelect: (route) => seen.push(route),
+      onDismiss: () => dismissed.push(1),
+    });
     try {
-      rightClick(host.querySelector('[aria-label="Open @agent"]')!);
-      expect(host.querySelector('[data-testid="context-menu"]')).not.toBeNull();
-
       act(() => {
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       });
-      expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
-      expect(onNavigate).not.toHaveBeenCalled();
+      expect(dismissed).toEqual([1]);
+      expect(seen).toEqual([]);
     } finally {
       act(() => root.unmount());
       host.remove();
     }
   });
 
-  test("a pointer-down anywhere else closes it", () => {
-    const onNavigate = jest.fn();
-    const { host, root } = mountRail(onNavigate as never);
+  test("a pointer-down anywhere else asks to be dismissed too", () => {
+    const dismissed: number[] = [];
+    const { host, root } = mountMenu({ onDismiss: () => dismissed.push(1) });
     try {
-      rightClick(host.querySelector('[aria-label="Open @agent"]')!);
       act(() => {
         document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
       });
-      expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
+      expect(dismissed).toEqual([1]);
     } finally {
       act(() => root.unmount());
       host.remove();
@@ -167,20 +173,17 @@ describe("the menu, mounted for real", () => {
   /**
    * The trap the rail's kind-based grouping introduced, pinned directly.
    *
-   * A workspace you created sits under **Workspaces**, next to workspaces
+   * A workspace you created sat under **Workspaces**, next to workspaces
    * somebody let you into. Anything deriving "can this person leave?" from the
    * group — which is what the menu's old `shared` prop did, filled in from the
-   * section — offers Leave here, and the press comes back
-   * `OWNER_CANNOT_LEAVE`. The role is the fact the server enforces.
+   * section — offers Leave there, and the press comes back
+   * `OWNER_CANNOT_LEAVE`. The role is the fact the server enforces, and it is
+   * `canLeave` here because the caller is the only thing that knows it.
    */
-  test("a workspace you own offers no Leave, however it is grouped", () => {
-    const left: string[] = [];
-    const { host, root } = mountRail(
-      () => {},
-      (id) => left.push(id),
-    );
+  test("a workspace you own offers no Leave", () => {
+    const left: number[] = [];
+    const { host, root } = mountMenu({ canLeave: false, onLeave: () => left.push(1) });
     try {
-      rightClick(host.querySelector('[aria-label="Open @acme-eng"]')!);
       expect(host.querySelector('[data-testid="context-menu"]')).not.toBeNull();
       expect(host.querySelector('[data-testid="context-menu-leave"]')).toBeNull();
       expect(left).toEqual([]);
@@ -190,21 +193,16 @@ describe("the menu, mounted for real", () => {
     }
   });
 
-  test("Leave appears only on the shared context, and takes two presses", () => {
-    const left: string[] = [];
-    const { host, root } = mountRail(
-      () => {},
-      (id) => left.push(id),
-    );
+  test("Leave appears on a shared context, and takes two presses", () => {
+    const left: number[] = [];
+    const { host, root } = mountMenu({
+      slug: "friend",
+      canLeave: true,
+      onLeave: () => left.push(1),
+    });
     try {
-      // The owned context has no Leave.
-      rightClick(host.querySelector('[aria-label="Open @agent"]')!);
-      expect(host.querySelector('[data-testid="context-menu-leave"]')).toBeNull();
-
-      // The shared one does — and the first press only arms it. Leaving is
-      // recoverable solely by being re-invited, so the row becomes its own
-      // confirmation instead of acting.
-      rightClick(host.querySelector('[aria-label="Open @friend"]')!);
+      // The first press only arms it. Leaving is recoverable solely by being
+      // re-invited, so the row becomes its own confirmation instead of acting.
       const leave = host.querySelector('[data-testid="context-menu-leave"]');
       expect(leave).not.toBeNull();
 
@@ -215,25 +213,30 @@ describe("the menu, mounted for real", () => {
       );
 
       click(host.querySelector('[data-testid="context-menu-leave"]')!);
-      expect(left).toEqual(["ctx-2"]);
-      expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
+      expect(left).toEqual([1]);
     } finally {
       act(() => root.unmount());
       host.remove();
     }
   });
 
-  test("a plain left click still just opens the context", () => {
-    const seen: ConsoleRoute[] = [];
-    const { host, root } = mountRail((route) => seen.push(route));
-    try {
-      click(host.querySelector('[aria-label="Open @agent"]')!);
-      expect(seen).toEqual([{ kind: "context", slug: "agent", view: "browse" }]);
-      expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
-    } finally {
-      act(() => root.unmount());
-      host.remove();
-    }
+  /**
+   * The gesture that opens it, asserted where it can be: in the source.
+   *
+   * `ContextStrip` is the only surface that draws this menu, and it opens it
+   * on a long press. A mounted long press needs react-native-web's press
+   * responder and its delay timer, which is a test about `Pressable` rather
+   * than about either of these components — so what is held here is that the
+   * strip still wires the gesture to the menu at all, which is the wiring a
+   * refactor drops silently.
+   */
+  test("the context strip is what opens it, on a long press", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "features", "console", "ContextStrip.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("onLongPress={() => setMenuSlug(context.slug)}");
+    expect(source).toContain("<ContextRowMenu");
   });
 });
 
@@ -386,75 +389,30 @@ describe("an open menu paints above the rows that follow it", () => {
     }
   });
 
-  /** Two of each, so both the group and the row level have later siblings. */
-  const crowded = railData([
-    context("ctx-1", "agent", "owner"),
-    context("ctx-2", "second", "owner"),
-    context("ctx-3", "friend", "editor"),
-    context("ctx-4", "fourth", "editor"),
-  ]);
-
-  test("a menu in the first group out-ranks the group that follows it", () => {
-    const { host, root } = mountRail(() => {}, undefined, crowded);
-    try {
-      rightClick(host.querySelector('[aria-label="Open @agent"]')!);
-      const menu = host.querySelector('[data-testid="context-menu"]')!;
-      expect(stackingFaults(menu, host)).toEqual([]);
-    } finally {
-      act(() => root.unmount());
-      host.remove();
-    }
-  });
-
-  test("...and out-ranks the later rows of its own group", () => {
-    // The same defect one level down: without the anchor's own lift, the menu
-    // is trapped under the *next context in the same group* even when the
-    // group is lifted as a whole.
-    const { host, root } = mountRail(() => {}, undefined, crowded);
-    try {
-      rightClick(host.querySelector('[aria-label="Open @friend"]')!);
-      const menu = host.querySelector('[data-testid="context-menu"]')!;
-      expect(stackingFaults(menu, host)).toEqual([]);
-    } finally {
-      act(() => root.unmount());
-      host.remove();
-    }
-  });
-
-  test("the case that already worked still does: the last row of the last group", () => {
-    const { host, root } = mountRail(() => {}, undefined, crowded);
-    try {
-      rightClick(host.querySelector('[aria-label="Open @fourth"]')!);
-      const menu = host.querySelector('[data-testid="context-menu"]')!;
-      expect(stackingFaults(menu, host)).toEqual([]);
-    } finally {
-      act(() => root.unmount());
-      host.remove();
-    }
-  });
-
-  test("the lift follows the open menu, and closing puts it back", () => {
-    // Lifting every group unconditionally would silently invert the rail's
-    // normal top-to-bottom order, so the raised element has to be *the* one
-    // holding the open menu and nothing else — and only while it is open.
-    const { host, root } = mountRail(() => {}, undefined, crowded);
-    const lifted = () =>
-      [...host.querySelectorAll("div")].filter((node) => order(node) > 0).length;
-    try {
-      expect(lifted()).toBe(0);
-
-      rightClick(host.querySelector('[aria-label="Open @agent"]')!);
-      // The menu itself, its anchor, and its group — and no second group, no
-      // second row.
-      expect(lifted()).toBe(3);
-
-      act(() => {
-        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-      });
-      expect(lifted()).toBe(0);
-    } finally {
-      act(() => root.unmount());
-      host.remove();
-    }
+  /**
+   * The rail's own four cases are gone with the rail, and the checker is kept.
+   *
+   * They mounted `ConsoleRail` at four positions — first group, later row of
+   * its own group, last row of the last group, and the lift following the open
+   * menu — because the defect lived in the *nesting*: an anchor inside a group
+   * inside a scroller, every level at react-native-web's base `z-index: 0`.
+   * There is no such nesting now. `ContextStrip` draws the menu against its
+   * own `currentAnchor`, outside the horizontal scroller and with nothing
+   * after it, which is the geometry the last of those four already covered.
+   *
+   * The checker stays because it is the general statement of the rule and its
+   * self-test above is what makes it worth anything. The day a surface nests
+   * this menu inside a list again, it is here to be pointed at it.
+   */
+  test("the strip anchors it outside the scroller, which is why it has no nesting", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "features", "console", "ContextStrip.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("currentAnchor: { position: \"relative\", flexShrink: 0 }");
+    // Stated in the component, where somebody moving the menu back inside the
+    // scroller would have to read past it.
+    expect(source).toContain("Anchored to the strip, not to the pill");
   });
 });
+

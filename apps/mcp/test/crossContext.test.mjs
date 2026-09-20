@@ -2,7 +2,7 @@
  * One connection, several contexts — and the clamps that make that safe.
  *
  * A grant covers every context its person is a live member of, so a client
- * connected once can address a brain shared with its owner by passing
+ * connected once can address a workspace shared with its owner by passing
  * `context: "@name"` on a tool call. This suite is the half that says what that
  * must **not** buy, because reach and permission are different questions and
  * the widening only moved the first one.
@@ -34,7 +34,7 @@
  *    cannot reach one. Two-party, working.
  * 5. **The "present but unusable" guard is dropped**, so a `context` that is
  *    not a usable name falls through to the default — 6 checks failed, one per
- *    shape. That is the quiet version of writing into the wrong brain.
+ *    shape. That is the quiet version of writing into the wrong workspace.
  *
  * 6. **`surveyOtherContexts` reads each front page at the caller's own
  *    clearance** rather than at the one the addressed context's role earns —
@@ -71,7 +71,7 @@ const TOKEN_EDITOR = `cat_cross_editor_${"0".repeat(24)}`;
 /**
  * Somebody whose *home* context is the one they were invited into.
  *
- * They connected their client to a brain shared with them, so the grant's own
+ * They connected their client to a workspace shared with them, so the grant's own
  * context is one they are only a `member` of — and they are an `editor`
  * somewhere else. This is the fixture that catches re-clamping an
  * already-clamped scope set: the intersection of two roles takes write away
@@ -82,6 +82,16 @@ const TOKEN_GUEST = `cat_cross_guest_${"0".repeat(24)}`;
 /** A grant that was never given write, anywhere. */
 const TOKEN_READ_ONLY = `cat_cross_readonly_${"0".repeat(22)}`;
 /**
+ * A read-only grant belonging to somebody who is an `editor` elsewhere.
+ *
+ * The role says write, the grant says no, and the two are intersected — so this
+ * is the fixture that catches an orientation describing another context from
+ * the role alone. It is the direction that costs a person an attempt: told
+ * "you can read and write team notes there", an agent tries, and the write
+ * gate refuses it for a reason orientation never mentioned.
+ */
+const TOKEN_READ_ONLY_EDITOR = `cat_cross_ro_editor_${"0".repeat(21)}`;
+/**
  * Connected at a context they are only a `member` of, while owning another.
  *
  * The one shape `readsPrivateAnywhere`'s cross-context arm exists for: the
@@ -90,6 +100,7 @@ const TOKEN_READ_ONLY = `cat_cross_readonly_${"0".repeat(22)}`;
  * to somebody who owns one of the contexts they reach.
  */
 const TOKEN_VISITOR = `cat_cross_visitor_${"0".repeat(23)}`;
+const TOKEN_OWNER_BOTH = `cat_cross_owner_both_${"0".repeat(20)}`;
 /** Somebody in more contexts than one orientation is willing to open. */
 const TOKEN_MANY = `cat_cross_many_${"0".repeat(26)}`;
 
@@ -122,7 +133,12 @@ function s3Binding(bucket, key) {
     accessKeyId: `AKIAEXAMPLEEXAMPLE${key}`,
     secretAccessKey: `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLE${key}`,
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: {
+      conditionalWrite: true,
+      conditionalCreate: true,
+      conditionalDelete: true,
+      serverSideCopy: "same-store",
+    },
     status: "active",
   };
 }
@@ -181,6 +197,12 @@ async function toolNamesFor(env, tokenValue) {
 
 export async function runCrossContextChecks(check) {
   const s3 = createS3Backend(S3_ENDPOINT);
+  const hooks = [];
+  const originalHandle = s3.handle;
+  s3.handle = async (url, init = {}) => {
+    for (const hook of [...hooks]) await hook(url, init);
+    return originalHandle(url, init);
+  };
   const restoreS3 = s3.install();
   const controlPlane = createControlPlaneStub();
   const restoreControlPlane = controlPlane.install();
@@ -189,7 +211,7 @@ export async function runCrossContextChecks(check) {
   controlPlane.addWorkspace("ws_shared", "theirs", s3Binding("cross-theirs", "BB"));
   controlPlane.addWorkspace("ws_stranger", "stranger", s3Binding("cross-stranger", "CC"));
   // A context this person is a member of whose owner never shared its front
-  // page — the common case for a freshly scaffolded brain.
+  // page — the common case for a freshly scaffolded workspace.
   controlPlane.addWorkspace("ws_quiet", "quiet", s3Binding("cross-quiet", "DD"));
   // Seven more, all pointing at one bucket: this test is about how many
   // contexts orientation opens, not about what is in them.
@@ -197,7 +219,7 @@ export async function runCrossContextChecks(check) {
     controlPlane.addWorkspace(`ws_extra_${n}`, `extra-${n}`, s3Binding("cross-extra", "EE"));
   }
 
-  // One person, two memberships: owner of their own brain, plain `member` of
+  // One person, two memberships: owner of their own workspace, plain `member` of
   // somebody else's. The third context exists and is nothing to do with them.
   await controlPlane.addGrant({
     accessToken: TOKEN_OWNER,
@@ -250,6 +272,24 @@ export async function runCrossContextChecks(check) {
     userId: "user_cross",
     alsoMemberOf: [{ workspaceId: "ws_shared", role: "member" }],
   });
+  await controlPlane.addGrant({
+    accessToken: TOKEN_READ_ONLY_EDITOR,
+    workspaceId: "ws_own",
+    role: "owner",
+    scopes: ["context:read", "context:private"],
+    clientId: "mcp_client_cross_readonly_editor",
+    userId: "user_cross",
+    alsoMemberOf: [{ workspaceId: "ws_shared", role: "editor" }],
+  });
+  await controlPlane.addGrant({
+    accessToken: TOKEN_OWNER_BOTH,
+    workspaceId: "ws_own",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "mcp_client_cross_owner_both",
+    userId: "user_cross_owner_both",
+    alsoMemberOf: [{ workspaceId: "ws_stranger", role: "owner" }],
+  });
 
   // Somebody in more contexts than one orientation opens.
   const EXTRA = Array.from({ length: 7 }, (_, n) => ({
@@ -276,7 +316,7 @@ export async function runCrossContextChecks(check) {
   theirs.set("index.md", { body: "THEIRS-INDEX-MARKER", etag: "ti" });
   theirs.set("1-projects/shared-name.md", { body: "THEIRS-MARKER", etag: "t1" });
   theirs.set("2-areas/kept-private.md", { body: "THEIRS-PRIVATE-MARKER", etag: "t2" });
-  // A plugin in somebody else's brain. `.obsidian/` sits outside the privacy
+  // A plugin in somebody else's workspace. `.obsidian/` sits outside the privacy
   // manifest's reach entirely — `isPlumbing` hides it from `read_note`,
   // `list_notes` and search for every role — so `list_plugins` is the only read
   // path into it, and the question is who may take it.
@@ -374,7 +414,7 @@ export async function runCrossContextChecks(check) {
       context: "@theirs",
     })
   );
-  check("a member's write into somebody else's brain is refused", /permission denied/i.test(refusedWrite));
+  check("a member's write into somebody else's workspace is refused", /permission denied/i.test(refusedWrite));
   check("and names the context it was refused in", refusedWrite.includes("@theirs"));
   check(
     "and nothing was written",
@@ -421,6 +461,216 @@ export async function runCrossContextChecks(check) {
     guestRefusedHere.includes("@theirs") && !/Reconnect the client/i.test(guestRefusedHere)
   );
 
+  /* ------------------------ cross-context move_note ------------------------ */
+
+  mine.set("2-areas/personal-to-shared.md", {
+    body: "PRIVATE-PERSONAL-TO-SHARED",
+    etag: "m-move-1",
+  });
+  const publishWithoutConfirm = await callTool(env, TOKEN_EDITOR, "move_note", {
+    source: "2-areas/personal-to-shared.md",
+    destination: "1-projects/from-personal.md",
+    source_context: "@mine",
+    destination_context: "@theirs",
+  });
+  check(
+    "cross-context move_note requires explicit confirmation before publishing private into team scope",
+    /confirm_team_publish=true/.test(textOf(publishWithoutConfirm)) &&
+      mine.has("2-areas/personal-to-shared.md") &&
+      !theirs.has("1-projects/from-personal.md")
+  );
+  const publishPersonal = await callTool(env, TOKEN_EDITOR, "move_note", {
+    source: "2-areas/personal-to-shared.md",
+    destination: "1-projects/from-personal.md",
+    source_context: "@mine",
+    destination_context: "@theirs",
+    expected_source_etag: "m-move-1",
+    confirm_team_publish: true,
+  });
+  check(
+    "cross-context move_note moves a personal note into a shared workspace when the caller owns the source and can write the destination",
+    !/permission denied|confirm_team_publish|required/i.test(textOf(publishPersonal)) &&
+      !mine.has("2-areas/personal-to-shared.md") &&
+      theirs.has("1-projects/from-personal.md")
+  );
+  check(
+    "the published cross-context destination is team-readable in the shared workspace",
+    textOf(
+      await callTool(env, TOKEN_OWNER, "read_note", {
+        path: "1-projects/from-personal.md",
+        context: "@theirs",
+      })
+    ).includes("PRIVATE-PERSONAL-TO-SHARED")
+  );
+
+  mine.set("2-areas/race-destination.md", {
+    body: "RACE-DESTINATION-SOURCE",
+    etag: "m-race-destination-1",
+  });
+  let racedDestination = false;
+  hooks.push(async (url, init = {}) => {
+    const parsed = new URL(url);
+    if (
+      !racedDestination &&
+      (init.method || "GET").toUpperCase() === "PUT" &&
+      parsed.pathname === "/cross-theirs/1-projects/race-destination.md"
+    ) {
+      racedDestination = true;
+      theirs.set("1-projects/race-destination.md", {
+        body: "RACED-DESTINATION-WRITE",
+        etag: "t-race-destination-1",
+      });
+    }
+  });
+  const destinationRace = await callTool(env, TOKEN_EDITOR, "move_note", {
+    source: "2-areas/race-destination.md",
+    destination: "1-projects/race-destination.md",
+    source_context: "@mine",
+    destination_context: "@theirs",
+    expected_source_etag: "m-race-destination-1",
+    confirm_team_publish: true,
+  });
+  hooks.length = 0;
+  check(
+    "cross-context move_note does not overwrite a destination created after preflight",
+    /destination already exists/.test(textOf(destinationRace)) &&
+      mine.has("2-areas/race-destination.md") &&
+      theirs.get("1-projects/race-destination.md")?.body === "RACED-DESTINATION-WRITE"
+  );
+
+  mine.set("2-areas/race-source.md", {
+    body: "RACE-SOURCE-ORIGINAL",
+    etag: "m-race-source-1",
+  });
+  let racedSource = false;
+  let crossedDestinationEtag = null;
+  hooks.push(async (url, init = {}) => {
+    const parsed = new URL(url);
+    const method = (init.method || "GET").toUpperCase();
+    if (
+      !racedSource &&
+      method === "DELETE" &&
+      parsed.pathname === "/cross-mine/2-areas/race-source.md"
+    ) {
+      racedSource = true;
+      const writtenDestination = theirs.get("1-projects/race-source.md");
+      crossedDestinationEtag = writtenDestination?.etag || null;
+      mine.set("2-areas/race-source.md", {
+        body: "RACED-SOURCE-WRITE",
+        etag: "m-race-source-2",
+      });
+    }
+  });
+  const sourceRace = await callTool(env, TOKEN_EDITOR, "move_note", {
+    source: "2-areas/race-source.md",
+    destination: "1-projects/race-source.md",
+    source_context: "@mine",
+    destination_context: "@theirs",
+    expected_source_etag: "m-race-source-1",
+    confirm_team_publish: true,
+  });
+  hooks.length = 0;
+  check(
+    "cross-context move_note preserves a source edited after copy instead of deleting it",
+    /source changed since it was copied/.test(textOf(sourceRace)) &&
+      mine.get("2-areas/race-source.md")?.body === "RACED-SOURCE-WRITE" &&
+      !theirs.has("1-projects/race-source.md") &&
+      crossedDestinationEtag !== null
+  );
+
+  mine.set("2-areas/race-rollback.md", {
+    body: "RACE-ROLLBACK-ORIGINAL",
+    etag: "m-race-rollback-1",
+  });
+  let racedRollbackSource = false;
+  let racedRollbackDestination = false;
+  hooks.push(async (url, init = {}) => {
+    const parsed = new URL(url);
+    const method = (init.method || "GET").toUpperCase();
+    if (
+      !racedRollbackSource &&
+      method === "DELETE" &&
+      parsed.pathname === "/cross-mine/2-areas/race-rollback.md"
+    ) {
+      racedRollbackSource = true;
+      mine.set("2-areas/race-rollback.md", {
+        body: "RACED-ROLLBACK-SOURCE",
+        etag: "m-race-rollback-2",
+      });
+    } else if (
+      racedRollbackSource &&
+      !racedRollbackDestination &&
+      method === "DELETE" &&
+      parsed.pathname === "/cross-theirs/1-projects/race-rollback.md"
+    ) {
+      racedRollbackDestination = true;
+      theirs.set("1-projects/race-rollback.md", {
+        body: "RACED-ROLLBACK-DESTINATION",
+        etag: "t-race-rollback-2",
+      });
+    }
+  });
+  const rollbackRace = await callTool(env, TOKEN_EDITOR, "move_note", {
+    source: "2-areas/race-rollback.md",
+    destination: "1-projects/race-rollback.md",
+    source_context: "@mine",
+    destination_context: "@theirs",
+    expected_source_etag: "m-race-rollback-1",
+    confirm_team_publish: true,
+  });
+  hooks.length = 0;
+  check(
+    "cross-context move_note rollback does not delete a destination edited after copy",
+    /source changed since it was copied/.test(textOf(rollbackRace)) &&
+      mine.get("2-areas/race-rollback.md")?.body === "RACED-ROLLBACK-SOURCE" &&
+      theirs.get("1-projects/race-rollback.md")?.body === "RACED-ROLLBACK-DESTINATION"
+  );
+
+  theirs.set("1-projects/shared-to-personal.md", {
+    body: "SHARED-TO-PERSONAL-MUST-NOT-MOVE",
+    etag: "t-move-1",
+  });
+  const sharedToPersonal = await callTool(env, TOKEN_EDITOR, "move_note", {
+    source: "1-projects/shared-to-personal.md",
+    destination: "2-areas/from-shared.md",
+    source_context: "@theirs",
+    destination_context: "@mine",
+  });
+  check(
+    "cross-context move_note refuses shared-to-personal when the caller is not owner of both contexts",
+    /requires owner access to both/.test(textOf(sharedToPersonal)) &&
+      theirs.has("1-projects/shared-to-personal.md") &&
+      !mine.has("2-areas/from-shared.md")
+  );
+
+  stranger.set("1-projects/owned-both.md", {
+    body: "OWNER-BOTH-MOVE",
+    etag: "s-move-1",
+  });
+  const ownerBothMove = await callTool(env, TOKEN_OWNER_BOTH, "move_note", {
+    source: "1-projects/owned-both.md",
+    destination: "2-areas/from-owned-both.md",
+    source_context: "@stranger",
+    destination_context: "@mine",
+    expected_source_etag: "s-move-1",
+  });
+  check(
+    "cross-context move_note allows shared-to-personal when the caller owns both contexts",
+    !/permission denied/i.test(textOf(ownerBothMove)) &&
+      !stranger.has("1-projects/owned-both.md") &&
+      mine.has("2-areas/from-owned-both.md")
+  );
+  check(
+    "the owner-both destination is private in the personal workspace",
+    textOf(await callTool(env, TOKEN_GUEST, "read_note", {
+      path: "2-areas/from-owned-both.md",
+      context: "@mine",
+    })) === textOf(await callTool(env, TOKEN_GUEST, "read_note", {
+      path: "2-areas/does-not-exist.md",
+      context: "@mine",
+    }))
+  );
+
   /* --------------------- a context this person does not have --------------- */
 
   const strangerRefusal = textOf(
@@ -463,7 +713,7 @@ export async function runCrossContextChecks(check) {
     An argument that is present and unusable is refused rather than ignored. A
     client that sent `context: 123` meant somewhere else and failed to say
     where; serving the default is the quiet version of writing into the wrong
-    brain, which is the whole failure this feature is built around.
+    workspace, which is the whole failure this feature is built around.
   */
   for (const nonsense of [123, "", "   ", { slug: "theirs" }, ["theirs"], true]) {
     const answer = textOf(
@@ -487,6 +737,114 @@ export async function runCrossContextChecks(check) {
   check(
     "and does not list the context it is orienting in as somewhere else to go",
     !orientation.includes("### @mine")
+  );
+
+  /*
+    WHAT THIS CONNECTION MAY DO THERE — NOT WHAT THE ROLE ALONE IMPLIES.
+
+    The row describing each sibling was a function of the role and nothing else,
+    and both of its answers were wrong in a way an agent acts on.
+
+    Too mean, which is the one a user actually hit: an owner was told "yours,
+    and you see private notes there" — three facts about *reading* and not one
+    word about writing. Asked to file a note in a workspace it owns, a model
+    reads that row, reads the closing "what you may do in another is decided by
+    your role there", and concludes it has not established that it may write.
+    It then says so instead of writing, which is what a connected ChatGPT did:
+    it had `context` on `write_note` the whole time.
+
+    Too generous, the other direction: an `editor` on a read-only grant was told
+    "you can read and write team notes there". The grant ∩ role clamp refuses
+    that write, so the row sends an agent into a refusal orientation could have
+    saved it.
+
+    The reach is `effectiveScopes(grantScopes, role)` — the same clamp
+    `sessionForContext` applies when the call actually arrives — so the row and
+    the gate cannot disagree.
+  */
+  const rowFor = (text, name) =>
+    (text.split("\n").find((line) => line.startsWith(`### ${name} \u2014`)) ?? "");
+
+  const ownerBothOrientation = textOf(await callTool(env, TOKEN_OWNER_BOTH, "orient"));
+  check(
+    "a context this connection owns and may write is described as writable",
+    /\bwrite\b/.test(rowFor(ownerBothOrientation, "@stranger"))
+  );
+  check(
+    "and still says the private tier is readable there",
+    /private/.test(rowFor(ownerBothOrientation, "@stranger"))
+  );
+
+  const readOnlyEditorOrientation = textOf(
+    await callTool(env, TOKEN_READ_ONLY_EDITOR, "orient")
+  );
+  check(
+    "an editor role on a read-only grant is not described as writable",
+    rowFor(readOnlyEditorOrientation, "@theirs") !== "" &&
+      !/\bwrite\b/.test(rowFor(readOnlyEditorOrientation, "@theirs"))
+  );
+  check(
+    "and the row says the connection is the reason, not the role",
+    /read-only/.test(rowFor(readOnlyEditorOrientation, "@theirs"))
+  );
+
+  /*
+    An owner on a grant that carries no `context:private` reads that context at
+    `team`, exactly as `visibilityTierForGrant` says — so the row must not
+    promise private notes it will not return.
+  */
+  const readOnlyOrientation = textOf(await callTool(env, TOKEN_READ_ONLY, "orient"));
+  check(
+    "a plain member is still described as reading only",
+    !/\bwrite\b/.test(rowFor(readOnlyOrientation, "@theirs"))
+  );
+
+  /*
+    THE ROW IS READ OFF THE GRANT'S OWN SCOPES, NOT THE CONNECTION'S CLAMPED SET.
+
+    `sessionForContext` keeps this distinction and documents why; `reachForRole`
+    describes what that call will do, so it has to make the same one or the
+    description and the gate disagree. This person connected at a context they
+    are a plain `member` of — so the live session carries no write at all — and
+    is an `editor` somewhere else, where the grant's write survives the clamp.
+    Re-clamping the already-clamped set intersects two roles and takes that
+    away, which reads as a permission bug in the wrong place: an agent told it
+    cannot write in a context where it can.
+  */
+  const guestOrientation = textOf(await callTool(env, TOKEN_GUEST, "orient"));
+  check(
+    "write held where the caller is an editor survives a connection clamped to member",
+    /\bwrite\b/.test(rowFor(guestOrientation, "@stranger")) &&
+      !/read-only/.test(rowFor(guestOrientation, "@stranger"))
+  );
+
+  /*
+    And the same question about the context the connection is actually in,
+    which is the paragraph deciding whether an agent tries at all. Asserted on
+    the write-surface section rather than on the whole answer: the sibling rows
+    say "read-only" too, so a check over the whole text passes with this notice
+    deleted — measured, during the sabotage pass, as zero failures.
+  */
+  const writeSurfaceOf = (text) => text.split("## Write surface")[1] ?? "";
+  check(
+    "a read-only grant's write surface says so before it lists writable paths",
+    /This connection is read-only/.test(writeSurfaceOf(readOnlyOrientation))
+  );
+  check(
+    "a role that cannot write is named as the role, not as the connection",
+    /You cannot write here/.test(writeSurfaceOf(guestOrientation)) &&
+      !/This connection is read-only/.test(writeSurfaceOf(guestOrientation))
+  );
+  check(
+    "a connection that can write here is told neither",
+    writeSurfaceOf(orientation) !== "" &&
+      !/read-only|cannot write here/i.test(writeSurfaceOf(orientation))
+  );
+  check(
+    "and scope_info, the other caller, carries the same notice",
+    /This connection is read-only/.test(
+      textOf(await callTool(env, TOKEN_READ_ONLY, "scope_info"))
+    ) && !/read-only/i.test(textOf(await callTool(env, TOKEN_OWNER, "scope_info")))
   );
 
   /*
@@ -711,6 +1069,35 @@ export async function runCrossContextChecks(check) {
   );
 
   /*
+    AND THE DESCRIPTION SAYS SO, BECAUSE THAT IS THE SURFACE EVERY CLIENT READS.
+
+    A property blurb is not nothing, but it is the part of a tool a client is
+    free to summarise, reorder or leave out of what the model sees — and a
+    model that has decided a capability is absent does not go back and re-read
+    the parameter list to check. A connected ChatGPT, holding this exact
+    schema, told its user three times that "the write action exposed to me
+    doesn't expose the workspace selector".
+
+    So the sentence goes where the one description every client renders is,
+    added in the same central map as the property so the two cannot drift and
+    a tool added next year cannot quietly ship without it.
+  */
+  const unaddressed = tools
+    .filter((tool) => tool.inputSchema?.properties?.context)
+    .filter((tool) => !/context: "@name"/.test(tool.description || ""))
+    .map((tool) => tool.name);
+  check(
+    `every addressable tool's description says how to address it (${unaddressed.join(", ") || "none missing"})`,
+    unaddressed.length === 0
+  );
+  check(
+    "and the two foreign-contract tools say nothing they cannot honour",
+    tools
+      .filter((tool) => !tool.inputSchema?.properties?.context)
+      .every((tool) => !/context: "@name"/.test(tool.description || ""))
+  );
+
+  /*
     The listing follows the connection, not the context it happens to be in.
 
     This person is a `member` where they connected and an `editor` elsewhere. A
@@ -788,7 +1175,7 @@ export async function runCrossContextChecks(check) {
     It is not dead code. `TOKEN_GUEST` is a `member` where it connected and an
     owner elsewhere, so only that arm can offer it the tool at all: without it,
     somebody connected at a colleague's context could never call `list_plugins`
-    for their own brain over that connection.
+    for their own workspace over that connection.
   */
   const visitorOffered = await toolNamesFor(env, TOKEN_VISITOR);
   check(

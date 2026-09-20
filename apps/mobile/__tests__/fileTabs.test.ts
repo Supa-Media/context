@@ -131,6 +131,82 @@ describe("opening something already open", () => {
 /*                              dirty and saved                               */
 /* -------------------------------------------------------------------------- */
 
+describe("a followed link lands beside the tab it came from", () => {
+  /**
+   * `at: "afterActive"`, and it is what makes a followed link a *destination*
+   * rather than a glance.
+   *
+   * Before this the editor followed a link through `files.select`, which opens
+   * a preview tab — so following A → B → C left one tab and nothing behind to
+   * come back to. The owner's words: "when clicking on internal links, it
+   * should open up a new tab".
+   */
+  test("pinned, immediately right of the active tab, and activated", () => {
+    const state = run(
+      pinned("a.md", "b.md", "c.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "link.md", mode: "pinned", at: "afterActive" },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "link.md", "b.md", "c.md"]);
+    expect(state.activePath).toBe("link.md");
+    // Pinned, so the next single click somewhere else does not replace it.
+    expect(state.tabs.find((tab) => tab.path === "link.md")?.preview).toBe(false);
+  });
+
+  test("the default is still the end of the strip, for everything that is not a link", () => {
+    // Walking a folder, and ⌘⇧T, both want the end: a tab that appears in the
+    // middle of a strip somebody is reading left to right is a tab they have
+    // to find.
+    const state = run(
+      pinned("a.md", "b.md", "c.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "later.md", mode: "pinned" },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "b.md", "c.md", "later.md"]);
+  });
+
+  test("right of nothing is the end, so the first tab in an empty strip still opens", () => {
+    const state = run(emptyTabs, {
+      type: "opened",
+      path: "a.md",
+      mode: "pinned",
+      at: "afterActive",
+    });
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md"]);
+    expect(state.activePath).toBe("a.md");
+  });
+});
+
+describe("⌘-click opens the note behind the one on screen", () => {
+  test("the tab appears and the active one does not move", () => {
+    /*
+      `activate: false`. Expressible in the action rather than by re-activating
+      the old tab afterwards, because that second dispatch is a second render
+      in which the strip has already moved — a flicker onto a note nobody asked
+      to see.
+    */
+    const state = run(
+      pinned("a.md", "b.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "behind.md", mode: "pinned", at: "afterActive", activate: false },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "behind.md", "b.md"]);
+    expect(state.activePath).toBe("a.md");
+  });
+
+  test("a background open of a tab that is already open moves nothing at all", () => {
+    // The only reading of ⌘-click that does not surprise: the tab is there,
+    // you asked not to go to it, and you are still where you were.
+    const state = run(
+      pinned("a.md", "b.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "b.md", mode: "pinned", at: "afterActive", activate: false },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "b.md"]);
+    expect(state.activePath).toBe("a.md");
+  });
+});
+
 describe("editing", () => {
   /** A tab the next single click would replace is no place for a draft. */
   test("typing into a preview tab pins it as well as marking it dirty", () => {
@@ -303,6 +379,69 @@ describe("close others", () => {
   });
 });
 
+describe("closing the tabs to the right", () => {
+  /**
+   * The other bulk close, and the one people reach for after opening six things
+   * from a search: keep what you were working through, drop what you opened
+   * past it. "Close others" cannot express it — it takes the ones on the left
+   * too, which are usually the ones you still want.
+   */
+  test("the tabs after this one go, and the ones before it stay", () => {
+    let state = run(
+      pinned("1-projects/a.md", "1-projects/b.md", "1-projects/c.md", "1-projects/d.md"),
+      { type: "closedToRight", path: "1-projects/b.md" },
+    );
+    expect(paths(state)).toEqual(["1-projects/a.md", "1-projects/b.md"]);
+    // In strip order, so ⌘⇧T walks left to right and rebuilds what it had.
+    expect(state.closed).toEqual(["1-projects/c.md", "1-projects/d.md"]);
+
+    state = run(state, { type: "reopened" }, { type: "reopened" });
+    expect(paths(state)).toEqual([
+      "1-projects/a.md",
+      "1-projects/b.md",
+      "1-projects/c.md",
+      "1-projects/d.md",
+    ]);
+  });
+
+  /**
+   * The active tab may be one of the ones that went, and it cannot be left
+   * pointing at a tab that is no longer in the strip — that is a pane showing a
+   * note with nothing selected above it.
+   */
+  test("an active tab that was closed moves to the one you kept", () => {
+    const state = run(
+      pinned("1-projects/a.md", "1-projects/b.md", "1-projects/c.md"),
+      { type: "activated", path: "1-projects/c.md" },
+      { type: "closedToRight", path: "1-projects/a.md" },
+    );
+    expect(paths(state)).toEqual(["1-projects/a.md"]);
+    expect(state.activePath).toBe("1-projects/a.md");
+  });
+
+  test("an active tab to the left of the cut is left where it was", () => {
+    const state = run(
+      pinned("1-projects/a.md", "1-projects/b.md", "1-projects/c.md"),
+      { type: "activated", path: "1-projects/a.md" },
+      { type: "closedToRight", path: "1-projects/b.md" },
+    );
+    expect(state.activePath).toBe("1-projects/a.md");
+  });
+
+  /** The rightmost tab has nothing to its right, and the strip is untouched. */
+  test("the last tab closes nothing", () => {
+    const before = pinned("1-projects/a.md", "1-projects/b.md");
+    expect(tabsReducer(before, { type: "closedToRight", path: "1-projects/b.md" })).toBe(before);
+  });
+
+  test("on a path that is not open, nothing happens", () => {
+    const before = pinned("1-projects/a.md", "1-projects/b.md");
+    expect(tabsReducer(before, { type: "closedToRight", path: "1-projects/ghost.md" })).toBe(
+      before,
+    );
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /*                            renames and removals                            */
 /* -------------------------------------------------------------------------- */
@@ -398,8 +537,36 @@ describe("tab labels", () => {
 
   test("two open notes with the same name each get their folder", () => {
     const state = pinned("1-projects/notes.md", "2-areas/notes.md");
-    expect(tabLabel(state, "1-projects/notes.md")).toBe("1-projects/notes");
-    expect(tabLabel(state, "2-areas/notes.md")).toBe("2-areas/notes");
+    // The qualifier is trimmed too: it exists to say *which* `notes`, and the
+    // sort number is not the answer to that question.
+    expect(tabLabel(state, "1-projects/notes.md")).toBe("projects/notes");
+    expect(tabLabel(state, "2-areas/notes.md")).toBe("areas/notes");
+  });
+
+  test("a sort number is dropped, and the collision test sees the same name", () => {
+    // `1-plan.md` and `plan.md` both draw as `plan`, so both have to be
+    // qualified — a collision test running on the untrimmed name would have
+    // left two tabs labelled `plan` side by side.
+    const state = pinned("1-projects/1-plan.md", "2-areas/plan.md");
+    expect(tabLabel(state, "1-projects/1-plan.md")).toBe("projects/plan");
+    expect(tabLabel(state, "2-areas/plan.md")).toBe("areas/plan");
+  });
+
+  test("a drawing drops both of its extensions", () => {
+    // `plan.excalidraw.md` is a file called `plan`; the `.excalidraw` is
+    // filing exactly as the `.md` is, and a strip of `…excalidraw`s reads as
+    // the noise the trim exists to remove.
+    const state = pinned("4-resources/request-path.excalidraw.md");
+    expect(tabLabel(state, "4-resources/request-path.excalidraw.md")).toBe("request-path");
+  });
+
+  test("and a drawing collides with the note of the same name", () => {
+    // The disambiguation runs on the label, so it has to see the same name
+    // this does: `plan.md` and `plan.excalidraw.md` in one strip are two tabs
+    // called `plan`, and neither should be a coin toss.
+    const state = pinned("1-projects/plan.md", "2-areas/plan.excalidraw.md");
+    expect(tabLabel(state, "1-projects/plan.md")).toBe("projects/plan");
+    expect(tabLabel(state, "2-areas/plan.excalidraw.md")).toBe("areas/plan");
   });
 });
 
@@ -521,7 +688,7 @@ describe("a context switch empties the strip", () => {
    * indefinitely.
    *
    * Two things were wrong with that. The strip displayed note names from the
-   * person's own brain while they were inside somebody else's shared workspace,
+   * person's own workspace while they were inside somebody else's shared workspace,
    * which is the failure `useDemoFileBrowser` names in its own comment and the
    * one `useFileBrowser`'s reset effect exists to prevent for the tree, the
    * selection and the editor. And clicking such a tab read context B at a path

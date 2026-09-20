@@ -100,7 +100,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
           Which makes it:
         </Text>
         <View style={styles.fields}>
-          <Field label="Your brain" value={shown.context} />
+          <Field label="Your workspace" value={shown.context} />
           <Field label="How others address a note in it" value={shown.path} />
           <Field label="Your capture address" value={shown.mailbox} />
         </View>

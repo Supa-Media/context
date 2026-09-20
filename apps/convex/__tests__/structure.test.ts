@@ -58,12 +58,24 @@ import { describe, expect, test } from "vitest";
 // so the public/internal classification comes from Convex rather than from a
 // naming convention. The ignore list matches `test.setup.ts`.
 const RAW_SOURCES = import.meta.glob(
-  ["../**/*.ts", "!../__tests__/**", "!../node_modules/**", "!../*.config.ts", "!../*.setup.ts"],
+  [
+    "../**/*.ts",
+    "!../__tests__/**",
+    "!../node_modules/**",
+    "!../*.config.ts",
+    "!../*.setup.ts",
+  ],
   { query: "?raw", import: "default", eager: true },
 ) as Record<string, string>;
 
 const LIVE_MODULES = import.meta.glob(
-  ["../**/*.ts", "!../__tests__/**", "!../node_modules/**", "!../*.config.ts", "!../*.setup.ts"],
+  [
+    "../**/*.ts",
+    "!../__tests__/**",
+    "!../node_modules/**",
+    "!../*.config.ts",
+    "!../*.setup.ts",
+  ],
   { eager: true },
 ) as Record<string, Record<string, unknown>>;
 
@@ -278,6 +290,14 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // folding a second provider's connect flow into either would put two
   // unrelated handshakes behind one module.
   "functions/googleConnect.ts",
+  // THE EIGHTH, AND TEMPORARY BY DESIGN.
+  //
+  // A paid move keeps the customer's current binding live while it copies to
+  // a newly minted managed bucket. The destination secret is sealed in a
+  // migration row and opened only by `runManagedStorageMigration`; successful
+  // cutover deletes that row, while failure keeps it solely for resumable
+  // retry. No public return or route reaches it.
+  "functions/managedProvisioning.ts",
   // THE SEVENTH, THE SAME SHAPE AGAIN — ATTACHING A PRODUCT, NOT A SECOND
   // OAUTH-CONNECT MODULE FOR A SECOND PROVIDER.
   //
@@ -304,6 +324,29 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // product on the grant, so this module adds exactly one new decrypt site,
   // not three.
   "functions/calendarConnect.ts",
+  // THE NINTH, AND THE FIRST CREDENTIAL THAT IS NOT OURS TO ROTATE.
+  //
+  // `providers.ts` holds the API key for the model account the agent spends —
+  // the customer's own Anthropic or OpenAI key — and opens it in exactly one
+  // place, `openProviderCredential`, whose only caller is the gateway. Its own
+  // module for the reason the sixth entry gives: one module per thing sealed
+  // to a different lifetime. This one outlives no binding and is bound to no
+  // handshake; it is replaced when somebody pastes a new key and deleted when
+  // they disconnect, and folding it into `storage.ts` would put a credential
+  // with that lifetime behind a module whose every other secret belongs to a
+  // bucket.
+  //
+  // What bounds it: `connectProvider` and `listProviders` are the only public
+  // exports and neither reaches the decrypt — the first encrypts, the second
+  // builds its answer field by field from the row and never touches
+  // `encryptedApiKey`. The refusals are written to name the provider and never
+  // the key, because a credential we did not issue is one we cannot rotate
+  // after a leak, and #661 put a credential we *could* rotate into the
+  // production logs by way of a validation error.
+  //
+  // See `__tests__/providerCredentials.test.ts`, which drives every failing
+  // path and searches the thrown value for the key it was given.
+  "functions/providers.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -311,7 +354,9 @@ function importsDecrypt(source: string): boolean {
   const withoutComments = source
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
-  return /import\s*\{[^}]*\bdecryptSecret\b[^}]*\}\s*from/.test(withoutComments);
+  return /import\s*\{[^}]*\bdecryptSecret\b[^}]*\}\s*from/.test(
+    withoutComments,
+  );
 }
 const CONVEX_REFERENCE = /\b(?:internal|api)((?:\.[A-Za-z_$][\w$]*)+)/g;
 const RUN_CALL = /\.run(?:Query|Mutation|Action)\(\s*([^,)\s]*)/g;
@@ -368,7 +413,8 @@ const SCHEDULE_CALL = /\.scheduler\.run(?:After|At)\(\s*[^,]*,\s*([^,)\s]*)/g;
  * `exportEncryptionKeys` and the gateway's `export_encryption_keys` are both
  * `docs/decisions/encryption.md`'s "Revocation and export": the customer must
  * be able to get the key itself, not only decrypt with it through us, or the
- * first non-negotiable is false the moment they revoke our credential. That is
+ * first non-negotiable is false the moment they leave — by revoking our
+ * credential on their own bucket, or by exporting off managed storage. That is
  * a *deliberate* disclosure this codebase has never needed before — every
  * other barrier and every other decrypt-capable function returns something
  * *derived* from a credential (file content, a signed request); this is the
@@ -407,16 +453,18 @@ const CREDENTIAL_BARRIERS = new Set([
  * same way and for the same reason.
  */
 export function encryptedColumnsIn(schemaSource: string): string[] {
-  const names = [...schemaSource.matchAll(/^\s+(encrypted[A-Za-z0-9]*)\s*:/gm)].map((match) =>
-    match[1]!.toLowerCase(),
-  );
+  const names = [
+    ...schemaSource.matchAll(/^\s+(encrypted[A-Za-z0-9]*)\s*:/gm),
+  ].map((match) => match[1]!.toLowerCase());
   return [...new Set(names)];
 }
 
 const SCHEMA_ENCRYPTED_FIELDS = (() => {
   const source = RAW_SOURCES["../schema.ts"];
   if (typeof source !== "string") {
-    throw new Error("structure.test.ts could not read schema.ts to derive credential fields");
+    throw new Error(
+      "structure.test.ts could not read schema.ts to derive credential fields",
+    );
   }
   return encryptedColumnsIn(source);
 })();
@@ -498,11 +546,57 @@ const DELIBERATE_KEY_DISCLOSURES = new Set([
 /** The one field those two are exempt from, and nothing else. */
 const DISCLOSED_KEY_FIELD = "material";
 
+/**
+ * THE FUNCTION ALLOWED TO HAND BACK A TOKEN IT JUST MINTED, BY NAME.
+ *
+ * A different question from `DELIBERATE_KEY_DISCLOSURES` above, kept apart
+ * because the answer is different: that one discloses a *stored* key, and this
+ * one returns a credential that did not exist a line earlier and describes
+ * nothing but the caller's own session.
+ *
+ * `mintConsoleGrant` is the console's own OAuth grant. The agent turn runs in
+ * the gateway — that is where the privacy engine and the tools are, and where a
+ * model key is decrypted — and the gateway authenticates with an access token
+ * and nothing else. The console has a Convex session and has never held one, so
+ * something has to issue it. What is issued is an ordinary `oauthGrants` row:
+ * same table, same `resolveGrantByAccessToken`, same `clampScopes` against the
+ * role read in that transaction, same revocation from the connections list,
+ * same audit. Only the plaintext travels back, and only to the person it was
+ * minted for.
+ *
+ * **The precedent it is enumerated against, rather than hidden behind.**
+ * `approveOwnMachineGrant` is already a public action that hands its caller a
+ * freshly minted secret about themselves — an authorization code, live, inside
+ * the URL it returns. It passes this guard for one reason: the field is called
+ * `redirectTo`. That is the rename `PLAINTEXT_CREDENTIAL_FIELDS`' own comment
+ * warns about, arrived at honestly rather than to evade anything, and it is
+ * exactly why this one is listed here instead of having its field renamed to
+ * `token` or `session` to slip past.
+ *
+ * What bounds the disclosure: an hour, no refresh token, one live grant per
+ * person per context (the previous token dies in the transaction that mints the
+ * next), and a caller who must already hold the Convex session — which reaches
+ * the same notes through `files.ts` and can additionally rebind storage and
+ * delete the account. The token is the smaller of the two powers.
+ *
+ * It is an allowlist and not a widening. A second function returning an
+ * `accesstoken` fails, and so does this one growing a `secretaccesskey`, an
+ * `apitoken` or an `encryptedapikey`. See `__tests__/agentGrant.test.ts`.
+ */
+const DELIBERATE_TOKEN_MINTS = new Set(["functions.agentGrant.mintConsoleGrant"]);
+
+/** The one field that one is exempt from, and nothing else. */
+const MINTED_TOKEN_FIELD = "accesstoken";
+
 const PUBLIC_FORBIDDEN_FIELDS = [
   ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, ...SCHEMA_ENCRYPTED_FIELDS]),
 ];
 const BARRIER_FORBIDDEN_FIELDS = [
-  ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, "accesskeyid", ...SCHEMA_ENCRYPTED_FIELDS]),
+  ...new Set([
+    ...PLAINTEXT_CREDENTIAL_FIELDS,
+    "accesskeyid",
+    ...SCHEMA_ENCRYPTED_FIELDS,
+  ]),
 ];
 
 /**
@@ -531,15 +625,15 @@ const BARRIER_FORBIDDEN_FIELDS = [
  * personal context's credential per single-use, five-minute ticket, rate-limited
  * per name, and no shared context ever.
  *
- * A third entry would need the same argument made again, in this comment.
+ * Any additional entry would need the same argument made again, in this comment.
  *
  * So this is not a barrier and must not be read as one. A barrier stops taint
  * propagating — everything that calls through it comes out clean, which is why
  * `CREDENTIAL_BARRIERS` has one member and a long warning attached. This is a
  * **pin**: the route is still decrypt-capable, it still appears in the
  * enumerated `decryptCapable` set below, and every *other* http route in the
- * codebase still fails if it can reach a credential. Adding a second entry
- * here is a diff a reviewer sees, and it means a second internet-facing path
+ * codebase still fails if it can reach a credential. Adding an entry here is a
+ * diff a reviewer sees, and it means another internet-facing path
  * to other people's bucket keys.
  *
  * What keeps the exemption honest, all enforced below:
@@ -560,7 +654,26 @@ const BARRIER_FORBIDDEN_FIELDS = [
  */
 const CREDENTIAL_HTTP_ROUTES = new Set([
   "http.gatewayBinding",
+  "http.gatewayJobsOpen",
   "http.gatewayIngestBinding",
+  // THE FOURTH, AND THE ONLY ONE ADDED RATHER THAN AVOIDED.
+  //
+  // `searchIndex`, `encryptionKey` and `rotation` all became *siblings* on
+  // `/gateway/binding` specifically so this set would stay at three, and that
+  // remains the default answer for a new gateway-facing credential. The model
+  // key is the exception, for a reason that is about #661 rather than about
+  // convenience: `openStorageBinding`'s returns validator already carries
+  // `secretAccessKey`, and `v.object` is exact, so any drift in that shape
+  // serializes everything in it into a log. Folding a customer's provider key
+  // in would make one accident spill two credentials.
+  //
+  // What makes the door cost little: it is built by the same `gatewayRoute`
+  // factory, spends the same two proofs, applies the same
+  // compared-never-looked-up rule to `expectedWorkspaceId`, and answers `null`
+  // for everything that is not a hit — all of which the tests below enforce on
+  // it exactly as they do on the other three. What it does not share is the
+  // validator, which is the entire point: two flat fields, nothing nested.
+  "http.gatewayProvider",
 ]);
 
 /**
@@ -568,7 +681,7 @@ const CREDENTIAL_HTTP_ROUTES = new Set([
  *
  * Every one of them must require a shared secret before the handler runs, and
  * the test below reads each factory's body to check that it does. The set is
- * enumerated for the same reason `CREDENTIAL_HTTP_ROUTES` is: adding a third
+ * enumerated for the same reason `CREDENTIAL_HTTP_ROUTES` is: adding another
  * door is a diff to this file that a reviewer sees, rather than a route that
  * quietly checks nothing.
  *
@@ -581,6 +694,36 @@ const CREDENTIAL_HTTP_ROUTES = new Set([
 const ROUTE_FACTORIES: Record<string, string> = {
   gatewayRoute: "requestIsFromGateway",
   emailWorkerRoute: "requestIsFromEmailWorker",
+};
+
+/**
+ * THE FACTORIES WHOSE KEY IS A SIGNATURE RATHER THAN A BEARER SECRET.
+ *
+ * Kept apart from `ROUTE_FACTORIES` rather than folded into it, because the
+ * two tests below ask different questions of the two kinds and folding them
+ * would mean one of those questions being asked of a route it does not fit —
+ * which is how an enumeration stops meaning anything.
+ *
+ * A bearer factory is checked against `requestCarriesSecret` and against every
+ * other bearer factory reading a *different* environment variable. A signature
+ * factory cannot be: Stripe posts from an address nobody here controls with no
+ * Authorization header at all, which is the entire reason webhooks are signed.
+ * What it owes instead is checked in its own test further down — an HMAC over
+ * the **raw** body, a timestamp inside that MAC, and a secret read from the
+ * environment rather than from `appSecrets`, which is what keeps this route off
+ * `CREDENTIAL_HTTP_ROUTES`.
+ *
+ * One entry, and the enumeration is the point: a second signed door is a diff
+ * to this file that a reviewer reads.
+ */
+const SIGNED_ROUTE_FACTORIES: Record<string, string> = {
+  stripeWebhookRoute: "stripeSignatureIsValid",
+};
+
+/** Every factory a route in `http.ts` may be built by, of either kind. */
+const ALL_ROUTE_FACTORIES: Record<string, string> = {
+  ...ROUTE_FACTORIES,
+  ...SIGNED_ROUTE_FACTORIES,
 };
 
 /**
@@ -612,6 +755,7 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "sharePreview",
   "shareCard",
   "shareNotePreview",
+  "shareShortLinkPreview",
 ]);
 
 /**
@@ -629,13 +773,18 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
  * calls and adds a third branch returning a bare `new Response` — which was
  * also measured green.
  */
-function unauthenticatedRouteResponses(source: string, handlerName: string): string[][] {
+function unauthenticatedRouteResponses(
+  source: string,
+  handlerName: string,
+): string[][] {
   const start = source.indexOf(`export const ${handlerName}`);
-  expect(start, `${handlerName} is enumerated but not defined`).toBeGreaterThan(-1);
+  expect(start, `${handlerName} is enumerated but not defined`).toBeGreaterThan(
+    -1,
+  );
   const body = source.slice(start, source.indexOf("\n});", start));
 
-  const returns = [...body.matchAll(/\breturn\s+([\s\S]{0,20}?)[({]/g)].map((m) =>
-    m[0].replace(/\s+/g, " "),
+  const returns = [...body.matchAll(/\breturn\s+([\s\S]{0,20}?)[({]/g)].map(
+    (m) => m[0].replace(/\s+/g, " "),
   );
   for (const statement of returns) {
     expect(
@@ -828,7 +977,8 @@ function analyze(modules: AnalyzedModule[]): {
       // that buys and, just as importantly, what it does not.
       if (
         targets.some(
-          (target) => decryptCapable.has(target) && !CREDENTIAL_BARRIERS.has(target),
+          (target) =>
+            decryptCapable.has(target) && !CREDENTIAL_BARRIERS.has(target),
         )
       ) {
         decryptCapable.add(node);
@@ -885,7 +1035,7 @@ function realModules(): AnalyzedModule[] {
 }
 
 describe("no public function can reach a storage secret", () => {
-/**
+  /**
    * Pin the exact set of functions that can reach a decrypted credential.
    *
    * The scheduling exemption above is correct but load-bearing: a public
@@ -922,172 +1072,330 @@ describe("no public function can reach a storage secret", () => {
     expect(importers).toEqual([...DECRYPT_IMPORTERS].sort());
   });
 
+  /**
+   * NOBODY RESTATES THE CAPABILITY OBJECT.
+   *
+   * Four modules had their own copy of `{ conditionalWrite, conditionalCreate,
+   * conditionalDelete }` — two return validators in `controlPlane.ts`, two in
+   * `ingestionGateway.ts` — and `storage.ts` owned a fifth that was the real
+   * one. Adding `serverSideCopy` to the schema and to the probe therefore made
+   * both credential routes refuse the answer they had just built:
+   * `v.object` is exact, `openStorageBinding` and `openIngestionBinding` threw
+   * `ReturnsValidationError`, and every AI client and every inbound message was
+   * told `storage_unavailable` — advised to reconnect storage that was never
+   * unreachable.
+   *
+   * The lesson is not "remember the other four next time". It is that a
+   * credential route's return validator is the last hop before a customer, and
+   * a field list restated there is one nobody is watching. So: exactly one
+   * declaration of the shape, and this test is what keeps it at one.
+   *
+   * If this fails, import `capabilitiesValidator` from `functions/storage`
+   * rather than writing the fields out again.
+   */
+  test("only the schema spells the capability object out", () => {
+    // A `capabilities:` field whose validator is written inline, which is what
+    // each of the four copies looked like. `capabilitiesValidator` itself is
+    // `v.object({ … })` too, but it is not under a `capabilities:` key — it is
+    // the thing a `capabilities:` key is supposed to point at.
+    const inlineShape = /capabilities:\s*v\.object\(/;
+    const declarers = Object.entries(RAW_SOURCES)
+      .filter(([, source]) => inlineShape.test(source as string))
+      .map(([path]) => path.replace(/^(\.\.?\/)+/, ""))
+      .sort();
+
+    // The schema, and nowhere else. It is where the field list is defined, and
+    // `functions/storage.ts` builds the one validator from it.
+    expect(declarers).toEqual(["schema.ts"]);
+  });
+
   test("only these functions can reach a decrypted credential", () => {
     const { decryptCapable } = analyze(realModules());
 
-    expect([...decryptCapable].sort()).toEqual([
-      // The decrypt itself. internalAction, so Convex refuses to route it
-      // from a client.
-      "functions.storage.getBindingForGateway",
-      // Re-encrypts every binding during a key rotation. Reads plaintext by
-      // definition; internal, batched, never client-reachable.
-      "functions.storage.rekeyStorageBindings",
-      // Builds a real S3Store to probe the bucket a user just connected.
-      // Reached only by a schedule edge from bindStorage.
-      "functions.provisioning.verifyStorageBinding",
-      // THE SECOND KIND OF CREDENTIAL, AND THE ONLY FUNCTION THAT OPENS ONE.
-      //
-      // Everything else in this list decrypts a *storage* key — a credential
-      // scoped to one bucket. This one decrypts the customer's **Cloudflare
-      // account** credential, which is strictly more powerful: it can create
-      // buckets and mint further credentials. It is here because there is no
-      // way to create a bucket in somebody's account without briefly holding
-      // something that may act on that account, and the alternative is that
-      // the product only works for people who already know R2.
-      //
-      // What bounds it: the envelope exists for one attempt and one attempt
-      // only. `beginProvisioning` writes it, this opens it, and the row
-      // carrying it is deleted on success and stripped of it on failure — so
-      // unlike a storage binding there is no steady state in which the
-      // control plane holds an account-level Cloudflare credential at all.
-      // internalAction, reached only by a schedule edge from
-      // `beginProvisioning`, and `__tests__/cloudflare.test.ts` asserts
-      // behaviourally that the token appears in no table and in no public
-      // return value.
-      "functions.cloudflare.provisionCloudflareStorage",
-      // THE THIRD KIND, AND THE WEAKEST ONE.
-      //
-      // Opens the parked PKCE verifier so the authorization code can be
-      // exchanged for a Dropbox grant. What it holds is not a key to anybody's
-      // storage — a verifier is useless without the matching code, it is
-      // ten minutes old at most, and the row carrying it is deleted *before*
-      // this runs, so a replay finds nothing.
-      //
-      // It is here rather than inside `completeDropboxConnect` precisely
-      // because that one is public: reached only by a schedule edge, which is
-      // the same shape as `verifyStorageBinding`.
-      "functions.dropboxConnect.exchangeAndBind",
-      // THE CREDENTIAL'S FUNERAL. Opens a Dropbox refresh token one last
-      // time to disable the grant at Dropbox after `disconnectStorage`
-      // deleted the row — without it, "Disconnect" forgets our copy while
-      // the authorization lives on in the person's account, and their next
-      // connect silently auto-approves. The envelope arrives in the args
-      // (the row is already gone), it is spent on one refresh + one revoke,
-      // and every failure is swallowed: after this runs, successfully or
-      // not, the control plane holds nothing. internalAction, reached only
-      // by schedule edges — three of them now: `disconnectStorage`,
-      // `applyBinding` rebinding away from Dropbox, and
-      // `applyDropboxBinding` landing on a different account. A count in
-      // this list is the sort of thing that goes stale silently, so it is
-      // here to be checked rather than trusted.
-      "functions.dropboxConnect.revokeDropboxGrant",
-      // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
-      // file operation and hands it to lib/fileOps.ts, which never sees the
-      // credential. internalAction, and the only member of
-      // CREDENTIAL_BARRIERS — read that comment before adding a second.
-      "functions.files.runFileOperation",
-      // Resolves the end user's access token to a live grant, derives the
-      // workspace from THAT grant, and opens that workspace's credential for
-      // the gateway. internalAction; the only thing that reaches it is the
-      // route below.
-      "functions.controlPlane.openStorageBinding",
-      // THE KEY TO NOTE CONTENT, rather than a credential for reaching it.
-      //
-      // Opens one workspace's data key so the gateway can decrypt that
-      // context's encrypted notes for the length of one request. It is here
-      // because there is no other place decryption can happen: every consumer
-      // that exists — MCP clients, the console, link rewriting — reads through
-      // the gateway, and `docs/decisions/encryption.md` says out loud that this
-      // is encryption at rest against the storage provider and a leaked bucket
-      // credential, and not against us.
-      //
-      // internalAction, reached only by `openStorageBinding` above, which has
-      // already spent both proofs and passes the workspace id it read off the
-      // resolved row. It is *not* a barrier: taint propagates through it
-      // exactly as it does through `getBindingForGateway`, which is why
-      // `http.gatewayBinding` is still in this list and why nothing new was
-      // added to `CREDENTIAL_HTTP_ROUTES` — the route that reaches it was
-      // already enumerated as an internet-facing path to a credential, and this
-      // does not add a second one.
-      "functions.encryptionKeys.openWorkspaceDataKey",
-      // THE SAME KEY, DELIBERATELY DISCLOSED. Decrypts every generation of a
-      // workspace's data key and hands the plaintext material back — the
-      // second and, for now, only other member of `CREDENTIAL_BARRIERS`. Read
-      // that comment before touching this one; it is here, and not merely a
-      // barrier, because "decrypt-capable" is exactly what it is.
-      "functions.encryptionKeys.exportWorkspaceDataKeys",
-      // The ingest analogue. Spends a single-use ticket the control plane
-      // minted, reads the workspace off THAT ticket's row, and opens its
-      // credential for the Email Worker. internalAction; the only thing that
-      // reaches it is `/gateway/ingest/binding`.
-      "functions.ingestionGateway.openIngestionBinding",
-      // AN INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/binding`.
-      // Requires the gateway secret AND the user's access token, and the
-      // workspace comes from the grant, never from the caller.
-      "http.gatewayBinding",
-      // THE SECOND ONE. `/gateway/ingest/binding`. Requires the email worker's
-      // own secret and a ticket we minted; there is no user token, because an
-      // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
-      // comment before adding a third.
-      "http.gatewayIngestBinding",
-      // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
-      //
-      // Not a customer's anything — see the `functions/admin.ts` entry in
-      // DECRYPT_IMPORTERS. internalAction, no schedule edge and no HTTP route;
-      // the callers are the server-side integrations that need a token to make
-      // an outbound request with it.
-      //
-      // The thing to check if this list ever grows a sibling: the admin
-      // console writes these rows and must never read one. It calls
-      // `setSecret` (which encrypts and never decrypts) and `listSecrets`
-      // (which returns a fingerprint). A `getSecret` would land in this list
-      // as a *public* function and be caught by the next test rather than
-      // this one.
-      "functions.admin.readIntegrationSecret",
-      // THE PROVISIONER, AND ITS UNDERTAKER.
-      //
-      // Both open `SEARCH_D1_API_TOKEN` — a credential of *ours*, not a
-      // customer's — to create and delete one context's search database.
-      // internalActions, reached only by a schedule edge from
-      // `fastSearch.enable` / `.disable`, which is the same shape
-      // `verifyStorageBinding` has and rests on the same decision: scheduling
-      // is not calling, so the public mutations that start them are not
-      // themselves paths to the token.
-      //
-      // They are in this list at all because of a hole this branch found and
-      // closed: their credential read sits in a module-level helper written
-      // *after* a non-function export, which the analyzer used to attribute to
-      // that constant's block and then drop for not being a node. Both were
-      // invisible here and are not any more. See `unattributed` in `analyze`.
-      "functions.fastSearchProvision.provisionIndex",
-      "functions.fastSearchProvision.releaseIndex",
-      // THE GOOGLE CONNECT FLOW'S THREE, THE SAME SHAPE AS DROPBOX'S TWO PLUS
-      // ONE. See the `functions/googleConnect.ts` entry in `DECRYPT_IMPORTERS`
-      // for why a third OAuth-connect module exists rather than folding into
-      // one of the first two, and why the third function here — minting an
-      // access token for the sync job — has no Dropbox analogue at all: a
-      // Dropbox binding hands the gateway a cached access token straight off
-      // the row (`storage.ts`'s own `S3`/`Dropbox` credential path), while a
-      // Google connection is read-only *from the gateway's side* and
-      // refreshes through the control plane instead, so it needs a function
-      // of its own — reused for every product on the grant, not only Gmail.
-      "functions.googleConnect.exchangeAndBind",
-      "functions.googleConnect.mintGoogleAccessToken",
-      "functions.googleConnect.revokeGoogleGrant",
-      // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
-      // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling
-      // file. Disconnect and access-token minting are reused verbatim from
-      // `googleConnect.ts` (they are already product-agnostic), so Chat adds
-      // exactly one barrier function, not three.
-      "functions.chatProduct.exchangeAndBindChat",
-      // CALENDAR'S OWN VERIFIER-OPENING STEP — see the
-      // `functions/calendarConnect.ts` entry in `DECRYPT_IMPORTERS` for why
-      // this exists rather than reusing `googleConnect.exchangeAndBind`.
-      // Minting an access token and revoking the grant are NOT duplicated
-      // here: `googleConnect.mintGoogleAccessToken` and `.revokeGoogleGrant`
-      // above already serve every product on the one connection row.
-      "functions.calendarConnect.exchangeAndBindCalendar",
-    ].sort());
+    expect([...decryptCapable].sort()).toEqual(
+      [
+        // The decrypt itself. internalAction, so Convex refuses to route it
+        // from a client.
+        "functions.storage.getBindingForGateway",
+        // Re-encrypts every binding during a key rotation. Reads plaintext by
+        // definition; internal, batched, never client-reachable.
+        "functions.storage.rekeyStorageBindings",
+        // Builds a real S3Store to probe the bucket a user just connected.
+        // Reached only by a schedule edge from bindStorage.
+        "functions.provisioning.verifyStorageBinding",
+        // The owner-triggered storage-layout runner first refreshes observed
+        // capabilities, then delegates the bounded copy to runFileOperation.
+        // Internal and reached only through the scheduler, so neither the
+        // verification result nor a credential can flow back to the client.
+        "functions.files.runStorageLayoutMigration",
+        // THE SECOND KIND OF CREDENTIAL, AND THE ONLY FUNCTION THAT OPENS ONE.
+        //
+        // Everything else in this list decrypts a *storage* key — a credential
+        // scoped to one bucket. This one decrypts the customer's **Cloudflare
+        // account** credential, which is strictly more powerful: it can create
+        // buckets and mint further credentials. It is here because there is no
+        // way to create a bucket in somebody's account without briefly holding
+        // something that may act on that account, and the alternative is that
+        // the product only works for people who already know R2.
+        //
+        // What bounds it: the envelope exists for one attempt and one attempt
+        // only. `beginProvisioning` writes it, this opens it, and the row
+        // carrying it is deleted on success and stripped of it on failure — so
+        // unlike a storage binding there is no steady state in which the
+        // control plane holds an account-level Cloudflare credential at all.
+        // internalAction, reached only by a schedule edge from
+        // `beginProvisioning`, and `__tests__/cloudflare.test.ts` asserts
+        // behaviourally that the token appears in no table and in no public
+        // return value.
+        "functions.cloudflare.provisionCloudflareStorage",
+        // THE SAME KIND, POINTED AT OUR OWN ACCOUNT.
+        //
+        // Managed storage: the bucket a Premium customer paid for, created in an
+        // account we run rather than one they named. It opens
+        // `MANAGED_R2_API_TOKEN` from `appSecrets` — an operator credential,
+        // never a customer's storage key — long enough to create a bucket and
+        // mint a key scoped to that one bucket.
+        //
+        // What bounds it: the token is ours, so nothing here can reach a
+        // customer's own account, and the only thing it *writes* is an encrypted
+        // per-bucket key that is indistinguishable from a pasted one. It is an
+        // internalAction reached by two schedule edges — the webhook that turns a
+        // plan active, and an owner's retry — and it stores neither the operator
+        // token nor the minted token, only the SHA-256 the S3 API expects as a
+        // secret access key. `__tests__/managedProvisioning.test.ts` asserts
+        // behaviourally that neither value appears in any table.
+        //
+        // The reason this exists at all is non-negotiable #1: a person who does
+        // not have and does not want a Cloudflare account still has to be able
+        // to own their notes, and somebody has to create the bucket.
+        "functions.managedProvisioning.provisionManagedStorage",
+        // THE TEST ACCOUNT'S RESOURCE FUNERAL. Opens our managed-account token
+        // only after `deleteAccount` has proved the exact verified CUJ email,
+        // and refuses any bucket except the deterministic name for that
+        // workspace. It empties/deletes that one managed bucket and revokes
+        // its scoped token; ordinary customer-account deletion never reaches
+        // this edge and continues to leave customer storage untouched.
+        "functions.managedProvisioning.deleteManagedTestResources",
+        // Opens the parked per-bucket destination credential for one bounded,
+        // resumable copy page. Internal-only; the source binding remains live
+        // until a quiet verification pass and atomic source-id-checked cutover.
+        "functions.managedProvisioning.runManagedStorageMigration",
+        // The readiness gate in front of that copy, and the narrowest use of
+        // the same parked credential: it opens the destination secret to ask
+        // the new bucket one question — does it answer, and will it take a
+        // write — and moves nothing either way. Internal-only, reached by the
+        // same two schedule edges, and it cannot widen what the copy it
+        // precedes could already do with the identical secret.
+        "functions.managedProvisioning.awaitManagedTargetReady",
+        // THE THIRD KIND, AND THE WEAKEST ONE.
+        //
+        // Opens the parked PKCE verifier so the authorization code can be
+        // exchanged for a Dropbox grant. What it holds is not a key to anybody's
+        // storage — a verifier is useless without the matching code, it is
+        // ten minutes old at most, and the row carrying it is deleted *before*
+        // this runs, so a replay finds nothing.
+        //
+        // It is here rather than inside `completeDropboxConnect` precisely
+        // because that one is public: reached only by a schedule edge, which is
+        // the same shape as `verifyStorageBinding`.
+        "functions.dropboxConnect.exchangeAndBind",
+        // THE CREDENTIAL'S FUNERAL. Opens a Dropbox refresh token one last
+        // time to disable the grant at Dropbox after `disconnectStorage`
+        // deleted the row — without it, "Disconnect" forgets our copy while
+        // the authorization lives on in the person's account, and their next
+        // connect silently auto-approves. The envelope arrives in the args
+        // (the row is already gone), it is spent on one refresh + one revoke,
+        // and every failure is swallowed: after this runs, successfully or
+        // not, the control plane holds nothing. internalAction, reached only
+        // by schedule edges — three of them now: `disconnectStorage`,
+        // `applyBinding` rebinding away from Dropbox, and
+        // `applyDropboxBinding` landing on a different account. A count in
+        // this list is the sort of thing that goes stale silently, so it is
+        // here to be checked rather than trusted.
+        "functions.dropboxConnect.revokeDropboxGrant",
+        // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
+        // file operation and hands it to lib/fileOps.ts, which never sees the
+        // credential. internalAction, and the only member of
+        // CREDENTIAL_BARRIERS — read that comment before adding a second.
+        "functions.files.runFileOperation",
+        // Resolves the end user's access token to a live grant, derives the
+        // workspace from THAT grant, and opens that workspace's credential for
+        // the gateway. internalAction; the only thing that reaches it is the
+        // route below.
+        "functions.controlPlane.openStorageBinding",
+        // THE QUEUE RUNNER'S CREDENTIAL DOOR. A user-authorized request mints an
+        // opaque job ticket first; this internal action spends that ticket for
+        // one bounded Worker queue attempt and reads the workspace off the job
+        // row, never off the request body.
+        "functions.controlPlane.openGatewayJob",
+        // THE KEY TO NOTE CONTENT, rather than a credential for reaching it.
+        //
+        // Opens one workspace's data key so the gateway can decrypt that
+        // context's encrypted notes for the length of one request. It is here
+        // because there is no other place decryption can happen: every consumer
+        // that exists — MCP clients, the console, link rewriting — reads through
+        // the gateway, and `docs/decisions/encryption.md` says out loud that this
+        // is encryption at rest against the storage provider and a leaked bucket
+        // credential, and not against us.
+        //
+        // internalAction, reached only by `openStorageBinding` above, which has
+        // already spent both proofs and passes the workspace id it read off the
+        // resolved row. It is *not* a barrier: taint propagates through it
+        // exactly as it does through `getBindingForGateway`, which is why
+        // `http.gatewayBinding` is still in this list and why nothing new was
+        // added to `CREDENTIAL_HTTP_ROUTES` — the route that reaches it was
+        // already enumerated as an internet-facing path to a credential, and this
+        // does not add a second one.
+        "functions.encryptionKeys.openWorkspaceDataKey",
+        // THE SAME KEY, DELIBERATELY DISCLOSED. Decrypts every generation of a
+        // workspace's data key and hands the plaintext material back — the
+        // second and, for now, only other member of `CREDENTIAL_BARRIERS`. Read
+        // that comment before touching this one; it is here, and not merely a
+        // barrier, because "decrypt-capable" is exactly what it is.
+        "functions.encryptionKeys.exportWorkspaceDataKeys",
+        // The ingest analogue. Spends a single-use ticket the control plane
+        // minted, reads the workspace off THAT ticket's row, and opens its
+        // credential for the Email Worker. internalAction; the only thing that
+        // reaches it is `/gateway/ingest/binding`.
+        "functions.ingestionGateway.openIngestionBinding",
+        // AN INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/binding`.
+        // Requires the gateway secret AND the user's access token, and the
+        // workspace comes from the grant, never from the caller.
+        "http.gatewayBinding",
+        // THE QUEUE ANALOGUE. `/gateway/jobs/open` requires the gateway secret
+        // and an opaque job ticket that was minted under a live owner/private
+        // grant; there is no workspace id in the request shape.
+        "http.gatewayJobsOpen",
+        // THE SECOND ONE. `/gateway/ingest/binding`. Requires the email worker's
+        // own secret and a ticket we minted; there is no user token, because an
+        // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
+        // comment before adding another.
+        "http.gatewayIngestBinding",
+        // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
+        //
+        // Not a customer's anything — see the `functions/admin.ts` entry in
+        // DECRYPT_IMPORTERS. internalAction, no schedule edge and no HTTP route;
+        // the callers are the server-side integrations that need a token to make
+        // an outbound request with it.
+        //
+        // The thing to check if this list ever grows a sibling: the admin
+        // console writes these rows and must never read one. It calls
+        // `setSecret` (which encrypts and never decrypts) and `listSecrets`
+        // (which returns a fingerprint). A `getSecret` would land in this list
+        // as a *public* function and be caught by the next test rather than
+        // this one.
+        "functions.admin.readIntegrationSecret",
+        // THE PROVISIONER, AND ITS UNDERTAKER.
+        //
+        // Both open `SEARCH_D1_API_TOKEN` — a credential of *ours*, not a
+        // customer's — to create and delete one context's search database.
+        // internalActions, reached only by a schedule edge from
+        // `fastSearch.enable` / `.disable`, which is the same shape
+        // `verifyStorageBinding` has and rests on the same decision: scheduling
+        // is not calling, so the public mutations that start them are not
+        // themselves paths to the token.
+        //
+        // They are in this list at all because of a hole this branch found and
+        // closed: their credential read sits in a module-level helper written
+        // *after* a non-function export, which the analyzer used to attribute to
+        // that constant's block and then drop for not being a node. Both were
+        // invisible here and are not any more. See `unattributed` in `analyze`.
+        "functions.fastSearchProvision.provisionIndex",
+        "functions.fastSearchProvision.releaseIndex",
+        // THE PAYMENT KEY, WHICH IS ALSO OURS AND NOT A CUSTOMER'S.
+        //
+        // Both open `STRIPE_SECRET_KEY` to mint a hosted Checkout or customer
+        // portal URL. internalActions, reached only by a schedule edge from
+        // `billing.startCheckout` / `.startPortal` — the same shape as the two
+        // above and resting on the same decision, and the reason those two
+        // mutations return a row id rather than a URL.
+        //
+        // What bounds them: the key never leaves this file. What is written back
+        // to the row is a URL Stripe minted, and the failure path records our own
+        // error code rather than Stripe's text, which can name an account or a
+        // customer.
+        //
+        // The webhook is deliberately NOT here. It verifies an HMAC against an
+        // environment variable, so it opens no envelope and stays off
+        // `CREDENTIAL_HTTP_ROUTES` — see `STRIPE_WEBHOOK_SECRET_ENV_VAR` in
+        // `functions/lib/premium.ts` for why that placement is load-bearing.
+        "functions.billingStripe.createCheckoutSession",
+        "functions.billingStripe.createPortalSession",
+        // THE THIRD, AND THE ONLY ONE NOBODY PRESSED A BUTTON FOR.
+        //
+        // Opens the same payment key to cancel a subscription whose context is
+        // being deleted. Reached by a schedule edge from `deleteWorkspaceCascade`
+        // — a *public* mutation, which is exactly why it is a schedule and not a
+        // call: `account.deleteAccount` must not be a path to the payment key.
+        //
+        // It is here rather than folded into the portal because the portal is the
+        // customer choosing to cancel and this is the product noticing it must.
+        // Without it, deleting a context leaves the card being charged with no
+        // route in the product to stop it.
+        "functions.billingStripe.cancelSubscription",
+        // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
+        // product-specific and combined binders. See the `functions/googleConnect.ts`
+        // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather
+        // than folding into each other, and why minting an access token for the
+        // sync job has no Dropbox analogue at all: a Dropbox binding hands the
+        // gateway a cached access token straight off the row (`storage.ts`'s own
+        // `S3`/`Dropbox` credential path), while a Google connection is read-only
+        // *from the gateway's side* and refreshes through the control plane instead,
+        // so it needs a function of its own — reused for every product on the grant.
+        "functions.googleConnect.exchangeAndBind",
+        "functions.googleConnect.exchangeAndBindGoogle",
+        "functions.googleConnect.mintGoogleAccessToken",
+        "functions.googleConnect.revokeGoogleGrant",
+        // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
+        // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling
+        // file. Disconnect and access-token minting are reused verbatim from
+        // `googleConnect.ts` (they are already product-agnostic), so Chat adds
+        // exactly one barrier function, not three.
+        "functions.chatProduct.exchangeAndBindChat",
+        // CALENDAR'S OWN VERIFIER-OPENING STEP — see the
+        // `functions/calendarConnect.ts` entry in `DECRYPT_IMPORTERS` for why
+        // this exists rather than reusing `googleConnect.exchangeAndBind`.
+        // Minting an access token and revoking the grant are NOT duplicated
+        // here: `googleConnect.mintGoogleAccessToken` and `.revokeGoogleGrant`
+        // above already serve every product on the one connection row.
+        "functions.calendarConnect.exchangeAndBindCalendar",
+        // THE AGENT'S MODEL ACCOUNT, AND THE ONLY CREDENTIAL HERE WE CANNOT
+        // ROTATE AFTER A LEAK.
+        //
+        // Opens the customer's own Anthropic or OpenAI key so the gateway can
+        // spend it on one request. An internalAction, and `/gateway/provider`
+        // is its only caller — the two public exports in that module do not
+        // reach the decrypt at all: `connectProvider` encrypts, and
+        // `listProviders` builds its answer field by field and never reads
+        // `encryptedApiKey`.
+        //
+        // It spends the same two proofs `openStorageBinding` spends, in the
+        // same order and with the same rule: the token's hash resolves to a
+        // live grant, `expectedWorkspaceId` selects *within* that grant's own
+        // set, and what goes to the decrypt is the id read off the resolved
+        // row. The `expectedWorkspaceId is never used as a lookup key` test
+        // below covers this module too, because it reads every module.
+        //
+        // What bounds it further: the returns validator is two flat fields with
+        // nothing nested to drift, which is deliberate. #661 broke on a
+        // *nested* validator — `capabilities` gained a key, `v.object` refused
+        // the object `openStorageBinding` had just built, and the error named
+        // what it rejected, so a live R2 secret went into the production logs
+        // beside it. A key issued by somebody else's console cannot be rotated
+        // by us at all, so the shape here is kept too small to drift.
+        "functions.providers.openProviderForGateway",
+        // THE FOURTH INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/provider`.
+        //
+        // Requires the gateway secret AND the user's access token, and the
+        // workspace comes from the grant, never from the caller — the same two
+        // proofs `http.gatewayBinding` spends. Read the `CREDENTIAL_HTTP_ROUTES`
+        // comment for why it is a door rather than a fifth sibling on the
+        // binding route: folding a model key into `openStorageBinding`'s return
+        // would put it inside the same validator as `secretAccessKey`, so one
+        // drift could spill both.
+        "http.gatewayProvider",
+      ].sort(),
+    );
   });
 
   test("every decrypt-capable Convex function is internal", () => {
@@ -1110,7 +1418,9 @@ describe("no public function can reach a storage secret", () => {
     for (const node of decryptCapable) {
       const classification = classifications.get(node);
       if (classification?.kind === "http") continue;
-      expect(classification?.isPublic, `${node} must not be public`).toBe(false);
+      expect(classification?.isPublic, `${node} must not be public`).toBe(
+        false,
+      );
     }
   });
 
@@ -1184,7 +1494,9 @@ describe("no public function can reach a storage secret", () => {
     expect(storage).toBeDefined();
 
     const { blocks } = exportBlocks(storage!.source);
-    expect(DECRYPT_CALL.test(blocks.get("getBindingForGateway") ?? "")).toBe(true);
+    expect(DECRYPT_CALL.test(blocks.get("getBindingForGateway") ?? "")).toBe(
+      true,
+    );
     expect(storage!.exports.getBindingForGateway).toEqual({
       kind: "action",
       isPublic: false,
@@ -1227,7 +1539,9 @@ describe("no public function can reach a storage secret", () => {
     ).toEqual(["encryptedrefreshtoken", "encryptedaccesstoken"]);
 
     // Lowercased, deduplicated, and nothing that merely mentions the word.
-    expect(encryptedColumnsIn("    encrypted: v.string(),")).toEqual(["encrypted"]);
+    expect(encryptedColumnsIn("    encrypted: v.string(),")).toEqual([
+      "encrypted",
+    ]);
     expect(encryptedColumnsIn("// encryptedThing: not a column")).toEqual([]);
 
     // And on the real schema it is non-empty and covers what is there now. An
@@ -1272,13 +1586,63 @@ describe("no public function can reach a storage secret", () => {
     }
     expect(DELIBERATE_KEY_DISCLOSURES.size).toBe(2);
     for (const node of DELIBERATE_KEY_DISCLOSURES) {
-      expect(live.has(node), `${node} is exempted but does not exist`).toBe(true);
+      expect(live.has(node), `${node} is exempted but does not exist`).toBe(
+        true,
+      );
     }
     // The barrier among them is a barrier, and the other is not.
-    expect(CREDENTIAL_BARRIERS.has("functions.encryptionKeys.exportWorkspaceDataKeys")).toBe(
-      true,
-    );
-    expect(CREDENTIAL_BARRIERS.has("functions.encryptionKeys.exportEncryptionKeys")).toBe(false);
+    expect(
+      CREDENTIAL_BARRIERS.has(
+        "functions.encryptionKeys.exportWorkspaceDataKeys",
+      ),
+    ).toBe(true);
+    expect(
+      CREDENTIAL_BARRIERS.has("functions.encryptionKeys.exportEncryptionKeys"),
+    ).toBe(false);
+  });
+
+  /**
+   * The minted-token exemption, held to the same three things the key one is:
+   * it names something that exists, it is one entry rather than a category, and
+   * it buys exactly one field.
+   */
+  test("the minted-token exemption is one real function and one field", () => {
+    const live = new Set<string>();
+    for (const [globKey, module] of Object.entries(LIVE_MODULES)) {
+      for (const name of Object.keys(module ?? {})) {
+        live.add(`${referencePath(globKey)}.${name}`);
+      }
+    }
+    expect(DELIBERATE_TOKEN_MINTS.size).toBe(1);
+    for (const node of DELIBERATE_TOKEN_MINTS) {
+      expect(live.has(node), `${node} is exempted but does not exist`).toBe(true);
+    }
+
+    // One field, and it is not the key one: the two exemptions must not start
+    // covering for each other.
+    expect(MINTED_TOKEN_FIELD).not.toBe(DISCLOSED_KEY_FIELD);
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain(MINTED_TOKEN_FIELD);
+
+    /*
+      And the exempted function is still held to every other forbidden field.
+      A `mintConsoleGrant` that grew a `secretaccesskey` would be caught by the
+      guard above; this asserts the source has none of them, so the exemption
+      cannot be read as "this function is out of scope".
+    */
+    for (const node of DELIBERATE_TOKEN_MINTS) {
+      const [, moduleName, exportName] = node.split(".");
+      const module = LIVE_MODULES[`../functions/${moduleName}.ts`] as
+        | Record<string, { exportReturns?: () => string }>
+        | undefined;
+      const returns = module?.[exportName!]?.exportReturns?.().toLowerCase() ?? "";
+      expect(returns.length).toBeGreaterThan(0);
+      for (const field of PUBLIC_FORBIDDEN_FIELDS) {
+        if (field === MINTED_TOKEN_FIELD) continue;
+        expect(returns.includes(`"${field}"`), `${node} also returns ${field}`).toBe(
+          false,
+        );
+      }
+    }
   });
 
   /**
@@ -1290,7 +1654,9 @@ describe("no public function can reach a storage secret", () => {
   test("a third function returning key material would be caught", () => {
     const returns = JSON.stringify({
       type: "object",
-      value: { keys: { type: "array", value: { material: { type: "string" } } } },
+      value: {
+        keys: { type: "array", value: { material: { type: "string" } } },
+      },
     }).toLowerCase();
     const node = "functions.somethingNew.helpfulExport";
     expect(DELIBERATE_KEY_DISCLOSURES.has(node)).toBe(false);
@@ -1317,7 +1683,14 @@ describe("no public function can reach a storage secret", () => {
         const node = `${referencePath(globKey)}.${name}`;
         const returns = exportReturns.call(value).toLowerCase();
         for (const field of forbidden) {
-          if (field === DISCLOSED_KEY_FIELD && DELIBERATE_KEY_DISCLOSURES.has(node)) continue;
+          if (
+            field === DISCLOSED_KEY_FIELD &&
+            DELIBERATE_KEY_DISCLOSURES.has(node)
+          )
+            continue;
+          if (field === MINTED_TOKEN_FIELD && DELIBERATE_TOKEN_MINTS.has(node)) {
+            continue;
+          }
           expect(
             returns.includes(`"${field}"`),
             `${globKey}#${name} is public and returns a "${field}" field`,
@@ -1377,7 +1750,9 @@ describe("no public function can reach a storage secret", () => {
         const exportReturns = (value as { exportReturns?: () => string })
           .exportReturns;
         const declared =
-          typeof exportReturns === "function" ? exportReturns.call(value) : null;
+          typeof exportReturns === "function"
+            ? exportReturns.call(value)
+            : null;
         if (typeof declared === "string" && declared !== "null") continue;
 
         const id = `${globKey}#${name}`;
@@ -1415,7 +1790,11 @@ export const fetchBucketConfig = action({
 });
 `,
       exports: {
-        fetchBucketConfig: { kind: "action", isPublic: true, isInternal: false },
+        fetchBucketConfig: {
+          kind: "action",
+          isPublic: true,
+          isInternal: false,
+        },
       },
     };
 
@@ -1509,7 +1888,9 @@ export const open = (envelope: string, workspaceId: string) =>
     // …and a module that merely mentions it in prose does not, so the rule is
     // about code rather than about the word.
     expect(
-      importsDecrypt("// this module never calls decryptSecret, it just says so\nexport const x = 1;"),
+      importsDecrypt(
+        "// this module never calls decryptSecret, it just says so\nexport const x = 1;",
+      ),
     ).toBe(false);
   });
 
@@ -1535,7 +1916,9 @@ export const health = query({
     };
 
     const violations = findViolations([...realModules(), attack]);
-    expect(violations.map((v) => v.node)).toContain("functions.innocuous.health");
+    expect(violations.map((v) => v.node)).toContain(
+      "functions.innocuous.health",
+    );
   });
 });
 
@@ -1625,7 +2008,9 @@ export const queue = mutation({
   },
 });
 `,
-      exports: { queue: { kind: "mutation", isPublic: true, isInternal: false } },
+      exports: {
+        queue: { kind: "mutation", isPublic: true, isInternal: false },
+      },
     };
 
     expect(
@@ -1648,7 +2033,9 @@ export const queue = mutation({
   },
 });
 `,
-      exports: { queue: { kind: "mutation", isPublic: true, isInternal: false } },
+      exports: {
+        queue: { kind: "mutation", isPublic: true, isInternal: false },
+      },
     };
 
     expect(
@@ -1670,7 +2057,9 @@ export const queue = mutation({
       /scheduler\.runAfter\(\s*0,\s*internal\.functions\.provisioning\.verifyStorageBinding/,
     );
 
-    const provisioning = modules.find((m) => m.path === "functions/provisioning.ts");
+    const provisioning = modules.find(
+      (m) => m.path === "functions/provisioning.ts",
+    );
     const provisioningBlocks = exportBlocks(provisioning!.source).blocks;
     // It reaches the decrypt path through `getBindingForGateway`…
     expect(provisioningBlocks.get("verifyStorageBinding")).toContain(
@@ -1726,7 +2115,10 @@ describe("the credential barrier is a pin, not an amnesty", () => {
 
     expect(CREDENTIAL_BARRIERS.size).toBeGreaterThan(0);
     for (const barrier of CREDENTIAL_BARRIERS) {
-      expect(decryptCapable.has(barrier), `${barrier} is listed as a credential barrier but cannot reach a credential — either it is misnamed or the list is stale`).toBe(true);
+      expect(
+        decryptCapable.has(barrier),
+        `${barrier} is listed as a credential barrier but cannot reach a credential — either it is misnamed or the list is stale`,
+      ).toBe(true);
       expect(classifications.get(barrier)).toEqual({
         kind: "action",
         isPublic: false,
@@ -1749,16 +2141,23 @@ describe("the credential barrier is a pin, not an amnesty", () => {
       for (const [name, value] of Object.entries(module ?? {})) {
         const node = `${referencePath(globKey)}.${name}`;
         if (!CREDENTIAL_BARRIERS.has(node)) continue;
-        const exportReturns = (value as { exportReturns?: () => string }).exportReturns;
-        expect(typeof exportReturns, `${node} must declare a return validator`).toBe(
-          "function",
-        );
+        const exportReturns = (value as { exportReturns?: () => string })
+          .exportReturns;
+        expect(
+          typeof exportReturns,
+          `${node} must declare a return validator`,
+        ).toBe("function");
         const returns = exportReturns!.call(value).toLowerCase();
         for (const field of forbidden) {
-          if (field === DISCLOSED_KEY_FIELD && DELIBERATE_KEY_DISCLOSURES.has(node)) continue;
-          expect(returns.includes(`"${field}"`), `${node} returns a "${field}" field`).toBe(
-            false,
-          );
+          if (
+            field === DISCLOSED_KEY_FIELD &&
+            DELIBERATE_KEY_DISCLOSURES.has(node)
+          )
+            continue;
+          expect(
+            returns.includes(`"${field}"`),
+            `${node} returns a "${field}" field`,
+          ).toBe(false);
         }
       }
     }
@@ -1808,7 +2207,9 @@ export const reverify = action({
     await ctx.runAction(internal.functions.provisioning.verifyStorageBinding, args),
 });
 `,
-      exports: { reverify: { kind: "action", isPublic: true, isInternal: false } },
+      exports: {
+        reverify: { kind: "action", isPublic: true, isInternal: false },
+      },
     };
 
     expect(
@@ -2006,6 +2407,9 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/session": "gatewaySession",
     "/gateway/binding": "gatewayBinding",
     "/gateway/search-index/progress": "gatewaySearchIndexProgress",
+    "/gateway/jobs/create": "gatewayJobsCreate",
+    "/gateway/jobs/open": "gatewayJobsOpen",
+    "/gateway/jobs/report": "gatewayJobsReport",
     "/gateway/usage": "gatewayUsage",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",
@@ -2033,11 +2437,13 @@ describe("the gateway's HTTP routes", () => {
   test("the analyzer classifies every control-plane route as an HTTP node", () => {
     const module = httpModule();
     for (const name of Object.values(CONTRACT_ROUTES)) {
-      expect(module.exports[name], `http.ts#${name} is not classified`).toEqual({
-        kind: "http",
-        isPublic: true,
-        isInternal: false,
-      });
+      expect(module.exports[name], `http.ts#${name} is not classified`).toEqual(
+        {
+          kind: "http",
+          isPublic: true,
+          isInternal: false,
+        },
+      );
     }
   });
 
@@ -2066,12 +2472,16 @@ describe("the gateway's HTTP routes", () => {
    */
   test("every route in http.ts is built by an enumerated secret-checking factory", () => {
     const source = httpModule().source;
-    const declarations = [...source.matchAll(/^export const (\w+)\s*=\s*(\w+)\(/gm)];
-    expect(declarations.length, "no routes found in http.ts").toBeGreaterThan(0);
+    const declarations = [
+      ...source.matchAll(/^export const (\w+)\s*=\s*(\w+)\(/gm),
+    ];
+    expect(declarations.length, "no routes found in http.ts").toBeGreaterThan(
+      0,
+    );
     for (const [, name, factory] of declarations) {
       if (UNAUTHENTICATED_HTTP_ROUTES.has(name)) continue;
       expect(
-        Object.keys(ROUTE_FACTORIES),
+        Object.keys(ALL_ROUTE_FACTORIES),
         `http.ts#${name} is built by ${factory}, which is not one of the enumerated route factories — so nothing forces it to require a secret`,
       ).toContain(factory);
     }
@@ -2085,7 +2495,7 @@ describe("the gateway's HTTP routes", () => {
    * that entry #1 already had — the same discipline `CREDENTIAL_BARRIERS`
    * follows one section above.
    */
-  test("the routes that require no secret are exactly the three share previews", () => {
+  test("the routes that require no secret are exactly the four share previews", () => {
     // `shareCard` joined `sharePreview` when the card moved into the
     // customer's bucket. It discloses strictly less than its neighbour — the
     // same owner-chosen title, as a picture — and is bounded the same way: a
@@ -2105,11 +2515,30 @@ describe("the gateway's HTTP routes", () => {
       // made three times has not had to be made a fourth. The exemption is a
       // pin, not an amnesty, and a route added here still owes it in full.
       "shareNotePreview",
+      // **The fourth, and the first added since the sentence above was
+      // written.** A short link is `/@seyi/intake`, so its argument is
+      // guessable like the third's and bounded the same way: the probe space
+      // is names the *owner* typed, and `shortLinkSlugRejection` refuses every
+      // name this product writes so the guessable ones cannot be claimed.
+      //
+      // It could not be a field on the third: that route's second argument is
+      // a note path and this one's is not a path at all, and one route whose
+      // argument means two things is how a field nobody looked at reaches an
+      // anonymous crawler.
+      //
+      // It is **one** field where the third is three, and the missing one is
+      // the point: `cardToken` is safe there because a team link's token is a
+      // locator, and a short link may sit over an `anyone` share where the
+      // token IS the authorization. So a short link unfurls with a title and
+      // the product's own image, never a per-share card.
+      "shareShortLinkPreview",
     ]);
 
     const source = httpModule().source;
     const start = source.indexOf("export const sharePreview");
-    expect(start, "sharePreview is enumerated but not defined").toBeGreaterThan(-1);
+    expect(start, "sharePreview is enumerated but not defined").toBeGreaterThan(
+      -1,
+    );
     const body = source.slice(start, source.indexOf("\n});", start));
 
     /**
@@ -2132,21 +2561,32 @@ describe("the gateway's HTTP routes", () => {
      * from upstream that nobody looked at.
      */
     expect(body).toContain("previewTitleForToken");
-    expect(body).toMatch(/json\(\{\s*title:\s*result\.title,\s*openToAnyone:\s*result\.openToAnyone\s*\}\)/);
-    expect(body, "sharePreview must not spread its upstream result").not.toMatch(
-      /\.\.\.result/,
+    expect(body).toMatch(
+      /json\(\{\s*title:\s*result\.title,\s*openToAnyone:\s*result\.openToAnyone\s*\}\)/,
     );
-    for (const forbidden of ["workspaceId", "slug", "entryPath", "recipient", "createdBy"]) {
-      expect(body, `sharePreview must not return ${forbidden}`).not.toContain(forbidden);
+    expect(
+      body,
+      "sharePreview must not spread its upstream result",
+    ).not.toMatch(/\.\.\.result/);
+    for (const forbidden of [
+      "workspaceId",
+      "slug",
+      "entryPath",
+      "recipient",
+      "createdBy",
+    ]) {
+      expect(body, `sharePreview must not return ${forbidden}`).not.toContain(
+        forbidden,
+      );
     }
 
     // **EVERY response, not the last one**, and every response a `json(`.
     // See `unauthenticatedRouteResponses`.
     for (const keys of unauthenticatedRouteResponses(source, "sharePreview")) {
-      expect(keys, "every sharePreview response returns exactly these fields").toEqual([
-        "openToAnyone",
-        "title",
-      ]);
+      expect(
+        keys,
+        "every sharePreview response returns exactly these fields",
+      ).toEqual(["openToAnyone", "title"]);
     }
   });
 
@@ -2172,7 +2612,10 @@ describe("the gateway's HTTP routes", () => {
   test("the readable team link's route returns three fields and no more", () => {
     const source = httpModule().source;
     const start = source.indexOf("export const shareNotePreview");
-    expect(start, "shareNotePreview is enumerated but not defined").toBeGreaterThan(-1);
+    expect(
+      start,
+      "shareNotePreview is enumerated but not defined",
+    ).toBeGreaterThan(-1);
     const body = source.slice(start, source.indexOf("\n});", start));
 
     expect(body).toContain("previewForNote");
@@ -2181,9 +2624,10 @@ describe("the gateway's HTTP routes", () => {
     }
     // A spread would let a field added upstream reach the internet without
     // anybody deciding it should.
-    expect(body, "shareNotePreview must name its fields, never spread them").not.toMatch(
-      /json\(\s*\{?\s*\.\.\.|json\(result\)/,
-    );
+    expect(
+      body,
+      "shareNotePreview must name its fields, never spread them",
+    ).not.toMatch(/json\(\s*\{?\s*\.\.\.|json\(result\)/);
 
     // …and THREE, not "at least three". Asserting the names are present and
     // denying four literals by name is not the same as bounding the object:
@@ -2198,30 +2642,101 @@ describe("the gateway's HTTP routes", () => {
     // sibling route's pin had and this one kept: `body.lastIndexOf("return
     // json({")` skipped the early answer for a malformed body, and
     // `owner: "seyi", noteCount: 42` on that branch passed all 39 checks here.
-    for (const keys of unauthenticatedRouteResponses(source, "shareNotePreview")) {
-      expect(keys, "every shareNotePreview response returns exactly these fields").toEqual([
-        "cardToken",
-        "children",
-        "title",
-      ]);
+    for (const keys of unauthenticatedRouteResponses(
+      source,
+      "shareNotePreview",
+    )) {
+      expect(
+        keys,
+        "every shareNotePreview response returns exactly these fields",
+      ).toEqual(["cardToken", "children", "title"]);
     }
-    for (const forbidden of ["workspaceId", "recipient", "createdBy", "entryPath"]) {
-      expect(body, `shareNotePreview must not return ${forbidden}`).not.toContain(
-        forbidden,
-      );
+    for (const forbidden of [
+      "workspaceId",
+      "recipient",
+      "createdBy",
+      "entryPath",
+    ]) {
+      expect(
+        body,
+        `shareNotePreview must not return ${forbidden}`,
+      ).not.toContain(forbidden);
+    }
+  });
+
+  /**
+   * **The fourth route is one field wide, and the field it does not have is
+   * the one that matters.**
+   *
+   * `shareNotePreview` returns a `cardToken` because a team link's token is a
+   * locator: its reader is authorised by membership on every request, so
+   * handing it to a crawler grants nothing. A short link may sit over an
+   * `anyone` share, where possession of the token **is** the authorization —
+   * so the same field here would hand whoever guessed a name a capability that
+   * outlives the name, and keeps working after the slug is released.
+   *
+   * That is why this route returns the title alone, and why the absence is
+   * pinned rather than merely commented: the shape of this addition, a year
+   * from now, is somebody noticing that short links have no card image and
+   * fixing it by copying the field from the route above.
+   */
+  test("the short link's route returns one field, and never the token", () => {
+    const source = httpModule().source;
+    const start = source.indexOf("export const shareShortLinkPreview");
+    expect(
+      start,
+      "shareShortLinkPreview is enumerated but not defined",
+    ).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\n});", start));
+
+    expect(body).toContain("previewForShortLink");
+    expect(
+      body,
+      "shareShortLinkPreview must name its fields, never spread them",
+    ).not.toMatch(/json\(\s*\{?\s*\.\.\.|json\(result\)/);
+
+    for (const keys of unauthenticatedRouteResponses(
+      source,
+      "shareShortLinkPreview",
+    )) {
+      expect(
+        keys,
+        "every shareShortLinkPreview response returns exactly these fields",
+      ).toEqual(["title"]);
+    }
+
+    for (const forbidden of [
+      "cardToken",
+      "token",
+      "workspaceId",
+      "entryPath",
+      "recipient",
+      "createdBy",
+    ]) {
+      expect(
+        body,
+        `shareShortLinkPreview must not return ${forbidden}`,
+      ).not.toContain(`${forbidden}:`);
     }
   });
 
   /** And every factory really does check it — otherwise the rule above is decor. */
   test("every factory refuses a request that does not carry its secret", () => {
     const source = httpModule().source;
-    for (const [factoryName, guard] of Object.entries(ROUTE_FACTORIES)) {
+    for (const [factoryName, guard] of Object.entries(ALL_ROUTE_FACTORIES)) {
       const start = source.indexOf(`function ${factoryName}(`);
-      expect(start, `${factoryName} is enumerated but not defined in http.ts`).toBeGreaterThan(-1);
+      expect(
+        start,
+        `${factoryName} is enumerated but not defined in http.ts`,
+      ).toBeGreaterThan(-1);
       const factory = source.slice(start);
       const body = factory.slice(0, factory.indexOf("\n}\n"));
-      expect(body, `${factoryName} does not call ${guard}`).toContain(`${guard}(`);
-      expect(body, `${factoryName} does not refuse`).toMatch(/unauthorized\(\)/);
+      expect(body, `${factoryName} does not call ${guard}`).toContain(
+        `${guard}(`,
+      );
+      expect(body, `${factoryName} does not refuse`).toMatch(
+        /unauthorized\(\)/,
+      );
     }
 
     // …and the comparison is constant-time and length-blind, so the secret's
@@ -2250,21 +2765,30 @@ describe("the gateway's HTTP routes", () => {
     )!;
 
     const envVarOf = (guard: string): string => {
-      const start = gatewayAuth.source.indexOf(`export async function ${guard}(`);
-      expect(start, `${guard} is not defined in gatewayAuth.ts`).toBeGreaterThan(-1);
+      const start = gatewayAuth.source.indexOf(
+        `export async function ${guard}(`,
+      );
+      expect(
+        start,
+        `${guard} is not defined in gatewayAuth.ts`,
+      ).toBeGreaterThan(-1);
       const body = gatewayAuth.source.slice(start);
       const match = /requestCarriesSecret\(\s*request,\s*(\w+)/.exec(
         body.slice(0, body.indexOf("\n}\n")),
       );
-      expect(match, `${guard} does not delegate to requestCarriesSecret`).not.toBeNull();
+      expect(
+        match,
+        `${guard} does not delegate to requestCarriesSecret`,
+      ).not.toBeNull();
       return match![1];
     };
 
     const guards = Object.values(ROUTE_FACTORIES);
     const envVars = guards.map(envVarOf);
-    expect(new Set(envVars).size, `two route factories share one secret: ${envVars.join(", ")}`).toBe(
-      guards.length,
-    );
+    expect(
+      new Set(envVars).size,
+      `two route factories share one secret: ${envVars.join(", ")}`,
+    ).toBe(guards.length);
 
     // Non-vacuity: those constant names have to be real, and hold the values
     // the deployment actually configures.
@@ -2273,6 +2797,134 @@ describe("the gateway's HTTP routes", () => {
     );
     expect(gatewayAuth.source).toMatch(
       /export const EMAIL_WORKER_SECRET_ENV_VAR = "EMAIL_WORKER_SECRET"/,
+    );
+  });
+
+  /**
+   * THE SIGNED DOOR OWES WHAT THE BEARER DOORS OWE, IN ITS OWN CURRENCY.
+   *
+   * A webhook route cannot be checked against `requestCarriesSecret` — its
+   * caller has no Authorization header and never will — so being exempt from
+   * the two tests above would leave it with no structural obligation at all,
+   * which is precisely how a route that "checks a signature" ends up checking
+   * a signature it computed over something else.
+   *
+   * Four properties, each of which has been somebody's published incident:
+   *
+   *  - the MAC is over the **raw body**. `request.text()` before any
+   *    `JSON.parse`, and the parse happens after the check. Re-serialising the
+   *    parsed object verifies a different document from the one that was
+   *    signed;
+   *  - the secret is read from `process.env`, not from `appSecrets` — which is
+   *    what keeps this route off `CREDENTIAL_HTTP_ROUTES` and is asserted
+   *    positively rather than left to the decrypt graph;
+   *  - a failure is `unauthorized()`, the same opaque refusal every other door
+   *    gives; and
+   *  - the verifier itself checks the timestamp, so a captured delivery is not
+   *    a standing key.
+   */
+  test("the signed route factory verifies the raw body against an environment secret", () => {
+    const source = httpModule().source;
+    for (const [factoryName, guard] of Object.entries(SIGNED_ROUTE_FACTORIES)) {
+      const start = source.indexOf(`function ${factoryName}(`);
+      expect(
+        start,
+        `${factoryName} is enumerated but not defined in http.ts`,
+      ).toBeGreaterThan(-1);
+      const factory = source.slice(start);
+      const body = factory.slice(0, factory.indexOf("\n}\n"));
+
+      expect(body, `${factoryName} does not call ${guard}`).toContain(
+        `${guard}(`,
+      );
+      expect(body, `${factoryName} does not refuse`).toMatch(
+        /unauthorized\(\)/,
+      );
+
+      // The raw body, and the parse strictly after the verification.
+      expect(body, `${factoryName} must verify the raw body`).toMatch(
+        /await request\.text\(\)/,
+      );
+      const verifiedAt = body.indexOf(`${guard}(`);
+      const parsedAt = body.indexOf("JSON.parse(");
+      expect(
+        parsedAt,
+        `${factoryName} never parses the body it verified`,
+      ).toBeGreaterThan(-1);
+      expect(
+        parsedAt,
+        `${factoryName} parses the body before verifying it`,
+      ).toBeGreaterThan(verifiedAt);
+
+      // The secret is an environment read, not a database one.
+      expect(
+        body,
+        `${factoryName} must read its secret from the environment`,
+      ).toMatch(/process\.env\[STRIPE_WEBHOOK_SECRET_ENV_VAR\]/);
+      expect(
+        body,
+        `${factoryName} must not open an appSecrets envelope`,
+      ).not.toMatch(/readIntegrationSecret|decryptSecret/);
+    }
+
+    /*
+      Non-vacuity for the last of the four, and it is bound to the guard the
+      factory actually names.
+
+      The first version read `lib/stripe.ts` for the tolerance constant no
+      matter which function the factory called — so a `fooRoute: "alwaysTrue"`
+      that satisfied the four body assertions above would have passed on the
+      strength of a constant somewhere else in the file. The guard's own body is
+      what has to check a timestamp and compare in constant time, or "signed"
+      means "signed at some point in history".
+    */
+    for (const guard of Object.values(SIGNED_ROUTE_FACTORIES)) {
+      const stripe = realModules().find(
+        (m) => m.path === "functions/lib/stripe.ts",
+      );
+      expect(
+        stripe,
+        "functions/lib/stripe.ts is not in the analysed modules",
+      ).toBeDefined();
+      const start = stripe!.source.indexOf(`export async function ${guard}(`);
+      expect(
+        start,
+        `${guard} is named by a route factory but is not defined in lib/stripe.ts`,
+      ).toBeGreaterThan(-1);
+      const guardBody = stripe!.source.slice(start);
+      const body = guardBody.slice(0, guardBody.indexOf("\n}\n"));
+
+      expect(body, `${guard} does not check the delivery's timestamp`).toMatch(
+        /toleranceMs/,
+      );
+      expect(body, `${guard} does not compare in constant time`).toMatch(
+        /constantTimeEqualsHex\(/,
+      );
+      // The timestamp has to be inside the MAC as well as checked, or moving it
+      // is free.
+      expect(
+        body,
+        `${guard} does not prepend the timestamp to the signed payload`,
+      ).toMatch(/\$\{parsed\.timestamp\}\.\$\{payload\}/);
+      // And an absent secret must refuse rather than allow.
+      expect(
+        body,
+        `${guard} does not refuse when no signing secret is configured`,
+      ).toMatch(/secret\.length === 0\) return false/);
+    }
+
+    // The env var the factory reads is a real name, held where the deployment
+    // actually sets it — the same non-vacuity `GATEWAY_SECRET_ENV_VAR` gets
+    // below, and it was missing for this one.
+    const premium = realModules().find(
+      (m) => m.path === "functions/lib/premium.ts",
+    );
+    expect(
+      premium,
+      "functions/lib/premium.ts is not in the analysed modules",
+    ).toBeDefined();
+    expect(premium!.source).toMatch(
+      /export const STRIPE_WEBHOOK_SECRET_ENV_VAR = "STRIPE_WEBHOOK_SECRET"/,
     );
   });
 
@@ -2371,7 +3023,11 @@ export const gatewayDebugBinding = gatewayRoute(async (ctx, body) => {
 });
 `,
       exports: {
-        gatewayDebugBinding: { kind: "http", isPublic: true, isInternal: false },
+        gatewayDebugBinding: {
+          kind: "http",
+          isPublic: true,
+          isInternal: false,
+        },
       },
     };
 
@@ -2448,7 +3104,11 @@ function lookupUsesOf(source: string, name: string): string[] {
     // An assignment into a workspace-id-shaped field. The lookbehind is what
     // keeps `expectedWorkspaceId:` itself — the argument declaration — from
     // matching its own name.
-    if (/(?<![A-Za-z])workspaceId\s*:\s*[^,\n]*\b\w*expectedWorkspaceId/.test(line)) {
+    if (
+      /(?<![A-Za-z])workspaceId\s*:\s*[^,\n]*\b\w*expectedWorkspaceId/.test(
+        line,
+      )
+    ) {
       offenders.push(line.trim());
     }
   }

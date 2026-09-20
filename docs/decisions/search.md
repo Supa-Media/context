@@ -36,7 +36,7 @@ here is what a tidy-up would break:
   console share `searchIndexedNotes` the way the first two shared the scan
   before it; a second path is a second place for a visibility bug.
 - **The index is sharded (v2) because the single object hit a real ceiling.**
-  A brain in the mid-thousands of notes built a capped index that could never
+  A workspace in the mid-thousands of notes built a capped index that could never
   be parsed within the Worker's 128MB, so coverage plateaued forever —
   measured live. `.index/v2/` holds a manifest plus fnv1a32-sharded objects,
   each under its own parse cap; the query streams shards one at a time and
@@ -46,7 +46,7 @@ here is what a tidy-up would break:
   **Shard postings are interned — `[docIndex, tf]` against the shard's own
   docs array, never `[path, tf]`** — because path-keyed postings repeat every
   doc's path once per unique term, which crossed the shard byte cap at about
-  half the 300-doc target and plateaued the live brain permanently: each pass
+  half the 300-doc target and plateaued the live workspace permanently: each pass
   rebuilt the same oversized shard and had its write (correctly) refused.
   Un-interning is the tidy-up that re-breaks this; readers still accept the
   old path-keyed dialect so a working index is not rebuilt for no gain.
@@ -87,7 +87,7 @@ So the two are separated, and the separation is the rule rather than a tuning:
   quoted.
 - **Maintenance runs behind the response.** `ctx.waitUntil` in the gateway; a
   scheduled `maintainIndex` operation in the control plane, which chains itself
-  while it is making progress so a cold brain converges without anybody
+  while it is making progress so a cold workspace converges without anybody
   searching eight times to finish their own backfill. A host with no `waitUntil`
   runs the pass **inline and awaited**, capped — deferral is an accelerator, and
   a promise left running on a host with nothing keeping the invocation alive is
@@ -97,6 +97,15 @@ So the two are separated, and the separation is the rule rather than a tuning:
   completeness used to be a by-product of the listing it did on the way in.
   `listedAt: null` counts as behind: an unknown reported as complete is the one
   direction that tells somebody their note is not written down.
+- **A gateway write is projected immediately once Fast Search is ready.** The
+  gateway already has the path, plaintext, version and effective visibility,
+  so `write_note` sends an idempotent delete-and-upsert to D1 behind the
+  response instead of waiting for the next bucket census. This closes the
+  post-activation gap where a newly written note could miss the very next
+  search until Fast Search was toggled off and on. The bucket write remains
+  canonical: a projection refusal is retried three times, never rolls back the
+  note, never reaches the caller, and is repaired by ordinary reconciliation.
+  Writes made outside the gateway still rely on that reconciliation path.
 
 **The one exception is a miss, and it is the narrowest one available: a miss may
 pay for a listing, a hit never does.** An answer is only as fresh as the last
@@ -251,10 +260,10 @@ makes it a decision we get to make for them.
 
 So it is **two independent conditions, and both must hold**:
 
-- **Entitled** — may this context turn it on? Derived, never stored, true for
-  everyone today. This is the single function a paid tier later narrows, and it
-  exists now so that narrowing is one edit rather than a search for every place
-  the question is asked.
+- **Entitled** — may this context turn it on? Derived, never stored, and true
+  only when the workspace has an active Premium plan that selected Fast
+  Search. A legacy row without the current generation is unservable even if it
+  says `ready`.
 - **Opted in** — has an *owner* turned it on? Stored, and **off by default**.
 
 Folding them into one flag is the obvious simplification and it loses the
@@ -283,6 +292,21 @@ Four consequences, each load-bearing rather than tidy:
   falls back to the R2 index the instant `optedIn` goes false, so the delete
   finishing is bookkeeping and not the switch.
 
+  **The handle is the whole mechanism, so nothing may clear it but a generation
+  change.** `releaseIndex` reaches a database only through `binding.databaseId`;
+  without it, it forgets the row and reports success having deleted nothing —
+  which is the orphan above, reached by a different route. Two states on the
+  current generation hold a live database and both look discardable: a `failed`
+  row, which records `databaseId` *before* applying the schema precisely so a
+  schema failure knows what it created, and a `releasing` row, which exists for
+  no other purpose. So a re-opt-in keeps those coordinates and reuses the
+  database; only a row from the retired generation lets go, because those name a
+  database in an account we no longer address. `enable` and
+  `syncPremiumSelection` are the same decision reached from the owner's switch
+  and from billing, and they had better agree — they did not, and the billing
+  one cleared unconditionally, so any ordinary renewal webhook stranded the
+  database a failed context had already created.
+
 **Off is a working state, not a degraded one.** Either condition false means the
 R2 shard index serves the search exactly as it does today. That is what makes
 off-by-default shippable: the fast path is an upgrade, and its absence is the
@@ -295,6 +319,64 @@ kind that exists, so deleting the entitlement half of the composition was
 invisible to the whole suite. It fails closed on an unrecognized kind, which is
 both a real property and the only handle a test has on that half until a paid
 tier arrives.
+
+### A name already taken in our own account is this context's database
+
+`databaseNameFor` is `context-search-<workspace id>`, deterministic on purpose:
+a slug can be renamed and a database name cannot, so a slug-derived name goes
+stale against the context it belongs to. Determinism means every attempt for
+one workspace asks Cloudflare for the same name, and the provisioner used to
+treat a name that was already there as a failure.
+
+It is not one. The account holds customer data and nothing of ours
+(non-negotiable #2), the workspace id is immutable and unguessable, and only
+this deployment creates databases there — so a database of that name **is**
+this workspace's, and the run adopts it. That is `managedProvisioning.ts`'s
+argument about a taken bucket name, with a wider safety margin: a bucket is the
+customer's only copy and a search database is a disposable derivative.
+
+Refusing was not a slower retry, it was a permanent one. A taken name answers
+outside the four statuses `classify` names, so it landed on `REFUSED`, which
+the provisioner treats as terminal — correctly, because a malformed request
+does not become well-formed by waiting. The row went `failed`, the settings
+card's "Try again" ran the identical create, and `disable` on a row with no
+`databaseId` deletes the row outright, so off-and-on-again came back to the
+same create. There was no way out of that screen from inside the product. Four
+ordinary things put a context in it: a create whose answer was lost, two
+schedules racing, a release that deleted the row and not the database, and a
+database migrated into this account ahead of the provision that asks for it.
+
+Two conditions travel with the adoption:
+
+- **The name must match exactly.** Cloudflare's `name` filter is a match, not
+  an identity, and the name is a shared prefix plus an id. Trusting the filter
+  would adopt another context's database and then project this context's notes
+  into it — one tenant's search answered out of another tenant's storage,
+  arrived at through a convenience.
+- **An adopted database is emptied first** (`RESET_STATEMENTS`), and the
+  backfill cursor in `index_state` is why. The cursor records how far the sweep
+  has walked; adopt one and the fresh backfill resumes past every note before
+  that point, which are then never projected while the counters report a
+  finished index — a hole in the front of somebody's search that nothing
+  reports. Emptying costs a rebuild and loses nothing, which is what "the index
+  is a disposable derivative" is for.
+
+Adoption is gated on what is **there**, never on which error code came back:
+which status Cloudflare answers a taken name with is provider behaviour this
+repo does not control, and a rule keyed on one would be a guess that fails
+silently when it is wrong.
+
+Beside it, the same failure's other half. `classify` dropped Cloudflare's own
+code and message so a provider sentence could not reach a row — the right rule,
+kept in a way that also kept it from us: every 4xx outside those four statuses
+became the same six words on a settings card with nothing behind them anywhere,
+and an operator could not tell a taken name from an account out of databases
+from a statement D1 would not accept. The detail now travels on `D1Error` and
+is logged beside the workspace id. The row and the screen are unchanged.
+
+The tests that fail if this is reversed: `__tests__/fastSearch.test.ts`, "a
+name already taken in our own account is this context's database" — five
+checks, each with its own measured sabotage.
 
 ### The gateway writes the projection, so the credential rides on the binding
 
@@ -437,7 +519,7 @@ Expo Router's shared tree and therefore the same control on a phone and in a
 browser rather than two that can drift.
 
 Per context and not per account, for the reason the whole settings pane is per
-context: two brains can be answered from two different places, and a switch
+context: two workspaces can be answered from two different places, and a switch
 above the context picker would claim there is one setting for all of them.
 
 Three rules the console follows and does not re-derive:
@@ -600,7 +682,7 @@ link is a full bucket listing billed to the customer. Four things end it, and
 each has a test:
 
 - a pass that **moved nothing** — where "moved" includes a pass that only
-  advanced the R2 index, because a cold brain's first link may have no budget
+  advanced the R2 index, because a cold workspace's first link may have no budget
   left to copy with and stopping there would reintroduce the whole bug one
   layer up;
 - a row that is **no longer `backfilling`**, `ready` included.
@@ -891,7 +973,7 @@ apart.
 ### A blended search over several contexts fuses ranks, and the control plane is where it happens
 
 "Making wikis: people's own personal Google for their organization's workspaces
-or their own brain." A new teammate types *review cycle* and reconstructs the
+or their own workspace." A new teammate types *review cycle* and reconstructs the
 concept out of four notes in three contexts, none of which is a canonical page.
 That is a different question from the one `search_notes` and the console's
 palette answer, and it is the only question in this system that spans more than
@@ -918,7 +1000,7 @@ per page, whatever the scope.
 scored against a corpus, and `N`, `df` and `avglen` are properties of the
 context a note lives in and the *tier* the caller reads it at. A twelve-point
 hit in a four-note workspace and a twelve-point hit in a four-thousand-note
-brain are not the same quantity; min-maxing them into a shared 0..1 invents a
+workspace are not the same quantity; min-maxing them into a shared 0..1 invents a
 comparison and hides that it was invented, and the failure it produces is the
 obvious one — the biggest context sweeps every page, because a big corpus
 produces a big spread. So each source contributes `1 / (60 + rank)` in its own
@@ -927,36 +1009,83 @@ any context's third. The numbers themselves never leave the ranking modules,
 which is also why they *could* not be normalized without exporting the one thing
 that lets a caller tell which derivative answered.
 
-**Eligibility is fast-search-only, and it is said out loud rather than hidden.**
-A blended page searches the contexts whose projection the control plane calls
-`ready`. A context without one answers from the R2 shard index in the customer's
-own bucket — a manifest, some shards and a read per snippet — which is fine for
-one context with one person watching one spinner and does not fan out: eight
-buckets' round trips inside one deadline, most of them for contexts the word is
-not in. `backfilling` is excluded as well as `off`, because a half-filled
-projection answers a query about a note it has not copied with a silence a
-blended list renders as "nothing here". The cost is a real one and the page
-carries it as copy rather than as an absence: a person with no eligible contexts
-is told that nothing looked, which is a different sentence from "nothing
-matched", and the two are separate states in the response (`eligibleCount`)
-precisely so they cannot collapse into each other.
+**Every context the caller is in is searched, and each one says which index
+answered it.** This reverses the rule that shipped with the blended page, and
+the reversal is the most useful thing in this section, so both sides are kept.
 
-**The honest sentence still read as a broken page for most brains, because
-fast search is off by default, so the fix is a nudge, never a silent
-fan-out over the R2 index just to make the empty state look populated.**
-`fastSearch.searchableContexts` answers `{ eligible, notEligible }` — the
-second half is the caller's own live memberships that are not `ready`, each
-carrying whether the caller owns it and why (`off`, `preparing`, `failed`,
-`unavailable`) — and the console names each one and, for an owner staring at
-`off` or `failed`, deep-links to the one switch that already changes it
-rather than building a second.
+The original rule was *eligibility is fast-search-only*: a blended page searched
+only the contexts whose projection the control plane calls `ready`, because a
+context without one answers from the R2 shard index in the customer's own bucket
+— a manifest, some shards and a read per snippet — which is fine for one context
+with one person watching one spinner and does not obviously fan out: eight
+buckets' round trips inside one deadline, most of them for contexts the word is
+not in. `backfilling` was excluded as well as `off`, on the theory that a
+half-filled projection answers a query about a note it has not copied with a
+silence a blended list renders as "nothing here". The cost was carried as copy
+rather than as an absence — a person with no eligible contexts was told that
+nothing *looked*, which is a different sentence from "nothing matched" — and
+`fastSearch.searchableContexts` answered `{ eligible, notEligible }` so the page
+could nudge an owner toward the switch.
+
+**What that produced was a search page that searched nothing**, for the ordinary
+account: fast search is off by default and is a paid entitlement, so somebody
+with four contexts and a question got four lines naming a setting. The sentence
+was true, the page was a dead end, and the person had notes in every one of
+those buckets. Two things settle it. First, `functions/lib/fastSearch.ts` had
+already decided what "off" means and this page was the one surface disagreeing:
+*"either condition false means the existing R2 shard index serves the search,
+exactly as it does today… the fast path is an upgrade, and its absence is the
+product as it already is, rather than a broken search waiting for a toggle."*
+Second, the cost was already bounded in the right place — `SOURCE_DEADLINE_MS`
+gives every source its own deadline, so a slow context costs its own row and
+never the page.
+
+So `searchScopeFor` answers one list, `{ contexts }`, holding every live
+membership, and each entry carries `search: "fast" | "slow"` beside the settings
+card's own `FastSearchState` and `owner`. `searchableCount` (was
+`eligibleCount`) is now zero only for somebody in no context at all, which is
+the one thing that sentence was ever true of.
+
+**`backfilling` is searched too, and cannot lose a result.** The silence it was
+excluded for was never real: `search/d1/serve.js` treats a projection miss as a
+reason to go and ask the R2 index the expensive way — *only a hit
+short-circuits* — so a half-built index can be slower than a finished one and
+cannot be wrong. That is a sentence on the page, not a reason to leave a context
+out of somebody's own search.
+
+**The nudge became an upsell, and the distinction is the point.** A nudge stood
+in place of results; the upsell sits under them. Rows name each slow context and
+carry a press only where one exists, to one of *two* destinations, because
+`lib/fastSearch.ts` keeps entitlement and opt-in apart and this is the surface
+where that separation earns itself: an owner who is not entitled goes to
+Premium, an owner who is and has not opted in goes to the switch. A member gets
+the sentence and no button — what a person can do about a fact is not what
+decides whether they are told it, which is the same rule `noteworthySources`
+already follows for a source mid-search. What is still refused is the thing the
+old paragraph was really refusing: a **silent** fan-out over the R2 index, one
+that made the page look populated without saying that four of these answers came
+from buckets and could be instant.
+
+**What reverting any of this costs, and what reddens.** Narrowing the scope back
+to `ready` projections returns the dead end to every account that is not paying,
+which is the defect this section exists because of;
+`__tests__/blendedSearch.test.ts` asserts that a context with `optedIn: false`
+and a context mid-`backfilling` both return **results**, where the same tests
+previously asserted an empty page and a count of zero. Dropping the per-context
+`search` field collapses the upsell into either silence or a claim that every
+answer was instant; `consoleSearchPage.test.ts` holds the sentence per state and
+the two destinations, and `searchUpsell.test.ts` holds them mounted. And
+widening the scope to every membership is precisely the change that makes this
+file's isolation assertions worth re-reading, so they stayed as they were: a
+workspace the caller is not a member of appears in no list, and the other
+tenant's **recorded bucket requests** do not move.
 
 **A miss does not buy a listing here.** `searchIndexedNotes`' rule — an empty
 answer over a converged index may pay for one bucket listing and ask again — is
 right for a single context and wrong multiplied. A fan-out misses in most of its
 scope by construction, so the rule would spend a full listing per context per
 keystroke, on each of those customers' request quotas, to rediscover that a word
-is not in seven of eight brains. `searchNotes` takes `refreshOnMiss` and the
+is not in seven of eight workspaces. `searchNotes` takes `refreshOnMiss` and the
 fan-out passes false. Nothing is lost from the honesty the rule bought: a source
 whose index is behind still reports itself `indexing` per source, and the page
 draws that beside the results rather than folding it into "no matches".
@@ -969,12 +1098,24 @@ summing the nine into `matchCount` with `matchCountIsFloor: false` prints a
 confident number over a scope that was only half searched, on the one page whose
 whole promise is "everything you can reach".
 
-**Nor does it schedule maintenance.** The single-context search does, because
+**It schedules maintenance for one case only: a context with no index at all.**
+The single-context search schedules a pass behind any lagging index, because
 somebody searching one context is the cheapest possible trigger for catching
-that context up. Multiplying it by the width of a scope would put a bucket
-listing per context behind every keystroke, and would buy nothing: every context
-in scope has a projection that is already `ready` and is kept current by the
-gateway riding its own searches.
+that context up. Multiplying that by the width of a scope would put a bucket
+listing per context behind every keystroke, on each of those customers' quotas,
+so a merely *incomplete* index is still left to the passes that ride the
+gateway's own searches.
+
+A **missing** one is different in kind, and it is a state this page created for
+itself the moment it started searching contexts without a projection: a context
+nobody has ever searched directly has no shard index, answers every query
+`indexMissing`, and would report "still being indexed" here forever — a
+permanent apology no amount of waiting resolves. So the first page of a search
+schedules one `INDEX_SYNC_CHAIN` per such context and no more: later pages of
+the same query schedule nothing, and the condition is self-limiting, because a
+context indexed once is never `indexMissing` again. It is scheduled and never
+called, for the reason every pass in this system is — `ctx.runAction` would put
+a full listing of somebody's bucket in front of the person waiting for the page.
 
 **Paging is a per-source cursor, and the cursor carries no query text.** Each
 page records how far down *each* context's own ranked list the reader has come,
@@ -990,7 +1131,7 @@ worth the trade — a search you cannot link to or reload is not a page — but 
 cursor is machinery, it rides in retries and logs, and a second copy of the same
 vocabulary travelling in something nobody reads is how note text escapes the
 surfaces that were reviewed for it. **A cursor also cannot name a context to
-search**: the scope comes from the live eligible list every page, the offsets
+search**: the scope comes from the live searchable list every page, the offsets
 are consulted only for keys that list already contains, and every value is
 clamped — a negative offset would otherwise slice from the *end* of a ranked
 list, which is a page nobody could otherwise reach. `__tests__/blendedSearch.test.ts`
@@ -1002,9 +1143,10 @@ still a read.
 refused.** `isolation.test.ts`'s rule applied to a list: an endpoint that
 answered differently for a real-but-forbidden workspace than for an invented one
 is an oracle, and this one accepts a hundred guesses per request. So the
-requested ids are intersected with the live eligible set and the remainder
-disappears silently, whether they name another tenant's context, a context whose
-owner has fast search off, or nothing at all.
+requested ids are intersected with the live searchable set and the remainder
+disappears silently, whether they name another tenant's context or nothing at
+all. (A context whose owner has fast search off used to disappear here as well,
+and no longer does — it is in the scope, marked slow.)
 
 **What v1 does not have, and why.** No author, no content type, and no
 updated-date filter. The projection stores `notes.uploaded` as `null` by
@@ -1120,7 +1262,7 @@ Three parts, and each answers something the one before it cannot:
 - **The count may grow after the manifest is created**, which it never could
   before. Growth is in place and moves nothing: the sync already routes a doc
   to the shard the manifest *claims* for it before consulting the hash, so a
-  brain converged for a year that then connects a mailbox goes from one shard
+  workspace converged for a year that then connects a mailbox goes from one shard
   to fifty without re-fetching a note and without its search going dark. Down
   is still "delete the manifest", for the reason it always was — down is the
   direction that re-routes docs already placed.
@@ -1320,3 +1462,99 @@ in-memory shard stats (3), from `parseManifest` (7) and from
 `serializeManifest` (7); hardcoding the control plane's `shed`/
 `oversizedShards` to zero (1); removing the rendered banner from
 `toolSearchNotes` (1); and claiming `reducedRecall` from the D1 fast path (1).
+
+### With no connection, search reads the copy on the device, and says so
+
+The owner wants this app to replace Apple Notes and Obsidian, and both of those
+search with no signal. Ours did not: the palette's search is a Convex action and
+the page's is another, so offline the palette spun for ten seconds and said the
+search could not be run, and the page drew "nothing to search" because its scope
+is a subscription — on a phone whose mirror (see
+[app & console](./app-and-console.md), *Every note on the device: the mirror*)
+holds every note body the person can see.
+
+`features/offline/mirrorSearch.ts` searches that copy. Four decisions, and what
+reversing each costs:
+
+**It is a disposable derivative of a disposable derivative, reconciled on every
+query.** An in-memory map of the mirror's bodies, pre-folded for comparison,
+never written anywhere; deleting it costs one slower search (non-negotiable #3).
+The section *The console searches through the gateway's search, not a copy of
+it* is not reversed by this: online, the gateway still answers and the device is
+never preferred over it. What makes a memo acceptable here — `palette.ts` argues
+at length that a memo is how you rank notes that are gone — is that the mirror's
+**index is re-read before every search** and the memo keeps exactly the notes it
+names at the etags it names. A note a sync pruned (a grant lost elsewhere) is gone
+from the next search, a changed note is re-read, and the index being byte-for-byte
+unchanged is what lets a keystroke skip the reconcile. Remove the reconcile and a
+note the server stopped letting this person see stays searchable until the app
+restarts: "a note the index stopped naming is not found…", "a note that changed is
+searched at its new version", "a note that became encrypted drops out…"
+(`offlineMirrorSearch.test.ts`) all redden.
+
+**One clearance, one workspace, never ciphertext.** It reads the index and the
+bodies at exactly the tier `visibilityTierForRole` gives — the tier the sync filed
+them under — and never through `readableAt`'s widening, under which an owner's
+offline *open* may fall back to a `team` copy. `mirroredBodyAt` exists so a body
+is only ever read from the clearance whose index named it. An encrypted note is
+skipped whole, name included, and counted, so "2 encrypted notes were not
+searched" is true. The memo is dropped whole when the session epoch changes, and
+`forget.ts` drops it beside every clear of the mirror (sign-out, Leave, a
+membership that ended elsewhere); a first search that is still reading bodies
+when either lands answers nothing. The cost of exact-tier-only: somebody promoted
+from member to owner finds nothing offline until the next sync, while a note can
+still be opened from the old `team` copy. Sabotaged: reading at `private`
+regardless reddens "a team search never reads a body filed at the private
+clearance"; searching encrypted entries reddens "an encrypted note's ciphertext
+is never searched"; a memo keyed without the workspace reddens "one workspace's
+search never sees another's notes"; dropping the epoch or forget checks reddens
+the two "in the middle of the first search" tests; dropping `forgetMirrorSearch`
+from `forget.ts` reddens "every ending also drops what the device search holds
+in memory" (`offlineMirrorForget.test.ts`).
+
+**When it answers is the smallest rule that removes the defect.** Offline, the
+device answers after the debounce and the bucket is **not asked** — asking buys
+the ten-second spinner for an answer that cannot arrive. Online (and `unknown`,
+for `connectionLine`'s reason), the bucket answers as before; only a refusal or
+a timeout falls back to the device. Showing the device's answer first and
+swapping in the bucket's was considered and not done: the two rank differently,
+so the list would reorder under a thumb about to press a row. The same rule runs
+on the search page, which takes the console's own context list (remembered on a
+cold start) because its `searchableContexts` subscription is empty offline, and
+blends per-context answers by rank with the control plane's `1 / (60 + rank)` —
+a device score counts occurrences in notes of different sizes and is no more
+comparable across contexts than BM25 is. Tests: `contextSearchDevice.test.ts`
+("offline never waits on the bucket", the two fallbacks) and
+`blendedSearchDevice.test.ts`; asking the server first while offline reddens
+four and two of them respectively.
+
+**It says so, every time.** Every device answer carries a notice: that it is the
+device's copy, why ("Your bucket did not answer, so…"), how much of the context
+is there from `mirrorStatus` ("Only 340 of 1,204 notes are on this device yet"),
+and the encrypted count. A context with nothing mirrored is named rather than
+answered as "no matches", partial copies make the page's total a floor, and the
+fast-search upsell is hidden under a device answer because "searched from your
+own bucket" would describe a search that did not happen. A browser with no
+mirror (a private window) says search needs a connection there instead of
+spinning. Quick open by name, offline, lists every path in the mirror's index
+rather than only the folders expanded before the signal went (`itemsFromPaths`).
+
+**Matching is deliberately not the gateway's.** Case- and accent-insensitive
+substring matching, every term required somewhere in title, path or body, title
+and path matches ranked above body matches, snippets cut from the line the hit is
+on (around the hit on a long line), in the server's `{ path, title, snippets }`
+shape. The gateway stems; agreeing with it word for word would mean shipping its
+tokenizer and index to the phone, and substring finds a superset of a stem. So
+the same query can rank differently online and off — acceptable because every
+offline answer is labelled.
+
+**What it costs, and what is unmeasured.** The first search after a launch reads
+every body (one file per note on native, one IndexedDB record on the web); later
+searches scan folded strings in memory. Measured in node over 3,000 synthetic
+notes of ~2.5KB: ~70ms cold, under 20ms warm (the test asserts < 60ms warm).
+Hermes is slower than V8 and the first read is one `expo-file-system` read per
+note, so the cold number on a phone is unverified until somebody runs it on one.
+Memory is about twice the searched text; each note is searched and held up to
+`MAX_SEARCHED_CHARS` (200,000), past which a term is a miss. Not built: showing
+device results when the gateway answers `indexMissing`, which would be strictly
+better than "still being indexed" and is the obvious next step.

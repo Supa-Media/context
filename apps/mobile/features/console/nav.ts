@@ -1,3 +1,8 @@
+import {
+  DEFAULT_SETTINGS_SECTION,
+  isSettingsSection,
+  type SettingsSectionKey,
+} from "./settings/sections";
 import { inviteHref } from "../auth/redirect";
 
 /**
@@ -66,10 +71,15 @@ export type AppSectionKey = (typeof APP_SECTIONS)[number]["key"];
  * The app sections to draw for one viewer.
  *
  * Search is the only conditional one, and the condition is whether anything
- * would answer: the blended page searches contexts whose owner has turned fast
- * search on, and a person with none of those has a destination that can only
- * apologise. So the row appears with the first eligible context and disappears
- * with the last.
+ * would answer: the blended page searches every context a person belongs to,
+ * so the row appears with their first context and disappears with their last.
+ *
+ * It used to be much narrower — the row was drawn only where a context had
+ * **fast search** on, because the page refused to search anything else. That
+ * made the navigation honest about a page that was not, and both halves are
+ * fixed together: the page searches every context now (from a hosted index
+ * where there is one and from the bucket where there is not), so the row is
+ * drawn for anybody with somewhere to look.
  *
  * **`undefined` means "nobody has told me yet", and draws the row.** That is
  * deliberate and it is the direction that fails safely: the eligible list
@@ -353,8 +363,112 @@ export function searchFromQuery(params: {
   };
 }
 
-export function settingsHref(slug: string): string {
-  return `/console/${contextSegment(slug)}/settings`;
+/**
+ * A context's settings, open over its Browse:
+ * `/console/@seyi?settings=storage`.
+ *
+ * **A query parameter rather than the `/settings` path segment it used to
+ * be**, and the reason is structural rather than aesthetic. The console layout
+ * renders one `<Slot />`, so a settings *route* replaces Browse instead of
+ * covering it — which is why closing settings used to have to reconstruct
+ * where somebody came from, guessing between the context root and whatever
+ * note they had open. As a parameter, the note keeps its own `?note=` and its
+ * place on screen, the overlay is drawn over the top, and closing is the same
+ * URL minus one parameter.
+ *
+ * It rides beside `?note=` and `?q=` exactly as those do, and
+ * `settingsFromQuery` reads it back fail-closed.
+ */
+export function settingsHref(slug: string, section?: SettingsSectionKey): string {
+  const key = section ?? DEFAULT_SETTINGS_SECTION;
+  return `${browseHref(slug)}?settings=${encodeURIComponent(key)}`;
+}
+
+/**
+ * Which settings section a URL is showing, or `null` for "settings is closed".
+ *
+ * Fail-closed on anything unrecognised, the same shape as `safeNotePath`: a
+ * hand-edited or stale `?settings=` value closes the overlay rather than
+ * opening a blank panel.
+ *
+ * **An empty value is closed, not "open at the default", and that is the
+ * difference between a working close button and an overlay nobody can
+ * dismiss.** Closing is `setParams({ settings: undefined })`, and a router
+ * that serialises that as a bare `?settings=` rather than dropping the key
+ * would — under the opposite reading — hand this function an empty string,
+ * get the default section back, and re-open the panel the press was trying to
+ * close. Nothing legitimately produces an empty value: `settingsHref` always
+ * writes a section name.
+ */
+/**
+ * `sources` renamed to `email` when the section split into Email, Calendar,
+ * Chats and Meetings — `email` absorbed exactly the content `sources` used to
+ * hold. This is a rename alias, not a section of its own: it must never
+ * appear in `SETTINGS_SECTIONS`, the sidebar, or search results, so it is
+ * handled here, one line, rather than by adding a row that would show up in
+ * all three.
+ */
+const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
+  /*
+    `sources` was the one section for mail, calendars and chats; it split into
+    four, `email` absorbed its content, and the four are one section again —
+    Integrations, which is where a link naming any of them belongs.
+  */
+  sources: "integrations",
+  email: "integrations",
+  calendar: "integrations",
+  chats: "integrations",
+  apps: "integrations",
+  /*
+    `devices` was a section and is now a card at the foot of Profile. A link
+    somebody kept — or a redirect from an older build — still names it, and
+    falling back to the default would answer "the machine you came to revoke
+    is nowhere". Same one-line treatment as `sources`, for the same reason: it
+    must never appear in `SETTINGS_SECTIONS`, the list, or search results.
+  */
+  devices: "profile",
+  /*
+    `appearance` the same way: the picker is gone, the app follows the device,
+    and Profile is where the sentence saying so lives.
+  */
+  appearance: "profile",
+  /*
+    `account` was "Sign out & delete", and both of its buttons are at the foot
+    of Profile now — the screen about the person, which is what a session and
+    an account both belong to.
+  */
+  account: "profile",
+  /*
+    The four that became Sharing & Access. Each was a section people linked to
+    — a shared link's own screen most of all — and each is a block on one
+    screen now.
+  */
+  /*
+    `search` is a block on Storage now — an index is a derivative of the files
+    it is built from, so it lives under them.
+  */
+  search: "storage",
+  /*
+    Overview heads the Workspace page rather than being a row above it, and
+    Advanced is the block under it — audit, keys and deleting the workspace
+    are the same subject at the other end.
+  */
+  overview: "workspace",
+  advanced: "workspace",
+  people: "sharing",
+  groups: "sharing",
+  shares: "sharing",
+  privacy: "sharing",
+};
+
+export function settingsFromQuery(
+  value: string | string[] | undefined,
+): SettingsSectionKey | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (isSettingsSection(trimmed)) return trimmed;
+  return RENAMED_SETTINGS_SECTIONS[trimmed] ?? null;
 }
 
 export function appSectionHref(key: AppSectionKey): string {
@@ -365,7 +479,18 @@ export function appSectionHref(key: AppSectionKey): string {
 export function hrefFor(route: ConsoleRoute): string {
   if (route.kind === "landing") return CONSOLE_ROOT;
   if (route.kind === "app") return appSectionHref(route.section);
-  return route.view === "settings" ? settingsHref(route.slug) : browseHref(route.slug);
+  // The *path* form for a settings route, not `settingsHref`'s parameter form.
+  //
+  // `ConsoleRoute` is still a path-shaped model, and it has one live consumer
+  // that is not a URL at all: the landing page drives a pretend console from
+  // this type in local state, where `view: "settings"` is how its demo opens
+  // the pane. Returning the parameter form here would make `routeForPath`
+  // unable to read back what `hrefFor` wrote — the round-trip the route table
+  // asserts — for a view that still exists. The path redirects to the
+  // parameter, so anybody following the href still lands on the overlay.
+  return route.view === "settings"
+    ? `/console/${contextSegment(route.slug)}/settings`
+    : browseHref(route.slug);
 }
 
 /**
@@ -405,7 +530,7 @@ export function routeForPath(pathname: string): ConsoleRoute {
  * That list is ordered by nothing a person would recognise, so an account that
  * owns `@agent` and was invited into `@seyi` signed in and got **`@seyi`** — a
  * context they are a guest in, filtered to team level, with a "Team access"
- * line across the top and their own brain nowhere on the screen. Every part of
+ * line across the top and their own workspace nowhere on the screen. Every part of
  * that is working as designed and the whole of it is the wrong first screen.
  *
  * Fixing only the selection fixes nothing, which is why this is one function
@@ -417,7 +542,7 @@ export function routeForPath(pathname: string): ConsoleRoute {
  *
  * A context you **own**, and the first of the list only when you own none — a
  * real state rather than a defensive one, for somebody invited into a
- * colleague's context before finishing their own onboarding. A brain is what
+ * colleague's context before finishing their own onboarding. A workspace is what
  * this product is: where capture lands, where the privacy manifest lives, and
  * the only context whose private notes the signed-in person can see at all. A
  * context somebody shared is a place you visit.
@@ -425,10 +550,26 @@ export function routeForPath(pathname: string): ConsoleRoute {
  * Generic over the row, because the live hook answers this from the raw
  * workspace list before it has built any `ConsoleContext`s out of it.
  */
-export function defaultContext<T extends { role: string }>(
+export function defaultContext<T extends { role: string; pinned?: boolean }>(
   contexts: ReadonlyArray<T>,
 ): T | null {
-  return contexts.find((context) => context.role === "owner") ?? contexts[0] ?? null;
+  /*
+    The pinned context is never a landing place.
+
+    `@context-lc` is reachable by everybody and owned by nobody who is reading
+    this, so it is `role: "member"` in every list it appears in — which means
+    the `?? contexts[0]` fallback picks it for exactly the person the fallback
+    was written for: somebody who owns nothing yet. Signing in and landing in
+    our own docs, filtered to team level, with a read-only banner across the
+    top, is a worse first screen than the empty one this fallback replaced.
+
+    Dropped before either clause rather than only from the fallback, so there is
+    no arrangement of roles in which it can be chosen.
+  */
+  const candidates = contexts.filter((context) => context.pinned !== true);
+  return (
+    candidates.find((context) => context.role === "owner") ?? candidates[0] ?? null
+  );
 }
 
 /**
@@ -444,7 +585,7 @@ export function defaultContext<T extends { role: string }>(
  * job, not the URL's.
  */
 export function landingHref(
-  contexts: ReadonlyArray<{ slug: string; role: string }>,
+  contexts: ReadonlyArray<{ slug: string; role: string; pinned?: boolean }>,
 ): string | null {
   const first = defaultContext(contexts);
   return first === null ? null : browseHref(first.slug);
@@ -478,6 +619,37 @@ export function closeSettings(route: ConsoleRoute): ConsoleRoute {
   if (route.kind !== "context") return route;
   if (route.view === "browse") return route;
   return { kind: "context", slug: route.slug, view: "browse" };
+}
+
+/**
+ * What pressing the lit pill — the context you are *in* — has to do, given
+ * where you are standing.
+ *
+ * Two different presses wearing one control, and telling them apart in the
+ * component is how one of them came to do nothing at all.
+ *
+ *  - **Inside that context** it is `"deselect"`: the pill is the way up to the
+ *    root, you are already at that URL, and closing the open note is the
+ *    entire effect. Navigating instead remounts the route and the note comes
+ *    straight back — `docs/decisions/app-and-console.md`, "the first fix did
+ *    not hold".
+ *  - **On an app-level pane** — Search, Map, Connections — it is `"navigate"`,
+ *    because there *is* somewhere to go and deselecting was invisible. On a
+ *    phone that invisibility was the whole bug: `regionsFor` draws no rail at
+ *    `compact` and the console passes no bottom toolbar off Browse, so the
+ *    context strip is the only navigation on the glass, and the pill for the
+ *    context you are in was the one dead pill in it. You could walk into
+ *    Search and not walk out.
+ *
+ * A pure function rather than a ternary at the call site, for the reason
+ * `files/scope.ts` gives about itself: in a sabotage sweep of this codebase
+ * every guard written as a pure module held and every guard written inside a
+ * component did not.
+ */
+export type CurrentContextPress = "deselect" | "navigate";
+
+export function currentContextPress(route: ConsoleRoute): CurrentContextPress {
+  return route.kind === "context" ? "deselect" : "navigate";
 }
 
 /** Selecting a context in the rail lands on its Browse. */

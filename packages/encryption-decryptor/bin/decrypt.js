@@ -14,7 +14,7 @@
  * the customer's whole exported bucket, or a folder within it. Given a
  * directory, every file is walked: an encrypted `.md` note is decrypted into
  * the mirrored output tree, and everything else — plaintext notes,
- * `privacy.md`, attachments, `.audit/` — is copied through unchanged, because
+ * `privacy.md`, attachments, `.context/audit/` — is copied through unchanged, because
  * an encrypted note is still a file at its own path beside everything that
  * was never encrypted in the first place.
  *

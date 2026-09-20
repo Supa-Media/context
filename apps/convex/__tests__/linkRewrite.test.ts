@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { movePath, copyPath, setFolderVisibility, setVisibility, type FileStore } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
@@ -56,12 +57,12 @@ function bucket(): MemoryStore & FileStore {
 /** `1-projects` and `2-areas` team-visible; `2-areas/private-log.md` held back. */
 async function shareMost(store: FileStore): Promise<void> {
   for (const path of ["1-projects", "2-areas"]) {
-    await setFolderVisibility(store, { path, visibility: "team", scope: "private" });
+    await setFolderVisibility(store, { path, visibility: "team", clearance: clearanceOf("private") });
   }
   await setVisibility(store, {
     path: "2-areas/private-log.md",
     visibility: "private",
-    scope: "private",
+    clearance: clearanceOf("private"),
   });
 }
 
@@ -73,7 +74,7 @@ describe("a move rewrites the links that pointed at what moved", () => {
     const result = await movePath(store, {
       from: "1-projects/alpha/overview.md",
       to: "1-projects/alpha/summary.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
 
@@ -93,7 +94,7 @@ describe("a move rewrites the links that pointed at what moved", () => {
     const result = await movePath(store, {
       from: "3-resources/lonely.md",
       to: "3-resources/solitary.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(result.references).toEqual({ notes: 0, links: 0, capped: false });
@@ -111,7 +112,7 @@ describe("a move rewrites the links that pointed at what moved", () => {
     const result = await movePath(store, {
       from: "1-projects/alpha",
       to: "4-archive/alpha",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
 
@@ -134,7 +135,7 @@ describe("a move rewrites the links that pointed at what moved", () => {
     await movePath(store, {
       from: "1-projects/alpha/overview.md",
       to: "1-projects/alpha/summary.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(read(store, "3-resources/how-to.md")).toBe(
@@ -157,7 +158,7 @@ describe("the rewrite stops at what the caller can see", () => {
     const result = await movePath(store, {
       from: "1-projects/alpha/overview.md",
       to: "1-projects/alpha/summary.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
 
@@ -178,7 +179,7 @@ describe("the rewrite stops at what the caller can see", () => {
     const result = await movePath(store, {
       from: "1-projects/alpha/overview.md",
       to: "1-projects/alpha/summary.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(read(store, "2-areas/private-log.md")).toBe(
@@ -215,7 +216,7 @@ describe("a walk that could not be finished says so", () => {
     const result = await movePath(truncating(store), {
       from: "1-projects/alpha/overview.md",
       to: "1-projects/alpha/summary.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
 
@@ -246,7 +247,7 @@ describe("a walk that could not be finished says so", () => {
     const result = await movePath(failing, {
       from: "1-projects/alpha/overview.md",
       to: "1-projects/alpha/summary.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(result.references).toEqual({ notes: 0, links: 0, capped: true });
@@ -262,7 +263,7 @@ describe("a copy is not a move", () => {
     const result = await copyPath(store, {
       from: "1-projects/alpha/overview.md",
       to: "1-projects/alpha/overview-copy.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(result.references).toBeUndefined();
     expect(read(store, "1-projects/beta/notes.md")).toBe(before);

@@ -295,6 +295,8 @@ function mainBridge(overrides = {}) {
   const requested = [];
   /** Every `setImessageEnabled` value the page asked for. */
   const enabledCalls = [];
+  /** Every local-agent request the bridge passed through, for the checks below. */
+  const asked = [];
   const window = overrides.window ?? fakeWindow();
   const ipc = fakeIpcMain();
   // A getter, because the shell moves the pin to `app://console` when it falls
@@ -359,6 +361,16 @@ function mainBridge(overrides = {}) {
       calls.push(`setImessageEnabled:${enabled}`);
       enabledCalls.push(enabled);
     },
+    requestImessageFullDiskAccess: async () => void calls.push("requestImessageFullDiskAccess"),
+    localAgent: () => {
+      calls.push("localAgent");
+      return overrides.localAgent ?? { available: false, name: null };
+    },
+    askLocalAgent: async (request) => {
+      calls.push("askLocalAgent");
+      asked.push(request);
+      return overrides.localAnswer ?? { ok: true, answer: "from the CLI", provider: "claude-code", steps: [] };
+    },
     ...overrides.deps,
   });
   // `movePin` is how a check stages the shell falling back to the offline
@@ -367,6 +379,7 @@ function mainBridge(overrides = {}) {
   return {
     bridge,
     ipc,
+    asked,
     window,
     calls,
     written,
@@ -396,6 +409,9 @@ const HANDLED = [
   BRIDGE_CHANNELS.meetingsWrite,
   BRIDGE_CHANNELS.imessageStatus,
   BRIDGE_CHANNELS.imessageSetEnabled,
+  BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
+  BRIDGE_CHANNELS.agentStatus,
+  BRIDGE_CHANNELS.agentAsk,
 ];
 
 /** A well-formed write, so a check can vary exactly one field of it. */
@@ -966,6 +982,42 @@ export async function runConsoleBridgeChecks(check) {
       nothing else: it opens no input, files no meeting, reaches no credential,
       and `main/capture.ts` clamps both numbers into 0-1 before they travel.
     */
+  // -- the local agent, version 7 --------------------------------------------
+  {
+    const { ipc, asked } = mainBridge({ localAgent: { available: true, name: "Claude Code" } });
+
+    const status = await ipc.handlers.get(BRIDGE_CHANNELS.agentStatus)(sender());
+    check("the page can ask whether there is a CLI to ask", status.ok === true);
+    check("...and is told", status.value.available === true && status.value.name === "Claude Code");
+
+    await ipc.handlers.get(BRIDGE_CHANNELS.agentAsk)(sender(), {
+      question: "what did I decide about pricing?",
+      place: { context: "seyi", note: { path: "1-projects/pricing.md", visibility: "private", readable: true, unsaved: true }, meetingLive: false },
+      // Planted: a field the page might one day keep on its own object. It
+      // must not ride along, for `features/agent/gateway.ts`'s reason — what
+      // leaves for a model is decided in one place, not by a spread.
+      body: "THE WHOLE NOTE TEXT, WHICH MUST NOT TRAVEL",
+    });
+    check("the question reached the shell", asked.length === 1);
+    check("...with the question", asked[0].question === "what did I decide about pricing?");
+    check("...and the note as a reference", asked[0].place.note.path === "1-projects/pricing.md");
+    check("...carrying whether the draft diverged", asked[0].place.note.unsaved === true);
+    check(
+      "NOTHING FROM THE PAGE RIDES ALONG UNINVITED",
+      JSON.stringify(asked[0]).includes("MUST NOT TRAVEL") === false,
+    );
+
+    // A sender that is not the console gets nothing, like every other channel.
+    let refused = false;
+    try {
+      await ipc.handlers.get(BRIDGE_CHANNELS.agentAsk)(sender({ id: 99 }), { question: "hi", place: {} });
+    } catch {
+      refused = true;
+    }
+    check("a frame that is not the console cannot ask", refused);
+    check("...and the shell was never called for it", asked.length === 1);
+  }
+
     check(
       "THE UNGATED SURFACE HAS NOT GROWN — twelve commands and four capture channels",
       registrations === 16,
@@ -982,9 +1034,24 @@ export async function runConsoleBridgeChecks(check) {
       "every channel the console bridge answers goes through one of them",
       gatedAsync === HANDLED.length && gatedSync === 2,
     );
+    /*
+      34 → 36: the two version-7 agent channels, both gated.
+
+      Written out rather than bumped, as this check's own header asks. What
+      they add to the reachable surface is a status read — a boolean and a
+      name — and one question, which the shell answers by running the
+      customer's own `claude` in an empty directory of ours. Neither channel
+      reads a credential or hands one back: the grant is written to a 0600 file
+      in the main process for the length of one run, and `main/localAgent.ts`
+      unlinks it in a `finally`. A hostile sender on `agentAsk` can spend the
+      machine owner's own subscription on a question of its choosing and read
+      what their own context answers — which is the same authority the page
+      already has through the connection, so the ceiling here is the sender
+      check above rather than anything new.
+    */
     check(
       "...and the census adds up, so neither side can drift unnoticed",
-      registrations + gatedAsync + gatedSync === 33,
+      registrations + gatedAsync + gatedSync === 36,
     );
   }
 
@@ -1480,7 +1547,7 @@ export async function runConsoleBridgeChecks(check) {
         a#frag                   ->  /meetings/sessions/a, dropping /finalize
 
     The gateway saved the bucket key — `matchMeetingRoute` runs `isMeetingId`
-    before `sessionKey` interpolates anything, so `.meetings/sessions/<id>.json`
+    before `sessionKey` interpolates anything, so `.context/meetings/sessions/<id>.json`
     is never built from a malformed id — and the outbox saved the disk, keying
     entries `${sessionId}:${kind}` inside one JSON structure rather than as
     filenames. Nothing saved the URL.

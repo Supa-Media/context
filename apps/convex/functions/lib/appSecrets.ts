@@ -44,6 +44,22 @@ export const RESERVED_SECRET_NAMES: ReadonlySet<string> = new Set([
   "JWKS",
   "CONVEX_DEPLOY_KEY",
   "ADMIN_EMAILS",
+  /*
+    The Stripe webhook's signing secret, and it is here for the same reason
+    `GATEWAY_SECRET` is: it has to be checkable *before* anything the request
+    says is trusted, so it cannot be a database read the request pays for.
+    Concretely, the route that needs it is an `httpAction`, and
+    `__tests__/structure.test.ts` pins the complete list of HTTP routes that
+    may reach a decrypted credential at three — a webhook that opened an
+    envelope would be a fourth, on the one route whose caller is anonymous by
+    construction.
+
+    A refusal rather than a warning, again for the reason at the top of this
+    list: an operator pasting it into the staff console would otherwise be
+    shown a fingerprint and told it worked, while the route kept refusing
+    every delivery Stripe sent.
+  */
+  "STRIPE_WEBHOOK_SECRET",
 ]);
 
 /** `SEARCH_D1_API_TOKEN` — uppercase, digits, underscore; starts with a letter. */

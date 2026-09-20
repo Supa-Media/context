@@ -19,8 +19,7 @@ export async function tap(page: Page, label: string): Promise<void> {
 /**
  * From the fixture's landing note to `2-areas/weekly-review.md` — the note
  * `placeholderData.ts` carries the wikilink, the two tasks and the long
- * bullet on, for the same reason `breadcrumb-shots.ts` already walks this
- * exact path: pressing through the real tree is what a person does, and it
+ * bullet on. Pressing through the real tree is what a person does, and it
  * exercises the folder view, the breadcrumb and the note in one pass rather
  * than needing the fixture to pre-select a note no navigation reached.
  */
@@ -33,7 +32,7 @@ export async function openWeeklyReview(page: Page): Promise<void> {
   await page.getByTestId("note-scroll").waitFor();
   await tap(page, "@seyi, the context you are in — open its root");
   await page.getByTestId("folder-row").first().waitFor();
-  await tap(page, "2-areas, folder");
+  await tap(page, "areas, folder");
   await tap(page, "weekly-review");
   await page.getByTestId("breadcrumb-leaf").waitFor();
 }

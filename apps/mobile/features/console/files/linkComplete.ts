@@ -37,7 +37,8 @@
  * shows the basename; the path is what is written.
  */
 
-import { autocompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { autocompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
+import { formCompletionSource } from "./formComplete";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 import type { NoteLinkRef } from "./noteLinks";
@@ -142,10 +143,8 @@ export function noteChoices(
  * completion is this one, and the Markdown language package registers its own
  * (HTML tags inside a fenced block) that has no business firing in a note.
  */
-export function noteCompletion(ref: NoteLinkRef): Extension {
-  return [
-    autocompletion({
-      override: [(context: CompletionContext): CompletionResult | null => {
+export function noteLinkSource(ref: NoteLinkRef): CompletionSource {
+  return (context: CompletionContext): CompletionResult | null => {
         const line = context.state.doc.lineAt(context.pos);
         const open = openWikilink(context.state.doc.sliceString(line.from, context.pos));
         if (open === null) return null;
@@ -189,7 +188,39 @@ export function noteCompletion(ref: NoteLinkRef): Extension {
           // Our own ranking, in bands a person can predict — see `noteChoices`.
           filter: false,
         };
-      }],
+  };
+}
+
+/**
+ * Every completion this editor offers, as one configuration.
+ *
+ * `override` is a single list on the `autocompletion` facet, so two calls each
+ * passing one source do not compose — the combined config keeps one, and which
+ * one is an ordering detail. That went unnoticed for exactly as long as there
+ * was one source. Both are built here instead, and a surface with nowhere to
+ * navigate to (the landing page's demo console passes no `links`) gets the form
+ * source alone rather than none.
+ *
+ * The form source is first because the two can never both answer: one fires
+ * only inside a `form` fence and the other only inside a `[[`, and a `[[` in a
+ * form block is a field value rather than a link.
+ *
+ * A running plugin's suggester is the third, and it arrives here for exactly
+ * the reason above rather than installing its own `autocompletion()`. It did
+ * install its own once, and the combined facet threw `Config merge conflict for
+ * field override` at state construction — so a note would not open at all for
+ * anybody with a plugin running. It is last because it is the only one that
+ * leaves this process: the other two answer from the document, and a round trip
+ * to a sandbox should not sit in front of them.
+ */
+export function editorCompletion(ref: NoteLinkRef | null, plugin?: CompletionSource): Extension {
+  return [
+    autocompletion({
+      override: [
+        formCompletionSource(),
+        ...(ref === null ? [] : [noteLinkSource(ref)]),
+        ...(plugin === undefined ? [] : [plugin]),
+      ],
       // The list is rebuilt from the note paths on every keystroke, so there is
       // nothing to keep open across one.
       closeOnBlur: true,
@@ -219,12 +250,41 @@ const completionTheme = EditorView.theme({
   ".cm-tooltip.cm-tooltip-autocomplete > ul": {
     fontFamily: "inherit",
     maxHeight: "14em",
+    /* Narrower than a phone and no wider than a comfortable read — see the
+     * label's clamp below for what made a width necessary at all. */
+    maxWidth: "min(92vw, 34em)",
   },
   ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {
     padding: "5px 9px",
     display: "flex",
     gap: "10px",
     alignItems: "baseline",
+  },
+  /*
+    A ROW STAYS INSIDE THE EDITOR, and it took a plugin to find out that it did
+    not.
+
+    Every completion this console wrote for itself is a note path or a form
+    keyword — a few words, and a row that never wanted a width. A plugin's
+    suggestion is whatever its own `renderSuggestion` drew, and Bible
+    Reference's is the verse: two hundred characters on one unwrapped line, so
+    the list grew to fit it and ran off the right of the screen with the text
+    clipped at the window edge. Reported as part of "this plugin shows up
+    weird", and it is the same class of bug as the callout beside it — our
+    surface assuming its own content.
+
+    Wrapped and clamped rather than ellipsised: a verse cut off at one line is
+    a suggestion nobody can tell from the next one, and three lines is enough to
+    choose by. The width is `min()` so the list is narrower than the editor on a
+    phone and never wider than a comfortable read on a laptop.
+  */
+  ".cm-tooltip.cm-tooltip-autocomplete > ul > li > .cm-completionLabel": {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: "3",
+    overflow: "hidden",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
   },
   ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
     background: "var(--lp-code-bg)",

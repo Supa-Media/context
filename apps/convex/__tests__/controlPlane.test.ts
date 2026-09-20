@@ -149,7 +149,7 @@ async function twoConnectedTenants() {
   const alice = await createUser(t, "alice@example.invalid");
   const bob = await createUser(t, "bob@example.invalid");
 
-  const aliceWs = await createWorkspace(t, alice, "alpha", {
+  const aliceWs = await createWorkspace(t, alice, "alfa", {
     displayName: "Alice's Context",
   });
   const bobWs = await createWorkspace(t, bob, "alphabet", {
@@ -246,6 +246,7 @@ describe("the gateway secret is necessary", () => {
     for (const path of [
       "/gateway/session",
       "/gateway/binding",
+      "/gateway/provider",
       "/gateway/clients/register",
       "/gateway/clients/get",
       "/gateway/authorize/start",
@@ -303,7 +304,7 @@ describe("the gateway secret is necessary", () => {
     );
     const text = await response.text();
     expect(text).not.toContain(TEST_GATEWAY_SECRET);
-    expect(text).not.toContain("alpha");
+    expect(text).not.toContain("alfa");
     expect(text).not.toContain("tenant-a");
     expect(JSON.parse(text)).toEqual({ error: "unauthorized" });
   });
@@ -318,6 +319,21 @@ describe("the gateway secret is never sufficient", () => {
     });
     expect(response.status).toBe(200);
     expect(await bodyOf(response)).toEqual({ binding: null });
+  });
+
+  test("a session carries the client's own name, for the activity file", async () => {
+    const { t } = await twoConnectedTenants();
+    const response = await gatewayPost(t, "/gateway/session", {
+      accessToken: ACCESS_A,
+    });
+    const body = (await bodyOf(response)) as {
+      session: { clientId: string; clientName: string | null };
+    };
+    // The one thing a person recognises. Without it a line in `activity.md`
+    // can only name a registration id, and "mcp_client_alpha added three
+    // notes" is not a sentence anybody reads twice.
+    expect(body.session.clientId).toBe(CLIENT_A);
+    expect(body.session.clientName).toBe(`Client ${CLIENT_A}`);
   });
 
   test("it resolves no session on its own", async () => {
@@ -394,7 +410,7 @@ describe("/gateway/session", () => {
     expect(typeof session.expiresAt).toBe("number");
     expect(session.defaultWorkspaceId).toBe(aliceWs);
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alpha", role: "owner" },
+      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal" },
     ]);
   });
 
@@ -414,7 +430,7 @@ describe("/gateway/session", () => {
    * The widening, and the two things that did not widen with it.
    *
    * A grant covers every context its person is a live member of, so a client
-   * connected once can address a brain shared with its owner. What travels with
+   * connected once can address a workspace shared with its owner. What travels with
    * each entry is the **role in that context**, which is what the gateway
    * clamps scopes and the visibility tier to — reach is not permission — and
    * the grant's own context stays separately identified as the default, because
@@ -430,13 +446,13 @@ describe("/gateway/session", () => {
     );
     const session = body.session as {
       defaultWorkspaceId: string;
-      workspaces: { workspaceId: string; slug: string; role: string }[];
+      workspaces: { workspaceId: string; slug: string; role: string; kind: string }[];
     };
 
     // No re-approval, no new grant: the membership row is the whole of it.
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alpha", role: "owner" },
-      { workspaceId: bobWs, slug: "alphabet", role: "member" },
+      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal" },
+      { workspaceId: bobWs, slug: "alphabet", role: "member", kind: "personal" },
     ]);
     // And the context she approved is still the one an unaddressed call means.
     expect(session.defaultWorkspaceId).toBe(aliceWs);
@@ -958,9 +974,18 @@ describe("/gateway/binding — the search index", () => {
     },
   ): Promise<void> {
     const now = Date.now();
-    await t.run((ctx) =>
-      ctx.db.insert("searchIndexes", {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspacePlans", {
         workspaceId: options.workspaceId,
+        managedStorage: false,
+        fastSearch: true,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("searchIndexes", {
+        workspaceId: options.workspaceId,
+        generation: "premium-v1",
         optedIn: options.optedIn ?? true,
         optedInBy: options.optedInBy,
         optedInAt: now,
@@ -970,8 +995,8 @@ describe("/gateway/binding — the search index", () => {
           options.databaseId === undefined ? undefined : `context-search-${options.databaseId}`,
         createdAt: now,
         updatedAt: now,
-      }),
-    );
+      });
+    });
   }
 
   /** The deployment configured with both halves of the platform's credential. */
@@ -1270,7 +1295,7 @@ describe("/gateway/binding — the search index", () => {
    * tests keep theirs together: a context alice really is a member of opens.
    *
    * The credential belongs to the *context*, not to the caller's role in it —
-   * the same as the bucket key beside it. A member searching bob's brain is
+   * the same as the bucket key beside it. A member searching bob's workspace is
    * answered from bob's database, filtered by `canSee` at read time, so the
    * gateway needs the projection for whichever context the call addressed.
    */
@@ -1732,7 +1757,123 @@ describe("/gateway/binding — workspace-key rotation", () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* 3c. /gateway/search-index/progress — the backfill reporting back          */
+/* 3c. /gateway/jobs/* — queued gateway work                                  */
+/* -------------------------------------------------------------------------- */
+
+describe("/gateway/jobs/*", () => {
+  test("an owner-private grant mints a hashed ticket and opens one queued move", async () => {
+    const { t, alice, bob, aliceWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+
+    const created = await bodyOf(
+      await gatewayPost(t, "/gateway/jobs/create", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        job: { kind: "materialize_move", moveId: "move-aaaaaaaaaaaa" },
+      }),
+    );
+    const ticket = created.ticket as string;
+    expect(typeof ticket).toBe("string");
+    expect(ticket).not.toContain(ACCESS_A);
+
+    const rows = await t.run((ctx) => ctx.db.query("gatewayJobs").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].hashedTicket).toBe(await hashToken(ticket));
+    expect(JSON.stringify(rows[0])).not.toContain(ticket);
+
+    const opened = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    const job = opened.job as {
+      job: { workspaceId: Id<"workspaces">; moveId: string };
+      binding: { workspaceId: Id<"workspaces">; bucket: string };
+    };
+    expect(job.job.workspaceId).toBe(aliceWs);
+    expect(job.job.moveId).toBe("move-aaaaaaaaaaaa");
+    expect(job.binding.workspaceId).toBe(aliceWs);
+    expect(job.binding.bucket).toBe("tenant-a");
+
+    const replay = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect(replay).toEqual({ job: null });
+
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: {
+        status: "queued",
+        progress: { phase: "copying", completed: 502, total: 501 },
+      },
+    });
+    const invalidProgress = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(invalidProgress?.progressCompleted).toBeUndefined();
+
+    const reopened = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect(reopened.job).not.toBeNull();
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: {
+        status: "queued",
+        progress: { phase: "copying", completed: 100, total: 501 },
+      },
+    });
+    const progressed = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(progressed).toMatchObject({
+      status: "queued",
+      progressPhase: "copying",
+      progressCompleted: 100,
+      progressTotal: 501,
+    });
+
+    const visible = await asUser(t, alice).query(api.functions.files.listDurableMoves, {
+      workspaceId: aliceWs,
+    });
+    expect(visible).toEqual([
+      expect.objectContaining({
+        status: "queued",
+        phase: "copying",
+        completed: 100,
+        total: 501,
+      }),
+    ]);
+    expect(JSON.stringify(visible)).not.toContain("move-aaaaaaaaaaaa");
+    const editor = await createUser(t, "move-editor@example.test");
+    await addMember(t, aliceWs, editor, "editor", alice);
+    await expect(
+      asUser(t, editor).query(api.functions.files.listDurableMoves, { workspaceId: aliceWs }),
+    ).rejects.toThrow();
+    await expect(
+      asUser(t, bob).query(api.functions.files.listDurableMoves, { workspaceId: aliceWs }),
+    ).rejects.toThrow();
+  });
+
+  test("a job request cannot select a workspace outside the token's owner-private reach", async () => {
+    const { t, aliceWs, bobWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) =>
+      ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
+    );
+
+    const cross = await bodyOf(
+      await gatewayPost(t, "/gateway/jobs/create", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+        job: { kind: "materialize_move", moveId: "move-bbbbbbbbbbbb" },
+      }),
+    );
+    expect(cross).toEqual({ ticket: null });
+
+    await t.run((ctx) => ctx.db.patch(grantA, { scopes: ["context:read", "context:write"] }));
+    const teamTier = await bodyOf(
+      await gatewayPost(t, "/gateway/jobs/create", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+        job: { kind: "materialize_move", moveId: "move-cccccccccccc" },
+      }),
+    );
+    expect(teamTier).toEqual({ ticket: null });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 3d. /gateway/search-index/progress — the backfill reporting back          */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -1785,9 +1926,24 @@ describe("/gateway/binding — workspace-key rotation", () => {
 describe("/gateway/search-index/progress", () => {
   async function enabledIndex(t: TestConvex, workspaceId: Id<"workspaces">, owner: Id<"users">) {
     const now = Date.now();
-    await t.run((ctx) =>
-      ctx.db.insert("searchIndexes", {
+    await t.run(async (ctx) => {
+      const plan = await ctx.db
+        .query("workspacePlans")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      if (plan === null) {
+        await ctx.db.insert("workspacePlans", {
+          workspaceId,
+          managedStorage: false,
+          fastSearch: true,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert("searchIndexes", {
         workspaceId,
+        generation: "premium-v1",
         optedIn: true,
         optedInBy: owner,
         optedInAt: now,
@@ -1796,8 +1952,8 @@ describe("/gateway/search-index/progress", () => {
         databaseName: "context-search-progress",
         createdAt: now,
         updatedAt: now,
-      }),
-    );
+      });
+    });
   }
 
   async function indexRow(t: TestConvex, workspaceId: Id<"workspaces">) {
@@ -2525,7 +2681,7 @@ async function startAuthorization(
     codeChallengeMethod: "S256",
     scope: "context:read context:write",
     resource: "https://mcp.context.test/mcp",
-    requestedWorkspaceSlug: "alpha",
+    requestedWorkspaceSlug: "alfa",
     ...overrides,
   });
 }
@@ -2673,7 +2829,7 @@ describe("consent belongs to the person, not to the gateway", () => {
       clientName: `Client ${CLIENT_A}`,
       redirectUri: REDIRECT_URI,
       scope: "context:read context:write",
-      requestedWorkspaceSlug: "alpha",
+      requestedWorkspaceSlug: "alfa",
     });
   });
 

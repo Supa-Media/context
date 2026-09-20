@@ -1,7 +1,7 @@
 /**
  * The three facts about a context, in one line.
  *
- * `R2 · brain · 100% indexed · 12 notes, 8 folders` — the bucket it is bound
+ * `R2 · notes-bucket · 100% indexed · 12 notes, 8 folders` — the bucket it is bound
  * to, how much of it is in the hosted index, and how much of its tree has
  * actually been read.
  *
@@ -36,7 +36,9 @@
  */
 
 import { describeIndexProgress, type FastSearchStatus } from "../search/fastSearch";
+import { footLabel } from "../activity/activity";
 import { storagePillLabel } from "../storage/pill";
+import { isFolderPlaceholder } from "./paths";
 import type { ConsoleStorage } from "../types";
 import type { FolderListing } from "./types";
 
@@ -63,6 +65,11 @@ export function loadedCounts(listings: Listings): string {
   let folders = 0;
   for (const listing of Object.values(listings)) {
     for (const entry of listing?.entries ?? []) {
+      // A folder's placeholder is not a note, and this line is read against the
+      // rows on screen: the tree and the folder page both drop it
+      // (`listedEntries`), so counting it here would print one more note than
+      // anybody can find.
+      if (entry.kind === "file" && isFolderPlaceholder(entry.path)) continue;
       if (entry.kind === "folder") folders += 1;
       else notes += 1;
     }
@@ -82,16 +89,40 @@ export function contextFootLine({
   storage,
   fastSearch,
   listings,
+  activity,
+  now = Date.now(),
 }: {
   /** `undefined` is "the binding has not answered", `null` is "no bucket". */
   storage: ConsoleStorage | null | undefined;
   /** `null` is "not asked, or not answered yet" — never an `off`. */
   fastSearch: FastSearchStatus | null;
   listings: Listings;
+  /**
+   * What has changed since this person last looked, where anything has.
+   *
+   * **Leads the line rather than joining the end of it**, which is the one
+   * decision here worth an argument. The other three parts are facts about
+   * the *context* — which bucket, how much indexed, how much read — and are
+   * true whether or not anybody is looking. This one is a fact about the
+   * reader, it is the only part that is ever new, and it is the reason
+   * somebody would read this line at all on a phone, where there is no file
+   * tree to carry it. A fourth clause after the note count would be the part
+   * nobody gets to.
+   *
+   * Absent on a console with no activity, and when there is nothing new — the
+   * line is then exactly what it has always been.
+   */
+  activity?: { unseen: number; seenAt: number | null };
+  /** Passed in so every relative time in one render agrees. */
+  now?: number;
 }): string {
   const binding =
     storage === undefined ? undefined : (storagePillLabel(storage) ?? "no bucket connected");
-  return [binding, describeIndexProgress(fastSearch)?.label, loadedCounts(listings)]
+  const unseen =
+    activity === undefined || activity.unseen <= 0
+      ? undefined
+      : footLabel({ unseen: activity.unseen, since: activity.seenAt, counts: "", now });
+  return [unseen, binding, describeIndexProgress(fastSearch)?.label, loadedCounts(listings)]
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" · ");
 }

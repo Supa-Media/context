@@ -34,6 +34,9 @@
  * rather than as one lucky example.
  */
 
+import { drawingName, isDrawingPath } from "@context/drawings";
+import { withoutSortPrefix } from "./paths";
+
 import { stripFrontmatter } from "../../share/markdown";
 
 /** The frontmatter block and the body it precedes, as they sit in the file. */
@@ -142,11 +145,42 @@ export function noteHeading(source: string, path: string): string {
   const stated = frontmatterTitle(frontmatter);
   if (stated !== null) return stated;
 
-  const heading = firstHeading(body);
-  if (heading !== null) return heading;
+  /*
+    A drawing skips the middle rung, because its body is not a document.
 
+    Every `.excalidraw.md` the Obsidian plugin has ever written opens with
+    `# Excalidraw Data`, the container heading for the sections below it. It is
+    the plugin's scaffolding rather than the file naming itself, so the second
+    rung read it and called every drawing in the console "Excalidraw Data" —
+    the breadcrumb, the tab and the inline title all naming the format.
+
+    The reader cannot even see the heading it was named after: `NoteEditor`
+    draws a drawing through `DrawingView`, so the Markdown half is never on
+    screen. And falling through to the rung below would leave `.excalidraw` on
+    the end, because that rung trims one extension and a drawing carries two.
+    `drawingName` is the one place that knows the suffix.
+  */
+  if (!isDrawingPath(path)) {
+    const heading = firstHeading(body);
+    if (heading !== null) return heading;
+  } else {
+    const name = withoutSortPrefix(drawingName(path)).trim();
+    if (name !== "") return name;
+  }
+
+  /*
+    The filename, minus the two things that are filing rather than a name: the
+    extension, and the sort number. `1-plan.md` is a note called `plan`, the
+    same answer the tree row, the tab and the breadcrumb give it — and this rung
+    is what the inline title draws, so a disagreement here is two different
+    names for one note on one screen.
+
+    `withoutSortPrefix` before the extension trim, because both are anchored at
+    opposite ends and the order only matters for a name that is nothing but a
+    prefix: `1-.md` keeps its number rather than being drawn as a dotfile.
+  */
   const basename = path.slice(path.lastIndexOf("/") + 1);
-  const withoutExtension = basename.replace(/\.md$/i, "").trim();
+  const withoutExtension = withoutSortPrefix(basename).replace(/\.md$/i, "").trim();
   if (withoutExtension !== "") return withoutExtension;
   return basename !== "" ? basename : path;
 }
@@ -166,14 +200,23 @@ export function noteHeading(source: string, path: string): string {
  * the title simply steps aside for the heading that is already there.
  *
  * This is also why Obsidian never looks doubled: its inline title is the
- * *filename*, so `index` sits happily above a body headed `Brain — manifest`.
+ * *filename*, so `index` sits happily above a body headed `Context — manifest`.
  * Ours collides only because a heading is one of the rungs.
  */
 export type HeadingSource = "frontmatter" | "heading" | "filename";
 
-export function noteHeadingSource(source: string): HeadingSource {
+/**
+ * `path` is optional because a caller can be asking before the editor holds
+ * one, and it changes exactly one answer: a drawing is never named by its
+ * body's heading (see `noteHeading`), so reporting `"heading"` for one would
+ * hide the title on the single screen where nothing else names the file —
+ * `DrawingView` draws a picture, not the `# Excalidraw Data` it was named
+ * after.
+ */
+export function noteHeadingSource(source: string, path?: string | null): HeadingSource {
   const { frontmatter, body } = splitNote(source);
   if (frontmatterTitle(frontmatter) !== null) return "frontmatter";
+  if (typeof path === "string" && isDrawingPath(path)) return "filename";
   if (firstHeading(body) !== null) return "heading";
   return "filename";
 }

@@ -322,7 +322,7 @@ describe("a refusal is classified so the queue does the right thing with it", ()
     expect((failure as { message: string }).message).not.toContain("gone");
   });
 
-  test("and somebody with no brain yet is told that, not told about a context", async () => {
+  test("and somebody with no workspace yet is told that, not told about a context", async () => {
     /*
       The same `null` from `meetingWorkspaceId` covers two situations and they
       are not the same sentence. A meeting addressed to `@acme` that this
@@ -337,7 +337,7 @@ describe("a refusal is classified so the queue does the right thing with it", ()
     const { gateway } = writer({}, "");
     const failure = await gateway.finalize(null, session()).catch((error: unknown) => error);
     expect((failure as { code: string }).code).toBe(ERRORS.unavailable);
-    expect((failure as { message: string }).message).toBe(MEETING_WRITE_SENTENCES.noBrainYet);
+    expect((failure as { message: string }).message).toBe(MEETING_WRITE_SENTENCES.noWorkspaceYet);
     expect((failure as { message: string }).message).not.toContain("context this meeting");
   });
 
@@ -718,6 +718,13 @@ describe("the premise this file rests on", () => {
       "utf8",
     );
     const writeFile = ops.slice(ops.indexOf("export async function writeFile("));
-    expect(writeFile.slice(0, 2000)).toContain("canSee(path, options.scope");
+    // `options.clearance` since a `@name` rule gained a read path: the check is
+    // the caller's tier AND the names they answer to, which is one value so
+    // that a site which was not updated does not compile. Matching the tier
+    // half alone would keep passing if the names were dropped, which is the
+    // direction this assertion exists to catch.
+    expect(writeFile.slice(0, 2000)).toContain(
+      "canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)",
+    );
   });
 });

@@ -15,6 +15,7 @@ import { describe, expect, test } from "@jest/globals";
 import {
   countWords,
   relativeTime,
+  saveChip,
   statusSegments,
   TRAILING_SEGMENTS,
   type StatusFacts,
@@ -43,7 +44,7 @@ function editorWith(status: EditorStatus, draft = "hello world", extra: Partial<
 function facts(overrides: Partial<StatusFacts> = {}): StatusFacts {
   return {
     editor: editorWith("clean"),
-    storageLabel: "R2 · brain",
+    storageLabel: "R2 · notes-bucket",
     now: NOW,
     ...overrides,
   };
@@ -51,6 +52,11 @@ function facts(overrides: Partial<StatusFacts> = {}): StatusFacts {
 
 function byId(segments: StatusSegment[], id: StatusSegment["id"]): StatusSegment | undefined {
   return segments.find((segment) => segment.id === id);
+}
+
+/** The top bar's save claim for one editor status. */
+function chipFor(status: EditorStatus, draft = "hello world"): StatusSegment | null {
+  return saveChip({ editor: editorWith(status, draft), now: NOW });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -75,30 +81,40 @@ describe("counting a draft", () => {
     expect(countWords("read-compare writes are best-effort")).toBe(4);
   });
 
-  test("the characters segment is the string's length in UTF-16 code units", () => {
+  /**
+   * NO CHARACTER COUNT, AND NO COUNTER EITHER.
+   *
+   * "61 words" and "390 characters" are the same fact told twice, and the
+   * second needed a tooltip to explain that it was counting UTF-16 code units
+   * rather than anything a reader can see. The canvas's bar is
+   * `path … words · R2` — the save claim is `saveChip`'s, in the top bar.
+   *
+   * `countUnits` went with the segment rather than staying as a helper nobody
+   * calls, so what is left to assert is the absence — and it is asserted
+   * beside the count that stayed, so it cannot pass by rendering nothing.
+   */
+  test("the bar does not draw a character count", () => {
     const segments = statusSegments(facts({ editor: editorWith("clean", "abcde") }));
-    expect(byId(segments, "characters")?.text).toBe("5 characters");
-
-    // An astral emoji is a surrogate pair: two code units, not one grapheme.
-    const emoji = statusSegments(facts({ editor: editorWith("clean", "\u{1F600}") }));
-    expect(byId(emoji, "characters")?.text).toBe("2 characters");
-    expect(byId(emoji, "characters")?.detail).toMatch(/UTF-16/);
-    expect(byId(emoji, "characters")?.detail).not.toMatch(/grapheme/i);
+    expect(segments.map((segment) => segment.id)).not.toContain("characters");
+    // Not passing because nothing rendered: the count that stayed is here.
+    expect(byId(segments, "words")?.text).toBe("1 word");
   });
 
   test("singulars read as singulars, and big counts are grouped", () => {
     const one = statusSegments(facts({ editor: editorWith("clean", "solo") }));
     expect(byId(one, "words")?.text).toBe("1 word");
-    expect(byId(one, "characters")?.text).toBe("4 characters");
 
-    const many = statusSegments(facts({ editor: editorWith("clean", "x".repeat(1234)) }));
-    expect(byId(many, "characters")?.text).toBe("1,234 characters");
+    const many = statusSegments(
+      facts({ editor: editorWith("clean", "word ".repeat(1234).trim()) }),
+    );
+    expect(byId(many, "words")?.text).toBe("1,234 words");
   });
 
   test("with nothing open there are no counts about no file", () => {
     const segments = statusSegments(facts({ editor: emptyEditor }));
     expect(byId(segments, "words")).toBeUndefined();
-    expect(byId(segments, "characters")).toBeUndefined();
+    // And the path, which is the other thing that would be about no file.
+    expect(byId(segments, "path")).toBeUndefined();
   });
 });
 
@@ -106,16 +122,34 @@ describe("counting a draft", () => {
 /*                                    save                                    */
 /* -------------------------------------------------------------------------- */
 
-describe("the save segment", () => {
-  test("clean says when, or just says saved", () => {
-    const withTime = statusSegments(
-      facts({ editor: editorWith("clean"), savedAt: NOW - 10 * 60_000 }),
-    );
-    expect(byId(withTime, "save")?.text).toBe("Saved 10 minutes ago");
-    expect(byId(withTime, "save")?.tone).toBe("quiet");
+/**
+ * THE SAVE CLAIM IS NOT IN THE STRIP ANY MORE, AND EVERY ARM OF IT SURVIVED.
+ *
+ * It is `saveChip`, drawn in the top bar beside the bucket chip — see that
+ * function for the argument. What matters here is that moving it was a move
+ * and not a rewrite: the words, the tones and the details below are the ones
+ * this file has always asserted, re-pointed at the function that answers them.
+ *
+ * The first case is the guard on the move itself. Without it, a change that
+ * put the segment back would leave the console saying "Saved" twice — once at
+ * the top-right and once at the bottom-right, in two visual languages, which
+ * is the duplication both surfaces have now been through once.
+ */
+describe("the save claim", () => {
+  test("the strip does not carry it", () => {
+    for (const status of ["clean", "dirty", "saving", "saved", "queued", "conflict", "error"] as EditorStatus[]) {
+      expect(byId(statusSegments(facts({ editor: editorWith(status) })), "save")).toBeUndefined();
+    }
+    // Not passing because nothing rendered: the strip still says the rest.
+    expect(byId(statusSegments(facts()), "words")?.text).toBe("2 words");
+  });
 
-    const withoutTime = statusSegments(facts({ editor: editorWith("clean") }));
-    expect(byId(withoutTime, "save")?.text).toBe("Saved");
+  test("clean says when, or just says saved", () => {
+    const withTime = saveChip({ editor: editorWith("clean"), now: NOW, savedAt: NOW - 10 * 60_000 });
+    expect(withTime?.text).toBe("Saved 10 minutes ago");
+    expect(withTime?.tone).toBe("quiet");
+
+    expect(chipFor("clean")?.text).toBe("Saved");
   });
 
   test("a draft on its way to the bucket is not a warning", () => {
@@ -127,40 +161,34 @@ describe("the save segment", () => {
       something again: `queued`, `error` and a cached body are the states that
       persist without the bucket hearing about them.
     */
-    const segments = statusSegments(facts({ editor: editorWith("dirty", "typed more") }));
-    expect(byId(segments, "save")?.text).toBe("Saving soon");
-    expect(byId(segments, "save")?.tone).toBe("quiet");
-    expect(byId(segments, "save")?.detail).toContain("written to your bucket");
+    const dirty = chipFor("dirty", "typed more");
+    expect(dirty?.text).toBe("Saving soon");
+    expect(dirty?.tone).toBe("quiet");
+    expect(dirty?.detail).toContain("written to your bucket");
     // The states that really are not in the bucket keep their tone.
-    expect(byId(statusSegments(facts({ editor: editorWith("queued") })), "save")?.tone).toBe("warn");
-    expect(byId(statusSegments(facts({ editor: editorWith("error") })), "save")?.tone).toBe("crit");
+    expect(chipFor("queued")?.tone).toBe("warn");
+    expect(chipFor("error")?.tone).toBe("crit");
   });
 
   test("saving, and having just saved", () => {
-    expect(byId(statusSegments(facts({ editor: editorWith("saving") })), "save")?.text).toBe(
-      "Saving…",
-    );
-    const saved = byId(statusSegments(facts({ editor: editorWith("saved") })), "save");
+    expect(chipFor("saving")?.text).toBe("Saving…");
+    const saved = chipFor("saved");
     expect(saved?.text).toBe("Saved");
     expect(saved?.tone).toBe("ok");
   });
 
   test("a conflict and a failure are both critical", () => {
-    expect(byId(statusSegments(facts({ editor: editorWith("conflict") })), "save")?.tone).toBe(
-      "crit",
-    );
-    expect(byId(statusSegments(facts({ editor: editorWith("error") })), "save")?.tone).toBe("crit");
+    expect(chipFor("conflict")?.tone).toBe("crit");
+    expect(chipFor("error")?.tone).toBe("crit");
   });
 
   test("the editor's own message becomes the detail when it has one", () => {
     const editor = editorWith("error", "draft", { message: "The bucket refused the write." });
-    expect(byId(statusSegments(facts({ editor })), "save")?.detail).toBe(
-      "The bucket refused the write.",
-    );
+    expect(saveChip({ editor, now: NOW })?.detail).toBe("The bucket refused the write.");
   });
 
-  test("nothing open means no save segment at all", () => {
-    expect(byId(statusSegments(facts({ editor: emptyEditor })), "save")).toBeUndefined();
+  test("nothing open means no chip at all", () => {
+    expect(saveChip({ editor: emptyEditor, now: NOW })).toBeNull();
   });
 });
 
@@ -232,7 +260,7 @@ describe("how the last save checked for conflicts", () => {
 
 describe("the storage segment", () => {
   test("names the bucket, and is absent when none is bound", () => {
-    expect(byId(statusSegments(facts()), "storage")?.text).toBe("R2 · brain");
+    expect(byId(statusSegments(facts()), "storage")?.text).toBe("R2 · notes-bucket");
     expect(byId(statusSegments(facts({ storageLabel: null })), "storage")).toBeUndefined();
   });
 
@@ -244,7 +272,13 @@ describe("the storage segment", () => {
       }),
     );
     const ids = segments.map((segment) => segment.id);
-    expect(ids).toEqual(["words", "characters", "save", "index", "conflictCheck", "storage"]);
+    expect(ids).toEqual([
+      "path",
+      "words",
+      "index",
+      "conflictCheck",
+      "storage",
+    ]);
     expect(ids.slice(-TRAILING_SEGMENTS.length)).toEqual([...TRAILING_SEGMENTS]);
   });
 
@@ -252,7 +286,7 @@ describe("the storage segment", () => {
     /*
       They describe different objects: the bucket is the customer's own, and
       the fast-search index is a copy in a database Supa Media runs. Run
-      together — "R2 · brain · 62% indexed" — the figure reads as 62% of the
+      together — "R2 · notes-bucket · 62% indexed" — the figure reads as 62% of the
       bucket, which is a claim about somebody's own storage that nothing has
       measured. That is the species of invention issue #25 was about, and the
       cheapest guard against it is the ordering.
@@ -388,11 +422,40 @@ describe("the strip never carries note text", () => {
     }
   });
 
-  test("nor does it carry the note's path", () => {
-    const editor = editorWith("dirty", "some words");
-    const rendered = statusSegments(facts({ editor }))
-      .map((s) => `${s.text} ${s.detail ?? ""}`)
-      .join(" ");
-    expect(rendered).not.toContain("1-projects/plan.md");
+  /**
+   * **This asserted the opposite, and the reversal is the point of keeping it.**
+   *
+   * It read "nor does it carry the note's path", under a rule that was really
+   * about *note content* — the draft's text, which is what a screen share or a
+   * screenshot in an issue can leak and which no segment may ever quote. That
+   * rule is unchanged and is the case above.
+   *
+   * A path is not content. It is the note's address, and it was already on the
+   * glass three times over: the file tree names it, the breadcrumb above the
+   * note walks it, and the tab strip carries its stem. A bar that withheld it
+   * was not protecting anything — it was the one surface that never moves and
+   * never said which file you were looking at, which is exactly what a person
+   * copies into another client or an agent's tool call.
+   *
+   * So the path is a segment, drawn in the mono face at the leading edge, and
+   * what this holds now is that it is the *key* and nothing else: no draft
+   * text rides along with it.
+   */
+  test("the path is the key, and carries none of the draft with it", () => {
+    const secret = "sk-live-EXAMPLE-NOT-A-REAL-KEY-9f3a";
+    const editor = editorWith("dirty", `# notes\n\ntoken: ${secret}\n`);
+    const path = byId(statusSegments(facts({ editor })), "path");
+
+    expect(path?.text).toBe("1-projects/plan.md");
+    expect(path?.mono).toBe(true);
+    expect(`${path?.text} ${path?.detail ?? ""}`).not.toContain(secret);
+  });
+
+  test("and there is no path segment with no note open", () => {
+    // Counts and a key about no file are the same mistake; both are gated on
+    // `editor.path`.
+    const closed = statusSegments(facts({ editor: editorWith("empty", "") }));
+    expect(byId(closed, "path")).toBeUndefined();
+    expect(byId(closed, "words")).toBeUndefined();
   });
 });

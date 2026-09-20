@@ -198,8 +198,52 @@ describe("a binding fires only where it is declared", () => {
     for (const scope of ["global", "tree", "editor"] satisfies Scope[]) {
       expect(resolve(press({ key: "k", mod: true }, true), scope, true)).toBe("palette");
       expect(resolve(press({ key: "o", mod: true }, true), scope, true)).toBe("quickSwitcher");
-      expect(resolve(press({ key: "b", mod: true }, true), scope, true)).toBe("toggleRail");
     }
+  });
+
+  /**
+   * ⌘B is the left panel's chord everywhere, including inside a note, where
+   * every editor anybody has ever used means bold by it. The rule that
+   * resolves it is not a special case for this chord: a binding that names a
+   * scope beats one that only reaches that scope as `global`.
+   *
+   * **The global half of the pair used to be `toggleRail`**, and when the rail
+   * folded into the switcher the chord was repointed at the one left panel
+   * that is left rather than retired — see `keymap.ts`. The collision, and
+   * therefore this rule, is exactly what it was.
+   */
+  describe("a binding that names a scope beats a global one on the same chord", () => {
+    test("⌘B is bold in the note and the file tree everywhere else", () => {
+      expect(resolve(press({ key: "b", mod: true }, true), "editor", true)).toBe("bold");
+      expect(resolve(press({ key: "b", mod: true }, true), "tree", true)).toBe("toggleExplorer");
+      expect(resolve(press({ key: "b", mod: true }, true), "global", true)).toBe("toggleExplorer");
+    });
+
+    /**
+     * And the precedence is doing the work, rather than the order of the rows.
+     * `bold` is declared **after** the global ⌘B for exactly this reason, so a
+     * resolver that simply took the first match would answer `toggleExplorer`
+     * here and this file would go green against a rule it had never learned.
+     */
+    test("the table is ordered so a first-match resolver would get it wrong", () => {
+      const panel = BINDINGS.findIndex((binding) => binding.command === "toggleExplorer");
+      const bold = BINDINGS.findIndex((binding) => binding.command === "bold");
+      expect(panel).toBeLessThan(bold);
+    });
+
+    test("and the escalation still stops at an overlay", () => {
+      expect(resolve(press({ key: "b", mod: true }, true), "overlay", true)).toBeNull();
+    });
+
+    /** ⌘I and ⌘⇧X are new and collide with nothing; the marker chords are complete. */
+    test("the other two marker chords resolve in the note", () => {
+      expect(resolve(press({ key: "i", mod: true }, true), "editor", true)).toBe("italic");
+      expect(resolve(press({ key: "x", mod: true, shift: true }, true), "editor", true)).toBe(
+        "strikethrough",
+      );
+      expect(resolve(press({ key: "i", mod: true }, true), "tree", true)).toBeNull();
+      expect(resolve(press({ key: "x", mod: true, shift: true }, true), "tree", true)).toBeNull();
+    });
   });
 
   test("dismiss is global and overlay both", () => {
@@ -235,6 +279,62 @@ describe("nothing behind an open overlay may fire", () => {
 /* -------------------------------------------------------------------------- */
 /*                        exact modifiers, not "at least"                      */
 /* -------------------------------------------------------------------------- */
+
+describe("where you have been has a chord, and it is the browser's", () => {
+  /**
+   * ⌘[ and ⌘], which is what every browser and Obsidian bind, over
+   * `files/history.ts` — the same stack the note's own `‹ ›` walk.
+   *
+   * These were drawn in the mockup for the link-navigation change and left out
+   * of the code that shipped it (#734), which is the gap this group exists to
+   * stop recurring: a chord a picture promises and nothing binds is the same
+   * defect as a chord a *menu* prints and nothing binds, and `menu.ts` has
+   * already had that one.
+   */
+  test("⌘[ goes back and ⌘] goes forward, on Apple hardware", () => {
+    expect(resolve(press({ key: "[", mod: true }, true), "global", true)).toBe("goBack");
+    expect(resolve(press({ key: "]", mod: true }, true), "global", true)).toBe("goForward");
+  });
+
+  test("Ctrl+[ and Ctrl+] do the same off it", () => {
+    expect(resolve(press({ key: "[", mod: true }, false), "global", false)).toBe("goBack");
+    expect(resolve(press({ key: "]", mod: true }, false), "global", false)).toBe("goForward");
+  });
+
+  test("they fire with the caret in a note, because that is the ordinary case", () => {
+    /*
+      You followed a link out of the note you were writing in and want to come
+      back to it. The text-field rule is about *bare* keys — a modified chord
+      is never typing — and a back chord that only worked with the editor
+      unfocused would be a back chord that never worked.
+    */
+    expect(resolve(press({ key: "[", mod: true, inTextField: true }, true), "editor", true)).toBe(
+      "goBack",
+    );
+    expect(resolve(press({ key: "]", mod: true, inTextField: true }, true), "editor", true)).toBe(
+      "goForward",
+    );
+  });
+
+  test("a bare bracket is a bracket", () => {
+    // The control. `[[` opens a wikilink, and it is typed constantly.
+    expect(resolve(press({ key: "[" }, true), "editor", true)).toBeNull();
+    expect(resolve(press({ key: "[", inTextField: true }, true), "editor", true)).toBeNull();
+  });
+
+  test("they are not the tab chords wearing another name", () => {
+    /*
+      Tabs are a *set* of open notes; history is an *order* of visits. Two tabs
+      can be open while you have moved between them six times, so these four
+      are four commands rather than two — and nothing here may quietly resolve
+      one to the other.
+    */
+    expect(resolve(press({ key: "arrowleft", mod: true, alt: true }, true), "global", true)).toBe(
+      "prevTab",
+    );
+    expect(resolve(press({ key: "[", mod: true }, true), "global", true)).not.toBe("prevTab");
+  });
+});
 
 describe("archive and permanent delete are one Shift apart and never collide", () => {
   test("⌘⌫ archives", () => {
@@ -328,6 +428,8 @@ describe("what the menu prints comes from the table", () => {
     expect(describeBinding("treeOpen", false)).toBe("Enter");
     expect(describeBinding("nextTab", true)).toBe("⌘⌥→");
     expect(describeBinding("nextTab", false)).toBe("Ctrl+Alt+Right");
+    expect(describeBinding("goBack", true)).toBe("⌘[");
+    expect(describeBinding("goBack", false)).toBe("Ctrl+[");
     expect(describeBinding("tab1", true)).toBe("⌘1");
   });
 
@@ -364,14 +466,48 @@ describe("what the menu prints comes from the table", () => {
  * whatever comes back must be either nothing or that binding's own command. If
  * somebody adds a second binding on a chord that is already live in a scope,
  * one of the two resolves to the other's command and this fails.
+ *
+ * **There is exactly one way a chord may answer with somebody else's command,
+ * and it is a rule rather than a tolerance**: a binding that *names* the scope
+ * beats one that only reaches it as `global`, which is how ⌘B is bold in a note
+ * and the rail everywhere else. So the shadowing binding has to be an explicit
+ * one and the shadowed binding has to be a global one — a global shadowing a
+ * global, or an explicit shadowing an explicit, is still the collision this
+ * test exists to catch, and still fails.
  */
+/**
+ * Is this binding a candidate in this scope at all?
+ *
+ * The resolver's own `firesIn`, restated because it is not exported — and
+ * restating it is the point here rather than a compromise: this is the *claim*
+ * about which scopes a binding reaches, checked against the resolver's
+ * behaviour. If the two ever disagree, one of the tests above says so directly.
+ */
+function live(binding: Binding, scope: Scope): boolean {
+  if (binding.scopes.includes(scope)) return true;
+  return scope !== "overlay" && binding.scopes.includes("global");
+}
+
 describe("no two bindings share a chord in a scope", () => {
-  test("each binding's chord resolves to itself or to nothing, everywhere", () => {
+  test("each binding's chord resolves to itself, to nothing, or to a scoped override", () => {
     for (const binding of BINDINGS) {
       for (const apple of [true, false]) {
         for (const scope of SCOPES) {
           const got = resolve(eventFor(binding, apple), scope, apple);
-          if (got !== null) expect(got).toBe(binding.command);
+          if (got === null || got === binding.command) continue;
+          /*
+            A binding that is not live in this scope at all was never a
+            candidate, so somebody else answering is not a collision: ⌘B in the
+            tree is `toggleExplorer` because `bold` is declared for the editor
+            and reaches nowhere else.
+          */
+          if (!live(binding, scope)) continue;
+          const winner = BINDINGS.find((candidate) => candidate.command === got) as Binding;
+          expect({
+            chord: `${binding.key}/${scope}`,
+            winnerNamesScope: winner.scopes.includes(scope),
+            loserNamesScope: binding.scopes.includes(scope),
+          }).toEqual({ chord: `${binding.key}/${scope}`, winnerNamesScope: true, loserNamesScope: false });
         }
       }
     }

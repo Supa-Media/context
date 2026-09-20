@@ -2,7 +2,7 @@
  * One search across several contexts, blended into one list.
  *
  * The console's search page asks a question the per-context search cannot:
- * *"where did anybody write about the review cycle"*, over every brain and
+ * *"where did anybody write about the review cycle"*, over every workspace and
  * workspace this person can reach. This module is the pure half of the answer
  * — the fusion, the paging and the cursor — with no Convex, no store and no
  * credential in it, so every rule below is drivable from a test.
@@ -28,7 +28,7 @@
  * scored against a corpus: `N`, `df` and `avglen` are properties of the
  * context the note lives in, and of the *tier* the caller reads it at
  * (`tablesForTier`). A 12-point hit in a four-note workspace and a 12-point hit
- * in a four-thousand-note brain are not the same quantity, and min-maxing them
+ * in a four-thousand-note workspace are not the same quantity, and min-maxing them
  * into a shared 0..1 does not make them one — it invents a comparison and hides
  * that it was invented. The failure mode is exactly the one the brief names:
  * the biggest context wins every blend, because a big corpus produces bigger
@@ -172,7 +172,7 @@ export interface BlendedRow {
  * Fuse the sources into one ordered list.
  *
  * Dedupe is on `(context, path)` and not on `path` alone, and that is a
- * decision rather than an oversight: `1-projects/plan.md` in two brains is two
+ * decision rather than an oversight: `1-projects/plan.md` in two workspaces is two
  * different notes that happen to share a name, and collapsing them would hide
  * one person's work behind another's. What it does close is the same source
  * appearing twice in a scope list, which is the only way one note can arrive

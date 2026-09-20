@@ -34,15 +34,34 @@
  *   `ShellTitleBand` reading `bridge.shell.platform` without `?.`        1
  *   the band's height hard-coded instead of `SHELL_TITLE_BAND_PX`       1
  *   the band losing `WebkitAppRegion: "drag"`                          1
+ *   `viewportHeight` ignoring its inset (the clipped footer)             1
+ *   `shellTitleBandPx` answering the band's height with no shell         2
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
-import { SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
-import { shouldShowShellTitleBand } from "../features/app/shellTitleBand";
-import { ShellTitleBand } from "../features/app/ShellTitleBand";
+import { SHELL_TITLE_BAND_LEAD_PX, SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
+import {
+  shellBandDraws,
+  shellLightsLeadPx,
+  shellTitleBandPx,
+  shouldShowShellTitleBand,
+} from "../features/app/shellTitleBand";
+import {
+  RootShellTitleBand,
+  ShellTitleBand,
+  useShellBandAbovePx,
+  useShellLightsLeadPx,
+  useShellTitleBandPx,
+} from "../features/app/ShellTitleBandView";
+import { setTopChromeHoldsLights } from "../features/app/topChrome";
+
+/** Stands in for a mounted frame — see `topChrome.ts` on why claims are keyed. */
+const CLAIM = "shell-title-band-test";
+import { layout } from "../features/design/tokens";
+import { viewportHeight } from "../features/design/css";
 // `StyleSheet.getSheet()` is react-native-web's, absent from the `react-native`
 // types this repo compiles against — see `design-shots.ts`'s own note on it.
 const { StyleSheet: RNStyleSheet } = require("react-native") as {
@@ -111,11 +130,20 @@ const band = (container: HTMLElement) =>
 beforeEach(() => {
   document.body.replaceChildren();
   removeShell();
+  setTopChromeHoldsLights(CLAIM, false);
 });
 
 afterEach(() => {
   removeShell();
+  setTopChromeHoldsLights(CLAIM, false);
 });
+
+/** A Mac inside the shell, which is the only configuration with buttons. */
+function installMacShell(): void {
+  installShell(
+    fakeDesktopBridge({ shell: { app: "Context", version: "1.0.0", platform: "macos" } }).bridge,
+  );
+}
 
 describe("ShellTitleBand", () => {
   test("a Mac shell: the band renders, full width, at the shared height", () => {
@@ -179,3 +207,221 @@ describe("ShellTitleBand", () => {
     mounted.unmount();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* the same reservation as a number — what the frame and the overlays pay      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE BOTTOM OF THE CONSOLE WAS OFF THE BOTTOM OF THE WINDOW.
+ *
+ * Reported against the shipped shell: *"the bottom part looks cut off"*. The
+ * band reserves 38px at the top, and `AppFrame` is sized in viewport units
+ * rather than by a flex parent — so a full `100dvh` frame drawn under a 38px
+ * band is a window-and-a-bit tall, and the last 38px of it, which is where the
+ * context switcher and the sync row sit, had nowhere to go and no way to
+ * scroll to it.
+ */
+describe("the band's height, as the number the rest of the app pays", () => {
+  test("a Mac shell reserves the shared constant; nothing else reserves anything", () => {
+    expect(shellTitleBandPx("web", "macos", SHELL_TITLE_BAND_PX)).toBe(SHELL_TITLE_BAND_PX);
+    expect(shellTitleBandPx("web", "windows", SHELL_TITLE_BAND_PX)).toBe(0);
+    expect(shellTitleBandPx("web", null, SHELL_TITLE_BAND_PX)).toBe(0);
+    expect(shellTitleBandPx("ios", "macos", SHELL_TITLE_BAND_PX)).toBe(0);
+  });
+
+  test("the hook answers the same, from the bridge on the page", () => {
+    installShell(
+      fakeDesktopBridge({ shell: { app: "Context", version: "1.0.0", platform: "macos" } }).bridge,
+    );
+    expect(readBandPx()).toBe(SHELL_TITLE_BAND_PX);
+
+    removeShell();
+    expect(readBandPx()).toBe(0);
+  });
+
+  test("THE FRAME IS ONE VIEWPORT MINUS THE BAND, never a whole one under it", () => {
+    // Asserted against the style function rather than a rendered node for the
+    // reason `appFrameRender.test.ts` gives: jsdom's CSS parser knows neither
+    // `dvh` nor `calc` with it, and drops the declaration either way.
+    expect(viewportHeight(SHELL_TITLE_BAND_PX)).toMatchObject({
+      height: `calc(100dvh - ${SHELL_TITLE_BAND_PX}px)`,
+      maxHeight: `calc(100dvh - ${SHELL_TITLE_BAND_PX}px)`,
+    });
+  });
+
+  test("...and an ordinary browser tab is still exactly one viewport", () => {
+    expect(viewportHeight(0)).toMatchObject({ height: "100dvh", maxHeight: "100dvh" });
+    expect(viewportHeight()).toMatchObject({ height: "100dvh", maxHeight: "100dvh" });
+  });
+});
+
+/** `useShellTitleBandPx` read out of a mounted probe, the way a component sees it. */
+function readBandPx(): number {
+  let seen: number | null = null;
+  function Probe() {
+    seen = useShellTitleBandPx();
+    return null;
+  }
+  const mounted = mount(createElement(Probe));
+  mounted.unmount();
+  if (seen === null) throw new Error("the probe never rendered");
+  return seen;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* the band moves into the bar                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE BAND WAS AN EMPTY STRIP ON TOP OF A BAR THE SAME HEIGHT.
+ *
+ * `docs/decisions/desktop.md`, "The band moves into the bar", and the paragraph
+ * the change before it left behind: *"the band is still an empty strip above
+ * the console's own top bar, where a Mac app people compare this to puts the
+ * lights in that bar"*. 45pt of reservation over 45pt of chrome is 90pt before
+ * the first note, half of it drawing nothing.
+ *
+ * The fix is a handshake rather than a constant, because only some routes have
+ * a bar that can take the job — `topChrome.ts` is the argument. These are the
+ * two halves of it that are pure rules, and the component split that keeps the
+ * settings overlay out of it.
+ */
+describe("shellBandDraws — the root band stands down for chrome that took the job", () => {
+  test("a Mac shell, nothing holding them: the band draws, as before", () => {
+    expect(shellBandDraws("web", "macos", false)).toBe(true);
+  });
+
+  test("a Mac shell, the bar holding them: no band", () => {
+    expect(shellBandDraws("web", "macos", true)).toBe(false);
+  });
+
+  test("THE FLAG MAY ONLY EVER TAKE A BAND AWAY, NEVER ADD ONE", () => {
+    /*
+      The platform gate is asked first and the flag second, which is the only
+      safe order: a frame publishing "I hold them" is stating its own opinion
+      about a shell it may not be inside, and a route that said `false` on
+      Windows must not be able to conjure a band onto a window with no buttons
+      on it. Reverse the two and every non-mac surface grows 45pt of nothing
+      the moment a frame unmounts.
+    */
+    expect(shellBandDraws("web", "windows", false)).toBe(false);
+    expect(shellBandDraws("web", "linux", false)).toBe(false);
+    expect(shellBandDraws("web", null, false)).toBe(false);
+    expect(shellBandDraws("ios", "macos", false)).toBe(false);
+    expect(shellBandDraws("android", null, false)).toBe(false);
+  });
+});
+
+describe("shellLightsLeadPx — what a bar holding them owes at its leading edge", () => {
+  test("a Mac shell, and this bar took the job: the shared lead", () => {
+    expect(shellLightsLeadPx("web", "macos", true, SHELL_TITLE_BAND_LEAD_PX)).toBe(
+      SHELL_TITLE_BAND_LEAD_PX,
+    );
+  });
+
+  test("a Mac shell, but the band still has it: nothing", () => {
+    expect(shellLightsLeadPx("web", "macos", false, SHELL_TITLE_BAND_LEAD_PX)).toBe(0);
+  });
+
+  test("NO SHELL, NO LEAD — 84pt of nothing in an ordinary browser tab", () => {
+    expect(shellLightsLeadPx("web", "windows", true, SHELL_TITLE_BAND_LEAD_PX)).toBe(0);
+    expect(shellLightsLeadPx("web", null, true, SHELL_TITLE_BAND_LEAD_PX)).toBe(0);
+    expect(shellLightsLeadPx("ios", "macos", true, SHELL_TITLE_BAND_LEAD_PX)).toBe(0);
+  });
+});
+
+describe("RootShellTitleBand, and the overlay that must not copy it", () => {
+  test("nothing holds the lights: the root band draws", () => {
+    installMacShell();
+    const mounted = mount(createElement(RootShellTitleBand));
+    expect(band(mounted.container)).not.toBeNull();
+    mounted.unmount();
+  });
+
+  test("the console bar holds them: the root band is gone", () => {
+    installMacShell();
+    setTopChromeHoldsLights(CLAIM, true);
+    const mounted = mount(createElement(RootShellTitleBand));
+    expect(band(mounted.container)).toBeNull();
+    mounted.unmount();
+  });
+
+  test("SETTINGS KEEPS ITS OWN BAND WHILE THE CONSOLE BEHIND IT HOLDS THE LIGHTS", () => {
+    /*
+      The regression this split exists for. `Overlay` is a `Modal` — its own
+      root view, with nothing in the route tree above it — and the console
+      frame *behind* it goes on publishing "I hold them" for as long as
+      settings is open. An overlay that read the flag would stand its own band
+      down and put the buttons back over its own first control, which is the
+      defect `docs/decisions/desktop.md` records under "The band's other two
+      payers" and the owner reported as *"some pages dont take the streetlights
+      in consideration"*.
+
+      So `ShellTitleBand` is unconditional and `RootShellTitleBand` is the only
+      reader of the store — asserted here as the same flag giving two different
+      answers to the two components.
+    */
+    installMacShell();
+    setTopChromeHoldsLights(CLAIM, true);
+
+    const overlay = mount(createElement(ShellTitleBand));
+    expect(band(overlay.container)).not.toBeNull();
+    overlay.unmount();
+
+    const root = mount(createElement(RootShellTitleBand));
+    expect(band(root.container)).toBeNull();
+    root.unmount();
+  });
+});
+
+describe("the two hooks the frame reads", () => {
+  test("a frame holding the lights has nothing above it and is a whole viewport", () => {
+    installMacShell();
+    expect(readHook(() => useShellBandAbovePx(true))).toBe(0);
+    expect(readHook(() => useShellBandAbovePx(false))).toBe(SHELL_TITLE_BAND_PX);
+  });
+
+  test("the lead follows the same rule, from the bridge on the page", () => {
+    installMacShell();
+    expect(readHook(() => useShellLightsLeadPx(true))).toBe(SHELL_TITLE_BAND_LEAD_PX);
+    expect(readHook(() => useShellLightsLeadPx(false))).toBe(0);
+
+    removeShell();
+    expect(readHook(() => useShellLightsLeadPx(true))).toBe(0);
+  });
+});
+
+/**
+ * THE EQUALITY THAT MAKES ANY OF THIS POSSIBLE.
+ *
+ * `trafficLightPosition` is set once, when the window is created, and the
+ * page's density goes on changing under it — so the band and the bar cannot be
+ * two different heights with one `y` centring the buttons in both. They are
+ * the same height, and this is the assertion from the app's side; the
+ * package's own suite makes the other half, that `SHELL_TRAFFIC_LIGHTS.y`
+ * centres a button in it.
+ */
+describe("the band's height is the top bar's height", () => {
+  test("one box, whichever of the two draws it", () => {
+    expect(SHELL_TITLE_BAND_PX).toBe(layout.topBarHeight);
+  });
+
+  test("the lead clears the buttons with room for the chip after them", () => {
+    expect(SHELL_TITLE_BAND_LEAD_PX).toBeGreaterThan(SHELL_TITLE_BAND_PX);
+  });
+});
+
+/** Read any hook out of a mounted probe, the way a component sees it. */
+function readHook<T>(read: () => T): T {
+  let seen: { value: T } | null = null;
+  function Probe() {
+    seen = { value: read() };
+    return null;
+  }
+  const mounted = mount(createElement(Probe));
+  mounted.unmount();
+  if (seen === null) throw new Error("the probe never rendered");
+  return (seen as { value: T }).value;
+}

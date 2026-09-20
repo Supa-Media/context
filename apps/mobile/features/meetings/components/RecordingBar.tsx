@@ -1,14 +1,17 @@
 import { useCallback } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { usePathname, useRouter } from "expo-router";
-import { fonts, layout, radii } from "../../design/tokens";
+import { fonts, layout, pointerType as t, radii } from "../../design/tokens";
 import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChrome";
 import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { Text } from "../../design/components/Text";
 import { meetings, recordElapsedMs } from "../controller";
 import { meetingHref } from "../route";
 import { clock } from "../format";
+import { useMeetingCarried } from "../carried";
 import { useMeetingsSnapshot, useTick } from "../useMeetings";
+import { barAudioBadge } from "../keptAudio";
+import { TransportMark } from "./TransportMark";
 import { Waveform } from "./Waveform";
 
 /**
@@ -21,8 +24,10 @@ import { Waveform } from "./Waveform";
  * "should I show the bar" logic anywhere in the app, and no screen has to know
  * this feature exists to be correct about it.
  *
- * **And `null` on the live meeting's own screen, which is the same rule rather
- * than an exception to it.** This bar exists to reach a recording you have
+ * **And `null` wherever the surface underneath is already showing this
+ * meeting**, which is one rule with two cases rather than two rules.
+ *
+ * The first is the live meeting's own screen. This bar exists to reach a recording you have
  * walked away from; on the screen you have not walked away from, it is a second
  * copy of the same three controls lying over the first. They are not merely
  * near each other — the live screen's transport is `bottomBarHeight` tall at
@@ -73,6 +78,15 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const pathname = usePathname();
   const live = snapshot.live;
   const now = useTick(live !== null);
+  /*
+    The second case: the console's right panel, which is a place a meeting is
+    *worked* — named, noted in, stopped — with the note still open beside it. A
+    bar floating over that note while the panel shows the same clock is the
+    duplicate chrome this component already refuses on the meeting's screen.
+    The console claims it while it has a panel to put one in, folded or not;
+    see `features/meetings/carried.ts`.
+  */
+  const carried = useMeetingCarried();
   // Whatever the screen underneath is already floating at this edge, so the two
   // stack instead of overlapping. Zero on every screen that has no chrome there.
   const chrome = useBottomChromeHeight();
@@ -133,13 +147,32 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
     })();
   }, [live, pathname, router]);
 
-  if (live === null) return null;
+  if (live === null || carried) return null;
   // The screen underneath is this meeting's own, and it has a transport of its
   // own in this exact 66pt of glass. See the header.
   if (pathname === meetingHref(live.session.id)) return null;
 
   const paused = live.session.state === "paused";
   const elapsed = clock(recordElapsedMs(live, now === 0 ? Date.now() : now));
+  /*
+    The drain `end()` is sitting in, named for this meeting — see
+    `MeetingsSnapshot.ending`. The bar is still up while it runs, because the
+    session does not leave `recording` until the recorder has released the
+    device and drained its last chunk, so without this the one press that makes
+    this bar go away appeared to do nothing for five seconds.
+  */
+  const ending = snapshot.ending === live.session.id;
+  /*
+    Audio this phone is keeping because it could not send it yet. A pill has
+    room for two words, so the badge is short and the whole sentence — the one
+    that says the recording is safe and when it will be transcribed — is its
+    accessibility label and the live screen's chip, one tap away.
+  */
+  const counts = snapshot.audio[live.session.id];
+  const badge =
+    Platform.OS !== "web" || (counts?.waiting ?? 0) > 0
+      ? barAudioBadge(counts, snapshot.offline)
+      : null;
 
   return (
     <View
@@ -152,65 +185,72 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
       testID="recording-bar"
     >
       <View style={styles.bar}>
+        {/*
+          Refused while the meeting is ending, like End beside it. The recorder
+          has already been told to stop, so a pause pressed into that window
+          reaches a stopped device and does nothing to the audio while folding
+          `paused` into a session that is one line away from `finalizing` — a
+          control that changes the record and not the world.
+        */}
         <Pressable
-          onPress={paused ? () => meetings.resume() : () => meetings.pause()}
+          onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
           accessibilityRole="button"
           accessibilityLabel={paused ? "Resume recording" : "Pause recording"}
-          style={({ pressed }) => [styles.round, paused && styles.roundPaused, pressed && styles.pressed]}
+          accessibilityState={{ disabled: ending }}
+          disabled={ending}
+          style={({ pressed }) => [
+            styles.round,
+            paused && styles.roundPaused,
+            ending && styles.endBusy,
+            pressed && styles.pressed,
+          ]}
           testID="recording-bar-pause"
         >
-          {paused ? <Play /> : <PauseBars />}
+          <TransportMark paused={paused} testID="recording-bar-mark" />
         </Pressable>
 
         <Pressable
           onPress={open}
           accessibilityRole="button"
-          accessibilityLabel={`${live.session.title}, ${elapsed} recorded. Open the meeting.`}
+          accessibilityLabel={`${live.session.title}, ${elapsed} recorded.${
+            badge === null ? "" : ` ${badge.label}.`
+          } Open the meeting.`}
           style={styles.middle}
           testID="recording-bar-open"
         >
           <Waveform tone={paused ? "muted" : "ok"} paused={paused} />
           <Text style={styles.clock}>{elapsed}</Text>
+          {badge === null ? null : (
+            <Text variant="mini" style={styles.kept} numberOfLines={1} testID="recording-bar-kept">
+              {badge.short}
+            </Text>
+          )}
         </Pressable>
 
         <Pressable
           onPress={end}
           accessibilityRole="button"
-          accessibilityLabel="End the recording"
-          style={({ pressed }) => [styles.end, pressed && styles.pressed]}
+          accessibilityLabel={
+            ending
+              ? "Ending the recording. Saving the last of it."
+              : "End the recording"
+          }
+          accessibilityState={{ disabled: ending, busy: ending }}
+          disabled={ending}
+          style={({ pressed }) => [
+            styles.end,
+            ending && styles.endBusy,
+            pressed && styles.pressed,
+          ]}
           testID="recording-bar-end"
         >
           <Text variant="mini" style={styles.endLabel}>
-            End
+            {ending ? "Ending…" : "End"}
           </Text>
         </Pressable>
       </View>
     </View>
   );
-}
-
-/** Two bars. The universal pause mark, drawn rather than typed — see `Waveform`. */
-function PauseBars() {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.glyphRow} aria-hidden>
-      <View style={styles.pauseBar} />
-      <View style={styles.pauseBar} />
-    </View>
-  );
-}
-
-/**
- * A triangle, from a border trick.
- *
- * React Native has no polygon primitive and this app draws its marks from
- * `View`s rather than pulling in a vector for one shape (`Icon.tsx` makes the
- * whole argument). A right-pointing triangle is a zero-width box with a left
- * border and transparent top and bottom.
- */
-function Play() {
-  const styles = useThemedStyles(makeStyles);
-  return <View style={styles.play} aria-hidden />;
 }
 
 const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
@@ -256,7 +296,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   clock: {
     fontFamily: fonts.mono,
-    fontSize: 15.5,
+    fontSize: t.body,
     fontWeight: "500",
     color: colors.text,
     fontVariant: ["tabular-nums"],
@@ -269,18 +309,16 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  endLabel: { color: colors.ink, fontSize: 15 },
-  glyphRow: { flexDirection: "row", gap: 3 },
-  pauseBar: { width: 4, height: 16, borderRadius: 1.2, backgroundColor: colors.okText },
-  play: {
-    width: 0,
-    height: 0,
-    marginLeft: 3,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 12,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: colors.warnText,
+  /* Dimmed in place, never resized: see `LiveMeetingScreen`'s copy. */
+  endBusy: { opacity: 0.5 },
+  kept: {
+    color: colors.warnText,
+    backgroundColor: colors.warnWash,
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: "hidden",
+    flexShrink: 1,
   },
+  endLabel: { color: colors.ink, fontSize: t.lede },
 });

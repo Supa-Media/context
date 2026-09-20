@@ -89,9 +89,27 @@ export async function copyDeferred(
     const text = () => (settled ??= produce());
     try {
       const item = new ItemCtor({
-        "text/plain": text().then(
-          (value) => new Blob([value ?? ""], { type: "text/plain" }),
-        ),
+        /*
+          **A refusal REJECTS the part; it does not resolve an empty one.**
+
+          By the time `produce` answers, the write has already been issued —
+          that is the whole design, and it is what keeps the activation window.
+          So the only way left to decline is to reject, which per spec rejects
+          `write()` and **leaves the clipboard holding whatever it held**.
+
+          Resolving `new Blob([""])` instead also completes the write, and
+          completing it sets the clipboard to the empty string: somebody presses
+          Copy link, the server refuses to mint the share, they are correctly
+          told so — and the address or the paragraph they had on their clipboard
+          is gone, with nothing on screen connecting the two.
+
+          The `ok` below was always right. It is what reached the clipboard on
+          the way to it that was not.
+        */
+        "text/plain": text().then((value) => {
+          if (value === null) throw new Error("nothing to copy");
+          return new Blob([value], { type: "text/plain" });
+        }),
       });
       await clipboard.write([item]);
       const value = await text();

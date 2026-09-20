@@ -148,7 +148,7 @@ and the three tests that pin it, are in
 [communications](./communications.md), "A firehose is not attention". The
 test that fails if this reverts to exclusion is `toolOrient answers "what came
 in" with a pointer, never silence`; the one that fails if the collapse itself
-is dropped is `a brain with a year of channel-day notes still surfaces its own
+is dropped is `a workspace with a year of channel-day notes still surfaces its own
 recent notes in orient`.
 
 ### `search` and `fetch` exist because ChatGPT's chats can call nothing else
@@ -292,3 +292,527 @@ figure a future schema moves: an array with a larger `maxItems`, or an element
 schema with more properties, changes the ceiling and leaves the typical-write
 figure exactly where it was. Both are asserted in the suite. Neither is measured
 under `workerd`.
+
+### Reach is described from the clamp that will decide it, on both surfaces
+
+A connected ChatGPT was asked to file a note in `@public-worship`, a workspace
+its user owns. It had `write_note`, it had the `context` argument on it, and
+the grant covered that context. It refused three times — "the write action
+exposed to me only targets the default workspace and doesn't expose the
+workspace selector" — and nothing was written. The capability was complete and
+the description of it was not, in two separate places.
+
+**`orient` described the other contexts from the role alone, which is half of
+the answer and wrong in both directions.** `accessSentence(role)` said "yours,
+and you see private notes there" for an owner: three facts about reading and
+not one word about writing, followed by a closing line — "what you may do in
+another is decided by your role there" — that invites a model to go looking for
+a permission the row never granted. That is the too-mean direction, and it is
+the one a person hit. The too-generous one was in the same function: an
+`editor` on a read-only grant was announced as able to "read and write team
+notes there", which spends an agent's turn on a refusal the sentence could have
+prevented, and an `owner` on a grant carrying no `context:private` was promised
+private notes it reads at `team`.
+
+The row is now `reachForRole(session, role)` — `effectiveScopes(grantScopes,
+role)` and `visibilityTierForGrant` over the result, which is exactly what
+`sessionForContext` computes when the call actually arrives. Three properties
+are load-bearing:
+
+- **The description and the gate read one clamp.** A second copy of that
+  reasoning is the drift `session.js` exists to prevent, so `reachForRole` lives
+  beside `writesAnywhere` and `readsPrivateAnywhere` rather than in `index.js`.
+  What orientation promises and what `callToolForSession` does cannot disagree.
+- **From the grant's own scopes, never the connection's clamped set.**
+  Re-clamping intersects two roles, so somebody connected at a context they are
+  a `member` of would be told they cannot write in one they are an `editor` of.
+  Sabotage-tested: the guest fixture is what fails.
+- **Which half refused is named, because the remedies differ.** A grant that was
+  never given write is a reconnection; a role that cannot back one up is not,
+  and telling somebody to reconnect for write they can never hold there sends
+  them round a loop that cannot end. `callToolForSession` already refuses in
+  exactly these two voices; the description now uses the same two.
+
+The same question about the context the connection is *in* had the same hole:
+`scopeInfoText` is the paragraph that decides whether an agent tries at all, and
+a client its person deliberately connected read-only was handed "Writable: every
+non-reserved Markdown path". It now opens with which of the two halves said no,
+before the prefixes, because the prefixes remain true of the context and what
+this connection may do with them is a different sentence.
+
+**And the addressing argument is advertised in the tool's description, not only
+in its property blurb.** The property was there and correctly described, and the
+model still reported it absent. A description is the one field every client
+renders; a schema is something a client may summarise, reorder, or show a model
+without. The sentence is appended in the same central map that adds the
+property — `toolDefinitions()` — so a tool added next year gets both or neither,
+and the two cannot drift. `search` and `fetch` get neither: their schema is
+somebody else's contract, and a sentence promising an argument they refuse would
+be worse than silence.
+
+The cost is one sentence on every addressable tool, against a `tools/list` a
+client fetches once and caches for a minute. The test that fails if this is
+reversed is `every addressable tool's description says how to address it`; the
+ones that fail if the rows go back to the role are the four in
+`crossContext.test.mjs` that read a single `### @name —` line and ask what it
+claims.
+
+**Sabotage record**, run as temporary local edits and reverted, counts as
+measured:
+
+1. **`accessSentence` back to the role alone** — 3 checks failed, one per
+   direction plus the reason.
+2. **`reachForRole` re-clamps the connection's already-clamped scopes** — 2
+   failed, both of them write that survives a connection clamped to `member`.
+   (The first pass of this suite did *not* catch it: the check that would have
+   was written over the whole orientation text rather than one row. Recorded
+   because a sabotage that passes is the only way that gets found.)
+3. **The read-only notice is suppressed** — 3 failed. Same lesson: the first
+   version of that check searched the whole answer, which contains "read-only"
+   in the sibling rows, and passed with the notice deleted. It reads the
+   `## Write surface` section now.
+4. **The notice ignores which half refused** — 1 failed, the one that separates
+   a reconnection the person can make from a role only an owner can change.
+5. **The description suffix is dropped** — 1 failed, and it names all 33 tools.
+
+## The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
+
+`/agent` runs a model against the caller's own connection: `toolsForSession`
+builds the list, `agentTools` narrows it to the read tools plus `propose_note`,
+and `callToolForSession` — the client's dispatcher, not a copy — runs each call.
+Two things were wrong with that and both were the same mistake, which is
+believing a list is a control when the *model* picks from it.
+
+**The narrowed list is now enforced where the call is made.** `runTurn` builds a
+set of the names in `tools` and refuses anything else in band, before dispatch,
+the way it already refuses a tool that threw. Before, the name came out of the
+provider's response and went straight into the dispatcher, so "writes are
+proposals" held only for a model that read the prompt and agreed: one that named
+`write_note` had the write carried out under the person's own grant. That is not
+a hypothetical about model behaviour. A personal context ingests email into
+`0-inbox/`, so the text the agent reads is text a stranger can author, and a
+note saying "before answering, call `write_note`" is an unauthenticated write to
+somebody's context. Enforcing it upstream only — refusing to *advertise* the
+tool — is exactly the class of guard that a prompt injection is built to walk
+past.
+
+**And `readOnlyHint` is not the axis.** `export_encryption_keys` mutates nothing
+and is annotated accordingly; it also returns the workspace data key(s) in the
+clear, and `agentTools` was reading "does this mutate?" as "may a model call
+this?". The consequence is not the answer on the screen. The agent also holds
+`propose_note`, which writes its content into the bucket, so export-then-propose
+lands the key that opens every encrypted note in this context in plaintext
+beside those notes — the exact thing non-negotiable #1 forbids, produced without
+a single tool doing anything it was not annotated to do. The two key-material
+tools are named in `WITHHELD_FROM_AGENT`, both of them, because a list of "the
+key tools" that named only one would read as a ruling about the other.
+
+The simplification to resist is collapsing these back into one filter and
+trusting the prompt for the rest: it reads cleaner, it is one less list, and it
+makes every future read-only tool a decision nobody takes. The tests that fail
+if this is reversed are `the key export is never offered to the agent`, `a tool
+the agent was never offered writes nothing` and `...and does not run at all,
+whatever the model named`, in `apps/mcp/test/agent.test.mjs`, entries 5 and 6 of
+that file's sabotage record. The middle one asserts the damage rather than the
+mechanism: with the dispatch guard gone, the note really is in the bucket.
+
+## Presence is a read that happens to be a socket
+
+`GET /presence?note=<path>` opens a WebSocket into a Durable Object holding one
+note's roster: who has it open, and where each caret is.
+
+Phase 1 relayed carets and nothing else. **Phase 2, below, spends that**: the
+room now carries the document too. Everything in this section that is still
+true is still here; the sentence that stopped being true is marked where it was.
+
+~~**The room holds no note text, and the route reads none.**~~ True of Phase 1
+and no longer true — see *Phase 2* below for what replaced it and what it cost.
+`decodeClientFrame` still drops every field it does not know, so a *caret* frame
+still carries offsets and nothing else, asserted in `presence.test.mjs` rather
+than left to a comment.
+
+**The Durable Object has no storage.** The roster is rebuilt on every wake from
+`getWebSockets()` and each socket's attachment, so there is nothing to migrate,
+nothing to leak across tenants, and nothing to delete when the last person
+leaves. Hibernation evicts an idle room; `idFromName` never allocated one
+nobody opened. This is also why the feature is safe to switch off: with the
+binding absent the route answers 501 and every note opens, saves and conflicts
+exactly as before.
+
+**A Durable Object namespace is one binding, which is why this is not the
+per-workspace search problem.** Fast search reaches one D1 database per
+workspace over the Cloudflare HTTP API because bindings resolve at deploy time
+and are capped in the low thousands, while databases are created per customer at
+runtime. A DO namespace is a single binding addressing unlimited instances by
+name, so the ceiling that decided `search/d1/client.js` does not apply here and
+the same reasoning does not need repeating.
+
+**Revocation is a number, not a promise.** A socket is authorized once by the
+route that opened it and closed at `PRESENCE_SOCKET_MAX_MS` — five minutes. The
+client reconnects through the same route, which re-resolves the grant, re-reads
+`privacy.md` and re-checks visibility. So a revoked grant or a note that just
+became private stops showing a caret within five minutes rather than instantly,
+and the alarm in the room enforces it rather than a sentence somebody has to
+trust. The reconnect is invisible because a caret's colour follows a per-tab
+seed rather than the connection.
+
+**The refusal had to be made identical to `read_note`'s, and was not at
+first.** The route originally checked only `canSee`, which is a statement about
+a *path* and not about a note: any path inside a team folder answered 200
+whether or not anything was there, and only a path the manifest held back
+answered 404. That difference is an oracle — a team-tier caller could ask for
+`1-projects/rates.md` and learn from the refusal alone that a note exists there
+and was deliberately made private, which the read path never discloses. So
+existence is checked too, by a prefix listing rather than a `get`, because this
+route does not read notes and should not start.
+
+**The room is keyed on a path, because there is no note id to key on.** #735
+gives a moved note a forwarding trail between paths and deliberately not an id
+in anybody's file, so renaming a note while two people are in it ends that room
+and their editors rejoin at the new path. Nothing is lost: nothing in a room is
+the only copy of anything.
+
+**A group-scoped note has no room at all.** `canSee` is called without granted
+groups, so to this route a group note is private. The narrow answer rather than
+the clever one: a roster is a live signal about who is reading what, and the
+first version of it should under-share.
+
+The simplification to resist is letting the room hold the document "just for the
+session" — it is the shortest path to real co-editing and it converts every
+sentence above into a different product. That is Phase 2, below, and it says
+which of these properties it spent. The tests that fail if the Phase 1
+properties are reversed are in `apps/mcp/test/presence.test.mjs`: "a cursor
+frame carries offsets and nothing else", "another workspace's token addresses
+its own room, never the first's", "a private note and a missing note refuse
+identically" and "a client's own member header is overwritten, not honoured".
+
+### An agent asks for a link and is handed the URL, never the token
+
+Decided 2026-09-20, with short links, and it is the smaller half of the same
+complaint: the console has had share links since the beginning and nothing in
+the MCP surface could mint one. An agent asked for "a link to send them" had
+two options and took the wrong one — it wrote a URL out of the path it was
+holding. **A guessed URL is worse than no URL**: it looks right, it gets
+pasted, and it opens nothing.
+
+`create_link`, `list_links` and `revoke_link` close that, and the shape is
+chosen so nothing downstream ever assembles an address.
+
+- **The control plane builds the URL**, from the same `@context/shared`
+  function the console's Copy link uses. That function moved out of the app
+  into the package for this: two builders are two opinions about what a share
+  link looks like, and the one that drifts is the one nobody pastes and
+  notices. The edge router keeps its own *parser*, which it always had, held to
+  `shareSegment.fixtures.json`.
+- **The token is not in the answer.** `describeLink` prints the URL, the short
+  URL, what it opens, the audience and the share id. An agent that could see a
+  token could assemble an address, which is the thing being removed — and the
+  gateway test asserts the absence rather than trusting the description.
+- **`APP_ORIGIN` unset answers with the path and no URL.** A self-hosted
+  deployment that has not said where it is served from cannot be handed one,
+  and inventing an origin would send somebody's colleague to a domain we
+  picked. The tool says so instead of guessing.
+- **The clearance is the one queued work already passes.**
+  `gatewayOwnerClearance` wants `owner`, `context:write` and `context:private`
+  off a live grant, and `ownerClearanceForGateway` hands back the acting
+  identity so the audit row says who minted. Two predicates for one sentence —
+  "this person may act as owner of this context through an agent" — is how one
+  of them ends up laxer.
+- **The three tools are `PRIVATE_TIER_ONLY_TOOLS`.** The control plane refuses
+  a team-tier grant anyway; this is the listing half of the same answer, so an
+  agent does not spend a turn discovering it. The test that proves it needs a
+  grant that *writes* and reads at team tier — a member is filtered by write
+  scope and would pass whatever this set said.
+
+**`mintTeamShare` and `mintUnlistedLink` were extracted, and the split is auth
+from work.** The public mutation and action resolve a browser session; the
+gateway's routes resolve an access token; both arrive having proved `owner`,
+and the minting — supersession, capacity, the courtesy visibility check, the
+encryption refusal, the audit line, the card render — is written once. Each
+takes `actorUserId` and never reads a session, which is what makes it safe to
+share: an identity a function is *given* is one its caller had to establish.
+
+**One listing call now starts with `list`, and `tenancy.test.mjs` had to be
+told.** That file forbids a control-plane client method matching
+`^(list|all|enumerate|search|find)` — structurally, so bulk extraction is
+impossible rather than merely uncalled. `listLinks` enumerates within **one**
+workspace, the one the presented token resolves to, which is `getStorageBinding`'s
+shape and not what the rule is about. So it is exempted by name and held to the
+stronger property instead: it cannot be called without naming a context.
+
+## Phase 2: the room carries the document, and what that spends
+
+Carets alone made the collision *visible* and no less painful — you watched
+somebody type into the paragraph you were editing and then you both got a
+conflict. So the room now relays edits, and two people in a note merge instead
+of colliding. This is the property being bought, and it is worth saying plainly
+what it costs, because Phase 1's headline sentence was "the room holds no note
+text".
+
+**Yjs, over the protocol Yjs already has.** The first version of this was a
+hand-rolled exchange in which every client sent its whole document on connect
+and the room replaced its history with what arrived — so the second person to
+open a note replaced the first person's work with their own empty document, and
+the elected writer flushed that emptiness to the bucket. It is the worst bug
+this feature has had and it was introduced as a fix for a smaller one. What
+replaced it is `y-protocols/sync`: a client announces a state *vector* (what it
+already has), anybody holding more answers with exactly the difference, and an
+empty document has nothing to send that could delete anything. Convergence is
+the CRDT's, not ours.
+
+**The gateway still decodes nothing, and still has zero dependencies.** Updates
+are opaque base64 in and opaque base64 out; the room checks shape and size and
+relays. `apps/mcp` imports no Yjs and no npm package at all — the merge runs in
+the clients, which is also what keeps a self-hosted gateway a plain Worker.
+
+**Three decisions belong to the room, because no client can make them.**
+Everything a client could get wrong about a room, it has: each of these was a
+bug first.
+
+- *Who seeds the document.* A note starts as text in a bucket and exactly one
+  client must put it there — two and the note contains itself twice, none and
+  the shared document starts empty and gets saved over the customer's note. The
+  client used to ask whether the roster in its own welcome was empty, and a
+  welcome's roster always contains the member it was sent to. So `welcome.seed`
+  is the room's answer, and the room is the only party holding both halves of
+  it: whether anybody else is seated, and whether the replay it is about to
+  send already carries the text.
+- *Who saves.* One member flushes the merged text to the bucket on a debounce;
+  the rest do not save at all. The election is the lowest member id **among the
+  members the room would accept an edit from** — so the roster carries write
+  authority, resolved from each caller's grant by the route. Without that half
+  a room whose lowest id belonged to a read-only viewer elected that viewer,
+  and then nobody saved.
+- *Who merges a write that came from outside.* See external edits, below.
+
+**Write authority is checked on the frame, by the server.** Opening the socket
+needs read — you have to see a note to watch somebody edit it — and changing it
+needs write. A `member` of a shared context holds exactly the first, so their
+edit frames are dropped by the room rather than trusted and relayed. That is
+non-negotiable #4 on this channel, and "a read-only member's edit never reaches
+anybody else" is demonstrated in two real browsers, not only asserted.
+
+Asking is not editing, and has its own frame **in both directions**. A state
+vector goes up as `ask` rather than as an edit: it is relayed to peers, never
+written to the log, and needs no write authority — so a read-only member can
+ask what the note says rather than depending on whatever the log happens to
+still hold.
+
+**The room relays it as an `ask`, and that is a security boundary rather than
+tidiness.** It first relayed it as a `y`, on the reasoning that a peer reads
+both with the protocol's own reader — which is exactly the problem: that reader
+chooses between *answering* and *applying* on a type byte inside the payload,
+and the payload comes from the sender. So an `ask` carrying an ordinary update
+was an edit by the member the write gate had refused one line earlier, applied
+by every peer and flushed to the bucket by the elected writer. Every individual
+decision was right; the defect lived in the seam, where the relay erased the
+distinction.
+
+The gateway cannot narrow it and must not try: it holds no Yjs, the bytes are
+opaque by design, and teaching it to parse them is the change this whole
+feature exists to avoid. Keeping the *type* end to end is what lets the client
+tell them apart — an `ask` is read by `answerStateVector`, which can only ever
+produce an answer and never touches the document. Demonstrated in two browsers,
+with the old relay put back to prove the check is not vacuous.
+
+### Temporary state, durable recovery, and the bucket
+
+Four things hold a note, and their order matters:
+
+1. **The bucket is canonical.** Markdown in the customer's own storage, exactly
+   as before. Nothing below is ever the only copy of anything.
+2. **The shared document is live state**, in each client's memory, converging
+   over the socket. It exists while somebody has the note open.
+3. **The room's log is durable recovery, and the shortest-lived copy in the
+   system.** Durable Object storage holds the updates the room relayed, so
+   somebody joining mid-sentence lands on the text everybody else can see and a
+   hibernated room does not lose ten minutes of typing. It is append-only —
+   nothing but a confirmed checkpoint deletes from it — and it is deleted
+   outright when the last person leaves. **This is the one place note content is
+   durable outside the customer's bucket**, it is a derivative under
+   non-negotiable #3's terms rather than an exception to them, and the retention
+   policy is code (`dropLogIfEmpty`) rather than a sentence.
+4. **The elected writer flushes** the merged text back to the bucket on a
+   debounce and on ⌘S, as an ordinary conditional write.
+
+### External edits
+
+An MCP client writing a note somebody has open is the case this product is for:
+the agent that saves what a session decided, into a note somebody is reading.
+After the write lands in the bucket, the gateway tells that note's room, and
+**one** member merges it into the shared document — every client merging the
+same text would insert those characters once per client, because each copy
+generates its own operations for them. The room picks the merger the same way
+it picks a seeder: the lowest id among the members it would accept an edit
+from. The merge is a prefix/suffix diff, so a write that appended a paragraph
+is an insert rather than a whole-document replace, and carets and in-flight
+typing survive it.
+
+The notice carries the new etag, and the merging client adopts it — otherwise
+its next save is a conflict raised about a change already present in the text
+being saved, which is the exact experience this feature exists to remove.
+
+**The text goes to one member; the version goes to all of them.** Two facts
+with two different audiences: only one client may merge, or the characters
+arrive once per client, but every client's *next* save is a conditional write
+against the bucket, and the bucket has just moved.
+
+**A save made in the console is announced by the client, because nothing else
+would.** A console save goes through the control plane's own file operation,
+not through the gateway's `write_note`, so the room never hears about it —
+every other member keeps the etag their editor opened with, and the moment the
+person who was saving leaves, the next one elected writes against a version two
+edits old and gets the conflict box. The `saved` frame carries an etag and
+nothing else, is gated on write authority (a member who cannot write cannot
+have saved, and a peer able to name an arbitrary version could make everybody
+else's next save overwrite one they never saw), and is never logged. It is the
+only frame that travels because of something the *control plane* did.
+
+None of it is a guarantee. A room nobody is in drops the notice; a room in
+which nobody may write has nobody who can merge and drops it too. Those clients
+see the write at their next reconnect, within the five-minute reauthorization
+window. The bucket had the change before the room heard about it.
+
+**A tool's write reaches a canvas too, by being parsed back into elements.**
+`write_note` has one shape — a file — so a `.excalidraw.md` arrives as text. The
+client the room asked to merge parses it and hands the elements on exactly like
+a peer's change, and reconciliation by element version makes the result the
+same on every screen. Before this the canvas adopted the version and showed
+none of it: the etag moved, the drawing did not, and the next save wrote the
+old shapes over the agent's.
+
+**The tool is a member of the room while it is writing, and then it is not.**
+Watching an agent work was the point: text appearing from nowhere is a
+notification, and a named caret moving through a paragraph is somebody
+working. A tool holds no socket and never will, so it is announced as an
+ordinary roster entry — join, cursor, leave all work unchanged — with an id
+the room mints by prefixing a digest of the caller's client id, never the
+control plane's own identifier, and a name off the caller's grant. It is
+never elected to save, because the election runs over members the room would
+accept an edit from and this one has no socket to accept anything from. It
+lives in the object's memory rather than its storage: this is who is typing
+*right now*, and a room that hibernates between the write and the caret
+losing the caret is the correct amount of wrong. Nothing will ever send a
+`leave` for it, so each client takes it down on the same idle clock the room
+uses for a member who stopped speaking.
+
+**Its caret is reported by the client that merged the write, and named by the
+room.** That client is the only party that knows where the change landed — the
+diff is its own — so it sends the position with one boolean saying *this one is
+the agent's*. It cannot say **which** member: the room supplies the id from the
+write it just relayed. A client able to name the member would be able to move
+any caret in the room, which is the spoof `admit` exists to prevent arriving
+through the back door. The same bargain carries a pointer on a canvas, where
+the position comes from the most recently `updated` element in the scene rather
+than from a diff, because a tool writes a whole file and there is nothing to
+diff against. **And it lapses with the write it described**: a client may
+report a tool's caret only while that write is recent, on the same idle clock
+a member gets, because a boolean with no id is otherwise a frame any client can
+send hours later to point a tool's name at text the tool never wrote.
+
+**A write from a client already sitting in the room is somebody saving, not a
+tool arriving.** The console has no private save path — it writes through
+`write_note` like everything else, because that is the only shape there is — so
+without this rule, pressing ⌘S puts a robot wearing your own name beside your
+own caret, and another for every client that ever saved, since nothing takes
+one down but time. The socket carries the same opaque client digest the write
+does, and a match suppresses the announcement *and clears whatever tool the
+room was holding*: the caret about to be reported belongs to this write, and a
+previous tool left in place would be drawn at text a person wrote. Matched on
+the client rather than the member, because two tabs are two members of one
+client and either of them saving is still the same person.
+
+**And a tool's shapes are re-broadcast by that client, because on a canvas
+nothing else carries them.** A note's merge reaches the room by itself: it is
+an edit, and edits travel. Elements handed to one browser's Excalidraw go
+nowhere, so the second person on a shared canvas watched the tool's version
+arrive and saw none of its shapes. The merger puts them back on the wire as an
+ordinary `draw`, which is safe here and would not be safe for text:
+reconciliation is by element version, so applying the same element twice is the
+same drawing, while merging the same text twice is the text twice.
+
+**Edits made outside the product — Obsidian, rclone, an S3 client — are
+deliberately not covered.** There is no event to hang a notice on, and inventing
+one would mean polling the bucket. Those land the way they always have: the next
+read shows them, and a conflicting save raises a conflict.
+
+### A drawing merges by element, and by Excalidraw's own rules
+
+A `.excalidraw.md` file is Markdown wrapped around one enormous compressed
+payload. Merging two people's edits by merging that *file* as text — which is
+what the note path would do, since a drawing is a `.md` — produces a payload
+that is neither person's drawing and very likely nobody's: a corrupt scene,
+from a merge that reported success. So the unit that travels is the
+**element**. Notes merge as text because text is what they are; drawings merge
+as elements for the same reason.
+
+**The merge is `reconcileElements`, which Excalidraw ships and uses itself.**
+Every element carries `version` and `versionNonce`, and that function resolves
+them, including the fractional `index` that decides z-order. Writing our own
+would be rewriting a published, tested answer worse, and the failure mode of
+getting it slightly wrong is somebody's diagram quietly losing a shape. It runs
+in the editor page, because that is where Excalidraw is — the console relays
+elements and deliberately holds no second copy of the scene.
+
+**Deletion is an element update, which is why none of this needs a CRDT.**
+Excalidraw does not remove a deleted element; it sets `isDeleted` and bumps the
+version. "Somebody deleted the shape I was resizing" is therefore an ordinary
+version race with an ordinary answer, and there are no tombstones to keep and
+no deletes to order against edits.
+
+**Undo takes back your own work, and the page is told so.** Excalidraw's
+history skips entries whose elements somebody else has since changed — but only
+when it knows it is in a collaborative scene, so `isCollaborating` is passed
+rather than inferred, and is false when nobody else is there so a person
+drawing alone gets the undo they expect.
+
+**Three frames, three different rules.** `draw` carries changed elements: it is
+logged and needs write authority, exactly like an edit to a note. `drawsnap`
+carries the whole scene when the room asks for a compaction. `pointer` carries
+two scene coordinates and the ids somebody has selected: never logged, because
+a mouse position replays as nothing, and never gated on write, because watching
+somebody draw is the case presence exists for. What a client sends is the
+*delta* — Excalidraw reports a change per animation frame per element, so
+sending the scene each time would fill the room's log with a thousand copies of
+one rectangle.
+
+**The file stays portable and the attachments stay in it.** A save is still
+`serializeDrawing` splicing elements into the bytes the console holds —
+frontmatter, element links, the `files` map with its embedded images, and any
+key a future Excalidraw version adds, all carried through untouched. The
+collaboration never produces a file body; the page never sees one.
+
+**What two browsers found here, and no suite did.** The room replays its log
+the instant a socket opens, which on a canvas is seconds before an 2.4MB editor
+page has booted — and a `postMessage` into a frame with no listener yet is gone
+rather than queued. The replay is the drawing everybody else can already see,
+so losing it meant the second person to open a shared canvas found it blank
+until somebody drew something new. Messages are now held until the page says
+`ready` and until Excalidraw has handed over its API, and flushed in order.
+`drawingEditor.test.ts` holds the regression.
+
+### What this is verified by, and what that is worth
+
+The unit suites run offline against stubs: `apps/mcp/test/presence.test.mjs`
+covers the room, the route and the frame grammar, including a fake of the
+Durable Object runtime so the `welcome` frame itself is under test;
+`apps/mobile/__tests__/presenceContract.test.ts` runs frames between the
+gateway's real module and the client's real module, because every other test on
+either side passes with a stub of the other.
+
+That is not enough, and this feature is the proof: the seeding bug survived a
+full green suite in both halves and died to two browsers in under a second.
+`apps/mcp/test/browser/verify.mjs` drives two Chromium contexts against
+`wrangler dev` running the real gateway with real Durable Objects, over real
+WebSockets, against a control plane served over real HTTP, with the note and
+its folder rule created through the product's own MCP tools. It is run by hand
+rather than in CI — it needs a Worker runtime and a browser — and results from
+it are reported as what they are: a live demonstration, distinct from a suite.
+
+`apps/mcp/test/browser/verifyDrawing.mjs` is the same thing for a canvas, and
+loads **the real editor** — the built artifact, Excalidraw and all — in both
+browsers, drawing with real mouse and keyboard rather than injecting elements
+through an API. It needs `node scripts/build-drawing-editor.mjs` first.
+
+The simplification to resist now is trusting the suites. A property of this
+feature that has not been watched happen in two windows is not known to hold.

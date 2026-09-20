@@ -173,6 +173,174 @@ describe("right-click", () => {
 
     expect(event.defaultPrevented).toBe(true);
   });
+
+  /**
+   * The escape hatch, and the reason it is worth one conditional.
+   *
+   * This is a web app people self-host and debug. A console that swallows
+   * `contextmenu` unconditionally has taken Inspect, View Source and "Copy
+   * image" away from everybody who needs them, with no way to ask for them
+   * back — the browser's menu is reachable by no other gesture. Shift is the
+   * modifier VS Code and Figma use for exactly this, so it is the one somebody
+   * is most likely to already know.
+   *
+   * Ours must also *not* open: two menus racing for one gesture is worse than
+   * either alone.
+   */
+  test("shift hands the gesture back to the browser", () => {
+    const seen: string[] = [];
+    const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+    });
+
+    act(() => {
+      tree.rowFor("plan.md").dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(seen).toEqual([]);
+  });
+
+  test("and every other modifier still opens ours", () => {
+    // Only shift. ⌘/ctrl-right-click is a selection gesture on some platforms
+    // and alt is the copy modifier for drags; neither is a request for the
+    // browser's menu, and treating one as such would make the app's own menu
+    // unreachable for somebody holding a key out of habit.
+    for (const modifier of ["metaKey", "ctrlKey", "altKey"] as const) {
+      const seen: string[] = [];
+      const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        [modifier]: true,
+      });
+
+      act(() => {
+        tree.rowFor("plan.md").dispatchEvent(event);
+      });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(seen).toEqual(["1-projects/plan.md"]);
+    }
+  });
+});
+
+describe("the keyboard opens the same menu", () => {
+  /**
+   * A context menu reachable only by mouse makes every verb it holds
+   * mouse-only, and several of them have no chord at all — "Copy @path",
+   * "Share…", the whole Visibility submenu. So the two keys the platform
+   * already means this by, `Shift+F10` and the dedicated Menu key, open it.
+   *
+   * The anchor is the **row**, not the last pointer position. A menu that
+   * opened where the mouse happens to be sitting, for somebody who is not using
+   * the mouse, is a menu in the wrong place — and on the wrong row, since the
+   * pointer may be resting over a different one entirely.
+   */
+  const ROW_BOX = { left: 40, top: 200, bottom: 228, right: 300 };
+
+  function withBox(node: HTMLElement) {
+    node.getBoundingClientRect = () =>
+      ({ ...ROW_BOX, width: 260, height: 28, x: ROW_BOX.left, y: ROW_BOX.top }) as DOMRect;
+  }
+
+  test("Shift+F10 on a focused row opens its menu", () => {
+    const seen: string[] = [];
+    const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+    const row = tree.rowFor("plan.md");
+    withBox(row);
+
+    act(() => {
+      row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(seen).toEqual(["1-projects/plan.md"]);
+  });
+
+  test("the dedicated Menu key does too", () => {
+    const seen: string[] = [];
+    const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+    const row = tree.rowFor("plan.md");
+    withBox(row);
+
+    act(() => {
+      row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(seen).toEqual(["1-projects/plan.md"]);
+  });
+
+  test("it anchors under the row, not wherever the pointer was left", () => {
+    let anchor: { x: number; y: number } | null = null;
+    const tree = mountTree({ onMenu: (_r, a) => (anchor = a), drag: DRAG });
+    const row = tree.rowFor("plan.md");
+    withBox(row);
+
+    act(() => {
+      row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(anchor).toEqual({ x: ROW_BOX.left, y: ROW_BOX.bottom });
+  });
+
+  test("and the browser's own key handling is suppressed", () => {
+    const tree = mountTree({ onMenu: () => {}, drag: DRAG });
+    const row = tree.rowFor("plan.md");
+    withBox(row);
+    const event = new KeyboardEvent("keydown", {
+      key: "F10",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    act(() => {
+      row.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  test("a bare F10 is not it, and is left to the browser", () => {
+    const seen: string[] = [];
+    const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+    const row = tree.rowFor("plan.md");
+    withBox(row);
+    const event = new KeyboardEvent("keydown", { key: "F10", bubbles: true, cancelable: true });
+
+    act(() => {
+      row.dispatchEvent(event);
+    });
+
+    expect(seen).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("a row with no menu is left alone, as with the pointer", () => {
+    const tree = mountTree({ drag: DRAG });
+    const row = tree.rowFor("plan.md");
+    withBox(row);
+    const event = new KeyboardEvent("keydown", {
+      key: "ContextMenu",
+      bubbles: true,
+      cancelable: true,
+    });
+
+    act(() => {
+      row.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+  });
 });
 
 describe("what may be picked up", () => {

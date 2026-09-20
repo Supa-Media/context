@@ -93,6 +93,8 @@ export interface Reconciled {
   contextId: string;
   note: string | null;
   selected: string | null;
+  /** `FileBrowser.navigations` when this pair was reconciled. */
+  navigations: number;
 }
 
 export interface AddressInputs {
@@ -124,6 +126,15 @@ export interface AddressInputs {
   note: string | null;
   /** What the file browser has open — a note or a folder, or nothing. */
   selected: string | null;
+  /**
+   * `FileBrowser.navigations` — how many times `select` has moved it.
+   *
+   * The one thing that tells a navigation from a correction when the selection
+   * has changed. Compared against the value reconciled last: higher means
+   * somebody went somewhere, unchanged means the path under them moved. See
+   * the `address` step.
+   */
+  navigations: number;
   seen: Reconciled | null;
 }
 
@@ -132,8 +143,22 @@ export type AddressStep =
   | { action: "wait" }
   /** The URL named a note. Open it. */
   | { action: "open"; path: string }
-  /** The selection moved. Put it in the URL — `null` clears `?note=`. */
-  | { action: "address"; note: string | null }
+  /**
+   * The selection moved. Put it in the URL — `null` clears `?note=`.
+   *
+   * `mode` is what the **browser's own back button** turns on, and it is the
+   * difference between an address bar that is a log of where somebody has been
+   * and one that is a label on the current screen:
+   *
+   *  - `"push"` — they navigated. A new entry, so the browser's back returns
+   *    to the note they left.
+   *  - `"replace"` — nothing was navigated to and the address is catching up:
+   *    the open note was renamed under them, the last tab closed, or a `select`
+   *    the unsaved-draft guard refused has to be put back. Pushing any of
+   *    those would leave an entry for a place nobody chose — and a rename
+   *    would leave one naming a path that no longer exists.
+   */
+  | { action: "address"; note: string | null; mode: "push" | "replace" }
   /**
    * The URL dropped its note. Close the open one and stand at the root.
    *
@@ -145,7 +170,7 @@ export type AddressStep =
   | { action: "hold" };
 
 export function nextAddressStep(inputs: AddressInputs): AddressStep {
-  const { contextId, selectedContextId, urlContextId, note, selected, seen } = inputs;
+  const { contextId, selectedContextId, urlContextId, note, selected, navigations, seen } = inputs;
   if (selectedContextId === null) return { action: "wait" };
   if (contextId !== selectedContextId) return { action: "wait" };
   /*
@@ -166,14 +191,41 @@ export function nextAddressStep(inputs: AddressInputs): AddressStep {
   if (note === selected) return { action: "hold" };
 
   /*
-    A context this rule has not reconciled yet — a cold load, or the first
-    commit after switching contexts. The URL is the instruction: it is the only
-    thing that survived getting here, and the selection is empty by
-    construction (the browser clears it when the workspace changes).
+    A context this rule has not reconciled yet — a cold load, the first
+    commit after switching contexts, or a route that remounted under a
+    browser that did not. The URL is the instruction: it is the only thing
+    that survived getting here.
+
+    **`selected` is empty by construction only for the first two.**
+    `useFileBrowser` clears `selectedPath` in the very same commit it adopts
+    a new `contextId` (its context-reset effect sets both), so a genuinely
+    fresh instance's first non-`wait` commit always pairs "the URL has
+    nothing" with "neither does the browser" — and that pair is `hold`,
+    above, before this line ever runs. So reaching here with `note === null`
+    means `selected` cannot be `null` too (ruled out by the same `hold`) and
+    cannot be a value *this* instance produced (it has produced nothing yet):
+    it is the browser's, surviving from before `seen` was wiped.
+
+    That is exactly what a route remount looks like from in here.
+    `ConsoleDataProvider` and `FileBrowser` live above the route and do not
+    remount with it, so `files.selectedPath` is still whatever was open while
+    this hook's own `seen` ref resets to `null`. The shipped fix for "the lit
+    pill does nothing" first read as `router.replace(browseHref(slug))`,
+    which is a `REPLACE` action — and `StackRouter` mints a fresh route key
+    for every `REPLACE` regardless of whether the params it carries actually
+    differ, remounting the very hook trying to close the note. Answering
+    `address` here re-opened the note it was told to close. The call site is
+    fixed (`_layout.tsx` deselects directly and never asks the router to
+    revisit this route), but the rule itself no longer trusts an assumption
+    its own caller once violated: whatever remounted it, the URL's silence is
+    still the instruction, and a leftover selection is answered by closing it
+    rather than by re-minting an address for it. See
+    `docs/decisions/app-and-console.md`, "the first fix did not hold".
   */
   const fresh = seen === null || seen.contextId !== contextId;
   if (fresh) {
-    return note === null ? { action: "address", note: selected } : { action: "open", path: note };
+    if (note === null) return { action: "close" };
+    return { action: "open", path: note };
   }
 
   /*
@@ -185,5 +237,16 @@ export function nextAddressStep(inputs: AddressInputs): AddressStep {
   if (note !== seen.note) {
     return note === null ? { action: "close" } : { action: "open", path: note };
   }
-  return { action: "address", note: selected };
+  /*
+    The selection moved under an unchanged URL, and the *reason* decides what
+    the address bar does about it — see the `address` step. A `select` that ran
+    since the last reconcile is somebody going somewhere; the same selection
+    change with no `select` behind it is the open note's own path moving, which
+    is a rename and is nobody going anywhere.
+  */
+  return {
+    action: "address",
+    note: selected,
+    mode: navigations === seen.navigations ? "replace" : "push",
+  };
 }

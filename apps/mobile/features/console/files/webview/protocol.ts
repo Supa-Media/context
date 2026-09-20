@@ -91,7 +91,23 @@ export type EditorCommand =
    * dismiss key has to work on a note somebody is only reading, and it is the
    * one control on the bar that must never be the one that is refused.
    */
-  | { name: "blur" };
+  | { name: "blur" }
+  /**
+   * A phrase that a speech engine has stopped revising, at the caret.
+   *
+   * The seventh verb, and it clears the bar the list above sets — "everything
+   * here is something the accessory bar actually does" generalises to *a
+   * control in the app does this*, and the voice button does. It is here
+   * rather than as a web-only method for the same reason `wrap` is: the
+   * *joining* rule (when a dictated phrase needs a space in front of it) must
+   * not be written twice, and `runCommand` is the one place both surfaces run.
+   *
+   * What is deliberately **not** a command is the unsettled guess. That is a
+   * decoration over the document rather than a change to it, so it has no
+   * business in a protocol whose every other member is an edit — see
+   * `EditorControls.showInterim`.
+   */
+  | { name: "dictate"; text: string };
 
 /**
  * Read a command off the wire.
@@ -120,6 +136,9 @@ export function decodeCommand(value: unknown): EditorCommand | null {
       return { name: "redo" };
     case "blur":
       return { name: "blur" };
+    case "dictate":
+      if (typeof (command as { text?: unknown }).text !== "string") return null;
+      return { name: "dictate", text: (command as { text: string }).text };
     default:
       return null;
   }
@@ -189,7 +208,97 @@ export type ToGuest =
    * `decodeCommand`, because the guest is a separate bundle that can be paired
    * with a host it does not know.
    */
-  | { v: number; type: "command"; command: EditorCommand };
+  | { v: number; type: "command"; command: EditorCommand }
+  /**
+   * The answer to one `form-submit`, matched to it by `token`.
+   *
+   * A request/reply pair on this protocol, and the token is what makes it one:
+   * most other messages are facts one side tells the other, and a fact needs
+   * no correlation. Two forms on a note can be in flight at once —
+   * they are separate widgets with separate buttons — so "the last reply is
+   * for the last request" is not true here, and the reply carries the id of
+   * the request rather than the guest assuming.
+   *
+   * `ok` decides how the message is drawn and nothing else. The host phrases
+   * both outcomes, because the words for a refusal come from the server that
+   * refused and the guest has no better one to offer.
+   */
+  /**
+   * Whether a plugin can be asked for in-editor suggestions **right now**.
+   *
+   * A fact rather than a request, and the only one of these the guest cannot
+   * work out for itself: the plugins run on the host side, in their own
+   * sandboxes, and the guest has never heard of them.
+   *
+   * It exists so that the ordinary case costs nothing. Without it the guest
+   * would have to ask on every completion — which CodeMirror runs on every
+   * keystroke — and get an empty list back across the bridge, forever, on every
+   * note on every surface with no plugin running. With it, `pluginSuggest`'s
+   * source answers `null` without sending anything, which is what the web half
+   * does when it was handed no callback.
+   *
+   * Sent whenever it changes and resent on `ready`, like every other piece of
+   * desired state: a plugin started after the note was opened is the case this
+   * whole path exists for, and a `WebView` can reload underneath us.
+   */
+  | { v: number; type: "suggest"; available: boolean }
+  /**
+   * The answer to one `suggest-ask`, matched to it by `token`.
+   *
+   * `items` is typed here and still checked by the guest, for the reason
+   * `decodeCommand` gives: this is the host's own message, but the guest is a
+   * separate bundle that can be paired with a host it does not know, and what
+   * arrives becomes a list somebody picks from.
+   */
+  | {
+      v: number;
+      type: "suggest-result";
+      token: string;
+      items: ReadonlyArray<{ text: string }>;
+    }
+  /**
+   * The answer to one `suggest-pick`: the line as the plugin rewrote it, or
+   * `null` when nothing answered.
+   *
+   * **This one becomes an edit**, which is why the guest checks its type rather
+   * than trusting the declaration above. A `text` that arrived as an object
+   * would be inserted into somebody's note as `[object Object]` — the same
+   * failure `decodeCommand` exists to prevent for a `wrap`.
+   */
+  | { v: number; type: "suggest-pick-result"; token: string; text: string | null }
+  /**
+   * The bytes behind one image, as a `data:` URL, or `null` when there are none.
+   *
+   * A data URL rather than a path or an `http` address, and that is the whole
+   * design of this pair: the guest is a document with no credentials and no
+   * business making a request, and a URL it could fetch would be a URL a note
+   * could name. The host reads the bucket — through the action that checks who
+   * is asking — and hands over the bytes it already holds.
+   *
+   * Big, and knowingly so: base64 inflates by a third, so a 2MB screenshot
+   * crosses as ~2.7MB of string. The alternative is a local HTTP server or a
+   * custom scheme handler inside the `WebView`, which is a second surface to
+   * secure for a picture in a note. If this becomes a problem it is a
+   * measurement, not a guess: the store already caps one image at 5MB.
+   */
+  | { v: number; type: "image-loaded"; token: string; src: string | null }
+  /** The key a stored image landed at, or why it was refused. */
+  | {
+      v: number;
+      type: "image-stored";
+      token: string;
+      target?: string;
+      error?: string;
+    }
+  | { v: number; type: "form-result"; token: string; ok: boolean; message: string }
+  | {
+      v: number;
+      type: "form-responses-result";
+      token: string;
+      ok: boolean;
+      text?: string;
+      message: string;
+    };
 
 /** Guest → host. */
 export type ToHost =
@@ -200,18 +309,21 @@ export type ToHost =
   /** `Mod-s`, which only a hardware keyboard can produce on iOS. */
   | { v: number; type: "save" }
   /**
-   * A link to another note was followed with the modifier held. Navigate.
-   */
-  | { v: number; type: "open-link"; path: string }
-  /**
-   * A link to another note was long-pressed. **Ask, do not navigate.**
+   * A link to another note was followed. Open it.
    *
-   * A press is an ambiguous gesture — it is also how somebody starts a
-   * selection — and acting on one by replacing the note being edited is the
-   * worst available reading of it. The host puts a confirmation in front of the
-   * person; see `noteLinks.ts`.
+   * `mode` is the *gesture's* answer, not the destination's: `"foreground"` is
+   * a click or a tap and goes there, `"background"` is a ⌘-click or a
+   * middle-click and opens the note behind the one on screen. The host decides
+   * what "behind" means — a tab on a pointer, and nothing at all on a phone,
+   * where there is no strip to put one in.
+   *
+   * **This replaced a `press-link` message**, which a long press sent and the
+   * host answered with a confirmation dialog. The dialog existed because a
+   * press is also how a selection starts, so acting on one would have thrown
+   * away the note being edited on an ambiguous gesture. A tap is not
+   * ambiguous, so both the message and the dialog are gone; see `noteLinks.ts`.
    */
-  | { v: number; type: "press-link"; path: string }
+  | { v: number; type: "open-link"; path: string; mode: "foreground" | "background" }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
   /**
@@ -250,7 +362,97 @@ export type ToHost =
    */
   | { v: number; type: "caret"; top: number; bottom: number }
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
-  | { v: number; type: "failed"; message: string };
+  | { v: number; type: "failed"; message: string }
+  /**
+   * Somebody filled in a ```form block and pressed Submit.
+   *
+   * The values have already passed `validateSubmission` inside the guest, with
+   * the same function the control plane will check them with — so this is a
+   * well-formed submission rather than raw input. That is a courtesy and never
+   * the guard: the host does not re-check it either, because the **server**
+   * does, behind the credential barrier, where a caller that never loaded the
+   * guest still meets it.
+   *
+   * No `path`. The note this lands on is the one the host has open, and a
+   * message that could name a different one would be a WebView — the least
+   * trusted thing in this app — choosing which file a write touches.
+   */
+  /**
+   * Ask the running plugins what they would offer here.
+   *
+   * `line` is the text of the caret's line **up to the caret**, and `ch` is how
+   * far along it the caret is. Not the whole line and not the document: the
+   * sandbox is asked the least that lets it answer, and `pluginSuggest.ts`
+   * carries the argument for why the range a pick then writes is that same
+   * prefix rather than the whole line.
+   *
+   * A request/reply pair like `form-submit`, and a token for the same reason:
+   * the answer comes from a sandbox with its own timeout, so "the last reply is
+   * for the last request" is not a property this side can rely on.
+   */
+  | { v: number; type: "suggest-ask"; token: string; line: string; ch: number }
+  /**
+   * Somebody picked the suggestion at `index` in the list the last `suggest-ask`
+   * answered with.
+   *
+   * An index rather than the text, because the plugin's `selectSuggestion` is
+   * what produces the replacement and it is entitled to produce something other
+   * than the label it showed. The host routes it back to whichever plugin
+   * offered that list; see `applySuggestion`.
+   */
+  | { v: number; type: "suggest-pick"; token: string; index: number }
+  | {
+      v: number;
+      type: "form-submit";
+      token: string;
+      formId: string;
+      values: ReadonlyArray<{ field: string; value: string }>;
+    }
+  | { v: number; type: "form-responses"; token: string; responsesPath: string }
+  /**
+   * Ask the host for the bytes behind an image this note embeds.
+   *
+   * A request/reply pair like `form-submit`, with a token for the same reason: a
+   * note can hold several images and they load at once, so "the last reply is
+   * for the last request" is not true here.
+   */
+  | { v: number; type: "image-load"; token: string; target: string }
+  /**
+   * Store a pasted image. `bytes` is base64 — JSON is the only thing this
+   * bridge carries, and a `Uint8Array` through `JSON.stringify` is an object
+   * with numeric keys, which is the encoding bug this comment exists to prevent
+   * somebody rediscovering.
+   */
+  | {
+      v: number;
+      type: "image-store";
+      token: string;
+      bytes: string;
+      contentType: string;
+    }
+  | {
+      v: number;
+      type: "form-vote";
+      token: string;
+      formId: string;
+      responseId: string;
+      vote: "up" | "none";
+    }
+  | {
+      v: number;
+      type: "form-update";
+      token: string;
+      formId: string;
+      responseId: string;
+      values: ReadonlyArray<{ field: string; value: string }>;
+    }
+  | {
+      v: number;
+      type: "form-retract";
+      token: string;
+      formId: string;
+      responseId: string;
+    };
 
 export function encode(message: ToGuest | ToHost): string {
   return JSON.stringify(message);
@@ -292,6 +494,13 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "inset",
   "command",
   "links",
+  "form-result",
+  "form-responses-result",
+  "suggest",
+  "suggest-result",
+  "suggest-pick-result",
+  "image-loaded",
+  "image-stored",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
@@ -303,7 +512,15 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "caret",
   "failed",
   "open-link",
-  "press-link",
+  "form-submit",
+  "form-responses",
+  "form-vote",
+  "form-update",
+  "form-retract",
+  "suggest-ask",
+  "suggest-pick",
+  "image-load",
+  "image-store",
 ] as const);
 
 /**

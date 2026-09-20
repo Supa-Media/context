@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
 import { Linking, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { Button, PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import {
+  clamp,
+  fonts,
+  layout,
+  leading,
+  pointerType as t,
+  radii,
+  space,
+  tracking,
+} from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { ScreenScroll } from "../app/Screen";
 import { landingCtaHref, landingCtaLabel } from "../auth/redirect";
@@ -21,10 +30,38 @@ import {
   type ConsoleRoute,
 } from "../console/nav";
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
-import { ConsoleHalo, StageBackdrop } from "../design/components/StageBackdrop";
-import { FloatingTiles } from "./FloatingTiles";
+import { StageBackdrop } from "../design/components/StageBackdrop";
 import { ContinuityDemo } from "./ContinuityDemo";
+import { HeroWindow } from "./HeroWindow";
+import { Pricing } from "./Pricing";
+import { Sections } from "./Sections";
+import {
+  ALSO_ON_PHONE,
+  ARCHITECTURE_CTA,
+  NAV_ARCHITECTURE,
+  NAV_GITHUB,
+  NAV_SIGN_IN,
+  NAV_START,
+  DEMO_FOOT,
+  FOOT_LICENCE,
+  HERO_ALSO,
+  HERO_LINE_ONE,
+  HERO_LINE_TWO,
+  HERO_SUB,
+  LICENCE_BADGE,
+  LICENCE_FOOT,
+  PROOF_EYEBROW,
+  PROOF_FOLDER,
+  PROOF_BODY,
+  PROOF_FOOT,
+  PROOF_TITLE,
+  PRIVACY_LINK,
+  STORE_ANDROID,
+  STORE_IOS,
+  TERMS_LINK,
+} from "./copy";
 import { heroHeadingWidth } from "./hero";
+import { densityFor } from "../app/frame";
 
 /** github.com/Supa-Media/context — the repo this page is built from. */
 const REPO_URL = "https://github.com/Supa-Media/context";
@@ -45,6 +82,13 @@ const ARCHITECTURE_URL = "https://github.com/Supa-Media/context#how-it-works";
 export function Landing() {
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
+  /*
+    One column, at the density that owns the word. `Landing-Phone.dc.html` is
+    the same page stacked, and `densityFor` is what the rest of the application
+    asks — a landing page inventing its own breakpoint is a second answer to
+    "what is a phone".
+  */
+  const phone = densityFor(width) === "compact";
   const router = useRouter();
   const auth = useConvexAuth();
   const demo = useDemoConsoleData();
@@ -69,15 +113,14 @@ export function Landing() {
 
   const heroSize = clamp(46, 7.6, 98, width);
   const subSize = clamp(16, 1.5, 19, width);
-  const showTiles = width >= layout.tileBreakpoint;
   const heroType = {
     fontSize: heroSize,
     lineHeight: leading(heroSize, 0.98),
     letterSpacing: tracking(heroSize, -0.035),
   };
-  // `max-width: 14ch`, resolved against Onest's actual "0" advance rather than
-  // guessed — see `hero.ts`. A flat pixel value cannot be right at both ends
-  // of a `clamp(46px, 7.6vw, 98px)` type scale.
+  // `max-width: 14ch`, resolved against the display face's measured "0"
+  // advance rather than a guessed one — see `hero.ts`. A flat pixel value
+  // cannot be right at both ends of a `clamp(46px, 7.6vw, 98px)` type scale.
   const heroWidth = { maxWidth: heroHeadingWidth(heroSize) };
 
   return (
@@ -90,18 +133,121 @@ export function Landing() {
     >
       <View style={styles.stage}>
         <StageBackdrop />
-        <FloatingTiles visible={showTiles} />
 
         <View style={styles.wrap}>
+          {/*
+            A NAVIGATION BAR, WHERE THERE WAS A WORDMARK AND A BADGE.
+
+            The canvas opens with one: a mark, a row of links, and the two
+            actions at the trailing edge. What was here was the wordmark alone
+            at the leading edge and the MIT badge at the trailing one — which
+            reads as a title bar rather than as a way around a site, and left
+            "sign in" reachable only by scrolling to a button in the middle of
+            the hero.
+
+            Two links, not the canvas's four. It draws Docs / Architecture /
+            Pricing / GitHub and only two of those have anywhere to go; a nav
+            with a `Docs` link and no docs is a worse page than one with two
+            links. See `copy.ts`.
+
+            The badge is not deleted — it moves into the hero as the eyebrow
+            the canvas draws there, which is where a licence claim belongs:
+            beside the sentence it qualifies rather than opposite the logo.
+          */}
           <View style={styles.top}>
-            <Text variant="mark">
-              Context
-              <Text variant="mark" style={styles.markSuffix}>
-                .lc
+            <View style={styles.navLead}>
+              <View style={styles.navMark} aria-hidden>
+                <View style={styles.navMarkRule} />
+                <View style={styles.navMarkRule} />
+                <View style={[styles.navMarkRule, styles.navMarkRuleShort]} />
+              </View>
+              <Text variant="mark">
+                Context
+                <Text variant="mark" style={styles.markSuffix}>
+                  .lc
+                </Text>
               </Text>
-            </Text>
+            </View>
+
+            <View style={styles.navLinks}>
+              <PressRow
+                accessibilityLabel={ARCHITECTURE_CTA}
+                role="link"
+                radius={radii.xs}
+                style={styles.navLink}
+                hoverStyle={styles.navLinkHover}
+                onPress={() => {
+                  void Linking.openURL(ARCHITECTURE_URL);
+                }}
+              >
+                <Text variant="navLink">{NAV_ARCHITECTURE}</Text>
+              </PressRow>
+              <PressRow
+                accessibilityLabel={LICENCE_BADGE}
+                role="link"
+                radius={radii.xs}
+                style={styles.navLink}
+                hoverStyle={styles.navLinkHover}
+                onPress={() => {
+                  void Linking.openURL(REPO_URL);
+                }}
+              >
+                <Text variant="navLink">{NAV_GITHUB}</Text>
+              </PressRow>
+            </View>
+
+            <View style={styles.navActions}>
+              <PressRow
+                accessibilityLabel={NAV_SIGN_IN}
+                role="link"
+                radius={radii.xs}
+                style={styles.navLink}
+                hoverStyle={styles.navLinkHover}
+                onPress={() => router.push(landingCtaHref(auth))}
+              >
+                <Text variant="navAction">{NAV_SIGN_IN}</Text>
+              </PressRow>
+              <Button
+                label={NAV_START}
+                variant="accent"
+                style={styles.navStart}
+                onPress={() => router.push(landingCtaHref(auth))}
+                testID="landing-nav-cta"
+              />
+            </View>
+          </View>
+
+          {/*
+            TWO COLUMNS, AND THE PRODUCT IS THE SECOND ONE.
+
+            `Landing-Hero.dc.html` puts the pitch on the left and an
+            application window on the right, running off the page's edge. This
+            page had the left column and empty space — so the hero asserted
+            things about a product a visitor could not see, with the live
+            console four screens down past a transcript.
+
+            `heroRow` wraps rather than breaking at a width: the window has a
+            `minWidth` and the text column has a measure, and below the sum of
+            those the two stack with the window underneath. One fewer place
+            that has to be told what a phone is.
+          */}
+          <View style={[styles.heroRow, phone && styles.heroRowPhone]}>
+          <View style={[styles.hero, phone && styles.heroPhone]}>
+            {/*
+              THE LICENCE CLAIM, BESIDE THE SENTENCE IT QUALIFIES.
+
+              It was a bordered badge opposite the wordmark, where it read as
+              chrome. The canvas puts an eyebrow pill at the head of the text
+              column — "MIT · self-hostable" with a live dot — because "you can
+              take this and run it yourself" is part of the pitch rather than a
+              fact about the header.
+
+              The same target as before: it opens the repository, and its
+              accessible name is still the whole sentence rather than the three
+              words drawn in it.
+            */}
             <PressRow
-              accessibilityLabel="Context is MIT licensed open source on GitHub"
+              accessibilityLabel={LICENCE_BADGE}
               role="link"
               radius={radii.pill}
               style={styles.badge}
@@ -110,17 +256,10 @@ export function Landing() {
                 void Linking.openURL(REPO_URL);
               }}
             >
-              <Text variant="badge" style={styles.badgeStar} aria-hidden>
-                ★
-              </Text>
-              <Text variant="badge" style={styles.badgeStrong}>
-                MIT
-              </Text>
-              <Text variant="badge"> open source</Text>
+              <View style={styles.badgeDot} aria-hidden />
+              <Text variant="badge">{LICENCE_FOOT}</Text>
             </PressRow>
-          </View>
 
-          <View style={styles.hero}>
             {/*
               Two `Text` elements rather than one with a `\n` and a nested span:
               RN-Web lays a nested `<Text>` out as an inline box that does not
@@ -128,9 +267,9 @@ export function Landing() {
               line collapsed on top of the first.
             */}
             <View role="heading" aria-level={1} style={[styles.heroHeading, heroWidth]}>
-              <Text style={[styles.heroTitle, heroType]}>Free your context.</Text>
+              <Text style={[styles.heroTitle, heroType]}>{HERO_LINE_ONE}</Text>
               <Text style={[styles.heroTitle, styles.heroDim, heroType]}>
-                Share your context.
+                {HERO_LINE_TWO}
               </Text>
             </View>
 
@@ -141,21 +280,20 @@ export function Landing() {
                 { fontSize: subSize, lineHeight: leading(subSize, 1.55) },
               ]}
             >
-              One MCP endpoint gives ChatGPT, Claude, Codex, Notion AI and whatever comes
-              next the context they should have—and nothing they shouldn&apos;t. Connect Dropbox
-              in one click, or bring your own bucket for maximum control.
+              {HERO_SUB}
             </Text>
 
             <View style={styles.actions}>
+              <View style={styles.actionRow}>
               <Button
                 label={landingCtaLabel(auth)}
-                variant="white"
+                variant="accent"
                 onPress={() => router.push(landingCtaHref(auth))}
                 testID="landing-cta"
                 style={styles.actionItem}
               />
               <Button
-                label="Read the architecture"
+                label={ARCHITECTURE_CTA}
                 variant="ghost"
                 style={styles.actionItem}
                 onPress={() => {
@@ -167,19 +305,27 @@ export function Landing() {
                   </Text>
                 }
               />
+              </View>
+              {/*
+                What the button above it needs answering: "connect a bucket" —
+                with what? The canvas puts this line directly under the actions
+                and it was in the page's foot, twenty screens away from the
+                control it qualifies.
+              */}
+              <Text variant="alsoLine">{HERO_ALSO}</Text>
               {/*
                 The mockup links these to the stores. There are no listings yet,
                 so they read as the same line without pretending to navigate —
                 see the build report.
               */}
               <Text variant="alsoLine">
-                Also on your phone:{" "}
+                {ALSO_ON_PHONE}{" "}
                 <Text variant="alsoLine" style={styles.alsoTarget}>
-                  iOS
+                  {STORE_IOS}
                 </Text>{" "}
                 ·{" "}
                 <Text variant="alsoLine" style={styles.alsoTarget}>
-                  Android
+                  {STORE_ANDROID}
                 </Text>
                 {"  "}
                 <Text variant="alsoLine" style={styles.soon}>
@@ -189,25 +335,56 @@ export function Landing() {
             </View>
           </View>
 
+          {/*
+            Off the right edge, deliberately: `heroWindow` has no right gutter
+            and the stage clips it. A window fully inside the page is a card,
+            and a card is a thing the page contains rather than a thing the
+            page is showing you.
+          */}
+          <View style={[styles.heroWindow, phone && styles.heroWindowPhone]}>
+            <HeroWindow compact={phone} />
+          </View>
+          </View>
+
+          {/*
+            The endpoint and the three assurances, between the hero and the
+            continuity demo — which is where `Landing-Sections.dc.html` puts
+            them, and the order is the argument: what you *do* (paste one URL),
+            then what you keep (your bucket, your files, your exit), then the
+            demo showing it happen. The page used to open on the demo, so a
+            visitor met a transcript before learning what the product was.
+          */}
+          <Sections />
+
+          {/*
+            Pricing after the assurances and before the demo.
+
+            The order is the same argument the block above makes: what you do,
+            then what you keep, then what it costs — a price read before the
+            guarantees is a number with nothing to weigh it against, and
+            `Landing-Sections.dc.html` puts the cards under the assurances for
+            that reason. The demo follows, because a visitor who has decided
+            still wants to see it work.
+          */}
+          <Pricing onPress={() => router.push(landingCtaHref(auth))} />
+
           <ContinuityDemo />
 
           <View style={styles.markdownBridge} testID="markdown-bridge">
             <View style={styles.markdownCopy}>
               <Text variant="eyebrow" style={styles.markdownEyebrow}>
-                No magic layer
+                {PROOF_EYEBROW}
               </Text>
-              <Text style={styles.markdownTitle}>Just Markdown. Yours to touch.</Text>
+              <Text style={styles.markdownTitle}>{PROOF_TITLE}</Text>
               <Text style={styles.markdownBody}>
-                Context stores ordinary files and folders—the same building blocks you already
-                know from Obsidian. Let an AI organize them, or open the editor yourself to write,
-                rename, move, and shape it all by hand.
+                {PROOF_BODY}
               </Text>
             </View>
 
             <View style={styles.markdownProof}>
               <View style={styles.markdownProofHead}>
                 <View style={styles.markdownProofDot} />
-                <Text style={styles.markdownProofLabel}>your-brain/</Text>
+                <Text style={styles.markdownProofLabel}>{PROOF_FOLDER}</Text>
                 <Text variant="meta">plain files</Text>
               </View>
               <Text style={styles.fileLine}>├── 1-projects/</Text>
@@ -217,13 +394,12 @@ export function Landing() {
               <Text style={styles.fileLine}>└── inbox.md</Text>
               <View style={styles.proofRule} />
               <Text style={styles.proofCaption}>
-                Edit here · open in Obsidian · sync or self-host
+                {PROOF_FOOT}
               </Text>
             </View>
           </View>
 
           <View style={styles.consoleStage}>
-            <ConsoleHalo />
             <ConsoleShell data={demo} route={route} onNavigate={setRoute}>
               {route.kind === "app" && route.section === "map" ? <MapPane data={demo} /> : null}
               {route.kind === "app" && route.section === "connections" ? (
@@ -242,12 +418,45 @@ export function Landing() {
                 />
               ) : null}
             </ConsoleShell>
+            <Text variant="foot" style={styles.demoFoot}>
+              {DEMO_FOOT}
+            </Text>
           </View>
 
+          {/*
+            A FOOTER, WHERE THERE WAS A CENTRED ROW OF FIVE UNRELATED PHRASES.
+
+            "Demo — sign in for your own workspace", the storage line, the
+            licence and two legal links, all the same size and all centred:
+            five things with nothing to say to each other, arranged as though
+            they were a list. The canvas draws a footer — the mark and the
+            licence at the leading edge, the legal links at the trailing one —
+            and the two sentences that were never footer material move to where
+            they belong.
+
+            `DEMO_FOOT` goes with the demo it is about, directly under the
+            console it captions. `HERO_ALSO` goes under the hero's buttons,
+            which is where the canvas puts it and what it answers: "connect a
+            bucket" — with what?
+          */}
           <View style={styles.foot}>
-            <Text variant="foot">Demo — sign in for your own brain</Text>
-            <Text variant="foot">Dropbox in one click · or bring your own bucket</Text>
-            <Text variant="foot">MIT · self-hostable</Text>
+            <View style={styles.footLead}>
+              <View style={styles.footMark} aria-hidden>
+                <View style={styles.navMarkRule} />
+                <View style={styles.navMarkRule} />
+                <View style={[styles.navMarkRule, styles.navMarkRuleShort]} />
+              </View>
+              <Text variant="navAction">Context</Text>
+              <Text variant="foot">{FOOT_LICENCE}</Text>
+            </View>
+            <View style={styles.footLinks}>
+              <Link href="/privacy" style={styles.legalLink}>
+                {PRIVACY_LINK}
+              </Link>
+              <Link href="/terms" style={styles.legalLink}>
+                {TERMS_LINK}
+              </Link>
+            </View>
           </View>
         </View>
       </View>
@@ -270,37 +479,175 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginHorizontal: "auto",
     paddingHorizontal: layout.gutter,
   },
-  /** `.top` */
+  /**
+   * `.top` — a navigation bar rather than a title row.
+   *
+   * `gap` plus `marginLeft: "auto"` on the actions instead of
+   * `justifyContent: "space-between"`: with three groups, `space-between`
+   * pushes the links to the middle of a 1312pt page, where they read as a
+   * third, unrelated thing. The canvas keeps the mark and the links together
+   * at the leading edge and sends only the actions to the far side.
+   *
+   * 72pt tall, which is the canvas's, and taller than the 52 the old
+   * `paddingVertical: 26` produced around a single line of text.
+   */
   top: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 26,
+    height: 72,
+    gap: 40,
   },
+  navLead: { flexDirection: "row", alignItems: "center", gap: 9 },
+  /**
+   * The mark: three rules in a rounded square, which is the canvas's glyph.
+   *
+   * Drawn as `View`s rather than an `Icon`, because `Icon`'s set is the
+   * application's vocabulary — a gear, a lock, a chevron — and a logo is not a
+   * member of it. Three stacked rules with the last one short is a page of
+   * text, which is what the product holds.
+   */
+  navMark: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: colors.text,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2.5,
+    paddingHorizontal: 5,
+  },
+  navMarkRule: {
+    height: 1.5,
+    alignSelf: "stretch",
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
+  },
+  navMarkRuleShort: { alignSelf: "flex-start", width: 6 },
+  navLinks: { flexDirection: "row", alignItems: "center", gap: 10 },
+  navActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginLeft: "auto",
+  },
+  navLink: { paddingVertical: 8, paddingHorizontal: 8 },
+  navLinkHover: { backgroundColor: colors.surface2 },
+  /*
+    The nav's button is smaller than the hero's, deliberately: they are the
+    same action, and a second full-size CTA 80pt above the first is two
+    primaries on one screen. `Button`'s own `accent` padding is the hero's, so
+    this overrides it rather than adding a variant for one call site.
+  */
+  navStart: { paddingVertical: 8, paddingHorizontal: 16 },
   markSuffix: { color: colors.muted },
-  /** `.badge` */
+  /**
+   * `.badge` — the hero's eyebrow now, not the header's trim.
+   *
+   * Filled rather than outlined, and the fill is a token. It was
+   * `rgba(255,255,255,.03)` over a `lineStrong` border, which is two things
+   * wrong at once: a literal white wash is invisible on paper, where the
+   * ground is already near-white, and an outlined pill at the head of a text
+   * column reads as a control somebody forgot to finish. `rowSelected` is the
+   * canvas's `#E6E1D6` on paper and `#2B2825` on graphite — a step of ground,
+   * which is what an eyebrow wants.
+   */
   badge: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "flex-start",
     gap: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 15,
+    height: 28,
+    paddingHorizontal: 12,
+    marginBottom: 28,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    backgroundColor: "rgba(255,255,255,.03)",
+    backgroundColor: colors.rowSelected,
   },
-  badgeHover: { backgroundColor: "rgba(255,255,255,.06)" },
-  badgeStar: { color: colors.warn },
-  badgeStrong: { color: colors.text, fontWeight: "600" },
+  badgeHover: { backgroundColor: colors.surface3 },
+  /** A live dot, in the tone that means "working" everywhere else here. */
+  badgeDot: { width: 6, height: 6, borderRadius: radii.pill, backgroundColor: colors.ok },
 
   /** `.hero` */
+  /*
+    The hero reads left, not centre.
+
+    It was centred over a field of rotated tiles with a coloured halo behind
+    it — a composition that says "a website" before it says what the product
+    is, and one the design canvas replaced. Ranged left, the headline, the
+    sentence under it and the two buttons share one left edge, so the eye
+    goes down a line rather than hunting a new centre for each block, and the
+    page can put the product beside them instead of decoration around them.
+  */
+  heroRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    gap: 48,
+    /*
+      The window bleeds past the page's gutter, so the row is allowed to draw
+      outside it. `layout.gutter` back on the right is what "runs off the edge"
+      means in a page that is otherwise inset.
+    */
+    marginRight: -layout.gutter,
+  },
+  /**
+   * A PHONE IS ONE COLUMN, AND IT HAS TO BE SAID TWICE.
+   *
+   * `flexWrap` alone was not enough and the landing page shipped broken at
+   * 390pt because of it: a wrapped row still gives each child its `minWidth`,
+   * so a 420pt window on a 390pt screen overflowed by 30 — and `marginRight:
+   * -28` pulled the whole row a further 28pt past the edge, which is why the
+   * headline, the paragraph and the buttons all ran off the right edge rather
+   * than just the window. Everything below the fold was fine, which is how it
+   * survived a desktop review.
+   *
+   * So the negative margin is a pointer-layout thing (there is no page gutter
+   * worth escaping on a phone) and the columns are told they may shrink —
+   * `minWidth: 0`, which a flex child does not do by default and which is the
+   * whole fix.
+   */
+  heroRowPhone: { flexDirection: "column", alignItems: "stretch", marginRight: 0, gap: 28 },
+  /*
+    `flexBasis: "auto"`, and this one is worth knowing: **in a column, flex-basis
+    is the HEIGHT.** `hero`'s 560 is a width for the two-column layout, and the
+    moment the row became a column it became a 560pt *height* — so the hero box
+    ended 560 down while its content ran on to about 1300, and the window drew
+    straight over the second button. On screen it looked like an overlap bug;
+    in the stylesheet it is one property meaning two things.
+  */
+  heroPhone: { flexBasis: "auto" },
+  heroWindow: {
+    flexGrow: 1,
+    flexBasis: 520,
+    minWidth: 420,
+    paddingTop: 84,
+  },
+  /*
+    `Landing-Phone.dc.html` keeps the window, under the pitch rather than
+    beside it and running off the bottom-right. `minWidth: 0` is what lets it
+    be 390 wide instead of 420.
+  */
+  heroWindowPhone: { minWidth: 0, flexBasis: "auto", width: "100%", paddingTop: 8 },
   hero: {
-    alignItems: "center",
-    paddingTop: 96,
+    flexGrow: 1,
+    flexBasis: 560,
+    minWidth: 0,
+    maxWidth: 660,
+    /*
+      `width: "100%"` with `maxWidth` rather than a basis alone: in the phone's
+      column the basis is the *height* axis's business, and without a width the
+      hero sized itself to its widest child — the H1, whose own `maxWidth` is
+      `heroHeadingWidth(46)` = 434 on a 390 screen. That is how a headline ran
+      off the edge of a page whose document reported no horizontal overflow at
+      all: the stage clips, so `scrollWidth` stayed 390 while the text did not.
+    */
+    width: "100%",
+    alignItems: "flex-start",
+    // 72, not 88: the eyebrow pill now sits at the top of this column and
+    // carries 28 of its own beneath it, so the old gap would compound.
+    paddingTop: 72,
   },
   heroHeading: {
-    alignItems: "center",
+    alignItems: "flex-start",
     // `max-width` is computed per render from the clamped font size; see
     // `hero.ts` for why it cannot be a constant.
   },
@@ -308,21 +655,34 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.display,
     fontWeight: "500",
     color: colors.text,
-    textAlign: "center",
+    textAlign: "left",
   },
   heroDim: { color: colors.heroDim },
   heroSub: {
-    marginTop: 30,
-    // `max-width:53ch`
-    maxWidth: 640,
-    textAlign: "center",
+    marginTop: 26,
+    // The measure is the sentence's, not the headline's: 520 is about 62
+    // characters at this size, inside the band prose stays readable in.
+    maxWidth: 520,
+    textAlign: "left",
     color: colors.text2,
   },
   /** `.actions` */
   actions: {
-    marginTop: 40,
+    marginTop: 36,
+    alignItems: "flex-start",
+    gap: 14,
+  },
+  /*
+    The two buttons sit side by side; the store line is a caption under them.
+    They are a row inside the column rather than the column itself, because a
+    row that also holds the caption puts it beside the buttons — which is what
+    happened on the first pass at this, and it read as a third action.
+  */
+  actionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
-    gap: 18,
+    gap: 12,
   },
   /**
    * Each action is centred explicitly, because `alignItems: "center"` above is
@@ -340,8 +700,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * app: a child should not decide how its parent aligns it, but the blast
    * radius of changing that default is the whole design system.
    */
-  actionItem: { alignSelf: "center" },
-  arrow: { fontSize: 12, opacity: 0.65 },
+  actionItem: { alignSelf: "flex-start" },
+  arrow: { fontSize: t.meta, opacity: 0.65 },
   alsoTarget: {
     color: colors.text2,
     borderBottomWidth: 1,
@@ -370,7 +730,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   markdownTitle: {
     marginTop: 11,
     fontFamily: fonts.display,
-    fontSize: 32,
+    fontSize: t.title,
     lineHeight: 37,
     letterSpacing: -0.7,
     fontWeight: "600",
@@ -380,7 +740,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 14,
     maxWidth: 580,
     fontFamily: fonts.body,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 24,
     color: colors.text2,
   },
@@ -409,13 +769,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   markdownProofLabel: {
     flex: 1,
     fontFamily: fonts.mono,
-    fontSize: 12.5,
+    fontSize: t.meta,
     lineHeight: 18,
     color: colors.text,
   },
   fileLine: {
     fontFamily: fonts.mono,
-    fontSize: 12.5,
+    fontSize: t.meta,
     lineHeight: 22,
     color: colors.text2,
   },
@@ -427,7 +787,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   proofCaption: {
     fontFamily: fonts.body,
-    fontSize: 11.5,
+    fontSize: t.label,
     lineHeight: 17,
     color: colors.muted,
   },
@@ -440,10 +800,36 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   /** `.foot` */
   foot: {
+    marginTop: 40,
+    paddingTop: 28,
     paddingBottom: 64,
     flexDirection: "row",
     flexWrap: "wrap",
+    alignItems: "center",
+    gap: 24,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  footLead: { flexDirection: "row", alignItems: "center", gap: 9 },
+  /** The nav's mark at the size a footer wants — see `navMark`. */
+  footMark: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: colors.text,
+    alignItems: "center",
     justifyContent: "center",
-    gap: 20,
+    gap: 2.5,
+    paddingHorizontal: 4.5,
+  },
+  footLinks: { flexDirection: "row", alignItems: "center", gap: 22, marginLeft: "auto" },
+  /** The demo's caption, under the demo rather than in the footer. */
+  demoFoot: { marginTop: space.x4, textAlign: "center" },
+  legalLink: {
+    fontFamily: fonts.body,
+    fontSize: t.meta,
+    lineHeight: leading(t.meta, 1.55),
+    color: colors.text2,
+    textDecorationLine: "none",
   },
 });

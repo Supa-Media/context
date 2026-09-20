@@ -3,7 +3,8 @@
 **Free your context. Share your context.**
 
 Context is one MCP endpoint a person adds to every AI client, backed by a
-markdown bucket they own. Read `README.md` first for the product shape.
+markdown bucket — one they own, or one we run for them on the paid plan and
+they can take away at any time. Read `README.md` first for the product shape.
 
 This file is the part you read every session. The reasoning behind the rules —
 argued through once, not to be re-litigated — lives in
@@ -15,39 +16,75 @@ file for the area you are touching, and write new durable decisions there.
 These are the product, not implementation details. If a task seems to require
 breaking one, stop and say so rather than working around it.
 
-1. **The customer owns the storage.** Canonical Markdown and attachments live in
-   a bucket the customer owns; the control plane holds metadata only — accounts,
-   workspaces, bindings, grants, audit — and **never** note content. A customer
-   can revoke our credential and keep a complete, usable context. Credentials
-   never live in Markdown, in the bucket, in logs, in URLs, or on a device:
-   encrypted at rest, decrypted only in the gateway at request time.
+1. **The customer owns the content, and can always leave with it.** Canonical
+   Markdown and attachments live in a bucket dedicated to one workspace; the
+   control plane holds metadata only — accounts, workspaces, bindings, grants,
+   audit — and **never** note content. Who holds the bucket's key is a billing
+   question: on the free plan it is the customer's own bucket and revoking our
+   credential leaves them a complete, usable context; on **managed storage** we
+   create and pay for the bucket, and the equivalent guarantee is that
+   downloading everything or handing the bucket to storage of their own is
+   free, identical on both plans, and still works after they cancel. That exit
+   is never gated, never degraded, and never behind a paywall — gate it and
+   this is a different product. Cancelling makes a context read-only and
+   exportable; it never deletes. Credentials never live in Markdown, in the
+   bucket, in logs, in URLs, or on a device: encrypted at rest, decrypted only
+   in the gateway at request time. See
+   [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
-   a customer's bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note
-   lives at `1-projects/foo.md`, full stop. An existing brain must connect and
-   work unchanged, with zero migration; the same bucket is synced to Obsidian,
-   and rewriting keys breaks that. One workspace maps to one bucket (optionally
-   plus a fixed root prefix the customer chose, applied at the adapter boundary).
+   a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note lives at
+   `1-projects/foo.md`, full stop. An existing workspace must connect and work
+   unchanged, without a mandatory migration; user-authored keys are never
+   rewritten, and pre-v1 plumbing remains dual-readable until its owner runs
+   the resumable storage-layout migration. One workspace maps to one bucket (optionally
+   plus a fixed root prefix the customer chose, applied at the adapter
+   boundary). **This now also carries non-negotiable #1's exit promise**: a
+   bucket holding one workspace can be handed over, and a shared bucket with a
+   prefix per customer can only ever be exported from — so managed buckets are
+   one per workspace, named from the immutable workspace id, in a Cloudflare
+   account that holds customer data — those buckets, the per-context search
+   databases, and a live note's in-flight keystrokes while people are typing
+   it together — and nothing of ours. That third one was added deliberately
+   (decided by the owner, 2026-09-20) rather than discovered: two people
+   editing one note need a shared place for characters that are seconds old,
+   and there is no version of that feature without one. It is bounded, and the
+   bounds are the reason it is allowed — one room per note, append-only,
+   deleted when the last person leaves, never the only copy of anything, and
+   the flush to the bucket is continuous. See
+   [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
+   A store's per-account resource
+   ceiling is therefore a constraint on the product, not a detail: R2 allows a
+   million buckets, and anything low forces prefix tenancy and ends the exit
+   promise with it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket
-   layout — `index.md` and `privacy.md` at root, `.audit/`, `.context/`, PARA
-   folders — is a stable format, not an internal detail; changing it is a
-   breaking change.
+   layout — `index.md` and `privacy.md` at root, Context-owned plumbing under
+   `.context/`, and user-selected folders — is a versioned stable format, not
+   an internal detail; changing it requires dual reads and an idempotent,
+   verified migration with a rollback window.
 4. **One person or workspace is one security boundary.** Every workspace has its
    own identity, storage binding, privacy manifest, audit trail and connector
    grants. **Never** extend the legacy shared-token model (`PRIVATE_TOKEN` /
    `TEAM_TOKEN` / `PUBLIC_TOKEN`) to multiple customers — it is single-tenant by
-   construction and exists only to keep the original brain running. MCP access
+   construction and exists only to keep the original single-tenant deployment
+   running. MCP access
    uses OAuth with per-client revocable grants; token-in-URL is a compatibility
    fallback and never the security boundary. Prove isolation with tests: one
    tenant must not enumerate, read, or infer the existence of another.
 5. **`team` never means public.** Visibility is `private` or `team`, and `team`
-   means named people the owner granted access to. No setting publishes a
+   means named people the owner granted access to. No *setting* publishes a
    context, a folder, or a visibility class to the internet, and nothing here is
-   indexed. **One note at a time, by an owner, through a link they mint and can
-   revoke, is the single exception** — a share row, never a third word in
-   `privacy.md`, whose `Scope` stays two-valued. See
-   [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
+   indexed. **A link an owner mints and can revoke is the single exception**, and
+   it is always a share row, never a third word in `privacy.md`, whose `Scope`
+   stays two-valued. A link covers one note, or one folder and the subtree
+   beneath it — and a folder link **narrows**: every path under it is still
+   re-derived through the live `privacy.md` at `team` scope with no granted
+   names, so a note held back by name, a private subfolder and a note pointed at
+   a group are all absent through it. It publishes what the folder already
+   published to the workspace and never more, which is why this is a wider
+   *locator* and not a wider *tier*. The whole context is never the subject of
+   one. See [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture
 address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).
@@ -68,10 +105,11 @@ packages/hook/   `npx @supa-media/context-hook` — the session-end hook that sa
 
 ### The gateway (`apps/mcp`)
 
-Originally a single-tenant personal Brain worker; being generalized in place.
+Originally a single-tenant personal `brain` Worker — a deployment name, and one
+of the few places the retired noun survives; being generalized in place.
 Zero npm dependencies — keep it that way. It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
-an in-memory store stub: fast, offline, currently 1,757 checks. **Do not let it
+an in-memory store stub: fast, offline, currently 4,064 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -81,21 +119,27 @@ its *plumbing* freely; changing its *semantics* is a decision for
 
 ## Vocabulary
 
-Three user-facing nouns (decided by the owner, 2026-08):
+One user-facing noun for a context (decided by the owner, 2026-09-13, reversing
+the three-noun rule of 2026-08):
 
-- **Brain** — a personal context: the workspace a username names, exactly one
-  per person. "Create your brain", "@seyi's brain".
-- **Workspace** — a shared context: slug-addressed, several members, no single
-  personal owner. Deliberately the same word as the internal noun.
+- **Workspace** — a context, personal or shared. A person's own is a workspace;
+  so is a slug-addressed one with several members. Where the two have to be told
+  apart, say **personal workspace** and **shared workspace** — the distinction
+  is real (only a personal one has an ingestion alias, a mailbox, a calendar,
+  and it is deleted with its account); having two *nouns* for it was the mistake.
 - **Context** — the aggregate, and the product name: everything one person can
-  reach through the endpoint. New copy never uses "context" for a single unit;
-  a sentence that needs "either kind" says "a brain or a workspace".
+  reach through the endpoint. New copy never uses "context" for a single unit.
+- **Brain** — retired. No new user-facing copy uses it.
 
 Code identifiers do not change: `workspace`/`workspaceId` stay the internal
 unit, `kind: "personal" | "shared"` stays the discriminator. `brain`, `brains`,
 `workspace` and `context` are reserved names (`functions/lib/names.ts`) —
-ingestion is on the apex, so that list is a security control. Exceptions and the
-legacy-name policy: [vocabulary-and-workspaces](./docs/decisions/vocabulary-and-workspaces.md).
+ingestion is on the apex, so that list is a security control, and **retiring a
+word does not free its name**: people go on saying it, which is exactly what
+makes the handle worth claiming. The on-bucket `<!-- BEGIN BRAIN PRIVACY RULES
+-->` markers keep the word too; they are a stable storage format, not copy.
+Exceptions and the legacy-name policy:
+[vocabulary-and-workspaces](./docs/decisions/vocabulary-and-workspaces.md).
 
 ## The workspace model
 
@@ -177,9 +221,10 @@ it is reversed. Every section title is listed by area in
 [identity & access](./docs/decisions/identity-and-access.md),
 [privacy & sharing](./docs/decisions/privacy-and-sharing.md),
 [gateway protocol](./docs/decisions/gateway-protocol.md),
+[markdown forms](./docs/decisions/forms.md),
 [search](./docs/decisions/search.md),
 [app & console](./docs/decisions/app-and-console.md),
-[obsidian plugins](./docs/decisions/obsidian-plugins.md), and
+[plugins](./docs/decisions/plugins.md), and
 [testing](./docs/decisions/testing.md), which is one rule: **a guard nobody has
 checked is not a guard.**
 
@@ -197,8 +242,9 @@ checked is not a guard.**
 - **Conflict-safe writes.** Reads return a version; writes pass it back. R2 and
   AWS S3 support conditional writes; **B2 and Wasabi do not reliably.** Probe
   capability at connect time and degrade honestly — never silently drop it.
-- **Never weaken** customer-owned storage, plain-file portability, privacy,
-  tenant isolation, or revocability to move faster. Raise it instead.
+- **Never weaken** the customer's ownership of their content, plain-file
+  portability, privacy, tenant isolation, revocability, or the export and
+  hand-off path that non-negotiable #1 rests on. Raise it instead.
 
 ## Working style
 

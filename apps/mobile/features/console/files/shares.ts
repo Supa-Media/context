@@ -45,6 +45,23 @@ export interface NoteShare {
   entryPath: string;
   titleInPreview: boolean;
   previewTitle?: string;
+  /**
+   * The name in this link's short address, or absent for one that has none.
+   *
+   * Owner-only like `token` beside it, and the same reasoning: `listShares` is
+   * owner-only and this is the other half of a link they already hold.
+   */
+  slug?: string;
+  /**
+   * Whether this link **takes answers** to a form on what it points at.
+   *
+   * The one thing about a link an owner has to be able to see: every other
+   * share row hands out a read, and this one hands out a write from people
+   * with no account at all. A list that drew a collect link exactly like a
+   * read link would be the console being quiet about the only case where
+   * non-negotiable #5's exception has teeth.
+   */
+  collecting: boolean;
   createdAt: number;
 }
 
@@ -148,40 +165,20 @@ export function describeShareRow(audience: NoteShare["audience"]): string {
   return "They sign in as themselves, and can read this note and the notes it links to.";
 }
 
-/**
- * Whether this row may be shared at all, and why not.
- *
- * Three refusals, and each is a different sentence because each has a different
- * fix. They mirror the server's own checks in `createShare` — the UI decides
- * whether a control *exists*, and the server decides whether the action is
- * *allowed*; neither is a substitute for the other.
- */
-export type ShareEligibility =
-  | { ok: true }
-  | { ok: false; reason: string };
+/*
+  `shareEligibility` was here, and is gone.
 
-export function shareEligibility(options: {
-  path: string;
-  kind: "file" | "folder";
-  readOnly: boolean;
-}): ShareEligibility {
-  if (options.kind === "folder") {
-    return {
-      ok: false,
-      reason: "Folders cannot be shared yet — share a note inside it.",
-    };
-  }
-  if (options.readOnly) {
-    return {
-      ok: false,
-      reason: "This file is part of how your context works, not a note.",
-    };
-  }
-  if (!options.path.toLowerCase().endsWith(".md")) {
-    return { ok: false, reason: "Only a note can be shared." };
-  }
-  return { ok: true };
-}
+  It answered "may this row be shared at all", and its folder arm said
+  "Folders cannot be shared yet — share a note inside it." That stopped being
+  true twice over: a folder can be pointed at a group or a person, and a folder
+  link reaches its subtree. It was also dead — nothing but its own test called
+  it — so it was a false sentence kept alive by the thing testing it.
+
+  Deleted rather than corrected. What it was guarding is decided by the server
+  now (`checkSharePath` for a note, `checkFolderSharePath` for a folder) and
+  drawn by `ShareDialog` from `entryKind`, which is one place rather than two
+  that can disagree.
+*/
 
 /**
  * The shares on one note, newest first.
@@ -273,13 +270,64 @@ export function describeTeamLink(): string {
  * un-publishes a note will hand this out more freely than one who knows it
  * only closes the door.
  */
-export function describeOpenLink(exists: boolean): string {
-  const what =
-    "Anyone who has this link can read the note and the notes it links to — " +
-    "no account, no sign-in.";
-  return exists
-    ? `${what} Revoking stops anyone opening it from now on; it cannot take back a copy somebody already has.`
-    : `${what} You can revoke it at any time, though that cannot take back a copy somebody already has.`;
+export function describeOpenLink(entryKind: "file" | "folder" = "file"): string {
+  /*
+    One form per KIND, and it used to be one form full stop — which said "the
+    note and the notes it links to" over a folder link that reaches a subtree.
+    Copy is a guard on this surface: a sentence that understates what a link
+    hands over is the same defect as a control that publishes something.
+
+    It used to branch on whether a link *existed*, because the row was drawn
+    either way — "Create link" when there was none. That row does not mint
+    anything now (the audience control owns whether a link exists) and is
+    absent when there is none, so that branch had no render left to reach.
+
+    The folder sentence names the narrowing on purpose. It is the thing an
+    owner would otherwise get wrong in the dangerous direction: a folder link
+    reaches everything under it that the WORKSPACE can already read, and
+    nothing that is held back — so pointing one at a folder does not publish
+    the private notes inside it.
+  */
+  const reach =
+    entryKind === "folder"
+      ? "browse this folder and open anything in it that your workspace can already read — " +
+        "notes held back by name stay held back"
+      : "read the note and the notes it links to";
+  return (
+    `Anyone who has this link can ${reach} — ` +
+    "no account, no sign-in. Revoking stops anyone opening it from now on; it " +
+    "cannot take back a copy somebody already has."
+  );
+}
+
+/**
+ * WHAT A LINK IS THE SUBJECT OF, AND WHAT NOTHING HERE IS.
+ *
+ * The closing line of the links section, and the one sentence on this screen
+ * that is about the product rather than about this note. `Phone-Share.dc.html`
+ * draws it, and **its wording is not the one used here**: the canvas says a
+ * link "never publishes a folder", which was true when it was drawn and is not
+ * true now. `CLAUDE.md`'s fifth non-negotiable reads "A link covers one note,
+ * or one folder and the subtree beneath it" — so the canvas's version is a
+ * sentence this dialog would be telling an owner while the dialog next to it
+ * mints exactly that.
+ *
+ * So the claim is narrowed to the one the product actually keeps, and the
+ * narrowing is the interesting half: a folder link **re-derives every path
+ * under it through the live `privacy.md`**, so it publishes what the folder
+ * already published to the workspace and never more. That is why the same
+ * non-negotiable calls it a wider *locator* and not a wider *tier*, and it is
+ * the thing an owner would otherwise get wrong in the dangerous direction.
+ *
+ * The second clause is verbatim policy and stays: no *setting* publishes a
+ * context, and the whole context is never the subject of a link.
+ */
+export function describeLinkReach(): string {
+  return (
+    "A link covers one note, or one folder and what your workspace can " +
+    "already read beneath it — never your whole context. No setting anywhere " +
+    "publishes a context, and nothing here is indexed."
+  );
 }
 
 /**

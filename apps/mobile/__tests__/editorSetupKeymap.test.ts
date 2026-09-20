@@ -26,7 +26,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { editorExtensions } from "../features/console/files/editorSetup";
+import { editability, editorExtensions } from "../features/console/files/editorSetup";
 
 const views: EditorView[] = [];
 afterEach(() => {
@@ -62,8 +62,26 @@ function mount(doc: string, cursor: number, extra: Extension[] = []): EditorView
  * a test tells "Tab moved focus" (unhandled) from "Tab was intercepted"
  * (handled) without a real DOM to observe focus movement in.
  */
-function press(view: EditorView, key: string, shift = false): boolean {
-  const event = new KeyboardEvent("keydown", { key, shiftKey: shift, bubbles: true, cancelable: true });
+/**
+ * `Mod-` is ⌘ on Apple and Ctrl everywhere else, and CodeMirror decides which
+ * from the platform it is running on rather than from anything this test can
+ * pass it. jsdom is not a Mac, so a `metaKey` here would build `Cmd-b` and
+ * match nothing — which is a test that passes for the wrong reason the day
+ * somebody reads its name and believes it.
+ */
+const MAC = /Mac|iP(hone|[oa]d)/.test(
+  (navigator as { platform?: string }).platform ?? "",
+);
+
+function press(view: EditorView, key: string, shift = false, mod = false): boolean {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    shiftKey: shift,
+    metaKey: mod && MAC,
+    ctrlKey: mod && !MAC,
+    bubbles: true,
+    cancelable: true,
+  });
   view.contentDOM.dispatchEvent(event);
   return event.defaultPrevented;
 }
@@ -171,5 +189,109 @@ describe("R3 — highlighting never edits the buffer", () => {
       view.dispatch({ selection: { anchor: pos } });
     }
     expect(view.state.doc.toString()).toBe(doc);
+  });
+});
+
+
+/**
+ * ⌘B, ⌘I AND ⌘⇧X — THE CHORDS SOMEBODY ACTUALLY ASKED FOR.
+ *
+ * Bound here rather than in the web half, even though a phone has no keyboard,
+ * because an iPad with a hardware keyboard runs the native editor: the same
+ * configuration compiled into the guest bundle. A chord that bolds on one host
+ * and does nothing on the other is the drift `editorSetup.ts` exists to
+ * prevent, and only a test against the *shared* extension list can say which
+ * one this is.
+ */
+describe("the marker chords", () => {
+  test("⌘B wraps the selection, and ⌘B again takes it back", () => {
+    const view = mount("some words here", 0);
+    view.dispatch({ selection: { anchor: 5, head: 10 } });
+
+    expect(press(view, "b", false, true)).toBe(true);
+    expect(view.state.doc.toString()).toBe("some **words** here");
+
+    expect(press(view, "b", false, true)).toBe(true);
+    expect(view.state.doc.toString()).toBe("some words here");
+  });
+
+  test("⌘I is italic and ⌘⇧X is strikethrough", () => {
+    const view = mount("some words here", 0);
+    view.dispatch({ selection: { anchor: 5, head: 10 } });
+    press(view, "i", false, true);
+    expect(view.state.doc.toString()).toBe("some *words* here");
+
+    const other = mount("some words here", 0);
+    other.dispatch({ selection: { anchor: 5, head: 10 } });
+    press(other, "x", true, true);
+    expect(other.state.doc.toString()).toBe("some ~~words~~ here");
+  });
+
+  /**
+   * **Ctrl-B and Ctrl-I are live browser chords in Firefox** — the bookmarks
+   * sidebar and the page info window. So the read-only arm returns `true` and
+   * swallows the key rather than letting it through: a note somebody may only
+   * read is exactly where they are most likely to press one by habit, and
+   * answering with a sidebar over their note is worse than answering with
+   * nothing. The same argument `Mod-s` makes one binding above.
+   */
+  test("a read-only note answers with nothing, and still swallows the key", () => {
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: "some words here",
+        selection: { anchor: 5, head: 10 },
+        extensions: editorExtensions({
+          editable: false,
+          editableCompartment: new Compartment(),
+          handlers: { current: { onChange: () => {}, onSave: () => {} } },
+        }),
+      }),
+      parent,
+    });
+    views.push(view);
+
+    expect(press(view, "b", false, true)).toBe(true);
+    expect(view.state.doc.toString()).toBe("some words here");
+  });
+
+  /**
+   * The sabotage this pins: `editability`'s `changeFilter` is the gate that
+   * holds when a command forgets to ask. Built with `EditorView.editable`
+   * alone — the facet CodeMirror's own documentation warns is not enough — the
+   * same keystroke goes straight through.
+   */
+  test("and the changeFilter, not the facet, is what actually refuses it", () => {
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: "some words here",
+        selection: { anchor: 5, head: 10 },
+        extensions: editorExtensions({
+          editable: true,
+          editableCompartment: new Compartment(),
+          handlers: { current: { onChange: () => {}, onSave: () => {} } },
+        }),
+      }),
+      parent,
+    });
+    views.push(view);
+
+    // Editable, so the chord writes — which is the control for the arm above.
+    press(view, "b", false, true);
+    expect(view.state.doc.toString()).toBe("some **words** here");
+
+    // And the filter alone, with no command checking anything, still refuses.
+    const guarded = new EditorView({
+      state: EditorState.create({
+        doc: "some words here",
+        extensions: [editability(false)],
+      }),
+    });
+    guarded.dispatch({ changes: { from: 0, insert: "x" } });
+    expect(guarded.state.doc.toString()).toBe("some words here");
+    guarded.destroy();
   });
 });

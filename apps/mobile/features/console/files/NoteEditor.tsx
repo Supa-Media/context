@@ -1,23 +1,42 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { Presence } from "../presence/usePresence";
+import type { DrawingCollaboration } from "./drawingCollaboration";
+import { PresenceChip } from "../ConsoleShell";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../app/AppFrame";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
-import { densityFor } from "../../app/frame";
+import { densityFor, noteGutterFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space } from "../../design/tokens";
+import { fonts, layout, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { accessoryUp } from "./accessory";
 import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
-import { Confirm } from "./Dialogs";
+import { isDrawingPath } from "@context/drawings";
+import { DrawingEditor } from "./DrawingEditor";
+import { ActivityPage } from "../activity/ActivityPage";
+import { ACTIVITY_PATH, type ActivityView } from "../activity/activity";
 import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
+import type { NoteLinkOpen } from "./noteLinks";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
+import type {
+  FormOutcome,
+  FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
+  FormSubmission,
+  FormVote,
+} from "./formBlock";
 import { NoteAccessory } from "./NoteAccessory";
+import { VoiceButton } from "../../voice/VoiceButton";
+import { publishOpenNote } from "../../agent/openNote";
+import { useVoiceHost } from "../../voice/VoiceHost";
+import { agentPage, consoleRoute } from "../../agent/page";
 import type { Visibility } from "./types";
 
 /**
@@ -94,7 +113,10 @@ const SCROLL_GRACE_MS = 250;
 
 export function NoteEditor({
   state,
+  presence,
+  drawingCollaboration,
   canEdit,
+  reading = false,
   visibility,
   notices,
   pathBar,
@@ -105,10 +127,79 @@ export function NoteEditor({
   onKeepMine,
   onOpenLink,
   notePaths,
+  onSuggest,
+  onPickSuggestion,
+  onPreviewLinks,
+  onSubmitForm,
+  onReadFormResponses,
+  onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
+  onLoadImage,
+  onStoreImage,
+  onImageProblem,
   encryption,
+  activity,
+  activityShared = false,
+  activityEditable = false,
+  onOpenNote,
 }: {
+  /**
+   * Who else has this note open, and where this editor's caret goes.
+   *
+   * Absent wherever there is nobody to ask — the demo console, a surface with
+   * no grant — and nothing about the editor changes when it is: no chip, no
+   * carets, and the same save path either way. Presence is an overlay on the
+   * single-writer editor, never a second route to the bucket.
+   */
+  presence?: Presence;
+  /** The live room behind an open canvas, when there is one. */
+  drawingCollaboration?: DrawingCollaboration;
   state: EditorState;
   canEdit: boolean;
+  /**
+   * The note is being read rather than edited.
+   *
+   * Defaults to `false` so a caller that has never heard of reading mode — the
+   * tests that mount a note, and any future embedder — gets exactly the
+   * behaviour it had. The route is the only thing that turns it on.
+   */
+  reading?: boolean;
+  /**
+   * Send one filled-in ```form block on this note.
+   *
+   * Optional, and absent means the drawn form says it cannot send rather than
+   * not being drawn: a reader should still see what the form asks even on a
+   * surface that cannot answer it.
+   *
+   * It is **not** gated on `canEdit`, which is the whole point of the feature.
+   * A workspace `member` has `canEdit: false` and a read-only editor, and is
+   * exactly the person a form exists to collect from — see
+   * `docs/decisions/forms.md`, "A `member` may submit, and that is the only
+   * write they get".
+   */
+  /** Plugin completions, absent where no plugin can run. See `LiveEditorProps`. */
+  onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  onPickSuggestion?: (index: number) => Promise<string | null>;
+  /** Ask the running plugins to preview this note's external links. */
+  onPreviewLinks?: (links: { href: string; text: string }[]) =>
+    Promise<{ href: string; text: string }[]>;
+  onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
+  /** Read a form's response note through the same access check as opening it. */
+  onReadFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
+  /** Add or remove the signed-in person's vote on one response. */
+  onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
+  onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
+  /** The bytes behind an image this note embeds. See `LiveEditorProps`. */
+  onLoadImage?: (target: string) => Promise<string | null>;
+  /** Store a pasted image and answer with the key to embed. */
+  onStoreImage?: (image: {
+    bytes: ArrayBuffer;
+    contentType: string;
+  }) => Promise<{ target: string } | { error: string }>;
+  /** Say a refused paste out loud. */
+  onImageProblem?: (message: string) => void;
   /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
@@ -150,12 +241,16 @@ export function NoteEditor({
    * the editor then draws links as plain text rather than as a control that
    * does nothing. See `noteLinks.ts`.
    *
-   * **The confirmation for a long press is this component's, not the caller's.**
-   * A press arrives as an ambiguous gesture and the thing at risk is the note
-   * on screen; the component holding that note is the one that knows whether
-   * there is an unsaved draft in it.
+   * `mode` is the gesture's, not the destination's: `"background"` is a
+   * ⌘-click, and the caller must open the note without moving the person off
+   * this one.
+   *
+   * **The long-press confirmation this component used to own is gone.** It sat
+   * in front of an ambiguous gesture — a press is also how a selection starts —
+   * and the gesture is a tap now, which is not ambiguous. Nothing is at risk
+   * from a tap that was not at risk from a click.
    */
-  onOpenLink?: (path: string) => void;
+  onOpenLink?: (path: string, mode: NoteLinkOpen) => void;
   /** Paths the console knows of, for bare `[[name]]` links. Usually partial. */
   notePaths?: readonly string[];
   /**
@@ -190,9 +285,62 @@ export function NoteEditor({
     /** Told the new etag after every write this view makes. */
     onWritten?: (etag: string) => void;
   };
+  /**
+   * The activity list, for the one note that is drawn as one.
+   *
+   * Absent on a console that has none — the demo, or a context whose read was
+   * refused — and `activity.md` then opens in the editor as the Markdown file
+   * it is, which is a worse screen and a true one.
+   */
+  activity?: ActivityView;
+  /** Whether anybody else is in this context. Changes the empty state only. */
+  activityShared?: boolean;
+  /**
+   * Whether the pencil reaches `activity.md`'s source — `canEditActivity`.
+   *
+   * Defaults to `false`, so a surface that has never heard of this gets the
+   * list and no way past it, which is the safe direction: the server refuses
+   * the write regardless, and an unoffered control costs a press where an
+   * offered-and-refused one costs trust.
+   */
+  activityEditable?: boolean;
+  /** Open another note, from a row in that list. */
+  onOpenNote?: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const editable = canEdit && !state.readOnly;
+  /*
+    Reading mode joins the two reasons a note was already not editable — no
+    write access, and a note this door never writes (`privacy.md`, an encrypted
+    envelope). It is deliberately the same `editable` rather than a mode of its
+    own: everything downstream of this flag is already correct for "you are not
+    typing into this", from `contenteditable` to the paste and drop handlers
+    `editorSetup`'s `editability` turns off, and a parallel flag would be a
+    second answer for those to disagree about.
+
+    It arrives as a prop rather than being read from the router here. This
+    component takes what it draws and reaches for nothing — calling
+    `useReadMode` inside it put `expo-router` into the dependency graph of
+    every test that mounts a note, and 35 of them stopped at a mock that had
+    never needed it. `BrowsePane` owns the route's half of this.
+  */
+  /*
+    THE ONE PATH WHERE WRITING IS NARROWER THAN `canEdit`.
+
+    `activity.md` is the context's record of who changed what, so editing it by
+    hand is editing that record — the owner's authority, not an editor's. The
+    rule is `canEditActivity`'s and lives in `capabilities.ts` for the reason
+    that file's header gives at length: every console guard written inline in a
+    component survived a full sabotage sweep untouched.
+
+    The server refuses the rest anyway — the file is private, so a member or an
+    editor cannot read it, let alone write it — which makes this the affordance
+    and not the guard. A pencil that leads to a refusal is worse than no pencil.
+  */
+  const editable =
+    canEdit &&
+    !state.readOnly &&
+    !reading &&
+    !(state.path === ACTIVITY_PATH && !activityEditable);
   /*
     A passphrase note is `state.encrypted` exactly as a workspace-encrypted
     one is — the flag does not (and must not) say which recipient locked it,
@@ -204,6 +352,42 @@ export function NoteEditor({
   */
   const passphraseLocked =
     state.encrypted && encryption !== undefined && isPassphraseNote(state.draft);
+  /*
+    A drawing is decided by its path, never by its content: the check has to
+    hold for a file that is still loading, for one whose payload is unreadable,
+    and for an empty draft — and in every one of those the path is the only
+    thing that is known. An encrypted drawing stays on the locked path below,
+    because there is nothing to draw until it is opened.
+  */
+  const drawing = !passphraseLocked && !state.encrypted && isDrawingPath(state.path ?? "");
+  /*
+    Decided by path, exactly as a drawing is, and for the same reason: it has
+    to hold for a file that is still loading and for one whose body has not
+    arrived. Only where the console actually has the list — a demo console, or
+    one whose read was refused, opens the file as the note it is, which is the
+    honest fallback rather than an empty screen.
+  */
+  const isActivityNote = !passphraseLocked && activity !== undefined && state.path === ACTIVITY_PATH;
+  /**
+   * The activity file drawn as the list rather than as its Markdown.
+   *
+   * **A default, not a lock.** `viewMode.ts` declares `read` for this path when
+   * it opens, so a person lands on the list; pressing the pencil makes it
+   * editable and this goes false, and they get the same editor every other note
+   * has, over the same file, machine comments and all. That is the difference
+   * between a page that defaults to being read and a page the product will not
+   * let you touch — and it is the whole point: what makes the file yours is
+   * being able to open it.
+   */
+  const activityList = isActivityNote && !editable;
+  /**
+   * The moment this screen was opened, for every relative time on it.
+   *
+   * A `useState` initialiser rather than `Date.now()` in the body: re-reading
+   * the clock on every render makes "4 min" change under a scroll, and makes
+   * two rows rendered in one pass disagree about what "today" is.
+   */
+  const [openedAt] = useState(() => Date.now());
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   /*
@@ -214,18 +398,45 @@ export function NoteEditor({
   */
   const [focused, setFocused] = useState(false);
   /**
-   * A link somebody long-pressed, waiting on an answer.
+   * When the right-click menu last asked for the microphone, or `null`.
    *
-   * A press is how a person also starts a text selection, so it cannot navigate
-   * on its own — and what it would replace is the note in front of them,
-   * possibly with an unsaved draft in it. The dialog is the whole difference
-   * between an affordance and a trap.
+   * Held here rather than in `LiveEditor` because the microphone belongs to
+   * `VoiceButton`, which is this component's child — so this is the one place
+   * that can see both the menu and the control it reaches.
    */
-  const [pressed, setPressed] = useState<string | null>(null);
+  const [dictateAsked, setDictateAsked] = useState<number | null>(null);
+  /**
+   * How wide the document column is, so the Properties row can start where the
+   * note's first character does.
+   *
+   * `0` until the first layout, which `noteGutterFor` floors to the plain
+   * gutter — the same answer as a window too narrow for the measure, so the
+   * first frame is never wrong in a direction anybody sees.
+   */
+  const [docWidth, setDocWidth] = useState(0);
   const controls = useRef<EditorControls | null>(null);
   const frame = useFrame();
   const padding = useSurfacePadding();
   const barUp = accessoryUp({ compact, editable, focused });
+  const voice = useVoiceHost();
+  /**
+   * The note is the editable document, rather than a drawing or an envelope.
+   *
+   * Read off the same two conditions the render below branches on, in the same
+   * order, so "is the editor on screen" and "what is on screen" cannot come
+   * apart — the failure that costs is the silent one where they disagree and a
+   * floating control hangs over a surface nobody tested it against.
+   */
+  /*
+    `activityList` is the third exclusion, and it was missing: #739 put the
+    activity list in front of the editor without adding it here, so a floating
+    microphone was drawn over a list with no caret under it — inert, and on a
+    phone sitting over the page's own foot. The rule this comment already
+    states ("read off the same two conditions the render below branches on, in
+    the same order") is what catches that, and it only catches it when the list
+    is actually one of the conditions.
+  */
+  const liveEditorOnScreen = !activityList && !drawing && !passphraseLocked;
 
   /**
    * Whether the note is moving, and when it last came to rest — the whole of
@@ -282,6 +493,29 @@ export function NoteEditor({
   const scroller = useRef<ScrollView | null>(null);
   const offset = useRef(0);
   /*
+    The note's find bar, into Escape's reach.
+
+    ⌘F opens a bar over the document (`findInNote.ts`), and CodeMirror's own
+    Escape only reaches it while the caret is in the note or in the query
+    field. Click a tree row, a tab or the accessory bar and the key goes to the
+    console's `dismiss` command instead — `frame.closeOverlays()`, which knows
+    about the panels the frame renders and knew nothing about this one. That is
+    the whole of "isn't dismissable", and this is the registration that answers
+    it.
+
+    Through the ref, never a captured handle: the bar this closes is whichever
+    editor is mounted at the moment Escape is pressed, and the handle arrives
+    after this effect has already run. `closeFind` is web-only and optional, so
+    on a phone this closer answers `false` and Escape falls through exactly as
+    it did.
+  */
+  const { registerDismissable } = frame;
+  useEffect(
+    () => registerDismissable(() => controls.current?.closeFind?.() ?? false),
+    [registerDismissable],
+  );
+
+  /*
     Tell the frame while the accessory bar is up, so it puts its own toolbar
     away. Two floating bars in the same 66pt of glass is worse than either, and
     the reference has no bottom bar in its editing screenshot — while the
@@ -315,19 +549,63 @@ export function NoteEditor({
     heading is deliberate: on a phone `body` below is the editor's *buffer*, so
     removing a line from it would delete that heading from the file on save.
   */
-  const titled = noteHeadingSource(state.draft) !== "heading";
+  const titled = noteHeadingSource(state.draft, state.path) !== "heading";
 
   /*
-    The two halves of the line at the foot of the document, resolved once.
+    The line at the foot of the document, resolved once — and the question of
+    whether anything belongs down here at all.
 
-    `durability` is the sentence and `canDiscard` is the control beside it; the
-    row exists when either does, so a queued draft whose message never arrived
-    still gets its way out and a note with nothing to say draws no empty band.
+    **`decision` is the whole rule, and it is a reversal.** This row used to
+    appear for `dirty`, which is the state every keystroke produces: two
+    controls, "Discard changes" and "Save", laid across somebody's own text for
+    as long as a draft was unwritten — and unwritten means "for the next two
+    seconds", because `autosave.ts` writes it the moment typing stops. Neither
+    was needed. ⌘S and the autosave timer make the same conditional write, and
+    Discard-in-`dirty` was only ever reachable inside that same two-second
+    window (once the write lands the baseline moves and it is gone), which is
+    what the editor's own undo is for.
+
+    What is left is the states autosave refuses or cannot finish — a failed
+    save, a conflict, a draft the offline queue is holding. `editor.ts` is
+    explicit that the manual route has to stay reachable there, and those are
+    also the only states with something to *explain*, so the sentence comes
+    back at a pointer width with them rather than staying compact-only: the
+    words are the error message itself ("we don't know whether that save
+    landed"), and a crit chip in the top bar cannot carry a paragraph.
+
+    Every other state says it in the top bar's `SaveChip` — "Saving soon",
+    "Saving…", "Saved" — which is a claim you can read without anything
+    standing over the note. See `status.ts`'s `saveChip`.
   */
   const durability = statusLine(state);
-  const canDiscard =
-    editable &&
-    (state.status === "dirty" || state.status === "error" || state.status === "queued");
+  const decision =
+    state.status === "error" || state.status === "conflict" || state.status === "queued";
+  /*
+    `conflict` is not here, and that is unchanged: its way out is "Overwrite
+    theirs" beside the resolver, not a third verb. `queued` is, and that is not
+    a nicety — Save is dead in that state (the queue already holds the newest
+    text), so without this there is no control on screen that lets somebody
+    change their mind about an edit made offline, and the way out would be to
+    retype the original and wait for it to sync. Pressing it drops the queued
+    write as well as the draft; see `discard` in `useFileBrowser`.
+  */
+  const canDiscard = editable && (state.status === "error" || state.status === "queued");
+  /*
+    Where the sentence is drawn: the phone always, and a pointer width only
+    where the words *are* the message — `error` and `queued` both print
+    `state.message`, which is a paragraph the top bar's chip cannot hold.
+
+    `conflict` is `decision` too and is deliberately not here. Its line is the
+    single word "Conflict", and the conflict notice a few lines up has already
+    said that at length, with the two buttons for answering it. A pointer
+    layout would be printing the word under the paragraph explaining it.
+  */
+  const explains =
+    durability !== "" &&
+    (compact || state.status === "error" || state.status === "queued");
+  /* The manual write, where autosave will not make it. Never on a phone: Save
+     is on the bottom toolbar there (`check`), and this row is not a toolbar. */
+  const manualSave = !compact && !button.disabled && decision;
 
   /**
    * Everything that scrolls, as one node.
@@ -418,18 +696,136 @@ export function NoteEditor({
         dark: a renderer nothing reaches is a second one to keep in step with
         every future change to the first, which is exactly how this drifted.
       */}
-      <View style={compact ? undefined : styles.document}>
+      <View
+        style={compact ? undefined : styles.document}
+        /*
+          The column's width, so the Properties row can start where the note's
+          own first character does. Measured rather than derived from the
+          window for `BrowsePane`'s reason: this is inside the editor region,
+          and how much of the window that region gets depends on a tree
+          somebody drags.
+        */
+        onLayout={
+          compact ? undefined : (event) => setDocWidth(event.nativeEvent.layout.width)
+        }
+      >
           {/*
             The filing metadata, folded away — see `Properties` below and
-            `frontmatter.ts`. Drawn where there is a block to fold **or** an
-            access-map answer to state; a note with neither gets no row at all
-            rather than an empty disclosure. Not for a passphrase note: its
-            frontmatter is the marker and nothing a person filed.
+            `frontmatter.ts`. Not for a passphrase note: its frontmatter is the
+            marker and nothing a person filed.
+
+            **This was compact only, and it is every density now** — half of
+            the answer to "the desktop shows raw YAML". A phone was handed the
+            body and this disclosure; a pointer layout was handed the file and
+            drew `--- updated: … ---` in a dim mono block above the note's own
+            title, on every note anybody had ever filed anything on.
+
+            The other half is in `livePreview.ts`: the block is *hidden* in the
+            editor until the caret is in it, the way every other mark in live
+            preview behaves. That is what keeps this a reader rather than
+            making it the only route — `frontmatter.ts` argues at length why
+            this codebase must not grow a YAML writer, so the editor is the one
+            thing that can change a note's metadata and a pointer layout keeps
+            it.
+
+            So the pair is: this row says *what is filed*, and the document
+            still holds it for anyone who goes there.
+
+            **What it draws differs by density, because what is beside it
+            does.** A phone's breadcrumb carries no visibility chip, so the
+            access-map answer is a row in here and the panel is drawn for it
+            alone. A pointer layout's breadcrumb says who can see the note one
+            line above, so this is drawn only where there is a block to fold —
+            otherwise it would be an empty disclosure under a line that already
+            answered it.
           */}
-          {compact && !passphraseLocked && (frontmatter !== "" || visibility !== undefined) ? (
-            <Properties frontmatter={frontmatter} visibility={visibility} />
+          {!passphraseLocked && (frontmatter !== "" || (compact && visibility !== undefined)) ? (
+            <Properties
+              frontmatter={frontmatter}
+              visibility={compact ? visibility : undefined}
+              /*
+                A phone pays the note's reading margin; a pointer layout pays
+                whatever puts this at the same character as the first line of
+                the document, which is not a constant — the column is centred
+                and moves with the width. `noteGutterFor` is the sum, and the
+                editor below spends the same one in CSS.
+              */
+              gutter={compact ? layout.readingMargin : noteGutterFor(docWidth)}
+              compact={compact}
+            />
           ) : null}
-          {passphraseLocked ? (
+          {activityList ? (
+            /*
+              The activity file opens as a list, and the pencil opens its
+              Markdown.
+
+              Not the drawing's trade below, and the difference matters. A
+              drawing *must* not reach a text editor: one keystroke in that
+              base64 and the diagram is gone. Nothing here is destroyed by
+              typing — the region between the markers is rebuilt from
+              `.context/audit/` on the next change and everything either side
+              is kept forever (`renderFile` splices) — so refusing the editor
+              would be the product deciding somebody may not look at their own
+              file, on nothing but taste.
+
+              What is true is that a dated list is a thing to *read*, and a
+              text editor shows it with a machine comment after every line. So
+              the list is the default and the source is a press away: `Open in
+              new tab` works, a link to it works, and Obsidian draws it as the
+              document it is.
+            */
+            <ActivityPage
+              activity={activity!}
+              shared={activityShared}
+              now={openedAt}
+              source={state.draft}
+              editable={activityEditable}
+              onOpen={onOpenNote ?? (() => {})}
+            />
+          ) : drawing ? (
+            /*
+              A drawing gets a drawing editor, never a text editor.
+
+              `LiveEditor` would happily open a `.excalidraw.md` file — it is
+              Markdown — and hand somebody a buffer of LZ-String base64 with a
+              caret in it. One stray keystroke in that buffer and a save writes
+              a payload no reader can decompress: the diagram is gone, and the
+              file still looks like a file. So this branch comes before the
+              editor rather than beside it, and there is no way past it.
+
+              What `DrawingEditor` is depends on the platform, and each half
+              says why in its own header: on web it is Excalidraw itself, loaded
+              on demand; on native it is the read-only view, because the editor
+              is React DOM and the `WebView` route that would carry it is not
+              built yet. Both write through `serializeDrawing`, which splices
+              rather than regenerates — the same rule `toolWriteNote` enforces
+              against an agent, reached from the other side of the product.
+            */
+            <DrawingEditor
+              path={state.path!}
+              source={state.draft}
+              canEdit={canEdit}
+              /*
+                A save goes through the same draft the rest of this screen
+                writes, so a drawing is saved by the console's ordinary autosave
+                and conflict handling rather than by a path of its own.
+
+                `onChange` unwrapped, not `frontmatter + next` as the compact
+                branch below does for `LiveEditor`: that split exists because
+                the editor there is handed only the body, and this one is handed
+                `state.draft` — the whole file — and returns the whole file.
+                Adding the frontmatter back would write it twice.
+              */
+              onChange={onChange}
+              /*
+                The room this canvas is shared with, when there is one. Absent
+                on the demo console and on a drawing nobody else has open, and
+                the editor is then exactly what it was before collaboration
+                existed — including an undo that behaves the ordinary way.
+              */
+              collaboration={drawingCollaboration}
+            />
+          ) : passphraseLocked ? (
             <LockedNoteView
               path={state.path!}
               stored={state.draft}
@@ -440,6 +836,20 @@ export function NoteEditor({
             />
           ) : (
           <>
+          {/*
+            Who else is in this note, over the note rather than in the console's
+            top bar.
+
+            The bar belongs to the console and stays put while notes come and
+            go; this is a fact about the note in front of you and leaves with
+            it. It draws nothing when nobody else is here, which is almost
+            always, so the ordinary editor is unchanged — see `PresenceChip`.
+          */}
+          {presence === undefined ? null : (
+            <View style={styles.presenceRow}>
+              <PresenceChip presence={presence} />
+            </View>
+          )}
           <LiveEditor
             /*
               The body alone on a phone, and the whole file everywhere else.
@@ -457,9 +867,24 @@ export function NoteEditor({
               themselves only when it differs from what they already hold, and
               after a keystroke it does not — the parent re-splits the very
               draft the editor just produced. No dispatch, so no caret jump.
+
+              **A phone gets the body; a pointer layout gets the file.** That
+              asymmetry is deliberate and it is about *editing*, not about
+              room. `Properties` above is a reader — "there is nothing here
+              that writes", and `frontmatter.ts` argues at length why this
+              codebase must not grow a YAML writer — so the editor is the only
+              thing in the product that can change a note's metadata. Handing
+              it the body at a pointer density would take that away on the one
+              surface that had it.
+              
+              What the pointer layout does instead is hide the block until the
+              caret is in it (`livePreview.ts`, `frontmatterHidden`), which is
+              the same live-preview rule every other mark follows: out of the
+              way while you read, there the moment you go to it.
             */
             value={compact ? body : state.draft}
             editable={editable}
+            presence={presence}
             /*
               The accessory bar's keys go out through *this* `onChange`, which
               is the whole reason they are the editor's own commands rather than
@@ -507,27 +932,38 @@ export function NoteEditor({
             notePath={state.path}
             notePaths={notePaths}
             /*
-              A modifier click navigates; a long press asks. The asymmetry is
-              the gesture's, not the destination's — see `noteLinks.ts`. Both
-              are absent when the caller gave us nowhere to go, which is what
-              stops the editor underlining text it cannot act on.
+              A click and a tap go to the note; a ⌘-click opens it behind. The
+              asymmetry is the gesture's, not the destination's — see
+              `noteLinks.ts`. Absent when the caller gave us nowhere to go,
+              which is what stops the editor underlining text it cannot act on.
             */
-            onOpenNote={onOpenLink === undefined ? undefined : (path) => onOpenLink(path)}
-            onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
+            onOpenNote={onOpenLink === undefined ? undefined : onOpenLink}
+            onSuggest={onSuggest}
+            onPickSuggestion={onPickSuggestion}
+            /*
+              The two voice rows on the note's right-click menu. Absent where
+              there is nothing behind them — no voice host is no microphone,
+              and no `onAskAgent` is no right panel — and `editorMenuItems`
+              then draws no row rather than one that does nothing.
+
+              The caret the menu was opened at is deliberately dropped: the
+              dictation this starts inserts at the live caret, which the menu
+              has already moved to the click (see `LiveEditor.web.tsx`), so
+              carrying the number would be a second answer to a question that
+              is already settled.
+            */
+            onDictate={voice === null ? undefined : () => setDictateAsked(Date.now())}
+            onAsk={voice?.onAskAgent ?? undefined}
+            onPreviewLinks={onPreviewLinks}
+            onSubmitForm={onSubmitForm}
+            onReadFormResponses={onReadFormResponses}
+            onVoteForm={onVoteForm}
+            onUpdateFormResponse={onUpdateFormResponse}
+            onRetractFormResponse={onRetractFormResponse}
+            onLoadImage={onLoadImage}
+            onStoreImage={onStoreImage}
+            onImageProblem={onImageProblem}
           />
-          {pressed === null || onOpenLink === undefined ? null : (
-            <Confirm
-              title="Open this note?"
-              body={pressed}
-              confirmLabel="Open"
-              onCancel={() => setPressed(null)}
-              onConfirm={() => {
-                const path = pressed;
-                setPressed(null);
-                onOpenLink(path);
-              }}
-            />
-          )}
           </>
           )}
         </View>
@@ -555,21 +991,45 @@ export function NoteEditor({
         `statusLine` below is where that is decided, and it prints nothing at
         all rather than fall through to the reassuring default.
 
-        An earlier pass drew it on a pointer layout only, arguing that a
-        permanent 26pt strip is a band of chrome across the bottom of a phone
-        that already has a floating toolbar lying on it. That argument is about
-        a *strip*, and this is no longer one: the phone's note is a single
-        full-bleed scroller, so this is the last line of the document rather
-        than a bar pinned under it. It scrolls with the text, sits at the note's
-        own reading margin, and the content padding at the foot of the scroller
-        is what brings it — and the note's last paragraph — out from under the
-        toolbar. Nothing is pinned, so nothing is chrome, and the one sentence
-        that says where somebody's writing actually is stays on the screen.
+        **It is the phone's, and that is a reversal of a reversal.** It was
+        pointer-only once, on the argument that a permanent 26pt strip is a
+        band of chrome across the bottom of a phone that already has a floating
+        toolbar lying on it; that argument was about a *strip*, and the phone's
+        note stopped being one — it is a single full-bleed scroller, so this is
+        the last line of the document rather than a bar pinned under it, it
+        scrolls with the text, and the content padding at the foot brings it
+        out from under the toolbar. All of that still holds, so the sentence
+        stays here at compact.
 
-        Discard sits beside it. It has no other route on a phone: the row menu
-        acts on a file in the tree, and this acts on the draft in front of you.
+        What changed is the other density, twice. A pointer layout had the
+        status bar, and `status.ts`'s `save` segment was **the same claim**:
+        "Saved", "Saved 2 minutes ago", "Cached copy", "Queued", "Not saved".
+        Measured in Chromium at 1440×900: "Saved in your bucket" sat 40pt above
+        the word "Saved", at the same leading edge, in two visual languages —
+        so the sentence went compact-only and the bar, the surface that never
+        moves, kept the claim.
+
+        The claim has since moved again, to the top bar's `SaveChip`, and this
+        sentence came part of the way back with it. It is drawn at a pointer
+        width in exactly the states `decision` names — a failed save, a
+        conflict, a queued draft — because in those the sentence is not a
+        restatement of the chip but the thing the chip has no room for: "Still
+        waiting on your bucket, so we stopped waiting…" is a paragraph, and
+        "Not saved" is two words. Everywhere else the chip says it alone and
+        nothing stands over the note.
+
+        Discard sits beside it, at every density. It has no other route on a
+        phone: the row menu acts on a file in the tree, and this acts on the
+        draft in front of you.
       */}
-      {durability !== "" || canDiscard ? (
+      {/*
+        Three things can put this row on screen and each is asked for
+        separately, which is the bug the first draft of the compact-only rule
+        shipped: gating the whole row on the sentence took the Save button —
+        and, in a conflict, Overwrite theirs — off every pointer layout with it,
+        because the row is where that button lives.
+      */}
+      {explains || canDiscard || manualSave ? (
         <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
           {/*
             Absent rather than empty. `statusLine` answers `""` for a state it
@@ -577,19 +1037,12 @@ export function NoteEditor({
             message never arrived — and an empty `Text` here would be a blank
             line where a claim is supposed to be.
           */}
-          {durability === "" ? null : (
+          {!explains ? null : (
             <Text variant="meta" style={styles.status} testID="note-durability">
               {durability}
             </Text>
           )}
-          {/*
-            `queued` gets Discard too, and it is not a nicety. Save is dead in
-            that state — the queue already holds the newest text — so without
-            this there is no control on the screen that lets somebody change
-            their mind about an edit made offline, and the way out is to retype
-            the original and wait for it to sync. Pressing it drops the queued
-            write as well as the draft; see `discard` in `useFileBrowser`.
-          */}
+          {/* The two states it is offered in, and why, are beside `canDiscard`. */}
           {canDiscard ? <Button label="Discard changes" onPress={onDiscard} /> : null}
           {/*
             Save is on the bottom toolbar on a phone — `check`, which dims when
@@ -601,12 +1054,44 @@ export function NoteEditor({
             the row menu acts on a file in the tree, and this acts on the draft
             in front of you. A control removed because its neighbour was
             duplicated is a capability lost to a layout decision.
+
+            **And it is drawn only when pressing it does something**, which is
+            the second half of the same argument one form factor over. Measured
+            in a browser at 1440×900: a resting note carried the sentence
+            "Saved in your bucket" at the leading edge of this row and a dimmed
+            pill reading "Saved" at the trailing edge of it — the same claim,
+            twice, in two visual languages, at opposite ends of one row. A
+            phone drew the sentence alone. So the wider the window, the more
+            ways the console found to say one thing, and the second of them
+            reads as an unstyled placeholder rather than as status.
+
+            `editor.ts` already says which half is which: the pill exists
+            because "a save that failed and a conflict are exactly the cases
+            autosave refuses, so the manual route has to stay reachable" — a
+            statement about the states it can be **pressed** in. In every other
+            state it is disabled, and in every one of those the sentence beside
+            it has already said the same thing in words it can say more
+            truthfully: "Saved in your bucket" over "Saved", a queued draft's
+            own message over "Queued", and — for `Read-only` and `Encrypted` —
+            the notice at the head of the note rather than one word at the foot
+            of it.
+
+            So `button.disabled` decides whether this is drawn rather than how
+            it looks — **and `decision` decides it too**, which is the later
+            half of the same argument. `dirty` is a pressable arm of
+            `saveButton` and it is no longer drawn here: autosave writes that
+            draft a couple of seconds after typing stops, ⌘S writes it now, and
+            a button that appears under somebody's hands on every keystroke to
+            offer what is already happening is the app asking to be looked
+            after. What is left is `error` and `conflict` — the two states
+            autosave refuses, where `editor.ts` says the manual route has to
+            stay reachable, and where nothing else on screen will make the
+            write.
           */}
-          {compact ? null : (
+          {!manualSave ? null : (
             <Button
               label={button.label}
               variant={state.status === "conflict" ? "danger" : "white"}
-              disabled={button.disabled}
               onPress={onSave}
             />
           )}
@@ -739,6 +1224,123 @@ export function NoteEditor({
         rather than one of two.
       */}
       {barUp ? <NoteAccessory controls={() => controls.current} /> : null}
+
+      {/*
+        The microphone, anchored to the region for the same reason the bar
+        above it is: inside the scroller it would ride the document.
+
+        Mounted here rather than in the console layout because this is the one
+        component that holds the live `EditorControls` — the same handle the
+        accessory bar takes, and taken the same way, as a getter that answers
+        `null` between notes. Everything it needs that the editor does not know
+        (which context, whose note, how to start a meeting) arrives through
+        `useVoiceHost`, which is `null` on the demo console and the fixtures so
+        they draw nothing.
+
+        **`liveEditorOnScreen` is the whole condition**, and it is the editor's
+        own branch rather than a list of exclusions. A drawing is an Excalidraw
+        canvas with no caret; a locked note is an envelope with a passphrase
+        field where the editor would be. Neither has a `controls` handle, so the
+        button would be inert — and inert is the *better* half of what went
+        wrong. It is `position: absolute` at this corner, so on a phone it also
+        lay over `LockedNoteView`'s own Save button and swallowed its presses.
+        WebKit CI found that, in `encryption.spec.ts`, not in a test of this
+        feature: a floating control is every other control's problem.
+      */}
+      {/*
+        What is open, published for the console's right panel.
+
+        `NoteEditor` is the only thing that can build this — `page.ts` argues
+        that where `noteReference` is defined — and the panel is its sibling
+        rather than its descendant, so the two meet at a store rather than at
+        a provider hoisted over both. See `features/agent/openNote.ts`.
+
+        Drawn as a component rather than run as an effect here so that it
+        unmounts with the editor: leaving a stale note published after the
+        pane goes would have the panel describing a room nobody is in.
+      */}
+      <PublishOpenNote state={state} />
+
+      {voice === null || !liveEditorOnScreen ? null : (
+        <VoiceButton
+          page={{ ...voice.page, writable: voice.page.writable && editable }}
+          controls={() => controls.current}
+          compact={compact}
+          /*
+            Nothing draws a resting microphone in this corner any more, and the
+            rule is one sentence on both densities: **while a `+` is on the
+            glass, this stands down.**
+
+            At a pointer density that `+` is the console's, which the *layout*
+            mounts rather than this editor — so the editor is told, through the
+            voice host, rather than deriving it from a width: the E2E fixture
+            and the demo console are desktop-width surfaces with no `+` in that
+            corner at all. See `VoiceHost.createButton`.
+
+            On a phone it is the bottom row's own `+`, and `barUp` is what says
+            that row is not on the glass: the accessory bar hides the frame's
+            toolbar (see the `setAccessoryOpen` effect above), which is the same
+            condition read from the side that causes it rather than from the
+            height the frame publishes. So the microphone comes back with the
+            caret — which is exactly when dictation has somewhere to type.
+
+            **The phone half used to be argued from a microphone rather than
+            from a `+`.** The row's seventh key was a microphone that opened the
+            meeting flow, 24pt from this one and wearing the same glyph, and
+            standing this one down was how "why are there 2 microphones?" was
+            closed (`oneMicrophone.test.ts`). That key is gone — *"we no longer
+            need a dedicated mic button on the bottom row, just a plus button
+            that opens different options"* — and the condition is unchanged,
+            because what it was really protecting is the corner: one floating
+            control at a time, and the row's `+` is that control.
+
+            What this never stands down is a microphone that is already open.
+            The live capsule is the only way to stop a run and take back what
+            it typed, and the failure card is a sentence owed to whoever opened
+            one. `VoiceButton` draws both whatever this says.
+          */
+          microphoneElsewhere={compact ? !barUp : voice.createButton === true}
+          /*
+            Built here because this is the only place holding both halves: the
+            console's voice host knows the context, and `state` is the editor
+            itself — which is what knows whether the draft has diverged from
+            the file. It carries references and never the note's text; see
+            `features/agent/page.ts` for why that is a security property and
+            not a size optimisation.
+          */
+          place={agentPage({
+            context: voice.page.context,
+            editor: state,
+            route: consoleRoute(voice.page.context),
+            /*
+              False rather than read from the meetings store, because it is
+              structurally false here: `VoiceButton` returns `null` for the
+              whole of a meeting — there is one microphone and the meeting has
+              it — so the conversation this feeds cannot be on screen while one
+              runs. The field exists for the surfaces that will reach the agent
+              from somewhere other than this control.
+            */
+            meetingLive: false,
+            query: null,
+          })}
+          /*
+            Absent on the three surfaces that provide no host value for it —
+            the demo console, the E2E fixture, the visual fixture — where
+            `VoiceButton` falls back to the stub. A conditional *value*, never
+            a conditional hook: the engine is built in the console layout,
+            which is mounted or not as a whole.
+          */
+          agent={voice.agent}
+          /*
+            The right-click menu's Dictate row, reaching the microphone this
+            button owns. It is the same `start()` the sheet calls, so there is
+            one dictation and one set of rules about when it may run — the menu
+            is a second *door*, never a second implementation.
+          */
+          startDictation={dictateAsked}
+          onRecordMeeting={voice.onRecordMeeting}
+        />
+      )}
     </View>
   );
 }
@@ -771,6 +1373,8 @@ export function NoteEditor({
 function Properties({
   frontmatter,
   visibility,
+  gutter,
+  compact,
 }: {
   frontmatter: string;
   /** See `NoteEditor`'s prop of the same name. */
@@ -780,6 +1384,17 @@ function Properties({
     exception: boolean;
     readOnly: boolean;
   };
+  /** Where the note's own first character is. See the call site. */
+  gutter: number;
+  /**
+   * Whether this is the phone's row.
+   *
+   * It decides the target's height and nothing else. A thumb needs
+   * `minTouchTarget`; a pointer does not, and a 44pt box around an 11pt label
+   * was the tallest thing between the breadcrumb and the note — which on the
+   * surface with the most room to spare is where the air is least welcome.
+   */
+  compact: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -787,7 +1402,7 @@ function Properties({
   const rows = withVisibility(properties(frontmatter), visibility);
 
   return (
-    <View style={styles.properties}>
+    <View style={[styles.properties, { paddingLeft: gutter, paddingRight: gutter }]}>
       <PressRow
         accessibilityLabel={
           open
@@ -796,7 +1411,7 @@ function Properties({
         }
         onPress={() => setOpen((current) => !current)}
         radius={radii.sm}
-        style={styles.propertiesHead}
+        style={[styles.propertiesHead, compact && styles.propertiesHeadTouch]}
         hoverStyle={styles.propertiesHover}
         testID="note-properties"
       >
@@ -968,6 +1583,37 @@ function ManifestNotice() {
 }
 
 /**
+ * Publish what is open, and clear it on the way out.
+ *
+ * A component rather than an effect inside `NoteEditor` for one reason: it
+ * unmounts when the pane does, and its cleanup is what stops a stale note
+ * being published after the editor has gone — which would leave the console's
+ * right panel describing a room nobody is in.
+ *
+ * It renders nothing. `agentPage` is asked for the reference rather than
+ * `noteReference` directly, because that function is private to `page.ts` and
+ * deliberately so: the editor's state is the only thing it accepts, and this
+ * is the editor.
+ */
+function PublishOpenNote({ state }: { state: EditorState }) {
+  const reference = agentPage({
+    context: null,
+    editor: state,
+    route: "",
+    meetingLive: false,
+    query: null,
+  }).note;
+
+  useEffect(() => {
+    publishOpenNote(reference);
+  }, [reference]);
+
+  useEffect(() => () => publishOpenNote(null), []);
+
+  return null;
+}
+
+/**
  * Where this note actually is, in one sentence — or nothing.
  *
  * **Every arm of this switch is a durability claim, and the default is the
@@ -1055,8 +1701,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     // `contentInsets.top` already carries 12 of it.
     marginTop: space.x5,
     marginBottom: space.x1,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: t.title,
+    lineHeight: leading(t.title, 1.21),
     fontWeight: "700",
     letterSpacing: -0.5,
     color: colors.text,
@@ -1078,8 +1724,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * the first line of the document and anything else here would be visibly out
    * of step with it.
    */
+  /**
+   * A quiet line above the note, at the note's own left margin.
+   *
+   * The margin arrives as a prop rather than being set here, because on a
+   * pointer layout it is not a constant: the note is a centred column and its
+   * first character moves with the width. See `noteGutterFor`.
+   */
   properties: {
-    paddingHorizontal: layout.readingMargin,
     paddingTop: space.x1,
     paddingBottom: space.x2,
   },
@@ -1109,10 +1761,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "center",
     alignSelf: "flex-start",
     gap: 6,
-    minHeight: layout.minTouchTarget,
+    minHeight: 24,
     paddingRight: space.x2,
     borderRadius: radii.sm,
   },
+  /** A thumb's floor, which a pointer does not pay — see the `compact` prop. */
+  propertiesHeadTouch: { minHeight: layout.minTouchTarget },
   propertiesHover: { backgroundColor: colors.surface3 },
   /**
    * One row: mark, key, value.
@@ -1148,7 +1802,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 96,
     flexGrow: 0,
     flexShrink: 0,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 22,
     color: colors.muted,
   },
@@ -1156,7 +1810,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 22,
     color: colors.text,
   },
@@ -1166,7 +1820,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 22,
     color: colors.muted,
   },
@@ -1192,6 +1846,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   status: { flexGrow: 1, flexShrink: 1 },
 
+  presenceRow: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, paddingTop: 6 },
   conflict: {
     paddingVertical: 12,
     paddingHorizontal: 15,

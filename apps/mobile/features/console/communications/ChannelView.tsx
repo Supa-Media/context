@@ -15,6 +15,7 @@ import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { FileBrowser } from "../files/browser";
 import { channelDayPageCount, collateChannelDays, pageChannelDays } from "./channel";
+import { dayEntriesUnder, dayFolderPaths } from "./dayFolders";
 import { channelLabel } from "./inbox";
 import type { CommsChannel } from "./types";
 
@@ -37,15 +38,29 @@ export function ChannelView({
   const [page, setPage] = useState(0);
   const [address, setAddress] = useState<string | null>(null);
 
+  /*
+    The channel folder, then its year folders, then their months — a day is
+    filed under `YYYY/MM` and `ensureListing` fetches one folder's own
+    children, so a view that asked only for `path` would show every day
+    written before 2026-09-18 and none written since. `dayFolderPaths` answers
+    off what is already cached, so this settles in two rounds and is a no-op
+    after that.
+  */
+  const folders = dayFolderPaths(path, files.listings);
+  const folderKey = folders.join("|");
   useEffect(() => {
-    files.ensureListing(path);
-  }, [files, path]);
+    for (const folder of folders) files.ensureListing(folder);
+    // Keyed on the folders themselves rather than the array's identity, which
+    // is fresh every render; `ensureListing` is a no-op once a path is cached.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, folderKey]);
   // A different channel is a different page: start over rather than landing
   // on whatever page this one happened to leave the state on.
   useEffect(() => setPage(0), [path]);
 
-  const entries = files.listings[path]?.entries;
-  const rows = useMemo(() => collateChannelDays(channel, account, entries ?? []), [channel, account, entries]);
+  const listed = files.listings[path]?.entries;
+  const entries = useMemo(() => dayEntriesUnder(path, files.listings), [path, files.listings]);
+  const rows = useMemo(() => collateChannelDays(channel, account, entries), [channel, account, entries]);
   const pageCount = channelDayPageCount(rows, PAGE_SIZE);
   const pageRows = pageChannelDays(rows, page, PAGE_SIZE);
 
@@ -79,7 +94,13 @@ export function ChannelView({
         {label}
       </Text>
 
-      {entries === undefined ? (
+      {/*
+        The *channel folder's* own listing decides "loading", not the walk's
+        result: `dayEntriesUnder` is an array either way, and an empty one
+        before the first listing lands would say "No days yet" to somebody
+        whose mailbox is full.
+      */}
+      {listed === undefined ? (
         <Text variant="meta" style={styles.aside}>
           Loading…
         </Text>

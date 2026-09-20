@@ -362,7 +362,7 @@ export function describeInvitesSent(count: number): string | null {
  * The privacy default, stated rather than offered — the workspace's version of
  * `../onboarding/structure`'s `PRIVACY_DEFAULT_NOTE`.
  *
- * The two say opposite things and both are right. A personal brain starts
+ * The two say opposite things and both are right. A personal workspace starts
  * all-private because a `team` default would grant nothing today and then
  * quietly open a folder the first time somebody was invited. A workspace starts
  * team-visible because it is *made* to be read by the people in it, and a
@@ -378,6 +378,22 @@ export function describeInvitesSent(count: number): string | null {
  */
 export const WORKSPACE_PRIVACY_NOTE =
   "These folders start visible to everyone in the workspace, which is what a workspace is for. Marking one private in privacy.md holds it back to the workspace's owners — there is no way yet to restrict a folder to some other subset of the team.";
+
+/**
+ * What paying for storage we run does, in this flow, in order.
+ *
+ * First run's version of this sequence says "Stripe brings you back here", and
+ * here that would be false: this flow is component state and Stripe returns to
+ * a URL, so the checkout is started with `origin: "settings"` and lands on the
+ * workspace's own Premium section. The two steps left in this flow are skipped
+ * exactly as the Dropbox route skips them, so this says where they went —
+ * before the press, on the screen that takes the payment.
+ */
+export const WORKSPACE_AFTER_PAY = [
+  "Stripe brings you back to the workspace's own settings, not to this flow.",
+  "We create its bucket and lay out the standard folders.",
+  "Keep Premium open until storage is confirmed — it can take up to 2 minutes. Then invite its people from settings.",
+] as const;
 
 /** What a workspace's layout is worth, said once. Reversible, like everything else. */
 export const WORKSPACE_LAYOUT_NOTE =
@@ -405,7 +421,7 @@ export const WORKSPACE_LAYOUT_NOTE =
  */
 export function storageLede(slug: string): string {
   return (
-    `@${slug} is claimed. It needs a bucket of its own — not the one behind your brain. ` +
+    `@${slug} is claimed. It needs a bucket of its own — not the one behind your personal workspace. ` +
     "A workspace's storage binding, credential and audit trail are its own, so revoking " +
     "one never touches the other, and handing the workspace over does not hand over " +
     "anything personal."

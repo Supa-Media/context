@@ -100,7 +100,7 @@ interface CloudflareFailure {
 }
 
 interface CloudflareStubOptions {
-  /** What `GET /user/tokens/permission_groups` answers with. */
+  /** What `GET /accounts/:id/tokens/permission_groups` answers with. */
   permissionGroups?: { id: string; name: string }[];
   permissionGroupsFailure?: CloudflareFailure;
   bucketFailure?: CloudflareFailure;
@@ -168,7 +168,10 @@ function cloudflareStub(options: CloudflareStubOptions = {}) {
     };
     calls.push(call);
 
-    if (url.pathname === "/client/v4/user/tokens/permission_groups") {
+    if (
+      url.pathname ===
+      `/client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`
+    ) {
       if (options.permissionGroupsFailure) {
         return failureResponse(options.permissionGroupsFailure);
       }
@@ -434,7 +437,7 @@ describe("the pieces of the Cloudflare API this flow needs", () => {
   });
 
   test("a suggested bucket name is always a legal one", () => {
-    for (const slug of ["atlas", "ab", "a", "Seyi's Brain", "--", "x".repeat(80)]) {
+    for (const slug of ["atlas", "ab", "a", "Seyi's Workspace", "--", "x".repeat(80)]) {
       expect(bucketNameProblem(suggestBucketName(slug))).toBeNull();
     }
     expect(suggestBucketName("atlas")).toBe("atlas");
@@ -699,6 +702,60 @@ describe("the pieces of the Cloudflare API this flow needs", () => {
 /*                               the whole flow                               */
 /* -------------------------------------------------------------------------- */
 
+describe("a bucket this flow just made is given time to settle", () => {
+  /*
+    THE SAME RACE THE MANAGED PATH HAD, ON THE PATH EVERYBODY ELSE TAKES.
+
+    `storage-and-credentials.md` records why a newly minted R2 credential is
+    not usable the instant Cloudflare's API returns it — IAM changes are
+    eventually consistent for up to a minute, and the first production journey
+    probed a new key 266ms after minting it and painted the connection red.
+
+    That waiting was given to managed provisioning and to the managed copy, and
+    not to this flow, which mints a bucket-scoped token exactly the same way in
+    the customer's own account. Without it, "create a bucket for me" reports a
+    broken connection whenever R2 takes a moment, and Re-verify then fixes it —
+    a race being shown to somebody as a fault.
+
+    Asserted at the mutation rather than by running the probe, for the reason
+    `fixtures.helpers.ts` gives about fixtures that race themselves: what is
+    wrong here is the argument this flow fails to send, `record()` already
+    proves what the argument does, and a test that let the retry chain run would
+    leave it firing into the next test's stub on convex-test's real timer.
+  */
+  test("binding the new bucket hands the probe a two-minute window", async () => {
+    const t: TestConvex = setupTest();
+    const owner = await createUser(t, "settling@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "settling");
+
+    await t.mutation(internal.functions.cloudflare.completeProvisioning, {
+      workspaceId,
+      actorUserId: owner,
+      endpoint: `https://${FAKE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      bucket: BUCKET,
+      accessKeyId: MINTED_TOKEN_ID,
+      encryptedSecretAccessKey: await encryptSecret("fake-secret", requireKeyset(), {
+        workspaceId,
+      }),
+    });
+
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const verification = scheduled.find((job) =>
+      job.name.includes("verifyStorageBinding"),
+    );
+    const args = (
+      verification?.args as Array<{ workspaceId: string; retryUntil?: number }> | undefined
+    )?.[0];
+    expect(args).toMatchObject({ workspaceId });
+    // The same window `completeManagedProvisioning` gives its own bucket. A
+    // one-shot probe here is the bug; any window shorter than the documented
+    // propagation time is the bug wearing a number.
+    expect(args?.retryUntil).toBeGreaterThan(Date.now() + 110_000);
+  });
+});
+
 describe("provisioning a bucket in the customer's account", () => {
   test("writes a binding that is exactly what a manual connect would have written", async () => {
     const { t, owner, workspaceId, cloudflare } = await provisioning();
@@ -733,7 +790,7 @@ describe("provisioning a bucket in the customer's account", () => {
 
     // Three calls, in the order that makes the third one safe.
     expect(cloudflare.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      "GET /client/v4/user/tokens/permission_groups",
+      `GET /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/r2/buckets`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens`,
     ]);
@@ -1075,7 +1132,7 @@ describe("every failure is a state the owner can act on", () => {
     expect(row!.errorCode).toBe("PERMISSION_GROUP_UNAVAILABLE");
     expect(row!.error).toMatch(/nothing broader/i);
     expect(cloudflare.calls.map((call) => call.path)).toEqual([
-      "/client/v4/user/tokens/permission_groups",
+      `/client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`,
     ]);
   });
 
@@ -1187,7 +1244,7 @@ describe("a bucket that exists is never described as if it did not", () => {
 
     // The bucket call happened and succeeded; the mint is what failed.
     expect(cloudflare.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-      "GET /client/v4/user/tokens/permission_groups",
+      `GET /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/r2/buckets`,
       `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens`,
     ]);
@@ -1552,6 +1609,44 @@ describe("only an owner may create storage for a context", () => {
     expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
     expect(cloudflare.calls).toEqual([]);
     expect(await provisioningRow(t, workspaceId)).toBeNull();
+  });
+
+  /**
+   * Our own account is not one a customer may provision into.
+   *
+   * This path exists to make a bucket **in the customer's account**; a bucket
+   * it made in ours would be a customer bucket nobody could hand over, which
+   * is the whole promise managed storage rests on. Driven through the real
+   * action rather than only against the pure guard, because with only the unit
+   * test the call in `provisionCloudflareR2` could be deleted and the suite
+   * would stay green.
+   */
+  test("the account holding managed buckets is refused, and Cloudflare is never called", async () => {
+    const managed = "0123456789abcdef0123456789abcdef";
+    const previous = process.env.MANAGED_R2_ACCOUNT_ID;
+    process.env.MANAGED_R2_ACCOUNT_ID = managed;
+    try {
+      const { t, owner, workspaceId, cloudflare } = await provisioning();
+
+      for (const accountId of [managed, managed.toUpperCase(), `  ${managed}  `]) {
+        expect(
+          errorCode(
+            await captureError(() =>
+              startProvisioning(t, owner, workspaceId, {
+                credential: { source: "api-token", apiToken: SETUP_TOKEN, accountId },
+              }),
+            ),
+          ),
+          `${accountId} was accepted`,
+        ).toBe("MANAGED_ACCOUNT_NOT_ALLOWED");
+      }
+
+      expect(cloudflare.calls).toEqual([]);
+      expect(await provisioningRow(t, workspaceId)).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.MANAGED_R2_ACCOUNT_ID;
+      else process.env.MANAGED_R2_ACCOUNT_ID = previous;
+    }
   });
 
   test("an editor cannot provision, and nothing is queued when they try", async () => {

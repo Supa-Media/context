@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Modal,
   Pressable,
@@ -6,11 +7,13 @@ import {
   StyleSheet,
   View,
   useWindowDimensions,
+  type Role,
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
 import { layout, radii, space } from "../tokens";
+import { MARGIN, place, type Box } from "./popoverPlacement";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../theme";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -103,13 +106,18 @@ import { Text } from "./Text";
  * The same rule applies again, independently, to a submenu: it opens to the
  * right of its parent and flips to the left when the right has no room.
  */
-export interface MenuProps {
-  items: MenuItem[];
+export interface MenuProps<Id extends string = MenuActionId> {
+  items: MenuItem<Id>[];
   /** Where the pointer was. Web anchors a popover here; touch ignores it. */
   anchor?: { x: number; y: number };
   /** Sheet heading on touch — the file name. Web shows no heading. */
   title?: string;
-  onSelect: (id: MenuActionId) => void;
+  /**
+   * A second line under `title` — the account menu's email under the
+   * signed-in name. Sheet only, same as `title`: the popover shows neither.
+   */
+  titleDetail?: string;
+  onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
 
@@ -128,9 +136,6 @@ const TOUCH_ROW_MIN_HEIGHT = 44;
 const SEPARATOR_BLOCK = 1 + space.x1 * 2;
 const PADDING = 6;
 const BORDER = 1;
-/** Never closer to the edge of the window than this. */
-const MARGIN = 8;
-
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 340;
 /**
@@ -141,6 +146,16 @@ const MAX_WIDTH = 340;
  */
 const CHAR_WIDTH = 7;
 const ROW_CHROME = 34;
+/**
+ * The radio gutter's width plus its gap — what a `checked` row adds in front of
+ * its label.
+ *
+ * Measured rather than left to the layout for the reason `DETAIL_BLOCK` is:
+ * `widthFor` decides the box's declared `width`, and a row rendered wider than
+ * it was measured is a label clipped mid-word. Every row in a group that has
+ * one reserves it, including the unchecked ones, so three radio rows line up.
+ */
+const CHECK_BLOCK = 18;
 
 /**
  * What a `detail` line adds to a row.
@@ -155,35 +170,39 @@ const ROW_CHROME = 34;
 const DETAIL_BLOCK = 18;
 
 /** The height one row occupies, which is not the same for every row. */
-function rowHeight(item: MenuItem): number {
+function rowHeight(item: MenuItem<string>): number {
   return ROW_HEIGHT + (item.detail === undefined ? 0 : DETAIL_BLOCK);
 }
 
-function widthFor(items: readonly MenuItem[]): number {
+function widthFor(items: readonly MenuItem<string>[]): number {
   let widest = MIN_WIDTH;
   for (const item of items) {
     const chord = item.shortcut === undefined ? 0 : item.shortcut.length + 3;
     const chevron = item.items === undefined ? 0 : 2;
-    widest = Math.max(widest, (item.label.length + chord + chevron) * CHAR_WIDTH + ROW_CHROME);
+    const gutter = item.checked === undefined ? 0 : CHECK_BLOCK;
+    widest = Math.max(
+      widest,
+      (item.label.length + chord + chevron) * CHAR_WIDTH + ROW_CHROME + gutter,
+    );
     // A detail sits under the label with none of the row's trailing furniture
     // beside it, so it is measured on its own. Wrapping is still allowed —
     // `MAX_WIDTH` wins, and the text is capped at two lines — but a sentence
     // that fits should not be broken to keep the box narrow.
     if (item.detail !== undefined) {
-      widest = Math.max(widest, item.detail.length * CHAR_WIDTH + ROW_CHROME);
+      widest = Math.max(widest, item.detail.length * CHAR_WIDTH + ROW_CHROME + gutter);
     }
   }
   return Math.min(MAX_WIDTH, Math.round(widest));
 }
 
-function heightFor(items: readonly MenuItem[]): number {
+function heightFor(items: readonly MenuItem<string>[]): number {
   const rules = items.filter((item) => item.separatorBefore === true).length;
   const rows = items.reduce((total, item) => total + rowHeight(item), 0);
   return PADDING * 2 + BORDER * 2 + rows + rules * SEPARATOR_BLOCK;
 }
 
 /** How far below the top of the box a given row's own top edge sits. */
-function offsetOfRow(items: readonly MenuItem[], index: number): number {
+function offsetOfRow(items: readonly MenuItem<string>[], index: number): number {
   let offset = PADDING + BORDER;
   for (let at = 0; at < index; at += 1) {
     if (items[at].separatorBefore === true) offset += SEPARATOR_BLOCK;
@@ -191,48 +210,6 @@ function offsetOfRow(items: readonly MenuItem[], index: number): number {
   }
   if (items[index]?.separatorBefore === true) offset += SEPARATOR_BLOCK;
   return offset;
-}
-
-interface Box {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-interface Viewport {
-  width: number;
-  height: number;
-}
-
-/**
- * Place a box of `size` at `x, y`, flipping rather than clipping.
- *
- * `preferLeft` / `preferAbove` are for a submenu, which does not start at the
- * pointer: its natural place is *beside* its parent, so when it flips it must
- * flip back across the parent's whole width rather than across a point. The
- * caller passes that width as `across`.
- */
-function place(
-  x: number,
-  y: number,
-  size: { width: number; height: number },
-  view: Viewport,
-  across = 0,
-): Box {
-  const height = Math.min(size.height, Math.max(ROW_HEIGHT, view.height - MARGIN * 2));
-
-  let left = x;
-  if (left + size.width > view.width - MARGIN) left = x - size.width - across;
-  // A window narrower than the menu has no side that fits; sit against the
-  // left edge rather than off either one.
-  if (left < MARGIN) left = Math.max(MARGIN, Math.min(x, view.width - MARGIN - size.width));
-
-  let top = y;
-  if (top + height > view.height - MARGIN) top = y - height;
-  if (top < MARGIN) top = MARGIN;
-
-  return { left, top, width: size.width, height };
 }
 
 /** `position: fixed` is web-only and absent from React Native's style type. */
@@ -273,6 +250,29 @@ function fixedAt(box: Box): ViewStyle {
  *    blue under the finger about to release on it is the sheet lying about
  *    what it is offering. Touch lights the background instead.
  */
+/**
+ * `menuitemradio` where the row carries a state, `menuitem` where it does not.
+ *
+ * Saying so is not decoration: a screen reader announcing "Use the folder's
+ * setting" with no mention of its being the one in force has given a blind
+ * reader strictly less than the check gives everybody else — on the control
+ * that decides who can read a note.
+ *
+ * React Native's `Role` union predates this menu and has no `menuitemradio` in
+ * it. react-native-web writes the value straight through to the DOM and on the
+ * web ARIA is the authority, so the cast is correct and it is contained here
+ * rather than spread across the element. `aria-checked` rides with it because
+ * the two are only valid together — a `menuitemradio` with no state and a
+ * `menuitem` with one are each invalid ARIA.
+ */
+function roleFor(checked: boolean | undefined): {
+  role: Role;
+  "aria-checked"?: boolean;
+} {
+  if (checked === undefined) return { role: "menuitem" };
+  return { role: "menuitemradio" as Role, "aria-checked": checked };
+}
+
 function Row({
   id,
   label,
@@ -283,10 +283,13 @@ function Row({
   danger = false,
   shortcut,
   submenu = false,
+  checked,
+  disabled = false,
   align = "left",
   focused = false,
   onActivate,
   onHover,
+  testID,
 }: {
   id: string;
   label: string;
@@ -300,22 +303,40 @@ function Row({
   danger?: boolean;
   shortcut?: string;
   submenu?: boolean;
+  /**
+   * The setting in force, where "in force" is a question with an answer.
+   *
+   * `false` and `undefined` are different: `false` reserves the gutter so the
+   * rows of one radio group line up under each other, `undefined` draws no
+   * gutter at all. See `MenuItem.checked`.
+   */
+  checked?: boolean;
+  /**
+   * Present, drawn dimmed, and does not fire. See `MenuItem.disabled` for why
+   * this exists at all when the file menu's rule is absence.
+   */
+  disabled?: boolean;
   align?: "left" | "center";
   focused?: boolean;
   onActivate: () => void;
   onHover?: () => void;
+  /** `MenuItem.testID`, or the `menu-item-<id>` default. */
+  testID?: string;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
-  const lit = hovered || focused;
+  // A disabled row must not light up either: a hover highlight on something
+  // that will not fire is the control promising a press it does not honour.
+  const lit = (hovered || focused) && !disabled;
 
   return (
     <Pressable
-      role="menuitem"
+      {...roleFor(checked)}
       accessibilityLabel={accessibilityLabel ?? label}
-      testID={`menu-item-${id}`}
-      onPress={onActivate}
+      testID={testID ?? `menu-item-${id}`}
+      aria-disabled={disabled || undefined}
+      onPress={disabled ? undefined : onActivate}
       onHoverIn={() => {
         setHovered(true);
         onHover?.();
@@ -327,9 +348,27 @@ function Row({
         !touch && detail !== undefined && styles.rowPointerTall,
         align === "center" && styles.rowCentered,
         lit && (touch ? styles.rowHover : styles.rowLit),
+        disabled && styles.rowOff,
       ]}
     >
       {leading}
+      {/*
+        The radio gutter. Present on every row of a group that has one, so the
+        labels of the checked and unchecked rows start on the same vertical
+        line — a check that shifts its own label right is a list that appears to
+        re-order itself as you change the setting.
+      */}
+      {checked === undefined ? null : (
+        <View style={styles.checkGutter} testID={`menu-check-${id}`}>
+          {checked ? (
+            <Icon
+              name="check"
+              size={touch ? 15 : 12}
+              color={lit && !touch ? colors.ink : colors.text}
+            />
+          ) : null}
+        </View>
+      )}
       {/*
         One column, so a detail line stacks under its label instead of sitting
         beside it and pushing the chord and the chevron off the edge.
@@ -374,7 +413,7 @@ function ItemRow({
   onActivate,
   onHover,
 }: {
-  item: MenuItem;
+  item: MenuItem<string>;
   touch: boolean;
   focused?: boolean;
   onActivate: () => void;
@@ -389,9 +428,12 @@ function ItemRow({
       danger={item.danger === true}
       shortcut={item.shortcut}
       submenu={item.items !== undefined}
+      checked={item.checked}
+      disabled={item.disabled === true}
       focused={focused}
       onActivate={onActivate}
       onHover={onHover}
+      testID={item.testID}
     />
   );
 }
@@ -400,7 +442,13 @@ function ItemRow({
 /*                                  the sheet                                 */
 /* -------------------------------------------------------------------------- */
 
-function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
+function Sheet<Id extends string = MenuActionId>({
+  items,
+  title,
+  titleDetail,
+  onSelect,
+  onDismiss,
+}: MenuProps<Id>) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /**
@@ -411,7 +459,7 @@ function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
    * copy of a page on screen: the parent is looked up again every render, and
    * an id that no longer exists collapses back to the first page.
    */
-  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const [openId, setOpenId] = useState<Id | null>(null);
   const insets = useSafeAreaInsets();
 
   const parent = items.find((item) => item.id === openId && item.items !== undefined) ?? null;
@@ -438,16 +486,28 @@ function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
 
           {parent === null ? (
             title === undefined ? null : (
-              <Text
-                variant="rowSub"
-                numberOfLines={1}
-                role="heading"
-                aria-level={2}
-                testID="menu-title"
-                style={styles.title}
-              >
-                {title}
-              </Text>
+              <View style={styles.titleBlock}>
+                <Text
+                  variant="rowSub"
+                  numberOfLines={1}
+                  role="heading"
+                  aria-level={2}
+                  testID="menu-title"
+                  style={styles.title}
+                >
+                  {title}
+                </Text>
+                {titleDetail === undefined ? null : (
+                  <Text
+                    variant="treeMeta"
+                    numberOfLines={1}
+                    testID="menu-title-detail"
+                    style={styles.titleDetail}
+                  >
+                    {titleDetail}
+                  </Text>
+                )}
+              </View>
             )
           ) : (
             /**
@@ -522,12 +582,12 @@ function Panel({
   onHover,
   testID,
 }: {
-  items: readonly MenuItem[];
+  items: readonly MenuItem<string>[];
   box: Box;
   focus: number;
   nodeRef: (node: unknown) => void;
-  onActivate: (item: MenuItem, index: number) => void;
-  onHover: (item: MenuItem, index: number) => void;
+  onActivate: (item: MenuItem<string>, index: number) => void;
+  onHover: (item: MenuItem<string>, index: number) => void;
   testID: string;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -549,13 +609,18 @@ function Panel({
   );
 }
 
-function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
+function Popover<Id extends string = MenuActionId>({
+  items,
+  anchor,
+  onSelect,
+  onDismiss,
+}: MenuProps<Id>) {
   const view = useWindowDimensions();
   const rootNode = useRef<HTMLElement | null>(null);
   const subNode = useRef<HTMLElement | null>(null);
 
   /** The submenu's parent, by id, and whether the keyboard is inside it. */
-  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const [openId, setOpenId] = useState<Id | null>(null);
   const [inSub, setInSub] = useState(false);
   const [focus, setFocus] = useState(-1);
   const [subFocus, setSubFocus] = useState(-1);
@@ -564,10 +629,13 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
   const parent = openIndex === -1 ? null : items[openIndex];
   const children = parent?.items ?? [];
 
-  const root = place(anchor?.x ?? MARGIN, anchor?.y ?? MARGIN, {
-    width: widthFor(items),
-    height: heightFor(items),
-  }, view);
+  const root = place(
+    anchor?.x ?? MARGIN,
+    anchor?.y ?? MARGIN,
+    { width: widthFor(items), height: heightFor(items) },
+    view,
+    { minHeight: ROW_HEIGHT },
+  );
 
   const sub =
     parent === null
@@ -577,10 +645,10 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
           root.top + offsetOfRow(items, openIndex) - PADDING,
           { width: widthFor(children), height: heightFor(children) },
           view,
-          root.width,
+          { across: root.width, minHeight: ROW_HEIGHT },
         );
 
-  const close = (id: MenuActionId) => {
+  const close = (id: Id) => {
     onSelect(id);
     onDismiss();
   };
@@ -666,6 +734,20 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
           event.preventDefault();
           const item = list[at];
           if (item === undefined) return;
+          /*
+            A disabled row refuses the keyboard exactly as it refuses a click.
+
+            The pointer path drops `onPress`, which is invisible from here — so
+            without this check a row that was dimmed, inert to a click and
+            marked `aria-disabled` fired anyway for anybody driving the menu
+            from the keyboard. That is the one group most likely to be reading
+            the `aria-disabled` that promised it would not.
+
+            Arrows still land on it, deliberately: `aria-disabled` means "here
+            and unavailable", and skipping it would hide from a screen-reader
+            user a row everybody else can see.
+          */
+          if (item.disabled === true) return;
           // A parent is never dispatched — `menu.ts` gives it an id with no
           // handler precisely so a slip here is a no-op rather than a privacy
           // change, and this is the check that keeps it from being either.
@@ -686,7 +768,26 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
     return () => document.removeEventListener("keydown", onKeyDown, true);
   });
 
-  return (
+  /*
+    `document.body`, not the DOM this component would otherwise mount into —
+    `docs/decisions/app-and-console.md`'s "every react-native-web `View` is a
+    stacking context" applies to this box exactly as it does to the rail's own
+    context menu: `position: fixed` and `zIndex: 1000` only order this popover
+    among the *descendants* of whichever `View` it happens to render inside,
+    because that `View` carries RNW's base `position: relative; z-index: 0`
+    like every other one. `AccountMenuTrigger` is the case that found it —
+    the trigger sits at the foot of the rail, an *earlier* sibling of the
+    editor region in `AppFrame.tsx`'s tree, so a later sibling with its own
+    content at that point on screen painted over the box and ate its clicks,
+    silently, measured live as a Chromium e2e timeout rather than anything a
+    jsdom suite could see. `Modal` (the sheet's own presentation, just below)
+    never had this problem — `react-native-web`'s implementation already
+    portals to `document.body` for exactly this reason — so this is the
+    popover catching up to what the sheet already had for free, not a new
+    idea. `Sheet` above stays where it renders; only this presentation needed
+    it, because only this one skips `Modal`.
+  */
+  return createPortal(
     <>
       <Panel
         items={items}
@@ -697,13 +798,21 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
         }}
         testID="menu-root"
         onActivate={(item, index) => {
+          /*
+            `item` is `MenuItem<string>` here — `Panel` is a dumb renderer
+            with no reason to know this menu's own id union — but it is the
+            same object `items` (this closure's `MenuItem<Id>[]`) handed it,
+            so the id genuinely is an `Id`. The cast says only that; it adds
+            no behaviour `Panel`'s own typing does not already guarantee.
+          */
+          const id = item.id as Id;
           if (item.items !== undefined) {
-            setOpenId(openId === item.id ? null : item.id);
+            setOpenId(openId === id ? null : id);
             setInSub(false);
             setFocus(index);
             return;
           }
-          close(item.id);
+          close(id);
         }}
         onHover={(item, index) => {
           setFocus(index);
@@ -711,7 +820,7 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
           setSubFocus(-1);
           // Hovering a row with no submenu closes whatever was open, so the
           // pointer never leaves a stray panel beside a different row.
-          setOpenId(item.items === undefined ? null : item.id);
+          setOpenId(item.items === undefined ? null : (item.id as Id));
         }}
       />
       {parent === null || sub === null ? null : (
@@ -723,20 +832,21 @@ function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
             subNode.current = node as HTMLElement | null;
           }}
           testID="menu-sub"
-          onActivate={(item) => close(item.id)}
+          onActivate={(item) => close(item.id as Id)}
           onHover={(_item, index) => {
             setInSub(true);
             setSubFocus(index);
           }}
         />
       )}
-    </>
+    </>,
+    document.body,
   );
 }
 
 /* -------------------------------------------------------------------------- */
 
-export function Menu(props: MenuProps) {
+export function Menu<Id extends string = MenuActionId>(props: MenuProps<Id>) {
   const { width } = useWindowDimensions();
 
   /**
@@ -789,11 +899,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: colors.lineStrong,
     marginBottom: space.x2,
   },
-  title: {
+  titleBlock: {
     paddingHorizontal: space.x5,
     paddingBottom: space.x2,
-    color: colors.muted,
+    gap: 2,
   },
+  title: { color: colors.muted },
+  titleDetail: { color: colors.muted },
   list: { flexGrow: 0 },
   listContent: { paddingVertical: space.x1 },
 
@@ -842,6 +954,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   labelColumn: { flexShrink: 1, gap: 2, justifyContent: "center" },
   labelLit: { color: colors.accentText },
   dangerLabel: { color: colors.critText },
+  /**
+   * The radio gutter. A fixed width, and `CHECK_BLOCK` is that width plus the
+   * row's gap — the two are a pair, and the geometry above measures with it.
+   */
+  checkGutter: { width: 12, alignItems: "center", justifyContent: "center" },
+  /** Present but unavailable. See `MenuItem.disabled`. */
+  rowOff: { opacity: 0.4 },
   shortcut: { marginLeft: "auto" },
   chevron: { marginLeft: "auto" },
   separator: {

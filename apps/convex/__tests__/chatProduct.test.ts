@@ -375,7 +375,7 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     expect(row?.chat?.scopes.sort()).toEqual([CHAT_MESSAGES_SCOPE, CHAT_SPACES_SCOPE].sort());
   });
 
-  test("reconnecting preserves spaceSettings, cursors and the nonce seed", async () => {
+  test("reconnecting preserves spaceSettings, cursors, the destination, and the nonce seed", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     const keyset = requireKeyset();
     const context = { workspaceId: workspaceId as string };
@@ -399,6 +399,7 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
           ...first!.chat!,
           spaceSettings: { "spaces/noisy": "excluded" },
           cursors: { "spaces/general": "2026-09-01T00:00:00Z" },
+          destinationFolder: "2-areas/communications/daily",
         },
       });
     });
@@ -420,6 +421,7 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     );
     expect(row?.chat?.spaceSettings).toEqual({ "spaces/noisy": "excluded" });
     expect(row?.chat?.cursors).toEqual({ "spaces/general": "2026-09-01T00:00:00Z" });
+    expect(row?.chat?.destinationFolder).toBe("2-areas/communications/daily");
     // Sabotage: change `existing?.chat?.nonceSeed ?? generateNonceSeed()` to
     // regenerate unconditionally, and this assertion fails — every future
     // day's fence nonce for spaces already synced would silently change.
@@ -566,6 +568,39 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     // Calendar's own grant was not part of THIS request, so its slice is
     // honestly recomputed to empty — same rule as Gmail's, not a special case.
     expect(row?.calendar?.scopes).toEqual([]);
+  });
+
+  test("a chat connection nobody has configured files its days in the Inbox", async () => {
+    /*
+      The console reads the destination off `listGoogleConnections`, which
+      resolves `chat.destinationFolder ?? defaultGoogleDestinationFolder`. A
+      first connect stores no folder — `applyChatConnectionBinding` carries
+      `existing?.chat?.destinationFolder` forward and there is no existing —
+      so this query IS the answer a customer gets, and it read
+      `2-areas/communications/daily/YYYY-MM-DD.md` for every Chat connection
+      that had never had the field opened. `0-inbox/google-chat` is the folder
+      `docs/decisions/communications.md` decided and the one the console's own
+      channel view routes; a day written anywhere else is a day that shows up
+      as a plain file in a folder browser.
+    */
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.chatProduct.applyChatConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...chatBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const [view] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+    expect(view?.chat?.destinationFolder).toBe("0-inbox/google-chat/person-at-example-invalid");
+    expect(view?.chat?.destinationPath).toBe(
+      "0-inbox/google-chat/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
+    );
   });
 });
 
@@ -1377,7 +1412,7 @@ describe("the browser that started a Chat connect is the one that may finish it"
    *
    * The change that bound Dropbox, Gmail and Calendar left this one completing
    * on `{state, code}` alone. Constructed against it, the attack ran to
-   * completion: an attacker starts a Chat connect for a brain they really own,
+   * completion: an attacker starts a Chat connect for a workspace they really own,
    * sends the authorize URL to somebody else, that person consents on Google's
    * own screen, and the callback binds THEIR Google account — the grant that
    * reads every space they are in — to the attacker's context.
@@ -1495,5 +1530,100 @@ describe("the browser that started a Chat connect is the one that may finish it"
     expect(JSON.stringify((refusal as { data?: unknown }).data)).toBe(
       JSON.stringify((unknown as { data?: unknown }).data),
     );
+  });
+});
+
+describe("a connection records the folder it files into, rather than re-deriving it every pass", () => {
+  /*
+    THE FOLDER A CUSTOMER'S CONTENT IS WRITTEN INTO IS A FACT ABOUT THE
+    CONNECTION, NOT A VALUE A DEPLOY RECOMPUTES.
+
+    Gmail has always pinned it: `applyGmailConnectionBinding` writes
+    `destinationFolder: existing ?? defaultGoogleDestinationFolder(...)`, so
+    the answer is recorded at connect and the row keeps it. Chat and Calendar
+    carried `existing?.chat?.destinationFolder` forward and stored nothing on
+    a first connect, which left the folder to be re-resolved from a source
+    constant on every single pass.
+
+    That is not a cosmetic difference, because a Chat pass re-renders every
+    day the contribution store still holds — up to a year of them. Changing
+    the constant therefore rewrites a year of somebody's already-captured
+    conversations at NEW KEYS, with no action by them and no notice. It
+    happened: the constant moved from `2-areas/communications/daily` to
+    `0-inbox/google-chat`.
+
+    Relocating content is a privacy operation in this product, which is why
+    `remapPrivacy` and `copyPrivacy` in `lib/fileOps.ts` exist — a move and
+    even a copy carry the note's `note_overrides` exception with them, because
+    an override names one exact path and a note that arrives at a new path
+    arrives with none. A sync that re-renders to a new folder goes through
+    neither, so a day the owner had marked `private` reappears at a path
+    covered only by its new folder's default. Where that default is `team`,
+    an exception the owner set by hand has been silently dropped.
+
+    Pinning at connect is the half that stops it recurring; `sweepDueGoogleSyncs`
+    records the resolved folder for rows written before this, which is the half
+    that stops the ones already out there from floating.
+  */
+  test("a first chat connect records its destination folder on the row", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.chatProduct.applyChatConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...chatBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique(),
+    );
+    // Recorded, not absent: an absent folder is one a later edit to
+    // `defaultGoogleDestinationFolder` would answer differently — which is
+    // exactly what happened on 2026-09-18, when Chat gained an account level.
+    // A connection bound before that keeps what its row says; one bound after
+    // it gets this account's own folder.
+    expect(row?.chat?.destinationFolder).toBe("0-inbox/google-chat/person-at-example-invalid");
+  });
+
+  test("a reconnect keeps the folder the connection already had", async () => {
+    // The pin must not overwrite a destination the owner chose. Same rule the
+    // cursor and the nonce seed already follow.
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const args = {
+      workspaceId,
+      boundBy: owner,
+      ...chatBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    };
+    await t.mutation(internal.functions.chatProduct.applyChatConnectionBinding, args);
+    const connection = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique(),
+    );
+    await asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+      workspaceId,
+      connectionId: connection!._id,
+      service: "chat",
+      destinationPath: "2-areas/chat",
+    });
+    await t.mutation(internal.functions.chatProduct.applyChatConnectionBinding, args);
+
+    const row = await t.run((ctx) => ctx.db.get(connection!._id));
+    expect(row?.chat?.destinationFolder).toBe("2-areas/chat");
   });
 });

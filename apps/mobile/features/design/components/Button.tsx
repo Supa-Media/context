@@ -21,23 +21,46 @@ import { Text, type TextVariant } from "./Text";
  * CTA, which shouts) nor `.mini` (a chip, which mumbles) can be used for both
  * halves of that pair without one of them winning. So: one shape, used twice,
  * with the words carrying the whole difference.
+ *
+ * `dialog` and `dialogPrimary` are the second pair, and they exist for the
+ * same class of mistake one step down. A dialog's action row is Cancel beside
+ * a confirm, and it used to be `mini` beside `white` — the hero CTA — so the
+ * confirm carried over twice the padding of Cancel in both axes and a label
+ * 3pt larger. The two are one shape here, differing only in fill: primary is a
+ * matter of weight and colour, never of size. They are a *pair*, so neither is
+ * useful alone — use `dialog` for the quiet half and `dialogPrimary` for the
+ * default action, and nothing else inside a dialog's action row.
  */
-export type ButtonVariant = "white" | "ghost" | "mini" | "danger" | "decision";
+export type ButtonVariant =
+  | "white"
+  | "accent"
+  | "ghost"
+  | "mini"
+  | "danger"
+  | "decision"
+  | "dialog"
+  | "dialogPrimary";
 
 const radiusFor: Record<ButtonVariant, number> = {
   white: radii.cta,
+  accent: radii.cta,
   ghost: radii.xs,
   mini: radii.md,
   danger: radii.md,
   decision: radii.cta,
+  dialog: radii.lg,
+  dialogPrimary: radii.lg,
 };
 
 const labelVariant: Record<ButtonVariant, TextVariant> = {
   white: "cta",
+  accent: "cta",
   ghost: "ghost",
   mini: "mini",
   danger: "mini",
   decision: "cta",
+  dialog: "mini",
+  dialogPrimary: "mini",
 };
 
 export interface ButtonProps {
@@ -107,6 +130,7 @@ export function Button({
         style={[
           variant === "danger" && styles.dangerLabel,
           variant === "decision" && styles.decisionLabel,
+          variant === "dialogPrimary" && styles.dialogPrimaryLabel,
           variant === "ghost" && hovered && styles.ghostLabelHover,
         ]}
       >
@@ -117,6 +141,32 @@ export function Button({
     </Pressable>
   );
 }
+
+/**
+ * The one box every dialog action is drawn in, written once so the two halves
+ * of the pair cannot drift apart.
+ *
+ * Between `.mini` (6/12 — a chip in a dense toolbar, too small to be the
+ * default action of a modal a phone shows) and the hero CTA (14/27, which is
+ * what made the confirm twice the size of Cancel). The radius is the one the
+ * dialogs' own fields and wells are drawn at, so the action row belongs to the
+ * card it sits in rather than to the toolbar the `mini` chip came from.
+ *
+ * `justifyContent` is **inert today** and is stated as such rather than
+ * implied to be doing something: `base` sets `alignSelf: "flex-start"`, so
+ * these buttons hug their labels and there is no free space to centre in. It
+ * is here for the case `decision` already has — a caller that stretches one to
+ * a width, which a phone dialog eventually will — where the label should sit
+ * in the middle rather than hang off the leading edge.
+ */
+const DIALOG_ACTION = {
+  gap: 8,
+  justifyContent: "center",
+  paddingVertical: 10,
+  paddingHorizontal: 18,
+  borderRadius: radii.lg,
+  borderWidth: 1,
+} as const;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   base: {
@@ -134,6 +184,33 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.white,
     boxShadow:
       "0 2px 0 rgba(0,0,0,.4), 0 18px 44px -18px rgba(255,255,255,.28)",
+  },
+
+  /**
+   * THE PRIMARY CALL TO ACTION, IN THE ONE HUE THE INTERFACE SPENDS ON ITSELF.
+   *
+   * `white` fills with `colors.white`, which is near-white on graphite and
+   * near-*black* on paper — so the landing page's main button was a black slab
+   * in light mode, and the accent appeared nowhere above the fold on the one
+   * page that has to say what this product is. The design canvas fills it with
+   * `accent`, which `tokens.ts` reserves for "here, active, yours" and which is
+   * exactly what a "start here" button is.
+   *
+   * It shares `cta`'s label, and that is the part that makes it work in both
+   * palettes without a second thought: `cta` is drawn in `ink`, which is
+   * near-black on graphite's light teal and near-white on paper's dark teal.
+   * The pair inverts together.
+   *
+   * No glow. `white`'s `boxShadow` is a white bloom tuned for a dark ground,
+   * and a coloured button does not need one to be found — it is the only
+   * saturated object in its band.
+   */
+  accent: {
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 27,
+    borderRadius: radii.cta,
+    backgroundColor: colors.accent,
   },
 
   /** `.ghost` */
@@ -179,7 +256,36 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surface3,
   },
 
+  /**
+   * `dialog` — the quiet half of a dialog's action row. `.mini`'s materials,
+   * drawn at `DIALOG_ACTION`'s scale rather than a chip's.
+   */
+  dialog: {
+    ...DIALOG_ACTION,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface3,
+  },
+
+  /**
+   * `dialogPrimary` — the default action, same box, inverted fill.
+   *
+   * The border is drawn in the fill colour rather than dropped: a 1pt border
+   * on one half of a pair and none on the other makes the two boxes differ by
+   * 2pt in each axis, which is the defect in miniature. `dialogActionSize`
+   * measures `borderTopWidth` for exactly that reason.
+   *
+   * No `boxShadow`. The hero CTA's white glow is what makes it read as the one
+   * thing on a landing page; inside a 460pt card it reads as a button that has
+   * escaped from somewhere else.
+   */
+  dialogPrimary: {
+    ...DIALOG_ACTION,
+    borderColor: colors.white,
+    backgroundColor: colors.white,
+  },
+
   dangerLabel: { color: colors.critText },
+  dialogPrimaryLabel: { color: colors.ink },
   decisionLabel: { color: colors.text },
   ghostLabelHover: { color: colors.text },
 
@@ -188,6 +294,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 });
 
 const makeHoverStyles = (colors: Colors) => StyleSheet.create({
+  /** The same lift `white` makes, without the glow it makes it with. */
+  accent: { transform: [{ translateY: -1 }] },
   white: {
     // `.btn-white:hover{transform:translateY(-1px)}` plus the deeper glow.
     transform: [{ translateY: -1 }],
@@ -200,6 +308,12 @@ const makeHoverStyles = (colors: Colors) => StyleSheet.create({
   // Identical hover for both halves of the consent pair, for the same reason
   // their resting state is identical.
   decision: { borderColor: "rgba(255,255,255,.26)" },
+  // The dialog pair hovers the way its materials do elsewhere: the bordered
+  // half brightens its edge like `.mini`, and the filled half lifts its fill
+  // slightly rather than moving — a dialog's buttons sit in a card that does
+  // not move, so the hero's `translateY` would read as a wobble.
+  dialog: { borderColor: "rgba(255,255,255,.26)" },
+  dialogPrimary: { opacity: 0.9 },
 });
 
 /**
@@ -219,6 +333,10 @@ export function PressRow({
   radius = radii.md,
   hitSlop,
   testID,
+  ariaExpanded,
+  ariaHasPopup,
+  ariaChecked,
+  disabled,
 }: {
   children: ReactNode;
   onPress?: () => void;
@@ -246,6 +364,58 @@ export function PressRow({
    */
   hitSlop?: PressableProps["hitSlop"];
   testID?: string;
+  /**
+   * For a disclosure control — the compact account trigger, so far. Both are
+   * plain pass-throughs rather than derived from `role`, because most rows
+   * that pass a `role` are not menus: adding them unconditionally would put
+   * `aria-haspopup="false"`-shaped noise on every tab and link this component
+   * draws.
+   */
+  ariaExpanded?: boolean;
+  /**
+   * Not one of `View`'s typed accessibility props (`aria-expanded` is, and is
+   * declared directly below) — RN-Web still renders it
+   * (`createDOMProps`'s own `ariaHasPopup`), so this is passed through the
+   * same escape hatch `TabStrip.tsx`'s `mouseButtonProps` uses for a DOM
+   * attribute the platform supports ahead of its own types.
+   */
+  ariaHasPopup?: "menu";
+  /**
+   * `menuitemradio`, spelled the way this component spells everything else.
+   *
+   * The action menu's visibility items are three mutually exclusive states, and
+   * the sheet is the *only* presentation of them on a phone — so leaving the
+   * state out of the accessible tree would make "which visibility is this note
+   * actually on" a question the pointer layout answers and the phone does not.
+   *
+   * A pass-through like the two above rather than derived from `selected`:
+   * `selected` already means `aria-selected` on a tab here, and the two are
+   * different claims — one is "this is the tab you are looking at", the other
+   * is "this is the setting in force".
+   *
+   * The role travels with it because the pair is only valid together: ARIA has
+   * no `aria-checked` on a plain button, and `role` here is deliberately a
+   * three-value union rather than the whole ARIA vocabulary.
+   */
+  ariaChecked?: boolean;
+  /**
+   * A control that is drawn and has nothing behind it.
+   *
+   * The breadcrumb's `‹ ›` are the case: they are dimmed in place at the ends
+   * of a history rather than removed, because two controls that come and go
+   * move every segment beside them — and a row whose `onPress` is simply
+   * absent is inert without *saying* so, which had a screen reader announcing
+   * "Go back, button" on a console with nowhere to go back to. Dimmed and
+   * announced-as-available is a worse lie than absent.
+   *
+   * Passed to `Pressable`'s own `disabled` rather than spelled as an
+   * `aria-disabled` prop beside the two above, because react-native-web's
+   * `Pressable` writes that attribute *itself* from `disabled` — so a hand-set
+   * one is overwritten with `undefined` and the row goes back to lying,
+   * silently. It also takes the row out of the tab order, which is the other
+   * half of what "there is nothing here" means.
+   */
+  disabled?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -253,6 +423,7 @@ export function PressRow({
   return (
     <Pressable
       role={role}
+      disabled={disabled}
       accessibilityLabel={accessibilityLabel}
       // `aria-selected` is set directly rather than through
       // `accessibilityState`. react-native-web 0.21 no longer maps
@@ -261,6 +432,15 @@ export function PressRow({
       // unlabelled for assistive tech, silently, and a render test asserting
       // the prop was passed would still have gone green.
       aria-selected={role === "tab" ? selected : undefined}
+      aria-expanded={ariaExpanded}
+      {...(ariaChecked === undefined
+        ? {}
+        : ({ role: "menuitemradio", "aria-checked": ariaChecked } as unknown as {
+            role: undefined;
+          }))}
+      {...(ariaHasPopup === undefined
+        ? {}
+        : ({ "aria-haspopup": ariaHasPopup } as unknown as { "aria-haspopup": string }))}
       hitSlop={hitSlop}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}

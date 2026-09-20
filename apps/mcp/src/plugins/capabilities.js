@@ -28,65 +28,20 @@
  */
 
 /**
- * Obsidian API members Context implements, or has committed to implementing in
- * the shim that runs plugins in the console.
+ * What the shim answers, and what it has only promised.
  *
- * A bundle touching only these is one the sandbox can serve. `Vault` maps onto
- * the storage adapter, `MetadataCache` onto the search indexer's parse of the
- * same files, and the editor half onto CodeMirror 6 — which Context's editor is
- * already built on, and which is the reason editor-decorating plugins are in
- * this list rather than the blocked one.
+ * Declared by the package that implements it and imported here, so the two
+ * cannot drift — see `packages/obsidian-runtime/src/surface.js` for what that
+ * drift cost. Re-exported because `scan.js` and the tests read them from this
+ * module, and because a scanner that quietly kept its own copy is the bug.
  */
-export const SUPPORTED_MEMBERS = Object.freeze([
-  // Vault: the file surface. Every one of these has a storage-adapter answer.
-  "getAbstractFileByPath",
-  "getFiles",
-  "getMarkdownFiles",
-  "getAllLoadedFiles",
-  "cachedRead",
-  "createFolder",
-  "getFileByPath",
-  "getFolderByPath",
-
-  // MetadataCache: frontmatter, headings, tags, links. The search indexer
-  // already parses all four out of the same bytes.
-  "getFileCache",
-  "getFirstLinkpathDest",
-  "resolvedLinks",
-  "unresolvedLinks",
-  "fileToLinktext",
-
-  // Plugin lifecycle and registration.
-  "addCommand",
-  "addRibbonIcon",
-  "addStatusBarItem",
-  "addSettingTab",
-  "registerEvent",
-  "registerInterval",
-  "registerDomEvent",
-  "registerMarkdownPostProcessor",
-  "registerMarkdownCodeBlockProcessor",
-  "registerEditorExtension",
-  "registerEditorSuggest",
-  "registerView",
-  "registerExtensions",
-  "loadData",
-  "saveData",
-
-  // Workspace, to the extent the console has one.
-  "getActiveFile",
-  "getActiveViewOfType",
-  "getLeavesOfType",
-  "getRightLeaf",
-  "getLeftLeaf",
-
-  // UI classes the shim provides.
-  "MarkdownRenderer",
-  "SuggestModal",
-  "FuzzySuggestModal",
-  "setIcon",
-  "normalizePath",
-]);
+export {
+  ABSENT_MEMBERS,
+  PARTIAL_MEMBERS,
+  PLANNED_MEMBERS,
+  SANDBOX_MODULE_EXPORTS,
+  SUPPORTED_MEMBERS,
+} from "../../../../packages/obsidian-runtime/src/surface.js";
 
 /**
  * Node builtins and desktop-only surfaces, with the reason each one has no
@@ -146,6 +101,21 @@ export const BLOCKED_MEMBERS = Object.freeze({
  */
 export const NETWORK_MEMBERS = Object.freeze({
   requestUrl: "uses Obsidian's requestUrl to call a server",
+  /*
+    `fetch` was missing from this table, and the omission stopped being harmless
+    the moment the sandbox started brokering it. While the frame's CSP refused
+    every direct call, a plugin that used plain `fetch` reached nothing — so
+    scanning it as "no network" was wrong about the code and right about the
+    effect. Now the shim routes `fetch` through the same broker `requestUrl`
+    uses, so it reaches outward for real, and a plugin using it has to land on
+    `needs-approval` where its owner names the hosts.
+
+    It matches a method call on some other object too — `store.fetch(...)` — and
+    that is this file's existing trade, in the direction it always takes: a
+    plugin wrongly asked for approval is a question, and a plugin wrongly
+    granted silence is a surprise.
+  */
+  fetch: "calls a server over the network",
   XMLHttpRequest: "makes HTTP requests",
   WebSocket: "opens a WebSocket",
   EventSource: "opens a server-sent event stream",

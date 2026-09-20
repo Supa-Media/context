@@ -42,10 +42,12 @@ import { receivesMail } from "../console/ingestion/settings";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../console/storage/connect";
 import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
-import { afterStorage, afterStructure, type FlowShape, type StepKey, type StorageOutcome } from "./flow";
+import { afterStorage, afterStructure, afterVault, type FlowShape, type StepKey, type StorageOutcome, type VaultOutcome } from "./flow";
 import { seedPromptFor } from "./agents";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
+import type { CheckoutOutcome } from "@context/shared";
 import { ownedContexts } from "./route";
+import { useManagedOffer, type ManagedOffer } from "./useManagedOffer";
 import {
   canApplyStructure,
   emptyCustomFolders,
@@ -128,6 +130,13 @@ export interface OnboardingController {
   // ── Step 2 ────────────────────────────────────────────────────────────────
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   connectState: ConnectState;
+  /**
+   * The managed-storage offer, or `null` on a deployment that cannot make one.
+   *
+   * Never `undefined`: a step that cannot tell "no offer" from "not asked yet"
+   * draws the card for a moment and takes it away, which is worse than either.
+   */
+  managed: ManagedOffer | null;
   skipStorage: () => void;
   /**
    * Move on with a binding that failed or timed out.
@@ -136,6 +145,10 @@ export interface OnboardingController {
    * `unverified`, which skips the layout step and warns on the way out.
    */
   continuePastStorage: () => void;
+
+  // ── Obsidian vault ───────────────────────────────────────────────────────
+  skipVaultImport: () => void;
+  finishVaultImport: (outcome: "imported" | "existing") => void;
 
   // ── Step 3 ────────────────────────────────────────────────────────────────
   structureStep: StructureStep;
@@ -175,7 +188,17 @@ export function useOnboarding(
      * person left — so `claimed` is recovered from `listMyWorkspaces` rather
      * than from a create that happened on a page that no longer exists.
      */
-    resume?: "structure";
+    resume?: "structure" | "storage";
+    /**
+     * What a return from Stripe said, from `/welcome?checkout=…`.
+     *
+     * A person coming back from a payment is mid-flow with a claimed name and
+     * no storage, so the flow has to be re-entered rather than the console —
+     * which is what `resume: "storage"` beside this is for.
+     */
+    checkout?: CheckoutOutcome | null;
+    /** Test seam for the settling copy's later wording. */
+    settlingSlowAfter?: number;
   } = {},
 ): OnboardingController {
   const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces) as
@@ -190,7 +213,7 @@ export function useOnboarding(
   // moved on their own is never yanked back.
   const resumed = useRef(false);
   useEffect(() => {
-    if (options.resume !== "structure") return;
+    if (options.resume === undefined) return;
     if (resumed.current || claimed !== null) return;
     if (workspaces === undefined) return;
     const own = workspaces.find(
@@ -199,13 +222,14 @@ export function useOnboarding(
     if (own === undefined) return;
     resumed.current = true;
     setClaimed({ workspaceId: own.workspaceId, slug: own.slug });
-    setStep("structure");
+    setStep(options.resume);
   }, [claimed, options.resume, workspaces]);
   // Starts at `connected` because that is the run the step rail should draw
   // before anything has gone wrong: the full four steps. It is only ever
   // narrowed, by an explicit choice on the storage step, and every path off
   // that step sets it.
   const [storage, setStorage] = useState<StorageOutcome>("connected");
+  const [vault, setVault] = useState<VaultOutcome>("pending");
 
   // ── Step 1 ──────────────────────────────────────────────────────────────────
   const [name, setNameRaw] = useState("");
@@ -299,6 +323,17 @@ export function useOnboarding(
 
   const connectState = connectProgress({ submitted, binding, timedOut });
 
+  /*
+    The managed answer on this step, and the two screens behind it. A person who
+    never presses that card subscribes to none of it: the hook reads one query
+    for the claimed context and nothing else until it is pressed.
+  */
+  const managed = useManagedOffer({
+    workspaceId: claimed?.workspaceId ?? null,
+    returned: options.checkout ?? null,
+    slowAfter: options.settlingSlowAfter,
+  });
+
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearTimer = useCallback(() => {
     if (timer.current !== null) {
@@ -310,7 +345,7 @@ export function useOnboarding(
 
   const connect = useCallback(
     async (values: ConnectFormValues) => {
-      if (claimed === null) throw new Error("No brain to connect a bucket to.");
+      if (claimed === null) throw new Error("No workspace to connect a bucket to.");
       setSubmitted(true);
       setTimedOut(false);
       clearTimer();
@@ -369,6 +404,16 @@ export function useOnboarding(
     setStep(afterStorage("unverified"));
   }, []);
 
+  const skipVaultImport = useCallback(() => {
+    setVault("skipped");
+    setStep(afterVault("skipped"));
+  }, []);
+
+  const finishVaultImport = useCallback((outcome: "imported" | "existing") => {
+    setVault(outcome);
+    setStep(afterVault(outcome));
+  }, []);
+
   // ── Step 3 ──────────────────────────────────────────────────────────────────
   const structureStep = structureStepFor(binding?.scaffoldReason);
   const [template, setTemplate] = useState<StructureTemplate>("para");
@@ -408,10 +453,12 @@ export function useOnboarding(
   // naming a folder the scaffold does not write.
   const seedPrompt = useMemo(
     () =>
-      template === "para"
+      vault === "imported" || vault === "existing"
+        ? seedPromptFor([])
+        : template === "para"
         ? seedPromptFor(PARA_FOLDERS)
         : seedPromptFor(toFolderSpecs(folders).map((spec) => spec.folder)),
-    [folders, template],
+    [folders, template, vault],
   );
 
   const finishAgents = useCallback(() => setStep("done"), []);
@@ -438,7 +485,7 @@ export function useOnboarding(
 
   return {
     step,
-    shape: { storage },
+    shape: { storage, vault },
     owned: ownedContexts(workspaces),
     claimed,
     captureReceivesMail: receivesMail(ingestion),
@@ -453,8 +500,11 @@ export function useOnboarding(
 
     connect,
     connectState,
+    managed: managed.available || managed.mode !== "choose" ? managed : null,
     skipStorage,
     continuePastStorage,
+    skipVaultImport,
+    finishVaultImport,
 
     structureStep,
     template,

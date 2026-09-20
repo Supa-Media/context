@@ -190,6 +190,15 @@ export type EditorAction =
       notice?: string;
       /** Work found waiting for this note in the offline queue. */
       restored?: RestoredDraft;
+      /**
+       * The note is not in the bucket: it was created on this device and its
+       * create is still queued. Its etag is `null` — "did not exist" — which is
+       * what makes every save of it a *create* (`writeNote` with no
+       * `expectedEtag`), refused if a note appeared at that path meanwhile.
+       * Inventing an etag here instead would make that save a conditional
+       * update of a version the bucket never had.
+       */
+      unsent?: boolean;
     }
   | { type: "closed" }
   | { type: "edited"; text: string }
@@ -218,6 +227,29 @@ export type EditorAction =
    * ordinary conditional write.
    */
   | { type: "resolving"; text: string; etag: string | null }
+  /**
+   * A queued rename of this note reached the bucket. The note is now at its
+   * new name at `etag`, which is the version the next save must be checked
+   * against — and only if the editor was still on the version the rename
+   * carried (`from`): an editor that has since moved on keeps its own.
+   */
+  | { type: "rebased"; from: string | null; etag: string }
+  /**
+   * A tool wrote this note while somebody had it open, and the shared document
+   * has already been merged onto what it wrote.
+   *
+   * Only the etag moves. The draft is deliberately left alone: it is the
+   * merged text, which is what the next save should write, and it is not the
+   * bucket's version, so the baseline does not move with it either — a note
+   * that still differs from the bucket is still unsaved, and saying otherwise
+   * would leave the merge sitting in a browser with nothing to flush it.
+   *
+   * Unguarded on the previous version, unlike `rebased`: the write happened
+   * somewhere else and this client has no claim about which version it
+   * replaced — only that the bucket is now at this one and the shared document
+   * has been reconciled with it. Applied only on the note it names.
+   */
+  | { type: "externalWrite"; path: string; etag: string }
   | { type: "discarded" };
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -228,7 +260,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         path: action.note.path,
         baseline: action.note.text,
         draft: action.note.text,
-        etag: action.note.etag,
+        etag: action.unsent === true ? null : action.note.etag,
         readOnly: action.note.readOnly,
         encrypted: action.note.encrypted === true,
         // Carried from the OpenNote, same as the other construction below —
@@ -272,6 +304,18 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
     case "closed":
       return emptyEditor;
+
+    case "rebased":
+      if (state.path === null || state.etag !== action.from) return state;
+      return { ...state, etag: action.etag };
+
+    case "externalWrite":
+      // A conflict is a decision the person has been asked for, and a merge
+      // that arrived behind it does not answer that question — moving the etag
+      // under an open conflict would let "keep mine" quietly win a race it was
+      // never shown.
+      if (state.path !== action.path || state.status === "conflict") return state;
+      return { ...state, etag: action.etag };
 
     case "edited": {
       if (state.readOnly || state.path === null) return state;
@@ -521,11 +565,24 @@ export function guardLeaving(state: EditorState): { allowed: boolean; prompt?: s
  * that matches the bucket has nothing owed to anybody, and a dim "Save" sitting
  * over it read as a chore somebody had not got round to. It says "Saved".
  *
- * The button does not disappear, and the two states it is pressable in are why:
- * a save that failed and a conflict are exactly the cases autosave refuses
- * (`autosaves`), so the manual route has to stay reachable. ⌘S keeps working in
- * `dirty` too — every editor lets somebody save now rather than in two seconds
- * — and pressing it is the same conditional write autosave would have made.
+ * The two states it is pressable in are why it exists at all: a save that
+ * failed and a conflict are exactly the cases autosave refuses (`autosaves`),
+ * so the manual route has to stay reachable. ⌘S keeps working in `dirty` too —
+ * every editor lets somebody save now rather than in two seconds — and pressing
+ * it is the same conditional write autosave would have made.
+ *
+ * **This used to end "the button does not disappear", and it does now.** That
+ * sentence was written about the *label*, and it was right about the label: a
+ * dim "Save" over a note with nothing owed is a chore somebody had not got
+ * round to, so the resting word became "Saved". What it was wrong about is the
+ * control. `NoteEditor` draws this only where `disabled` is false, because a
+ * pill that cannot be pressed is not a control, it is status — and it was
+ * status printed a second time, in a second visual language, at the far end of
+ * the row from the sentence that had already said it. The disabled arms are
+ * still computed and still returned: this function answers what the button
+ * *would* say, `autosave.test.ts` checks every arm of it, and the two arms that
+ * can be pressed are the ones that reach the screen. See `NoteEditor`'s status
+ * row and `docs/decisions/app-and-console.md`.
  */
 export function saveButton(state: EditorState): { label: string; disabled: boolean } {
   // Before the `readOnly` arm, because both are true for an encrypted note and

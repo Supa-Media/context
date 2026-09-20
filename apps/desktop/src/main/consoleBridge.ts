@@ -68,6 +68,9 @@ import {
   type DesktopShell,
   type DetectionView,
   type ImessageStatus,
+  type LocalAgentAsk,
+  type LocalAgentReply,
+  type LocalAgentStatus,
   type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
@@ -173,6 +176,24 @@ export interface ConsoleBridgeDeps {
   imessage: () => ImessageStatus;
   /** Turn import on or off. Never touches the microphone, the calendar, or anything else the tray already gates. */
   setImessageEnabled: (enabled: boolean) => void;
+  requestImessageFullDiskAccess: () => Promise<void>;
+  /**
+   * Whether this machine has a coding CLI to ask, and asking it.
+   * The version-7 addition.
+   *
+   * Two members rather than one because they are asked at different moments
+   * and cost different things: the console asks `localAgent()` on mount to
+   * decide which road a question takes, and that answer must be cheap and
+   * synchronous-ish, while `askLocalAgent` runs a subprocess for as long as an
+   * answer takes.
+   *
+   * Neither carries a credential in either direction, and that is the property
+   * worth stating at the boundary rather than only in the module: the CLI
+   * holds its own login, the grant it needs to reach this context is written
+   * to a file by the shell, and the page is never handed either.
+   */
+  localAgent: () => LocalAgentStatus;
+  askLocalAgent: (request: LocalAgentAsk) => Promise<LocalAgentReply>;
 }
 
 export interface ConsoleBridge {
@@ -527,6 +548,51 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
     deps.setImessageEnabled(enabled);
     return null;
   });
+  handle(BRIDGE_CHANNELS.imessageRequestFullDiskAccess, () =>
+    deps.requestImessageFullDiskAccess(),
+  );
+
+  handle(BRIDGE_CHANNELS.agentStatus, () => ({ ...deps.localAgent() }));
+  /*
+    The payload is rebuilt field by field rather than forwarded.
+
+    `features/agent/gateway.ts` holds the same rule for the same reason on the
+    other road: what leaves for the model is decided in one place, so a field
+    added to the page's own object for a local purpose — a cached body, a
+    draft — is not carried along by a spread. Here the reader is a subprocess
+    on this machine rather than a Worker, which changes nothing about the rule
+    and everything about who would see the mistake.
+  */
+  handle(BRIDGE_CHANNELS.agentAsk, (payload) => {
+    const source = (payload ?? {}) as { question?: unknown; place?: unknown };
+    const place = (source.place ?? {}) as {
+      context?: unknown;
+      note?: unknown;
+      meetingLive?: unknown;
+    };
+    const note = (place.note ?? null) as {
+      path?: unknown;
+      visibility?: unknown;
+      readable?: unknown;
+      unsaved?: unknown;
+    } | null;
+    return deps.askLocalAgent({
+      question: typeof source.question === "string" ? source.question : "",
+      place: {
+        context: typeof place.context === "string" ? place.context : null,
+        note:
+          note !== null && typeof note.path === "string"
+            ? {
+                path: note.path,
+                visibility: typeof note.visibility === "string" ? note.visibility : "private",
+                readable: note.readable !== false,
+                unsaved: note.unsaved === true,
+              }
+            : null,
+        meetingLive: place.meetingLive === true,
+      },
+    });
+  });
 
   function send(channel: string, payload: unknown): void {
     /*
@@ -600,6 +666,9 @@ export function createConsoleBridge(deps: ConsoleBridgeDeps): ConsoleBridge {
         BRIDGE_CHANNELS.meetingsWrite,
         BRIDGE_CHANNELS.imessageStatus,
         BRIDGE_CHANNELS.imessageSetEnabled,
+        BRIDGE_CHANNELS.imessageRequestFullDiskAccess,
+        BRIDGE_CHANNELS.agentStatus,
+        BRIDGE_CHANNELS.agentAsk,
       ]) {
         deps.ipc.removeHandler(channel);
       }

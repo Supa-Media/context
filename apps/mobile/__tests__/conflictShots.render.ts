@@ -66,6 +66,7 @@ const REVIEW: ConflictReview = {
   mine: MINE,
   theirs: THEIRS,
   theirsEtag: "e2",
+  theirsDeleted: false,
   reading: false,
   unreadable: null,
   merge: { text: MERGED, conflicts: 0 },

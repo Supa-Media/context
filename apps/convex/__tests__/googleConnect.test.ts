@@ -26,10 +26,22 @@ import {
   createUser,
   createWorkspace,
   errorCode,
+  seedGoogleConnection,
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { defaultGoogleDestinationFolder } from "../functions/googleConnect";
 import { encryptSecret, hashToken, requireKeyset } from "../functions/lib/crypto";
+// The package this default is supposed to agree with, imported so the
+// agreement is asserted rather than eyeballed — see the describe block at the
+// end of this file. These are the two functions that decide the KEY a pass
+// writes when it is handed no folder, which is the thing the default has to
+// match; comparing against a constant would only prove two constants are equal.
+// eslint-disable-next-line import/extensions
+import { channelDayNotePath } from "../../../packages/communications/src/paths.js";
+// eslint-disable-next-line import/extensions
+import { calendarDayNotePath } from "../../../packages/communications/src/calendar/paths.js";
+import { CALENDAR_SCOPES, CHAT_SCOPES, GMAIL_SCOPES } from "../functions/lib/googleOAuth";
 import type { Id } from "../_generated/dataModel";
 
 const APP = "https://app.context.invalid";
@@ -45,6 +57,16 @@ function enableMailConnect() {
   vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
 }
 
+function enableAllGoogleConnect() {
+  enableMailConnect();
+  vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
+}
+
+function enableCalendarOnlyGoogleConnect() {
+  vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
+  vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
+}
+
 async function personalScenario() {
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
@@ -57,6 +79,29 @@ async function sharedScenario() {
   const owner = await createUser(t, "owner@example.invalid");
   const workspaceId = await createWorkspace(t, owner, "atlas-team", { kind: "shared" });
   return { t, owner, workspaceId };
+}
+
+async function seedConnectedStorage(
+  t: TestConvex,
+  workspaceId: Id<"workspaces">,
+  boundBy: Id<"users">,
+) {
+  await t.run((ctx) =>
+    ctx.db.insert("storageBindings", {
+      workspaceId,
+      provider: "r2",
+      endpoint: "https://storage.example.invalid",
+      region: "auto",
+      bucket: "context-test",
+      accessKeyId: "access-key",
+      encryptedSecretAccessKey: "encrypted-secret",
+      capabilities: { conditionalWrite: true },
+      status: "connected",
+      boundBy,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+  );
 }
 
 /** An attempt row, parked as `startGmailConnect` would park it. */
@@ -189,7 +234,7 @@ describe("only a personal context may connect a Google account", () => {
    * nothing did: the check above passes with the role comparison gone,
    * because a stranger has no membership row to relax the comparison on.
    * Measured, that sabotage failed **zero** checks. Somebody the owner
-   * granted read or write access to their brain is a real, common shape —
+   * granted read or write access to their workspace is a real, common shape —
    * and attaching a Google account to a context is not a permission that
    * comes with editing notes in it.
    */
@@ -340,6 +385,108 @@ describe("the backfill window and folder set", () => {
       });
       expect(result.authorizeUrl).toBeTruthy();
     }
+  });
+});
+
+describe("product-aware Google connect", () => {
+  test("an empty service set is refused before parking an attempt", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const error = await captureError(() =>
+      asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+        workspaceId,
+        redirectUri: REDIRECT,
+        syncServices: { gmail: false, calendar: false, chat: false },
+      }),
+    );
+    expect(errorCode(error)).toBe("GOOGLE_PRODUCTS_REQUIRED");
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
+  });
+
+  test("one console start can ask Google for Gmail, Calendar and Chat together", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const result = await asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+      workspaceId,
+      redirectUri: REDIRECT,
+      syncServices: { gmail: true, calendar: true, chat: true },
+    });
+    const params = new URL(result.authorizeUrl).searchParams;
+    const scopes = new Set(params.get("scope")?.split(" ") ?? []);
+    expect(scopes).toContain(GMAIL_SCOPES[0]);
+    expect(scopes).toContain(CALENDAR_SCOPES[0]);
+    expect(scopes).toContain(CHAT_SCOPES[0]);
+    expect(scopes).toContain(CHAT_SCOPES[1]);
+    expect(params.get("include_granted_scopes")).toBe("true");
+
+    const parked = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
+    expect(parked).toHaveLength(1);
+    expect(parked[0]!.products.sort()).toEqual(["calendar", "chat", "gmail"]);
+    expect(parked[0]!.hashedCompletion).toBeTruthy();
+  });
+
+  test("a Calendar-only console start does not inherit restricted Gmail scopes from an existing grant", async () => {
+    enableCalendarOnlyGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "context@supa.media",
+    });
+
+    const result = await asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+      workspaceId,
+      redirectUri: REDIRECT,
+      syncServices: { gmail: false, calendar: true, chat: false },
+    });
+    const scopes = new Set(new URL(result.authorizeUrl).searchParams.get("scope")?.split(" ") ?? []);
+
+    expect(scopes).toContain(CALENDAR_SCOPES[0]);
+    expect(scopes).not.toContain(GMAIL_SCOPES[0]);
+    const parked = await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect());
+    expect(parked[0]!.products).toEqual(["calendar"]);
+  });
+
+  test("the generic callback spends a combined attempt exactly once", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, {
+      flow: "google",
+      products: ["gmail", "calendar", "chat"],
+    });
+    const hashedState = await hashToken(state);
+    const consumed = await t.mutation(internal.functions.googleConnect.consumeGoogleAttemptAndExchange, {
+      hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+    expect(consumed?.workspaceId).toBe(workspaceId);
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(0);
+
+    const replay = await t.mutation(internal.functions.googleConnect.consumeGoogleAttemptAndExchange, {
+      hashedState,
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+    expect(replay).toBe(null);
+  });
+
+  test("the generic callback refuses product-specific attempts", async () => {
+    enableAllGoogleConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const state = await parkedAttempt(t, workspaceId, owner, {
+      flow: "calendar",
+      products: ["gmail", "calendar"],
+    });
+
+    const consumed = await t.mutation(internal.functions.googleConnect.consumeGoogleAttemptAndExchange, {
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(COMPLETION),
+      code: "code-1",
+    });
+
+    expect(consumed).toBe(null);
+    expect(await t.run((ctx) => ctx.db.query("googleConnectAttempts").collect())).toHaveLength(1);
   });
 });
 
@@ -546,6 +693,395 @@ describe("the row shape: products and the nested gmail object", () => {
     expect(row?.gmail?.scopes).toEqual(["https://www.googleapis.com/auth/gmail.readonly"]);
   });
 
+  test("the owner-facing connection list includes observable sync details", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+
+    expect(row).toMatchObject({
+      email: "person@example.invalid",
+      syncServices: { gmail: true, calendar: false, chat: false },
+      syncStatus: "connected",
+      gmail: {
+        backfillDays: 90,
+        folders: ["inbox", "sent"],
+        destinationPath: "0-inbox/email/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
+        historyCursorReady: false,
+      },
+    });
+    expect(row?.lastSyncCompletedAt).toBeUndefined();
+  });
+
+  test("a personal owner can choose a Gmail destination folder, but a shared workspace cannot", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    await asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+      workspaceId,
+      connectionId,
+      service: "gmail",
+      destinationPath: "2-areas/communications/mail/YYYY/MM/YYYY-MM-DD.md",
+    });
+
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+    expect(row?.gmail?.destinationFolder).toBe("2-areas/communications/mail");
+    expect(row?.gmail?.destinationPath).toBe("2-areas/communications/mail/YYYY/MM/YYYY-MM-DD.md");
+
+    const secondConnectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({
+        address: "other@example.invalid",
+        mailboxSlug: "other-at-example-invalid",
+        googleAccountId: "google-2",
+      }),
+      encryptedRefreshToken: await encryptSecret("refresh-3", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-3", keyset, context),
+    });
+    const conflict = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+        workspaceId,
+        connectionId: secondConnectionId,
+        service: "gmail",
+        destinationPath: "2-areas/communications/mail/YYYY/MM/YYYY-MM-DD.md",
+      }),
+    );
+    expect(errorCode(conflict)).toBe("GOOGLE_SYNC_DESTINATION_CONFLICT");
+
+    const shared = await sharedScenario();
+    const sharedContext = { workspaceId: shared.workspaceId as string };
+    const sharedConnectionId = await shared.t.mutation(
+      internal.functions.googleConnect.applyGmailConnectionBinding,
+      {
+        workspaceId: shared.workspaceId,
+        boundBy: shared.owner,
+        ...gmailBindingArgs({}),
+        encryptedRefreshToken: await encryptSecret("refresh-2", keyset, sharedContext),
+        encryptedAccessToken: await encryptSecret("access-2", keyset, sharedContext),
+      },
+    );
+
+    const error = await captureError(() =>
+      asUser(shared.t, shared.owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+        workspaceId: shared.workspaceId,
+        connectionId: sharedConnectionId,
+        service: "gmail",
+        destinationPath: "2-areas/communications/team-mail/YYYY/MM/YYYY-MM-DD.md",
+      }),
+    );
+    expect(errorCode(error)).toBe("NOT_OWNER");
+  });
+
+  /*
+    The refusals, through the mutation rather than through the module.
+
+    `normalizeDestinationFolder` moved to `@context/communications/destination`
+    so the console could render the same refusal before the round trip. The
+    package has its own checks; what this one holds is the *wiring* — that this
+    mutation still refuses, and still refuses with the codes its callers switch
+    on. Swap the import for a pass-through and the package suite stays green
+    while a dot-folder lands in somebody's bucket.
+  */
+  test("a destination the package refuses is refused here, with the code callers switch on", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const folderNow = async () => {
+      const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      });
+      return row?.gmail?.destinationFolder;
+    };
+    // The folder the binding was created with. A refusal must leave it exactly
+    // here — "still the default" is the assertion, not "absent", because a
+    // connection is never without one.
+    const seeded = await folderNow();
+    expect(seeded).toBe("0-inbox/email/person-at-example-invalid");
+
+    const refuse = async (destinationPath: string) =>
+      errorCode(
+        await captureError(() =>
+          asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+            workspaceId,
+            connectionId,
+            service: "gmail",
+            destinationPath,
+          }),
+        ),
+      );
+
+    // Plumbing: a day note filed under a dot-folder is invisible to the person
+    // whose mail it is, and still on their storage bill.
+    expect(await refuse(".audit/mail")).toBe("GOOGLE_DESTINATION_RESERVED");
+    expect(await refuse("0-inbox/.hidden/mail")).toBe("GOOGLE_DESTINATION_RESERVED");
+    // Traversal, refused rather than resolved.
+    expect(await refuse("2-areas/../../etc")).toBe("GOOGLE_DESTINATION_INVALID");
+    expect(await refuse("2-areas\\mail")).toBe("GOOGLE_DESTINATION_INVALID");
+    // A note is not a folder to file inside.
+    expect(await refuse("1-projects/board-update.md")).toBe("GOOGLE_DESTINATION_INVALID");
+    // The bucket root would put mail beside index.md and privacy.md.
+    expect(await refuse("")).toBe("GOOGLE_DESTINATION_INVALID");
+    expect(await refuse("/")).toBe("GOOGLE_DESTINATION_INVALID");
+
+    // And none of that wrote anything — not even partially.
+    expect(await folderNow()).toBe(seeded);
+  });
+
+  test("the owner cannot start a historical Gmail backfill run", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedConnectedStorage(t, workspaceId, owner);
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const error = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+        workspaceId,
+        connectionId,
+        services: { gmail: true, calendar: false, chat: false },
+      }),
+    );
+
+    expect(errorCode(error)).toBe("GOOGLE_SYNC_FORWARD_ONLY");
+    expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
+  });
+
+  test("a deployment with Gmail disabled refuses to start an existing Gmail backfill", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedConnectedStorage(t, workspaceId, owner);
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const error = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+        workspaceId,
+        connectionId,
+        services: { gmail: true, calendar: false, chat: false },
+      }),
+    );
+
+    expect(errorCode(error)).toBe("MAIL_CONNECT_DISABLED");
+    expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
+  });
+
+  test("a Gmail backfill start refuses before checking storage", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const error = await captureError(() =>
+      asUser(t, owner).mutation(api.functions.googleConnect.startGoogleSyncRun, {
+        workspaceId,
+        connectionId,
+        services: { gmail: true, calendar: false, chat: false },
+      }),
+    );
+
+    expect(errorCode(error)).toBe("GOOGLE_SYNC_FORWARD_ONLY");
+    expect(await t.run((ctx) => ctx.db.query("googleSyncRuns").collect())).toHaveLength(0);
+  });
+
+  test("a stale Gmail worker refuses shared workspaces", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await sharedScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+    const now = Date.now();
+    const runId = await t.run((ctx) =>
+      ctx.db.insert("googleSyncRuns", {
+        workspaceId,
+        connectionId,
+        requestedBy: owner,
+        mode: "backfill",
+        services: ["gmail"],
+        status: "queued",
+        requestedBackfillDays: 90,
+        totalUnits: 90,
+        completedUnits: 0,
+        destinationFolder: "0-inbox/email/person-at-example-invalid",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await expect(
+      t.query(internal.functions.googleConnect.googleGmailBackfillForRun, {
+        workspaceId,
+        runId,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("a stale failed Gmail worker cannot overwrite a newer completed pass", async () => {
+    enableMailConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await seedConnectedStorage(t, workspaceId, owner);
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const connectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+    const now = Date.now();
+    const runId = await t.run((ctx) =>
+      ctx.db.insert("googleSyncRuns", {
+        workspaceId,
+        connectionId,
+        requestedBy: owner,
+        mode: "backfill",
+        services: ["gmail"],
+        status: "queued",
+        requestedBackfillDays: 90,
+        totalUnits: 90,
+        completedUnits: 0,
+        destinationFolder: "0-inbox/email/person-at-example-invalid",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    await t.mutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+      runId,
+      connectionId,
+      fromUnit: 0,
+      toUnit: 90,
+      totalUnits: 90,
+      itemsFound: 42,
+      daysWithMail: 10,
+      bytesWritten: 4096,
+      status: "complete",
+      historyId: "history-1",
+    });
+
+    const stale = await t.mutation(internal.functions.googleConnect.recordGoogleGmailBackfillPass, {
+      runId,
+      connectionId,
+      fromUnit: 0,
+      toUnit: 0,
+      totalUnits: 90,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      status: "failed",
+      errorCode: "GOOGLE_SYNC_FAILED",
+      error: "A stale worker failed late.",
+    });
+
+    expect(stale.accepted).toBe(false);
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+    expect(row?.syncRun).toMatchObject({
+      status: "complete",
+      itemsFound: 42,
+      completedUnits: 90,
+    });
+    expect(row?.errorCode).toBeUndefined();
+  });
+
+  test("the owner-facing connection list hides stale details for products no longer enabled", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({
+        scopes: [
+          "https://www.googleapis.com/auth/gmail.readonly",
+          "https://www.googleapis.com/auth/calendar.events.readonly",
+        ],
+      }),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+    await t.run(async (ctx) => {
+      const stored = await ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique();
+      await ctx.db.patch(stored!._id, {
+        products: ["gmail"],
+        calendar: {
+          scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+          syncToken: "stale-calendar-token",
+          lastSyncedAt: 42,
+        },
+      });
+    });
+
+    const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+
+    expect(row?.syncServices).toEqual({ gmail: true, calendar: false, chat: false });
+    expect(row?.gmail).toBeDefined();
+    expect(row?.calendar).toBeUndefined();
+    expect(row?.lastSyncCompletedAt).toBeUndefined();
+  });
+
   /**
    * Sabotage: change `existing?.gmail?.mailboxSlug ?? args.mailboxSlug` to
    * `args.mailboxSlug ?? existing?.gmail?.mailboxSlug`. A folder name that
@@ -587,6 +1123,31 @@ describe("the row shape: products and the nested gmail object", () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!.gmail?.mailboxSlug).toBe("person-at-example-invalid");
+  });
+
+  test("a new Gmail bind with a current history id is ready for forward sync immediately", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const address = "person@example.invalid";
+
+    await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...gmailBindingArgs({ address }),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+      historyId: "baseline-12345",
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) => q.eq("workspaceId", workspaceId).eq("address", address))
+        .unique(),
+    );
+    expect(row?.gmail?.historyId).toBe("baseline-12345");
+    expect(row?.health).toBe("active");
   });
 
   /** A reconnect keeps the sync cursor — resetting it would force a needless full reconcile. */
@@ -1083,5 +1644,93 @@ describe("the browser that started a Google connect is the one that may finish i
     });
     const rows = await t.run(async (ctx) => ctx.db.query("googleConnectAttempts").collect());
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("the default destination folder is the package's answer, not a second one", () => {
+  /*
+    The bug this block exists for: Chat's default read
+    "2-areas/communications/daily" while the package wrote `0-inbox/google-chat`
+    whenever a caller passed no folder. Both were reachable — the control plane
+    hands the sync a resolved folder — so which one a customer got depended on
+    whether they had ever opened the destination field, and a Chat connection
+    nobody had configured filed its days outside the Inbox altogether.
+
+    Each assertion below compares this file's answer to the key the package
+    writes with no folder chosen. That is deliberately not a comparison against
+    a constant: two constants agreeing proves they were typed the same day, and
+    what has to hold is that the control plane's default and the sync's own
+    fallback name one folder.
+  */
+  const DAY = "2026-09-07";
+
+  /** `2026/09` — the folders the package files a day under, since 2026-09-18. */
+  const DATED = `${DAY.slice(0, 4)}/${DAY.slice(5, 7)}`;
+
+  test("gmail defaults to the mailbox folder the package writes into", () => {
+    const folder = defaultGoogleDestinationFolder("gmail", "person-at-example-invalid");
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
+      channelDayNotePath({ channel: "email", account: "person-at-example-invalid", date: DAY }, {}),
+    );
+    expect(folder).toBe("0-inbox/email/person-at-example-invalid");
+  });
+
+  test("a connection with no slug yet still lands under the mail folder", () => {
+    // `SLUG_FALLBACK`. Not a real mailbox, but it is inside `0-inbox/email/`,
+    // which is the property that matters: unnamed mail is still mail.
+    expect(defaultGoogleDestinationFolder("gmail", undefined)).toBe("0-inbox/email/mailbox");
+  });
+
+  /*
+    Calendar and Chat take the account level too, since 2026-09-18 — two
+    Google accounts were writing one file between them, which no folder rule
+    in `privacy.md` could tell apart. The slug is only ever recorded, so an
+    absent one still answers the folder these products have always used: that
+    is what keeps an existing connection writing exactly where it was.
+  */
+  test("calendar defaults to this account's own folder under the calendar folder", () => {
+    const folder = defaultGoogleDestinationFolder("calendar", "person-at-example-invalid");
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
+      calendarDayNotePath({ date: DAY }, { folder }),
+    );
+    expect(folder).toBe("0-inbox/calendar/person-at-example-invalid");
+  });
+
+  test("...and a connection with no recorded slug keeps the folder it has always written to", () => {
+    const folder = defaultGoogleDestinationFolder("calendar", undefined);
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(calendarDayNotePath({ date: DAY }, {}));
+    expect(folder).toBe("0-inbox/calendar");
+  });
+
+  test("chat defaults to this account's own folder under the Chat folder", () => {
+    const folder = defaultGoogleDestinationFolder("chat", "person-at-example-invalid");
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
+      channelDayNotePath(
+        { channel: "google-chat", account: "person-at-example-invalid", date: DAY },
+        {},
+      ),
+    );
+    expect(folder).toBe("0-inbox/google-chat/person-at-example-invalid");
+  });
+
+  test("...and Chat too keeps the flat folder when no slug was ever recorded", () => {
+    const folder = defaultGoogleDestinationFolder("chat", undefined);
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
+      channelDayNotePath({ channel: "google-chat", date: DAY }, {}),
+    );
+    expect(folder).toBe("0-inbox/google-chat");
+  });
+
+  test("every default is inside the one inbox root", () => {
+    // `docs/decisions/communications.md`, "A channel lands in `0-inbox`, and
+    // there is no second inbox root" — that decision's own check, applied to
+    // the one function that could file a sync anywhere else.
+    for (const folder of [
+      defaultGoogleDestinationFolder("gmail", "person-at-example-invalid"),
+      defaultGoogleDestinationFolder("calendar", undefined),
+      defaultGoogleDestinationFolder("chat", undefined),
+    ]) {
+      expect(folder.startsWith("0-inbox/")).toBe(true);
+    }
   });
 });

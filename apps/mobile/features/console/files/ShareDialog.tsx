@@ -1,13 +1,13 @@
 /**
- * Share a note with somebody who is not in this context.
+ * Who can read this note, and everything you can do about it — in one sheet.
  *
- * ## What this screen has to get across, and why it is wordier than a Share
- * sheet usually is
+ * ## What this screen is for, and why it is wordier than a Share sheet usually
+ * is
  *
- * A share is not "anyone with the link". It is a named person, who signs in,
- * and who can then read **this note and the notes it links to** — depth one,
- * decided in `functions/shares.ts`. Every part of that is something the owner
- * would guess wrong if the dialog just said "Share":
+ * A share here is not "anyone with the link". It is a named person, who signs
+ * in, and who can then read **this note and the notes it links to** — depth
+ * one, decided in `functions/shares.ts`. Every part of that is something an
+ * owner would guess wrong if the dialog just said "Share":
  *
  *  - They would expect a link anybody could open, and be surprised their
  *    colleague was asked to sign in.
@@ -16,31 +16,82 @@
  *  - They would not know the note's name travels to the unfurl before anybody
  *    signs in.
  *
- * So each of the three is stated in a sentence, next to the control it belongs
- * to, in the words it costs. `describeShare` and `describePreviewTitle` live in
- * `shares.ts` so the wording is testable and cannot drift from what the server
- * actually does.
+ * So each is stated next to the control it belongs to, in the words it costs.
+ * The wording lives in `shares.ts` and `scope.ts` — testable, and unable to
+ * drift from what the server actually does.
+ *
+ * ## Every line you can read here, you can act on
+ *
+ * That is the rule this sheet was rebuilt around, because it was the one thing
+ * it did not do. It listed the people with access as three strings with no
+ * control on them; it could point at a group but not make one; and whether a
+ * note had a public link was decided in two places — here, and by an
+ * unlabelled padlock in the top bar that minted the same share row on its
+ * third press. So the sheet explained the situation accurately and offered
+ * almost no way out of it.
+ *
+ * Now: the audience is a named control at the head of the people list; each
+ * person carries the routes that would actually take their access away, with
+ * the blast radius on each; a group can be made from the people in front of
+ * you; and the links section hands you a link rather than minting one.
+ *
+ * ## The order is the order somebody works in
+ *
+ * The field is first — it is what people come here to use — and everything
+ * else is context for it, so context goes after. No `autoFocus`: the sheet has
+ * to be readable before it is typed into, and a keyboard over it is not that.
+ * Then who can read it, then who it has been handed to, then links.
  *
  * ## Nothing here decides authorization
  *
  * Whether this dialog can be reached at all is `canShare` in `capabilities.ts`
- * (owner-only), and the server refuses anyone else with `minimum: "owner"`. The
- * validation below — a recipient that is not blank — is about not sending a
- * request that is certain to fail, never about permission.
+ * (owner-only), and the server refuses anyone else with `minimum: "owner"`.
+ * Every optional callback below follows the console's standing rule — a
+ * control somebody may not use is **absent, not disabled** — and the
+ * validation here is about not sending a request certain to fail, never about
+ * permission.
  */
 
 import { useState, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Button } from "../../design/components/Button";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, radii } from "../../design/tokens";
+import { Switch } from "../../design/components/Switch";
+import { fonts, leading, pointerType as t, radii, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { baseName } from "./paths";
+import { densityFor } from "../../app/frame";
+import { baseName, withoutSortPrefix } from "./paths";
+import {
+  accessRows,
+  type AccessMember,
+  type AccessRow,
+  type RemovalRoute,
+} from "./access";
+import { noMatchHint, recipientsFor, type RecipientGroup } from "./recipients";
+import { canMakeGroup, memberLabel, previewGroupName } from "../groups/groups";
+import { isGroupVisibility, type Visibility } from "./types";
+import { describeGoingPublic, scopeLabels, scopeOf, type NoteScope } from "./scope";
+import {
+  audienceDetail,
+  audienceName,
+  audienceSource,
+  type AudienceContext,
+} from "../privacy/audience";
 import {
   describeOpenLink,
   describePersonalShare,
   describePreviewTitle,
   describeShareRow,
+  describeLinkReach,
   describeTeamLink,
   shareUrlFor,
   sharesFor,
@@ -54,9 +105,20 @@ export function ShareDialog({
   onShare,
   onCopyLink,
   onRevoke,
+  onSetSlug,
+  onSetCollecting,
   onSetPreviewTitle,
   onClose,
   advanced,
+  access,
+  onShareWithGroup,
+  onRemovalRoute,
+  onCreateGroup,
+  groupSlug,
+  entryKind = "file",
+  onSetScope,
+  groups,
+  context = { slug: null, kind: null, viewerIsOwner: true },
 }: {
   path: string;
   /** Every share on this context, or `undefined` while the query is in flight. */
@@ -64,6 +126,96 @@ export function ShareDialog({
   /** Where this console is served from. See `shareUrl`. */
   origin: string;
   onShare: (recipient: string) => void;
+  /**
+   * Point this note at a group.
+   *
+   * A different verb from `onShare`, because it is a different thing: a share
+   * hands one note to somebody through a revocable row, and this writes a rule
+   * into `privacy.md` that the group's membership then resolves. Absent where
+   * the caller cannot do it — the demo, and anybody who is not an owner.
+   */
+  onShareWithGroup?: (group: string) => void;
+  /** The groups this context has, for the field to offer. Owner-only upstream. */
+  groups?: readonly RecipientGroup[];
+  /**
+   * Whose context this is, so every audience can be named rather than
+   * described. See `privacy/audience.ts`: "team" names a set the reader cannot
+   * check and "Everyone in @supa" names one they can.
+   *
+   * Defaulted rather than required because the landing page's read-only demo
+   * builds these props from local data with no backend, and a demo that cannot
+   * render the sheet is worse than one that says "this context".
+   */
+  context?: AudienceContext;
+  /**
+   * Take somebody's access away, by the route they picked.
+   *
+   * Routes rather than a `remove(userId)`, because **one person cannot be
+   * peeled off a team-visible note** — `team` means every member, and
+   * `privacy.md` has no per-person exception. `access.ts` carries the full
+   * argument; the short version is that the two real answers are "narrow this
+   * note" and "remove them from the context", they differ by an entire
+   * context, and a single Remove button would have to silently pick one.
+   *
+   * Absent where the caller cannot do it — the demo, and anybody who is not an
+   * owner — and then no row draws a control at all, which is this console's
+   * standing rule for a control somebody may not use.
+   */
+  onRemovalRoute?: (route: RemovalRoute, row: AccessRow) => void;
+  /**
+   * Make a group out of people picked here, and point this note at it.
+   *
+   * `GroupsPanel` opens by admitting "Nobody should have to come here first",
+   * and until now it was the only door: sharing one note with three people
+   * meant leaving the note, opening Settings, typing a label, adding three
+   * members one at a time, coming back and typing the group's name. The moment
+   * a group should exist is this one.
+   *
+   * Absent for anybody who is not an owner and in the demo, like every other
+   * group control — `createGroup` and `addGroupMember` are owner-only.
+   */
+  /*
+    Answers, because it can fail in ways only the server knows: NAME_TAKEN, a
+    reserved word, TOO_MANY_GROUPS. The rejection is caught HERE rather than at
+    the call site, for the reason `copyAndClose` states a few lines up — the
+    console's notice line sits behind this modal, so a failure raised there is
+    a message nobody can read, and the person is left pressing Create on a
+    button that appears to do nothing.
+  */
+  onCreateGroup?: (label: string, userIds: readonly string[]) => Promise<unknown>;
+  /** The workspace's own slug, for showing the name a label will become. */
+  groupSlug?: string;
+  /**
+   * What this path is.
+   *
+   * A folder has **two** audience positions, not three: `createLinkShare` runs
+   * `checkSharePath`, which is note-only, so an unlisted link over a folder is
+   * a press that always fails. The dialog used to offer one anyway — it drew
+   * "Create link" for whatever it was given — which is a control that cannot
+   * work, on the one screen where a control that cannot work is most expensive.
+   */
+  entryKind?: "file" | "folder";
+  /**
+   * Move this path between audiences — the control that used to be a padlock in
+   * the top bar.
+   *
+   * ## Why the icon had to go
+   *
+   * It cycled private → team → *link anyone can open*, unlabelled, 20pt, and
+   * most notes sit at `team` already by folder inheritance. So one tap on a
+   * padlock published a note to a link needing no account, with the icon
+   * changing to a globe as the only feedback. `scope.ts` argues at length that
+   * widening should be one deliberate step at a time and that private → anyone
+   * in a single press is "the accident worth making impossible" — which is
+   * right about the rule and wrong about where the risk sits, because team →
+   * anyone was also a single press from the state nearly everything is in.
+   *
+   * Here the positions are named, the current one is visible without decoding
+   * an icon, and the step to a public link is confirmed in words.
+   *
+   * Absent for anybody who may not set visibility, which is owner-only.
+   */
+  onSetScope?: (from: NoteScope, to: NoteScope) => void;
   /**
    * A section drawn under everything else here, behind its own "ADVANCED"
    * label — today, whatever `EncryptionAdvancedSection` in
@@ -89,11 +241,67 @@ export function ShareDialog({
       | { kind: "share"; url: string },
   ) => Promise<{ ok: boolean; message: string | null }>;
   onRevoke: (shareId: string) => void;
+  /**
+   * Claim or release the name in `context.lc/@seyi/intake`, answering whether
+   * it landed.
+   *
+   * Optional because the landing page's read-only demo renders this dialog
+   * with no server behind it, and a control that cannot work is the thing this
+   * dialog already refuses to draw for a folder.
+   *
+   * It answers a boolean so the field can clear itself on success and keep
+   * what was typed on a refusal — the same rule the group maker beside it
+   * follows, and for the same reason: the console's notice line sits behind
+   * this modal.
+   */
+  onSetSlug?: (shareId: string, slug: string | null) => Promise<boolean>;
+  /**
+   * Turn this link's answer-taking on or off. Optional for the same reason
+   * `onSetSlug` is: a caller that cannot do it draws no switch, rather than
+   * one that does nothing.
+   */
+  onSetCollecting?: (shareId: string, collecting: boolean) => Promise<boolean>;
   onSetPreviewTitle: (share: NoteShare, titleInPreview: boolean) => void;
   onClose: () => void;
+  /**
+   * What the note reads as, and the people this context has.
+   *
+   * Both arrive already decided — `visibility` off the server's own
+   * `effectiveVisibility` at this caller's scope, `members` off `listMembers` —
+   * and `access.ts` only joins them. Optional because this dialog is also
+   * rendered on the landing page's read-only demo, which has no membership to
+   * show and should draw the section it can rather than an empty one.
+   */
+  access?: {
+    visibility: Visibility;
+    exception: boolean;
+    /** `undefined` while the membership is still loading. Not an empty list. */
+    members: readonly AccessMember[] | undefined;
+  };
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  /*
+    `densityFor` rather than a width of this file's own, for the reason
+    `Menu.web.tsx` gives at length: the width at which a popover becomes a
+    sheet is the width at which the app stops being a pointer layout, and it is
+    one threshold named once. This is console code, so it says the console's
+    name for it.
+  */
+  const view = useWindowDimensions();
+  const compact = densityFor(view.width) === "compact";
+  /*
+    HOW TALL THE SHEET MAY GROW, WHICH IS NOT 460.
+
+    `body`'s fixed ceiling was written for a centred card with a 20pt gutter
+    above and below it, and as a bottom sheet on an 844pt phone it left the
+    links section — the half `Phone-Share.dc.html` is a picture of — below the
+    fold with 250pt of scrim doing nothing above it. A sheet is measured
+    against the screen it comes up from, so it is measured against the screen:
+    roughly two thirds, which leaves the note it is about visible behind the
+    scrim rather than covering the whole phone.
+  */
+  const bodyCeiling = Math.round(view.height * 0.66);
   const [recipient, setRecipient] = useState("");
   /**
    * What went wrong with the last copy, or `null`.
@@ -104,6 +312,25 @@ export function ShareDialog({
    * and repeating a symptom over a real refusal is worse than saying nothing.
    */
   const [problem, setProblem] = useState<string | null>(null);
+  /**
+   * The row whose removal routes are open, by `AccessRow.key`, or `null`.
+   *
+   * Expanded in place rather than in a second `Modal`. A modal over a modal is
+   * a known iOS problem, and the thing being confirmed is *which* route — a
+   * question about a row, next to the row, where the reason line that explains
+   * why they reach the note at all is still on screen to read.
+   */
+  const [removing, setRemoving] = useState<string | null>(null);
+  /**
+   * The group being made here, or `null` when nothing is.
+   *
+   * `label` seeds from whatever was typed into the share field, because that is
+   * usually the word somebody wants — they typed "leads", found no group, and
+   * are now making one.
+   */
+  const [making, setMaking] = useState<{ label: string; picked: string[] } | null>(null);
+  /** Why the last Create was refused, or `null`. Shown inside the maker. */
+  const [makeProblem, setMakeProblem] = useState<string | null>(null);
 
   /**
    * Copy, and get out of the way.
@@ -156,7 +383,56 @@ export function ShareDialog({
    * in.
    */
   const openLink = mine?.find((share) => share.audience === "anyone");
+  /*
+    Which link a name would be attached to.
+
+    A short link is a second address for a row that already exists, so it
+    needs one. The unlisted link first, because that is the one people paste
+    where a memorable URL matters; the workspace link otherwise, which is the
+    useful case for a team handbook. When there is neither, the block is
+    absent rather than offering to name nothing — the same rule the "Anyone
+    with the link" row beside it follows.
+  */
+  const namedLink = openLink ?? mine?.find((share) => share.audience === "members");
   const ready = recipient.trim() !== "";
+
+  /*
+    Who this note reaches, computed ONCE and read by both the list below and
+    the suggestions above it.
+
+    That sharing is the fix rather than a tidy-up. The suggestions used to take
+    their own exclusion set — every member of the workspace — while the list
+    took `accessRows`, so the two disagreed about who had the note and the
+    disagreement was invisible: on a team-visible note the list showed four
+    people and the field, having excluded all four, showed nothing at all for
+    any name you typed. One source, one answer.
+  */
+  const rows =
+    access === undefined
+      ? []
+      : accessRows(
+          access.visibility,
+          access.exception,
+          access.members,
+          entryKind,
+          isGroupVisibility(access.visibility)
+            ? groups?.find((group) => `@${group.name}` === access.visibility)?.liveCount
+            : undefined,
+        );
+  const reachingUserIds = new Set(
+    rows.filter((row) => row.role !== "group").map((row) => row.key),
+  );
+  const reachingGroups =
+    access !== undefined && isGroupVisibility(access.visibility)
+      ? new Set([access.visibility.slice(1)])
+      : undefined;
+
+  const suggestions = recipientsFor(recipient, access?.members ?? [], groups ?? [], {
+    reachingUserIds,
+    reachingGroups,
+  });
+  // Only when something was typed and nothing came back. See `noMatchHint`.
+  const emptyHint = suggestions.length === 0 ? noMatchHint(recipient) : undefined;
 
   const submit = () => {
     if (!ready) return;
@@ -166,107 +442,73 @@ export function ShareDialog({
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose} visible>
-      <Pressable style={styles.scrim} accessibilityLabel="Close" onPress={onClose}>
+      <Pressable
+        style={[styles.scrim, compact && styles.scrimSheet]}
+        accessibilityLabel="Close"
+        onPress={onClose}
+      >
         <Pressable
-          style={styles.card}
+          style={[styles.card, compact && styles.sheet]}
           onPress={() => {}}
-          accessibilityLabel={`Share ${baseName(path)}`}
+          accessibilityLabel={`Share ${withoutSortPrefix(baseName(path))}`}
         >
+          {/*
+            A SHEET ON A PHONE, A CARD EVERYWHERE ELSE.
+
+            `Phone-Share.dc.html` draws this anchored to the bottom edge with a
+            grab handle — which is what every other modal surface on this phone
+            already is (`Menu.web.tsx` draws a bottom sheet below
+            `layout.narrowBreakpoint`, and `RecentSheet` is one), and what this
+            dialog alone was not. A centred card on a 390pt screen is a card
+            that arrives from nowhere and sits under the thumb's reach, with
+            its own scrim gap either side of it doing nothing.
+
+            The handle is drawn and inert: it is the affordance that says
+            "this came up from the bottom, it goes back down", and this sheet
+            is dismissed by the scrim and by Done rather than by a drag. A
+            handle that can be dragged is a gesture to build, not a rectangle;
+            what it must not be is absent, because then the sheet reads as a
+            panel that has always been there.
+          */}
+          {compact ? <View style={styles.handle} aria-hidden /> : null}
+          {/*
+            Named without its sort number, the way the row this was opened
+            from is: a heading reading `1-projects` over a row reading
+            `projects` reads as a different folder. Nothing here is addressed
+            by this string — the share rows below carry the real `path`, and a
+            minted link is a token rather than a path.
+          */}
           <Text variant="paneTitle" role="heading" aria-level={2}>
-            Share “{baseName(path)}”
+            Share “{withoutSortPrefix(baseName(path))}”
           </Text>
 
-          <View style={styles.body}>
+          <ScrollView
+            style={[styles.body, compact && { maxHeight: bodyCeiling }]}
+            contentContainerStyle={styles.bodyContent}
+            keyboardShouldPersistTaps="handled"
+          >
             {/*
-              The team link comes first because it is the common case and the
-              one that needs no setup: most people an owner wants to send a note
-              to are people they have already given access to, and for them a
-              share would be redundant machinery around a grant they have.
+              The field first, and the reason is the whole shape of this
+              screen.
+
+              It used to be fourth, under three eyebrow sections that each
+              opened with a paragraph — so on a phone the thing you came here
+              to do was below the fold, and `autoFocus` then raised the
+              keyboard over what was left. A share dialog is a place you type a
+              name; everything else on it is context for that, and context goes
+              after.
+
+              No `autoFocus` for the same reason: the sheet has to be readable
+              before it is typed into.
             */}
-            <View style={styles.section}>
-              <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
-              <Text variant="paneSub">{describeTeamLink()}</Text>
-              {problem === null ? null : (
-                <Text variant="meta" testID="share-copy-problem" selectable>
-                  {problem}
-                </Text>
-              )}
-              <Button
-                label="Copy link"
-                variant="white"
-                onPress={() => {
-                  /*
-                    Minted on demand rather than up front: a token per note for
-                    every note anybody opened would fill the share list with
-                    links nobody asked for. Pressing this is the ask — and the
-                    minting happens *inside* the copy rather than before it,
-                    which is what keeps the clipboard reachable on iOS.
-                  */
-                  copyAndClose({ kind: "team", path });
-                }}
-              />
-            </View>
-
-            {/*
-              **The section this dialog was missing, and the bug it caused.**
-
-              The lock's third position mints an unlisted link, and the only
-              place it then appeared was a row in SHARED WITH below the fold —
-              while the button at the top of this dialog, the one anybody
-              presses, mints a *team* link and copies a `/console/@…` URL. So
-              "publish this, then copy it" handed people the wrong link: one
-              that shows nothing at all to the person they sent it to.
-
-              It is a section of its own rather than a row, because it is a
-              different audience from either of its neighbours — not the people
-              who already have access, and not one named person — and because
-              the press that copies it has to be the press that mints it, for
-              the iOS activation reason `copyShareLink` documents.
-            */}
-            <View style={styles.section}>
-              <Text variant="eyebrow">ANYONE WITH THE LINK</Text>
-              <Text variant="paneSub">{describeOpenLink(openLink !== undefined)}</Text>
-              <View style={styles.row}>
-                <Button
-                  label={openLink === undefined ? "Create link" : "Copy link"}
-                  variant="white"
-                  onPress={() => copyAndClose({ kind: "link", path })}
-                  testID="share-open-link"
-                />
-                {openLink === undefined ? null : (
-                  <Button
-                    label="Revoke"
-                    variant="danger"
-                    onPress={() => onRevoke(openLink.shareId)}
-                    testID="share-open-link-revoke"
-                  />
-                )}
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text variant="eyebrow">SOMEBODY WITHOUT ACCESS</Text>
-              {/*
-                One sentence, not two. `describeShare` said "they sign in to
-                read it, and can open this note and the notes it links to —
-                nothing else in your context", directly under a line that had
-                just said "they get this note and the notes it links to —
-                nothing else". Two paragraphs making the same point read as two
-                points, and the screen was long enough that the controls were
-                below the fold on a phone.
-              */}
-              <Text variant="paneSub">{describePersonalShare()}</Text>
-            </View>
-
             <View style={styles.row}>
               <TextInput
                 value={recipient}
                 onChangeText={setRecipient}
-                autoFocus
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={styles.input}
-                placeholder="@name or email"
+                placeholder="Name, group or email"
                 placeholderTextColor={colors.muted}
                 accessibilityLabel="Share with"
                 onSubmitEditing={submit}
@@ -274,13 +516,417 @@ export function ShareDialog({
               <Button label="Share" variant="white" disabled={!ready} onPress={submit} />
             </View>
 
-            <SharedWith
-              shares={mine}
-              origin={origin}
-              onCopyLink={copyAndClose}
-              onRevoke={onRevoke}
-              onSetPreviewTitle={onSetPreviewTitle}
-            />
+            {/*
+              What typing a name does, under the field that does it.
+
+              It used to be the last paragraph of the links section — three
+              headings away from the control it describes, and on a phone below
+              the fold entirely. The sentence did not change; where it sits
+              did. `shareLink.test.ts` pins all four facts in it, because each
+              is one this file's header names as something an owner guesses
+              wrong: they sign in, they get this note and what it links to,
+              nothing else, and you can take it back.
+            */}
+            <Text variant="meta" style={styles.linkNote}>
+              {describePersonalShare()}
+            </Text>
+
+            {/*
+              One field, one list.
+
+              A person and a group are the same kind of token in `privacy.md` —
+              `@kola` and `@supa-leads` are indistinguishable to the parser —
+              so this does not ask which KIND you mean before letting you type.
+              What it does keep separate is the invite row: choosing it is two
+              things, an invitation and then the access, and the row says so
+              before it happens rather than after.
+
+              Picking a group writes the rule; picking a person or an address
+              mints the share row that already existed. Different verbs, one
+              field, because the difference is ours and not theirs.
+            */}
+            {/*
+              Where a group is born.
+
+              Offered under the field rather than inside the suggestion list:
+              the list answers "who do you mean", and this is a different verb
+              that should not move around as rows come and go. Absent entirely
+              for a non-owner, which is this console's rule for a control the
+              server would refuse.
+            */}
+            {onCreateGroup === undefined || groupSlug === undefined ? null : making === null ? (
+              /*
+                One quiet line, not a panel.
+
+                It was a dashed box with a title and a sentence, sitting under
+                the field — and in a photograph of the sheet it outshouted the
+                thing people came here to use. Making a group is the rarer
+                verb; it earns a line, and the explanation belongs inside the
+                maker it opens.
+              */
+              <Pressable
+                style={styles.makeGroup}
+                accessibilityLabel="Make a group from people here"
+                testID="share-make-group"
+                onPress={() => {
+                  setMakeProblem(null);
+                  setMaking({ label: recipient.trim(), picked: [] });
+                }}
+              >
+                <Text variant="meta" style={styles.makeGroupText}>
+                  New group from people here…
+                </Text>
+              </Pressable>
+            ) : (
+              <GroupMaker
+                slug={groupSlug}
+                members={access?.members ?? []}
+                state={making}
+                problem={makeProblem}
+                onChange={setMaking}
+                onCancel={() => {
+                  setMakeProblem(null);
+                  setMaking(null);
+                }}
+                onCreate={() => {
+                  setMakeProblem(null);
+                  void onCreateGroup(making.label.trim(), making.picked).then(
+                    () => {
+                      setMaking(null);
+                      setRecipient("");
+                    },
+                    (error: unknown) => {
+                      /*
+                        The maker stays OPEN on a refusal, holding the label and
+                        the people that were picked. Closing it would make the
+                        person re-choose four names to fix one word.
+                      */
+                      setMakeProblem(
+                        error instanceof Error && error.message.length > 0
+                          ? error.message
+                          : "That group could not be made.",
+                      );
+                    },
+                  );
+                }}
+              />
+            )}
+
+            {emptyHint === undefined ? null : (
+              <Text variant="meta" style={styles.suggestionDetail} testID="share-no-match">
+                {emptyHint}
+              </Text>
+            )}
+
+            {suggestions.length === 0 ? null : (
+              <View style={styles.suggestions} testID="share-suggestions">
+                {suggestions.map((row) =>
+                  /*
+                    An answer, not an offer. A row for somebody who already
+                    reaches the note is drawn as a statement with no press
+                    behind it — pressing it would mint a share that grants
+                    nothing, and a control that does nothing is the defect this
+                    console keeps recording against itself. It is still SHOWN,
+                    which is the whole point: "no rows" could not tell
+                    "they already have it" from "no such person".
+                  */
+                  row.reaches === true ? (
+                    <View
+                      key={`${row.kind}:${row.key}`}
+                      style={[styles.suggestion, styles.suggestionReaching]}
+                      testID={`share-reaching-${row.key}`}
+                    >
+                      <Text variant="rowTitle" style={styles.suggestionMuted}>
+                        {row.label}
+                      </Text>
+                      {row.detail === undefined ? null : (
+                        <Text variant="meta" style={styles.suggestionDetail}>
+                          {row.detail}
+                        </Text>
+                      )}
+                    </View>
+                  ) : (
+                    <Pressable
+                      key={`${row.kind}:${row.key}`}
+                      style={styles.suggestion}
+                      accessibilityLabel={`Share with ${row.label}`}
+                      testID={`share-suggest-${row.key}`}
+                      onPress={() => {
+                        setRecipient("");
+                        if (row.kind === "group" && onShareWithGroup !== undefined) {
+                          onShareWithGroup(row.group!);
+                          return;
+                        }
+                        onShare(row.kind === "member" ? row.label : row.key);
+                      }}
+                    >
+                      <Text variant="rowTitle">{row.label}</Text>
+                      {row.detail === undefined ? null : (
+                        <Text variant="meta" style={styles.suggestionDetail}>
+                          {row.detail}
+                        </Text>
+                      )}
+                    </Pressable>
+                  ),
+                )}
+              </View>
+            )}
+
+            {/*
+              The list this section is named after, which it did not have. It
+              said "PEOPLE WITH ACCESS" and then offered a link — the one thing
+              on the screen that is not a person.
+
+              The summary line carries the half a list cannot show: whether the
+              rule is on this note or inherited from the folder, which is the
+              difference between "this is fine" and "wait, that folder?".
+            */}
+            <View style={styles.section}>
+              <Text variant="eyebrow">WHO CAN READ IT</Text>
+              {access === undefined ? null : (
+                <View style={styles.access} testID="share-access">
+                  {/*
+                    The padlock that used to live in the top bar, with its
+                    positions named. See `onSetScope` for why an unlabelled
+                    cycling icon was the wrong shape for this decision.
+
+                    Absent — not disabled — when the rule names a group, because
+                    `setScope` refuses that case in `useFileBrowser` and says
+                    why: `scopeOf` maps a group to the `private` POSITION, so a
+                    segmented control would draw "Only me" as current over a
+                    note two colleagues can read, and the step out of it would
+                    silently delete the group rule. The way out is the group
+                    row's own route, in the list below.
+                  */}
+                  {onSetScope === undefined ? null : isGroupVisibility(access.visibility) ? (
+                    <Text variant="meta" style={styles.accessReason} testID="share-scope-group">
+                      {`${entryKind === "folder" ? "This folder" : "This note"} is shared with ${audienceName(access.visibility, context)}. Change that where the group is defined — the row below takes you there.`}
+                    </Text>
+                  ) : (
+                    <AudienceControl
+                      scope={scopeOf(access.visibility, openLink !== undefined)}
+                      canOpenLink
+                      name={withoutSortPrefix(baseName(path))}
+                      onSet={onSetScope}
+                      context={context}
+                      compact={compact}
+                    />
+                  )}
+                  {/*
+                    SAID ONCE.
+
+                    The detail line under the control answers "who can read
+                    it" for whichever position is in force — which is the only
+                    way a segmented control CAN answer it, because a segment
+                    is a word with nowhere to put a sentence. The phone's rows
+                    each carry their own, so on that surface this line is the
+                    same sentence a second time, four points under the first.
+
+                    The source line stays on both: which rule this came from —
+                    this note's own, or the folder's — is the half no list of
+                    positions can show, and it is the difference between "this
+                    is fine" and "wait, that folder?".
+                  */}
+                  {compact ? null : (
+                    <Text variant="paneSub">
+                      {audienceDetail(access.visibility, context)}
+                    </Text>
+                  )}
+                  <Text variant="meta" style={styles.accessReason}>
+                    {audienceSource(access.exception, entryKind)}
+                  </Text>
+                  {rows.map((row) => {
+                    /*
+                      A verb only where one is real. An owner has no removal
+                      route — the server refuses both mutations outright — and
+                      a caller with no handler is a non-owner or the demo. Both
+                      draw the plain role, which is what this list always was.
+                    */
+                    const canRemove =
+                      row.removal.length > 0 && onRemovalRoute !== undefined;
+                    const open = removing === row.key;
+
+                    return (
+                      <View key={row.key} style={styles.accessGroup}>
+                        <View style={styles.accessRow}>
+                          <View style={styles.accessMain}>
+                            <Text variant="rowTitle">{row.label}</Text>
+                            <Text variant="meta" style={styles.accessReason}>
+                              {row.reason}
+                            </Text>
+                          </View>
+                          {canRemove ? (
+                            <Button
+                              label={open ? "Cancel" : "Remove…"}
+                              onPress={() => setRemoving(open ? null : row.key)}
+                              testID={`share-access-remove-${row.key}`}
+                            />
+                          ) : (
+                            <Text variant="meta">{row.role}</Text>
+                          )}
+                        </View>
+
+                        {!open || !canRemove ? null : (
+                          <View style={styles.routes} testID={`share-routes-${row.key}`}>
+                            {/*
+                              Each route states how far it reaches, because the
+                              two differ by an entire context and the label
+                              alone cannot carry that. `access.ts` orders them
+                              narrowest first, so the safe one is the one under
+                              the thumb.
+                            */}
+                            {row.removal.map((route) => (
+                              <Pressable
+                                key={route.id}
+                                style={styles.route}
+                                accessibilityLabel={route.label}
+                                testID={`share-route-${route.id}`}
+                                onPress={() => {
+                                  setRemoving(null);
+                                  onRemovalRoute(route, row);
+                                }}
+                              >
+                                <Text
+                                  variant="rowTitle"
+                                  style={route.danger ? styles.routeDanger : undefined}
+                                >
+                                  {route.label}
+                                </Text>
+                                <Text variant="meta" style={styles.accessReason}>
+                                  {route.detail}
+                                </Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              <SharedWith
+                shares={mine}
+                origin={origin}
+                onCopyLink={copyAndClose}
+                onRevoke={onRevoke}
+                onSetPreviewTitle={onSetPreviewTitle}
+              />
+            </View>
+
+            {/*
+              One section for the two links, not two sections with a paragraph
+              each.
+
+              They are different audiences and that difference still has to be
+              said — a `/console/@…` link shows nothing to somebody without
+              access, which is the bug the second one was added for — but it is
+              one line beside each button rather than a block above it. Three
+              eyebrow headings for three kinds of link was the dialog reading
+              as a policy document.
+            */}
+            <View style={styles.section}>
+              <Text variant="eyebrow">LINKS</Text>
+              {problem === null ? null : (
+                <Text variant="meta" testID="share-copy-problem" selectable>
+                  {problem}
+                </Text>
+              )}
+
+              <View style={styles.linkRow}>
+                <View style={styles.linkMain}>
+                  {/*
+                    "Workspace link", not "People with access" — that phrase is
+                    the heading of the section above now, and a row repeating
+                    it reads as a second answer to the same question. The two
+                    rows here are parallel: one link for members, one for
+                    anybody holding it.
+                  */}
+                  <Text variant="rowTitle">Workspace link</Text>
+                  <Text variant="meta" style={styles.linkNote}>
+                    {describeTeamLink()}
+                  </Text>
+                </View>
+                <Button
+                  label="Copy link"
+                  onPress={() => {
+                    /*
+                      Minted on demand rather than up front, and the minting
+                      happens *inside* the copy rather than before it — which
+                      is what keeps the clipboard reachable on iOS.
+                    */
+                    copyAndClose({ kind: "team", path });
+                  }}
+                />
+              </View>
+
+              {/*
+                Copy and revoke, never mint.
+
+                This row used to carry "Create link", which minted exactly the
+                object the padlock's third position minted — two controls for
+                one state, on one screen, which is the complaint this whole
+                change answers. The audience control above owns whether a link
+                exists; this row hands you the one that does.
+
+                Absent entirely when there is none, rather than a row offering
+                to copy nothing — and it never mints one either: the audience
+                control owns whether a link exists. A folder can have one now;
+                it reaches the folder's subtree, filtered to what the workspace
+                can already read.
+              */}
+              {openLink === undefined ? null : (
+                <View style={styles.linkRow}>
+                  <View style={styles.linkMain}>
+                    <Text variant="rowTitle">Anyone with the link</Text>
+                    <Text variant="meta" style={styles.linkNote}>
+                      {describeOpenLink(entryKind)}
+                    </Text>
+                  </View>
+                  <View style={styles.row}>
+                    <Button
+                      label="Copy link"
+                      variant="white"
+                      onPress={() => copyAndClose({ kind: "link", path })}
+                      testID="share-open-link"
+                    />
+                    <Button
+                      label="Revoke"
+                      variant="danger"
+                      onPress={() => onRevoke(openLink.shareId)}
+                      testID="share-open-link-revoke"
+                    />
+                  </View>
+                </View>
+              )}
+
+              {openLink === undefined ||
+              entryKind === "folder" ||
+              onSetCollecting === undefined ? null : (
+                <CollectRow share={openLink} onSetCollecting={onSetCollecting} />
+              )}
+
+              {namedLink === undefined ||
+              context.slug === null ||
+              onSetSlug === undefined ? null : (
+                <ShortLinkRow
+                  handle={context.slug}
+                  share={namedLink}
+                  onSetSlug={onSetSlug}
+                />
+              )}
+
+              {/*
+                The section's closing line — what a link is the subject of,
+                and what nothing here is. `shares.ts` holds the wording and
+                records why it is NOT the canvas's: the board says a link
+                "never publishes a folder", which stopped being true when a
+                folder link arrived.
+              */}
+              <Text variant="meta" style={styles.linkNote} testID="share-link-reach">
+                {describeLinkReach()}
+              </Text>
+            </View>
 
             {advanced !== undefined ? (
               <View style={styles.section}>
@@ -288,7 +934,7 @@ export function ShareDialog({
                 {advanced}
               </View>
             ) : null}
-          </View>
+          </ScrollView>
 
           <View style={styles.actions}>
             <Button label="Done" onPress={onClose} />
@@ -296,6 +942,493 @@ export function ShareDialog({
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+/**
+ * A glyph per position, for the phone's rows.
+ *
+ * `lock` / `people` / `globe` are the three marks this icon set already owns
+ * for exactly these ideas — `lock` is what the top bar's padlock was, and
+ * `globe` is what it turned into on its third press. The set is not extended
+ * for this: a landing page inventing its own line art is the drift
+ * `Sections.tsx` refuses, and a dialog doing it would be the same drift closer
+ * to home.
+ */
+const POSITION_ICON: Record<NoteScope, "lock" | "people" | "globe"> = {
+  private: "lock",
+  team: "people",
+  anyone: "globe",
+};
+
+/**
+ * Answer-taking: the one switch on this screen that hands out a WRITE.
+ *
+ * ## Why it is drawn here and not beside the audience control
+ *
+ * The audience control decides who can *reach* the note. This decides what
+ * they can *do* when they get there, and it only exists once a link does — so
+ * it belongs under the link it modifies, next to Copy and Revoke, rather than
+ * as a fourth position on a control about reach.
+ *
+ * ## Only an `anyone` link over a note
+ *
+ * A workspace link already has readers with accounts, and a form on one is
+ * answered under their own handle. A folder link reaches a subtree, and
+ * collecting through one would publish every form beneath it on the strength
+ * of one decision. Both are refused by the server; what this does is not draw
+ * a switch that is going to be refused.
+ *
+ * ## The sentence under it is not decoration
+ *
+ * Everything else in this dialog gives somebody a read. This lets a stranger
+ * with no account append to a file in the owner's own bucket — which is the
+ * feature, and which they have to be told in the same breath rather than in a
+ * help page. So the copy says the three things: who can send, that nobody can
+ * read the answers through it, and that an answer cannot be taken back.
+ */
+function CollectRow({
+  share,
+  onSetCollecting,
+}: {
+  share: NoteShare;
+  onSetCollecting: (shareId: string, collecting: boolean) => Promise<boolean>;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [busy, setBusy] = useState(false);
+  /*
+    The switch shows what the SERVER said, except while a press is in flight.
+
+    `share.collecting` is re-read from `listShares` on every render, so the
+    optimistic value is dropped the moment the real one arrives — and a refusal
+    leaves the switch where it was rather than where somebody put it.
+  */
+  const [pending, setPending] = useState<boolean | null>(null);
+  const on = pending ?? share.collecting;
+
+  const flip = (next: boolean) => {
+    setPending(next);
+    setBusy(true);
+    void onSetCollecting(share.shareId, next)
+      .then((ok) => {
+        if (!ok) setPending(null);
+      })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <View style={styles.linkRow} testID="share-collect-row">
+      <View style={styles.linkMain}>
+        <Text variant="rowTitle">Take answers</Text>
+        <Text variant="meta" style={styles.linkNote}>
+          {on
+            ? "Anyone holding this link can fill in a form on this note without an account. " +
+              "Nobody can read the answers through it, and an answer cannot be taken back."
+            : "Let anyone holding this link fill in a form on this note, without an account."}
+        </Text>
+      </View>
+      <Switch
+        value={on}
+        onValueChange={flip}
+        label="Take answers through this link"
+        disabled={busy}
+        testID="share-collect-switch"
+      />
+    </View>
+  );
+}
+
+/**
+ * The short link: one memorable address for a link that already exists.
+ *
+ * ## The warning is not decoration
+ *
+ * Everything else in this dialog hands out an unguessable URL. This hands out
+ * a word, and for a link anyone can open, being able to type the word *is* the
+ * access. Somebody claiming `intake` is publishing that note to whoever guesses
+ * `intake` — which is what they want, and which they have to be told in the
+ * same breath rather than in a help page. So the sentence sits between the
+ * field and the button, in the one place it cannot be scrolled past.
+ *
+ * It is drawn only for an `anyone` link. On a workspace link the reader is
+ * still authorised by membership on every request, so a guessed name opens
+ * nothing, and a warning there would be the dialog crying wolf — which is the
+ * habit that costs people the warning that mattered.
+ *
+ * ## The field refuses locally only for what it can refuse honestly
+ *
+ * Shape is checked here so the obvious typo does not need a round trip, and
+ * everything else — reserved, taken, a name this product writes — comes back
+ * from the server with its own sentence. A second copy of those lists here
+ * would be a second place for them to disagree, and the one that drifts is the
+ * one nobody runs.
+ */
+function ShortLinkRow({
+  handle,
+  share,
+  onSetSlug,
+}: {
+  handle: string;
+  share: NoteShare;
+  onSetSlug: (shareId: string, slug: string | null) => Promise<boolean>;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const claimed = share.slug ?? null;
+  const candidate = typed.trim().toLowerCase();
+  // The router's and the control plane's shape, restated for the field alone.
+  // Three copies of a rule are held by `shortLinkSlug.fixtures.json`; this
+  // fourth is a keystroke-level courtesy and refuses nothing the server does
+  // not refuse again.
+  const wellFormed = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(candidate);
+
+  const claim = () => {
+    if (!wellFormed || busy) return;
+    setBusy(true);
+    void onSetSlug(share.shareId, candidate)
+      .then((ok) => {
+        // Cleared on success, kept on a refusal: the notice explaining why is
+        // behind this modal, and retyping a name somebody has just had
+        // rejected is the worst moment to make them start over.
+        if (ok) setTyped("");
+      })
+      .finally(() => setBusy(false));
+  };
+
+  const release = () => {
+    if (busy) return;
+    setBusy(true);
+    void onSetSlug(share.shareId, null).finally(() => setBusy(false));
+  };
+
+  return (
+    <View style={styles.section} testID="share-short-link">
+      <View style={styles.linkRow}>
+        <View style={styles.linkMain}>
+          <Text variant="rowTitle">Short link</Text>
+          <Text variant="meta" style={styles.linkNote}>
+            {claimed === null
+              ? "A name you choose, under your handle."
+              : "This link also opens at the name you chose."}
+          </Text>
+        </View>
+      </View>
+
+      {claimed === null ? (
+        <View style={styles.row}>
+          <View style={styles.shortLinkField}>
+            <Text variant="meta" style={styles.shortLinkPrefix}>
+              {`context.lc/@${handle}/`}
+            </Text>
+            <TextInput
+              value={typed}
+              onChangeText={setTyped}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.shortLinkInput}
+              placeholder="intake"
+              placeholderTextColor={colors.muted}
+              accessibilityLabel="Short link name"
+              onSubmitEditing={claim}
+              testID="share-short-link-name"
+            />
+          </View>
+          <Button
+            label="Claim"
+            variant="white"
+            disabled={!wellFormed || busy}
+            onPress={claim}
+            testID="share-short-link-claim"
+          />
+        </View>
+      ) : (
+        <View style={styles.linkRow}>
+          <Text variant="meta" style={styles.shortLinkClaimed} selectable>
+            {`context.lc/@${handle}/${claimed}`}
+          </Text>
+          <Button
+            label="Release"
+            disabled={busy}
+            onPress={release}
+            testID="share-short-link-release"
+          />
+        </View>
+      )}
+
+      {share.audience !== "anyone" ? null : (
+        <Text variant="meta" style={styles.linkNote} testID="share-short-link-warning">
+          A short link is memorable, which means guessable. Anyone who types it
+          gets what this link gives — treat it as published. The long link stays
+          unguessable if you would rather.
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The three positions, named, with the dangerous one confirmed.
+ *
+ * Two positions for a folder — `createLinkShare` is note-only, so a third would
+ * be a press that always fails, which is what the old "Create link" button was
+ * doing for folders.
+ *
+ * The confirmation is only on the way *to* `anyone`. Every other move narrows
+ * or stays inside the context, and a dialog that asks before making something
+ * more private teaches people to dismiss it without reading — which is the
+ * habit that then costs them the one that mattered.
+ */
+function AudienceControl({
+  scope,
+  canOpenLink,
+  name,
+  onSet,
+  context,
+  compact = false,
+}: {
+  scope: NoteScope;
+  canOpenLink: boolean;
+  name: string;
+  onSet: (from: NoteScope, to: NoteScope) => void;
+  /** Whose context this is, so the middle position can carry its name. */
+  context: AudienceContext;
+  /**
+   * The phone, where the three positions are a grouped list rather than a
+   * segmented control. See the rows below.
+   */
+  compact?: boolean;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [confirming, setConfirming] = useState(false);
+  const labels = scopeLabels(context);
+
+  const positions: NoteScope[] = canOpenLink
+    ? ["private", "team", "anyone"]
+    : ["private", "team"];
+
+  /* One handler, two presentations — the decision is identical either way. */
+  const pick = (position: NoteScope, on: boolean) => {
+    if (on) return;
+    if (position === "anyone") {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
+    onSet(scope, position);
+  };
+
+  return (
+    <View style={styles.audienceWrap}>
+      {compact ? (
+        /*
+          A GROUPED LIST ON A PHONE, A SEGMENTED CONTROL EVERYWHERE ELSE.
+
+          `Phone-Share.dc.html` draws the positions as 56pt rows in a card —
+          icon, name, what it means, and a tick on the one in force — and the
+          reason is not that it looks nicer. The segmented control divides the
+          sheet's width by three: at 390pt that is a 110pt target 7pt tall
+          carrying a label with nowhere for its `detail` to go, so the two
+          lines under the control had to say who can read it for whichever
+          position happened to be current. A row has room to say it per
+          position, which is the difference between reading the answer and
+          selecting an option to find out.
+
+          The same three positions, the same `scopeLabels`, the same handler.
+          Only the shape forks — `frame.ts`'s rule, that neither surface is the
+          other one degraded.
+        */
+        <View style={styles.positions} role="radiogroup" testID="share-audience">
+          {positions.map((position, index) => {
+            const on = position === scope;
+            return (
+              <Pressable
+                key={position}
+                style={[styles.position, index > 0 && styles.positionRuled]}
+                role="radio"
+                aria-checked={on}
+                accessibilityLabel={labels[position].label}
+                testID={`share-audience-${position}`}
+                onPress={() => pick(position, on)}
+              >
+                <Icon
+                  name={POSITION_ICON[position]}
+                  size={18}
+                  color={on ? colors.text : colors.muted}
+                />
+                <View style={styles.positionMain}>
+                  <Text style={on ? styles.positionName : styles.positionNameOff}>
+                    {labels[position].label}
+                  </Text>
+                  <Text variant="meta" style={styles.positionDetail}>
+                    {labels[position].detail}
+                  </Text>
+                </View>
+                {on ? <Icon name="check" size={18} color={colors.accent} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={styles.audience} role="radiogroup" testID="share-audience">
+          {positions.map((position) => {
+            const on = position === scope;
+            return (
+              <Pressable
+                key={position}
+                style={[styles.segment, on && styles.segmentOn]}
+                role="radio"
+                aria-checked={on}
+                accessibilityLabel={labels[position].label}
+                testID={`share-audience-${position}`}
+                onPress={() => pick(position, on)}
+              >
+                <Text variant="meta" style={on ? styles.segmentTextOn : styles.segmentText}>
+                  {labels[position].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {/*
+        No detail line under the control.
+
+        `scopeLabels(context)[scope].detail` says who can read it, and the two
+        lines under the control say the same thing once and then say where the
+        rule came from — which is the half a list cannot show and the
+        difference between "this is fine" and "wait, that folder?". Two
+        sentences making one point would read as two points; these make two.
+        The labels keep their `detail` because the confirmation and future
+        callers want the words; this position does not need them twice.
+      */}
+
+      {!confirming ? null : (
+        <View style={styles.confirm} testID="share-confirm-public">
+          <Text variant="meta">{describeGoingPublic(name)}</Text>
+          <View style={styles.row}>
+            <Button
+              label="Create the link"
+              variant="danger"
+              testID="share-confirm-public-yes"
+              onPress={() => {
+                setConfirming(false);
+                onSet(scope, "anyone");
+              }}
+            />
+            <Button label="Cancel" onPress={() => setConfirming(false)} />
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Making a group without leaving the note.
+ *
+ * A label and a set of people, and nothing else — no role, no description, no
+ * nesting. A group here is a *name a folder rule can point at*; everything
+ * else about it is decided in the Groups panel, which is where renaming one and
+ * dropping somebody from every folder at once still live.
+ *
+ * The assembled name is shown as you type because **the prefix is not yours to
+ * enter** — `buildGroupName` derives it from the workspace slug, so a field
+ * that accepted `supa-leads` would produce `@supa-supa-leads`. Same reasoning,
+ * and the same words, as `GroupsPanel`'s greyed prefix.
+ */
+function GroupMaker({
+  slug,
+  members,
+  state,
+  problem,
+  onChange,
+  onCancel,
+  onCreate,
+}: {
+  slug: string;
+  members: readonly AccessMember[];
+  state: { label: string; picked: string[] };
+  /** What the server refused, or `null`. */
+  problem: string | null;
+  onChange: (next: { label: string; picked: string[] }) => void;
+  onCancel: () => void;
+  onCreate: () => void;
+}) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const ready = canMakeGroup(state.label, state.picked);
+
+  return (
+    <View style={styles.maker} testID="share-group-maker">
+      <View style={styles.makerRow}>
+        <TextInput
+          value={state.label}
+          onChangeText={(label) => onChange({ ...state, label })}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={styles.input}
+          placeholder="Group name"
+          placeholderTextColor={colors.muted}
+          accessibilityLabel="Group name"
+        />
+        <Button label="Create" disabled={!ready} onPress={onCreate} />
+        <Button label="Cancel" onPress={onCancel} />
+      </View>
+
+      {problem === null ? null : (
+        <Text variant="meta" style={styles.routeDanger} testID="share-group-problem">
+          {problem}
+        </Text>
+      )}
+
+      <Text variant="meta" style={styles.suggestionDetail}>
+        {`Name the people you keep picking together. Will be ${previewGroupName(slug, state.label)} — the prefix is this context's, not yours to type.`}
+      </Text>
+
+      {/*
+        Every member, with the ones already picked marked. Not `addableMembers`
+        — that excludes who is already in an existing group, and this group does
+        not exist yet.
+      */}
+      <View style={styles.pickList}>
+        {members.map((member) => {
+          const on = state.picked.includes(member.userId);
+          return (
+            <Pressable
+              key={member.userId}
+              style={[styles.pick, on && styles.pickOn]}
+              /*
+                Web props, like `AudienceControl` beside it. The RN-flavoured
+                `accessibilityRole` / `accessibilityState` pair does not reach
+                the DOM as `aria-checked` here, so a screen reader was told this
+                was a checkbox and never told whether it was ticked.
+              */
+              role="checkbox"
+              aria-checked={on}
+              accessibilityLabel={memberLabel(member)}
+              testID={`share-group-pick-${member.userId}`}
+              onPress={() =>
+                onChange({
+                  ...state,
+                  picked: on
+                    ? state.picked.filter((id) => id !== member.userId)
+                    : [...state.picked, member.userId],
+                })
+              }
+            >
+              <Text variant="meta" style={on ? undefined : styles.suggestionMuted}>
+                {`${on ? "✓ " : ""}${memberLabel(member)}`}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -388,12 +1521,175 @@ function SharedWith({
 
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  access: { gap: 8, marginBottom: 4 },
+  audienceWrap: { gap: 6 },
+  audience: {
+    flexDirection: "row",
+    gap: 4,
+    padding: 3,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.well,
+  },
+  segment: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 7,
+    paddingHorizontal: 4,
+    borderRadius: radii.md,
+  },
+  segmentOn: { backgroundColor: colors.surface },
+  segmentText: { color: colors.muted },
+  segmentTextOn: { color: colors.text },
+
+  /* ---------------------------------------------------------------- *
+   * The phone's grouped list. See `AudienceControl`.
+   * ---------------------------------------------------------------- */
+  positions: {
+    borderRadius: radii.sheet,
+    backgroundColor: colors.well,
+    overflow: "hidden",
+  },
+  /*
+    56, which is the row height this phone already uses for a grouped list and
+    is comfortably past the 44 a thumb needs. The segmented control it replaces
+    was 7pt of padding around an 11pt label.
+  */
+  position: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  /*
+    Inset from the icon rather than from the card edge — the rule separates the
+    rows' CONTENT, and a full-bleed one reads as the end of the card.
+  */
+  positionRuled: { borderTopWidth: 1, borderTopColor: colors.line, marginLeft: 16 },
+  positionMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
+  /*
+    `touchType.ui`, and the reason is `Text`'s own `railTouch`: this list is
+    how the decision gets made on a phone, and a decision is read at the size
+    the screen is read at rather than at a 216pt column's supporting-label
+    size. The position not in force is dimmed rather than drawn smaller.
+  */
+  positionName: {
+    fontFamily: fonts.body,
+    fontSize: touchType.ui,
+    lineHeight: leading(touchType.ui, 1.4),
+    fontWeight: "500",
+    color: colors.text,
+  },
+  positionNameOff: {
+    fontFamily: fonts.body,
+    fontSize: touchType.ui,
+    lineHeight: leading(touchType.ui, 1.4),
+    fontWeight: "500",
+    color: colors.text2,
+  },
+  positionDetail: { color: colors.muted },
+  confirm: {
+    gap: 8,
+    padding: 10,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.critBorder,
+    backgroundColor: colors.critWash,
+  },
+  accessRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    /*
+      No `flexWrap`. It was harmless while the trailing slot was a one-word
+      role, and wrong the moment it became a control: a long reason line
+      pushed the button onto its own row, where it stretched full width and
+      read as the sheet's primary action rather than as this person's.
+      `accessMain` has `minWidth: 0`, so the text shrinks instead.
+    */
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  accessMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
+  accessReason: { color: colors.muted },
+  /* Row plus whatever it has expanded, so the divider stays on the row. */
+  accessGroup: { gap: 0 },
+  routes: {
+    gap: 2,
+    marginBottom: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.well,
+    overflow: "hidden",
+  },
+  route: { paddingVertical: 9, paddingHorizontal: 10, gap: 1 },
+  routeDanger: { color: colors.crit },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  linkMain: { flexGrow: 1, flexShrink: 1, minWidth: 160, gap: 1 },
+  linkNote: { color: colors.muted },
+  shortLinkField: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 180,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.well,
+    paddingLeft: 10,
+  },
+  shortLinkPrefix: { color: colors.muted },
+  shortLinkInput: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 60,
+    paddingVertical: 9,
+    paddingRight: 10,
+    color: colors.text,
+  },
+  shortLinkClaimed: { flexGrow: 1, flexShrink: 1, minWidth: 160, color: colors.accentText },
   scrim: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
+  },
+  /** The sheet is at the bottom, and pays no gutter it would only waste. */
+  scrimSheet: { justifyContent: "flex-end", padding: 0 },
+  /**
+   * The phone's sheet: full width, top corners only, and `radii.sheet` for
+   * them — the token documented as "a grouped list card, and the drawer's
+   * trailing corners", which is the family every other surface that comes up
+   * from an edge on this phone already uses.
+   */
+  sheet: {
+    maxWidth: undefined,
+    borderRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    borderWidth: 0,
+    paddingTop: 10,
+    paddingBottom: 34,
+  },
+  /** The grab handle. Drawn, inert — see its use site. */
+  handle: {
+    width: 36,
+    height: 4,
+    alignSelf: "center",
+    marginBottom: 14,
+    borderRadius: radii.pill,
+    backgroundColor: colors.lineStrong,
   },
   card: {
     width: "100%",
@@ -405,19 +1701,31 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     padding: 20,
     gap: 14,
   },
-  body: { gap: 16 },
+  /*
+    A scroll surface with a ceiling, so the sheet cannot grow past the screen.
+    It used to be a plain `View`: with three prose sections, a shared-with list
+    and an advanced block, the Done button left the bottom of a phone entirely.
+  */
+  body: { maxHeight: 460 },
+  bodyContent: { gap: 16, paddingBottom: 4 },
   section: { gap: 8 },
   row: { flexDirection: "row", gap: 10, alignItems: "center" },
   input: {
     flexGrow: 1,
     flexShrink: 1,
+    /*
+      Flexbox gives a form control `min-width: auto`, so `flexShrink` alone
+      does not let it go below its intrinsic width — which pushed the group
+      maker's Cancel button off the right edge of its own panel.
+    */
+    minWidth: 0,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.lg,
     backgroundColor: colors.well,
     color: colors.text,
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: t.ui,
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
@@ -437,6 +1745,39 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   shareTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   recipient: { flexGrow: 1, flexShrink: 1, color: colors.text },
+  suggestions: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.md,
+    overflow: "hidden",
+  },
+  suggestion: { paddingVertical: 8, paddingHorizontal: 10, gap: 2 },
+  makeGroup: { paddingVertical: 2 },
+  makeGroupText: { color: colors.accent },
+  /* Wraps rather than clips: three controls on a 390pt phone, inside a panel. */
+  makerRow: { flexDirection: "row", gap: 8, alignItems: "center", flexWrap: "wrap" },
+  maker: {
+    gap: 8,
+    padding: 10,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    backgroundColor: colors.well,
+  },
+  pickList: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  pick: {
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+  },
+  pickOn: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+  /* An answer rather than an offer: on the well, so it does not read as a button. */
+  suggestionReaching: { backgroundColor: colors.well },
+  suggestionMuted: { color: colors.text2 },
+  suggestionDetail: { color: colors.muted },
   previewRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   previewText: { flexGrow: 1, flexShrink: 1 },
   actions: { flexDirection: "row", justifyContent: "flex-end", gap: 10 },

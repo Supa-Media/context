@@ -1,10 +1,19 @@
 import {
-  drainable,
+  drainUnits,
+  findOp,
   markConflict,
   markFailed,
+  markOpConflict,
+  markOpFailed,
+  markOpRejected,
   markRejected,
+  opsOf,
+  rebaseOp,
   settle,
+  settleOp,
+  type OpKind,
   type Outbox,
+  type PendingOp,
   type PendingWrite,
 } from "./outbox";
 import type { ConflictCheck, FileError } from "../console/files/types";
@@ -91,6 +100,24 @@ const TRANSIENT_CODES: ReadonlySet<string> = new Set([
  * decides what a thrown thing is allowed to say on somebody's screen — and this
  * is not a second one.
  */
+/**
+ * What one queued rename, move, archive, delete or new folder did.
+ *
+ * The failure halves are `WriteOutcome`'s, classified by the same allowlist,
+ * because an op meets the same bucket with the same failure modes. `etag` is
+ * the note's version where the op left it — a move's new path — which the
+ * next op on that note is sent against.
+ */
+export type OpOutcome =
+  | { kind: "done"; etag?: string; to?: string }
+  | Exclude<WriteOutcome, { kind: "written" }>;
+
+export function classifyOpFailure(error: FileError): OpOutcome {
+  const outcome = classifyWriteFailure(error);
+  // `classifyWriteFailure` never answers `written`; the narrowing is for the compiler.
+  return outcome.kind === "written" ? { kind: "done" } : outcome;
+}
+
 export function classifyWriteFailure(error: FileError): WriteOutcome {
   if (error.code === "CONFLICT") {
     return { kind: "conflict", currentEtag: error.currentEtag, message: error.message };
@@ -103,6 +130,14 @@ export function classifyWriteFailure(error: FileError): WriteOutcome {
 
 export interface DrainDeps {
   write: (write: PendingWrite) => Promise<WriteOutcome>;
+  /**
+   * Sends one op. Optional so a caller that has only edits to send — a test of
+   * the edit half — need not invent one; without it ops are left exactly as
+   * they are, never dropped.
+   */
+  op?: (op: PendingOp) => Promise<OpOutcome>;
+  /** Called after each op the bucket accepted, so the device's copy can follow it. */
+  onOpDone?: (done: OpSent) => void;
   now: () => number;
   /**
    * Called after each entry that reached the server successfully, so the cache
@@ -127,12 +162,33 @@ export interface Sent {
    * *which version* went, or it drops an edit made mid-drain.
    */
   sentUpdatedAt: number;
+  /**
+   * The version the write was checked against. A caller reconciling with the
+   * live queue moves an op queued mid-drain onto what this write produced —
+   * but only an op asked about the same version, which this is how to tell.
+   */
+  sentBaseEtag: string | null;
+}
+
+/** One op that reached the bucket. */
+export interface OpSent {
+  id: string;
+  kind: OpKind;
+  path: string;
+  /** For a move: where the note is now. */
+  to?: string;
+  /** The note's version where the op left it, when the server said. */
+  etag?: string;
+  /** The op's `updatedAt` when it went — see `Sent.sentUpdatedAt`. */
+  sentUpdatedAt: number;
 }
 
 export interface DrainReport {
   sent: Sent[];
   conflicted: string[];
   rejected: string[];
+  /** Ops, by id. Separate from the edits, whose lists are paths. */
+  ops: { done: OpSent[]; conflicted: string[]; rejected: string[] };
   /** Stopped before the end because a write failed in a way that may recover. */
   stoppedEarly: boolean;
 }
@@ -141,6 +197,7 @@ export const EMPTY_REPORT: DrainReport = {
   sent: [],
   conflicted: [],
   rejected: [],
+  ops: { done: [], conflicted: [], rejected: [] },
   stoppedEarly: false,
 };
 
@@ -155,73 +212,184 @@ export async function drainOutbox(
   const sent: DrainReport["sent"] = [];
   const conflicted: string[] = [];
   const rejected: string[] = [];
+  const ops: DrainReport["ops"] = { done: [], conflicted: [], rejected: [] };
   let stoppedEarly = false;
 
-  // Snapshotted before the loop: `current` is replaced on every step, and
-  // re-deriving the list each time would re-read entries this drain has already
-  // settled. Anything queued *during* the drain waits for the next one, which
-  // is the honest ordering — it was typed after we started sending.
-  for (const write of drainable(outbox)) {
-    const outcome = await deps.write(write);
+  /*
+    Snapshotted before the loop: `current` is replaced on every step, and
+    re-deriving the list each time would re-read entries this drain has already
+    settled. Anything queued *during* the drain waits for the next one, which
+    is the honest ordering — it was typed after we started sending.
 
-    if (outcome.kind === "written") {
-      current = settle(current, write.path);
-      sent.push({
-        path: write.path,
-        etag: outcome.etag,
-        conflictCheck: outcome.conflictCheck,
-        sentUpdatedAt: write.updatedAt,
-      });
-      deps.onWritten?.({
-        path: write.path,
-        etag: outcome.etag,
-        conflictCheck: outcome.conflictCheck,
-      });
+    One note at a time (`drainUnits`): its edit, then whatever was asked of it.
+    A note whose edit is parked or refused has its op held back with it — a
+    rename sent past a parked edit would carry the bucket's text under the new
+    name and leave the person's text parked at a path that no longer exists.
+    Held back is not charged: nothing reached the bucket.
+  */
+  units: for (const unit of drainUnits(outbox)) {
+    let held = false;
+    const write = unit.write;
+    if (write !== undefined) {
+      if (write.state !== "pending") {
+        held = true;
+      } else {
+        const outcome = await deps.write(write);
+
+        if (outcome.kind === "written") {
+          current = settle(current, write.path);
+          sent.push({
+            path: write.path,
+            etag: outcome.etag,
+            conflictCheck: outcome.conflictCheck,
+            sentUpdatedAt: write.updatedAt,
+            sentBaseEtag: write.baseEtag,
+          });
+          deps.onWritten?.({
+            path: write.path,
+            etag: outcome.etag,
+            conflictCheck: outcome.conflictCheck,
+          });
+          /*
+            The op on this note follows the version this edit produced — if it
+            was asked about the version the edit was typed on (or had none yet,
+            because the edit is the note's create). An op asked about some
+            other version keeps it, and is refused or not on its own merits.
+          */
+          const op = unit.op === undefined ? undefined : findOp(current, unit.op.id);
+          if (op !== undefined && (op.baseEtag === null || op.baseEtag === write.baseEtag)) {
+            current = rebaseOp(current, op.id, outcome.etag);
+          }
+        } else if (outcome.kind === "conflict") {
+          current = markConflict(current, write.path, {
+            currentEtag: outcome.currentEtag,
+            message: outcome.message,
+            now: deps.now(),
+          });
+          conflicted.push(write.path);
+          // Deliberately keeps going. A conflict is about *this note*, and the
+          // other forty in the queue have nothing to do with it — stopping here
+          // would hold back writes that would have gone through.
+          held = true;
+        } else if (outcome.kind === "rejected") {
+          current = markRejected(current, write.path, {
+            code: outcome.code,
+            message: outcome.message,
+            now: deps.now(),
+          });
+          rejected.push(write.path);
+          held = true;
+        } else {
+          // Transient. One more attempt spent; park it if that was the last one.
+          // The two branches are exclusive because both `markFailed` and
+          // `markRejected` count the attempt, and running them in sequence would
+          // charge this one write twice.
+          if (write.attempts + 1 >= MAX_ATTEMPTS) {
+            current = markRejected(current, write.path, {
+              code: "RETRIES_EXHAUSTED",
+              message: EXHAUSTED_MESSAGE,
+              now: deps.now(),
+            });
+            rejected.push(write.path);
+          } else {
+            current = markFailed(current, write.path, outcome.message);
+          }
+          // Stops either way: whatever this write ran into is almost certainly
+          // still happening to the entries behind it.
+          stoppedEarly = true;
+          break units;
+        }
+      }
+    }
+
+    if (unit.op === undefined || held || deps.op === undefined) continue;
+    const op = findOp(current, unit.op.id);
+    if (op === undefined || op.state !== "pending") continue;
+
+    if (op.kind !== "folder" && op.baseEtag === null) {
+      /*
+        Waiting on a version this queue has yet to produce. If something ahead
+        of it still can — an edit on this note, a rename landing on it — it
+        waits, uncharged. If nothing can, it never will, and it says so rather
+        than sitting in the queue forever or, worse, being sent unconditionally.
+      */
+      if (!canStillSupply(current, op)) {
+        current = markOpRejected(current, op.id, {
+          code: "NOTHING_TO_ACT_ON",
+          message: ORPHANED_MESSAGE,
+          now: deps.now(),
+        });
+        ops.rejected.push(op.id);
+      }
       continue;
     }
 
+    const outcome = await deps.op(op);
+    if (outcome.kind === "done") {
+      current = settleOp(current, op.id);
+      const done: OpSent = {
+        id: op.id,
+        kind: op.kind,
+        path: op.path,
+        ...(op.to === undefined ? {} : { to: op.to }),
+        ...(outcome.etag === undefined ? {} : { etag: outcome.etag }),
+        sentUpdatedAt: op.updatedAt,
+      };
+      ops.done.push(done);
+      deps.onOpDone?.(done);
+      /*
+        A rename of this rename, queued behind it while it was in flight, has
+        been waiting for exactly this: the note's version at its new name.
+      */
+      if (op.kind === "move" && op.to !== undefined && outcome.etag !== undefined) {
+        const next = opsOf(current).find((one) => one.path === op.to && one.baseEtag === null);
+        if (next !== undefined) current = rebaseOp(current, next.id, outcome.etag);
+      }
+      continue;
+    }
     if (outcome.kind === "conflict") {
-      current = markConflict(current, write.path, {
+      current = markOpConflict(current, op.id, {
         currentEtag: outcome.currentEtag,
         message: outcome.message,
         now: deps.now(),
       });
-      conflicted.push(write.path);
-      // Deliberately keeps going. A conflict is about *this note*, and the
-      // other forty in the queue have nothing to do with it — stopping here
-      // would hold back writes that would have gone through.
+      ops.conflicted.push(op.id);
       continue;
     }
-
     if (outcome.kind === "rejected") {
-      current = markRejected(current, write.path, {
+      current = markOpRejected(current, op.id, {
         code: outcome.code,
         message: outcome.message,
         now: deps.now(),
       });
-      rejected.push(write.path);
+      ops.rejected.push(op.id);
       continue;
     }
-
-    // Transient. One more attempt spent; park it if that was the last one.
-    // The two branches are exclusive because both `markFailed` and
-    // `markRejected` count the attempt, and running them in sequence would
-    // charge this one write twice.
-    if (write.attempts + 1 >= MAX_ATTEMPTS) {
-      current = markRejected(current, write.path, {
+    if (op.attempts + 1 >= MAX_ATTEMPTS) {
+      current = markOpRejected(current, op.id, {
         code: "RETRIES_EXHAUSTED",
         message: EXHAUSTED_MESSAGE,
         now: deps.now(),
       });
-      rejected.push(write.path);
+      ops.rejected.push(op.id);
     } else {
-      current = markFailed(current, write.path, outcome.message);
+      current = markOpFailed(current, op.id, outcome.message);
     }
-    // Stops either way: whatever this write ran into is almost certainly still
-    // happening to the entries behind it.
     stoppedEarly = true;
     break;
   }
 
-  return { outbox: current, report: { sent, conflicted, rejected, stoppedEarly } };
+  return { outbox: current, report: { sent, conflicted, rejected, ops, stoppedEarly } };
+}
+
+const ORPHANED_MESSAGE =
+  "What this was waiting on was taken back, so there is nothing left for it to act on. Discard it.";
+
+/**
+ * Whether anything still in the queue can give a versionless op its version:
+ * an edit of the same note (its create, typically), or a rename landing on it.
+ */
+function canStillSupply(outbox: Outbox, op: PendingOp): boolean {
+  if (outbox.writes.some((write) => write.path === op.path)) return true;
+  return opsOf(outbox).some((other) => other.id !== op.id && other.kind === "move" && other.to === op.path);
 }

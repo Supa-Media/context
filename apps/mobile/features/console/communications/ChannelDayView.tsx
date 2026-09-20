@@ -10,7 +10,6 @@ import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { FileBrowser } from "../files/browser";
-import { channelDayNotePath } from "@context/communications";
 import { shapeChannelDay, type DayPartSource } from "./day";
 import { splitParagraphs, tokenizeInline } from "./markdownInline";
 import type { CommsChannel, DayMessageView } from "./types";
@@ -22,6 +21,7 @@ export function ChannelDayView({
   channel,
   account,
   date,
+  path,
   knownParts,
   files,
   anchor,
@@ -29,6 +29,8 @@ export function ChannelDayView({
   channel: CommsChannel;
   account: string;
   date: string;
+  /** The actual selected key, preserving legacy flat-day storage paths. */
+  path: string;
   /**
    * How many parts this day has, if the caller already knows — from
    * `ChannelDayRow.parts`, say. `undefined` means "find out", and this view
@@ -49,10 +51,13 @@ export function ChannelDayView({
 
   const partPaths = useMemo(() => {
     const count = Math.min(parts ?? 1, MAX_PARTS_FETCHED);
-    return Array.from({ length: count }, (_, index) =>
-      channelDayNotePath({ channel, account, date, part: index + 1 }),
-    );
-  }, [channel, account, date, parts]);
+    const slash = path.lastIndexOf("/");
+    const folder = slash < 0 ? "" : path.slice(0, slash + 1);
+    return Array.from({ length: count }, (_, index) => {
+      const part = index + 1;
+      return `${folder}${date}${part === 1 ? "" : `-part-${part}`}.md`;
+    });
+  }, [date, parts, path]);
 
   const [partTexts, setPartTexts] = useState<Record<string, string | null>>({});
 

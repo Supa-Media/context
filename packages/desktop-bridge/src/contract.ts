@@ -58,7 +58,7 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 5;
+export const BRIDGE_VERSION = 7;
 
 /**
  * The oldest bridge this bundle will still talk to.
@@ -629,9 +629,83 @@ export interface DesktopBridge {
     status(): Promise<ImessageStatus>;
     /** Turn import on or off. Never opens a system dialog — see `docs/decisions/communications.md`. */
     setEnabled(enabled: boolean): Promise<void>;
+    /** Explain Full Disk Access and open the exact System Settings pane when the person continues. */
+    requestFullDiskAccess(): Promise<void>;
     onChange(handler: (status: ImessageStatus) => void): Unsubscribe;
   };
+
+  /**
+   * Asking the coding CLI this machine already has, on its owner's own
+   * subscription rather than on a key they pasted. **Version 7.**
+   *
+   * Optional for `MIN_BRIDGE_VERSION`'s reason, like `meetings` and `imessage`
+   * above — and here the console *must* check for the member rather than the
+   * bridge, because the fallback is not a disabled toggle but a whole second
+   * route: with no member, the panel posts to the gateway and spends the
+   * customer's API key exactly as it does in a browser. Both routes answer; one
+   * of them is free to somebody who already pays Anthropic every month.
+   *
+   * There is no credential anywhere in this shape, in either direction. The
+   * CLI reads its own login from its own keychain entry and we never see it;
+   * the grant that lets it reach this context is written to a file in the main
+   * process and never crosses this bridge. `apps/desktop/src/core/agent/localCli.ts`
+   * carries the reasoning for both.
+   */
+  agent?: {
+    /** Whether a local CLI is available to ask. Cheap, and called on mount. */
+    status(): Promise<LocalAgentStatus>;
+    /** One question. Resolves with an answer or with a sentence, never a throw. */
+    ask(request: LocalAgentAsk): Promise<LocalAgentReply>;
+  };
 }
+
+/**
+ * Whether this machine can answer a question locally.
+ *
+ * `available: false` is the ordinary case and is never an error: most machines
+ * have no `claude` installed, and nobody is shown a failure for not having
+ * installed a developer tool. `name` is what the console puts on the control
+ * that offers the choice, so it is the shell's word rather than the page's
+ * guess.
+ */
+export interface LocalAgentStatus {
+  available: boolean;
+  name: string | null;
+}
+
+/**
+ * One question, and where the person asking it is standing.
+ *
+ * `place` is the same shape the gateway's `/agent` route takes
+ * (`apps/mobile/features/agent/gateway.ts`), deliberately: the two routes
+ * answer the same question from the same input, so the panel builds one object
+ * and picks a road afterwards rather than knowing two formats.
+ *
+ * It carries **references and never content** — a path, a visibility, whether
+ * a draft diverged. If the agent wants the note it calls `read_note` and the
+ * same privacy engine decides, rather than being handed text that the clamp
+ * never saw. `apps/mobile/features/agent/page.ts` argues that at length.
+ */
+export interface LocalAgentAsk {
+  question: string;
+  place: {
+    context: string | null;
+    note: { path: string; visibility: string; readable: boolean; unsaved: boolean } | null;
+    meetingLive: boolean;
+  };
+}
+
+/**
+ * What one local turn produced.
+ *
+ * An envelope rather than a value or a throw, for `ConsoleBridge`'s own reason:
+ * a refusal somebody is meant to read has to travel as data. Every failure here
+ * is on the person's own machine and every one of them is fixable by them, so
+ * `message` is a sentence that names the fix rather than a category.
+ */
+export type LocalAgentReply =
+  | { ok: true; answer: string; provider: string; steps: { tool: string; ok: boolean }[] }
+  | { ok: false; message: string };
 
 /**
  * What the console may know about iMessage import. Never a path, never a
@@ -649,7 +723,18 @@ export interface ImessageStatus {
    * more alarming "denied" than the evidence supports.
    */
   permission: "granted" | "denied" | "unknown";
-  /** Epoch milliseconds of the last completed sync attempt, or `null` before the first one. */
+  /**
+   * Epoch milliseconds of the last pass that actually filed a note, or `null`
+   * until one has.
+   *
+   * **A pass that wrote nothing does not stamp this**, whether it wrote nothing
+   * because every day was refused or because there was nothing new to write.
+   * The console renders it as "last synced <time>", which is read as "your
+   * messages are in your context" — so an attempt is not enough to earn it, and
+   * this field said "the last completed sync attempt" while the shell stamped
+   * it for refusals, which is how a card came to report a working import over a
+   * gateway that had never accepted a single note.
+   */
   lastSyncedAt: number | null;
   /** The shell's own words for the last thing that went wrong, or `null`. */
   lastError: string | null;
@@ -717,6 +802,12 @@ export const BRIDGE_CHANNELS = Object.freeze({
   /** Version 5. */
   imessageStatus: "context:imessage-status",
   imessageSetEnabled: "context:imessage-set-enabled",
+  /** Version 6. Show the native guide, then open Full Disk Access settings. */
+  imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access",
+
+  /** Version 7. Is there a local CLI to ask, and asking it. */
+  agentStatus: "context:agent-status",
+  agentAsk: "context:agent-ask",
 
   /** Main → page. Pushed; the page subscribes through the bridge. */
   segment: "context:on-segment",

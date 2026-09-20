@@ -109,3 +109,28 @@ export function canResetPrivacy(
 export function canShare(caps: ConsoleCapabilities): boolean {
   return caps.canEdit && caps.isOwner;
 }
+
+/**
+ * Whether the pencil reaches `activity.md`'s Markdown.
+ *
+ * The file is the context's record of who changed what, and editing it by hand
+ * is editing that record — so it is the owner's, the same authority
+ * `canSetVisibility` and `canShare` are about, rather than the "may write
+ * notes" an editor has. An editor writing a note is adding to the record; an
+ * editor rewriting the record is something else.
+ *
+ * **The server already refuses everyone else, twice over**, and this is the
+ * affordance rather than the guard: `activity.md` is stored `private` and
+ * re-asserted private on any write that finds it otherwise, so a member or an
+ * editor cannot read the file at all, let alone write it — they are served the
+ * filtered rendering through `readActivity`, which is what "members view"
+ * means here and always has. What this stops is the console offering a pencil
+ * that leads to a refusal.
+ *
+ * Separate from `canShare` for the reason that one is separate from
+ * `canSetVisibility`: identical expressions answering different questions
+ * drift apart the first time one of them is meant to.
+ */
+export function canEditActivity(caps: ConsoleCapabilities): boolean {
+  return caps.canEdit && caps.isOwner;
+}

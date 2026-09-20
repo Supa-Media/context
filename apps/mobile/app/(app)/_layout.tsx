@@ -8,6 +8,7 @@ import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
+import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
 import {
@@ -113,8 +114,36 @@ export default function AppLayout() {
    * measured live, it dropped the `note` and re-emitted `[slug]` as a query
    * parameter. See `attemptedHrefFrom` in `features/auth/redirect.ts`.
    */
-  const decision = resolveProtectedRoute(useConvexAuth(), useAttemptedHref());
-  const authed = decision.action === "render";
+  const auth = useConvexAuth();
+  /*
+    Whether this device remembers a session well enough to draw the app while
+    the server is out of reach. `useRememberedContexts` answers with the list
+    only when it is offline *and* something was written down by a session that
+    signed out of nothing — see its header, and `resolveProtectedRoute` for why
+    waiting is the wrong answer on a train.
+  */
+  const rememberedSession = useRememberedContexts(undefined) !== undefined;
+  const decision = resolveProtectedRoute(auth, useAttemptedHref(), rememberedSession);
+  /*
+    **Not `decision.action === "render"`**, which is what this used to read and
+    what it can no longer mean. The two were the same value until an offline
+    relaunch could render without the server having confirmed anything; they
+    are now different questions, and everything below wants the stricter one.
+
+    A subscription opened on an unconfirmed identity is refused — every query
+    here goes through `requireAuth` — so the cost of confusing them is a fan of
+    failing queries and a meetings client pointed at nobody, for a session that
+    is about to be confirmed or about to be sent to `/login` anyway.
+
+    **Both halves, not just `isAuthenticated`.** `isLoading` and
+    `isAuthenticated` can be true together — that is the stale-token window
+    `authRedirect.test.ts` already pins — and the old expression excluded it
+    because `wait` beat `render`. Writing this as `auth.isAuthenticated` alone
+    would quietly open every subscription a render earlier than it used to,
+    which is a change to a state machine this file has already been bitten by
+    and is no part of what the offline gate is for.
+  */
+  const authed = !auth.isLoading && auth.isAuthenticated;
 
   // Above the early returns below, like every other hook here: this layout's
   // job is to gate, and a hook that ran only on the happy path would install

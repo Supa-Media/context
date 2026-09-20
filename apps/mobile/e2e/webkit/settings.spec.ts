@@ -1,0 +1,424 @@
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { tap } from "./helpers";
+
+/**
+ * Settings, opened in a real browser — which nothing in this repository could
+ * do until `E2EFixtureScreen` wired the overlay.
+ *
+ * ## Why this file exists
+ *
+ * `SettingsOverlay` is a large surface with a full jsdom suite behind it, and
+ * every defect that has actually shipped from it passed that suite green and
+ * was found by a person hand-writing a throwaway route and looking at it:
+ *
+ *  - `rowTouch` carried `justifyContent: "center"`. It was written as the
+ *    vertical centring of a column and became **horizontal** centring the
+ *    moment the row grew a dot and a trailing label and turned into a flex
+ *    row — so every section label in the phone's list sat in the middle of
+ *    its row. jsdom lays nothing out, so nothing could see it;
+ *  - a temporal dead zone (a `const` read by a closure declared above it)
+ *    crashed the whole overlay behind an error boundary, with typecheck
+ *    clean;
+ *  - a panel that was a heading over an empty page.
+ *
+ * All three are "the code is right and the screen is wrong", which is the
+ * class `docs/decisions/testing.md` puts in this directory. The centring one
+ * is the case this file is measured against: reintroduce that single
+ * declaration and `the phone's section labels are left-aligned` must go red,
+ * or this file is decoration.
+ *
+ * **Proved red, then green.** `justifyContent: "center"` was put back on
+ * `rowTouch`, the export rebuilt, and this file run against it: that case
+ * failed with `AI apps: starts 154pt in` against `AI apps: left-aligned`,
+ * and the two beside it passed — the defect is a layout one and nothing
+ * about opening, pushing or popping the overlay changes when it is present,
+ * which is exactly why every other kind of test stayed green while it
+ * shipped. With the declaration removed again, all three pass.
+ *
+ * ## What a pass here proves, and what it does not
+ *
+ * It proves the overlay mounts, opens on a section, pushes and pops its two
+ * phone levels, draws list and panel side by side at a pointer width, and
+ * lays its rows out the way the styles claim — inside a real engine, at a
+ * real viewport, with real hit-testing. It does not prove anything about the
+ * sections whose props the fixture does not supply: `onSignOut` and
+ * `onOpenInvitation` are absent there (no session, no router — see
+ * `E2EFixtureScreen`'s header), so the sign-out row and the invitation answer
+ * are not on this screen to be pressed.
+ *
+ * ## Why the presses inside the overlay are `locator.tap()`
+ *
+ * `helpers.ts`'s `tap` reads a `boundingBox()` and then taps that point, and
+ * everything it is used on here — the console behind the scrim — is already
+ * at rest. The overlay is not: `Overlay` mounts a `Modal` with
+ * `animationType="slide"`, so for a few hundred milliseconds after it becomes
+ * visible its head is still travelling up the screen and a coordinate read
+ * before the press lands somewhere the button has already left. Measured
+ * here, on this export: a tap through the helper at that moment did nothing
+ * at all, silently, and the list never appeared. `locator.tap()` is the same
+ * real touch through the same input pipeline — it is Playwright's own
+ * `Touchscreen` under an actionability check that waits for the element to
+ * stop moving first, which is the half the helper cannot do.
+ */
+
+/**
+ * The way into Settings, now that the fixture's account block has no
+ * standalone gear.
+ *
+ * There used to be one press: `GEAR` named a `PressRow` labelled exactly
+ * "Settings", right beside sign-out. `AccountBlock`'s compact form merged
+ * that gear into the avatar's own disclosure menu — "the corner used to be two
+ * controls, and one of them signed you out on one press" is `AccountBlock`'s
+ * own account of why — so what is beside sign-out now is
+ * one control that opens a menu, and Settings is a row in it labelled
+ * "Settings…", not "Settings". Two presses where the fixture's account
+ * corner needed one, at the phone viewport this file mostly runs at.
+ *
+ * **The pointer-width case below goes through a third control, and both
+ * paragraphs this replaces are worth keeping.** It pressed the compact menu
+ * once, because `E2EFixtureScreen` drew `AccountBlock`'s compact form at every
+ * width and mounted no rail. Then the fixture mounted the real `ConsoleRail`
+ * at medium and wide, and the case pressed `rail-settings` — the gear at the
+ * foot of that rail.
+ *
+ * The rail has since folded into `SwitcherMenu`
+ * (`docs/decisions/app-and-console.md`), taking its account block and that
+ * gear with it, so the pointer layout's route is now `switcher-settings`: a
+ * row in the menu under the workspace's name, which is exactly where the
+ * product puts it. Two presses at that width too — open the menu, then choose
+ * — for the same reason the phone's corner takes two. All three land on the
+ * same section: `openSettings()` with no argument answers a context's own
+ * Workspace page whichever control called it — the section Overview became
+ * when the settings list was cut to seven rows.
+ *
+ * The account menu trigger is itself at rest when this file presses it —
+ * nothing has opened a panel yet — so it is reached the same way `GEAR` was,
+ * through the real-touch coordinate helper below. `ACCOUNT_SETTINGS` is not:
+ * it is a row inside `Menu.web.tsx`'s own sliding sheet at a phone width
+ * (`Sheet`, `animationType="slide"`, same shape as `SettingsOverlay`'s), so it
+ * is pressed with `locator.tap()` for the reason already given above — the
+ * actionability wait the coordinate helper cannot do.
+ */
+const ACCOUNT_MENU = "@seyi — account menu";
+/** `MenuItem.testID` for the Settings row in that menu, Sheet and Popover alike. */
+const ACCOUNT_SETTINGS = "account-settings";
+
+async function openConsole(page: Page): Promise<void> {
+  await page.goto("/e2e-fixture");
+  /*
+    The breadcrumb rather than `note-scroll`: the fixture's default note is
+    drawn by a scroller on a phone and by the live editor at a pointer width,
+    and this file runs at both. Painting the line means the demo data and the
+    tree behind it have already resolved.
+
+    A *folder* segment, not the leaf. This waited on `breadcrumb-leaf`, and the
+    pointer breadcrumb stopped drawing one: the note's name is the H1 below the
+    line and the tab above it, so the line is its folders. The phone still
+    draws a leaf, so waiting on it was a wait that passed at 390pt and hung for
+    the full timeout at 1280 — which is exactly how this was found, as two
+    pointer-width cases timing out in `openConsole` rather than in an
+    assertion.
+
+    `1-projects` is the fixture's default selection (`placeholderData.ts`'s
+    `defaultSelection` is `1-projects/context-lc.md`), and a folder crumb is
+    drawn at both densities.
+  */
+  await page.getByTestId("breadcrumb-folder-1-projects").waitFor();
+}
+
+/**
+ * How far a row's label starts from the row's own left edge.
+ *
+ * The whole of the centring defect, measured rather than described. The row
+ * is `flexDirection: "row"` with `paddingHorizontal: 11` and now opens with a
+ * 19pt mark and a 12pt gap, so an honest label begins about 42pt in. A
+ * centred label in a ~330pt-wide row starts somewhere past 100. `LEFT_EDGE`
+ * sits between the two — far enough above the real value to survive a padding
+ * token moving, or a mark drawn a point wider, and still nowhere near half a
+ * row.
+ *
+ * It was 48 while the rows had no mark on them, which left six points of
+ * headroom: the number moved because the rows did, not because the claim did.
+ */
+const LEFT_EDGE = 64;
+
+async function labelOffset(row: Locator, label: string): Promise<number> {
+  const rowBox = await row.boundingBox();
+  const textBox = await row.getByText(label, { exact: true }).boundingBox();
+  if (rowBox === null || textBox === null) {
+    throw new Error(`no box for the row labelled "${label}"`);
+  }
+  return textBox.x - rowBox.x;
+}
+
+test("a phone opens settings on a section, and Back is the way to the list", async ({ page }) => {
+  await openConsole(page);
+  await tap(page, ACCOUNT_MENU);
+  await page.getByTestId(ACCOUNT_SETTINGS).tap();
+
+  /*
+    Choosing Settings… from the account menu is somebody asking for a *thing*,
+    not for a menu — `SettingsOverlay`'s own rule — so the first level is the
+    default section, and the list is one press back from it. Both halves are
+    asserted: the panel is up, and the list it was pushed over is not.
+  */
+  await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true })).toBeVisible();
+  /*
+    The identity block by its testID rather than by its words. Its second line
+    is "Personal workspace · you're the owner" — kind and role in one sentence,
+    because being the owner is a fact about you in this context rather than a
+    fourth row in a column of properties — so an exact-text match on the kind
+    alone no longer names a node, and a looser one would match the section
+    list once a row ever previews the same words.
+  */
+  await expect(page.getByTestId("overview-identity")).toContainText("Personal workspace");
+  await expect(page.getByTestId("settings-sections")).toHaveCount(0);
+
+  // Back pops that level rather than closing the overlay.
+  await page.getByLabel("Back", { exact: true }).tap();
+  await expect(page.getByTestId("settings-sections")).toBeVisible();
+  await expect(page.getByTestId("overview-identity")).toHaveCount(0);
+
+  // And a row from the list draws its own section, which is the `onSelect`
+  // wiring the fixture stands in for `router.setParams({ settings })` with.
+  await page.getByTestId("settings-section-storage").tap();
+  await expect(page.getByText(/Your bucket, your credentials/)).toBeVisible();
+  await expect(page.getByTestId("settings-sections")).toHaveCount(0);
+
+  // Closing leaves the console exactly where it was — the note behind the
+  // overlay was never navigated away from.
+  await page.getByLabel("Close settings", { exact: true }).tap();
+  await expect(page.getByTestId("settings-overlay")).toHaveCount(0);
+  await expect(page.getByTestId("breadcrumb-leaf")).toBeVisible();
+});
+
+test("the phone's section labels are left-aligned, not centred", async ({ page }) => {
+  await openConsole(page);
+  await tap(page, ACCOUNT_MENU);
+  await page.getByTestId(ACCOUNT_SETTINGS).tap();
+  await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  await page.getByLabel("Back", { exact: true }).tap();
+  await expect(page.getByTestId("settings-sections")).toBeVisible();
+
+  /*
+    Every section row on screen, not a sampled one: the defect was a style on
+    `rowTouch`, which every row in this list wears, and a spot check on one
+    row is how a list ends up half-checked. Context rows are deliberately not
+    in this sweep — their trailing "yours" carries `marginLeft: "auto"`, and
+    an auto margin absorbs the free space *before* `justify-content` ever sees
+    it, so a centring bug cannot show on them. The rows that break are exactly
+    the ones with nothing to absorb it.
+  */
+  const rows = page.locator('[data-testid^="settings-section-"]');
+  const count = await rows.count();
+  // The list is the account sections plus the open context's own, which is
+  // more than a handful; a locator that matched nothing would otherwise
+  // satisfy every assertion below it.
+  expect(count).toBeGreaterThanOrEqual(8);
+
+  for (let index = 0; index < count; index++) {
+    const row = rows.nth(index);
+    const label = (await row.getAttribute("aria-label")) ?? "";
+    expect(label).not.toBe("");
+    const offset = await labelOffset(row, label);
+    expect(
+      `${label}: ${offset < LEFT_EDGE ? "left-aligned" : `starts ${Math.round(offset)}pt in`}`,
+    ).toBe(`${label}: left-aligned`);
+  }
+});
+
+/**
+ * The plugins toolbar at a phone's width, measured rather than described.
+ *
+ * The search box and its three filters became one wrapping row when the card
+ * around them went (#626). At 1280 that is a field with three chips beside it;
+ * at 390 the chips take 300pt of the row and the field wraps to whatever is
+ * left, which shipped as an 84pt box reading "Name, ⌄" — a search field too
+ * narrow to show a word of what you typed.
+ *
+ * jsdom cannot see this: the styles are correct, the row is correct, and the
+ * only thing wrong is the arithmetic of a real engine laying out real chips.
+ * That is this directory's whole remit.
+ */
+test("the plugins search box is not squeezed by its filters on a phone", async ({ page }) => {
+  await openConsole(page);
+  await tap(page, ACCOUNT_MENU);
+  await page.getByTestId(ACCOUNT_SETTINGS).tap();
+  await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  /*
+    Settings opens on a section; the list is one press back, and Plugins is on
+    it — the same two steps `a phone opens settings on a section` walks.
+
+    Plugins is deprecated in the console (`plugins/experiment.ts`) and off the
+    list for a context that has never touched one. The fixture is the demo
+    console, which has five vault plugins and a built-in switched off, so the
+    row is here for the reason a real user's would be — `pluginsInUse`, not the
+    experiment flag, which this build deliberately leaves unset. If this line
+    ever fails to find the row, check the fixture's plugin views before
+    changing the selector.
+  */
+  await page.getByTestId("settings-overlay-back").tap();
+  await page.getByTestId("settings-section-plugins").tap();
+
+  const field = page.getByTestId("plugins-query");
+  await expect(field).toBeVisible();
+  const box = await field.boundingBox();
+  const viewport = page.viewportSize();
+  if (box === null || viewport === null) throw new Error("no box for the search field");
+
+  /*
+    Most of the row, which on a wrapped row means the chips went to their own
+    line. A fraction rather than a pixel count so the assertion survives a
+    change of gutter.
+
+    Proved red, then green, which is what this directory asks of a case like
+    this: with the field back on `flex: 1` — `flex-basis: 0`, which is what
+    `Grow` compiles to and what shipped — this reads 22% of the width against
+    the 21% measured in the screenshot that started it. With the basis, 78%.
+  */
+  expect(box.width / viewport.width).toBeGreaterThan(0.6);
+});
+
+test.describe("at a pointer width", () => {
+  test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
+
+  test("the list and the panel are on screen together", async ({ page }) => {
+    await openConsole(page);
+    /*
+      The switcher's own menu, which is where the rail's gear went. Two presses
+      — open it, then choose — and `hasTouch: false` above rules the coordinate
+      helper out, so both are plain clicks.
+
+      See the header for the two controls this replaces and why each was right
+      when it was written.
+    */
+    await page.getByTestId("frame-switcher").click();
+    await page.getByTestId("switcher-settings").click();
+
+    // Both at once, which is the whole difference from the phone: no Back,
+    // because there is no level to pop.
+    await expect(page.getByTestId("settings-sections")).toBeVisible();
+    await expect(page.getByTestId("overview-identity")).toBeVisible();
+    await expect(page.getByTestId("settings-overlay-back")).toHaveCount(0);
+
+    // The list really is beside the panel rather than above it — the sidebar
+    // ends before the panel's content begins.
+    const list = await page.getByTestId("settings-sections").boundingBox();
+    const panel = await page.getByTestId("overview-identity").boundingBox();
+    if (list === null || panel === null) throw new Error("no box for the list or the panel");
+    expect(panel.x).toBeGreaterThan(list.x + list.width);
+
+    // A section from the list swaps the panel and leaves the list standing.
+    await page.getByTestId("settings-section-storage").click();
+    await expect(page.getByText(/Your bucket, your credentials/)).toBeVisible();
+    await expect(page.getByTestId("settings-sections")).toBeVisible();
+  });
+
+  /**
+   * The page fills the window, measured in a real engine.
+   *
+   * This is the assertion jsdom cannot make and the one the defect was
+   * visible in: a 940×660 panel centred on a scrim, on a 1280×900 window,
+   * with the console greyed out around it. `settingsFrame.test.ts` proves the
+   * styles no longer *say* card; this proves the box no longer *is* one,
+   * which is a different claim and the one a screenshot would have settled.
+   */
+  test("settings is the window, not a card in the middle of it", async ({ page }) => {
+    await openConsole(page);
+    // The switcher's menu, which is where the rail's gear went — see the
+    // header, and the case above that opens it the same way.
+    await page.getByTestId("frame-switcher").click();
+    await page.getByTestId("switcher-settings").click();
+    await expect(page.getByTestId("settings-sections")).toBeVisible();
+
+    const viewport = page.viewportSize();
+    if (viewport === null) throw new Error("no viewport");
+    const surface = await page.getByTestId("settings-overlay-panel").boundingBox();
+    if (surface === null) throw new Error("no box for the settings page");
+
+    // Flush to all four edges. A panel with `padding: space.x6` around a
+    // scrim sat 24pt in on every side, so any of these catches a revert.
+    expect(surface.x).toBe(0);
+    expect(surface.y).toBe(0);
+    expect(surface.width).toBe(viewport.width);
+    expect(surface.height).toBe(viewport.height);
+
+    // And the section list starts at the very left, rather than at the edge
+    // of a floating card — the cheapest way to tell the two apart by eye.
+    const list = await page.getByTestId("settings-sections").boundingBox();
+    if (list === null) throw new Error("no box for the list");
+    expect(list.x).toBeLessThan(24);
+  });
+});
+
+/**
+ * COMING BACK FROM A PAYMENT, IN A REAL BROWSER.
+ *
+ * The state this covers had no design and no screen at all until now, and the
+ * URL that produces it did not resolve: `billingStripe.ts` sent a completed
+ * payment to `/settings?settings=premium&checkout=done`, and `/settings` is
+ * not a route in this app. `checkoutReturn.test.ts` proves the new path is one
+ * the router has; `premiumPanelRender.test.ts` proves the panel's words. What
+ * neither can prove is that the notice is *on the screen* when somebody
+ * arrives on that URL, drawn above the plan and legible — which is the class
+ * of defect this directory exists for, and the reason the two examples in this
+ * file's header shipped past a green suite.
+ *
+ * The fixture reads `?checkout=` exactly as `(app)/console/_layout.tsx` does,
+ * and hands it to the same overlay.
+ */
+test.describe("back from Stripe", () => {
+  test("the payment is acknowledged before the plan has caught up", async ({ page }) => {
+    await page.goto(`/e2e-fixture?checkout=done`);
+    await page.getByTestId("breadcrumb-leaf").waitFor();
+    await tap(page, ACCOUNT_MENU);
+    await page.getByTestId(ACCOUNT_SETTINGS).tap();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await page.getByLabel("Back", { exact: true }).tap();
+    await page.getByTestId("settings-section-premium").tap();
+
+    const notice = page.getByTestId("premium-checkout-return");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("Payment received");
+
+    /*
+      Above the plan card, not below it. Somebody who has just paid reads the
+      first thing on the section; a reassurance under a card that still says
+      "free plan" is a reassurance they meet second, after the alarm.
+    */
+    const noticeBox = await notice.boundingBox();
+    const titleBox = await page.getByTestId("premium-title").boundingBox();
+    expect(noticeBox).not.toBeNull();
+    expect(titleBox).not.toBeNull();
+    expect(noticeBox!.y).toBeLessThan(titleBox!.y);
+
+    // And the promise that may never be conditional is still there beneath it.
+    await expect(page.getByTestId("premium-export-promise")).toBeVisible();
+  });
+
+  test("coming back without paying says so, and sells nothing", async ({ page }) => {
+    await page.goto(`/e2e-fixture?checkout=cancelled`);
+    await page.getByTestId("breadcrumb-leaf").waitFor();
+    await tap(page, ACCOUNT_MENU);
+    await page.getByTestId(ACCOUNT_SETTINGS).tap();
+    await page.getByLabel("Back", { exact: true }).tap();
+    await page.getByTestId("settings-section-premium").tap();
+
+    const notice = page.getByTestId("premium-checkout-return");
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText("No payment was taken");
+  });
+
+  test("an ordinary visit shows no such notice", async ({ page }) => {
+    // The negative, in a browser: a section reached without a return URL must
+    // not tell somebody anything about a payment they did not make.
+    await openConsole(page);
+    await tap(page, ACCOUNT_MENU);
+    await page.getByTestId(ACCOUNT_SETTINGS).tap();
+    await page.getByLabel("Back", { exact: true }).tap();
+    await page.getByTestId("settings-section-premium").tap();
+    await expect(page.getByTestId("premium-title")).toBeVisible();
+    await expect(page.getByTestId("premium-checkout-return")).toHaveCount(0);
+  });
+});

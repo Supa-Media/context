@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
-import { gradient, maskImage, repeatingPattern } from "../css";
+import { gradient } from "../css";
+import { useColors } from "../theme";
 
 /**
  * `.stage::before` and `.stage::after` — the faint engineering grid and the
@@ -11,44 +12,30 @@ import { gradient, maskImage, repeatingPattern } from "../css";
  * the palette is designed to hold on its own.
  */
 export function StageBackdrop() {
+  const colors = useColors();
   return (
-    <>
-      <View
-        aria-hidden
-        style={[
-          styles.grid,
-          repeatingPattern(
-            "linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px)," +
-              "linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px)",
-            "64px 64px",
-          ),
-          maskImage(
-            "radial-gradient(ellipse 78% 62% at 50% 34%, #000 30%, transparent 78%)",
-          ),
-        ]}
-      />
-      <View
-        aria-hidden
-        style={[
-          styles.halo,
-          gradient(
-            "radial-gradient(ellipse at center, rgba(59,130,246,.10), transparent 66%)",
-          ),
-        ]}
-      />
-    </>
+    <View
+      aria-hidden
+      style={[
+        styles.halo,
+        gradient(
+          `radial-gradient(ellipse at center, ${colors.accentDim}, transparent 66%)`,
+        ),
+      ]}
+    />
   );
 }
 
 /** `.consolestage::before` — a second, tighter halo above the console. */
 export function ConsoleHalo() {
+  const colors = useColors();
   return (
     <View
       aria-hidden
       style={[
         styles.consoleHalo,
         gradient(
-          "radial-gradient(ellipse at center, rgba(59,130,246,.09), transparent 70%)",
+          `radial-gradient(ellipse at center, ${colors.accentDim}, transparent 70%)`,
         ),
       ]}
     />
@@ -56,14 +43,6 @@ export function ConsoleHalo() {
 }
 
 const styles = StyleSheet.create({
-  grid: {
-    position: "absolute",
-    pointerEvents: "none",
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
-  },
   halo: {
     position: "absolute",
     pointerEvents: "none",

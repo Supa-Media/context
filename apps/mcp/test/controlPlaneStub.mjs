@@ -39,9 +39,26 @@ export const GATEWAY_SECRET = "test-gateway-secret-not-a-real-one";
 export function createControlPlaneStub(options = {}) {
   const origin = options.origin || CONTROL_PLANE_ORIGIN;
   const secret = options.secret || GATEWAY_SECRET;
+  /**
+   * Where `/gateway/authorize/start` claims the consent screen lives.
+   *
+   * Separate from `origin` — which is what this stub *intercepts* — so a test
+   * can hand the gateway a consent URL it must refuse without also making the
+   * stub stop answering the gateway's own calls. Defaults to `origin`, so every
+   * existing caller is unchanged.
+   */
+  const consentOrigin = options.consentOrigin || origin;
 
   /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
   const bindings = new Map();
+  /**
+   * `${workspaceId}:${provider}` → the model API key that workspace connected.
+   *
+   * Flat and keyed by both, modelling `providerCredentials`' own
+   * `by_workspace_provider` index — so a lookup that forgets the workspace half
+   * reaches the wrong tenant's key here exactly as it would there.
+   */
+  const providerCredentials = new Map();
   /**
    * workspaceId → the rotation in progress, or `null` — mutated by
    * `startEncryptionRotation`/`completeEncryptionRotation` on `/gateway/binding`,
@@ -103,14 +120,60 @@ export function createControlPlaneStub(options = {}) {
   const codes = new Map();
   /** requestId → parked authorization request */
   const pendingAuthorizations = new Map();
+  /** opaque gateway job ticket → job */
+  const gatewayJobs = new Map();
+  /** Share rows this stub has minted, by share id. */
+  const links = new Map();
+  /** workspaceId → when the gateway last said that context changed */
+  const activityStamps = new Map();
+
+  /**
+   * The owner clearance the three link routes share.
+   *
+   * Lifted out rather than repeated three times: three copies is how one of
+   * them ends up missing the `context:private` line, which is exactly the
+   * mistake a stub must not teach the tests to accept.
+   */
+  async function clearedOwner(body) {
+    const grant = await grantForAccessToken(body.accessToken);
+    if (!grant) return null;
+    const named = coveredContexts(grant).find(
+      (entry) => entry.workspaceId === body.expectedWorkspaceId,
+    );
+    if (!named || named.role !== "owner") return null;
+    if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
+      return null;
+    }
+    return { workspaceId: named.workspaceId, actorUserId: grant.userId };
+  }
+
+  /** One row as the real route reports it: URLs, and never the token. */
+  function describeStubLink(row) {
+    const origin = "https://context.test";
+    const handle = workspaces.get(row.workspaceId)?.slug ?? null;
+    const path = `/s/${row.token}`;
+    return {
+      shareId: row.shareId,
+      url: `${origin}${path}`,
+      shortUrl: row.slug === null || handle === null ? null : `${origin}/@${handle}/${row.slug}`,
+      path,
+      audience: row.audience,
+      entryPath: row.entryPath,
+      slug: row.slug,
+      collecting: row.mode === "collect",
+      collected: row.mode === "collect" ? (row.collected ?? 0) : null,
+      collectCap: row.mode === "collect" ? (row.collectCap ?? 500) : null,
+      createdAt: row.createdAt,
+    };
+  }
 
   /** Every call the worker made, for assertions about what was sent. */
   const calls = [];
 
   let grantCounter = 0;
 
-  function addWorkspace(workspaceId, slug, binding) {
-    workspaces.set(workspaceId, { slug });
+  function addWorkspace(workspaceId, slug, binding, options = {}) {
+    workspaces.set(workspaceId, { slug, kind: options.kind === "shared" ? "shared" : "personal" });
     bindings.set(workspaceId, binding);
   }
 
@@ -127,6 +190,7 @@ export function createControlPlaneStub(options = {}) {
     role = "owner",
     scopes = ["context:read", "context:write"],
     clientId = "mcp_test_client",
+    clientName = null,
     userId = "user_test",
     alsoMemberOf = [],
     expiresAt,
@@ -138,6 +202,7 @@ export function createControlPlaneStub(options = {}) {
       role,
       scopes,
       clientId,
+      clientName,
       userId,
       alsoMemberOf,
       status: "active",
@@ -176,6 +241,7 @@ export function createControlPlaneStub(options = {}) {
         workspaceId: grant.workspaceId,
         slug: workspaces.get(grant.workspaceId)?.slug ?? null,
         role: grant.role,
+        kind: workspaces.get(grant.workspaceId)?.kind ?? "personal",
       },
     ];
     for (const membership of grant.alsoMemberOf || []) {
@@ -184,6 +250,7 @@ export function createControlPlaneStub(options = {}) {
         workspaceId: membership.workspaceId,
         slug: workspaces.get(membership.workspaceId)?.slug ?? null,
         role: membership.role ?? "member",
+        kind: workspaces.get(membership.workspaceId)?.kind ?? "personal",
       });
     }
     return rows;
@@ -216,6 +283,7 @@ export function createControlPlaneStub(options = {}) {
           session: {
             grantId: grant.grantId,
             clientId: grant.clientId,
+            clientName: grant.clientName ?? null,
             actorUserId: grant.userId,
             scopes: grant.scopes,
             expiresAt: grant.expiresAt,
@@ -306,6 +374,36 @@ export function createControlPlaneStub(options = {}) {
         return ok(envelope(served));
       }
 
+      case "/gateway/provider": {
+        /*
+          The same two proofs the binding route spends, in the same order, with
+          the same refusal. Written out rather than sharing a helper with
+          `/gateway/binding` on purpose: these are two doors on the real control
+          plane, and a stub that collapses them into one would pass a gateway
+          that had quietly started sending the wrong shape to one of them.
+        */
+        const grant = await grantForAccessToken(body.accessToken);
+        if (!grant) return ok({ credential: null });
+        const covered = coveredContexts(grant);
+        const named =
+          body.expectedWorkspaceId === null || body.expectedWorkspaceId === undefined
+            ? covered.find((entry) => entry.workspaceId === grant.workspaceId)
+            : covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
+        if (!named) return ok({ credential: null });
+
+        // The closed set lives on the control plane, and an unknown provider is
+        // the same `null` as an unknown token — never a different status a
+        // caller could count to enumerate it.
+        if (body.provider !== "anthropic" && body.provider !== "openai") {
+          return ok({ credential: null });
+        }
+        const apiKey = providerCredentials.get(`${named.workspaceId}:${body.provider}`);
+        if (apiKey === undefined) return ok({ credential: null });
+        // Two flat fields and nothing beside them — no workspace id, no
+        // fingerprint, no grant. See the route's own header in `http.ts`.
+        return ok({ credential: { provider: body.provider, apiKey } });
+      }
+
       case "/gateway/clients/register": {
         // `calls` above already recorded what was forwarded; a test reads the
         // registrant key off that. This flag models the one answer the real
@@ -332,7 +430,7 @@ export function createControlPlaneStub(options = {}) {
         pendingAuthorizations.set(requestId, body);
         return ok({
           requestId,
-          consentUrl: `${origin}/authorize?request_id=${requestId}`,
+          consentUrl: `${consentOrigin}/authorize?request_id=${requestId}`,
         });
       }
 
@@ -421,6 +519,184 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/jobs/create": {
+        const grant = await grantForAccessToken(body.accessToken);
+        if (!grant) return ok({ ticket: null });
+        const covered = coveredContexts(grant);
+        const named = covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
+        if (!named || named.role !== "owner") return ok({ ticket: null });
+        if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
+          return ok({ ticket: null });
+        }
+        if (body.job?.kind !== "materialize_move" || typeof body.job?.moveId !== "string") {
+          return ok({ ticket: null });
+        }
+        const ticket = `job-ticket-${gatewayJobs.size + 1}`;
+        gatewayJobs.set(ticket, {
+          workspaceId: named.workspaceId,
+          actorUserId: grant.userId,
+          actorClientId: grant.clientId,
+          grantId: grant.grantId,
+          kind: "materialize_move",
+          moveId: body.job.moveId,
+          status: "queued",
+        });
+        return ok({ ticket });
+      }
+
+      case "/gateway/jobs/open": {
+        const job = gatewayJobs.get(body.ticket);
+        if (!job || job.status !== "queued") return ok({ job: null });
+        job.status = "running";
+        const binding = bindings.get(job.workspaceId);
+        if (!binding) return ok({ job: null });
+        const { searchIndex, encryptionKey, ...storage } = binding;
+        return ok({
+          job: {
+            job: {
+              workspaceId: job.workspaceId,
+              actorUserId: job.actorUserId,
+              actorClientId: job.actorClientId,
+              grantId: job.grantId,
+              kind: job.kind,
+              moveId: job.moveId,
+            },
+            binding: { workspaceId: job.workspaceId, ...storage, status: "active" },
+            ...(searchIndex ? { searchIndex } : {}),
+            ...(encryptionKey ? { encryptionKey } : {}),
+          },
+        });
+      }
+
+      case "/gateway/jobs/report": {
+        const job = gatewayJobs.get(body.ticket);
+        if (job && job.status === "running" && body.result) {
+          job.status = body.result.status;
+          job.lastError = body.result.error;
+          job.progress = body.result.progress;
+        }
+        return ok({ ok: true });
+      }
+
+      /*
+        LINKS — the reference implementation of the three link routes.
+
+        The clearance is copied from `/gateway/jobs/create` above rather than
+        loosened, because it is the same clearance in the real deployment:
+        `ownerClearanceForGateway` wants owner, `context:write` and
+        `context:private` off a live grant. A stub that cleared more than the
+        real route would let the gateway's own tests pass on an authority it
+        does not have.
+
+        The URL is built here the way the control plane builds it, and the
+        TOKEN IS NEVER RETURNED — which is the property the gateway tests
+        assert against this stub.
+      */
+      case "/gateway/links/create": {
+        const cleared = await clearedOwner(body);
+        if (!cleared) return ok({ link: null, shortRefused: null });
+        if (typeof body.path !== "string" || body.path === "") {
+          return ok({ link: null, shortRefused: null });
+        }
+        const audience = body.audience === "members" ? "members" : "anyone";
+        const key = `${cleared.workspaceId}:${body.path}:${audience}`;
+        const existing = [...links.values()].find(
+          (row) => row.key === key && row.status === "active",
+        );
+        const row = existing ?? {
+          shareId: `share_${links.size + 1}`,
+          key,
+          workspaceId: cleared.workspaceId,
+          token: `${"f".repeat(63)}${links.size + 1}`,
+          audience,
+          entryPath: body.path,
+          slug: null,
+          status: "active",
+          createdAt: 1,
+        };
+        // Applied on a re-mint too, and preserved when unstated — the real
+        // `mintLinkShare` does both, and a stub that only set it on creation
+        // would hide the bug that branch already had once.
+        if (body.mode !== undefined) row.mode = body.mode;
+        // The real `mintLinkShare` normalizes and keeps `null` meaning "the
+        // default stands", never "unlimited". The stub agrees so that a
+        // gateway test cannot pass against a laxer rule than production's.
+        if (
+          typeof body.collectCap === "number" &&
+          Number.isInteger(body.collectCap) &&
+          body.collectCap >= 1 &&
+          body.collectCap <= 10000
+        ) {
+          row.collectCap = body.collectCap;
+        }
+        links.set(row.shareId, row);
+
+        let shortRefused = null;
+        if (typeof body.short === "string") {
+          const slug = body.short.trim().toLowerCase();
+          const taken = [...links.values()].find(
+            (other) =>
+              other.workspaceId === cleared.workspaceId &&
+              other.slug === slug &&
+              other.status === "active" &&
+              other.shareId !== row.shareId,
+          );
+          if (!/^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(slug)) {
+            shortRefused =
+              "A short link's name is lowercase letters, digits and hyphens, and cannot start or end with a hyphen.";
+          } else if (["settings", "index", "privacy", "todo", "1-projects"].includes(slug)) {
+            shortRefused = "That name is reserved for Context itself.";
+          } else if (taken) {
+            shortRefused = "That name already points at another link in this context.";
+          } else {
+            row.slug = slug;
+          }
+        }
+        return ok({ link: describeStubLink(row), shortRefused });
+      }
+
+      case "/gateway/links/list": {
+        const cleared = await clearedOwner(body);
+        if (!cleared) return ok({ links: null });
+        return ok({
+          links: [...links.values()]
+            .filter((row) => row.workspaceId === cleared.workspaceId && row.status === "active")
+            .map((row) => describeStubLink(row)),
+        });
+      }
+
+      case "/gateway/links/revoke": {
+        const cleared = await clearedOwner(body);
+        if (!cleared) return ok({ revoked: false });
+        const row = links.get(body.shareId);
+        // The cleared workspace, never the row's: an id from another context
+        // answers exactly as an invented one does.
+        if (!row || row.status !== "active" || row.workspaceId !== cleared.workspaceId) {
+          return ok({ revoked: false });
+        }
+        row.status = "revoked";
+        return ok({ revoked: true });
+      }
+
+      case "/gateway/activity": {
+        // One field in, one word out. The real route answers `{ok: true}` on
+        // every path — including an id that is not a workspace — because the
+        // difference between "no such context" and "not yours" is exactly the
+        // oracle a gateway-authenticated route must not be, and the stub is
+        // only useful as a contract if it is identical in that.
+        if (typeof body.workspaceId === "string" && body.workspaceId) {
+          const at = Date.now();
+          const previous = activityStamps.get(body.workspaceId) ?? {};
+          activityStamps.set(body.workspaceId, {
+            at,
+            // Only a `team` line moves the stamp a non-owner member reads, and
+            // an omitted flag reads as private — the real mutation's rule.
+            teamAt: body.teamVisible === true ? at : previous.teamAt,
+          });
+        }
+        return ok({ ok: true });
+      }
+
       case "/gateway/usage": {
         // The reference implementation of the counter route: it accepts a list
         // of {metric, workspaceId, count} and answers how many it applied.
@@ -457,6 +733,11 @@ export function createControlPlaneStub(options = {}) {
     codes.set(code, { expiresAt: Date.now() + 600_000, ...record });
   }
 
+  /** Connect a model account to one workspace, as the console's action does. */
+  function connectProvider(workspaceId, provider, apiKey) {
+    providerCredentials.set(`${workspaceId}:${provider}`, apiKey);
+  }
+
   return {
     origin,
     secret,
@@ -466,6 +747,8 @@ export function createControlPlaneStub(options = {}) {
     addGrant,
     revoke,
     issueCode,
+    connectProvider,
+    providerCredentials,
     grants,
     clients,
     codes,
@@ -473,6 +756,8 @@ export function createControlPlaneStub(options = {}) {
     flags,
     accessTokens,
     refreshTokens,
+    gatewayJobs,
+    activityStamps,
     pendingAuthorizations,
     calls,
   };
@@ -550,6 +835,25 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
 
     if (method === "PUT") {
       const ifMatch = init.headers?.["if-match"];
+      const ifNoneMatch = init.headers?.["if-none-match"];
+      if (ifNoneMatch === "*" && objects.has(key)) return new Response("", { status: 412 });
+      const copySource = init.headers?.["x-amz-copy-source"];
+      if (copySource) {
+        const copyPath = String(copySource).replace(/^\/+/, "");
+        const [sourceBucketName, ...sourceKeyParts] = copyPath.split("/");
+        const sourceKey = sourceKeyParts.map(decodeURIComponent).join("/");
+        const sourceObjects = bucketFor(decodeURIComponent(sourceBucketName || ""));
+        const source = sourceObjects.get(sourceKey);
+        const sourceIfMatch = init.headers?.["x-amz-copy-source-if-match"]?.replace(/^"|"$/g, "");
+        if (!source) return new Response("", { status: 404 });
+        if (sourceIfMatch && source.etag !== sourceIfMatch) return new Response("", { status: 412 });
+        const etag = `s${++etagCounter}`;
+        objects.set(key, { body: source.body, etag });
+        return new Response(
+          `<CopyObjectResult><ETag>&quot;${etag}&quot;</ETag></CopyObjectResult>`,
+          { status: 200 }
+        );
+      }
       if (ifMatch) {
         const expected = ifMatch.replace(/^"|"$/g, "");
         const current = objects.get(key);
@@ -567,8 +871,14 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     }
 
     if (method === "DELETE") {
+      const ifMatch = init.headers?.["if-match"];
+      if (ifMatch) {
+        const expected = ifMatch.replace(/^"|"$/g, "");
+        const current = objects.get(key);
+        if (!current || current.etag !== expected) return new Response("", { status: 412 });
+      }
       objects.delete(key);
-      return new Response("", { status: 204 });
+      return new Response(null, { status: 204 });
     }
 
     return new Response("", { status: 405 });
@@ -578,7 +888,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     const previous = globalThis.fetch;
     globalThis.fetch = async (input, init) => {
       const url = typeof input === "string" ? input : input.url;
-      if (url.startsWith(endpointOrigin)) return handle(url, init);
+      if (url.startsWith(endpointOrigin)) return api.handle(url, init);
       return previous ? previous(input, init) : new Response("", { status: 404 });
     };
     return () => {
@@ -586,7 +896,8 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     };
   }
 
-  return { endpoint: endpointOrigin, buckets, bucketFor, handle, install };
+  const api = { endpoint: endpointOrigin, buckets, bucketFor, handle, install };
+  return api;
 }
 
 function escapeXml(value) {

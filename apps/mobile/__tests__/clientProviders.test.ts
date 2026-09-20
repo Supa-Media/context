@@ -199,12 +199,14 @@ describe("the customization instruction", () => {
     expect(CUSTOMIZATION_INSTRUCTION).not.toContain("Context.lc");
   });
 
-  // A personal brain and a shared workspace answer to the same two tool
-  // names, and the field this gets pasted into has no idea which one it is
-  // talking to — so neither word may appear.
-  test("works for a brain and a workspace alike", () => {
-    expect(CUSTOMIZATION_INSTRUCTION.toLowerCase()).not.toContain("brain");
+  // A personal workspace and a shared one answer to the same two tool names,
+  // and the field this gets pasted into has no idea which it is talking to —
+  // so the unit noun may not appear at all. "brain" is asserted alongside it
+  // because the word is retired rather than forgotten: copy an AI client
+  // stores outlives a rename, so the retired noun must not reach it either.
+  test("works for a personal workspace and a shared one alike", () => {
     expect(CUSTOMIZATION_INSTRUCTION.toLowerCase()).not.toContain("workspace");
+    expect(CUSTOMIZATION_INSTRUCTION.toLowerCase()).not.toContain("brain");
   });
 
   test("every provider says where to paste it, as a full sentence", () => {
@@ -233,14 +235,20 @@ describe("the strings people paste", () => {
   });
 
   /**
-   * The product noun is "context", never "brain" — CLAUDE.md, Vocabulary. This
-   * is the copy an AI client stores and shows back to the person, so it is the
-   * copy most likely to outlive a rename.
+   * The word for what a client reaches is "context" — CLAUDE.md, Vocabulary —
+   * and never "brain", the retired noun. This is the copy an AI client stores
+   * and shows back to the person, so it is the copy most likely to outlive a
+   * rename, and the one a retired word would sit in longest.
+   *
+   * "workspace" is *not* asserted here, unlike on the instruction above: these
+   * notes describe the client's own product, and Notion's says — correctly —
+   * that a Notion workspace owner has to switch custom MCP servers on.
    */
   test("nothing on offer calls the product a brain", () => {
     for (const provider of CLIENT_PROVIDERS) {
       expect(provider.note.toLowerCase()).not.toContain("brain");
       for (const field of provider.fields(SELF_HOSTED)) {
+        expect(field.value.toLowerCase()).not.toContain("workspace");
         expect(field.value.toLowerCase()).not.toContain("brain");
       }
     }

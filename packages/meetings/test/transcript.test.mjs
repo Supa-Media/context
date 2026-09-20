@@ -22,6 +22,11 @@
  *   `compareSegments` sorting on `startMs` alone, with no tie-break          2
  *   `normalizeSegment` accepting `endMs < startMs`                           1
  *   `groupIntoTurns` ignoring the speaker change                             4
+ *   `groupIntoTurns` ignoring the channel change                            2
+ *
+ * The channel one fails here and nowhere else: `apps/mcp`'s suite stays green
+ * with the guard removed, because the gateway never looks at a turn. The rule
+ * lives in this package and so does the only thing holding it.
  */
 
 import {
@@ -178,6 +183,36 @@ export function runTranscriptChecks(check) {
     segment({ id: "c", startMs: 4500, endMs: 6000, text: "agreed", speaker: "Speaker Two" }),
     segment({ id: "a", startMs: 0, endMs: 2000, text: "so the pricing", speaker: "Speaker One" }),
   ]])));
+
+  /*
+    THE CALL AND THE ROOM ARE NOT ONE PERSON.
+
+    On the cloud path every segment comes back with `speaker: null` — the
+    gateway is handed one chunk, does no diarization, and says so in its own
+    comment — so the only thing that ever distinguished this machine's
+    microphone from the far side of the call is `channel`, stamped by the
+    recorder because "the far end hears one file and cannot know". Grouping
+    ignored it, so a two-sided call collapsed into one attributed block:
+    `**[00:00] Speaker** — so the pricing is fine with us`, half of it said by
+    somebody else. A turn is one voice or it is not a turn.
+  */
+  const twoSided = groupIntoTurns([
+    segment({ id: "a", startMs: 0, endMs: 2000, text: "so the pricing", speaker: null, channel: "mic" }),
+    segment({ id: "b", startMs: 2100, endMs: 4000, text: "is fine with us", speaker: null, channel: "system" }),
+    segment({ id: "c", startMs: 4100, endMs: 5000, text: "good", speaker: null, channel: "mic" }),
+  ]);
+  check("the microphone and the call never merge into one turn", twoSided.length === 3);
+  check(
+    "...and a turn carries the channel it was heard on",
+    twoSided.map((turn) => turn.channel).join(",") === "mic,system,mic"
+  );
+  check(
+    "one channel with no speaker labels still groups into readable turns",
+    groupIntoTurns([
+      segment({ id: "a", startMs: 0, endMs: 1000, speaker: null, channel: "mixed", text: "one" }),
+      segment({ id: "b", startMs: 1100, endMs: 2000, speaker: null, channel: "mixed", text: "two" }),
+    ]).length === 1
+  );
 
   /* ----------------------------- formatClock ---------------------------- */
 

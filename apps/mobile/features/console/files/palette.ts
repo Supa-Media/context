@@ -382,6 +382,42 @@ export function itemsFromListings(
 }
 
 /**
+ * The loaded items, then every other path the device's mirror names.
+ *
+ * Offline, the listings are whatever had been expanded before the signal went,
+ * and nothing more loads — so quick open by name missed every note in a folder
+ * nobody had opened, on a phone holding all of them. The console hands in the
+ * paths of the mirror's index (`useMirrorPaths`) and this turns them into the
+ * rows a listing would have produced: a note by its name over its folder, and
+ * each folder above it by its path.
+ *
+ * `loaded` comes first and wins a tie, because a listing carries what the
+ * bucket said and a path from the mirror is a copy of it. Still no memo and
+ * no state, for the reason at the top of this file: the paths are read when
+ * the palette opens and thrown away when it closes.
+ */
+export function itemsFromPaths(
+  paths: Iterable<string>,
+  loaded: readonly PaletteItem[],
+): PaletteItem[] {
+  const seen = new Set(loaded.map((item) => item.id));
+  const added: PaletteItem[] = [];
+  const add = (item: PaletteItem) => {
+    if (seen.has(item.id)) return;
+    seen.add(item.id);
+    added.push(item);
+  };
+  for (const path of paths) {
+    const folder = parentPath(path);
+    add({ id: path, label: baseName(path), detail: folder === "" ? "/" : folder, kind: "note" });
+    for (let at = folder; at !== ""; at = parentPath(at)) {
+      add({ id: at, label: at, kind: "folder" });
+    }
+  }
+  return [...loaded, ...added];
+}
+
+/**
  * Folder destinations for "Move to…".
  *
  * The root is a real destination, labelled `/` — notes do live there, and a

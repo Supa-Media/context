@@ -55,10 +55,19 @@ export function repeatingPattern(css: string, size: string): ViewStyle {
  *  - **Native** — there are no viewport units and no browser chrome; the root
  *    view is already the screen, so `flex: 1` fills it.
  */
-export function viewportHeight(): ViewStyle {
-  return Platform.OS === "web"
-    ? ({ height: "100dvh", maxHeight: "100dvh" } as unknown as ViewStyle)
-    : { flex: 1 };
+export function viewportHeight(insetPx = 0): ViewStyle {
+  if (Platform.OS !== "web") return { flex: 1 };
+  /*
+    `insetPx` is what something *above* this region already took out of the
+    window — today only the desktop shell's title band. Without it the frame
+    is a full viewport tall *underneath* a 38px band, so it hangs 38px past
+    the bottom of the window and the console's footer row is clipped by
+    exactly that much. `calc` rather than `100dvh` minus a margin, because the
+    unit has to stay dynamic: the subtraction is a constant, the viewport is
+    not.
+  */
+  const height = insetPx === 0 ? "100dvh" : `calc(100dvh - ${insetPx}px)`;
+  return { height, maxHeight: height } as unknown as ViewStyle;
 }
 
 /**

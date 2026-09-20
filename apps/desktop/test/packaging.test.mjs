@@ -807,16 +807,31 @@ export async function runPackagingChecks(check) {
     iconStep !== undefined && /exit 1/.test(iconStep),
   );
 
-  // -- publishing: a boolean input, gated permissions, and idempotency --------
+  // -- publishing: main pushes, manual input, gated permissions, and idempotency --------
   /*
     `docs/decisions/desktop.md`'s fourth "shell updates itself" decision: a
-    `publish` dispatch input, `contents: write` scoped to the one job that can
-    ever use it, and a refusal to publish a version this workflow already
-    released. None of this can be *exercised* here — that needs a Mac, a real
-    certificate and a real GitHub Release — but every one of these has failed
-    silently before in this exact file (see the sabotage record above), so what
-    is checked is the shape that would let it fail silently again.
+    `push` to `main` over desktop-relevant paths is now a release request, a
+    manual `publish` dispatch input remains one too, `contents: write` is
+    scoped to the one job that can ever use it, and a refusal to publish a
+    version this workflow already released remains before the build. None of
+    this can be *exercised* here — that needs a Mac, a real certificate and a
+    real GitHub Release — but every one of these has failed silently before in
+    this exact file (see the sabotage record above), so what is checked is the
+    shape that would let it fail silently again.
   */
+  check(
+    "a desktop-relevant push to main triggers the desktop deploy workflow",
+    /push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/.test(WORKFLOW) &&
+      /"apps\/desktop\/\*\*"/.test(WORKFLOW) &&
+      /"packages\/desktop-bridge\/\*\*"/.test(WORKFLOW) &&
+      /"packages\/hook\/\*\*"/.test(WORKFLOW) &&
+      /"packages\/communications\/\*\*"/.test(WORKFLOW) &&
+      /"packages\/meetings\/\*\*"/.test(WORKFLOW) &&
+      /"pnpm-lock\.yaml"/.test(WORKFLOW) &&
+      /"package\.json"/.test(WORKFLOW) &&
+      /"pnpm-workspace\.yaml"/.test(WORKFLOW) &&
+      /"\.npmrc"/.test(WORKFLOW),
+  );
   check(
     "a `publish` dispatch input exists and defaults to false",
     /publish:\s*\n\s*description:[^\n]*\n\s*required:\s*false\s*\n\s*type:\s*boolean\s*\n\s*default:\s*false/.test(
@@ -828,8 +843,14 @@ export async function runPackagingChecks(check) {
     /^permissions:\s*\n\s*contents:\s*read/m.test(WORKFLOW) && /permissions:\s*\n\s*contents:\s*write/.test(WORKFLOW),
   );
   check(
-    "publishing is decided once, from the dispatch input AND both credentials — not the input alone",
+    "checkout does not persist the write token into repo scripts before the gated Publish step",
+    /actions\/checkout@v5/.test(WORKFLOW) && /persist-credentials:\s*false/.test(WORKFLOW),
+  );
+  check(
+    "publishing is decided once, from a main push OR the dispatch input, AND both credentials — not the trigger alone",
     /PUBLISH_REQUESTED/.test(WORKFLOW) &&
+      /github\.event_name == 'push'/.test(WORKFLOW) &&
+      /inputs\.publish == true/.test(WORKFLOW) &&
       /SIGNED/.test(WORKFLOW) &&
       /NOTARIZED/.test(WORKFLOW) &&
       /\$PUBLISH_REQUESTED"\s*=\s*"true"\s*\]\s*&&\s*\[\s*"\$SIGNED"\s*=\s*"true"\s*\]\s*&&\s*\[\s*"\$NOTARIZED"\s*=\s*"true"/.test(
@@ -837,13 +858,25 @@ export async function runPackagingChecks(check) {
       ),
   );
   check(
+    "an automatic main release missing signing or notarisation fails red rather than silently becoming artifact-only",
+    /EVENT_NAME: \$\{\{ github\.event_name \}\}/.test(WORKFLOW) &&
+      /\[ "\$EVENT_NAME" = "push" \]/.test(WORKFLOW) &&
+      /::error::A desktop-relevant push to main is an automatic release request/.test(WORKFLOW) &&
+      /exit 1/.test(WORKFLOW),
+  );
+  check(
     "an already-released version refuses to publish again, before the build rather than after",
     /gh release view "\$TAG"/.test(WORKFLOW) &&
       steps.indexOf(steps.find((step) => /gh release view/.test(step))) < steps.indexOf(buildStep),
   );
   check(
-    "the version comes from apps/desktop/package.json, never bumped by this workflow itself",
-    /require\('\.\/package\.json'\)\.version/.test(WORKFLOW) && !/npm version|package\.json['"],?\s*JSON\.stringify/.test(WORKFLOW),
+    "artifact-only manual builds keep the committed package version, while every published release stamps a run-number patch in the ephemeral checkout",
+    /const base = String\(pkg\.version\)/.test(WORKFLOW) &&
+      /PUBLISH_REQUESTED === "true"/.test(WORKFLOW) &&
+      /GITHUB_RUN_NUMBER/.test(WORKFLOW) &&
+      /version = `\$\{major\}\.\$\{minor\}\.\$\{run\}`/.test(WORKFLOW) &&
+      /writeFileSync\("package\.json"/.test(WORKFLOW) &&
+      !/npm version/.test(WORKFLOW),
   );
   /*
     This used to be "the build step decides --publish from the same decision"
@@ -1035,8 +1068,8 @@ export async function runPackagingChecks(check) {
   );
 
   check(
-    "nothing about a branch triggers this workflow, signing or no signing",
-    /^on:\n  workflow_dispatch:/m.test(WORKFLOW) && !/^\s*(push|pull_request):/m.test(WORKFLOW),
+    "a pull request still does not publish a desktop release — only main pushes and manual dispatches can reach this workflow",
+    !/^\s*pull_request:/m.test(WORKFLOW),
   );
 
   // -- the app it just built is started, not just signed --------------------

@@ -236,11 +236,13 @@ describe("the file is never altered by being displayed", () => {
     const plain = "# Just a note\n\nNothing filed about it.\n";
     const app = mountEditor(390, stateFor({ baseline: plain, draft: plain }));
     expect(app.editor().value).toBe(plain);
-    expect(app.find("note-properties")).toBeNull();
+    // The row is still drawn on a phone, for the access map alone — see
+    // "the access-map row is the phone's" below.
+    expect(app.find("note-properties-open")).toBeNull();
   });
 });
 
-describe("what a phone shows instead", () => {
+describe("what is shown instead", () => {
   test("the YAML is off the first screen, and the note is on it", () => {
     const app = mountEditor(390);
 
@@ -273,17 +275,58 @@ describe("what a phone shows instead", () => {
   });
 
   /**
-   * A pointer keeps the whole file in front of it.
+   * **A desktop does the same thing, and this reverses what it used to.**
    *
-   * The window is wide enough for a dozen lines of YAML not to be the screen,
-   * and CodeMirror's live preview already dims a frontmatter block in place.
-   * Folding it there would be hiding something from the surface that has the
-   * room to show it.
+   * The case this replaces read "a desktop is unchanged — the editor still
+   * holds the whole file", on the argument that the window is wide enough for
+   * a dozen lines of YAML not to be the screen and that `livePreview.ts`
+   * already dims a frontmatter block in place.
+   *
+   * Both halves were true and the conclusion still did not hold. Measured in
+   * Chromium at 1440×900 against the console's own demo note: the first thing
+   * on the page was `---`, `updated: 2026-08-26`, `status: active`, `---` in a
+   * dim mono block, *above* the note's own title — four lines of filing before
+   * the first word anybody wrote. Dimmed is not the same as out of the way,
+   * and the design draws a page whose first line is its title.
+   *
+   * What answers it is a pair, and the halves are deliberately not the same
+   * as the phone's:
+   *
+   *  - this panel is drawn here too, so a reader is told *what is filed*;
+   *  - and `livePreview.ts` hides the block in the editor until the caret is
+   *    in it, so it is out of the way while you read and there the moment you
+   *    go to it.
+   *
+   * **The editor still holds the whole file at this density, and that is the
+   * point of the pair.** The panel is a reader — "there is nothing here that
+   * writes", and `frontmatter.ts` argues at length why this codebase must not
+   * grow a YAML writer — so the editor is the one thing in the product that
+   * can change a note's metadata, and handing it the body here would take that
+   * away on the only surface that has it.
    */
-  test("a desktop is unchanged — the editor still holds the whole file", () => {
+  test("a desktop folds it the same way, and the editor still holds the file", () => {
     const app = mountEditor(1440);
-    expect(app.find("note-properties")).toBeNull();
+    expect(app.find("note-properties")).not.toBeNull();
+    // The block is hidden by the editor's own decorations rather than removed
+    // from its buffer; `livePreview.test.ts` is where that is asserted.
     expect(app.editor().value).toBe(FILE);
+  });
+
+  test("and a note with nothing filed on it gets no row at either width", () => {
+    /*
+      An empty disclosure is worse than no disclosure. The one case where a
+      pointer layout and a phone differ is the *access map*: a phone's
+      breadcrumb carries no visibility chip, so that answer is a row in here
+      and the panel is drawn for it alone; a pointer layout says it one line
+      above the editor and a second copy would be the same answer twice. This
+      harness passes no `visibility`, so what it can hold is the shared half —
+      nothing filed, nothing drawn.
+    */
+    const plain = "# Just a note\n\nNothing filed about it.\n";
+    for (const width of [390, 1440]) {
+      const app = mountEditor(width, stateFor({ baseline: plain, draft: plain }));
+      expect(`${width}: ${app.find("note-properties") === null}`).toBe(`${width}: true`);
+    }
   });
 });
 

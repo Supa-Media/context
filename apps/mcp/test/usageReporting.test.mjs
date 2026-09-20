@@ -5,7 +5,7 @@
  * gateway is the only thing that sees an MCP tool call, so it is the only
  * thing that can say. What it must not do is say *what the call was*: the
  * record of that already exists, in the customer's own bucket under
- * `.audit/`, and a second copy on our side built for our dashboards is the
+ * `.context/audit/`, and a second copy on our side built for our dashboards is the
  * first non-negotiable being spent on a chart.
  *
  * So the checks here are two questions, and neither is "does the counter
@@ -87,7 +87,7 @@ function s3Binding(bucket, key) {
     accessKeyId: `AKIAEXAMPLEEXAMPLE${key}`,
     secretAccessKey: `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLE${key}`,
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   };
 }

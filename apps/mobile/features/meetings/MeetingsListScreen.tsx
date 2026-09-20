@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
-import { layout, radii } from "../design/tokens";
+import { useOptionalLocalSearchParams } from "../app/useOptionalLocalSearchParams";
+import { layout, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -11,7 +12,7 @@ import { meetings } from "./controller";
 import { groupMeetings, startsIn, type MeetingListSection } from "./format";
 import type { CalendarEvent } from "./protocol";
 import { CONSOLE_ROOT } from "../console/nav";
-import { meetingHref } from "./route";
+import { MEETINGS_ROUTE, meetingHref } from "./route";
 import { useMeetingsSnapshot, useTick } from "./useMeetings";
 
 /**
@@ -67,6 +68,8 @@ export function MeetingsListScreen({
   const router = useRouter();
   const styles = useThemedStyles(makeStyles);
   const now = useTick(upcoming.length > 0, 30_000);
+  const params = useOptionalLocalSearchParams<{ quickAction?: string | string[] }>();
+  const handledQuickAction = useRef(false);
 
   const sections = useMemo(
     () =>
@@ -86,6 +89,23 @@ export function MeetingsListScreen({
     },
     [router],
   );
+
+  useEffect(() => {
+    if (
+      params.quickAction !== "meeting" ||
+      handledQuickAction.current ||
+      snapshot.status !== "ready"
+    ) return;
+    handledQuickAction.current = true;
+    if (snapshot.live !== null) {
+      router.replace(meetingHref(snapshot.live.session.id));
+      return;
+    }
+    // Consume the command in the current history entry before starting. Going
+    // back to, or remounting, the list must not open the microphone again.
+    router.replace(MEETINGS_ROUTE);
+    void start("New meeting");
+  }, [params.quickAction, router, snapshot.live, snapshot.status, start]);
 
   return (
     <>
@@ -359,7 +379,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: "center",
   },
   roundPressed: { backgroundColor: colors.chromePressed },
-  title: { fontSize: 30, letterSpacing: -0.9, marginBottom: -6 },
+  title: {
+    fontSize: t.title,
+    letterSpacing: tracking(t.title, -0.03),
+    marginBottom: -6,
+  },
   section: { gap: 10 },
   card: {
     borderWidth: 1,
@@ -397,7 +421,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  recordChipLabel: { color: colors.ink, fontSize: 13 },
+  recordChipLabel: { color: colors.ink, fontSize: t.ui },
   chipPressed: { opacity: 0.8 },
   quiet: { height: 120 },
   empty: { gap: 12, paddingVertical: 24, alignItems: "flex-start" },

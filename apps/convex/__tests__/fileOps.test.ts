@@ -23,6 +23,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { gatewayInternals } from "./gatewayFormat.helpers";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import {
@@ -40,13 +41,20 @@ import {
   movePath,
   readFile,
   removeNoteEncryption,
+  renderFolderPlaceholder,
+  restoreTrashedPath,
   resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
+  trashPath,
   writeFile,
 } from "../functions/lib/fileOps";
-import { PRIVACY_KEY, isPlumbing, parsePrivacyManifest } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { PRIVACY_KEY, canSee, isPlumbing, parsePrivacyManifest } from "../functions/lib/privacy";
+import {
+  renderPrivacyManifest,
+  renderPrivacyManifestForFolders,
+} from "../functions/lib/scaffold";
+import { replacePrivacyRulesBlock, type Visibility } from "../functions/lib/privacy";
 
 const NOW = 1_800_000_000_000;
 
@@ -90,12 +98,12 @@ async function shareProjects(store: FileStore): Promise<void> {
   await setFolderVisibility(store, {
     path: "1-projects",
     visibility: "team",
-    scope: "private",
+    clearance: clearanceOf("private"),
   });
   await setVisibility(store, {
     path: "1-projects/pay.md",
     visibility: "private",
-    scope: "private",
+    clearance: clearanceOf("private"),
   });
 }
 
@@ -141,7 +149,7 @@ function names(entries: { name: string }[]): string[] {
 describe("listing a folder", () => {
   test("folders come first, then files, each alphabetically", async () => {
     const store = bucket();
-    const listing = await listFolder(store, { path: "", scope: "private" });
+    const listing = await listFolder(store, { path: "", clearance: clearanceOf("private") });
     expect(names(listing.entries)).toEqual([
       "0-inbox",
       "1-projects",
@@ -154,17 +162,17 @@ describe("listing a folder", () => {
 
   test("plumbing is never listed, at any scope", async () => {
     const store = bucket();
-    const listing = await listFolder(store, { path: "", scope: "private" });
+    const listing = await listFolder(store, { path: "", clearance: clearanceOf("private") });
     expect(names(listing.entries)).not.toContain(".history");
   });
 
   test("a folder reports its own default, so the row can show it", async () => {
     const store = bucket();
     await shareProjects(store);
-    expect((await listFolder(store, { path: "1-projects", scope: "private" })).folderDefault).toBe(
+    expect((await listFolder(store, { path: "1-projects", clearance: clearanceOf("private") })).folderDefault).toBe(
       "team",
     );
-    expect((await listFolder(store, { path: "2-areas", scope: "private" })).folderDefault).toBe(
+    expect((await listFolder(store, { path: "2-areas", clearance: clearanceOf("private") })).folderDefault).toBe(
       "private",
     );
   });
@@ -177,7 +185,7 @@ describe("listing a folder", () => {
   test("only the exceptions are flagged", async () => {
     const store = bucket();
     await shareProjects(store);
-    const listing = await listFolder(store, { path: "1-projects", scope: "private" });
+    const listing = await listFolder(store, { path: "1-projects", clearance: clearanceOf("private") });
     const flagged = listing.entries.filter((entry) => entry.exception);
     expect(names(flagged)).toEqual(["pay.md"]);
     expect(flagged[0].visibility).toBe("private");
@@ -190,7 +198,7 @@ describe("listing a folder", () => {
 
   test("privacy.md is listed for its owner, and marked read-only", async () => {
     const store = bucket();
-    const listing = await listFolder(store, { path: "", scope: "private" });
+    const listing = await listFolder(store, { path: "", clearance: clearanceOf("private") });
     const manifest = listing.entries.find((entry) => entry.name === PRIVACY_KEY)!;
     expect(manifest.readOnly).toBe(true);
   });
@@ -198,10 +206,10 @@ describe("listing a folder", () => {
   test("a manifest the gateway cannot parse is reported, not guessed at", async () => {
     const store = bucket();
     store.seed(PRIVACY_KEY, "# no managed block here\n");
-    const listing = await listFolder(store, { path: "", scope: "private" });
+    const listing = await listFolder(store, { path: "", clearance: clearanceOf("private") });
     expect(listing.manifestUsable).toBe(false);
     // …and everything falls back to private, which is the safe direction.
-    const team = await listFolder(store, { path: "", scope: "team" });
+    const team = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(team.entries).toEqual([]);
   });
 });
@@ -210,21 +218,21 @@ describe("a team-scoped caller sees only what is shared", () => {
   test("a private folder is not listed", async () => {
     const store = bucket();
     await shareProjects(store);
-    const listing = await listFolder(store, { path: "", scope: "team" });
+    const listing = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toEqual(["1-projects"]);
   });
 
   test("privacy.md is never listed for a team caller — it names every private folder", async () => {
     const store = bucket();
     await shareProjects(store);
-    const listing = await listFolder(store, { path: "", scope: "team" });
+    const listing = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(names(listing.entries)).not.toContain(PRIVACY_KEY);
   });
 
   test("a private exception inside a shared folder is not listed", async () => {
     const store = bucket();
     await shareProjects(store);
-    const listing = await listFolder(store, { path: "1-projects", scope: "team" });
+    const listing = await listFolder(store, { path: "1-projects", clearance: clearanceOf("team") });
     // Case-insensitive alphabetical, the order Obsidian shows.
     expect(names(listing.entries)).toEqual(["context-lc.md", "README.md"]);
   });
@@ -239,19 +247,19 @@ describe("a team-scoped caller sees only what is shared", () => {
     await setVisibility(store, {
       path: "2-areas/health.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
-    const root = await listFolder(store, { path: "", scope: "team" });
+    const root = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(names(root.entries)).toContain("2-areas");
-    const inside = await listFolder(store, { path: "2-areas", scope: "team" });
+    const inside = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
     expect(names(inside.entries)).toEqual(["health.md"]);
   });
 
   test("listing a private folder fails exactly as listing a folder that never existed", async () => {
     const store = bucket();
     await shareProjects(store);
-    const hidden = await listFolder(store, { path: "2-areas", scope: "team" });
-    const absent = await listFolder(store, { path: "9-imaginary", scope: "team" });
+    const hidden = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
+    const absent = await listFolder(store, { path: "9-imaginary", clearance: clearanceOf("team") });
     expect(listingShape(hidden)).toBe(listingShape(absent));
   });
 
@@ -293,12 +301,12 @@ describe("a team-scoped caller sees only what is shared", () => {
     await setFolderVisibility(store, {
       path: "2-areas/shared",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
-    const listing = await listFolder(store, { path: "2-areas", scope: "team" });
+    const listing = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toEqual(["shared"]);
-    expect(names((await listFolder(store, { path: "2-areas/shared", scope: "team" })).entries)).toEqual([
+    expect(names((await listFolder(store, { path: "2-areas/shared", clearance: clearanceOf("team") })).entries)).toEqual([
       "a.md",
     ]);
   });
@@ -310,22 +318,22 @@ describe("a team-scoped caller sees only what is shared", () => {
     await setFolderVisibility(store, {
       path: "1-projects/secret-client",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const hidden = await listFolder(store, {
       path: "1-projects/secret-client",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     const absent = await listFolder(store, {
       path: "1-projects/no-such-thing",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(listingShape(hidden)).toBe(listingShape(absent));
     // And the owner still sees it, so the collapse is about scope and not
     // about the folder having stopped existing.
     expect(
-      names((await listFolder(store, { path: "1-projects/secret-client", scope: "private" })).entries),
+      names((await listFolder(store, { path: "1-projects/secret-client", clearance: clearanceOf("private") })).entries),
     ).toEqual(["brief.md"]);
 
     // The two do the same WORK, not just give the same answer.
@@ -345,10 +353,10 @@ describe("a team-scoped caller sees only what is shared", () => {
         return store.list(options);
       },
     };
-    await listFolder(counted, { path: "1-projects/secret-client", scope: "team" });
+    await listFolder(counted, { path: "1-projects/secret-client", clearance: clearanceOf("team") });
     const withheldLists = lists;
     lists = 0;
-    await listFolder(counted, { path: "1-projects/no-such-thing", scope: "team" });
+    await listFolder(counted, { path: "1-projects/no-such-thing", clearance: clearanceOf("team") });
     expect(withheldLists).toBe(lists);
     expect(lists).toBeGreaterThan(0);
   });
@@ -379,16 +387,16 @@ describe("a team-scoped caller sees only what is shared", () => {
     await setFolderVisibility(store, {
       path: "1-projects/secret-client",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const hidden = await listFolder(store, {
       path: "1-projects/secret-client/anything",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     const absent = await listFolder(store, {
       path: "1-projects/never-existed/anything",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(listingShape(hidden)).toBe(listingShape(absent));
   });
@@ -417,7 +425,7 @@ describe("a team-scoped caller sees only what is shared", () => {
     await setFolderVisibility(store, {
       path: "1-projects/secret-client",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     // Truncation claimed, continuation withheld — the shape the walk's own
@@ -437,11 +445,11 @@ describe("a team-scoped caller sees only what is shared", () => {
 
     const hidden = await listFolder(nonconforming, {
       path: "1-projects/secret-client",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     const absent = await listFolder(nonconforming, {
       path: "1-projects/no-such-thing",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(listingShape(hidden)).toBe(listingShape(absent));
   });
@@ -470,7 +478,7 @@ describe("a team-scoped caller sees only what is shared", () => {
     await setFolderVisibility(store, {
       path: "1-projects/secret-client",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     let lists = 0;
@@ -489,13 +497,13 @@ describe("a team-scoped caller sees only what is shared", () => {
 
     const hidden = await listFolder(paged, {
       path: "1-projects/secret-client",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     const withheldLists = lists;
     lists = 0;
     const absent = await listFolder(paged, {
       path: "1-projects/no-such-thing",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(listingShape(hidden)).toBe(listingShape(absent));
     expect(withheldLists).toBe(lists);
@@ -509,7 +517,7 @@ describe("a team-scoped caller sees only what is shared", () => {
 describe("reading a note", () => {
   test("returns the markdown and an etag to save against", async () => {
     const store = bucket();
-    const file = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const file = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     expect(file.text).toContain("# Context.LC");
     expect(file.etag).toBeTruthy();
     expect(file.readOnly).toBe(false);
@@ -517,7 +525,7 @@ describe("reading a note", () => {
 
   test("privacy.md reads back, marked read-only", async () => {
     const store = bucket();
-    const file = await readFile(store, { path: PRIVACY_KEY, scope: "private" });
+    const file = await readFile(store, { path: PRIVACY_KEY, clearance: clearanceOf("private") });
     expect(file.readOnly).toBe(true);
     expect(file.text).toContain("BEGIN BRAIN PRIVACY RULES");
   });
@@ -526,10 +534,10 @@ describe("reading a note", () => {
     const store = bucket();
     await shareProjects(store);
     const hidden = await capture(() =>
-      readFile(store, { path: "1-projects/pay.md", scope: "team" }),
+      readFile(store, { path: "1-projects/pay.md", clearance: clearanceOf("team") }),
     );
     const absent = await capture(() =>
-      readFile(store, { path: "1-projects/never-existed.md", scope: "team" }),
+      readFile(store, { path: "1-projects/never-existed.md", clearance: clearanceOf("team") }),
     );
     expect(errorShape(hidden)).toBe(errorShape(absent));
     expect(hidden.code).toBe("FILE_NOT_FOUND");
@@ -538,14 +546,14 @@ describe("reading a note", () => {
   test("a team caller cannot read privacy.md", async () => {
     const store = bucket();
     await shareProjects(store);
-    const error = await capture(() => readFile(store, { path: PRIVACY_KEY, scope: "team" }));
+    const error = await capture(() => readFile(store, { path: PRIVACY_KEY, clearance: clearanceOf("team") }));
     expect(error.code).toBe("FILE_NOT_FOUND");
   });
 
   test("a traversal path is refused rather than resolved", async () => {
     const store = bucket();
     const error = await capture(() =>
-      readFile(store, { path: "1-projects/../privacy.md", scope: "team" }),
+      readFile(store, { path: "1-projects/../privacy.md", clearance: clearanceOf("team") }),
     );
     expect(error.code).toBe("PATH_INVALID");
   });
@@ -561,7 +569,7 @@ describe("saving a note", () => {
     const written = await writeFile(store, {
       path: "1-projects/new.md",
       text: "# New\n",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(written.path).toBe("1-projects/new.md");
@@ -570,12 +578,12 @@ describe("saving a note", () => {
 
   test("updates an existing one when the etag matches", async () => {
     const store = bucket();
-    const read = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     const written = await writeFile(store, {
       path: read.path,
       text: "# Edited\n",
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(written.etag).not.toBe(read.etag);
@@ -585,12 +593,12 @@ describe("saving a note", () => {
   test("the replaced version is not copied anywhere", async () => {
     const store = bucket();
     const before = Object.keys(store.snapshot());
-    const read = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     await writeFile(store, {
       path: read.path,
       text: "# Edited\n",
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     // Not "no `.history/` key" — the whole bucket. A snapshot that moved to a
@@ -606,14 +614,14 @@ describe("saving a note", () => {
 
   test("a stale etag is a conflict, and the file is untouched", async () => {
     const store = bucket();
-    const first = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const first = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
 
     // Somebody else — Obsidian, an AI client — saves first.
     await writeFile(store, {
       path: first.path,
       text: "# Theirs\n",
       expectedEtag: first.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
 
@@ -622,7 +630,7 @@ describe("saving a note", () => {
         path: first.path,
         text: "# Mine\n",
         expectedEtag: first.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -633,12 +641,12 @@ describe("saving a note", () => {
 
   test("the conflict carries the current etag, so the console can offer to reload", async () => {
     const store = bucket();
-    const first = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const first = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     await writeFile(store, {
       path: first.path,
       text: "# Theirs\n",
       expectedEtag: first.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const error = await capture(() =>
@@ -646,11 +654,11 @@ describe("saving a note", () => {
         path: first.path,
         text: "# Mine\n",
         expectedEtag: first.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
-    const current = await readFile(store, { path: first.path, scope: "private" });
+    const current = await readFile(store, { path: first.path, clearance: clearanceOf("private") });
     expect(error.currentEtag).toBe(current.etag);
   });
 
@@ -662,12 +670,12 @@ describe("saving a note", () => {
    */
   test("a backend that ignores If-Match still reports the conflict, and says how it checked", async () => {
     const store = bucket({ ignoreIfMatch: true });
-    const first = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const first = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     const theirs = await writeFile(store, {
       path: first.path,
       text: "# Theirs\n",
       expectedEtag: first.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(theirs.conflictCheck).toBe("read-compare");
@@ -677,7 +685,7 @@ describe("saving a note", () => {
         path: first.path,
         text: "# Mine\n",
         expectedEtag: first.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -687,12 +695,12 @@ describe("saving a note", () => {
 
   test("a conditional backend says so, so the console does not have to guess", async () => {
     const store = bucket();
-    const read = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     const written = await writeFile(store, {
       path: read.path,
       text: "# Edited\n",
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(written.conflictCheck).toBe("conditional");
@@ -704,7 +712,7 @@ describe("saving a note", () => {
       writeFile(store, {
         path: "1-projects/context-lc.md",
         text: "# Clobbered\n",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -714,14 +722,14 @@ describe("saving a note", () => {
 
   test("saving a note somebody else deleted is a conflict, not a resurrection", async () => {
     const store = bucket();
-    const read = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     await store.delete(read.path);
     const error = await capture(() =>
       writeFile(store, {
         path: read.path,
         text: "# Mine\n",
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -738,7 +746,7 @@ describe("saving a note", () => {
       writeFile(store, {
         path: PRIVACY_KEY,
         text: "everything: team\n",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -753,7 +761,7 @@ describe("saving a note", () => {
       writeFile(store, {
         path: ".history/forged.md",
         text: "x",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -764,7 +772,7 @@ describe("saving a note", () => {
     const store = bucket();
     const huge = "x".repeat(2_000_001);
     const error = await capture(() =>
-      writeFile(store, { path: "1-projects/huge.md", text: huge, scope: "private", now: NOW }),
+      writeFile(store, { path: "1-projects/huge.md", text: huge, clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("CONTENT_TOO_LARGE");
     expect(error.message).not.toContain("xxx");
@@ -777,7 +785,7 @@ describe("saving a note", () => {
       writeFile(store, {
         path: "2-areas/sneaky.md",
         text: "# Sneaky\n",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -795,20 +803,49 @@ describe("creating a folder", () => {
     const store = bucket();
     const created = await createFolder(store, {
       path: "1-projects/new-thing",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(created.readme).toBe("1-projects/new-thing/README.md");
-    expect(store.snapshot()[created.readme]).toContain("# new-thing");
-    const listing = await listFolder(store, { path: "1-projects", scope: "private" });
+    const listing = await listFolder(store, { path: "1-projects", clearance: clearanceOf("private") });
     expect(names(listing.entries)).toContain("new-thing");
+  });
+
+  /**
+   * What is in it, and why it is not `# new-thing`.
+   *
+   * That was the old body: the opening line of a note somebody had started, on a
+   * file nobody wrote, at the top of every folder they made. The console hides
+   * it now (`isFolderPlaceholder`), so the only readers left are Obsidian and
+   * whatever else opens the bucket — and to them an empty overview page reads
+   * like a task. It says what it is instead.
+   *
+   * SABOTAGE: putting the heading back fails this; dropping the folder's name
+   * from the sentence fails the second assertion and leaves a reader in Obsidian
+   * with no way to tell which prefix the file is holding open.
+   */
+  test("the README says it is a placeholder rather than starting a note nobody wrote", async () => {
+    const store = bucket();
+    const created = await createFolder(store, {
+      path: "1-projects/new-thing",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const body = store.snapshot()[created.readme];
+    expect(body).toContain("Folder placeholder.");
+    // It names the prefix it is holding open, so a reader in Obsidian knows
+    // which folder they are looking at the mechanics of.
+    expect(body).toContain("1-projects/new-thing/");
+    // No heading: a `#` line is what made it look like an unfinished note.
+    expect(body.startsWith("#")).toBe(false);
+    expect(renderFolderPlaceholder("1-projects/new-thing")).toBe(body);
   });
 
   test("creating one twice is refused rather than silently reused", async () => {
     const store = bucket();
-    await createFolder(store, { path: "1-projects/new-thing", scope: "private", now: NOW });
+    await createFolder(store, { path: "1-projects/new-thing", clearance: clearanceOf("private"), now: NOW });
     const error = await capture(() =>
-      createFolder(store, { path: "1-projects/new-thing", scope: "private", now: NOW }),
+      createFolder(store, { path: "1-projects/new-thing", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("DESTINATION_EXISTS");
   });
@@ -832,14 +869,14 @@ describe("creating a folder", () => {
     store.seed("2-areas/finance/README.md", "# Finance\n");
 
     // The premise: at team scope `2-areas` is not in the tree at all.
-    const root = await listFolder(store, { path: "", scope: "team" });
+    const root = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(names(root.entries)).not.toContain("2-areas");
 
     const hit = await capture(() =>
-      createFolder(store, { path: "2-areas/finance", scope: "team", now: NOW }),
+      createFolder(store, { path: "2-areas/finance", clearance: clearanceOf("team"), now: NOW }),
     );
     const miss = await capture(() =>
-      createFolder(store, { path: "2-areas/never-existed", scope: "team", now: NOW }),
+      createFolder(store, { path: "2-areas/never-existed", clearance: clearanceOf("team"), now: NOW }),
     );
     expect(errorShape(hit)).toBe(errorShape(miss));
     expect(hit.code).toBe("FILE_NOT_FOUND");
@@ -849,7 +886,7 @@ describe("creating a folder", () => {
     // breaking the operation for every editor who is allowed to use it.
     const allowed = await createFolder(store, {
       path: "1-projects/new-thing",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(allowed.readme).toBe("1-projects/new-thing/README.md");
@@ -880,7 +917,7 @@ describe("moving and renaming", () => {
     await movePath(store, {
       from: "1-projects/context-lc.md",
       to: "1-projects/context.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const snapshot = store.snapshot();
@@ -893,7 +930,7 @@ describe("moving and renaming", () => {
     await movePath(store, {
       from: "1-projects",
       to: "2-areas/projects",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const snapshot = store.snapshot();
@@ -908,7 +945,7 @@ describe("moving and renaming", () => {
       movePath(store, {
         from: "1-projects/context-lc.md",
         to: "1-projects/pay.md",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -922,7 +959,7 @@ describe("moving and renaming", () => {
       movePath(store, {
         from: "1-projects",
         to: "1-projects/inner",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -932,7 +969,7 @@ describe("moving and renaming", () => {
   test("moving something that is not there fails like anything else that is not there", async () => {
     const store = bucket();
     const error = await capture(() =>
-      movePath(store, { from: "1-projects/ghost.md", to: "1-projects/x.md", scope: "private", now: NOW }),
+      movePath(store, { from: "1-projects/ghost.md", to: "1-projects/x.md", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
   });
@@ -950,12 +987,12 @@ describe("moving and renaming", () => {
     await setVisibility(store, {
       path: "2-areas/health.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await movePath(store, {
       from: "1-projects/pay.md",
       to: "1-projects/finance-pay.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
@@ -969,21 +1006,84 @@ describe("moving and renaming", () => {
     await movePath(store, {
       from: "1-projects",
       to: "5-work",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     expect(manifest.rules.find((rule) => rule.prefix === "5-work")?.vis).toBe("team");
     expect(manifest.overrides.get("5-work/pay.md")).toBe("private");
   });
+
+  test("a note that is private only because of its folder does not become readable by moving it into a shared one", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await movePath(store, {
+      from: "2-areas/health.md",
+      to: "1-projects/health.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+  });
+
+  test("a folder that is private only because its parent is keeps its subtree private when it moves into a shared folder", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/clinic/notes.md", "# Notes\n");
+    store.seed("2-areas/clinic/deep/more.md", "# More\n");
+    await movePath(store, {
+      from: "2-areas/clinic",
+      to: "1-projects/clinic",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/clinic/notes.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    // One rule, not one exception per note: the manifest a customer opens has
+    // to stay readable after a folder move.
+    expect(manifest.overrides.has("1-projects/clinic/notes.md")).toBe(false);
+    expect(manifest.rules.find((rule) => rule.prefix === "1-projects/clinic")?.vis).toBe("private");
+  });
 });
 
 describe("copying and duplicating", () => {
+  test("a copy of an inherited-private note does not become readable by landing in a shared folder", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await copyPath(store, {
+      from: "2-areas/health.md",
+      to: "1-projects/health-copy.md",
+      clearance: clearanceOf("private"),
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/health-copy.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    // The original is untouched, which is what makes this one hard to notice.
+    expect(canSee("2-areas/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+  });
+
+  test("a copied folder that was private only because its parent is carries one rule, not an exception per note", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/clinic/notes.md", "# Notes\n");
+    store.seed("2-areas/clinic/deep/more.md", "# More\n");
+    await copyPath(store, {
+      from: "2-areas/clinic",
+      to: "1-projects/clinic",
+      clearance: clearanceOf("private"),
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    expect(manifest.overrides.has("1-projects/clinic/notes.md")).toBe(false);
+    expect(manifest.rules.find((rule) => rule.prefix === "1-projects/clinic")?.vis).toBe("private");
+  });
+
   test("duplicate lands beside the original under a free name", async () => {
     const store = bucket();
     const result = await duplicatePath(store, {
       path: "1-projects/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(result.to).toBe("1-projects/context-lc copy.md");
     expect(store.snapshot()[result.to]).toContain("# Context.LC");
@@ -992,10 +1092,10 @@ describe("copying and duplicating", () => {
 
   test("duplicating twice does not collide", async () => {
     const store = bucket();
-    await duplicatePath(store, { path: "1-projects/context-lc.md", scope: "private" });
+    await duplicatePath(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     const second = await duplicatePath(store, {
       path: "1-projects/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(second.to).toBe("1-projects/context-lc copy 2.md");
   });
@@ -1005,7 +1105,7 @@ describe("copying and duplicating", () => {
     await copyPath(store, {
       from: "1-projects/context-lc.md",
       to: "2-areas/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(store.snapshot()["2-areas/context-lc.md"]).toContain("# Context.LC");
     expect(store.snapshot()["1-projects/context-lc.md"]).toContain("# Context.LC");
@@ -1017,7 +1117,7 @@ describe("copying and duplicating", () => {
     await copyPath(store, {
       from: "1-projects/pay.md",
       to: "1-projects/pay-2027.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     expect(manifest.overrides.get("1-projects/pay-2027.md")).toBe("private");
@@ -1029,7 +1129,7 @@ describe("copying and duplicating", () => {
       copyPath(store, {
         from: "1-projects/context-lc.md",
         to: "1-projects/pay.md",
-        scope: "private",
+        clearance: clearanceOf("private"),
       }),
     );
     expect(error.code).toBe("DESTINATION_EXISTS");
@@ -1041,11 +1141,29 @@ describe("copying and duplicating", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("archiving is the recoverable one", () => {
+  test("archiving a note that is private only because of its folder does not publish it to a shared archive", async () => {
+    const store = bucket();
+    // An owner who shares their archive so the team can see what was retired.
+    // Nothing about that choice should reach into a private folder.
+    await setFolderVisibility(store, {
+      path: "4-archive",
+      visibility: "team",
+      clearance: clearanceOf("private"),
+    });
+    const archived = await archivePath(store, {
+      path: "2-areas/health.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee(archived.paths[0]!, "team", manifest.rules, manifest.overrides)).toBe(false);
+  });
+
   test("the note moves into 4-archive with its original path preserved", async () => {
     const store = bucket();
     const result = await archivePath(store, {
       path: "1-projects/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(result.to).toMatch(/^4-archive\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
@@ -1058,13 +1176,13 @@ describe("archiving is the recoverable one", () => {
     const original = store.snapshot()["1-projects/context-lc.md"];
     const archived = await archivePath(store, {
       path: "1-projects/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     await movePath(store, {
       from: archived.to,
       to: "1-projects/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW + 1000,
     });
     expect(store.snapshot()["1-projects/context-lc.md"]).toBe(original);
@@ -1074,18 +1192,18 @@ describe("archiving is the recoverable one", () => {
     const store = bucket();
     const first = await archivePath(store, {
       path: "1-projects/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     await writeFile(store, {
       path: "1-projects/context-lc.md",
       text: "# Again\n",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const second = await archivePath(store, {
       path: "1-projects/context-lc.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW + 60_000,
     });
     expect(second.to).not.toBe(first.to);
@@ -1096,9 +1214,121 @@ describe("archiving is the recoverable one", () => {
   test("something already in the archive is not archived again", async () => {
     const store = bucket();
     const error = await capture(() =>
-      archivePath(store, { path: "4-archive/README.md", scope: "private", now: NOW }),
+      archivePath(store, { path: "4-archive/README.md", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("PATH_INVALID");
+  });
+
+  /**
+   * The console used to write `4-archive` whatever the layout said, so a
+   * workspace built from the `company` preset — the default for a shared
+   * context, whose archive is `5-archive` — got a second archive silently
+   * created beside the one it already had, in a bucket its owner also sees in
+   * Obsidian. Meanwhile `archive_note` refused the same workspace outright.
+   * One resolver answers both now.
+   */
+  test("the destination is the archive this context declares, not a literal", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(
+      PRIVACY_KEY,
+      renderPrivacyManifestForFolders(["0-inbox", "1-projects", "5-archive"]),
+    );
+    store.seed("1-projects/pitch.md", "# Pitch\n");
+
+    const result = await archivePath(store, {
+      path: "1-projects/pitch.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+
+    expect(result.to).toMatch(/^5-archive\/[\dTZ-]+\/1-projects\/pitch\.md$/);
+    expect(
+      Object.keys(store.snapshot()).some((key) => key.startsWith("4-archive/")),
+      "it invented a second archive beside the real one",
+    ).toBe(false);
+  });
+
+  /**
+   * And on a layout with no archive at all it now refuses, which is what the
+   * gateway has always done. Creating the folder was the disagreement: two
+   * surfaces, one bucket, opposite answers to "does this context archive".
+   */
+  test("a layout with no archive is told so rather than given one", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(["Journal", "Clients"]));
+    store.seed("Journal/day.md", "# A day\n");
+
+    const error = await capture(() =>
+      archivePath(store, { path: "Journal/day.md", clearance: clearanceOf("private"), now: NOW }),
+    );
+
+    expect(error.code).toBe("ARCHIVE_UNAVAILABLE");
+    expect(store.snapshot()["Journal/day.md"]).toBeTruthy();
+    expect(Object.keys(store.snapshot()).some((key) => key.includes("archive/"))).toBe(false);
+  });
+});
+
+describe("trash is hidden and reversible", () => {
+  test("a team editor can trash and restore a shared note without changing privacy", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    const privacy = store.snapshot()[PRIVACY_KEY];
+
+    const trashed = await trashPath(store, {
+      path: "1-projects/context-lc.md",
+      clearance: clearanceOf("team"),
+      now: NOW,
+    });
+    expect(trashed.to).toMatch(/^\.context\/trash\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
+    expect(store.snapshot()[trashed.to]).toContain("# Context.LC");
+    expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(privacy);
+    expect(isPlumbing(trashed.to)).toBe(true);
+
+    await restoreTrashedPath(store, {
+      from: trashed.to,
+      to: "1-projects/context-lc.md",
+      clearance: clearanceOf("team"),
+    });
+    expect(store.snapshot()["1-projects/context-lc.md"]).toContain("# Context.LC");
+    expect(store.snapshot()[trashed.to]).toBeUndefined();
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(privacy);
+  });
+
+  test("restore cannot redirect a trash entry to a different path", async () => {
+    const store = bucket();
+    const trashed = await trashPath(store, {
+      path: "1-projects/context-lc.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const error = await capture(() =>
+      restoreTrashedPath(store, {
+        from: trashed.to,
+        to: "2-areas/context-lc.md",
+        clearance: clearanceOf("private"),
+      }),
+    );
+    expect(error.code).toBe("PATH_INVALID");
+  });
+
+  test("trash and restore preserve attachment bytes", async () => {
+    const store = bucket();
+    const bytes = new Uint8Array([0, 255, 17, 128, 3]);
+    store.seed("1-projects/image.png", bytes);
+    const trashed = await trashPath(store, {
+      path: "1-projects/image.png",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    expect(store.bytesOf(trashed.to)).toEqual(bytes);
+
+    await restoreTrashedPath(store, {
+      from: trashed.to,
+      to: "1-projects/image.png",
+      clearance: clearanceOf("private"),
+    });
+    expect(store.bytesOf("1-projects/image.png")).toEqual(bytes);
   });
 });
 
@@ -1136,14 +1366,14 @@ describe("a destination the caller cannot see", () => {
       copyPath(store, {
         from: "1-projects/context-lc.md",
         to: "2-areas/finance/notes.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
       }),
     );
     const free = await capture(() =>
       copyPath(store, {
         from: "1-projects/context-lc.md",
         to: "2-areas/finance/never-existed.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
       }),
     );
     expect(errorShape(taken)).toBe(errorShape(free));
@@ -1159,7 +1389,7 @@ describe("a destination the caller cannot see", () => {
       movePath(store, {
         from: "1-projects/context-lc.md",
         to: "2-areas/finance/notes.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -1167,7 +1397,7 @@ describe("a destination the caller cannot see", () => {
       movePath(store, {
         from: "1-projects/context-lc.md",
         to: "2-areas/finance/never-existed.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -1187,14 +1417,14 @@ describe("a destination the caller cannot see", () => {
       movePath(store, {
         from: "1-projects/context-lc.md",
         to: "2-areas/finance/taken.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
     expect(store.snapshot()["2-areas/finance/taken.md"]).toBeUndefined();
     // ...and the note is still where the rest of the team can see it.
-    const listing = await listFolder(store, { path: "1-projects", scope: "team" });
+    const listing = await listFolder(store, { path: "1-projects", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toContain("context-lc.md");
   });
 
@@ -1208,14 +1438,14 @@ describe("a destination the caller cannot see", () => {
     const moved = await movePath(store, {
       from: "1-projects/context-lc.md",
       to: "1-projects/renamed.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/renamed.md"]);
     const copied = await copyPath(store, {
       from: "1-projects/renamed.md",
       to: "1-projects/duplicate.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(copied.paths).toEqual(["1-projects/duplicate.md"]);
   });
@@ -1225,7 +1455,7 @@ describe("a destination the caller cannot see", () => {
     const moved = await movePath(store, {
       from: "1-projects/context-lc.md",
       to: "2-areas/finance/filed.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/finance/filed.md"]);
@@ -1243,7 +1473,7 @@ describe("a destination the caller cannot see", () => {
   test("archiving follows the same rule, in both directions", async () => {
     const store = await withHiddenNote();
     const refused = await capture(() =>
-      archivePath(store, { path: "1-projects/context-lc.md", scope: "team", now: NOW }),
+      archivePath(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team"), now: NOW }),
     );
     // Its own code and its own sentence. Inheriting the move's "that file does
     // not exist" would say it about a note the caller is looking at.
@@ -1255,7 +1485,7 @@ describe("a destination the caller cannot see", () => {
     // would prove nothing about it.
     const owner = await archivePath(store, {
       path: "1-projects/pay.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(owner.paths[0]).toContain("4-archive/");
@@ -1263,11 +1493,11 @@ describe("a destination the caller cannot see", () => {
     await setFolderVisibility(store, {
       path: "4-archive",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const allowed = await archivePath(store, {
       path: "1-projects/context-lc.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(allowed.paths[0]).toContain("4-archive/");
@@ -1296,7 +1526,7 @@ describe("a destination the caller cannot see", () => {
       movePath(store, {
         from: "1-projects/team-folder",
         to: "2-areas/hidden-folder",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -1308,7 +1538,7 @@ describe("a destination the caller cannot see", () => {
     const moved = await movePath(store, {
       from: "1-projects/team-folder",
       to: "1-projects/renamed-folder",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths.sort()).toEqual([
@@ -1335,18 +1565,18 @@ describe("a destination the caller cannot see", () => {
     await setFolderVisibility(store, {
       path: "2-areas/shared",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const moved = await movePath(store, {
       from: "2-areas/shared",
       to: "2-areas/shared-renamed",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/shared-renamed/plan.md"]);
     // ...and it really is still readable afterwards, which is the premise.
-    const listing = await listFolder(store, { path: "2-areas/shared-renamed", scope: "team" });
+    const listing = await listFolder(store, { path: "2-areas/shared-renamed", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toEqual(["plan.md"]);
   });
 
@@ -1367,17 +1597,17 @@ describe("a destination the caller cannot see", () => {
     await setVisibility(store, {
       path: "2-areas/open.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     // They can read it — that is the whole point of the exception.
-    const readable = await readFile(store, { path: "2-areas/open.md", scope: "team" });
+    const readable = await readFile(store, { path: "2-areas/open.md", clearance: clearanceOf("team") });
     expect(readable.visibility).toBe("team");
 
     const refused = await capture(() =>
       movePath(store, {
         from: "2-areas/open.md",
         to: "2-areas/open-renamed.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -1387,11 +1617,11 @@ describe("a destination the caller cannot see", () => {
     const moved = await movePath(store, {
       from: "2-areas/open.md",
       to: "2-areas/open-renamed.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/open-renamed.md"]);
-    const after = await readFile(store, { path: "2-areas/open-renamed.md", scope: "team" });
+    const after = await readFile(store, { path: "2-areas/open-renamed.md", clearance: clearanceOf("team") });
     expect(after.visibility).toBe("team");
   });
 
@@ -1407,13 +1637,13 @@ describe("a destination the caller cannot see", () => {
     await setFolderVisibility(store, {
       path: "2-areas/shared",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const error = await capture(() =>
       copyPath(store, {
         from: "2-areas/shared",
         to: "2-areas/elsewhere",
-        scope: "team",
+        clearance: clearanceOf("team"),
       }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
@@ -1432,14 +1662,14 @@ describe("a destination the caller cannot see", () => {
     await setVisibility(store, {
       path: "1-projects/held-back.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const taken = await capture(() =>
       movePath(store, {
         from: "1-projects/mine.md",
         to: "1-projects/held-back.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -1447,7 +1677,7 @@ describe("a destination the caller cannot see", () => {
       movePath(store, {
         from: "1-projects/mine.md",
         to: "2-areas/never.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -1458,7 +1688,7 @@ describe("a destination the caller cannot see", () => {
     const moved = await movePath(store, {
       from: "1-projects/mine.md",
       to: "1-projects/renamed.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/renamed.md"]);
@@ -1478,13 +1708,13 @@ describe("a destination the caller cannot see", () => {
     await setFolderVisibility(store, {
       path: "2-areas/shared",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
-    const root = await listFolder(store, { path: "", scope: "team" });
+    const root = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(names(root.entries)).toContain("2-areas");
 
-    const areas = await listFolder(store, { path: "2-areas", scope: "team" });
+    const areas = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
     expect(names(areas.entries)).toContain("shared");
     // The prefix boundary: `2-areas/sha` is not unhidden by `2-areas/shared`.
     expect(names(areas.entries)).not.toContain("sha");
@@ -1500,10 +1730,10 @@ describe("a destination the caller cannot see", () => {
     await setVisibility(store, {
       path: "2-areas/finance/public.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
-    const listing = await listFolder(store, { path: "2-areas", scope: "team" });
+    const listing = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toContain("finance");
     expect(names(listing.entries)).not.toContain("fin");
   });
@@ -1516,7 +1746,7 @@ describe("deleting is the permanent one", () => {
       deletePath(store, {
         path: "1-projects/context-lc.md",
         confirmation: "yes",
-        scope: "private",
+        clearance: clearanceOf("private"),
       }),
     );
     expect(error.code).toBe("CONFIRMATION_REQUIRED");
@@ -1527,7 +1757,7 @@ describe("deleting is the permanent one", () => {
   test("an empty confirmation is not a confirmation", async () => {
     const store = bucket();
     const error = await capture(() =>
-      deletePath(store, { path: "1-projects/context-lc.md", confirmation: "", scope: "private" }),
+      deletePath(store, { path: "1-projects/context-lc.md", confirmation: "", clearance: clearanceOf("private") }),
     );
     expect(error.code).toBe("CONFIRMATION_REQUIRED");
   });
@@ -1537,7 +1767,7 @@ describe("deleting is the permanent one", () => {
     await deletePath(store, {
       path: "1-projects/context-lc.md",
       confirmation: DELETE_CONFIRMATION,
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
   });
@@ -1552,7 +1782,7 @@ describe("deleting is the permanent one", () => {
     await deletePath(store, {
       path: "1-projects/pay.md",
       confirmation: DELETE_CONFIRMATION,
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const survivors = Object.entries(store.snapshot()).filter(([, body]) =>
       body.includes("salaries"),
@@ -1565,7 +1795,7 @@ describe("deleting is the permanent one", () => {
     await deletePath(store, {
       path: "1-projects",
       confirmation: DELETE_CONFIRMATION,
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const remaining = Object.keys(store.snapshot()).filter((key) =>
       key.startsWith("1-projects/"),
@@ -1592,7 +1822,7 @@ describe("deleting is the permanent one", () => {
       await deletePath(store, {
         path: "1-projects/pay.md",
         confirmation: DELETE_CONFIRMATION,
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       expect(
         historyKeys(store).filter((key) => key.startsWith(".history/1-projects/pay.md.")),
@@ -1604,7 +1834,7 @@ describe("deleting is the permanent one", () => {
       await deletePath(store, {
         path: "1-projects/pay.md",
         confirmation: DELETE_CONFIRMATION,
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       expect(
         Object.entries(store.snapshot()).filter(([, body]) => body.includes("salaries")),
@@ -1624,14 +1854,14 @@ describe("deleting is the permanent one", () => {
       const first = await writeFile(store, {
         path: "1-projects/secret.md",
         text: "# Secret\n\nthe first draft\n",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       });
       await writeFile(store, {
         path: "1-projects/secret.md",
         text: "# Secret\n\nthe second draft\n",
         expectedEtag: first.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW + 60_000,
       });
       // The edit kept nothing, so there is nothing for the delete to miss.
@@ -1642,7 +1872,7 @@ describe("deleting is the permanent one", () => {
       await deletePath(store, {
         path: "1-projects/secret.md",
         confirmation: DELETE_CONFIRMATION,
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
 
       expect(
@@ -1658,7 +1888,7 @@ describe("deleting is the permanent one", () => {
       await deletePath(store, {
         path: "1-projects",
         confirmation: DELETE_CONFIRMATION,
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       expect(historyKeys(store).filter((key) => key.startsWith(".history/1-projects/"))).toEqual(
         [],
@@ -1677,7 +1907,7 @@ describe("deleting is the permanent one", () => {
       await deletePath(store, {
         path: "1-projects/pay.md",
         confirmation: DELETE_CONFIRMATION,
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
 
       expect(historyKeys(store).filter((key) => key.startsWith(".history/2-areas/"))).toEqual(
@@ -1694,7 +1924,7 @@ describe("deleting is the permanent one", () => {
      */
     test("archiving still keeps a history entry — only deleting purges", async () => {
       const store = bucket();
-      await archivePath(store, { path: "2-areas/health.md", scope: "private", now: NOW });
+      await archivePath(store, { path: "2-areas/health.md", clearance: clearanceOf("private"), now: NOW });
       expect(historyKeys(store).some((key) => key.startsWith(".history/2-areas/health.md."))).toBe(
         true,
       );
@@ -1707,7 +1937,7 @@ describe("deleting is the permanent one", () => {
         deletePath(store, {
           path: "1-projects/pay.md",
           confirmation: "yes",
-          scope: "private",
+          clearance: clearanceOf("private"),
         }),
       );
       expect(historyKeys(store)).toEqual(before);
@@ -1726,7 +1956,7 @@ describe("deleting is the permanent one", () => {
         deletePath(store, {
           path: "1-projects/pay.md",
           confirmation: DELETE_CONFIRMATION,
-          scope: "team",
+          clearance: clearanceOf("team"),
         }),
       );
       expect(historyKeys(store)).toEqual(before);
@@ -1739,7 +1969,7 @@ describe("deleting is the permanent one", () => {
     await deletePath(store, {
       path: "1-projects/pay.md",
       confirmation: DELETE_CONFIRMATION,
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     expect(manifest.overrides.has("1-projects/pay.md")).toBe(false);
@@ -1752,7 +1982,7 @@ describe("deleting is the permanent one", () => {
       deletePath(store, {
         path: "1-projects/pay.md",
         confirmation: DELETE_CONFIRMATION,
-        scope: "team",
+        clearance: clearanceOf("team"),
       }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
@@ -1793,7 +2023,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/mixed/salaries.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     return store;
   }
@@ -1802,7 +2032,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const store = await mixedFolder();
     const result = await deletePath(store, {
       path: "1-projects/mixed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(result.paths).toEqual(["1-projects/mixed/public.md"]);
@@ -1821,7 +2051,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const store = await mixedFolder();
     const result = await deletePath(store, {
       path: "1-projects/mixed",
-      scope: "private",
+      clearance: clearanceOf("private"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(result.paths.sort()).toEqual([
@@ -1836,7 +2066,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(store, {
       from: "1-projects/mixed",
       to: "1-projects/moved",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/moved/public.md"]);
@@ -1853,7 +2083,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const hidden = await movePath(withHidden, {
       from: "1-projects/mixed",
       to: "1-projects/renamed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
 
@@ -1863,7 +2093,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const plain = await movePath(clean, {
       from: "1-projects/mixed",
       to: "1-projects/renamed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
 
@@ -1888,7 +2118,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
 
     await deletePath(store, {
       path: "1-projects/folder",
-      scope: "private",
+      clearance: clearanceOf("private"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(historyKeys(store).some((key) => key.includes("1-projects/folder/"))).toBe(false);
@@ -1912,11 +2142,11 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/dest/hidden.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const error = await capture(() =>
-      copyPath(store, { from: "1-projects/src", to: "1-projects/dest", scope: "team" }),
+      copyPath(store, { from: "1-projects/src", to: "1-projects/dest", clearance: clearanceOf("team") }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
     // The old reply quoted the invisible path back.
@@ -1945,7 +2175,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/mixed/deep",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     return store;
   }
@@ -1954,7 +2184,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const store = await ruleHiddenFolder();
     const result = await deletePath(store, {
       path: "1-projects/mixed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(result.paths).toEqual(["1-projects/mixed/public.md"]);
@@ -1962,12 +2192,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // The survivor is still there, and still *private*. Reading it is the
     // assertion that matters: the rule surviving is only the mechanism.
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/mixed/deep/secret.md", scope: "team" }),
+      readFile(store, { path: "1-projects/mixed/deep/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
     const owner = await readFile(store, {
       path: "1-projects/mixed/deep/secret.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(owner.text).toContain("200k");
   });
@@ -1977,14 +2207,14 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(store, {
       from: "1-projects/mixed",
       to: "1-projects/moved",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/moved/public.md"]);
 
     // The note did not move, so its rule must not have moved either.
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/mixed/deep/secret.md", scope: "team" }),
+      readFile(store, { path: "1-projects/mixed/deep/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
   });
@@ -2001,16 +2231,16 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "2-areas/whole",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const moved = await movePath(store, {
       from: "2-areas/whole",
       to: "2-areas/whole-2",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/whole-2/note.md"]);
-    const listing = await listFolder(store, { path: "2-areas/whole-2", scope: "team" });
+    const listing = await listFolder(store, { path: "2-areas/whole-2", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toEqual(["note.md"]);
   });
 
@@ -2030,17 +2260,17 @@ describe("a bulk operation acts only on what the caller can see", () => {
       await setFolderVisibility(store, {
         path: "2-areas/shared",
         visibility: "team",
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       if (hides) {
         await setVisibility(store, {
           path: "2-areas/shared/secret.md",
           visibility: "private",
-          scope: "private",
+          clearance: clearanceOf("private"),
         });
       }
       // The caller sees the same folder either way before they act.
-      const before = await listFolder(store, { path: "2-areas/shared", scope: "team" });
+      const before = await listFolder(store, { path: "2-areas/shared", clearance: clearanceOf("team") });
       expect(names(before.entries)).toEqual(["a.md"]);
       return {
         store,
@@ -2048,7 +2278,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
           movePath(store, {
             from: "2-areas/shared",
             to: "2-areas/renamed",
-            scope: "team",
+            clearance: clearanceOf("team"),
             now: NOW,
           }),
         ),
@@ -2064,7 +2294,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
 
     // ...and the note it hid is still hidden, and still where it was.
     const leak = await capture(() =>
-      readFile(hiding.store, { path: "2-areas/shared/secret.md", scope: "team" }),
+      readFile(hiding.store, { path: "2-areas/shared/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
     expect(hiding.store.snapshot()["2-areas/shared/secret.md"]).toBeDefined();
@@ -2086,7 +2316,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/huge/zdeep",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     // A store whose pages never end. This is the shape that matters rather
@@ -2105,7 +2335,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const error = await capture(() =>
       deletePath(endless, {
         path: "1-projects/huge",
-        scope: "team",
+        clearance: clearanceOf("team"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
@@ -2113,7 +2343,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // Nothing was deleted and, above all, nothing was published.
     expect(store.snapshot()["1-projects/huge/aaa.md"]).toBeDefined();
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/huge/zdeep/secret.md", scope: "team" }),
+      readFile(store, { path: "1-projects/huge/zdeep/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
   });
@@ -2136,7 +2366,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const error = await capture(() =>
       deletePath(alternating, {
         path: "1-projects/pingpong",
-        scope: "team",
+        clearance: clearanceOf("team"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
@@ -2165,7 +2395,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const error = await capture(() =>
       deletePath(stuck, {
         path: "1-projects/stuck",
-        scope: "team",
+        clearance: clearanceOf("team"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
@@ -2192,14 +2422,14 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "2-areas/shared",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const refused = await capture(() =>
       movePath(store, {
         from: "2-areas/shared",
         to: "2-areas/elsewhere",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -2215,7 +2445,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(allowed, {
       from: "1-projects/shared",
       to: "1-projects/elsewhere",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/elsewhere/a.md"]);
@@ -2245,12 +2475,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
       await setFolderVisibility(store, {
         path: "1-projects/mixed/hr",
         visibility: "private",
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       await setFolderVisibility(store, {
         path: "1-projects/mixed/hr/comp",
         visibility: "private",
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       return store;
     }
@@ -2259,22 +2489,22 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const deleted = await twoRules();
     await deletePath(deleted, {
       path: "1-projects/mixed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
-    expect((await capture(() => readFile(deleted, { path: secret, scope: "team" }))).code).toBe(
+    expect((await capture(() => readFile(deleted, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
       "FILE_NOT_FOUND",
     );
-    expect((await readFile(deleted, { path: secret, scope: "private" })).text).toContain("200k");
+    expect((await readFile(deleted, { path: secret, clearance: clearanceOf("private") })).text).toContain("200k");
 
     const moved = await twoRules();
     await movePath(moved, {
       from: "1-projects/mixed",
       to: "1-projects/moved",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
-    expect((await capture(() => readFile(moved, { path: secret, scope: "team" }))).code).toBe(
+    expect((await capture(() => readFile(moved, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
       "FILE_NOT_FOUND",
     );
   });
@@ -2302,18 +2532,18 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "2-areas/shared",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setVisibility(store, {
       path: "2-areas/shared/x.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     await movePath(store, {
       from: "2-areas/shared",
       to: "2-areas/renamed",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const manifest = store.snapshot()[PRIVACY_KEY] as string;
@@ -2335,9 +2565,9 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // so it was unreadable for the trivial reason and stayed unreadable with
     // the exception dropped entirely.
     expect(
-      (await capture(() => readFile(store, { path: "2-areas/renamed/x.md", scope: "team" }))).code,
+      (await capture(() => readFile(store, { path: "2-areas/renamed/x.md", clearance: clearanceOf("team") }))).code,
     ).toBe("FILE_NOT_FOUND");
-    expect((await readFile(store, { path: "2-areas/renamed/x.md", scope: "private" })).text).toBe(
+    expect((await readFile(store, { path: "2-areas/renamed/x.md", clearance: clearanceOf("private") })).text).toBe(
       "# X\n",
     );
   });
@@ -2358,25 +2588,25 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/a/b",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/a/b/hr",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/a/b/b/hr/deep",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const secret = "1-projects/a/b/hr/deep/secret.md";
 
     const error = await capture(() =>
-      movePath(store, { from: "1-projects/a/b", to: "1-projects/a", scope: "team", now: NOW }),
+      movePath(store, { from: "1-projects/a/b", to: "1-projects/a", clearance: clearanceOf("team"), now: NOW }),
     );
     expect(error.code).toBe("PATH_INVALID");
-    expect((await capture(() => readFile(store, { path: secret, scope: "team" }))).code).toBe(
+    expect((await capture(() => readFile(store, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
       "FILE_NOT_FOUND",
     );
     // The owner is refused too — this is a nonsensical rename, not a clearance
@@ -2388,7 +2618,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
           movePath(store, {
             from: "1-projects/a/b",
             to: "1-projects/a",
-            scope: "private",
+            clearance: clearanceOf("private"),
             now: NOW,
           }),
         )
@@ -2411,12 +2641,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/src",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/src/hr",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     // A rule for a folder that does not exist — left behind by a delete, or
     // hand-written. This is the only way a rename can still collide now that
@@ -2424,13 +2654,13 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/dst/hr",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     await movePath(store, {
       from: "1-projects/src",
       to: "1-projects/dst",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
 
@@ -2443,7 +2673,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(
       (
         await capture(() =>
-          readFile(store, { path: "1-projects/dst/hr/secret.md", scope: "team" }),
+          readFile(store, { path: "1-projects/dst/hr/secret.md", clearance: clearanceOf("team") }),
         )
       ).code,
     ).toBe("FILE_NOT_FOUND");
@@ -2467,22 +2697,22 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/mixed/aaa.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/mixed/hr",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/mixed/legal",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     await deletePath(store, {
       path: "1-projects/mixed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
 
@@ -2491,7 +2721,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       "1-projects/mixed/hr/pay.md",
       "1-projects/mixed/legal/case.md",
     ]) {
-      expect((await capture(() => readFile(store, { path, scope: "team" }))).code).toBe(
+      expect((await capture(() => readFile(store, { path, clearance: clearanceOf("team") }))).code).toBe(
         "FILE_NOT_FOUND",
       );
       expect(store.snapshot()[path]).toBeDefined();
@@ -2515,11 +2745,11 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/src",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const hiddenBefore = await capture(() =>
-      readFile(store, { path: "2-areas/dst/secret.md", scope: "team" }),
+      readFile(store, { path: "2-areas/dst/secret.md", clearance: clearanceOf("team") }),
     );
     expect(hiddenBefore.code).toBe("FILE_NOT_FOUND");
 
@@ -2527,7 +2757,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       movePath(store, {
         from: "1-projects/src",
         to: "2-areas/dst",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -2535,7 +2765,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // there — same shape `createFolder`'s collision check uses.
     expect(error.code).toBe("FILE_NOT_FOUND");
     const stillHidden = await capture(() =>
-      readFile(store, { path: "2-areas/dst/secret.md", scope: "team" }),
+      readFile(store, { path: "2-areas/dst/secret.md", clearance: clearanceOf("team") }),
     );
     expect(stillHidden.code).toBe("FILE_NOT_FOUND");
   });
@@ -2547,7 +2777,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     store.seed("1-projects/two/b.md", "# B\n");
 
     const error = await capture(() =>
-      movePath(store, { from: "1-projects/one", to: "1-projects/two", scope: "team", now: NOW }),
+      movePath(store, { from: "1-projects/one", to: "1-projects/two", clearance: clearanceOf("team"), now: NOW }),
     );
     expect(error.code).toBe("DESTINATION_EXISTS");
     expect(error.message).toContain("merge");
@@ -2559,7 +2789,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(store, {
       from: "1-projects/one",
       to: "1-projects/renamed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/renamed/a.md"]);
@@ -2593,7 +2823,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       await setVisibility(store, {
         path: "2-areas/open.md",
         visibility: "team",
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       return store;
     }
@@ -2609,7 +2839,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       return {
         store,
         result: await capture(() =>
-          movePath(store, { from: "2-areas/open.md", to: destination, scope: "team", now: NOW }),
+          movePath(store, { from: "2-areas/open.md", to: destination, clearance: clearanceOf("team"), now: NOW }),
         ),
       };
     }
@@ -2652,7 +2882,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(allowed, {
       from: "1-projects/context-lc.md",
       to: "1-projects/renamed.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/renamed.md"]);
@@ -2678,7 +2908,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       await setFolderVisibility(store, {
         path: "2-areas/shared-project",
         visibility: "team",
-        scope: "private",
+        clearance: clearanceOf("private"),
       });
       return {
         store,
@@ -2686,7 +2916,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
           movePath(store, {
             from: "2-areas/shared-project",
             to: destination,
-            scope: "team",
+            clearance: clearanceOf("team"),
             now: NOW,
           }),
         ),
@@ -2712,7 +2942,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(allowed, {
       from: "1-projects/proj",
       to: "1-projects/proj-renamed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/proj-renamed/plan.md"]);
@@ -2737,16 +2967,16 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "2-areas/mixed/shared.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
-    const listing = await listFolder(store, { path: "2-areas", scope: "team" });
+    const listing = await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toContain("mixed");
 
     const error = await capture(() =>
       movePath(store, {
         from: "1-projects/src",
         to: "2-areas/mixed",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -2776,7 +3006,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await shareProjects(store);
 
     const copied = await capture(() =>
-      copyPath(store, { from: PRIVACY_KEY, to: "1-projects/leaked.md", scope: "private" }),
+      copyPath(store, { from: PRIVACY_KEY, to: "1-projects/leaked.md", clearance: clearanceOf("private") }),
     );
     expect(copied.code).toBe("PRIVACY_MANIFEST_READ_ONLY");
     expect(store.snapshot()["1-projects/leaked.md"]).toBeUndefined();
@@ -2784,7 +3014,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // The same refusal `movePath` already gave, and the same one a duplicate
     // gets, since it routes through here.
     const duplicated = await capture(() =>
-      duplicatePath(store, { path: PRIVACY_KEY, scope: "private" }),
+      duplicatePath(store, { path: PRIVACY_KEY, clearance: clearanceOf("private") }),
     );
     expect(duplicated.code).toBe("PRIVACY_MANIFEST_READ_ONLY");
   });
@@ -2806,10 +3036,10 @@ describe("a bulk operation acts only on what the caller can see", () => {
         await setVisibility(store, {
           path: "1-projects/note copy.md",
           visibility: "private",
-          scope: "private",
+          clearance: clearanceOf("private"),
         });
       }
-      return duplicatePath(store, { path: "1-projects/note.md", scope: "team" });
+      return duplicatePath(store, { path: "1-projects/note.md", clearance: clearanceOf("team") });
     }
 
     // Both succeed; only the name differs, which is what a duplicate is for.
@@ -2836,19 +3066,19 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "2-areas/shared",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     // The survivor is held back by its own exception, so it never rested on the
     // folder's `team` rule and that rule is not the folder's to keep.
     await setVisibility(store, {
       path: "2-areas/shared/held.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const result = await deletePath(store, {
       path: "2-areas/shared",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(result.paths).toEqual(["2-areas/shared/a.md"]);
@@ -2860,14 +3090,14 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // Gone from the caller's tree — the root listing no longer names it — and
     // asking for it directly gives the same empty answer any absent name does,
     // rather than a refusal that would confirm it is still there.
-    expect(names((await listFolder(store, { path: "2-areas", scope: "team" })).entries)).not.toContain(
+    expect(names((await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") })).entries)).not.toContain(
       "shared",
     );
-    const gone = await listFolder(store, { path: "2-areas/shared", scope: "team" });
-    const never = await listFolder(store, { path: "2-areas/never-existed", scope: "team" });
+    const gone = await listFolder(store, { path: "2-areas/shared", clearance: clearanceOf("team") });
+    const never = await listFolder(store, { path: "2-areas/never-existed", clearance: clearanceOf("team") });
     expect(listingShape(gone)).toBe(listingShape(never));
     const leak = await capture(() =>
-      readFile(store, { path: "2-areas/shared/held.md", scope: "team" }),
+      readFile(store, { path: "2-areas/shared/held.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
     expect(store.snapshot()["2-areas/shared/held.md"]).toBeDefined();
@@ -2881,7 +3111,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // beside a folder prefix is the shape `movePath` refuses outright.
     store.seed("1-projects/note copy.md/inner.md", "# Inner\n");
 
-    const duplicated = await duplicatePath(store, { path: "1-projects/note.md", scope: "team" });
+    const duplicated = await duplicatePath(store, { path: "1-projects/note.md", clearance: clearanceOf("team") });
     expect(duplicated.paths).toEqual(["1-projects/note copy 2.md"]);
   });
 
@@ -2893,7 +3123,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/note copy.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     // A page that drops the earlier key — a provider returning fewer objects
@@ -2914,7 +3144,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       },
     };
     const error = await capture(() =>
-      duplicatePath(thin, { path: "1-projects/note.md", scope: "team" }),
+      duplicatePath(thin, { path: "1-projects/note.md", clearance: clearanceOf("team") }),
     );
     expect(error.code).toBe("FOLDER_TOO_LARGE");
   });
@@ -2946,7 +3176,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       movePath(store, {
         from: "1-projects/mine.md",
         to: "1-projects/echo.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -2966,14 +3196,14 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/target.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const refused = await capture(() =>
       movePath(store, {
         from: "1-projects/mine.md",
         to: "1-projects/target.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -2984,7 +3214,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(store, {
       from: "1-projects/mine.md",
       to: "1-projects/ordinary.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/ordinary.md"]);
@@ -2998,7 +3228,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       movePath(ontoFile, {
         from: "1-projects/src",
         to: "1-projects/dst",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -3012,7 +3242,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       movePath(ontoFolder, {
         from: "1-projects/b.md",
         to: "1-projects/dst",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -3034,12 +3264,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
 
     const child = await archivePath(store, {
       path: "1-projects/proj/inner",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     const parent = await archivePath(store, {
       path: "1-projects/proj",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(child.paths[0]).toContain("/1-projects/proj/inner/x.md");
@@ -3077,30 +3307,30 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/aaa",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/zzz",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setVisibility(store, {
       path: "1-projects/zzz/n.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const moved = await movePath(store, {
       from: "1-projects/zzz",
       to: "1-projects/aaa",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/aaa/n.md"]);
     // The note kept the visibility it had; it did not become private because
     // an exception was dropped as redundant against a rule that was never
     // written.
-    const file = await readFile(store, { path: "1-projects/aaa/n.md", scope: "team" });
+    const file = await readFile(store, { path: "1-projects/aaa/n.md", clearance: clearanceOf("team") });
     expect(file.visibility).toBe("team");
   });
 
@@ -3123,26 +3353,26 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/zzz-hidden",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/aaa-team",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const error = await capture(() =>
       movePath(store, {
         from: "1-projects/aaa-team",
         to: "1-projects/zzz-hidden",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
     // The note stayed where its owner can still reach it.
     expect(store.snapshot()["1-projects/aaa-team/plan.md"]).toBeDefined();
-    const listing = await listFolder(store, { path: "1-projects/aaa-team", scope: "team" });
+    const listing = await listFolder(store, { path: "1-projects/aaa-team", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toEqual(["plan.md"]);
   });
 
@@ -3160,23 +3390,23 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/aaa",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/aaa/hr",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/zzz/hr",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     await movePath(store, {
       from: "1-projects/aaa",
       to: "1-projects/zzz",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
 
@@ -3187,7 +3417,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(
       (
         await capture(() =>
-          readFile(store, { path: "1-projects/zzz/hr/secret.md", scope: "team" }),
+          readFile(store, { path: "1-projects/zzz/hr/secret.md", clearance: clearanceOf("team") }),
         )
       ).code,
     ).toBe("FILE_NOT_FOUND");
@@ -3208,12 +3438,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/mixed/hr",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     await deletePath(store, {
       path: "1-projects/mixed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
 
@@ -3223,7 +3453,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       .filter((line) => line.trim().startsWith("1-projects/mixed/hr:"));
     expect(lines).toHaveLength(1);
     for (const path of ["1-projects/mixed/hr/pay.md", "1-projects/mixed/hr/bonus.md"]) {
-      expect((await capture(() => readFile(store, { path, scope: "team" }))).code).toBe(
+      expect((await capture(() => readFile(store, { path, clearance: clearanceOf("team") }))).code).toBe(
         "FILE_NOT_FOUND",
       );
     }
@@ -3244,24 +3474,24 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/mixed/hr",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "1-projects/mixed/hr/comp",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const secret = "1-projects/mixed/hr/comp/secret.md";
-    expect((await capture(() => readFile(store, { path: secret, scope: "team" }))).code).toBe(
+    expect((await capture(() => readFile(store, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
       "FILE_NOT_FOUND",
     );
 
     await deletePath(store, {
       path: "1-projects/mixed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
-    expect((await capture(() => readFile(store, { path: secret, scope: "team" }))).code).toBe(
+    expect((await capture(() => readFile(store, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
       "FILE_NOT_FOUND",
     );
   });
@@ -3286,7 +3516,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const error = await capture(() =>
       deletePath(endless, {
         path: "1-projects/a.md",
-        scope: "private",
+        clearance: clearanceOf("private"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
@@ -3308,7 +3538,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
 
     await deletePath(store, {
       path: "1-projects/a.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(historyKeys(store).some((key) => key.includes("a.md.one.md."))).toBe(true);
@@ -3332,12 +3562,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/a.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const result = await deletePath(store, {
       path: "1-projects",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(result.paths).toContain("1-projects/a.md.notes.md");
@@ -3356,7 +3586,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
 
     await deletePath(store, {
       path: "1-projects/a.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(store.snapshot()["1-projects/a.md.notes.md"]).toBeDefined();
@@ -3386,12 +3616,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/hist/a.md.notes.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const result = await deletePath(store, {
       path: "1-projects/hist",
-      scope: "team",
+      clearance: clearanceOf("team"),
       confirmation: DELETE_CONFIRMATION,
     });
     expect(result.paths).toEqual(["1-projects/hist/a.md"]);
@@ -3416,14 +3646,14 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/hidden-name.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const taken = await capture(() =>
       movePath(store, {
         from: "1-projects/src.md",
         to: "1-projects/hidden-name.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -3434,7 +3664,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       movePath(store, {
         from: "1-projects/src.md",
         to: "2-areas/never-existed.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -3447,7 +3677,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(store, {
       from: "1-projects/src.md",
       to: "1-projects/free.md",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(moved.paths).toEqual(["1-projects/free.md"]);
@@ -3466,18 +3696,18 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "3-resources/deep",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
-    const root = await listFolder(store, { path: "", scope: "team" });
+    const root = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(names(root.entries)).not.toContain("3-resources");
     // The control: the same shape with a `team` rule does unhide it.
     await setFolderVisibility(store, {
       path: "3-resources/deep",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
-    const shared = await listFolder(store, { path: "", scope: "team" });
+    const shared = await listFolder(store, { path: "", clearance: clearanceOf("team") });
     expect(names(shared.entries)).toContain("3-resources");
   });
 
@@ -3502,17 +3732,17 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/subway",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     await movePath(store, {
       from: "1-projects/sub",
       to: "1-projects/sub-moved",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/subway/secret.md", scope: "team" }),
+      readFile(store, { path: "1-projects/subway/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
   });
@@ -3524,20 +3754,20 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await setVisibility(store, {
       path: "1-projects/allhidden/one.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const hidden = await capture(() =>
       deletePath(store, {
         path: "1-projects/allhidden",
-        scope: "team",
+        clearance: clearanceOf("team"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
     const absent = await capture(() =>
       deletePath(store, {
         path: "1-projects/never-existed",
-        scope: "team",
+        clearance: clearanceOf("team"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
@@ -3575,7 +3805,7 @@ describe("changing visibility goes through the manifest", () => {
     const result = await setVisibility(store, {
       path: "1-projects/pay.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(result.exception).toBe(false);
     const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
@@ -3587,7 +3817,7 @@ describe("changing visibility goes through the manifest", () => {
     await setVisibility(store, {
       path: "2-areas/health.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     expect(parsed.overrides.size).toBe(0);
@@ -3604,7 +3834,7 @@ describe("changing visibility goes through the manifest", () => {
   test("only markdown notes get their own visibility", async () => {
     const store = bucket();
     const error = await capture(() =>
-      setVisibility(store, { path: "1-projects", visibility: "team", scope: "private" }),
+      setVisibility(store, { path: "1-projects", visibility: "team", clearance: clearanceOf("private") }),
     );
     expect(error.code).toBe("PATH_INVALID");
     expect(error.message).toMatch(/folder's default/);
@@ -3613,7 +3843,7 @@ describe("changing visibility goes through the manifest", () => {
   test("privacy.md cannot be given a visibility of its own", async () => {
     const store = bucket();
     const error = await capture(() =>
-      setVisibility(store, { path: PRIVACY_KEY, visibility: "team", scope: "private" }),
+      setVisibility(store, { path: PRIVACY_KEY, visibility: "team", clearance: clearanceOf("private") }),
     );
     expect(error.code).toBe("PRIVACY_MANIFEST_READ_ONLY");
   });
@@ -3622,7 +3852,7 @@ describe("changing visibility goes through the manifest", () => {
     const store = memoryStore() as MemoryStore & FileStore;
     store.seed("1-projects/a.md", "# A\n");
     const error = await capture(() =>
-      setVisibility(store, { path: "1-projects/a.md", visibility: "team", scope: "private" }),
+      setVisibility(store, { path: "1-projects/a.md", visibility: "team", clearance: clearanceOf("private") }),
     );
     expect(error.code).toBe("PRIVACY_MANIFEST_MISSING");
   });
@@ -3634,7 +3864,7 @@ describe("changing visibility goes through the manifest", () => {
       setVisibility(store, {
         path: "1-projects/context-lc.md",
         visibility: "team",
-        scope: "private",
+        clearance: clearanceOf("private"),
       }),
     );
     expect(error.code).toBe("PRIVACY_MANIFEST_INVALID");
@@ -3646,12 +3876,12 @@ describe("changing visibility goes through the manifest", () => {
     await setFolderVisibility(store, {
       path: "2-areas",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
-    const listing = await listFolder(store, { path: "2-areas", scope: "private" });
+    const listing = await listFolder(store, { path: "2-areas", clearance: clearanceOf("private") });
     expect(listing.folderDefault).toBe("team");
     expect(listing.entries.every((entry) => entry.exception === false)).toBe(true);
-    expect(names(await listFolder(store, { path: "2-areas", scope: "team" }).then((l) => l.entries))).toContain(
+    expect(names(await listFolder(store, { path: "2-areas", clearance: clearanceOf("team") }).then((l) => l.entries))).toContain(
       "health.md",
     );
   });
@@ -3673,7 +3903,7 @@ describe("changing visibility goes through the manifest", () => {
         await setFolderVisibility(store, {
           path: "3-resources",
           visibility: "team",
-          scope: "private",
+          clearance: clearanceOf("private"),
         });
       }
       return object;
@@ -3682,7 +3912,7 @@ describe("changing visibility goes through the manifest", () => {
     await setFolderVisibility(store, {
       path: "1-projects",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
@@ -3718,16 +3948,16 @@ describe("resetting a privacy.md that cannot be read", () => {
 
   test("the state it repairs is exactly the state the console warns about", async () => {
     const store = brokenBucket();
-    expect((await listFolder(store, { path: "", scope: "private" })).manifestUsable).toBe(false);
+    expect((await listFolder(store, { path: "", clearance: clearanceOf("private") })).manifestUsable).toBe(false);
 
-    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
-    expect((await listFolder(store, { path: "", scope: "private" })).manifestUsable).toBe(true);
+    expect((await listFolder(store, { path: "", clearance: clearanceOf("private") })).manifestUsable).toBe(true);
   });
 
   test("what it writes parses, and the gateway agrees that it does", async () => {
     const store = brokenBucket();
-    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     const text = store.snapshot()[PRIVACY_KEY];
     // Ours, and then the gateway's own parser out of its source — the same
@@ -3744,7 +3974,7 @@ describe("resetting a privacy.md that cannot be read", () => {
     store.seed("Clients/acme.md", "# Acme\n");
     store.seed("inbox.md", "# loose at the root\n");
 
-    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    const result = await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     expect(result.folders).toEqual(["Clients", "Journal"]);
     const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
@@ -3759,7 +3989,7 @@ describe("resetting a privacy.md that cannot be read", () => {
     // The broken file *says* `1-projects: team`. Reading it as anything but a
     // failure is the bug this whole path exists to avoid, so the repair must
     // not resurrect that line either.
-    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
@@ -3767,14 +3997,14 @@ describe("resetting a privacy.md that cannot be read", () => {
     // The observable consequence, which is the assertion that matters: a
     // team-scoped caller could see nothing before the repair and can see
     // nothing after it.
-    expect((await listFolder(store, { path: "", scope: "team" })).entries).toEqual([]);
+    expect((await listFolder(store, { path: "", clearance: clearanceOf("team") })).entries).toEqual([]);
   });
 
   test("plumbing folders never reach the manifest, which would make it unparseable", async () => {
     const store = brokenBucket();
     store.seed(".obsidian/workspace.json", "{}\n");
 
-    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    const result = await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     expect(result.folders).not.toContain(".history");
     expect(result.folders).not.toContain(".obsidian");
@@ -3801,7 +4031,7 @@ describe("resetting a privacy.md that cannot be read", () => {
     store.seed("2026#notes/a.md", "# a\n");
     store.seed("1-projects/a.md", "# a\n");
 
-    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    const result = await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     expect(result.folders).toEqual(["1-projects"]);
     expect(result.partial).toBe(true);
@@ -3819,7 +4049,7 @@ describe("resetting a privacy.md that cannot be read", () => {
     store.seed("innocent\n  2-areas: team\n#/a.md", "# a\n");
     store.seed("2-areas/secret.md", "# secret\n");
 
-    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     // Not "the file contains no `team`" — the manifest's own prose explains
@@ -3832,12 +4062,12 @@ describe("resetting a privacy.md that cannot be read", () => {
     expect(parsed.overrides.size).toBe(0);
     // The observable consequence: the note the injected rule was reaching for
     // is still invisible to a team-scoped caller.
-    expect((await listFolder(store, { path: "", scope: "team" })).entries).toEqual([]);
+    expect((await listFolder(store, { path: "", clearance: clearanceOf("team") })).entries).toEqual([]);
   });
 
   test("a complete walk of ordinary folders is not reported as partial", async () => {
     const store = brokenBucket();
-    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    const result = await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
     expect(result.partial).toBe(false);
   });
 
@@ -3845,7 +4075,7 @@ describe("resetting a privacy.md that cannot be read", () => {
     const store = brokenBucket();
     const original = store.snapshot()[PRIVACY_KEY];
 
-    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    const result = await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     expect(result.backedUpTo).not.toBeNull();
     // `.context/recover/`, not `.history/`: this is the one copy the product
@@ -3862,12 +4092,12 @@ describe("resetting a privacy.md that cannot be read", () => {
     const store = memoryStore() as MemoryStore & FileStore;
     store.seed("1-projects/a.md", "# A\n");
 
-    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    const result = await resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW });
 
     expect(result.backedUpTo).toBeNull();
     expect(historyKeys(store)).toEqual([]);
     // And the thing that was impossible a moment ago now works.
-    await setFolderVisibility(store, { path: "1-projects", visibility: "team", scope: "private" });
+    await setFolderVisibility(store, { path: "1-projects", visibility: "team", clearance: clearanceOf("private") });
     expect(parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]).rules).toContainEqual({
       prefix: "1-projects",
       vis: "team",
@@ -3879,7 +4109,7 @@ describe("resetting a privacy.md that cannot be read", () => {
     await shareProjects(store);
     const before = store.snapshot()[PRIVACY_KEY];
 
-    const error = await capture(() => resetPrivacyManifest(store, { scope: "private", now: NOW }));
+    const error = await capture(() => resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW }));
 
     expect(error.code).toBe("PRIVACY_MANIFEST_USABLE");
     expect(store.snapshot()[PRIVACY_KEY]).toBe(before);
@@ -3890,7 +4120,7 @@ describe("resetting a privacy.md that cannot be read", () => {
     const store = brokenBucket();
     const before = store.snapshot()[PRIVACY_KEY];
 
-    const error = await capture(() => resetPrivacyManifest(store, { scope: "team", now: NOW }));
+    const error = await capture(() => resetPrivacyManifest(store, { clearance: clearanceOf("team"), now: NOW }));
 
     expect(error.code).toBe("PRIVACY_MANIFEST_READ_ONLY");
     expect(store.snapshot()[PRIVACY_KEY]).toBe(before);
@@ -3910,7 +4140,7 @@ describe("resetting a privacy.md that cannot be read", () => {
       return object;
     };
 
-    const error = await capture(() => resetPrivacyManifest(store, { scope: "private", now: NOW }));
+    const error = await capture(() => resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW }));
 
     expect(error.code).toBe("CONFLICT");
     expect(store.snapshot()[PRIVACY_KEY]).toBe(renderPrivacyManifest("para"));
@@ -3961,13 +4191,13 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     await setFolderVisibility(store, {
       path: "1-projects/huge/zdeep",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const error = await capture(() =>
       deletePath(stalling(store), {
         path: "1-projects/huge",
-        scope: "team",
+        clearance: clearanceOf("team"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
@@ -3975,7 +4205,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     expect(error.code).toBe("LISTING_INCOMPLETE");
     expect(store.snapshot()["1-projects/huge/aaa.md"]).toBeDefined();
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/huge/zdeep/secret.md", scope: "team" }),
+      readFile(store, { path: "1-projects/huge/zdeep/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
   });
@@ -3994,7 +4224,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     const error = await capture(() =>
       deletePath(stalling(store), {
         path: "1-projects/context-lc.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         confirmation: DELETE_CONFIRMATION,
       }),
     );
@@ -4016,7 +4246,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     await shareProjects(store);
 
     const error = await capture(() =>
-      duplicatePath(stalling(store), { path: "1-projects/context-lc.md", scope: "team" }),
+      duplicatePath(stalling(store), { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
     );
 
     expect(error.code).toBe("LISTING_INCOMPLETE");
@@ -4044,7 +4274,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     // `namesInUse`, via duplicate.
     expect(
       (await capture(() =>
-        duplicatePath(replaying, { path: "1-projects/context-lc.md", scope: "team" }),
+        duplicatePath(replaying, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
       )).code,
     ).toBe("LISTING_INCOMPLETE");
 
@@ -4053,7 +4283,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
       (await capture(() =>
         deletePath(replaying, {
           path: "1-projects/context-lc.md",
-          scope: "team",
+          clearance: clearanceOf("team"),
           confirmation: DELETE_CONFIRMATION,
         }),
       )).code,
@@ -4064,7 +4294,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     const store = bucket();
     await shareProjects(store);
 
-    const listing = await listFolder(stalling(store), { path: "1-projects", scope: "team" });
+    const listing = await listFolder(stalling(store), { path: "1-projects", clearance: clearanceOf("team") });
 
     // A floor is never printed as a total — the rule the note census follows.
     expect(listing.truncated).toBe(true);
@@ -4103,10 +4333,10 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     };
 
     const big = await capture(() =>
-      duplicatePath(lopsided, { path: "2-areas/big/x.md", scope: "team" }),
+      duplicatePath(lopsided, { path: "2-areas/big/x.md", clearance: clearanceOf("team") }),
     );
     const small = await capture(() =>
-      duplicatePath(lopsided, { path: "2-areas/small/x.md", scope: "team" }),
+      duplicatePath(lopsided, { path: "2-areas/small/x.md", clearance: clearanceOf("team") }),
     );
 
     expect(big.code).toBe("FILE_NOT_FOUND");
@@ -4129,9 +4359,9 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
       [".history/1-projects/context-lc.md.old.md", "private"],
       [".history/1-projects/context-lc.md.old.md", "team"],
     ] as const) {
-      const viaDuplicate = await capture(() => duplicatePath(store, { path, scope }));
+      const viaDuplicate = await capture(() => duplicatePath(store, { path, clearance: clearanceOf(scope) }));
       const viaCopy = await capture(() =>
-        copyPath(store, { from: path, to: "1-projects/anywhere.md", scope }),
+        copyPath(store, { from: path, to: "1-projects/anywhere.md", clearance: clearanceOf(scope) }),
       );
       expect(errorShape(viaDuplicate)).toBe(errorShape(viaCopy));
     }
@@ -4141,7 +4371,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     const store = bucket();
     store.seed(PRIVACY_KEY, "# broken\n");
 
-    const result = await resetPrivacyManifest(stalling(store), { scope: "private", now: NOW });
+    const result = await resetPrivacyManifest(stalling(store), { clearance: clearanceOf("private"), now: NOW });
 
     // The folders it did see still get their `private` line — a folder it
     // missed inherits `default_visibility: private`, so the repair still fails
@@ -4171,7 +4401,7 @@ describe("three guards that no test was holding", () => {
       movePath(store, {
         from: "2-areas/health.md",
         to: "1-projects/leaked.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -4179,7 +4409,7 @@ describe("three guards that no test was holding", () => {
       movePath(store, {
         from: "2-areas/never-existed.md",
         to: "1-projects/leaked.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
         now: NOW,
       }),
     );
@@ -4199,13 +4429,13 @@ describe("three guards that no test was holding", () => {
     await shareProjects(store);
 
     const refusal = await capture(() =>
-      copyPath(store, { from: "2-areas/health.md", to: "1-projects/leaked.md", scope: "team" }),
+      copyPath(store, { from: "2-areas/health.md", to: "1-projects/leaked.md", clearance: clearanceOf("team") }),
     );
     const absent = await capture(() =>
       copyPath(store, {
         from: "2-areas/never-existed.md",
         to: "1-projects/leaked.md",
-        scope: "team",
+        clearance: clearanceOf("team"),
       }),
     );
 
@@ -4213,7 +4443,7 @@ describe("three guards that no test was holding", () => {
     expect(errorShape(refusal)).toBe(errorShape(absent));
     expect(store.snapshot()["1-projects/leaked.md"]).toBeUndefined();
     expect(
-      (await capture(() => readFile(store, { path: "1-projects/leaked.md", scope: "team" }))).code,
+      (await capture(() => readFile(store, { path: "1-projects/leaked.md", clearance: clearanceOf("team") }))).code,
     ).toBe("FILE_NOT_FOUND");
   });
 
@@ -4229,14 +4459,14 @@ describe("three guards that no test was holding", () => {
     await setVisibility(store, {
       path: "1-projects/hr/comp.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const refusal = await capture(() =>
-      copyPath(store, { from: "1-projects/hr", to: "1-projects/hr-copy", scope: "team" }),
+      copyPath(store, { from: "1-projects/hr", to: "1-projects/hr-copy", clearance: clearanceOf("team") }),
     );
     const absent = await capture(() =>
-      copyPath(store, { from: "1-projects/nothing", to: "1-projects/hr-copy", scope: "team" }),
+      copyPath(store, { from: "1-projects/nothing", to: "1-projects/hr-copy", clearance: clearanceOf("team") }),
     );
 
     expect(refusal.code).toBe("FILE_NOT_FOUND");
@@ -4268,18 +4498,18 @@ describe("a rule no survivor needs, told truthfully", () => {
     await setFolderVisibility(store, {
       path: "2-areas/mixed",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setFolderVisibility(store, {
       path: "2-areas/mixed/hr",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     await movePath(store, {
       from: "2-areas/mixed",
       to: "1-projects/renamed",
-      scope: "team",
+      clearance: clearanceOf("team"),
       now: NOW,
     });
 
@@ -4290,7 +4520,7 @@ describe("a rule no survivor needs, told truthfully", () => {
     // `rulesSurvivorsRestOn` does, and why it retains a rule only when removing
     // it would change what the survivor resolves to.
     expect(
-      (await capture(() => readFile(store, { path: "2-areas/mixed/hr/secret.md", scope: "team" })))
+      (await capture(() => readFile(store, { path: "2-areas/mixed/hr/secret.md", clearance: clearanceOf("team") })))
         .code,
     ).toBe("FILE_NOT_FOUND");
     // The rule no survivor rests on does not.
@@ -4300,11 +4530,11 @@ describe("a rule no survivor needs, told truthfully", () => {
     await writeFile(store, {
       path: "2-areas/mixed/afterwards.md",
       text: "# Written later\n",
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(
-      (await capture(() => readFile(store, { path: "2-areas/mixed/afterwards.md", scope: "team" })))
+      (await capture(() => readFile(store, { path: "2-areas/mixed/afterwards.md", clearance: clearanceOf("team") })))
         .code,
     ).toBe("FILE_NOT_FOUND");
   });
@@ -4344,13 +4574,13 @@ describe("a set reports the manifest's answer", () => {
     const result = await setVisibility(store, {
       path: "1-projects/Pay.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     // The request said team; the manifest still narrows it through pay.md.
     expect(result.visibility).toBe("private");
     // …and it really is unreadable at team scope, so the report is the truth.
     const refused = await capture(() =>
-      readFile(store, { path: "1-projects/Pay.md", scope: "team" }),
+      readFile(store, { path: "1-projects/Pay.md", clearance: clearanceOf("team") }),
     );
     expect(refused.code).toBe("FILE_NOT_FOUND");
   });
@@ -4361,7 +4591,7 @@ describe("a set reports the manifest's answer", () => {
     const result = await setVisibility(store, {
       path: "1-projects/pay.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(result.visibility).toBe("private");
     // These two are what the request cannot supply: they come from the rules.
@@ -4406,7 +4636,7 @@ describe("an encrypted note", () => {
     const store = bucket();
     store.seed("1-projects/secret.md", ENVELOPE);
 
-    const file = await readFile(store, { path: "1-projects/secret.md", scope: "private" });
+    const file = await readFile(store, { path: "1-projects/secret.md", clearance: clearanceOf("private") });
     expect(file.encrypted).toBe(true);
     // The older console never heard of `encrypted`. It honours `readOnly`, which
     // is why the protection rides on the field that already existed and the new
@@ -4420,7 +4650,7 @@ describe("an encrypted note", () => {
 
   test("an ordinary note is not locked, so the flag is not always true", async () => {
     const store = bucket();
-    const file = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const file = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     expect(file.encrypted).toBe(false);
     expect(file.readOnly).toBe(false);
   });
@@ -4428,14 +4658,14 @@ describe("an encrypted note", () => {
   test("cannot be overwritten through this path, even with the right etag", async () => {
     const store = bucket();
     store.seed("1-projects/secret.md", ENVELOPE);
-    const file = await readFile(store, { path: "1-projects/secret.md", scope: "private" });
+    const file = await readFile(store, { path: "1-projects/secret.md", clearance: clearanceOf("private") });
 
     const refused = await capture(() =>
       writeFile(store, {
         path: "1-projects/secret.md",
         text: "# I am plaintext now\n",
         expectedEtag: file.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4457,7 +4687,7 @@ describe("an encrypted note", () => {
         path: "1-projects/secret.md",
         text: "# I am plaintext now\n",
         expectedEtag: "an-etag-that-was-never-issued",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4474,7 +4704,7 @@ describe("an encrypted note", () => {
       writeFile(store, {
         path: "1-projects/broken.md",
         text: "# replaced\n",
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4489,7 +4719,7 @@ describe("an encrypted note", () => {
     );
     const file = await readFile(store, {
       path: "1-projects/about-encryption.md",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(file.encrypted).toBe(false);
     // And it saves, which is the point: a rule that read the body would let
@@ -4499,7 +4729,7 @@ describe("an encrypted note", () => {
       path: "1-projects/about-encryption.md",
       text: "# rewritten\n",
       expectedEtag: file.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(written.path).toBe("1-projects/about-encryption.md");
@@ -4510,9 +4740,9 @@ describe("an encrypted note", () => {
     await shareProjects(store);
     store.seed("2-areas/vault.md", ENVELOPE);
 
-    const hidden = await capture(() => readFile(store, { path: "2-areas/vault.md", scope: "team" }));
+    const hidden = await capture(() => readFile(store, { path: "2-areas/vault.md", clearance: clearanceOf("team") }));
     const missing = await capture(() =>
-      readFile(store, { path: "2-areas/no-such-note.md", scope: "team" }),
+      readFile(store, { path: "2-areas/no-such-note.md", clearance: clearanceOf("team") }),
     );
     // Byte-for-byte, in the style of `isolation.test.ts`: encrypting a note must
     // add no way to tell it apart from a path that never existed.
@@ -4588,14 +4818,14 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const after = passphraseNote([{ id: "p1" }], { iv: "QQQQQQQQQQQQQQQQ", ct: "ZZZZ" });
     const written = await writeFile(store, {
       path: "1-projects/locked.md",
       text: after,
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(written.path).toBe("1-projects/locked.md");
@@ -4606,7 +4836,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     // Same recipient `{kind, id}`, different `wrapped` and `kdf.salt` — exactly
     // what `changePassphrase` in the console produces, and nothing about the
@@ -4616,7 +4846,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
       path: "1-projects/locked.md",
       text: after,
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(written.path).toBe("1-projects/locked.md");
@@ -4626,14 +4856,14 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
   test("plaintext is still refused, even though the door is now open for envelopes", async () => {
     const store = bucket();
     store.seed("1-projects/locked.md", passphraseNote([{ id: "p1" }]));
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const refused = await capture(() =>
       writeFile(store, {
         path: "1-projects/locked.md",
         text: "# I decrypted this myself\n",
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4645,14 +4875,14 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const refused = await capture(() =>
       writeFile(store, {
         path: "1-projects/locked.md",
         text: passphraseNote([{ id: "p2" }]),
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4664,14 +4894,14 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const refused = await capture(() =>
       writeFile(store, {
         path: "1-projects/locked.md",
         text: passphraseNote([{ id: "p1" }, { kind: "workspace", id: "k1" }]),
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4683,7 +4913,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const brokenReplacement = [
       "---",
@@ -4700,7 +4930,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
         path: "1-projects/locked.md",
         text: brokenReplacement,
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4717,7 +4947,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
       writeFile(store, {
         path: "1-projects/broken.md",
         text: passphraseNote([{ id: "p1" }]),
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4743,7 +4973,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const smuggled = `${before}\nA co-editor without the passphrase put this here.\n`;
     const refused = await capture(() =>
@@ -4751,7 +4981,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
         path: "1-projects/locked.md",
         text: smuggled,
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4763,7 +4993,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const smuggled = before.replace(
       "> [!NOTE] This note is encrypted.",
@@ -4774,7 +5004,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
         path: "1-projects/locked.md",
         text: smuggled,
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4786,7 +5016,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const smuggled = before.replace(
       "context_encryption: v1",
@@ -4797,7 +5027,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
         path: "1-projects/locked.md",
         text: smuggled,
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4822,14 +5052,14 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const refused = await capture(() =>
       writeFile(store, {
         path: "1-projects/locked.md",
         text: `${before}\n\`\`\`context-encrypted\nA co-editor put this here.\n\`\`\`\n`,
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4841,7 +5071,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     // The envelope JSON appears twice: once inside the frontmatter, where
     // `parseEnvelopeRecipients` finds it first, and once where it belongs. A
@@ -4865,7 +5095,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
         path: "1-projects/locked.md",
         text: smuggled,
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4877,7 +5107,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     // No legitimate client produces this — `JSON.stringify` cannot emit a raw
     // newline — so the only writer of a blob like this is somebody typing it.
@@ -4893,7 +5123,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
         path: "1-projects/locked.md",
         text: smuggled,
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4905,14 +5135,14 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const refused = await capture(() =>
       writeFile(store, {
         path: "1-projects/locked.md",
         text: before.replace(/\n/g, "\r\n"),
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
         now: NOW,
       }),
     );
@@ -4951,14 +5181,14 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const somebodyElses = passphraseNote([{ id: "p1" }], { ct: "AnotherNotesCiphertext" });
     await writeFile(store, {
       path: "1-projects/locked.md",
       text: somebodyElses,
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(store.snapshot()["1-projects/locked.md"]).toBe(somebodyElses);
@@ -4969,7 +5199,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
     const older = passphraseNote([{ id: "p1" }], { ct: "OlderCiphertext" });
     const current = passphraseNote([{ id: "p1" }], { ct: "CurrentCiphertext" });
     store.seed("1-projects/locked.md", current);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     // With the *current* etag, deliberately: a replay is not a way around the
     // conflict check, it is an ordinary write of bytes the caller had a copy
@@ -4979,7 +5209,7 @@ describe("writeFile's widened door: an envelope may replace an envelope", () => 
       path: "1-projects/locked.md",
       text: older,
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(store.snapshot()["1-projects/locked.md"]).toBe(older);
@@ -4991,13 +5221,13 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const written = await removeNoteEncryption(store, {
       path: "1-projects/locked.md",
       text: "# no longer locked\n",
       expectedEtag: read.etag,
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(written.path).toBe("1-projects/locked.md");
     expect(store.snapshot()["1-projects/locked.md"]).toBe("# no longer locked\n");
@@ -5005,13 +5235,13 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
 
   test("refuses a note that was never encrypted", async () => {
     const store = bucket();
-    const read = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
     const refused = await capture(() =>
       removeNoteEncryption(store, {
         path: "1-projects/context-lc.md",
         text: "# still not locked\n",
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
       }),
     );
     expect(refused.code).toBe("NOTE_NOT_ENCRYPTED");
@@ -5025,7 +5255,7 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
       removeNoteEncryption(store, {
         path: "1-projects/locked.md",
         text: "# no longer locked\n",
-        scope: "private",
+        clearance: clearanceOf("private"),
       }),
     );
     expect(refused.code).toBe("CONFLICT");
@@ -5041,7 +5271,7 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
         path: "1-projects/locked.md",
         text: "# no longer locked\n",
         expectedEtag: "an-etag-that-was-never-issued",
-        scope: "private",
+        clearance: clearanceOf("private"),
       }),
     );
     expect(refused.code).toBe("CONFLICT");
@@ -5063,7 +5293,7 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
     const store = bucket();
     const before = passphraseNote([{ id: "p1" }]);
     store.seed("1-projects/locked.md", before);
-    const read = await readFile(store, { path: "1-projects/locked.md", scope: "private" });
+    const read = await readFile(store, { path: "1-projects/locked.md", clearance: clearanceOf("private") });
 
     const refused = await capture(() =>
       removeNoteEncryption(store, {
@@ -5072,7 +5302,7 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
         // its own, submitted here instead to prove this door refuses it too.
         text: passphraseNote([{ kind: "workspace", id: "k1" }]),
         expectedEtag: read.etag,
-        scope: "private",
+        clearance: clearanceOf("private"),
       }),
     );
     expect(refused.code).toBe("NOTE_ENCRYPTED");
@@ -5088,7 +5318,7 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
         path: "2-areas/vault.md",
         text: "# now plaintext\n",
         expectedEtag: "whatever",
-        scope: "team",
+        clearance: clearanceOf("team"),
       }),
     );
     const missing = await capture(() =>
@@ -5096,9 +5326,341 @@ describe("removeNoteEncryption: the one door that writes plaintext over an encry
         path: "2-areas/no-such-note.md",
         text: "# now plaintext\n",
         expectedEtag: "whatever",
-        scope: "team",
+        clearance: clearanceOf("team"),
       }),
     );
     expect(errorShape(hidden)).toBe(errorShape(missing));
+  });
+});
+
+/**
+ * Renaming a folder must not publish what the arriving one held back.
+ *
+ * `oneRulePerPrefix` resolves the collision a folder rename creates when both
+ * the source and the destination already carry a rule for the same subfolder.
+ * Its docblock says the collision "is resolved in the only direction that
+ * cannot leak", and the test it was written with was
+ * `existing.vis === "team" && rule.vis === "private"` — which WAS that
+ * direction while there were two values, and stopped being it the day a rule
+ * could name a group. Nothing in that test narrows `team` to a group.
+ *
+ * Found by an adversarial review of the change that introduced group rules,
+ * not by this suite, which is why it is pinned in the shape the review used:
+ * the natural alphabetical order `renderPrivacyRulesBlock` emits, no
+ * hand-editing beyond the group rule itself.
+ */
+describe("a folder rename keeps the narrower of two colliding rules", () => {
+  function manifestWith(lines: string[]): string {
+    return replacePrivacyRulesBlock(
+      renderPrivacyManifest("para"),
+      lines.map((line) => {
+        const [prefix, vis] = line.split(": ");
+        return { prefix, vis: vis as Visibility };
+      }),
+      new Map(),
+    );
+  }
+
+  test("a group rule arriving over a team one survives the move", async () => {
+    const store = bucket();
+    store.seed(
+      PRIVACY_KEY,
+      manifestWith([
+        "1-projects/dst: private",
+        "1-projects/dst/hr: team",
+        "1-projects/src: private",
+        "1-projects/src/hr: @supa-leads",
+      ]),
+    );
+    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+
+    await movePath(store, {
+      from: "1-projects/src",
+      to: "1-projects/dst",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+
+    const manifest = store.snapshot()[PRIVACY_KEY];
+    expect(manifest).toContain("1-projects/dst/hr: @supa-leads");
+    expect(manifest).not.toContain("1-projects/dst/hr: team");
+
+    // The consequence, stated as the thing that actually matters: a team
+    // connection still cannot read what moved.
+    const leak = await capture(() =>
+      readFile(store, { path: "1-projects/dst/hr/comp.md", clearance: clearanceOf("team") }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("two different groups colliding resolve to private, not to whichever came first", async () => {
+    const store = bucket();
+    store.seed(
+      PRIVACY_KEY,
+      manifestWith([
+        "1-projects/dst: private",
+        "1-projects/dst/hr: @supa-owners",
+        "1-projects/src: private",
+        "1-projects/src/hr: @supa-leads",
+      ]),
+    );
+    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+
+    await movePath(store, {
+      from: "1-projects/src",
+      to: "1-projects/dst",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+
+    const manifest = store.snapshot()[PRIVACY_KEY];
+    expect(manifest).toContain("1-projects/dst/hr: private");
+    expect(manifest).not.toContain("@supa-owners");
+    expect(manifest).not.toContain("@supa-leads");
+  });
+
+  test("the two tiers still collide exactly as they did", async () => {
+    const store = bucket();
+    store.seed(
+      PRIVACY_KEY,
+      manifestWith([
+        "1-projects/dst: private",
+        "1-projects/dst/hr: team",
+        "1-projects/src: private",
+        "1-projects/src/hr: private",
+      ]),
+    );
+    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+
+    await movePath(store, {
+      from: "1-projects/src",
+      to: "1-projects/dst",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+
+    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/dst/hr: private");
+  });
+});
+
+/**
+ * A group value reaching `privacy.md` through the ordinary writer.
+ *
+ * `setNoteGroup` in `functions/files.ts` proves the NAME belongs to this
+ * workspace and then dispatches here; this is the other half — that the writer
+ * treats a group like any other narrowing, which it has since #418 taught
+ * `Visibility` a third case. Beside the writer because this is where there is
+ * a store to write to.
+ */
+describe("a note can be pointed at a group", () => {
+  test("the rule lands in the manifest as an exception", async () => {
+    const store = bucket();
+    await shareProjects(store);
+
+    const result = await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "@supa-leads" as Visibility,
+      clearance: clearanceOf("private"),
+    });
+
+    expect(result.visibility).toBe("@supa-leads");
+    // An exception, because the folder is `team` and this is not.
+    expect(result.exception).toBe(true);
+    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/context-lc.md: @supa-leads");
+  });
+
+  test("and a team connection cannot read it afterwards", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    // Non-vacuity: readable by the team BEFORE the rule lands.
+    expect(
+      (await readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") })).visibility,
+    ).toBe("team");
+
+    await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "@supa-leads" as Visibility,
+      clearance: clearanceOf("private"),
+    });
+
+    const refused = await capture(() =>
+      readFile(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("pointing it back at its folder's default removes the exception", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "@supa-leads" as Visibility,
+      clearance: clearanceOf("private"),
+    });
+    const back = await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "team",
+      clearance: clearanceOf("private"),
+    });
+    expect(back.exception).toBe(false);
+    expect(store.snapshot()[PRIVACY_KEY]).not.toContain("@supa-leads");
+  });
+});
+
+/**
+ * A NOTE PATH MAY NOT WRITE ITS OWN PRIVACY RULES — THROUGH THIS DOOR EITHER.
+ *
+ * `#422` fixed exactly this in the gateway: `privacy.md` is line-oriented and
+ * `renderPrivacyRulesBlock` interpolates a path into it unescaped, so a path
+ * carrying a newline writes extra rules — publishing a note the call never
+ * named, while the call declared `private` so no confirmation was asked for.
+ *
+ * The control plane renders the same format from the same shaped code and was
+ * not changed. Its `writableAsRule` — which the gateway's new comment cites as
+ * the technique it is copying — guards `rootFolders`, the manifest *repair*
+ * path, and is not reached by either visibility setter. `normalizePath` here
+ * strips slashes and dot segments and `.trim()`s the ends; an interior control
+ * character survives all of it.
+ *
+ * The hostile input is a **key in the bucket**, not the owner's typing. The
+ * repo says so itself, in `writableAsRule`'s own docstring: *"A newline. A
+ * legal S3 key character, and a name carrying one appends whatever it likes to
+ * `folder_defaults`. The useful thing to append is `: team`."* Obsidian sync,
+ * rclone and the provider console all write keys directly. The owner then
+ * clicks that folder in the console and sets it private — and publishes
+ * something else.
+ */
+describe("a path cannot inject rules into privacy.md", () => {
+  async function bucket(): Promise<MemoryStore & FileStore> {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    store.seed("2-areas/hr/salaries.md", "# Salaries\n");
+    store.seed("1-projects/README.md", "# Projects\n");
+    return store;
+  }
+
+  function teamVisible(store: MemoryStore, path: string): boolean {
+    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]!);
+    return canSee(path, "team", parsed.rules, parsed.overrides);
+  }
+
+  /**
+   * MEASURED BEFORE THE FIX: this published `2-areas/hr` to the whole team.
+   *
+   * The injected rule is DEEPER than the real one, so longest-prefix hands it
+   * the answer outright. A shallower injection is caught by nothing — it just
+   * loses the tie — which is ordering doing a guard's job by accident.
+   */
+  test("a folder name carrying a newline does not publish a folder it never named", async () => {
+    const store = await bucket();
+    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
+
+    await expect(
+      setFolderVisibility(store, {
+        // The victim comes first and carries the value; the tail keeps the
+        // second rendered line well formed, so the manifest stays parseable
+        // and the injection is a publish rather than a broken file.
+        path: "2-areas/hr: team\n  1-projects/junk",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      }),
+    ).rejects.toThrow(FileOpError);
+
+    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
+  });
+
+  /**
+   * MEASURED BEFORE THE FIX: `note_overrides` ended up holding the victim
+   * twice — `private`, then the injected `team` — and the later line won.
+   *
+   * The call declares `private`, which is why this matters: the console asks
+   * for a publish confirmation on a widening change and this is not one.
+   */
+  test("a note path carrying a newline does not publish a note it never named", async () => {
+    const store = await bucket();
+    await setFolderVisibility(store, {
+      path: "2-areas",
+      visibility: "team",
+      clearance: clearanceOf("private"),
+    });
+    await setVisibility(store, {
+      path: "2-areas/hr/salaries.md",
+      visibility: "private",
+      clearance: clearanceOf("private"),
+    });
+    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
+
+    await expect(
+      setVisibility(store, {
+        path: "2-areas/hr/salaries.md: team\n  1-projects/junk.md",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      }),
+    ).rejects.toThrow(FileOpError);
+
+    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(false);
+  });
+
+  /**
+   * THE SECOND LAYER, WITH NO CONTROL CHARACTER IN SIGHT.
+   *
+   * `2-areas/pay: team` is a legal S3 key. Rendered as `  <path>: private` the
+   * parser's `[^:]+?` stops at the first colon, so the rule names
+   * `2-areas/pay` — a different note — and reads back fine. A character
+   * blacklist cannot see this; rendering and re-parsing can.
+   */
+  test("a path the rule grammar would read as a different path is refused", async () => {
+    const store = await bucket();
+    await expect(
+      setVisibility(store, {
+        path: "2-areas/pay: team.md",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      }),
+    ).rejects.toThrow(FileOpError);
+    await expect(
+      setFolderVisibility(store, {
+        path: "2-areas/pay: team",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      }),
+    ).rejects.toThrow(FileOpError);
+  });
+
+  /**
+   * THE CONTROL-CHARACTER LAYER, ON ITS OWN TERMS — AND WHAT IT IS NOT.
+   *
+   * Measured: deleting that refusal leaves every other test here green,
+   * because the round trip already catches both newline payloads. So it is
+   * **not** a second independent guard against injection, and claiming it was
+   * would be a guard nobody has checked wearing a second guard's evidence.
+   *
+   * What it is: the thing that keeps the two engines refusing the same set.
+   * `#422` added exactly this rejection to the gateway, and two engines
+   * writing one format diverging on what they accept is how a note becomes
+   * settable through one door and not the other. A tab round-trips through the
+   * parser perfectly well, so only this layer refuses it — which is what makes
+   * it measurable at all.
+   */
+  test("a control character is refused even when it would round-trip", async () => {
+    const store = await bucket();
+    await expect(
+      setVisibility(store, {
+        path: "2-areas/hr/sal\u0009aries.md",
+        visibility: "team",
+        clearance: clearanceOf("private"),
+      }),
+    ).rejects.toThrow(FileOpError);
+  });
+
+  /** Non-vacuity: an ordinary path still goes through both layers. */
+  test("an ordinary path is still writable", async () => {
+    const store = await bucket();
+    await setFolderVisibility(store, {
+      path: "2-areas/hr",
+      visibility: "team",
+      clearance: clearanceOf("private"),
+    });
+    expect(teamVisible(store, "2-areas/hr/salaries.md")).toBe(true);
   });
 });

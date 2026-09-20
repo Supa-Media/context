@@ -118,6 +118,24 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
   return useMemo(
     () => ({
       canEdit: false,
+      /*
+        The landing page has no Convex identity, so a form drawn in the demo says
+        so instead of offering a button that fails. "An absent capability is
+        reported, never faked."
+      */
+      submitForm: async () => ({ ok: false, message: "Sign in to send a response." }),
+      /*
+        No bucket behind this one, so there are no bytes to hand over and no
+        paste to accept. `null` and a sentence rather than a pretend success:
+        "an absent capability is reported, never faked".
+      */
+      loadImage: async () => null,
+      say: () => {},
+      storeImage: async () => ({ error: "Sign in to add an image." }),
+      readFormResponses: async () => ({ ok: false, message: "Sign in to read responses." }),
+      voteForm: async () => ({ ok: false, message: "Sign in to vote." }),
+      updateFormResponse: async () => ({ ok: false, message: "Sign in to edit responses." }),
+      retractFormResponse: async () => ({ ok: false, message: "Sign in to delete responses." }),
       readOnlyReason: tree.readOnlyReason,
       /*
         The demo tree is built synchronously from literals, so this browser is
@@ -133,6 +151,13 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       toggleFolder,
       collapseAll,
       selectedPath,
+      /*
+        Nothing reads it here: the demo has no URL to address and no console
+        layout above it, so there is no second history to keep in step. Fixed
+        rather than counted, so the stub cannot start looking like a source of
+        navigations it does not have.
+      */
+      navigations: 0,
       // Nothing is ever in flight here: the demo's notes are in the bundle.
       opening: null,
       select,
@@ -148,9 +173,19 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       editor,
       setDraft: noop,
       save: noop,
+      // The demo console has no gateway, so no room, so nothing outside it
+      // ever writes the note it is showing.
+      onExternalWrite: noop,
+      // No gateway, so no room to tell, so nothing ever subscribes.
+      onSaved: () => () => {},
       // A picture of the console, with no bucket behind it: there is never
       // anything pending, so the honest answer is "nothing was written".
       flushAutosave: () => false,
+      // No bucket and no offline layer either, so there is never a local
+      // draft, a queued write or a cached body to drop — the demo's own
+      // `select` note above says the same about a draft to guard.
+      discardLocalCopies: noop,
+      encryptedElsewhere: noop,
       useTheirs: noop,
       keepMine: noop,
       // No bucket, so no second writer and never a conflict to resolve.
@@ -170,13 +205,29 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       paste: noop,
       copyTo: noop,
       createNote: noop,
+      createDrawing: noop,
       createFolder: noop,
+      createUntitled: noop,
       rename: noop,
       move: noop,
+      /*
+        No other context to move into, and that is the truth on the landing
+        page rather than a stub: the demo console is one literal bucket with
+        nobody signed in. An empty list is what keeps "Move to…" showing only
+        the folders it can actually reach — see `MovePicker`.
+      */
+      moveDestinations: [],
+      destinationFolders: async () => ({ folders: [], truncated: false }),
+      moveToContext: noop,
+      contextMoves: [],
+      resumeContextMove: noop,
+      dismissContextMove: noop,
       duplicate: noop,
       archive: noop,
       destroy: noop,
       setVisibility: noop,
+      // The demo presses nothing: sharing with a group writes a real rule.
+      shareWithGroup: () => {},
       setScope: noop,
       openLinkPaths: new Set<string>(),
       // The demo tree is built synchronously and whole — every note in it is
@@ -194,6 +245,13 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       shares: undefined,
       share: noop,
       revokeShare: noop,
+      // The landing demo has no server. `ShareDialog` draws the short-link
+      // block only where a real one is wired, so this is never reached — and
+      // it answers `false` rather than `true` so that a future caller that
+      // did reach it would show the field keeping what was typed, which is
+      // the honest outcome of a claim that did not happen.
+      setShareSlug: async () => false,
+      setShareCollecting: async () => false,
       /*
         The landing page's console has no bucket and no clipboard promise to
         make. `false` is the honest answer and the one the dialog reads: it

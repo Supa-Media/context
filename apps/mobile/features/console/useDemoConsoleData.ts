@@ -1,9 +1,19 @@
 import { useCallback, useState } from "react";
-import { DEMO_GRAPH, DEMO_INGESTION, DEMO_STATS, MCP_ENDPOINT } from "./placeholderData";
+import {
+  DEMO_ACTIVITY,
+  DEMO_GRAPH,
+  DEMO_INGESTION,
+  DEMO_STATS,
+  MCP_ENDPOINT,
+} from "./placeholderData";
 import { useDemoFileBrowser } from "./files/useDemoFileBrowser";
 import { viewerIdentity } from "./identity";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
 import type { ConsoleInvitation, ConsoleMember } from "./members/members";
+import type { ConsoleAuditEvent } from "./advanced/advanced";
+import { REGISTRY_PAGE } from "./plugins/lifecycle";
+import type { ConsolePlugin } from "./plugins/plugins";
+import type { ConsoleShare } from "./shares/shares";
 import type {
   ConsoleClient,
   ConsoleContext,
@@ -27,6 +37,182 @@ import type {
  * their ingestion rules all change with the selection — see
  * `placeholderData.ts`.
  */
+
+/**
+ * Five plugins, one per verdict, chosen because each is the clearest case of
+ * its own kind rather than because five is a tidy number.
+ *
+ * Highlightr is the reference `runs` plugin and the one the native-plugin
+ * milestone is built around. Readwise names hosts, which is the consent
+ * screen's whole content. Excalidraw and Obsidian Git both carry curated notes
+ * in `capabilities.js`, and they are the two halves of "nothing is stranded" —
+ * one whose format Context reads, one whose job Context does differently.
+ * Dataview is `unknown` for the reason that matters most: a bundle past the
+ * read cap, where a partial read reporting no blockers would otherwise look
+ * exactly like a clean one.
+ */
+/**
+ * The Context plugins, as the gateway's catalogue declares them.
+ *
+ * Copied rather than imported: the landing page is a static demo and must not
+ * pull the gateway's module into a web bundle for five rows of copy. Copied
+ * *faithfully*, though — these ids, names and consequences are the real ones,
+ * so the demo cannot show a product that does not exist.
+ *
+ * That last sentence was a comment until `demoContextPlugins.test.ts`, which
+ * imports the catalogue (a test may, a bundle may not) and compares every
+ * field a visitor reads. It is exported for that test and for nothing else.
+ */
+export const DEMO_CONTEXT_PLUGINS = [
+  {
+    id: "context-forms",
+    name: "Markdown forms",
+    description:
+      "A ```form block in a note collects answers into a sister note — bug reports, requests, sign-ups, votes — from people who cannot write notes.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["create_form", "submit_form", "update_submission", "retract_submission", "vote_form"],
+    surfaces: ["Notes", "Editor"],
+    offMeans:
+      "No new forms and no new answers: the five form tools disappear from connected clients, and the console refuses a submission too. Every form block and every response file is left exactly as it is, and turning it back on takes answers again.",
+  },
+  {
+    id: "context-images",
+    name: "Images",
+    description:
+      "read_image: a connected client opening a picture stored with your notes, in .context/assets/images/.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["read_image"],
+    surfaces: ["Notes"],
+    offMeans:
+      "read_image disappears from connected clients, so an AI client can no longer open a picture from this context. Every image stays exactly where it is, still shows in your notes, and still renders in Obsidian.",
+  },
+  {
+    id: "context-meetings",
+    name: "Meetings",
+    description: "Recorded meetings, their transcripts and their summaries, read as notes.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["list_meetings", "read_meeting"],
+    surfaces: ["Console"],
+    offMeans:
+      "The two meeting tools disappear from connected clients, so an AI client can no longer list or read them. Nothing stops being recorded, no transcript is deleted, and the console still shows them.",
+  },
+  {
+    id: "context-chats",
+    name: "Chat history",
+    description: "A day of a connected chat channel, read as a note.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: false,
+    defaultEnabled: true,
+    tools: ["list_channel_days", "read_channel_day"],
+    surfaces: ["Console"],
+    offMeans:
+      "The two channel tools disappear from connected clients, so an AI client can no longer read a day of a channel. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
+  },
+  {
+    id: "context-contacts",
+    name: "Contacts",
+    description:
+      "One page per person you correspond with, in 0-inbox/contacts — their addresses, your own notes about them, and links into the days you spoke.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["list_contacts", "read_contact"],
+    surfaces: ["Console", "Notes"],
+    offMeans:
+      "The two contact tools disappear from connected clients, so an AI client can no longer list the people you correspond with or read one of their pages. Every contact page stays exactly where it is, still readable as an ordinary note and still shown in the console; the connected accounts that build them keep running, so turn one off under Email or Chats if that is what you meant.",
+  },
+];
+
+const DEMO_PLUGINS: ConsolePlugin[] = [
+  {
+    id: "highlightr-plugin",
+    source: "obsidian",
+    bundleFingerprint: "fp-highlightr-1-2-2",
+    name: "Highlightr",
+    version: "1.2.2",
+    author: "Chetachi",
+    verdict: "runs",
+    evidence: [],
+    limitations: [],
+    notes: [],
+    bytesRead: 84_000,
+    bytesTotal: 84_000,
+  },
+  {
+    id: "readwise-official",
+    source: "obsidian",
+    bundleFingerprint: "fp-readwise-2-1-1",
+    name: "Readwise Official",
+    version: "2.1.1",
+    author: "Readwise",
+    verdict: "needs-approval",
+    evidence: [{ id: "requestUrl", reason: "uses Obsidian's requestUrl to call a server" }],
+    hosts: ["readwise.io", "api.readwise.io"],
+    limitations: [],
+    notes: [],
+  },
+  {
+    id: "obsidian-excalidraw-plugin",
+    source: "obsidian",
+    bundleFingerprint: "fp-excalidraw-2-4-2",
+    name: "Excalidraw",
+    version: "2.4.2",
+    author: "Zsolt Viczián",
+    verdict: "files-only",
+    evidence: [],
+    limitations: [],
+    notes: ["Your .excalidraw.md files stay intact, versioned and searchable here."],
+  },
+  {
+    id: "obsidian-git",
+    source: "obsidian",
+    bundleFingerprint: "fp-git-2-24-1",
+    name: "Obsidian Git",
+    version: "2.24.1",
+    author: "Vinzent",
+    verdict: "wont-run",
+    evidence: [
+      {
+        id: "child_process",
+        reason: "runs another program; there is no process to start in a browser tab",
+      },
+    ],
+    limitations: [],
+    notes: [
+      "Context keeps an audit trail of every write. For version history, turn on object versioning at your storage provider — that also captures what you edit in Obsidian directly.",
+    ],
+  },
+  {
+    id: "dataview",
+    source: "obsidian",
+    bundleFingerprint: null,
+    name: "Dataview",
+    version: "0.5.67",
+    author: "Michael Brenan",
+    verdict: "unknown",
+    evidence: [
+      {
+        id: "read-cap",
+        reason: "the bundle is larger than the check reads, so a clean result would describe only the part it reached",
+      },
+    ],
+    limitations: [],
+    notes: [],
+    bytesRead: 512_000,
+    bytesTotal: 1_800_000,
+  },
+];
 
 const DEMO_CONTEXTS: ConsoleContext[] = [
   { id: "seyi", slug: "seyi", displayName: "seyi", role: "owner", kind: "personal", status: "ok" },
@@ -100,7 +286,7 @@ const DEMO_STORAGE: Record<string, ConsoleStorage> = {
     connected: true,
     status: "connected",
     provider: "Cloudflare R2",
-    bucket: "brain",
+    bucket: "seyi-workspace",
     endpoint: "…r2.cloudflarestorage.com",
     region: "auto",
     accessKey: "a1b2…8f3c",
@@ -115,7 +301,7 @@ const DEMO_STORAGE: Record<string, ConsoleStorage> = {
     connected: true,
     status: "connected",
     provider: "Cloudflare R2",
-    bucket: "lk-brain",
+    bucket: "lk-workspace",
     endpoint: "…r2.cloudflarestorage.com",
     region: "auto",
     accessKey: "7d4e…1a09",
@@ -131,7 +317,7 @@ const DEMO_STORAGE: Record<string, ConsoleStorage> = {
     connected: false,
     status: "unverified",
     provider: "Amazon S3",
-    bucket: "public-worship-brain",
+    bucket: "public-worship-notes",
     endpoint: "s3.us-east-1.amazonaws.com",
     region: "us-east-1",
     accessKey: "AKIA…4Q2M",
@@ -161,6 +347,97 @@ const DEMO_MEMBERS: ConsoleMember[] = [
     isMe: false,
   },
 ];
+
+/**
+ * One live share per context — the "what have I shared" a real console draws
+ * from `listShares`. `lk` has none, on purpose: an empty list is the common
+ * case this panel has to look right for too.
+ */
+const DEMO_SHARES: Record<string, ConsoleShare[]> = {
+  seyi: [
+    {
+      shareId: "sh1",
+      token: "demo-share-token-1",
+      recipient: "@lk",
+      audience: "name",
+      entryPath: "1-projects/board-update.md",
+      titleInPreview: true,
+      previewTitle: "Board update",
+      createdBy: "m1",
+      createdAt: 0,
+    },
+    {
+      shareId: "sh2",
+      token: "demo-share-token-2",
+      recipient: "Anyone with the link",
+      audience: "anyone",
+      entryPath: "2-areas/hiring/offer-letter-template.md",
+      titleInPreview: false,
+      createdBy: "m1",
+      createdAt: 0,
+    },
+  ],
+  lk: [],
+  pw: [
+    {
+      shareId: "sh3",
+      token: "demo-share-token-3",
+      recipient: "Anyone with access",
+      audience: "members",
+      entryPath: "1-projects/roadmap.md",
+      titleInPreview: true,
+      previewTitle: "Roadmap",
+      createdBy: "m2",
+      createdAt: 0,
+    },
+  ],
+};
+
+/**
+ * A few rows of activity, dated relative to now for the same reason
+ * `demoInvitations` is — a fixed timestamp would read as older and older with
+ * every visit.
+ */
+function demoAuditEvents(contextId: string, now: number): ConsoleAuditEvent[] {
+  switch (contextId) {
+    case "seyi":
+      return [
+        {
+          eventId: "e1",
+          actorEmail: "seyi@example.com",
+          action: "file.write",
+          paths: ["1-projects/board-update.md"],
+          at: now - 4 * 60 * 1000,
+        },
+        {
+          eventId: "e2",
+          actorEmail: "seyi@example.com",
+          action: "share.created",
+          paths: ["1-projects/board-update.md"],
+          at: now - 2 * 60 * 60 * 1000,
+        },
+        {
+          eventId: "e3",
+          actorClientId: "Claude Desktop",
+          action: "file.write",
+          paths: ["0-inbox/meeting-notes.md"],
+          at: now - 24 * 60 * 60 * 1000,
+        },
+      ];
+    case "pw":
+      return [
+        {
+          eventId: "e4",
+          actorEmail: "lk@example.com",
+          action: "visibility.note",
+          paths: ["1-projects/roadmap.md"],
+          at: now - 6 * 60 * 60 * 1000,
+        },
+      ];
+    default:
+      return [];
+  }
+}
 
 /**
  * One outstanding invitation, dated relative to now.
@@ -216,6 +493,8 @@ export function useDemoConsoleData(): ConsoleData {
     // and Disconnect all act on a real credential, and a demo console must
     // never offer a control that pretends to act.
     storageActions: undefined,
+    googleConnections: [],
+    googleActions: undefined,
     endpoint: MCP_ENDPOINT,
     ingestionAddress: ingestionSettings?.address ?? `${selected?.slug ?? "you"}@context.lc`,
     ingestion: {
@@ -236,6 +515,33 @@ export function useDemoConsoleData(): ConsoleData {
       loading: false,
     },
     files,
+    /*
+      THE ACTIVITY VIEW, SO THE DEMO'S OWN `activity.md` OPENS AS A LIST.
+
+      The tree carries the file now (`placeholderData`), and without this the
+      landing page would open it in the text editor — a visitor's first sight
+      of the feature being a wall of `<!--ctx {…}-->`. `NoteEditor` draws the
+      list only where the console actually has the list, which is the honest
+      fallback everywhere else and the wrong one here.
+
+      **Deliberately nothing unread**: `seenAt` is now, so the foot of the tree
+      stays the note count and no row carries a dot. The indicator is a thing
+      that happens to a context somebody works in, and a marketing page that
+      opened with an unread badge would be nagging a visitor about somebody
+      else's workspace. The page itself is what this is for.
+
+      `markSeen` and `refresh` are no-ops for the same reason `revoke` and
+      `storageActions` are absent: nothing on this console may act.
+    */
+    activity: {
+      entries: DEMO_ACTIVITY,
+      seenAt: Date.now(),
+      unseen: 0,
+      unseenPaths: new Set<string>(),
+      loaded: true,
+      refresh: () => {},
+      markSeen: () => {},
+    },
     // Names, but no controls — `actions` absent exactly like `storageActions`
     // and the clients' `revoke`. A demo console must never offer a button that
     // pretends to act, and inviting somebody is the least reversible of them.
@@ -246,6 +552,113 @@ export function useDemoConsoleData(): ConsoleData {
       loading: false,
       failure: null,
     },
+    // Names, but no Revoke — `actions` absent exactly like `storageActions`
+    // and the clients' `revoke`. A demo console must never offer a button
+    // that pretends to act, and revoking somebody else's link is exactly that.
+    shares: {
+      shares: DEMO_SHARES[selectedContextId] ?? [],
+      actions: undefined,
+      loading: false,
+      failure: null,
+    },
+    /*
+      One group, so the landing page's console shows the thing rather than an
+      empty card — and one dangling name in it, because that is the state the
+      section exists to explain and the one a screenshot would otherwise never
+      catch. `actions` absent: the demo presses nothing.
+    */
+    groups: {
+      groups: [
+        {
+          groupId: "demo-group",
+          name: "supa-leads",
+          label: "leads",
+          createdAt: 0,
+          members: [
+            { userId: "demo-1", name: "seyi", live: true },
+            { userId: "demo-2", name: "kola", live: true },
+            { userId: "demo-3", name: "dayo", live: false },
+          ],
+        },
+      ],
+      actions: undefined,
+      loading: false,
+    },
+    // The trail is real data with nothing behind it, the same shape as every
+    // other demo card; the key export is absent for the same reason
+    // `storageActions` is — it hands somebody a credential and cannot be
+    // offered where nothing would really act on it.
+    advanced: {
+      moves: { jobs: [], loading: false, failure: null },
+      audit: {
+        events: demoAuditEvents(selectedContextId, Date.now()),
+        loading: false,
+        failure: null,
+      },
+      keyExport: undefined,
+    },
+    /*
+      The one place fixture plugin rows are allowed.
+
+      The live console answers `unavailable` rather than inventing an
+      inventory, because a sentence about somebody's own vault that nobody
+      checked is the failure this whole section is shaped to avoid. The landing
+      page's console is a product shot with no bucket behind it at all, so
+      there is no real answer to get wrong — and the screen is worth showing,
+      because "Context has already read your plugins and can tell you which of
+      them run here" is most of the pitch.
+
+      Every verdict, finding and note below is copied from
+      `apps/mcp/src/plugins/capabilities.js`, so the demo agrees with what the
+      gateway would actually say about these five.
+    */
+    plugins: {
+      state: "ready",
+      inventory: {
+        found: 5,
+        scanned: 5,
+        truncated: false,
+        checkedAt: "2026-09-12",
+        plugins: DEMO_PLUGINS,
+      },
+    },
+    /*
+      The five built-ins, drawn exactly as a live context would draw them —
+      copied from `apps/mcp/src/plugins/catalog.js`, so the landing page agrees
+      with what a real context is running. One is off, because a demo where
+      every switch reads the same way shows nothing about what the switches do.
+
+      No `actions`: the landing page has no bucket, so a switch there would be
+      a control that lies about having changed something. `canManage` is false
+      for the same reason, which is also the state a member sees.
+    */
+    contextPlugins: {
+      state: "ready",
+      canManage: false,
+      settingsError: null,
+      plugins: DEMO_CONTEXT_PLUGINS,
+    },
+    /*
+      The landing page has no bucket, so nothing was installed into one. That is
+      a real answer rather than a withheld one — `withheld` would draw "only an
+      owner can read this" on a page with no owner.
+    */
+    pluginInstalls: { state: "ready", installs: [], truncated: false, read: async () => {} },
+    /*
+      No grants, and no `actions` to make any — the same rule `storageActions`
+      and `shares` follow. The landing page's console has no bucket and no
+      account behind it, so an Approve there would be a button that lies about
+      having granted something.
+    */
+    pluginGrants: { grants: [], loading: false, egress: false },
+    // No `actions`, the same rule: the landing page has no bucket to install into.
+    pluginBrowse: { query: "", limit: REGISTRY_PAGE, searching: false, failure: null },
+    /*
+      Nothing is running on the landing page, and that is reported as an empty
+      list rather than as absent: the demo genuinely knows there is no runtime,
+      where a live console that has not answered yet does not.
+    */
+    pluginRuntime: { states: [], loading: false },
     loading: false,
     // Nothing here is fetched, so nothing here can fail: the landing page's
     // console is data, not a subscription.

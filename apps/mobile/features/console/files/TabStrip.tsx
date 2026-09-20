@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -11,13 +10,33 @@ import {
   type NativeSyntheticEvent,
   type ViewProps,
 } from "react-native";
-import { PressRow } from "../../design/components/Button";
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { radii } from "../../design/tokens";
+import { pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { Menu } from "../../design/components/Menu";
+import { describeBinding, type Command } from "../../design/keymap";
+import { isApplePlatform } from "../../design/applePlatform";
+import { joinGroups, type MenuItem } from "./menu";
 import { tabLabel, type Tab, type TabsState } from "./tabs";
+
+/**
+ * What a right-click on a tab offers — **its own id union**, not `MenuActionId`.
+ *
+ * This is what the `TODO(menu)` that used to sit on `TabMenu` was waiting for,
+ * and it is not the fix that TODO proposed. It suggested widening
+ * `MenuActionId` to fit three tab verbs; `MenuItem`'s own doc argues the
+ * opposite and is right: `Menu` is a *disclosure menu component* generic in its
+ * id, and `Explorer`'s dispatcher switches on every member of `MenuActionId`,
+ * so a `closeTab` in there is a case that dispatcher must go on not
+ * mishandling, forever, for a menu it never draws. The account menu already
+ * draws with this same component against a two-item union of its own.
+ *
+ * So the file menu answers "what can I do with this file?" and this answers
+ * "what can I do with this tab?", and neither has to know about the other.
+ */
+type TabMenuId = "close" | "closeOthers" | "closeToRight" | "reopen";
 
 /**
  * The tab strip: the pointer half of `tabs.ts`.
@@ -28,10 +47,13 @@ import { tabLabel, type Tab, type TabsState } from "./tabs";
  * that starts deciding *which* tab something happens to belongs in the reducer,
  * where it can be tested one action at a time.
  *
- * The mobile half is `TabSwitcher.tsx`, and it is a different component rather
- * than this one with a breakpoint in it. A strip and a sheet share no geometry,
- * no gesture and no affordance; the only thing they share is `TabsState`, which
- * is exactly the thing that was extracted so they could.
+ * **There is no mobile half any more.** `TabSwitcher.tsx` was a count button
+ * and a sheet at compact density, and nothing at that density could open a
+ * second tab — so the count read `1` for the life of the app and the sheet's ×
+ * closed a tab while leaving the note on screen. A phone gets `RecentSheet.tsx`
+ * over `history.ts` instead. Tabs are a pointer instrument now, which is what
+ * the gap in `menu.ts` had been quietly assuming all along: `openInNewTab` is
+ * offered to `platform === "web"` and to nothing else.
  *
  * Three behaviours here are copied from VS Code deliberately, because they are
  * the ones people already have in their hands:
@@ -62,6 +84,8 @@ export interface TabStripProps {
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
   onCloseOthers: (path: string) => void;
+  /** Close everything after this tab, keeping it and everything before it. */
+  onCloseToRight: (path: string) => void;
   onReopen: () => void;
 }
 
@@ -127,6 +151,54 @@ function mouseButtonProps(handlers: {
   } as unknown as ViewProps;
 }
 
+/**
+ * The tab menu, as data — the same shape `menu.ts` produces for a file, so the
+ * shared `Menu` can draw it.
+ *
+ * `others` and `toRight` are absent rather than inert when there is nothing for
+ * them to close, which is `menu.ts`'s rule and right here for the same reason:
+ * "Close others" on the only open tab is not a thing you are temporarily unable
+ * to do, it is a thing that does not apply. "Reopen closed" is the documented
+ * exception — see `MenuItem.disabled`.
+ */
+export function tabMenuItems(state: TabsState, path: string): MenuItem<TabMenuId>[] {
+  const at = state.tabs.findIndex((tab) => tab.path === path);
+  const apple = isApplePlatform();
+  return joinGroups<TabMenuId>([
+    [
+      {
+        id: "close",
+        label: "Close",
+        ...chord("closeTab", apple),
+      },
+      ...(state.tabs.length > 1 ? [{ id: "closeOthers" as const, label: "Close others" }] : []),
+      ...(at !== -1 && at < state.tabs.length - 1
+        ? [{ id: "closeToRight" as const, label: "Close to the right" }]
+        : []),
+    ],
+    [
+      {
+        id: "reopen",
+        label: "Reopen closed",
+        ...(state.closed.length > 0 ? {} : { disabled: true }),
+        ...chord("reopenTab", apple),
+      },
+    ],
+  ]);
+}
+
+/**
+ * The chord, or nothing — never a literal.
+ *
+ * `keymap.ts` is the one place that knows what is bound, and a menu that prints
+ * a keystroke nothing binds is worse than one that prints none. Same rule
+ * `menu.ts`'s `COMMANDS` table follows, and the same reason.
+ */
+function chord(command: Command, apple: boolean): { shortcut?: string } {
+  const printed = describeBinding(command, apple);
+  return printed === null ? {} : { shortcut: printed };
+}
+
 /* -------------------------------------------------------------------------- */
 
 interface MenuAt {
@@ -140,6 +212,7 @@ export function TabStrip({
   onActivate,
   onClose,
   onCloseOthers,
+  onCloseToRight,
   onReopen,
 }: TabStripProps) {
   const styles = useThemedStyles(makeStyles);
@@ -229,20 +302,20 @@ export function TabStrip({
       </ScrollView>
 
       {menu === null ? null : (
-        <TabMenu
-          at={menu}
-          canReopen={state.closed.length > 0}
-          onClose={() => {
-            onClose(menu.path);
+        <Menu<TabMenuId>
+          items={tabMenuItems(state, menu.path)}
+          anchor={{ x: menu.x, y: menu.y }}
+          title={tabLabel(state, menu.path)}
+          onSelect={(id) => {
+            const path = menu.path;
             closeMenu();
-          }}
-          onCloseOthers={() => {
-            onCloseOthers(menu.path);
-            closeMenu();
-          }}
-          onReopen={() => {
-            onReopen();
-            closeMenu();
+            // The tab that was *clicked*, never the active one. Right-clicking
+            // an inactive tab and closing the one you were reading is the bug
+            // this argument exists to prevent.
+            if (id === "close") onClose(path);
+            else if (id === "closeOthers") onCloseOthers(path);
+            else if (id === "closeToRight") onCloseToRight(path);
+            else onReopen();
           }}
           onDismiss={closeMenu}
         />
@@ -340,127 +413,70 @@ function TabItem({
         <FocusRing visible={focused} radius={0} />
       </Pressable>
 
+      {/*
+        THE ✕ IS THE FRONT TAB'S, THE HOVERED ONE'S, AND A DIRTY ONE'S.
+
+        It used to be every tab's, and a strip of five open notes was a strip
+        of five ✕s — the canvas draws one, on the tab you are reading. Chrome,
+        Safari and Obsidian all do the same thing for the same reason: the
+        close button is a *destination for a pointer already on its way*, and a
+        pointer that is not on a tab is not on its way to closing it.
+
+        Three conditions, because each covers a case the others do not:
+        `active` is the canvas's; `hovered` is the pointer already there, which
+        is what makes every tab closeable without any of them advertising it;
+        and `tab.dirty` never hides, because the dot is the only thing on
+        screen saying this note has unsaved text and hiding it would make a
+        tab with work in it look identical to one without.
+
+        Faded, never unmounted — the same technique and the same reasons as
+        the explorer's header toolbar. A ✕ that leaves the tree is one a
+        keyboard cannot tab to and a test cannot press, and a ✕ that grows
+        back on hover would resize the tab under the hand reaching for it.
+        Nobody ever presses an invisible one: by the time a pointer is over
+        the tab, `hovered` is already true.
+      */}
       <Pressable
         role="button"
         accessibilityLabel={`Close ${label}${tab.dirty ? ", unsaved changes" : ""}`}
         onPress={onClose}
-        style={styles.close}
+        style={[styles.close, !(active || hovered || tab.dirty) && styles.closeAway]}
         testID={`tab-close-${tab.path}`}
       >
         {showDot ? (
           <View style={styles.dirtyDot} testID={`tab-dot-${tab.path}`} />
         ) : (
-          <Icon name="close" size={13} color={active ? colors.text : colors.muted} />
+          <Icon name="close" size={10} color={colors.chromeMuted} />
         )}
       </Pressable>
     </View>
   );
 }
 
-/**
- * TODO(menu): fold into the shared `design/components/Menu`.
- *
- * This is a plain popover, written to be thrown away: it hard-codes its own
- * card, its own scrim and its own rows, none of which should exist twice in the
- * app. `Menu` (and its `.web` sibling) now exists and is the right home — it
- * already has the popover-at-the-pointer and sheet-under-the-thumb pair this
- * would otherwise grow itself.
- *
- * What stands in the way is one type, not a design disagreement: `MenuItem.id`
- * is `MenuActionId`, the file-tree action union, and there is no `close`,
- * `closeOthers` or `reopen` in it. Three tab items therefore cannot be
- * expressed as `MenuItem[]` without widening that union — which is a decision
- * about what `menu.ts` is *for* (it is currently "what can I do with this
- * file?", and these are "what can I do with this tab?"), and belongs in the
- * change that widens it rather than smuggled in here.
- *
- * It is a `Modal` rather than an absolutely-positioned sibling for one
- * non-cosmetic reason: the strip is a horizontal scroll view a few dozen pixels
- * tall, so anything drawn inside it is clipped by the scroller. A modal escapes
- * the clip and brings a dismiss-on-outside-press surface with it.
- */
-function TabMenu({
-  at,
-  canReopen,
-  onClose,
-  onCloseOthers,
-  onReopen,
-  onDismiss,
-}: {
-  at: MenuAt;
-  canReopen: boolean;
-  onClose: () => void;
-  onCloseOthers: () => void;
-  onReopen: () => void;
-  onDismiss: () => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Modal transparent animationType="none" visible onRequestClose={onDismiss}>
-      <Pressable style={styles.scrim} accessibilityLabel="Dismiss menu" onPress={onDismiss}>
-        {/* Swallow presses on the card so only the scrim dismisses. */}
-        <Pressable
-          style={[styles.menu, { left: at.x, top: at.y }]}
-          onPress={() => {}}
-          accessibilityLabel="Tab actions"
-          testID="tab-menu"
-        >
-          <MenuRow label="Close" onPress={onClose} testID="tab-menu-close" />
-          <MenuRow label="Close others" onPress={onCloseOthers} testID="tab-menu-others" />
-          {/*
-            Present and disabled rather than absent, which is the opposite of
-            what `menu.ts` does for the file tree — and for a different reason.
-            There, absence tells the truth about a read-only context. Here the
-            item is one ⌘W away from being available again, and a menu whose
-            rows move between openings is a menu you cannot learn.
-          */}
-          <MenuRow
-            label="Reopen closed"
-            onPress={canReopen ? onReopen : undefined}
-            disabled={!canReopen}
-            testID="tab-menu-reopen"
-          />
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
 
-function MenuRow({
-  label,
-  onPress,
-  disabled = false,
-  testID,
-}: {
-  label: string;
-  onPress?: () => void;
-  disabled?: boolean;
-  testID: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <PressRow
-      accessibilityLabel={label}
-      onPress={disabled ? undefined : onPress}
-      style={styles.menuRow}
-      hoverStyle={styles.menuRowHover}
-      radius={radii.xs}
-      testID={testID}
-    >
-      <Text variant="rail" style={disabled ? styles.menuRowOff : undefined}>
-        {label}
-      </Text>
-    </PressRow>
-  );
-}
+/** The canvas's tab, hanging off a 44pt title bar with 10pt of air above it. */
+const TAB_HEIGHT = 34;
+
+/** The ✕'s box, and the width the spacer holds when there is no ✕. */
+const CLOSE_WIDTH = 18;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  /**
+   * The band the tabs sit in — **and it draws nothing**.
+   *
+   * It had `surface2` behind it and a hairline under it, so the strip was a
+   * third horizontal band stacked between the title bar and the note. The
+   * frame separates its regions by value now (`chromeSurface`/`pageSurface`,
+   * `tokens.ts`), and this band sits on the page: a fill of its own would be a
+   * fourth surface, and the rule would draw a boundary the active tab is
+   * specifically trying not to have.
+   *
+   * `alignItems: "flex-end"` because the tabs are shorter than the band and
+   * hang from its foot, which is what lets the active one meet the note.
+   */
   strip: {
     flexDirection: "row",
-    alignItems: "stretch",
-    backgroundColor: colors.surface2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    alignItems: "flex-end",
   },
 
   scroller: {
@@ -478,59 +494,90 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   track: {
     flexDirection: "row",
     flexWrap: "nowrap",
-    alignItems: "stretch",
+    alignItems: "flex-end",
+    /* The canvas's 2pt, which is what stops two adjacent idle tabs reading as
+       one long label. It is all the separation they get now that the hairline
+       between every pair is gone. */
+    gap: 2,
   },
 
+  /**
+   * One tab.
+   *
+   * **It was a cell in a table and it is a tab now.** Every tab carried a
+   * right hairline and a 2pt transparent top border, and the active one was a
+   * `surface` fill under an accent rule — a VS Code strip, which is a row of
+   * boxes that happen to be adjacent. The design draws what a browser draws:
+   * the active tab is the *same surface as the page*, rounded at its top
+   * corners, so it reads as the front edge of what is below it, and the idle
+   * ones are labels with no box at all.
+   *
+   * No borders, so nothing has to reserve space for a highlight it does not
+   * have — which is what the "always two pixels" note was working around.
+   */
   tab: {
     flexDirection: "row",
     alignItems: "center",
-    borderRightWidth: 1,
-    borderRightColor: colors.line,
-    // Always two pixels, so the accent on the active tab does not shift every
-    // other tab down by the height of its own highlight.
-    borderTopWidth: 2,
-    borderTopColor: "transparent",
+    height: TAB_HEIGHT,
+    /*
+      8, which is not in `radii` and is deliberate.
+
+      The family there is 6 / 10 / 16 and it is a *nesting* rule — "a child's
+      radius is its parent's minus the padding between them". A tab nests in
+      nothing: it hangs off the edge of the title bar with no padding between
+      the two, so the rule has no input for it. The canvas draws 8, between the
+      6 of the chip beside it and the 10 of a panel, and taking 6 here makes a
+      34pt tab look like a 28pt chip that grew.
+    */
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
   },
 
-  tabActive: {
-    backgroundColor: colors.surface,
-    borderTopColor: colors.accent,
-  },
+  /** The page's own surface, which is what makes this the page's front edge. */
+  tabActive: { backgroundColor: colors.pageSurface },
 
-  tabIdle: {
-    backgroundColor: colors.surface2,
-  },
+  tabIdle: { backgroundColor: "transparent" },
 
+  /*
+    No vertical padding: `tab` sets the height now, so padding here would fight
+    it. It used to be what made the tab tall, which is why the height and the
+    padding kept having to be reasoned about together.
+  */
   hit: {
     flexDirection: "row",
     alignItems: "center",
     flexGrow: 1,
     flexShrink: 1,
-    paddingVertical: 8,
+    alignSelf: "stretch",
     paddingLeft: 12,
     paddingRight: 6,
   },
 
   label: {
-    fontSize: 13,
+    fontSize: t.ui,
     lineHeight: 18,
     maxWidth: MAX_LABEL_WIDTH,
   },
 
-  labelActive: { color: colors.text },
-  labelIdle: { color: colors.muted },
+  /** The one in front is the one you are reading, so it carries the weight. */
+  labelActive: { color: colors.text, fontWeight: "500" },
+  /** Chrome's grey. A tab you are not reading is furniture, not a label. */
+  labelIdle: { color: colors.chromeMuted },
 
   /** The one cue that says "the next single click replaces this". */
   labelPreview: { fontStyle: "italic" },
 
   close: {
-    width: 26,
-    height: 26,
+    width: CLOSE_WIDTH,
+    height: 20,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 6,
     borderRadius: radii.xs,
   },
+
+  /** See its use site: the ✕ keeps its box so the tab never changes width. */
+  closeAway: { opacity: 0 },
 
   dirtyDot: {
     width: 8,
@@ -539,35 +586,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.accent,
   },
 
-  scrim: {
-    flexGrow: 1,
-  },
 
-  menu: {
-    position: "absolute",
-    minWidth: 180,
-    paddingVertical: 5,
-    paddingHorizontal: 5,
-    gap: 1,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    backgroundColor: colors.surface3,
-    boxShadow: "0 18px 44px -18px rgba(0,0,0,.7)",
-  },
 
-  menuRow: {
-    paddingVertical: 7,
-    paddingHorizontal: 9,
-    borderRadius: radii.xs,
-  },
 
-  menuRowHover: {
-    backgroundColor: colors.accentDim,
-  },
 
-  menuRowOff: {
-    color: colors.muted,
-    opacity: 0.6,
-  },
 });

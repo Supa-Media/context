@@ -12,7 +12,7 @@
  * ## The shape, and why it is a pre-render
  *
  * The card is drawn once, when a share is created or its title changes, and
- * written to `.images/`. Nothing renders on an unfurl. That matters because the
+ * written to `.context/assets/images/`. Nothing renders on an unfurl. That matters because the
  * render is 370–560 ms warm in Convex against ~25 ms at the edge — fine for a
  * mutation somebody is watching, far too slow for a crawler that will time out.
  *
@@ -97,7 +97,7 @@ export const renderShareCard = internalAction({
         workspaceId: share.workspaceId,
         // `team`, not `private`, and it is not consulted for an image write —
         // passed because the barrier's signature requires a scope. An object in
-        // `.images/` has no visibility of its own.
+        // `.context/assets/images/` has no visibility of its own.
         scope: "team",
         operation: { kind: "writeImage", leaf, bytes, contentType: "image/png" },
       });

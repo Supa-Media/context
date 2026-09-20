@@ -99,13 +99,66 @@ describe("palette key parity", () => {
     expect(Object.keys(lightShadows).sort()).toEqual(Object.keys(darkShadows).sort());
   });
 
+  /**
+   * ONE EXCEPTION, NAMED — AND NAMING IT IS THE POINT.
+   *
+   * This test exists to catch the commonest way a palette goes wrong: a token
+   * added to `darkColors`, copied into `lightColors` to make the types line
+   * up, and never given a light value. It fires on *identity*, so a token that
+   * is deliberately the same in both worlds looks exactly like that bug.
+   *
+   * The landing page's endpoint bar is deliberately the same in both. It is a
+   * terminal-shaped object — the MCP address you copy into a client — and the
+   * design canvas draws it in graphite on the paper board too; re-tinting it
+   * would make it a slightly different paper, which is not a different kind of
+   * thing. `tokens.ts` argues it at the tokens themselves.
+   *
+   * An allowlist rather than a weakened rule: every other token must still
+   * differ, and adding a name here is a line in a diff somebody has to justify.
+   * If this list grows past a handful, that is inversion policy and belongs in
+   * `docs/decisions/` rather than in a test's exception list.
+   */
+  const INTENTIONALLY_FIXED = [
+    "appSurface",
+    "appInk",
+    "appAccent",
+    "appChip",
+    "appChipHover",
+    "appChrome",
+    "appMuted",
+    "appDim",
+    "appBody",
+    "appRowSelected",
+    "appTeam",
+    "appOk",
+    "appLightRed",
+    "appLightAmber",
+    "appLightGreen",
+  ];
+
   test("no token was left as its dark value", () => {
     const unchanged = Object.keys(darkColors).filter(
       (key) =>
+        !INTENTIONALLY_FIXED.includes(key) &&
         lightColors[key as keyof typeof lightColors] ===
-        darkColors[key as keyof typeof darkColors],
+          darkColors[key as keyof typeof darkColors],
     );
     expect(unchanged).toEqual([]);
+  });
+
+  test("and every allowed exception is actually fixed, not merely listed", () => {
+    /*
+      The allowlist's own guard. A name left in it after its token started
+      differing is an exception protecting nothing, and — worse — a name
+      *mistyped* into it silences nothing while looking as though it does.
+      Both are caught by asking the list to be true.
+    */
+    for (const key of INTENTIONALLY_FIXED) {
+      expect(Object.keys(darkColors)).toContain(key);
+      expect(lightColors[key as keyof typeof lightColors]).toBe(
+        darkColors[key as keyof typeof darkColors],
+      );
+    }
   });
 
   test("every token is a colour string in both palettes", () => {
@@ -139,6 +192,9 @@ describe("light palette contrast", () => {
     surface2: lightColors.surface2,
     surface3: lightColors.surface3,
     well: lightColors.well,
+    // The frame's two roles. Every word in the console is set on one of them.
+    chromeSurface: lightColors.chromeSurface,
+    pageSurface: lightColors.pageSurface,
   };
 
   test.each(Object.entries(grounds))("body text clears AA on %s", (_name, background) => {
@@ -163,8 +219,18 @@ describe("light palette contrast", () => {
     ["codeKey", lightColors.codeKey],
     ["sharedText", lightColors.sharedText],
   ])("%s clears AA on the surfaces it is drawn on", (_name, token) => {
-    expect(contrast(token, lightColors.surface)).toBeGreaterThanOrEqual(AA);
-    expect(contrast(token, lightColors.well)).toBeGreaterThanOrEqual(AA);
+    // All four, not just `surface` and `well`. A wash sits on whatever panel
+    // it lands in, and `surface2`/`surface3` are exactly the raised tints a
+    // menu row, a ghost button's fill and a selected row draw — which is
+    // where these tokens most often carry their words.
+    for (const background of [
+      lightColors.surface,
+      lightColors.surface2,
+      lightColors.surface3,
+      lightColors.well,
+    ]) {
+      expect(contrast(token, background)).toBeGreaterThanOrEqual(AA);
+    }
   });
 
   /**
@@ -214,7 +280,13 @@ describe("light palette contrast", () => {
 
 describe("dark palette contrast", () => {
   test("body text clears AA on the surfaces it is drawn on", () => {
-    for (const background of [darkColors.ground, darkColors.surface, darkColors.well]) {
+    for (const background of [
+      darkColors.ground,
+      darkColors.surface,
+      darkColors.well,
+      darkColors.chromeSurface,
+      darkColors.pageSurface,
+    ]) {
       expect(contrast(darkColors.text, background)).toBeGreaterThanOrEqual(AA);
       expect(contrast(darkColors.text2, background)).toBeGreaterThanOrEqual(AA);
     }
@@ -228,15 +300,82 @@ describe("dark palette contrast", () => {
   });
 
   /**
-   * `muted` in the signed-off dark palette lands at 4.26:1 on `surface` —
-   * under AA. It is pinned rather than fixed because the dark values are the
-   * mockup and changing them is a redesign, not a light-mode change. The light
-   * palette is held to the real threshold above; this exists so that if
-   * somebody does revisit the dark values, the number they are moving is
-   * written down rather than rediscovered.
+   * The dark palette had no semantic-text coverage at all — only body text,
+   * the hierarchy and `muted`. The light palette was held to AA on its `*Text`
+   * members from the start because it was designed against a signed-off dark
+   * one; the dark members were the signed-off picture and were never asked.
+   * Now that both palettes are designed rather than inherited, both answer.
    */
-  test("muted is a known, pinned exception", () => {
-    expect(contrast(darkColors.muted, darkColors.surface)).toBeCloseTo(4.26, 1);
+  test.each([
+    ["okText", darkColors.okText],
+    ["warnText", darkColors.warnText],
+    ["critText", darkColors.critText],
+    ["accentText", darkColors.accentText],
+    ["hintText", darkColors.hintText],
+    ["hintStrong", darkColors.hintStrong],
+    ["codeKey", darkColors.codeKey],
+    ["sharedText", darkColors.sharedText],
+  ])("%s clears AA on the dark surfaces it is drawn on", (_name, token) => {
+    for (const background of [
+      darkColors.surface,
+      darkColors.surface2,
+      darkColors.surface3,
+      darkColors.well,
+    ]) {
+      expect(contrast(token, background)).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  /**
+   * `muted` used to be the one known AA failure in this file: the signed-off
+   * dark palette landed it at 4.26:1 on `surface`, and it was pinned rather
+   * than fixed because the dark values were the mockup and moving them was a
+   * redesign rather than a light-mode change.
+   *
+   * The redesign happened — Graphite and Paper — and the note left here for
+   * whoever did it said to write down the number they were moving. It was
+   * 4.26. It is now above AA on every surface `muted` is drawn on, so the
+   * exception is retired and the token is held to the same threshold as the
+   * rest. This assertion is the thing that stops it coming back.
+   */
+  test("muted clears AA on every dark surface, the old exception retired", () => {
+    for (const background of [
+      darkColors.ground,
+      darkColors.surface,
+      darkColors.surface2,
+      darkColors.surface3,
+      darkColors.well,
+    ]) {
+      expect(contrast(darkColors.muted, background)).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  /**
+   * The palette's accents were, every one of them, a Tailwind default:
+   * blue-500, emerald-400, amber-400, red-400, violet-500, and their light
+   * counterparts blue-600, red-600 and violet-600. A palette assembled from a
+   * framework's defaults looks like every other application assembled from
+   * them, which was the single largest reason this app read as generic.
+   *
+   * They are easy to reintroduce one at a time and impossible to notice one at
+   * a time, so they are named here. If a future palette genuinely wants one of
+   * these values, deleting its line is a deliberate act with a reviewer.
+   */
+  test("no retired framework default has crept back into either palette", () => {
+    const RETIRED = [
+      "#3B82F6",
+      "#2563EB",
+      "#34D399",
+      "#FBBF24",
+      "#F87171",
+      "#DC2626",
+      "#8B5CF6",
+      "#7C3AED",
+    ];
+    const used = [...Object.values(darkColors), ...Object.values(lightColors)].map((value) =>
+      value.toUpperCase(),
+    );
+    expect(RETIRED.filter((value) => used.includes(value))).toEqual([]);
   });
 });
 
@@ -357,5 +496,38 @@ describe("useThemedStyles", () => {
     expect(readHook("dark", () => useThemedStyles(withShadow)).bar.boxShadow).toBe(
       darkShadows.floating,
     );
+  });
+});
+
+/**
+ * The frame's two surfaces are a *pair*, and the relationship is the point.
+ *
+ * "The page is lighter than the chrome around it" is what lets the rail, the
+ * explorer and the editor separate without a border between each pair — which
+ * is what they used to need, all three being the same value. If the two ever
+ * converge, the frame silently goes back to being one flat plane and only a
+ * screenshot would show it.
+ */
+describe("the frame's surfaces", () => {
+  function relLum(hex: string): number {
+    const [r, g, b] = parseHex(hex).map(channel);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  test.each([
+    ["light", lightColors],
+    ["dark", darkColors],
+  ])("in %s, the page is lighter than its chrome", (_name, palette) => {
+    expect(relLum(palette.pageSurface)).toBeGreaterThan(relLum(palette.chromeSurface));
+  });
+
+  test.each([
+    ["light", lightColors],
+    ["dark", darkColors],
+  ])("in %s, they are far enough apart to read as two planes", (_name, palette) => {
+    // Not a WCAG threshold — this is two greys next to each other, where the
+    // eye needs far less than text does. 1.04 is roughly the point at which a
+    // large flat area stops looking like a rendering artefact.
+    expect(contrast(palette.pageSurface, palette.chromeSurface)).toBeGreaterThan(1.04);
   });
 });

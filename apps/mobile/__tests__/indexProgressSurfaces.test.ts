@@ -198,6 +198,10 @@ let mockSelected: string | null = "";
 
 function mockConsoleData(): never {
   const files = {
+    // No move into another context is running. `BrowsePane` reads this on
+    // every render, so a fixture without it crashes the pane rather than
+    // failing the assertion the test was written for.
+    contextMoves: [],
     canEdit: true,
     loading: false,
     busy: false,

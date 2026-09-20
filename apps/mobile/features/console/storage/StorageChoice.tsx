@@ -4,34 +4,16 @@ import { FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { leading, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { EARLY_TESTER_PRICE_SHORT } from "../settings/panels/premium";
 import { ConnectForm } from "./ConnectForm";
 import { DROPBOX_REDIRECT_ORIGINS } from "./dropbox";
 import { useDropboxStart } from "./useDropboxStart";
 import type { ConnectFormValues } from "./connect";
 
 /**
- * Two square cards, and nothing else until one is chosen.
- *
- * This replaces a screen that showed the Dropbox pitch, a paragraph of
- * trade-off prose, and the whole bucket form at once. Seyi's verdict on it:
- * too robust — "just two options, simple square cards next to each other".
- * The details belong behind the click, not in front of it.
- *
- * **The bucket is first.** It is the path we recommend — storage that answers
- * to nobody but its owner, revocable at a provider they pay themselves,
- * syncable to Obsidian where it already lives. Dropbox is the tier for
- * somebody who will never make a bucket, and second position is part of
- * saying so.
- *
- * **Pressing Dropbox goes, it does not reveal.** There is nothing to ask —
- * the app is folder-scoped, so there is no folder question and no credential
- * to paste — and a card that expanded into one more button would be a step
- * that exists only to be clicked through. The one case with something to show
- * is an origin Dropbox will not redirect back to (a native build, an
- * unregistered host); pressing there explains instead of leaving for an error
- * page. The second-context folder question this screen used to carry is gone
- * with the prose: `rootPrefix` still exists end to end, and the rare person
- * who needs it is not served by every first-run seeing the question.
+ * Storage starts with the decision a person is actually making: run it
+ * themselves or let Context run it. Provider details stay behind the first
+ * path so S3 and Dropbox do not look like separate product tiers.
  */
 export function StorageChoice({
   workspaceId,
@@ -39,6 +21,7 @@ export function StorageChoice({
   onCancel,
   dropboxNote,
   dropboxResumeTo,
+  managed,
 }: {
   /** The context being connected. `null` disables the Dropbox card only. */
   workspaceId: string | null;
@@ -49,6 +32,8 @@ export function StorageChoice({
   dropboxNote?: string;
   /** Set from first-run, so the callback can hand the person back to it. */
   dropboxResumeTo?: "onboarding";
+  /** Absent unless billing says this deployment can provision the storage. */
+  managed?: { price: string; onChoose: () => void };
 }) {
   const dropbox = useDropboxStart(workspaceId, { resumeTo: dropboxResumeTo });
   return (
@@ -60,6 +45,7 @@ export function StorageChoice({
       connect={connect}
       onCancel={onCancel}
       dropboxNote={dropboxNote}
+      managed={managed}
     />
   );
 }
@@ -76,6 +62,7 @@ export function StorageChoiceBody({
   connect,
   onCancel,
   dropboxNote,
+  managed,
 }: {
   dropboxReady: boolean;
   redirectUri: string | null;
@@ -84,8 +71,10 @@ export function StorageChoiceBody({
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   onCancel?: () => void;
   dropboxNote?: string;
+  managed?: { price: string; onChoose: () => void };
 }) {
   const styles = useThemedStyles(makeStyles);
+  const [ownOpen, setOwnOpen] = useState(false);
   const [bucketOpen, setBucketOpen] = useState(false);
   const [dropboxBlocked, setDropboxBlocked] = useState(false);
 
@@ -95,36 +84,70 @@ export function StorageChoiceBody({
     <View style={styles.stack}>
       <View style={styles.cards}>
         <ChoiceCard
-          testID="choose-bucket"
-          title="Connect an S3 bucket"
-          sub="Storage you own outright. Works with R2, S3, B2 — and syncs to Obsidian."
-          badge="Recommended"
-          selected={bucketOpen}
-          onPress={() => setBucketOpen((open) => !open)}
-        />
-        <ChoiceCard
-          testID="choose-dropbox"
-          title="Connect Dropbox"
-          sub="One click. Context gets its own folder — the rest stays invisible to us."
-          selected={false}
-          busy={starting}
-          disabled={!dropboxReady || starting}
+          testID="choose-own-storage"
+          title="Bring your own storage"
+          sub="Use storage you control through an S3-compatible provider or Dropbox."
+          selected={ownOpen}
           onPress={() => {
-            if (redirectUri === null) {
-              // Explain rather than leave for Dropbox's own error page.
-              setDropboxBlocked(true);
-              return;
-            }
-            startDropbox();
+            setOwnOpen((open) => !open);
+            setBucketOpen(false);
           }}
         />
+        {managed === undefined ? null : (
+          /*
+            The badge is the number and the sub says what kind of number it is.
+            Splitting it that way keeps the badge a badge — it is a pill beside
+            a title, and "$5 a month — early tester price, held for as long as
+            you keep it" is a paragraph — while still putting the framing on
+            the card somebody chooses from rather than only on the confirm
+            screen behind it.
+          */
+          <ChoiceCard
+            testID="choose-managed"
+            title="Context-managed Premium storage"
+            sub={`Get 50 GB for this context. Context sets it up and keeps it running. ${EARLY_TESTER_PRICE_SHORT}`}
+            badge={managed.price}
+            badgeTone="neutral"
+            selected={false}
+            onPress={managed.onChoose}
+          />
+        )}
       </View>
+
+      {ownOpen ? (
+        <View style={styles.providerSection} testID="own-storage-providers">
+          <Text variant="eyebrow">Choose a provider</Text>
+          <View style={styles.cards}>
+            <ChoiceCard
+              testID="choose-bucket"
+              title="S3-compatible storage"
+              sub="Connect R2, Amazon S3, Backblaze B2, Wasabi, or another compatible provider."
+              selected={bucketOpen}
+              onPress={() => setBucketOpen((open) => !open)}
+            />
+            <ChoiceCard
+              testID="choose-dropbox"
+              title="Dropbox"
+              sub="Connect with one click. Context gets its own folder in Dropbox."
+              selected={false}
+              busy={starting}
+              disabled={!dropboxReady || starting}
+              onPress={() => {
+                if (redirectUri === null) {
+                  setDropboxBlocked(true);
+                  return;
+                }
+                startDropbox();
+              }}
+            />
+          </View>
+        </View>
+      ) : null}
 
       {dropboxBlocked && redirectUri === null ? (
         <Text variant="foot" role="status" style={styles.note} testID="dropbox-unavailable">
-          Connecting Dropbox happens in a browser at{" "}
-          {DROPBOX_REDIRECT_ORIGINS.join(" or ")} — open one of those and this card works.
-          A bucket connects from anywhere, including here.
+          Connecting Dropbox happens in a browser at {DROPBOX_REDIRECT_ORIGINS.join(" or ")}. Open one of those and this
+          card works. A bucket connects from anywhere, including here.
         </Text>
       ) : null}
       {dropboxNote && !dropboxBlocked ? (
@@ -135,13 +158,11 @@ export function StorageChoiceBody({
       {dropboxState.kind === "failed" ? (
         <FormError
           headline={dropboxState.failure.headline}
-          next={[dropboxState.failure.next, dropboxState.failure.detail]
-            .filter(Boolean)
-            .join(" ")}
+          next={[dropboxState.failure.next, dropboxState.failure.detail].filter(Boolean).join(" ")}
         />
       ) : null}
 
-      {bucketOpen ? <ConnectForm connect={connect} onCancel={onCancel} /> : null}
+      {ownOpen && bucketOpen ? <ConnectForm connect={connect} onCancel={onCancel} /> : null}
     </View>
   );
 }
@@ -157,6 +178,7 @@ function ChoiceCard({
   title,
   sub,
   badge,
+  badgeTone = "ok",
   selected,
   busy,
   disabled,
@@ -166,6 +188,8 @@ function ChoiceCard({
   title: string;
   sub: string;
   badge?: string;
+  /** `ok` for a positive status, `neutral` for a price. */
+  badgeTone?: "ok" | "neutral";
   selected: boolean;
   busy?: boolean;
   disabled?: boolean;
@@ -178,7 +202,11 @@ function ChoiceCard({
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityState={{ selected, disabled: Boolean(disabled), busy: Boolean(busy) }}
+      accessibilityState={{
+        selected,
+        disabled: Boolean(disabled),
+        busy: Boolean(busy),
+      }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -189,7 +217,7 @@ function ChoiceCard({
       ]}
     >
       {badge ? (
-        <Text variant="foot" style={styles.badge}>
+        <Text variant="foot" style={badgeTone === "ok" ? styles.badge : styles.badgePrice}>
           {badge}
         </Text>
       ) : null}
@@ -202,30 +230,36 @@ function ChoiceCard({
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  stack: { gap: 14 },
-  cards: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  choice: {
-    flexGrow: 1,
-    flexBasis: 220,
-    minHeight: 132,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    backgroundColor: colors.surface2,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  choiceSelected: { borderColor: colors.lineStrong, backgroundColor: colors.surface3 },
-  choicePressed: { backgroundColor: colors.surface3 },
-  choiceDisabled: { opacity: 0.55 },
-  badge: { color: colors.okText },
-  sub: { lineHeight: leading(13, 1.55) },
-  busy: { position: "absolute", top: 14, right: 14 },
-  note: { lineHeight: leading(12.5, 1.7) },
-});
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    stack: { gap: 14 },
+    cards: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 12,
+    },
+    choice: {
+      flexGrow: 1,
+      flexBasis: 220,
+      minHeight: 132,
+      gap: 6,
+      borderWidth: 1,
+      borderColor: colors.line,
+      borderRadius: radii.card,
+      backgroundColor: colors.surface2,
+      paddingVertical: 16,
+      paddingHorizontal: 16,
+    },
+    providerSection: { gap: 10 },
+    choiceSelected: {
+      borderColor: colors.lineStrong,
+      backgroundColor: colors.surface3,
+    },
+    choicePressed: { backgroundColor: colors.surface3 },
+    choiceDisabled: { opacity: 0.55 },
+    badge: { color: colors.okText },
+    badgePrice: { color: colors.text2 },
+    sub: { lineHeight: leading(13, 1.55) },
+    busy: { position: "absolute", top: 14, right: 14 },
+    note: { lineHeight: leading(12.5, 1.7) },
+  });

@@ -27,6 +27,13 @@ const B = "2-areas/b.md";
 function settle(start: { note: string | null; selected: string | null }, passes = 8) {
   let { note, selected } = start;
   let seen: Reconciled | null = null;
+  /*
+    Fixed. The loop's `open` step calls the browser's own `select`, which in
+    the app bumps this — but the URL is never written on that pass (the next
+    one is a `hold`), so nothing in here reads it. The push/replace rule has
+    its own cases below, where the counter is the subject rather than scenery.
+  */
+  const navigations = 0;
   const writes: (string | null)[] = [];
   const opened: string[] = [];
   /** How many times the rule asked for the note to be closed. */
@@ -39,12 +46,13 @@ function settle(start: { note: string | null; selected: string | null }, passes 
       urlContextId: CTX,
       note,
       selected,
+      navigations,
       seen,
     };
     const step = nextAddressStep(inputs);
     if (step.action === "wait") return { note, selected, writes, opened, closed, settled: false };
     // The hook records before acting; see `useNoteAddress` for why.
-    seen = { contextId: CTX, note, selected };
+    seen = { contextId: CTX, note, selected, navigations };
     if (step.action === "hold") return { note, selected, writes, opened, closed, settled: true };
     if (step.action === "open") {
       opened.push(step.path);
@@ -77,10 +85,29 @@ describe("the rule that keeps ?note= and the open note in step", () => {
     expect(end.writes).toEqual([]);
   });
 
-  test("a selection with no link in the URL is addressed", () => {
+  test("a fresh instance holding a leftover selection closes it rather than re-addressing it", () => {
+    /**
+     * This used to read "a selection with no link in the URL is addressed",
+     * asserting `writes: [A]` — treating a fresh pass that already holds a
+     * selection as a cold load whose URL simply had not caught up yet.
+     *
+     * It never was one. `useFileBrowser` clears `selectedPath` in the same
+     * commit it adopts a new `contextId`, so a *genuinely* fresh instance's
+     * first commit always pairs an empty URL with an empty selection — which
+     * is `hold`, not this. The only way to reach `fresh` with `note: null`
+     * and a non-null `selected` is a route that remounted (a fresh `seen`)
+     * under a browser that did not (a `selectedPath` that survived it) — see
+     * `breadcrumbRoot.test.ts`'s remount case and `nextAddressStep`'s own
+     * comment. Re-addressing the leftover was the shipped bug: the URL had
+     * just been told to drop its note, and this wrote the note straight back.
+     *
+     * SABOTAGE: reverting the `fresh` branch's `note === null` arm to
+     * `{ action: "address", note: selected }`. Fails here.
+     */
     const end = settle({ note: null, selected: A });
     expect(end.settled).toBe(true);
-    expect(end.writes).toEqual([A]);
+    expect(end.closed).toBe(1);
+    expect(end.writes).toEqual([]);
     expect(end.opened).toEqual([]);
   });
 
@@ -115,6 +142,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
       urlContextId: CTX,
       note: A,
       selected: null,
+      navigations: 0,
       seen: null,
     };
     expect(nextAddressStep(inputs)).toEqual({ action: "wait" });
@@ -128,7 +156,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
       context would count as "already seen" in the new one and the link that
       carried somebody there would be treated as stale.
     */
-    const seen: Reconciled = { contextId: "w0", note: A, selected: A };
+    const seen: Reconciled = { contextId: "w0", note: A, selected: A, navigations: 0 };
     expect(
       nextAddressStep({
         contextId: CTX,
@@ -136,6 +164,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
         urlContextId: CTX,
         note: A,
         selected: null,
+        navigations: 0,
         seen,
       }),
     ).toEqual({ action: "open", path: A });
@@ -155,7 +184,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
      * into a context that has never had that file. "I'll change between
      * workspaces and it will say file not found."
      */
-    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 0 };
     expect(
       nextAddressStep({
         contextId: CTX,
@@ -163,6 +192,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
         urlContextId: "w2",
         note: null,
         selected: A,
+        navigations: 0,
         seen,
       }),
     ).toEqual({ action: "wait" });
@@ -175,7 +205,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
       `@supa`'s note while the browser is still `@seyi` — and `select` there is
       a read of one context's path against the other's bucket.
     */
-    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 0 };
     expect(
       nextAddressStep({
         contextId: CTX,
@@ -183,6 +213,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
         urlContextId: "w2",
         note: B,
         selected: A,
+        navigations: 0,
         seen,
       }),
     ).toEqual({ action: "wait" });
@@ -199,6 +230,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
         urlContextId: null,
         note: A,
         selected: null,
+        navigations: 0,
         seen: null,
       }),
     ).toEqual({ action: "wait" });
@@ -208,7 +240,7 @@ describe("the rule that keeps ?note= and the open note in step", () => {
     // The commit after: everything agrees on `@supa`, the browser's reset has
     // cleared the selection, and the URL names no note. Nothing to do -- and in
     // particular no write, which is what would put the old note back.
-    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 0 };
     expect(
       nextAddressStep({
         contextId: "w2",
@@ -216,30 +248,95 @@ describe("the rule that keeps ?note= and the open note in step", () => {
         urlContextId: "w2",
         note: null,
         selected: null,
+        navigations: 0,
         seen,
       }),
     ).toEqual({ action: "hold" });
   });
 
   test("a link that changes wins over the note that is open", () => {
-    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 0 };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: B, selected: A, seen }),
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: B, selected: A, navigations: 0, seen }),
     ).toEqual({ action: "open", path: B });
   });
 
   test("a selection that changes is addressed", () => {
-    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 0 };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: B, seen }),
-    ).toEqual({ action: "address", note: B });
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: B, navigations: 0, seen }),
+    ).toEqual({ action: "address", note: B, mode: "replace" });
+  });
+
+  /**
+   * WHICH WRITES THE BROWSER'S BACK BUTTON GETS AN ENTRY FOR.
+   *
+   * Every write used to be a `setParams`, which replaces — so the address bar
+   * was a label on the current screen rather than a record of where anybody
+   * had been, and the browser's back button left the console from the third
+   * note as surely as from the first. The owner's words: "the actual back
+   * button on the browser should work as well".
+   *
+   * The counter is `FileBrowser.navigations`, bumped by a `select` the guard
+   * allowed. Higher than the value reconciled last means somebody went
+   * somewhere; unchanged means the path moved under them.
+   */
+  describe("push or replace", () => {
+    test("a selection that moved because somebody navigated pushes", () => {
+      const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 4 };
+      expect(
+        nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: B, navigations: 5, seen }),
+      ).toEqual({ action: "address", note: B, mode: "push" });
+    });
+
+    test("the same change with no `select` behind it replaces — that is a rename", () => {
+      /*
+        The one that decides the shape of the rule. A rename moves the path
+        under the open note: the selection changes and nobody went anywhere.
+        Pushing would leave a history entry naming a path that no longer
+        exists, so the browser's back button would land on a 404 somebody's
+        own rename had created.
+
+        SABOTAGE: return `"push"` unconditionally. Fails here and below.
+      */
+      const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 4 };
+      expect(
+        nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: B, navigations: 4, seen }),
+      ).toEqual({ action: "address", note: B, mode: "replace" });
+    });
+
+    test("clearing the note replaces when nobody navigated to the root", () => {
+      // Closing the last tab stands you at the context's root. That is where
+      // the console put you, not somewhere you asked to go — `deselect`
+      // deliberately does not bump the counter — and a back button that
+      // returns to an empty pane is worse than one that skips it.
+      const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 4 };
+      expect(
+        nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: null, navigations: 4, seen }),
+      ).toEqual({ action: "address", note: null, mode: "replace" });
+    });
+
+    test("a refused navigation does not push either, because it did not happen", () => {
+      /*
+        `select` bumps the counter only past the unsaved-changes guard, so a
+        refusal leaves it where it was. What reaches this rule on the pass
+        after one is the URL naming the note somebody was going to and the
+        selection still naming the one on screen — and the address returns to
+        the screen. An entry for that would be a back button that goes to a
+        refusal.
+      */
+      const after: Reconciled = { contextId: CTX, note: B, selected: A, navigations: 4 };
+      expect(
+        nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: B, selected: A, navigations: 4, seen: after }),
+      ).toEqual({ action: "address", note: A, mode: "replace" });
+    });
   });
 
   test("a selection cleared by a delete clears the URL", () => {
-    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 0 };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: null, seen }),
-    ).toEqual({ action: "address", note: null });
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: A, selected: null, navigations: 0, seen }),
+    ).toEqual({ action: "address", note: null, mode: "replace" });
   });
 
   test("a URL that lost its note closes the note", () => {
@@ -254,9 +351,9 @@ describe("the rule that keeps ?note= and the open note in step", () => {
      * went. See `linkedNote.test.ts` for the same thing against the real
      * browser, including what happens when the guard refuses.
      */
-    const seen: Reconciled = { contextId: CTX, note: A, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: A, selected: A, navigations: 0 };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: A, seen }),
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: A, navigations: 0, seen }),
     ).toEqual({ action: "close" });
   });
 
@@ -272,24 +369,24 @@ describe("the rule that keeps ?note= and the open note in step", () => {
      *
      * SABOTAGE: `if (note === null) return { action: "close" }`. Fails here.
      */
-    const seen: Reconciled = { contextId: CTX, note: null, selected: null };
+    const seen: Reconciled = { contextId: CTX, note: null, selected: null, navigations: 0 };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: A, seen }),
-    ).toEqual({ action: "address", note: A });
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: A, navigations: 0, seen }),
+    ).toEqual({ action: "address", note: A, mode: "replace" });
   });
 
   test("a close settles: nothing is left to reconcile once both are empty", () => {
     // What the commit after a close looks like. A rule that answered anything
     // but `hold` here would be the oscillation this module is a pure function
     // to make testable.
-    const seen: Reconciled = { contextId: CTX, note: null, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: null, selected: A, navigations: 0 };
     expect(
-      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: null, seen }),
+      nextAddressStep({ contextId: CTX, selectedContextId: CTX, urlContextId: CTX, note: null, selected: null, navigations: 0, seen }),
     ).toEqual({ action: "hold" });
   });
 
   test("agreement is a hold, whatever it agrees on", () => {
-    const seen: Reconciled = { contextId: CTX, note: B, selected: A };
+    const seen: Reconciled = { contextId: CTX, note: B, selected: A, navigations: 0 };
     for (const value of [null, A, B]) {
       expect(
         nextAddressStep({
@@ -298,7 +395,8 @@ describe("the rule that keeps ?note= and the open note in step", () => {
           urlContextId: CTX,
           note: value,
           selected: value,
-          seen,
+          navigations: 0,
+        seen,
         }),
       ).toEqual({ action: "hold" });
     }

@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { EditorRegion } from "../features/console/EditorRegion";
@@ -32,6 +32,16 @@ import { NavBandProvider } from "../features/console/NavBand";
 // `mock`-prefixed so `jest.mock`'s hoisted factories may close over them.
 const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 let mockPathname = "/console/@seyi";
+/**
+ * Whether this context has a model key, as `ConsoleData.modelConnected` says.
+ *
+ * Three values, and each is a state the console really has: `true` once the
+ * subscription answers with a key, `false` once it answers with none, and
+ * `undefined` for the moment before it answers at all.
+ */
+let mockModelConnected: boolean | undefined = true;
+/** What the `+` sheet asked the browser to make, as `<kind>:<folder>`. */
+const created: string[] = [];
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
@@ -81,6 +91,19 @@ jest.mock("@convex-dev/auth/react", () => ({
 
 // The layout is what is under test; its data source is not. Mocking the hook
 // rather than Convex keeps this a test about chrome.
+/*
+  The console layout mints this app's gateway grant through `useAgentEngine`,
+  which is the first thing in it to reach `convex/react` directly — everything
+  else goes through `useLiveConsoleData`, mocked below. The action is never
+  called here: `VoiceButton` is what would call it, and nothing in this file
+  asks the agent anything.
+*/
+jest.mock("convex/react", () => ({
+  useAction: () => async () => {
+    throw new Error("not used in this test");
+  },
+}));
+
 jest.mock("../features/console/useLiveConsoleData", () => ({
   useLiveConsoleData: () => mockConsoleData(),
 }));
@@ -116,6 +139,7 @@ function mockConsoleData(): never {
     toggleFolder: () => {},
     selectedPath: null,
     select: () => {},
+    deselect: () => true,
     editor: emptyEditor,
     setDraft: () => {},
     save: () => {},
@@ -134,6 +158,8 @@ function mockConsoleData(): never {
     paste: () => {},
     createNote: () => {},
     createFolder: () => {},
+    /* Recorded, so the `+` sheet's rows can be shown to reach the browser. */
+    createUntitled: (folder: string, kind: string) => created.push(`${kind}:${folder}`),
     rename: () => {},
     move: () => {},
     duplicate: () => {},
@@ -144,7 +170,17 @@ function mockConsoleData(): never {
 
   return {
     demo: false,
+    modelConnected: mockModelConnected,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
+    /*
+      Two, not one, and the second is the point of the pair.
+
+      A one-context account can tell you nothing about a *switcher*: the
+      context you are in is drawn by the breadcrumb (`strip.ts`) and by the
+      rail's selected row, so a list with only that in it renders the same
+      whether or not the console can offer anything else. "The contexts you can
+      reach" needs one you are not in.
+    */
     contexts: [
       {
         id: "w1",
@@ -152,6 +188,14 @@ function mockConsoleData(): never {
         displayName: "Seyi",
         role: "owner",
         kind: "personal",
+        status: "ok",
+      },
+      {
+        id: "w2",
+        slug: "public-worship",
+        displayName: "Public Worship",
+        role: "editor",
+        kind: "shared",
         status: "ok",
       },
     ],
@@ -193,6 +237,34 @@ const ConsoleLayout = (
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Consoles this file has mounted, so a failing assertion cannot hand the next
+ * test its DOM.
+ *
+ * Every test here reads `document.body` — the switcher's rows and the `+`'s
+ * menu are portals — and each one ends with `app.unmount()`. That line does not
+ * run when an assertion above it throws, so one red test used to leave a whole
+ * live console in the body and the *next* test would find its controls: five
+ * failures reported for one defect, four of them in tests about something else.
+ * Tracked and torn down here instead, which is the same thing
+ * `asidePanelRender.test.ts` does for the same reason.
+ */
+const mounted: (() => void)[] = [];
+
+afterEach(() => {
+  while (mounted.length > 0) mounted.pop()!();
+  document.body.replaceChildren();
+  /*
+    And the route, for the same reason: a test that sets `mockPathname` and
+    then fails never reaches the line that sets it back, so the next test
+    mounts a console on somebody else's route. Under a sabotage run that
+    reported `bottom-bar-meeting` missing on a phone — a true statement about
+    the Map route, and nothing to do with the defect being injected.
+  */
+  mockPathname = "/console/@seyi";
+  mockModelConnected = true;
+});
+
 function mountConsole(width = 1440) {
   // react-native-web measures `document.documentElement.clientWidth`, which
   // jsdom reports as 0 — see `appFrameRender.test.ts` for the full trap.
@@ -214,8 +286,18 @@ function mountConsole(width = 1440) {
     root.render(createElement(ConsoleLayout as never));
   });
 
+  mounted.push(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  /*
+    `document.body`, not the container: the switcher's rows are a `Menu`, which
+    react-native-web renders through a portal outside the tree it was declared
+    in. Querying the container alone reports every row in it as absent.
+  */
   const find = (testId: string) =>
-    container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+    document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
   return {
     text: () => container.textContent ?? "",
@@ -253,15 +335,27 @@ describe("the signed-in console carries no marketing chrome", () => {
   });
 
   test("the wordmark header is gone", () => {
-    // It existed only to hold a Sign out button, which now lives in the rail.
+    // It existed only to hold a Sign out button, which is in the workspace
+    // switcher on a pointer layout and the account mark on a phone.
     const app = mountConsole();
     expect(app.text()).not.toContain("Context.lc");
     app.unmount();
   });
 
-  test("signing out is in the rail, not floating above the product", () => {
+  test("signing out is under the workspace's name, not floating above the product", () => {
+    /*
+      It was `rail-sign-out`, the power glyph at the foot of the rail's account
+      block, and before that a button in a marketing header. The rail folded
+      into `SwitcherMenu`, so it is a row in the menu under the name already in
+      the title bar — which is where every application of this shape puts it,
+      and still not above the product.
+    */
     const app = mountConsole();
-    expect(app.find("rail-sign-out")).not.toBeNull();
+    expect(app.find("rail-sign-out")).toBeNull();
+
+    app.press(app.find("frame-switcher"));
+    expect(app.find("switcher-sign-out")).not.toBeNull();
+
     app.unmount();
   });
 });
@@ -329,11 +423,17 @@ describe("on a phone", () => {
     // The two things that replaced the panels, and neither is behind a control.
     expect(app.find("context-strip")).not.toBeNull();
     expect(app.find("bottom-bar")).not.toBeNull();
-    // The seventh key: the one destination on a row of note verbs.
-    expect(app.find("bottom-bar-meeting")).not.toBeNull();
-    expect(app.find("bottom-bar-separator")).not.toBeNull();
+    /*
+      The `+`, which is the row's one way into making anything and — since the
+      microphone key went — into recording a meeting too. It is unconditional,
+      so this holds for a read-only context as well as this one.
+    */
+    expect(app.find("bottom-bar-new")).not.toBeNull();
+    // And the key it replaced is gone, with the rule that separated it.
+    expect(app.find("bottom-bar-meeting")).toBeNull();
+    expect(app.find("bottom-bar-separator")).toBeNull();
     // And the account, pinned at the leading end of the top row.
-    expect(app.find("account-sign-out")).not.toBeNull();
+    expect(app.find("account-menu")).not.toBeNull();
 
     // The bottom edge is one of the two, never both — `frame.ts`'s invariant.
     expect(app.find("console-status")).toBeNull();
@@ -367,12 +467,12 @@ describe("on a phone", () => {
     );
     expect(labels).toContain("Search notes");
     /*
-      "New note or folder", not "New note". A phone has no explorer, so this one
-      key is the only way to create anything — and while it said "note" there
-      was no way to make a folder on a phone at all. It raises the chooser now;
-      see `CreatePrompt`.
+      "Create", not "New note" and not "New note or folder". A phone has no
+      explorer, so this one key is the only way to start anything — a note, a
+      drawing, a folder, and now a meeting, since the microphone beside it went.
+      It raises the sheet; see `CreatePrompt`.
     */
-    expect(labels).toContain("New note or folder");
+    expect(labels).toContain("Create");
     // The bar is really on the screen, and not merely a set of labels somewhere
     // in the tree. It used to be enough to assert the console had rendered
     // *any* text — and then it was not, because the top bar became a toggle and
@@ -444,7 +544,7 @@ describe("on a phone", () => {
 
     // Leading: the account. Trailing: the capsule with the note's own actions,
     // which is `noteChrome.test.ts`'s.
-    expect(app.find("account-sign-out")).not.toBeNull();
+    expect(app.find("account-menu")).not.toBeNull();
 
     // The contexts are on the screen, and not in the bar. `topBarCompact` is
     // the bar's own testID-free container, so the check is the band: the strip
@@ -453,13 +553,83 @@ describe("on a phone", () => {
     expect(strip).not.toBeNull();
     expect(strip!.closest('[data-testid="nav-band"]')).not.toBeNull();
     expect(strip!.closest('[data-testid="app-frame"] > div')).not.toBe(
-      app.find("account-sign-out")!.closest('[data-testid="app-frame"] > div'),
+      app.find("account-menu")!.closest('[data-testid="app-frame"] > div'),
     );
 
     // The two controls that used to be here, and the chip that never was.
     expect(app.find("frame-drawer-toggle")).toBeNull();
     expect(app.find("frame-nav-toggle")).toBeNull();
     expect(app.find("storage-pill")).toBeNull();
+
+    app.unmount();
+  });
+});
+
+/**
+ * THE SWITCHER EXISTS AT EVERY DENSITY, AND WHICH ONE IT IS CHANGES.
+ *
+ * "A session resolves to a *set* of accessible contexts — one connection
+ * reaches every context its person is a live member of" is the product, not a
+ * layout preference, so the surface that offers that set is not allowed to be a
+ * phone feature. It was asserted at 390 alone: the file above counts the
+ * strip's landmark and pins what the top row holds, all of it at compact,
+ * because that is where the two-rows-of-chrome complaint came from.
+ *
+ * Nothing said the same thing about 1440, and the cost of that showed up in the
+ * one console anybody can open in a browser: `/e2e-fixture` mounted the strip
+ * and not the rail, so above 880pt it drew no way to another context at all,
+ * and a green suite said nothing (`fixtureConsoleDensity.test.ts` is that hole,
+ * closed). The product was right the whole time — which is exactly the claim
+ * that was resting on nobody having checked.
+ *
+ * So this asks one question at both densities and does not care which component
+ * answers it: is every context this account can reach on the screen, named, and
+ * pressable? At compact that is `ContextStrip`; at wide it is `ConsoleRail`.
+ * `frame.ts` is explicit that it is never both at once, so that is asserted
+ * here too — the strip's dot means *kind* and the rail's means *storage
+ * status*, and one glyph with two meanings on one screen is worse than either.
+ *
+ * SABOTAGE: return `rail: "hidden"` from `regionsFor`'s wide arm and "a pointer
+ * layout offers them too" fails; gate `_layout`'s `contexts` node on something
+ * other than `phone` and "a phone offers every context" fails.
+ */
+describe("every context this account can reach is on the screen", () => {
+  /*
+    Controls naming the one context this account is *not* in. Matched with its
+    `@`, which `atName` puts on every label either surface draws: a bare slug is
+    a substring of ordinary prose, and a note titled after the workspace would
+    make this pass with no switcher on the screen at all.
+  */
+  const reachable = (app: ReturnType<typeof mountConsole>) =>
+    Array.from(app.container.querySelectorAll('[role="button"]'))
+      .map((node) => `${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`)
+      .filter((label) => label.includes("@public-worship")).length;
+
+  test("a phone offers every context, on the strip", () => {
+    const app = mountConsole(390);
+
+    expect(app.find("context-strip")).not.toBeNull();
+    expect(app.find("console-rail")).toBeNull();
+    expect(reachable(app)).toBeGreaterThan(0);
+
+    app.unmount();
+  });
+
+  test("a pointer layout offers them too, in the switcher", () => {
+    /*
+      It used to assert `console-rail` and read the rows off the container.
+      The rail folded into the menu under the workspace's name, so the list is
+      behind one press — and a press is what a person makes to reach it, which
+      is the thing this file exists to prove is possible.
+    */
+    const app = mountConsole(1440);
+
+    expect(app.find("console-rail")).toBeNull();
+    expect(app.find("context-strip")).toBeNull();
+    expect(app.find("frame-switcher")).not.toBeNull();
+
+    app.press(app.find("frame-switcher"));
+    expect(app.find("switcher-context-public-worship")).not.toBeNull();
 
     app.unmount();
   });
@@ -600,10 +770,11 @@ describe("search", () => {
  * Against a green baseline of **172 suites / 3,285 tests**
  * (`npx jest --watchman=false`): returning the pinned account's pressable to
  * `padding: 4` — a 34pt target around a 34pt mark, which is what it shipped as
- * — fails **1 test**, `sign-out is reachable, and is a target a thumb can hit`,
- * and nothing else. That is the whole of the coverage on the only sign-out
- * control this product has on a phone, which is why it is asserted from
- * `layout.minTouchTarget` rather than from a literal.
+ * — fails **1 test**, `sign-out is reachable through the account menu, and the
+ * trigger is a target a thumb can hit`, and nothing else. That is the whole of
+ * the coverage on the only sign-out control this product has on a phone,
+ * which is why it is asserted from `layout.minTouchTarget` rather than from a
+ * literal.
  */
 describe("the phone reaches a destination with nothing opened first", () => {
   test("a context is one press in the band, and the press raises no panel", () => {
@@ -634,69 +805,325 @@ describe("the phone reaches a destination with nothing opened first", () => {
     app.unmount();
   });
 
-  test("the app's other place is the last key, and it raises the sheet that asks", () => {
+  test("the + is in the corner of a pointer console, on every route it has", () => {
     /*
-      The seventh key. It opens a sheet and does **not** open the microphone —
-      `docs/decisions/meetings.md` calls a control that silently started
-      recording "the same product with the indicator removed" — and the sheet
-      is a `Modal`, which react-native-web portals outside this container.
+      THE MOUNT, WHICH IS THE HALF NO UNIT TEST OF THE BUTTON CAN SEE.
+
+      `CreateButton` has its own tests for what it draws and what its menu
+      offers. Those pass just as happily if nothing in the product ever renders
+      it — which is exactly the defect being guarded here, and the one the
+      microphone it replaced actually shipped: the corner was drawn by
+      `NoteEditor`, so it existed on a note and nowhere else. The owner's words
+      are the requirement: *"it should show up all the time, even when on a
+      folder page, and not just show up when on a note."*
+
+      So this asserts the *layout* draws it, at a context route with no note
+      selected — which is a folder page, and the state a console arrives in.
+    */
+    mockPathname = "/console/@seyi";
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    app.unmount();
+  });
+
+  test("...and on Map, which has no file tree and no note at all", () => {
+    // Restored by `afterEach`, not here: see the note there.
+    mockPathname = "/console/map";
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    app.unmount();
+  });
+
+  test("pressing it offers everything a console starts", () => {
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+
+    // The menu is a `Menu`, which react-native-web portals out of the tree.
+    for (const label of ["New meeting", "New note", "New drawing", "New folder", "New chat"]) {
+      expect([label, document.body.textContent?.includes(label)]).toEqual([label, true]);
+    }
+    app.unmount();
+  });
+
+  test("a context with no model key is not offered a conversation", () => {
+    /*
+      A key is what lets the agent answer at all, so the row without one opens
+      a composer whose first send errors — the control that appears to work and
+      does nothing. Everything else in the menu still makes a file, so the menu
+      is shorter rather than absent.
+    */
+    mockModelConnected = false;
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+
+    expect(document.body.textContent).not.toContain("New chat");
+    expect(document.body.textContent).toContain("New note");
+    expect(document.body.textContent).toContain("New meeting");
+    app.unmount();
+  });
+
+  test("...and neither is one whose answer has not landed yet", () => {
+    /*
+      `undefined` is "ask again in a moment", which is not "there is no key".
+      Absent then present is the honest direction: offered then withdrawn is an
+      offer somebody may already have pressed.
+    */
+    mockModelConnected = undefined;
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+    expect(document.body.textContent).not.toContain("New chat");
+    app.unmount();
+  });
+
+  test("and the corner holds no second control: the microphone is not drawn beside it", () => {
+    /*
+      One corner, one control. `oneMicrophone.test.ts` holds the editor's half
+      through the real editor; this is the one that can see both at once,
+      because it mounts the console that supplies the `+` and the note that
+      used to supply the microphone.
+    */
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    expect(app.find("voice-button")).toBeNull();
+    app.unmount();
+  });
+
+  test("a phone draws no floating + at all, because its bottom row carries one", () => {
+    /*
+      The row's own `+` is the phone's create surface — and since the microphone
+      key went, its meeting route too. A second floating control 24pt above that
+      row is the defect `oneMicrophone.test.ts` exists for, arriving again with a
+      different glyph on it.
+    */
+    const app = mountConsole(390);
+    expect(app.find("console-create")).toBeNull();
+    expect(app.find("bottom-bar-new")).not.toBeNull();
+    expect(app.find("bottom-bar-meeting")).toBeNull();
+    app.unmount();
+  });
+
+  test("the app's other place is a row in the + sheet, and choosing it records", () => {
+    /*
+      THE SEVENTH KEY, AFTER THE SHEET WENT — AND AFTER THE KEY WENT.
+
+      It used to be its own microphone at the end of the row, and before that it
+      raised a destination sheet with two rows, an audience line and a Start.
+      Both are gone, for the owner's reasons in order: *"no need to ask people it
+      will just confuse them"*, and then *"we no longer need a dedicated mic
+      button on the bottom row, just a plus button that opens different
+      options"*.
+
+      What `docs/decisions/meetings.md` actually protects survived both. It calls
+      a control that silently starts recording "the same product with the
+      indicator removed", and the indicator is where it went: the press records
+      and lands on the meeting's own screen — a clock, a meter, a transport and
+      the note it is becoming. What the phone must keep is a **route**, and this
+      is the route: one press for the `+`, one for Meeting.
+
+      So what is asserted is that the two presses reach a recording, and that
+      neither raises the retired destination sheet. This fixture's console has no
+      meetings controller configured, so the attempt cannot reach a microphone;
+      what it must do is say so rather than doing nothing at all, which is
+      `meetingsFlow.test.ts`'s refusal arriving through the real row.
     */
     const app = mountConsole(390);
     expect(sheetUp()).toBe(false);
 
-    app.press(app.find("bottom-bar-meeting"));
-    expect(sheetUp()).toBe(true);
+    app.press(app.find("bottom-bar-new"));
+    const meeting = document.body.querySelector<HTMLElement>('[aria-label="New meeting"]');
+    expect(meeting).not.toBeNull();
+    app.press(meeting);
+
+    expect(sheetUp()).toBe(false);
+    expect(document.body.querySelector('[data-testid="meeting-refusal"]')).not.toBeNull();
 
     // And it is dismissible from inside itself, which is the property the rail
     // sheet's `closeNav()` used to carry for the panel it replaced.
-    app.press(document.body.querySelector<HTMLElement>('[data-testid="meeting-destination-cancel"]'));
-    expect(sheetUp()).toBe(false);
+    app.press(document.body.querySelector<HTMLElement>('[data-testid="meeting-refusal-close"]'));
+    expect(document.body.querySelector('[data-testid="meeting-refusal"]')).toBeNull();
 
     app.unmount();
   });
 
-  test("sign-out is reachable, and is a target a thumb can hit", () => {
+  /**
+   * AND THE FILES ARE IN THE SAME SHEET, WITH NOTHING ASKING FOR A NAME.
+   *
+   * The `+` is the only route to creating anything on a phone, so what it offers
+   * is the whole of that capability — and the note is made on the press rather
+   * than after a text field, which is what the owner asked for: *"for new note,
+   * new drawing etc should not ask you to title it"*.
+   */
+  test("the + offers the three files, and Note writes one without asking", () => {
+    const app = mountConsole(390);
+    app.press(app.find("bottom-bar-new"));
+
+    const labelled = (label: string) =>
+      document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+    for (const row of ["New note", "New drawing", "New folder"]) {
+      expect(labelled(row)).not.toBeNull();
+    }
+
+    created.length = 0;
+    app.press(labelled("New note"));
+    // It reached the browser as an untitled note in the destination folder —
+    // and no field and no sheet were in the way.
+    expect(created).toEqual(["note:"]);
+    expect(document.body.querySelector("input, textarea")).toBeNull();
+    expect(labelled("New note")).toBeNull();
+
+    app.unmount();
+  });
+
+  /**
+   * A PHONE CAN ASK ITS CONTEXT A QUESTION.
+   *
+   * It could not, and the absence was never decided — it was a fact about the
+   * code that nobody had written down. `CreateButton`'s `onNewChat` is `null`
+   * "where there is no panel for a conversation to open in", and on a phone that
+   * read as *no panel exists*, because the only thing that raised `AgentPanel`
+   * was the floating microphone `NoteEditor` mounts. So the row was absent from
+   * the phone's `+` while the desktop's menu offered it, and the way to the
+   * agent on a phone was: open a note, put the keyboard up so the bottom row
+   * hides, press the microphone that comes back, choose the agent row.
+   *
+   * `AgentPanel` is a `Modal` and says in its own header that it is one
+   * precisely so it can "appear identically on a surface that has no console
+   * around it at all". So the layout raises it, and the Chat row is a row on
+   * both densities.
+   *
+   * ## What this asserts, and why each half is needed
+   *
+   * That the row is **there** and that pressing it **opens the panel**. A test
+   * of only the first passes on a row wired to nothing, which is the shape of
+   * the defect this closes; a test of only the second cannot tell a phone that
+   * offers the row from one that never did.
+   *
+   * ## Sabotage record
+   *
+   * Applied as local edits to `_layout.tsx`, suite run, named tests observed
+   * failing, reverted. Counts are failing tests in this file.
+   *
+   *   the phone's branch dropped, so it opens the aside it does not have    1
+   *   `hasAside` back in the gate, so the row is absent on a phone          1
+   *   the gate no longer reads `modelConnected`                             3
+   *   the panel never mounted                                              1
+   */
+  test("the + offers a chat, and choosing it opens the panel", () => {
+    const app = mountConsole(390);
+    app.press(app.find("bottom-bar-new"));
+
+    const chat = document.body.querySelector<HTMLElement>('[aria-label="New chat"]');
+    expect(chat).not.toBeNull();
+    app.press(chat);
+
+    expect(app.find("agent-panel")).not.toBeNull();
+    // And it names the model that will answer, which is `AgentPanel`'s own
+    // disclosure rule rather than this test's: a conversation whose provider is
+    // unstated is one somebody cannot cost.
+    expect(app.find("agent-provider")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  /**
+   * And the gate travels with the row, on both densities.
+   *
+   * The owner's line — *"new chat should be off btw if no LLM api key
+   * configured"* — is `modelConnected`'s, and #733 argues why `undefined` is
+   * absent rather than present. The phone's sheet asks the same question through
+   * the same value, so a context with no key is not offered a conversation here
+   * either.
+   */
+  test("and no chat row on a phone in a context with no model key", () => {
+    mockModelConnected = false;
+    const app = mountConsole(390);
+    app.press(app.find("bottom-bar-new"));
+    expect(document.body.querySelector('[aria-label="New chat"]')).toBeNull();
+    // The rest of the sheet is untouched, so this cannot pass on a sheet that
+    // failed to open at all.
+    expect(document.body.querySelector('[aria-label="New note"]')).not.toBeNull();
+    app.unmount();
+  });
+
+  test("sign-out is reachable through the account menu, and the trigger is a target a thumb can hit", () => {
     /*
       **It is the only sign-out control in the product**, and before the panels
       went it was at the foot of the rail — this test used to press
       `frame-nav-toggle` to reach it. There is no toggle and no rail on a phone;
       it lives behind the pinned account slot, in the corner of the glass that
-      is always visible, and is reached with no press at all.
+      is always visible.
 
-      44pt on both axes, from the token rather than from a literal. The mark
-      inside it is 34 (`layout.accountAvatar`) and that is legal — what a thumb
-      hits is the pressable, and this is the one control here somebody reaches
-      for deliberately and must not miss.
+      **It used to be reached with no press at all** — `account-sign-out` was
+      the avatar's own pressable, and pressing it signed out directly. That was
+      the bug this test's sabotage record predates: on a clean queue,
+      `useSignOutFlow` raises no confirmation, so the one thing reachable
+      without a press was also the one thing nothing should do by accident.
+      The avatar now opens a menu; this test presses through it rather than
+      finding the row already on screen.
+
+      The trigger is 44pt on both axes, from the token rather than from a
+      literal — what a thumb hits is the pressable, and this is the one
+      control here somebody reaches for deliberately and must not miss. The
+      row inside the menu is a `Modal` portal (`react-native-web`), so it is
+      searched for in `document.body` rather than through `app.find`, which is
+      scoped to this test's own container.
     */
     mockPathname = "/console";
     const app = mountConsole(390);
 
-    const signOut = app.find("account-sign-out");
-    expect(signOut).not.toBeNull();
+    const trigger = app.find("account-menu");
+    expect(trigger).not.toBeNull();
     // Named, not just present: an icon carries nothing to a screen reader and
     // there is no menu and no keymap here to reach it by instead.
-    expect(signOut!.getAttribute("aria-label")).toBe("@seyi — sign out");
+    expect(trigger!.getAttribute("aria-label")).toBe("@seyi — account menu");
 
-    const box = window.getComputedStyle(signOut!);
+    const box = window.getComputedStyle(trigger!);
     expect(Number.parseFloat(box.width)).toBeGreaterThanOrEqual(layout.minTouchTarget);
     expect(Number.parseFloat(box.height)).toBeGreaterThanOrEqual(layout.minTouchTarget);
+
+    app.press(trigger);
+    const signOut = document.body.querySelector<HTMLElement>('[data-testid="account-sign-out"]');
+    expect(signOut).not.toBeNull();
+    expect(signOut!.textContent).toContain("Sign out");
 
     app.unmount();
     mockPathname = "/console/@seyi";
   });
 
-  test("and a pointer layout still keeps it at the foot of the rail", () => {
-    // The positive control for the move: `rail-sign-out` is not deleted, it is
-    // the other density's answer. A rewrite that lost it would pass every
-    // assertion above.
+  test("and a pointer layout reaches it in the switcher instead", () => {
+    /*
+      The positive control for the move: sign-out is not deleted, it is the
+      other density's answer, and a rewrite that lost it would pass every
+      assertion above.
+
+      **It used to be `rail-sign-out`, at the foot of the rail's account
+      block.** The rail folded into `SwitcherMenu`, so this density's route is
+      the same shape the phone's already was — open the control under your own
+      name, then choose — and `AccountBlock`'s `compact` menu stays the phone's
+      alone.
+    */
     const app = mountConsole(1440);
-    expect(app.find("rail-sign-out")).not.toBeNull();
-    expect(app.find("account-sign-out")).toBeNull();
+    expect(app.find("rail-sign-out")).toBeNull();
+    expect(app.find("account-menu")).toBeNull();
+
+    app.press(app.find("frame-switcher"));
+    const signOut = app.find("switcher-sign-out");
+    expect(signOut).not.toBeNull();
+    expect(signOut!.textContent).toContain("Sign out");
+
     app.unmount();
   });
 });
 
 /** The meeting sheet is a `Modal`, so it portals outside the container. */
+/**
+ * Whether the destination sheet is on screen — which it now never is.
+ *
+ * Kept as an assertion rather than deleted with the component: "the key asks
+ * before it records" was a property of this product for a long time and its
+ * reversal is the kind of thing that should read as a decision in the suite
+ * rather than as a test that quietly disappeared.
+ */
 function sheetUp(): boolean {
   return document.body.querySelector('[data-testid="meeting-destination-sheet"]') !== null;
 }

@@ -116,6 +116,19 @@ const mockStore = (
 jest.mock("../features/offline/store", () => ({ openStore: () => mockStore }));
 
 // The layout is what is under test; its data source is not.
+/*
+  The console layout mints this app's gateway grant through `useAgentEngine`,
+  which is the first thing in it to reach `convex/react` directly — everything
+  else goes through `useLiveConsoleData`, mocked below. The action is never
+  called here: `VoiceButton` is what would call it, and nothing in this file
+  asks the agent anything.
+*/
+jest.mock("convex/react", () => ({
+  useAction: () => async () => {
+    throw new Error("not used in this test");
+  },
+}));
+
 jest.mock("../features/console/useLiveConsoleData", () => ({
   useLiveConsoleData: () => mockConsoleData(),
 }));

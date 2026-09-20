@@ -14,6 +14,8 @@ import {
   ROTATION_EXEMPT_ENVELOPE_COLUMNS,
 } from "../functions/storage";
 import { decryptSecret, encryptSecret, requireKeyset } from "../functions/lib/crypto";
+import { managedBucketName } from "../functions/lib/managedStorage";
+import { STORAGE_LAYOUT_PROBE_VERSION } from "../functions/lib/storageLayout";
 import type { Id } from "../_generated/dataModel";
 import {
   type TestConvex,
@@ -188,12 +190,12 @@ describe("bindStorage", () => {
     const owner = await createUser(t, "owner@example.invalid");
     const workspaceId = await createWorkspace(t, owner, "atlas");
 
-    await bindFakeStorage(t, owner, workspaceId, { rootPrefix: "/notes/brain/" });
+    await bindFakeStorage(t, owner, workspaceId, { rootPrefix: "/notes/workspace/" });
     const binding = await asUser(t, owner).query(
       api.functions.storage.getStorageBinding,
       { workspaceId },
     );
-    expect(binding?.rootPrefix).toBe("notes/brain/");
+    expect(binding?.rootPrefix).toBe("notes/workspace/");
 
     expect(
       errorCode(
@@ -202,6 +204,37 @@ describe("bindStorage", () => {
         ),
       ),
     ).toBe("INVALID_ROOT_PREFIX");
+  });
+
+  /*
+    The adapter's `describeKeyProblem` percent-decodes every segment before it
+    compares, so `%2E%2E` is a ".." there and was a ".." at no door above it.
+    A prefix this refuses is refused on the screen it was typed into; a prefix
+    only the adapter refuses is a saved binding whose probe fails and whose
+    every later request throws — the outcome `normalizeRootPrefix`'s own
+    neighbours argue against, since a probe's job is to record a status rather
+    than to explain a value.
+
+    Equality per segment, not `includes`: the adapter compares whole segments,
+    so `a%2E%2Eb` is a prefix it accepts and refusing it here would refuse a
+    folder no layer objects to.
+  */
+  test("refuses a percent-encoded traversal in a root prefix, where the adapter does", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+
+    for (const rootPrefix of ["%2E%2E/escape", "notes/%2e%2e/escape", "notes/%2E"]) {
+      expect(
+        errorCode(await captureError(() => bindFakeStorage(t, owner, workspaceId, { rootPrefix }))),
+      ).toBe("INVALID_ROOT_PREFIX");
+    }
+
+    await bindFakeStorage(t, owner, workspaceId, { rootPrefix: "notes/a%2E%2Eb" });
+    const binding = await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+      workspaceId,
+    });
+    expect(binding?.rootPrefix).toBe("notes/a%2E%2Eb/");
   });
 
   test("requires authentication", async () => {
@@ -259,6 +292,77 @@ describe("bindStorage", () => {
     expect(await t.run((ctx) => ctx.db.query("storageBindings").collect())).toEqual(
       [],
     );
+  });
+
+  /**
+   * The managed account is not somewhere a customer may bind.
+   *
+   * `refuseManagedEndpoint` is unit-tested in `managedStorage.test.ts`, and
+   * that is not enough: with only those tests, deleting the call from
+   * `assertUsableEndpoint` leaves the whole suite green, which is exactly the
+   * shape `docs/decisions/testing.md` refuses. These drive the real action.
+   *
+   * The last two forms are the ones that matter. A guard matching the string
+   * as typed accepted both — `new URL()` percent-decodes and IDNA-maps the
+   * host, so the row would have been written pointing at the managed account
+   * while the check read something else.
+   */
+  test("refuses an endpoint addressing the account that holds managed buckets", async () => {
+    const managed = "0123456789abcdef0123456789abcdef";
+    const previous = process.env.MANAGED_R2_ACCOUNT_ID;
+    process.env.MANAGED_R2_ACCOUNT_ID = managed;
+    try {
+      const t = setupTest();
+      const owner = await createUser(t, "owner@example.invalid");
+      const workspaceId = await createWorkspace(t, owner, "atlas");
+
+      for (const endpoint of [
+        `https://${managed}.r2.cloudflarestorage.com`,
+        `https://${managed}.eu.r2.cloudflarestorage.com/`,
+        `https://a-bucket.${managed}.r2.cloudflarestorage.com`,
+        "https://0123456789%61bcdef0123456789abcdef.r2.cloudflarestorage.com",
+        "https://\uff10123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
+      ]) {
+        expect(
+          errorCode(
+            await captureError(() =>
+              bindFakeStorage(t, owner, workspaceId, { endpoint }),
+            ),
+          ),
+          `${endpoint} was accepted`,
+        ).toBe("MANAGED_ACCOUNT_NOT_ALLOWED");
+      }
+
+      // And nothing reached the table by any of those routes.
+      expect(await t.run((ctx) => ctx.db.query("storageBindings").collect())).toEqual(
+        [],
+      );
+    } finally {
+      if (previous === undefined) delete process.env.MANAGED_R2_ACCOUNT_ID;
+      else process.env.MANAGED_R2_ACCOUNT_ID = previous;
+    }
+  });
+
+  /**
+   * A self-hoster has no managed account, and their own storage must bind
+   * exactly as it did before this guard existed.
+   */
+  test("refuses nothing when no managed account is configured", async () => {
+    const previous = process.env.MANAGED_R2_ACCOUNT_ID;
+    delete process.env.MANAGED_R2_ACCOUNT_ID;
+    try {
+      const t = setupTest();
+      const owner = await createUser(t, "owner@example.invalid");
+      const workspaceId = await createWorkspace(t, owner, "atlas");
+      await bindFakeStorage(t, owner, workspaceId, {
+        endpoint: "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
+      });
+      expect(
+        (await t.run((ctx) => ctx.db.query("storageBindings").collect())).length,
+      ).toBe(1);
+    } finally {
+      if (previous !== undefined) process.env.MANAGED_R2_ACCOUNT_ID = previous;
+    }
   });
 
   test("still accepts an ordinary provider endpoint", async () => {
@@ -1363,6 +1467,29 @@ describe("recordVerification (internal)", () => {
 });
 
 describe("disconnectStorage", () => {
+  test("refuses to strand a managed bucket behind an active plan", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.run(async (ctx) => {
+      const binding = await ctx.db.query("storageBindings").unique();
+      await ctx.db.patch(binding!._id, { bucket: managedBucketName(workspaceId) });
+      await ctx.db.insert("workspacePlans", {
+        workspaceId,
+        managedStorage: true,
+        fastSearch: false,
+        status: "active",
+        managedProvisioning: "ready",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {
+        workspaceId,
+      }),
+    ).rejects.toThrow(/managed storage/i);
+    expect(await t.run((ctx) => ctx.db.query("storageBindings").unique())).not.toBeNull();
+  });
   test("deletes the credential outright rather than flagging it", async () => {
     const { t, owner, workspaceId } = await boundWorkspace();
 
@@ -1482,5 +1609,368 @@ describe("audit of storage changes names the acting identity", () => {
     const rebind = events.find((e) => e.action === "storage.rebound");
     expect(rebind?.actorUserId).toBe(bob);
     expect(rebind?.actorEmail).toBe("bob@example.invalid");
+  });
+});
+
+describe("where the storage-layout migration got to", () => {
+  /*
+    The migration has always written its own state into the bucket, under
+    `.context/`, and short-circuits on `complete`. Nothing outside the bucket
+    could read it, so the console had no way to tell "this bucket still needs
+    the update" from "it ran last week" — and answered the offer with a flag on
+    one device, which is why the notice came back on every other one.
+
+    This is the copy that travels with the workspace. Same category as
+    `noteCount`: something we observed while holding a credential, which no
+    query can recompute without becoming a public function that opens one.
+  */
+  test("a fresh binding has none, which is what still offers the migration", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBeUndefined();
+    expect(binding?.storageLayoutAt).toBeUndefined();
+    // And nobody has *asked* it, which is the half that decides the offer.
+    expect(binding?.storageLayoutCheckedAt).toBeUndefined();
+  });
+
+  /*
+    THE ABSENCE THAT MEANT TWO THINGS.
+
+    Recording the outcome fixed the offer for every context migrated after the
+    column existed, and for nobody else. A context migrated before it kept
+    `complete` in its own bucket and nothing in this row — and an empty column
+    read as "nobody has run this", so the notice came back on every device, for
+    ever, for exactly the people who had already run it.
+
+    So the question and the answer are recorded separately. `checkedAt` says
+    the bucket was asked; the state stays what it said.
+  */
+  test("a bucket that answers 'never run' is a different fact from one nobody asked", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    // Nothing has run here, and that is now a recorded answer rather than an
+    // unasked question.
+    expect(binding?.storageLayoutState).toBeUndefined();
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+    // No outcome was observed, so nothing claims one was.
+    expect(binding?.storageLayoutAt).toBeUndefined();
+  });
+
+  test("recording an outcome also records that the bucket was asked", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBe("complete");
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+  });
+
+  test("a state file that has gone stops claiming the bucket is migrated", async () => {
+    /*
+      The bucket is authoritative and this row is a copy of it. A copy that
+      outlives what it copied is the stale-green-check failure the rebind clear
+      exists to avoid, so an observation of "no state here" clears a state we
+      had rather than keeping the more flattering answer.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBeUndefined();
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+  });
+
+  test("asking is owner-only, and spends itself once the bucket has answered", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    // Only a bucket we believe works is worth a question: an unverified or
+    // errored binding is one the console is already shouting about, and a
+    // probe against it fails for that reason rather than teaching anybody
+    // anything.
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: true,
+      capabilities: { conditionalWrite: true },
+    });
+    const member = await createUser(t, "asker@example.invalid");
+    await addMember(t, workspaceId, member, "member");
+
+    await expect(
+      asUser(t, member).mutation(api.functions.storage.observeStorageLayout, {
+        workspaceId,
+      }),
+    ).rejects.toThrow();
+
+    // An unanswered binding is worth asking about exactly once...
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: true });
+
+    // ...and once it has answered — by an observation or by a migration pass —
+    // the question is spent, so a console that mounts again asks nothing.
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: false });
+  });
+
+  test("a recorded outcome is readable, and stamped", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBe("complete");
+    expect(binding?.storageLayoutAt).toBeGreaterThan(0);
+  });
+
+  test("a later pass overwrites an earlier one", async () => {
+    // The chain records on every pass — `copying` while it walks, then the
+    // terminal state — so the last write is the current answer rather than the
+    // first one to land.
+    const { t, owner, workspaceId } = await boundWorkspace();
+    for (const state of ["copying", "copied", "complete"] as const) {
+      await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+        workspaceId,
+        state,
+      });
+    }
+    expect(
+      (
+        await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+          workspaceId,
+        })
+      )?.storageLayoutState,
+    ).toBe("complete");
+  });
+
+  test("it is not clamped to the owner, unlike the note count", async () => {
+    /*
+      Deliberate, and the reason is the difference between the two: the count
+      is a number about private notes, and this names no key and counts nothing
+      of the customer's. Every member already sees the provider, the bucket and
+      the verification status, and this says less than any of them.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const member = await createUser(t, "member@example.invalid");
+    await addMember(t, workspaceId, member, "member");
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+    await t.mutation(internal.functions.storage.recordNoteCount, {
+      workspaceId,
+      notes: 42,
+      truncated: false,
+    });
+
+    const seen = await asUser(t, member).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(seen?.storageLayoutState).toBe("complete");
+    // The clamp beside it still holds, so this is not a test that stopped
+    // checking anything.
+    expect(seen?.noteCount).toBeUndefined();
+  });
+
+  test("rebinding clears it, so a different bucket is offered the migration", async () => {
+    /*
+      The failure this exists for is silent. A `complete` carried onto a bucket
+      that has never been migrated is a bucket the console never offers it to:
+      the pre-v1 plumbing stays where it is, dual reads keep carrying it, and
+      no screen ever says so. Same argument as `lastVerifiedAt` and the note
+      count above, and a worse outcome than either.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    await bindFakeStorage(t, owner, workspaceId, { bucket: "somewhere-else" });
+
+    const rebound = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(rebound?.bucket).toBe("somewhere-else");
+    expect(rebound?.storageLayoutState).toBeUndefined();
+    expect(rebound?.storageLayoutAt).toBeUndefined();
+    /*
+      Including the record that it was ever asked. Left behind, a new bucket
+      reads as "checked, and never migrated" — an answer nobody obtained about
+      a bucket nobody looked at — and the console never offers it the update.
+    */
+    expect(rebound?.storageLayoutCheckedAt).toBeUndefined();
+    expect(rebound?.storageLayoutCheckedVersion).toBeUndefined();
+  });
+
+  /*
+    THE ANSWER THAT WAS ONLY AS GOOD AS THE QUESTION.
+
+    The first probe asked one thing: is there a migration state file? A bucket
+    **we scaffolded ourselves** has none — it was born on the v1 layout and has
+    never in its life held a `.audit/` or a `.history/` — so it answered
+    "nobody has run the migration here", which is true and beside the point:
+    there has never been anything to migrate. Every newly created workspace was
+    therefore offered a one-time storage update on its first console load, and
+    dismissing it was the only thing that ended it.
+
+    `readStorageLayoutState` now asks whether any pre-v1 plumbing is in the
+    bucket at all and answers `complete` when none is. That fixes every bucket
+    asked from now on and none of the rows the old question already wrote —
+    which are exactly the new workspaces the bug was about, because a binding
+    that has been asked is never asked again. So the generation is recorded
+    with the answer, and a stale one is asked once more.
+  */
+  test("an answer from an older probe is asked again; the current one is not", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: true,
+      capabilities: { conditionalWrite: true },
+    });
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+
+    // The answer the current probe gave is spent, exactly as before.
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: false });
+
+    // A row written by the probe that got new workspaces wrong: asked, with
+    // nothing recorded, and no generation beside it.
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, {
+        storageLayoutCheckedVersion: undefined,
+      });
+    });
+
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: true });
+  });
+
+  test("a recorded state is the bucket's own word, and is never re-asked", async () => {
+    /*
+      Only the *absence* of a state can be wrong about a bucket: every
+      generation of the probe reads a state file the same way, and a migration
+      pass writes what it actually did. Re-asking there would spend somebody's
+      request budget to be told what we already know — and, on a bucket
+      mid-migration, would do it on every console mount.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: true,
+      capabilities: { conditionalWrite: true },
+    });
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "copying",
+    });
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, {
+        storageLayoutCheckedVersion: undefined,
+      });
+    });
+
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: false });
+  });
+
+  test("recording an answer stamps the generation that produced it", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    // The console reads this to tell an answer it can trust from one the probe
+    // before it got wrong, so it has to survive the query boundary.
+    expect(binding?.storageLayoutCheckedVersion).toBe(
+      STORAGE_LAYOUT_PROBE_VERSION,
+    );
+  });
+
+  test("a binding that went away drops the write rather than resurrecting a row", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.delete(binding!._id);
+    });
+
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    expect(
+      await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+        workspaceId,
+      }),
+    ).toBeNull();
   });
 });
