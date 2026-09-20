@@ -92,6 +92,7 @@ import {
   newResponseId,
   parseFormBlocks,
   parseResponsesFile,
+  renderFormBlock,
   renderResponsesFile,
   responseStamp,
   validateSubmission,
@@ -592,7 +593,7 @@ Leaving nothing behind means the next session — yours or another tool's —
 rediscovers what this one worked out. That is the cost they installed this to
 stop paying.
 
-## FOUR RULES THE TOOLS CANNOT TEACH YOU IN TIME
+## FIVE RULES THE TOOLS CANNOT TEACH YOU IN TIME
 
 1. **Their folders are theirs.** Do not assume a layout — not PARA, not
    anything. Many contexts use PARA (0-inbox, 1-projects, 2-areas, 3-resources,
@@ -621,7 +622,15 @@ stop paying.
 4. **Many tools read these notes, not just you.** Keep them concise and factual.
    No transient chatter, and when you save a conversation, save the user-visible
    messages only — never system or developer prompts, internal reasoning,
-   credentials, or raw tool logs — and label an incomplete capture honestly.`;
+   credentials, or raw tool logs — and label an incomplete capture honestly.
+5. **They can collect answers from other people, and you build the form.** A note
+   can carry a form — fields somebody fills in, answers appended to a second note
+   — and \`create_form\` writes both in one call, from fields you pass rather than
+   markdown you compose. Offer it when they describe collecting the same thing
+   from several people: an intake, a request list, a sign-up, a bug report. It is
+   the one thing here that works for people who cannot write notes at all, and
+   who may read the answers is the answers note's own visibility, so say where it
+   will land before you make it.`;
 
 /**
  * The working half of `orient` — short on purpose.
@@ -3693,6 +3702,119 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "create_form",
+      description:
+        "Build a form on a new note: fields somebody fills in, answers appended to a second note " +
+        "you name. Reach for it whenever they describe collecting the same thing from several " +
+        "people — a client intake, a request list, a sign-up, a bug report — including from people " +
+        "who cannot write notes at all. You pass fields and a policy, never markdown; the gateway " +
+        "writes the block and creates the empty answers note in the same call, and tells you who " +
+        "can read it. Who may read the answers is that note's own visibility, so say where it lands " +
+        "before you make it.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The new note the form goes on, ending in .md. It must not exist yet." },
+          title: { type: "string", description: "Heading for the note. Omit to write the block alone." },
+          id: {
+            type: "string",
+            description:
+              "A short lowercase name for the form, letters digits and dashes. Defaults to the note's own filename.",
+          },
+          intro: {
+            type: "string",
+            description:
+              "A sentence or two above the form saying what it is for. Everyone who fills the form reads this.",
+          },
+          fields: {
+            type: "array",
+            minItems: 1,
+            maxItems: 24,
+            description: "What the form asks, in the order it asks it.",
+            items: {
+              type: "object",
+              properties: {
+                name: {
+                  type: "string",
+                  description:
+                    "Lowercase letters, digits and underscores. It becomes the column heading, and cannot be id, by, at or votes.",
+                },
+                type: {
+                  type: "string",
+                  enum: ["line", "text", "select", "number", "date", "checkbox"],
+                  description: "line is one line, text is a paragraph, select offers options.",
+                },
+                required: { type: "boolean", description: "Defaults to false." },
+                max: {
+                  type: "number",
+                  description:
+                    "Required on line (up to 500) and text (up to 20000), so an answer cannot be unbounded. An upper bound on a number field.",
+                },
+                min: { type: "number", description: "A lower bound on a number field." },
+                options: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 1,
+                  maxItems: 24,
+                  description: "The choices for a select field. No commas or square brackets in a choice.",
+                },
+              },
+              required: ["name", "type"],
+              additionalProperties: false,
+            },
+          },
+          responses: {
+            type: "string",
+            description:
+              "The note answers are written to. Defaults to the form's own path with -responses.md, and is never the form's own note.",
+          },
+          layout: {
+            type: "string",
+            enum: ["table", "sections"],
+            description:
+              "table is one row per answer and is the default; sections is one heading per answer, for long written replies. It cannot be changed once answers exist.",
+          },
+          submit: {
+            type: "string",
+            enum: ["member", "editor", "owner"],
+            description:
+              "The lowest role that may answer. member is the point of the feature: it lets people who cannot write notes file one. Defaults to member.",
+          },
+          edit_own: {
+            type: "boolean",
+            description:
+              "Whether somebody may change or withdraw their own answer. Defaults to true, and only works where they can read the answers note.",
+          },
+          show_responses: {
+            type: "boolean",
+            description:
+              "Whether the form widget lists existing answers. A display setting, never an access control — the answers note's visibility is that. Defaults to false.",
+          },
+          votes: {
+            type: "string",
+            enum: ["named", "off"],
+            description: "named lets people upvote each other's answers, and names who voted. Defaults to off.",
+          },
+          visibility: {
+            type: "string",
+            enum: ["private", "team"],
+            description: "Enforced visibility for the form's own note.",
+          },
+          confirm_team_publish: {
+            type: "boolean",
+            description: "Required when a personal connection publishes the form's note to team.",
+          },
+          summary: {
+            type: "string",
+            description: "One short sentence for the activity line, as write_note takes.",
+          },
+        },
+        required: ["path", "fields"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "submit_form",
       description:
         "Send an answer to a markdown form. The gateway checks the values against the form's fields, stamps your username and the time, and writes the row itself — you never send markdown, and you never need write access to the response file.",
@@ -3961,6 +4083,8 @@ async function callTool(name, args, store, scope) {
     case "migrate_storage_layout":
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolMigrateStorageLayout(store, scope, args);
+    case "create_form":
+      return toolCreateForm(store, scope, rules, overrides, args);
     case "submit_form":
       return toolSubmitForm(store, scope, rules, overrides, args);
     case "update_submission":
@@ -6186,7 +6310,7 @@ function isPersonalCommunicationsPath(path) {
   return kind === "channel-day" || kind === "calendar-day";
 }
 
-async function toolWriteNote(store, scope, rules, overrides, args) {
+async function toolWriteNote(store, scope, rules, overrides, args, options = {}) {
   const path = normalizePath(args.path);
   const content = args.content;
   const expectedEtag = args.expected_etag;
@@ -6289,6 +6413,23 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   }
   if (scope === "team" && existing && existingVisibility !== "team") {
     return writePermissionError("write destination");
+  }
+  /*
+   * `create_form` NEVER OVERWRITES, AND SAYS SO HERE RATHER THAN LOOKING FIRST.
+   *
+   * A caller that probed for the note itself would be a second existence
+   * oracle beside this one, answering under its own rules. This sits *after*
+   * the three team-scope checks above, all of which refuse with the same
+   * message whether or not anything is there — so a connection that may not
+   * write here still learns nothing, and one that may was always going to be
+   * told by the write.
+   */
+  if (options.mustCreate && existing) {
+    return toolError(
+      `that note already exists (etag ${existing.etag}). A form block is ordinary Markdown: ` +
+        "read the note, add the block to its content, and save it with write_note — or point " +
+        "create_form at a path of its own."
+    );
   }
   // `!== "team"` on the existing side. A note held back to a group is not
   // `"private"`, so the old test called `@supa-leads` → `team` an ordinary
@@ -6699,6 +6840,138 @@ function valuesFromPairs(pairs) {
     values[field] = pair?.value;
   }
   return { values };
+}
+
+/**
+ * Create a note that carries a form, from fields rather than from Markdown.
+ *
+ * ## The gap this closes
+ *
+ * Every form tool here answers a form; none of them makes one. An agent asked
+ * for "an intake form for new clients" had to know the block's keys, its field
+ * types, that `max` is mandatory on a `line`, that `layout` is declared rather
+ * than inferred, and that the answers live in a second note — and then hand-write
+ * all of it through `write_note`. That is a feature nobody discovers, which is
+ * the same as a feature nobody has.
+ *
+ * ## It takes fields, never a block
+ *
+ * `renderFormBlock` writes the block and this parses what it wrote, so the
+ * authority on what a form means stays `parseFormBlocks` — one parser, one
+ * answer, and a value that would mean something else on the way back out is a
+ * refusal rather than a second key.
+ *
+ * There is deliberately no *third* check re-rendering the parsed config and
+ * comparing. It was written, and sabotaging it failed nothing: the renderer
+ * refuses everything a form block cannot carry, and the parser refuses
+ * everything else, so no input reaches it. A guard nobody has checked is not a
+ * guard — `docs/decisions/testing.md` — so the property lives where it can be
+ * proved, as a round-trip assertion over hostile fixtures in
+ * `forms.test.mjs`, rather than as a branch here that never runs.
+ *
+ * ## The write is `write_note`'s, entirely
+ *
+ * Visibility, the team-publish confirmation, the encryption rule, the etag,
+ * the activity line and the creation of the empty response file are that
+ * function's and are not restated here — `mustCreate` is the single thing it
+ * is asked to do differently, because a tool called "create" that silently
+ * replaced somebody's note would be the worst kind of convenience.
+ */
+async function toolCreateForm(store, scope, rules, overrides, args) {
+  const path = normalizePath(args.path);
+  if (!path || !path.endsWith(".md")) {
+    return toolError("path must be a note path ending in .md");
+  }
+  const stem = path.slice(0, -3);
+  const responses = normalizePath(args.responses || `${stem}-responses.md`);
+  if (!responses || !responses.endsWith(".md")) {
+    return toolError("responses must be a note path ending in .md");
+  }
+  if (responses === path) {
+    return toolError(
+      "the answers go in a note of their own, never on the form's own page: who may read them " +
+        "is that note's own privacy rule, and there is no second access-control path here."
+    );
+  }
+
+  const rendered = renderFormBlock({
+    id: args.id || defaultFormId(stem),
+    responses,
+    layout: args.layout || "table",
+    submit: args.submit || "member",
+    edit_own: args.edit_own !== false,
+    show_responses: args.show_responses === true,
+    votes: args.votes === "named" ? "named" : "off",
+    fields: args.fields,
+  });
+  if (rendered.error) return toolError(`that form cannot be written: ${rendered.error}`);
+
+  const parsed = parseFormBlocks(rendered.text);
+  if (!parsed.length || parsed[0].error) {
+    return toolError(`that form is not valid: ${parsed[0]?.error ?? "it produced no block"}`);
+  }
+  const heading = typeof args.title === "string" && args.title.trim() ? args.title.trim() : null;
+  const intro = typeof args.intro === "string" && args.intro.trim() ? args.intro.trim() : null;
+  const content = [
+    ...(heading ? [`# ${heading}`] : []),
+    ...(intro ? [intro] : []),
+    rendered.text,
+  ].join("\n\n") + "\n";
+
+  const written = await toolWriteNote(
+    store,
+    scope,
+    rules,
+    overrides,
+    {
+      path,
+      content,
+      visibility: args.visibility,
+      confirm_team_publish: args.confirm_team_publish,
+      summary: args.summary || `added the ${parsed[0].config.id} form`,
+    },
+    { mustCreate: true }
+  );
+  if (written.isError) return written;
+
+  // Where the answers land, and who can read them, said plainly and once. The
+  // visibility is read rather than claimed: the response file inherits its
+  // folder, and an agent that assumed "private because the form is private"
+  // would be telling somebody their client intake is confidential when the
+  // folder default says otherwise.
+  const answersVisibility = effectiveVisibility(responses, rules, overrides);
+  // Three cases, not two. A note held to a named group is neither `team` nor
+  // `private`, and "only this person can read the answers" said of one would
+  // be the control lying in the direction that matters.
+  const whoReads =
+    answersVisibility === "team"
+      ? "Everyone with team access to this context can read the answers. " +
+        "Call set_visibility to hold them back."
+      : answersVisibility === "private"
+        ? "Only this context's owner can read the answers. " +
+          "Call set_visibility to share them with the team."
+        : `The answers are held to ${answersVisibility}: only the people that rule names can read them.`;
+  const body = written.content?.[0]?.text ?? "";
+  return toolText(
+    `${body}\n\nanswers go to: ${responses} (${answersVisibility})\n` +
+      whoReads +
+      `\nsubmitting: ${parsed[0].config.submit} and above` +
+      (parsed[0].config.layout === "table"
+        ? "\nlayout: table — one row per answer, so keep paragraph fields few"
+        : "\nlayout: sections — one heading per answer")
+  );
+}
+
+/** A form id from the note's own filename, which is what an author would pick. */
+function defaultFormId(stem) {
+  const name = stem.slice(stem.lastIndexOf("/") + 1);
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+  return slug || "form";
 }
 
 async function toolSubmitForm(store, scope, rules, overrides, args) {
