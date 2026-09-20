@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Presence } from "../presence/usePresence";
+import type { DrawingCollaboration } from "./drawingCollaboration";
 import { PresenceChip } from "../ConsoleShell";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../app/AppFrame";
@@ -113,6 +114,7 @@ const SCROLL_GRACE_MS = 250;
 export function NoteEditor({
   state,
   presence,
+  drawingCollaboration,
   canEdit,
   reading = false,
   visibility,
@@ -151,6 +153,8 @@ export function NoteEditor({
    * single-writer editor, never a second route to the bucket.
    */
   presence?: Presence;
+  /** The live room behind an open canvas, when there is one. */
+  drawingCollaboration?: DrawingCollaboration;
   state: EditorState;
   canEdit: boolean;
   /**
@@ -813,6 +817,13 @@ export function NoteEditor({
                 Adding the frontmatter back would write it twice.
               */
               onChange={onChange}
+              /*
+                The room this canvas is shared with, when there is one. Absent
+                on the demo console and on a drawing nobody else has open, and
+                the editor is then exactly what it was before collaboration
+                existed — including an undo that behaves the ordinary way.
+              */
+              collaboration={drawingCollaboration}
             />
           ) : passphraseLocked ? (
             <LockedNoteView

@@ -7,12 +7,17 @@ import { useThemedStyles, useTheme, type Colors } from "../../design/theme";
 import { parseDrawing, serializeDrawing } from "@context/drawings";
 import { DrawingView } from "./DrawingView";
 import { consoleOrigin } from "./shareOrigin";
+import { useEffect } from "react";
 import {
   DRAWING_CHANNEL,
   DRAWING_EDITOR_PATH,
   isEditorPageUrl,
   readFromEditor,
 } from "./drawingBridge";
+import type { DrawingCollaboration } from "./drawingCollaboration";
+
+/** How many messages are held for a page that has not booted yet. */
+const PENDING_CAP = 500;
 
 /**
  * The drawing editor — native, and the same page the web half loads.
@@ -41,11 +46,20 @@ export function DrawingEditor({
   source,
   canEdit,
   onChange,
+  collaboration,
 }: {
   path: string;
   source: string;
   canEdit: boolean;
   onChange: (next: string) => void;
+  /**
+   * The room this canvas is shared with, when there is one.
+   *
+   * The same page runs here as on web, so the same messages carry the same
+   * collaboration — a phone in a shared drawing is not a second
+   * implementation waiting to be written.
+   */
+  collaboration?: DrawingCollaboration;
 }) {
   const styles = useThemedStyles(makeStyles);
   const { scheme } = useTheme();
@@ -69,9 +83,65 @@ export function DrawingEditor({
         appState: drawing.appState,
         theme: scheme,
         editable: canEdit,
+        collaborating: collaboration !== undefined,
       })
     );
-  }, [drawing, scheme, canEdit]);
+  }, [drawing, scheme, canEdit, collaboration]);
+
+  const room = useRef(collaboration);
+  room.current = collaboration;
+
+  /*
+    Held until the page says it is listening, for the reason the web half gives
+    at length: the editor is fetched on demand and the socket is open long
+    before it has booted, and a message posted into a frame with no listener is
+    gone rather than queued. The frames lost in that window are the room's
+    replay — the drawing everybody else can already see.
+  */
+  const queued = useRef<Record<string, unknown>[]>([]);
+  const listening = useRef(false);
+
+  const toPage = useCallback((message: Record<string, unknown>) => {
+    if (!listening.current) {
+      queued.current.push(message);
+      if (queued.current.length > PENDING_CAP) {
+        queued.current.splice(0, queued.current.length - PENDING_CAP);
+      }
+      return;
+    }
+    view.current?.postMessage(JSON.stringify({ channel: DRAWING_CHANNEL, ...message }));
+  }, []);
+
+  const flush = useCallback(() => {
+    listening.current = true;
+    const held = queued.current;
+    queued.current = [];
+    for (const message of held) {
+      view.current?.postMessage(JSON.stringify({ channel: DRAWING_CHANNEL, ...message }));
+    }
+  }, []);
+
+  // Relayed, never merged: the reconciliation is Excalidraw's and runs in the
+  // page. See `DrawingEditor.web.tsx` for the argument in full.
+  useEffect(() => {
+    if (!collaboration) return;
+    return collaboration.onRemoteElements((elements) => {
+      if (elements.length > 0) toPage({ type: "remote", elements });
+    });
+  }, [collaboration, toPage]);
+
+  useEffect(() => {
+    if (!collaboration) return;
+    return collaboration.onPeers((peers) => toPage({ type: "peers", peers }));
+  }, [collaboration, toPage]);
+
+  useEffect(() => {
+    if (!collaboration) return;
+    return collaboration.onCompactRequest(() => {
+      const scene = parseDrawing(latest.current, path);
+      collaboration.compact(scene.elements ?? []);
+    });
+  }, [collaboration, path]);
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -97,18 +167,25 @@ export function DrawingEditor({
       switch (message.type) {
         case "ready":
           send();
+          flush();
           break;
         case "change": {
           const next = serializeDrawing(latest.current, message.elements as never[]);
           if (next !== null && next !== latest.current) onChange(next);
           break;
         }
+        case "share":
+          room.current?.share(message.elements);
+          break;
+        case "point":
+          room.current?.point(message.x, message.y, message.selected);
+          break;
         case "error":
           setFailed(true);
           break;
       }
     },
-    [origin, send, onChange]
+    [origin, send, onChange, flush]
   );
 
   if (!show) {

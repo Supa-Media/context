@@ -309,7 +309,13 @@ export class PresenceRoom {
       writing is either broken or hostile, and neither is owed a diagnostic.
       Their own editor still shows their own typing; it simply reaches nobody.
     */
-    if ((decoded.msg.t === "y" || decoded.msg.t === "snap") && !attachment.canWrite) {
+    if (
+      (decoded.msg.t === "y" ||
+        decoded.msg.t === "snap" ||
+        decoded.msg.t === "draw" ||
+        decoded.msg.t === "drawsnap") &&
+      !attachment.canWrite
+    ) {
       return;
     }
 
@@ -367,7 +373,45 @@ export class PresenceRoom {
       return;
     }
 
+    if (decoded.msg.t === "draw" || decoded.msg.t === "drawsnap") {
+      /*
+        One shape moving, on its way to everybody else.
+
+        Relayed and logged exactly like a note edit, and for the same reason:
+        somebody joining mid-drag has to arrive at the canvas the others can
+        see, and the log is the only thing here that knows what that is.
+        Excalidraw reconciles the replay by element version, so applying the
+        same element twice is the same drawing — which is what makes an
+        append-only log safe for a scene as well as for text.
+
+        `drawsnap` is a complete scene and therefore a checkpoint, on the same
+        terms as `snap`: only from a socket the room has already handed
+        everything to.
+      */
+      this.broadcast({ t: "draw", d: decoded.msg.d }, ws);
+      await this.appendUpdate(decoded.msg.d, {
+        checkpoint: decoded.msg.t === "drawsnap" && attachment.eligibleToCompact === true,
+      });
+      return;
+    }
+
     const room = this.roomFromSockets();
+    if (decoded.msg.t === "pointer") {
+      /*
+        Where somebody is on the canvas. Relayed and dropped: never logged,
+        never stored on the attachment — a pointer is only interesting while
+        the person is still there, and the roster already carries a caret for
+        the note case.
+      */
+      touch(room, attachment.id, now);
+      ws.serializeAttachment({ ...attachment, seen: now });
+      this.broadcast(
+        { t: "pointer", id: attachment.id, x: decoded.msg.x, y: decoded.msg.y, s: decoded.msg.s },
+        ws,
+      );
+      return;
+    }
+
     if (decoded.msg.t === "ping") {
       touch(room, attachment.id, now);
       ws.serializeAttachment({ ...attachment, seen: now });

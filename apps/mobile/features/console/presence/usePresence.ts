@@ -33,6 +33,9 @@ import {
   askFrame,
   byeFrame,
   cursorFrame,
+  drawFrame,
+  drawSnapshotFrame,
+  pointerFrame,
   decodeServerFrame,
   pingFrame,
   presenceSocketUrl,
@@ -41,6 +44,7 @@ import {
   type PresenceMember,
 } from "./protocol";
 import { cursorPosition, encodeSyncStep1, encodeUpdate, readSyncMessage } from "./sync";
+import { decodeElements, encodeElements } from "@context/drawings";
 import {
   createSharedDoc,
   electWriter,
@@ -58,6 +62,17 @@ import {
 
 /** How often a caret move is sent, at most. */
 const CURSOR_THROTTLE_MS = 120;
+
+/**
+ * How often a drawing puts its changes on the wire.
+ *
+ * Shorter than the caret throttle, because a shape being dragged is the thing
+ * people watch and 60ms is the difference between "it moves" and "it jumps".
+ * Not zero: Excalidraw reports a change per animation frame per element, and
+ * one frame per animation frame per person is what would fill the room's log
+ * with a thousand copies of one rectangle.
+ */
+const DRAW_THROTTLE_MS = 60;
 
 /** Reconnect this long before the gateway would close the socket itself. */
 const REAUTH_MARGIN_MS = 15_000;
@@ -94,6 +109,61 @@ export interface Presence {
    * whole feature exists to remove — reintroduced from the other end.
    */
   canWrite: boolean;
+  /**
+   * The canvas half, present in `drawing` mode and inert otherwise.
+   *
+   * Both calls are safe to make when there is no room: they drop the message,
+   * which is what keeps a drawing opened alone behaving exactly as it did
+   * before any of this existed.
+   */
+  drawing: {
+    /** Put these elements — this person's own changes — on the wire. */
+    share: (elements: unknown[]) => void;
+    /** Tell the room where this person's pointer is. */
+    point: (x: number, y: number, selected: string[]) => void;
+    /** The whole scene, when the room asked for a compaction. */
+    compact: (elements: unknown[]) => void;
+  };
+}
+
+/** A peer, as the drawing editor needs one: a name, a colour, and a pointer. */
+export interface PeerPointer {
+  id: string;
+  name: string;
+  color: string | null;
+  x: number;
+  y: number;
+  selected: string[];
+}
+
+/**
+ * The roster and the pointers, joined.
+ *
+ * Two sources because they change at different rates and for different
+ * reasons: who is here arrives on `welcome`/`join`/`leave` and belongs in
+ * React state, while where their pointer is arrives on every mouse move and
+ * must not. A peer with no pointer yet is simply not in the answer — drawing
+ * a cursor at the origin would be a claim about where somebody is, and a
+ * wrong one.
+ */
+function peersFrom(
+  members: PresenceMember[],
+  pointers: Map<string, { x: number; y: number; selected: string[] }>,
+): PeerPointer[] {
+  const out: PeerPointer[] = [];
+  for (const member of members) {
+    const at = pointers.get(member.id);
+    if (!at) continue;
+    out.push({
+      id: member.id,
+      name: member.name,
+      color: member.color,
+      x: at.x,
+      y: at.y,
+      selected: at.selected,
+    });
+  }
+  return out;
 }
 
 /**
@@ -143,6 +213,28 @@ export function usePresence(options: {
    * only on the client the room asked to merge.
    */
   onExternalWrite?: (written: { path: string; etag: string | null }) => void;
+  /**
+   * What kind of thing is open: prose, or a canvas.
+   *
+   * A note merges as text through a shared document; a drawing merges as
+   * *elements*, through Excalidraw's own reconciliation, because merging two
+   * people's serialized scenes character by character produces a payload that
+   * is neither person's drawing. One socket, one room, one roster — two merge
+   * strategies, chosen by what the file is.
+   *
+   * In `drawing` mode no shared document is created at all. Seeding a
+   * `.excalidraw.md` into one would put a multi-megabyte compressed payload in
+   * the room's log to no purpose.
+   */
+  mode?: "text" | "drawing";
+  /** Elements from a peer, or replayed on join. Drawing mode only. */
+  onDrawing?: (elements: unknown[]) => void;
+  /** The room is asking for a full scene, because the log is getting long. */
+  onDrawingCompact?: () => void;
+  /** Who else is on the canvas and where their pointers are. Drawing mode only. */
+  onPeerPointers?: (
+    peers: { id: string; name: string; color: string | null; x: number; y: number; selected: string[] }[],
+  ) => void;
 }): Presence {
   const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
   const [state, dispatch] = useReducer(presenceReducer, initialPresenceState);
@@ -157,6 +249,24 @@ export function usePresence(options: {
   textForSeed.current = options.textForSeed;
   const onExternalWrite = useRef(options.onExternalWrite);
   onExternalWrite.current = options.onExternalWrite;
+  const mode = options.mode ?? "text";
+  const onDrawing = useRef(options.onDrawing);
+  onDrawing.current = options.onDrawing;
+  const onDrawingCompact = useRef(options.onDrawingCompact);
+  onDrawingCompact.current = options.onDrawingCompact;
+  const onPeerPointers = useRef(options.onPeerPointers);
+  onPeerPointers.current = options.onPeerPointers;
+  /*
+    Where each peer's pointer is, in a ref rather than in the reducer.
+
+    A pointer frame arrives on every mouse move of every person on the canvas.
+    Putting that through React state would re-render the console at the frame
+    rate of everybody else's mouse; the canvas is drawn by Excalidraw inside an
+    iframe and needs the numbers, not a render.
+  */
+  const pointers = useRef(new Map<string, { x: number; y: number; selected: string[] }>());
+  const roster = useRef<PresenceMember[]>([]);
+  const lastPointer = useRef(0);
   if (seed.current === null && typeof window !== "undefined") seed.current = tabSeed();
 
   const { workspaceId, endpoint, notePath, enabled } = options;
@@ -211,7 +321,7 @@ export function usePresence(options: {
       does so immediately. Batching here is what would turn "I see the letter
       appear" into "I see the sentence appear".
     */
-    const document = createSharedDoc({
+    const document = mode === "drawing" ? null : createSharedDoc({
       onLocalUpdateBytes: (update) => {
         const live = socket.current;
         if (!live || live.readyState !== WebSocket.OPEN) return;
@@ -229,6 +339,7 @@ export function usePresence(options: {
       },
     });
     shared.current = document;
+    pointers.current = new Map();
 
     const connect = async (attempt: number) => {
       if (cancelled) return;
@@ -284,7 +395,13 @@ export function usePresence(options: {
           what a note says is a read.
         */
         try {
-          live.send(askFrame(encodeSyncStep1(document.doc)));
+          if (document) live.send(askFrame(encodeSyncStep1(document.doc)));
+          /*
+            A canvas has no state vector to announce. It does not need one:
+            a joiner is brought up to date by the room's replay, and anything
+            it draws afterwards reconciles by element version — which is
+            idempotent, so there is nothing to ask for and nothing to miss.
+          */
         } catch {
           // The close handler reconnects, and the reconnect opens the same way.
         }
@@ -302,7 +419,30 @@ export function usePresence(options: {
         const frame = decodeServerFrame(event.data);
         if (!frame) return;
 
+        if (frame.t === "draw") {
+          /*
+            Somebody else's elements. Handed straight out — the reconciliation
+            is Excalidraw's, and Excalidraw is in the editor page, not here.
+            The console is a relay for this one and deliberately holds no
+            second copy of the scene.
+          */
+          onDrawing.current?.(decodeElements(frame.d));
+          return;
+        }
+
+        if (frame.t === "pointer") {
+          /*
+            Where a peer's pointer is. Kept in a ref and pushed at the canvas,
+            never through React: this frame arrives on every mouse move of
+            every person here.
+          */
+          pointers.current.set(frame.id, { x: frame.x, y: frame.y, selected: frame.selected });
+          onPeerPointers.current?.(peersFrom(roster.current, pointers.current));
+          return;
+        }
+
         if (frame.t === "y") {
+          if (!document) return;
           // A reply is produced when a peer asked what we have; sending it is
           // how a late joiner gets filled in by whoever is already here.
           const outcome = readSyncMessage(frame.d, document.doc, REMOTE_ORIGIN);
@@ -320,6 +460,19 @@ export function usePresence(options: {
           // The room's own log, replayed on join: every message it kept, in
           // the order it received them. Same handler, because they are the
           // same protocol messages — the room stored them without reading them.
+          if (!document) {
+            /*
+              For a canvas the log holds element updates instead, replayed the
+              same way. Reconciliation is by element version, so applying the
+              same element twice is the same drawing — which is what makes a
+              replay safe rather than a second copy of somebody's work.
+            */
+            for (const message of frame.updates) {
+              const elements = decodeElements(message);
+              if (elements.length > 0) onDrawing.current?.(elements);
+            }
+            return;
+          }
           for (const message of frame.updates) {
             readSyncMessage(message, document.doc, REMOTE_ORIGIN);
           }
@@ -356,6 +509,12 @@ export function usePresence(options: {
         }
 
         if (frame.t === "compact") {
+          if (!document) {
+            // A canvas answers with its whole scene, which the editor page has
+            // and this one does not — so the request is passed on.
+            onDrawingCompact.current?.();
+            return;
+          }
           try {
             const live = socket.current;
             if (live && live.readyState === WebSocket.OPEN) {
@@ -386,7 +545,7 @@ export function usePresence(options: {
             that holds both halves of the question — who else is seated, and
             whether the replay it is about to send already carries the text.
           */
-          if (frame.seed) seedSharedDoc(document, textForSeed.current());
+          if (frame.seed && document) seedSharedDoc(document, textForSeed.current());
 
           // Reconnect just before the gateway would close this socket, so the
           // roster never visibly drops. See the header.
@@ -395,6 +554,12 @@ export function usePresence(options: {
             closeSocket(true);
             void connect(0);
           }, due);
+        }
+        if (frame.t === "leave") {
+          // A peer that left takes its pointer with it, or Excalidraw goes on
+          // drawing a cursor for somebody who has closed the tab.
+          pointers.current.delete(frame.id);
+          onPeerPointers.current?.(peersFrom(roster.current, pointers.current));
         }
         dispatch({ type: "frame", notePath: path, frame });
       };
@@ -420,10 +585,14 @@ export function usePresence(options: {
       cancelled = true;
       closeSocket(true);
       shared.current = null;
-      document.destroy();
+      document?.destroy();
     };
-    // `mint` is stable from Convex; the rest is the identity of the room.
-  }, [active, workspaceId, origin, notePath, mint, closeSocket, clearTimers]);
+    // `mint` is stable from Convex; the rest is the identity of the room —
+    // `mode` included, because it decides whether this socket creates a shared
+    // text document at all. It is derived from the path and so moves with it,
+    // but a dependency that is true by coincidence is one that stops being
+    // true without anybody noticing.
+  }, [active, workspaceId, origin, notePath, mode, mint, closeSocket, clearTimers]);
 
   /**
    * Send a caret, at most every `CURSOR_THROTTLE_MS`.
@@ -477,8 +646,100 @@ export function usePresence(options: {
     }, CURSOR_THROTTLE_MS - (now - held.at));
   }, []);
 
+  /*
+    The canvas half of the socket.
+
+    Three calls rather than one, because the three things a drawing sends have
+    genuinely different rules: an element change is logged and needs write
+    authority, a pointer is neither, and a compaction is a whole scene the room
+    asked for. All three drop silently with no socket, which is what makes a
+    drawing opened alone behave exactly as it did before any of this.
+
+    `share` throttles element changes the way `report` throttles carets, and
+    for the same reason: Excalidraw fires `onChange` continuously while
+    somebody drags, and a frame per animation frame per person would fill the
+    room's log with a thousand copies of one rectangle. The trailing send is
+    the one that matters — it is where the shape ends up.
+  */
+  const drawQueue = useRef<Map<string, unknown>>(new Map());
+  const drawSentAt = useRef(0);
+  const drawTimer = useRef<number | undefined>(undefined);
+
+  const flushDrawing = useCallback(() => {
+    drawTimer.current = undefined;
+    const queued = [...drawQueue.current.values()];
+    drawQueue.current.clear();
+    if (queued.length === 0) return;
+    const live = socket.current;
+    if (!live || live.readyState !== WebSocket.OPEN) return;
+    try {
+      live.send(drawFrame(encodeElements(queued)));
+      drawSentAt.current = Date.now();
+    } catch {
+      // The reconnect replays the room's log, and the elements this client
+      // holds go out again on its next change. An element update is
+      // idempotent, so nothing here has to be replayed exactly once.
+    }
+  }, []);
+
+  const drawing = useMemo(
+    () => ({
+      share: (elements: unknown[]) => {
+        if (elements.length === 0) return;
+        for (const element of elements) {
+          const id = (element as { id?: unknown } | null)?.id;
+          // Keyed by id, so a shape dragged across twenty frames is sent once,
+          // at the position it stopped in, rather than twenty times.
+          if (typeof id === "string") drawQueue.current.set(id, element);
+        }
+        const since = Date.now() - drawSentAt.current;
+        if (since >= DRAW_THROTTLE_MS) {
+          flushDrawing();
+          return;
+        }
+        if (drawTimer.current === undefined) {
+          drawTimer.current = window.setTimeout(flushDrawing, DRAW_THROTTLE_MS - since);
+        }
+      },
+      point: (x: number, y: number, selected: string[]) => {
+        const live = socket.current;
+        if (!live || live.readyState !== WebSocket.OPEN) return;
+        const now = Date.now();
+        if (now - lastPointer.current < CURSOR_THROTTLE_MS) return;
+        lastPointer.current = now;
+        try {
+          live.send(pointerFrame(x, y, selected));
+        } catch {
+          // A pointer is only interesting where it is now. There is nothing
+          // worth retrying about one.
+        }
+      },
+      compact: (elements: unknown[]) => {
+        const live = socket.current;
+        if (!live || live.readyState !== WebSocket.OPEN) return;
+        try {
+          live.send(drawSnapshotFrame(encodeElements(elements)));
+        } catch {
+          // The room asks again in another fifty updates.
+        }
+      },
+    }),
+    [flushDrawing],
+  );
+
+  /*
+    The roster, where the socket handlers can reach it.
+
+    They run outside React and need names and colours to pair with the pointer
+    frames arriving between renders. Assigned during render rather than in an
+    effect so a frame that lands before the effect flushes still finds the
+    roster it was sent alongside.
+  */
+  roster.current = state.members;
+
   return useMemo(
     () => ({
+      drawing,
       members: state.stale ? [] : state.members,
       phase: state.phase,
       summary: presenceSummary(state),
@@ -492,6 +753,6 @@ export function usePresence(options: {
       */
       canWrite: electWriter(state.you, state.members),
     }),
-    [state, report],
+    [state, report, drawing],
   );
 }

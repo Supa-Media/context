@@ -1,3 +1,4 @@
 
 # Built by `test/browser/verify.mjs` from the product's own client modules.
 test/browser/bundle.js
+test/browser/canvasBundle.js

@@ -644,6 +644,61 @@ deliberately not covered.** There is no event to hang a notice on, and inventing
 one would mean polling the bucket. Those land the way they always have: the next
 read shows them, and a conflicting save raises a conflict.
 
+### A drawing merges by element, and by Excalidraw's own rules
+
+A `.excalidraw.md` file is Markdown wrapped around one enormous compressed
+payload. Merging two people's edits by merging that *file* as text — which is
+what the note path would do, since a drawing is a `.md` — produces a payload
+that is neither person's drawing and very likely nobody's: a corrupt scene,
+from a merge that reported success. So the unit that travels is the
+**element**. Notes merge as text because text is what they are; drawings merge
+as elements for the same reason.
+
+**The merge is `reconcileElements`, which Excalidraw ships and uses itself.**
+Every element carries `version` and `versionNonce`, and that function resolves
+them, including the fractional `index` that decides z-order. Writing our own
+would be rewriting a published, tested answer worse, and the failure mode of
+getting it slightly wrong is somebody's diagram quietly losing a shape. It runs
+in the editor page, because that is where Excalidraw is — the console relays
+elements and deliberately holds no second copy of the scene.
+
+**Deletion is an element update, which is why none of this needs a CRDT.**
+Excalidraw does not remove a deleted element; it sets `isDeleted` and bumps the
+version. "Somebody deleted the shape I was resizing" is therefore an ordinary
+version race with an ordinary answer, and there are no tombstones to keep and
+no deletes to order against edits.
+
+**Undo takes back your own work, and the page is told so.** Excalidraw's
+history skips entries whose elements somebody else has since changed — but only
+when it knows it is in a collaborative scene, so `isCollaborating` is passed
+rather than inferred, and is false when nobody else is there so a person
+drawing alone gets the undo they expect.
+
+**Three frames, three different rules.** `draw` carries changed elements: it is
+logged and needs write authority, exactly like an edit to a note. `drawsnap`
+carries the whole scene when the room asks for a compaction. `pointer` carries
+two scene coordinates and the ids somebody has selected: never logged, because
+a mouse position replays as nothing, and never gated on write, because watching
+somebody draw is the case presence exists for. What a client sends is the
+*delta* — Excalidraw reports a change per animation frame per element, so
+sending the scene each time would fill the room's log with a thousand copies of
+one rectangle.
+
+**The file stays portable and the attachments stay in it.** A save is still
+`serializeDrawing` splicing elements into the bytes the console holds —
+frontmatter, element links, the `files` map with its embedded images, and any
+key a future Excalidraw version adds, all carried through untouched. The
+collaboration never produces a file body; the page never sees one.
+
+**What two browsers found here, and no suite did.** The room replays its log
+the instant a socket opens, which on a canvas is seconds before an 2.4MB editor
+page has booted — and a `postMessage` into a frame with no listener yet is gone
+rather than queued. The replay is the drawing everybody else can already see,
+so losing it meant the second person to open a shared canvas found it blank
+until somebody drew something new. Messages are now held until the page says
+`ready` and until Excalidraw has handed over its API, and flushed in order.
+`drawingEditor.test.ts` holds the regression.
+
 ### What this is verified by, and what that is worth
 
 The unit suites run offline against stubs: `apps/mcp/test/presence.test.mjs`
@@ -661,6 +716,11 @@ WebSockets, against a control plane served over real HTTP, with the note and
 its folder rule created through the product's own MCP tools. It is run by hand
 rather than in CI — it needs a Worker runtime and a browser — and results from
 it are reported as what they are: a live demonstration, distinct from a suite.
+
+`apps/mcp/test/browser/verifyDrawing.mjs` is the same thing for a canvas, and
+loads **the real editor** — the built artifact, Excalidraw and all — in both
+browsers, drawing with real mouse and keyboard rather than injecting elements
+through an API. It needs `node scripts/build-drawing-editor.mjs` first.
 
 The simplification to resist now is trusting the suites. A property of this
 feature that has not been watched happen in two windows is not known to hold.

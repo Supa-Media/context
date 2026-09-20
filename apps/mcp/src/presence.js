@@ -285,6 +285,32 @@ export function decodeClientFrame(raw) {
     if (frameBytes(parsed.d) > MAX_UPDATE_BYTES) return { ok: false, reason: "too_large" };
     return { ok: true, msg: { t: "ask", d: parsed.d } };
   }
+  if (parsed.t === "draw" || parsed.t === "drawsnap") {
+    /*
+      **A drawing changes by element, never as a file.**
+
+      `draw` carries the Excalidraw elements that changed — created, moved,
+      restyled, deleted (Excalidraw deletes by flag, so a deletion is an
+      ordinary element update) — and `drawsnap` carries the whole scene when
+      the room asks for a compaction. Both are base64 JSON that this room does
+      not parse, exactly like an edit to a note.
+
+      Treating the `.excalidraw.md` *file* as collaborative text instead would
+      merge two people's base64 payloads character by character, which produces
+      a payload that is neither person's drawing and very likely nobody's.
+      Elements reconcile; serialized scenes do not.
+
+      Both take the snapshot ceiling. A delta is usually a few hundred bytes,
+      but dragging a selection of a hundred shapes is one change to a hundred
+      elements, and a cap that refused that would refuse an ordinary gesture.
+    */
+    if (typeof parsed.d !== "string" || parsed.d.length === 0) {
+      return { ok: false, reason: "bad_update" };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(parsed.d)) return { ok: false, reason: "not_base64" };
+    if (frameBytes(parsed.d) > MAX_SNAPSHOT_BYTES) return { ok: false, reason: "too_large" };
+    return { ok: true, msg: { t: parsed.t, d: parsed.d } };
+  }
   if (parsed.t === "y" || parsed.t === "snap") {
     // Base64 of an encoded document update. Checked for *shape* and *size*
     // only: the room does not decode it, cannot decode it, and must not start
@@ -308,6 +334,28 @@ export function decodeClientFrame(raw) {
     reapplied here rather than the tests being taught to expect less.
   */
   if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
+  if (parsed.t === "pointer") {
+    /*
+      Where somebody's pointer is on a canvas, and what they have selected.
+
+      A caret in a note is one relative position; a pointer on a drawing is two
+      scene coordinates and a set of element ids. Numbers and ids only — never
+      an element, never a payload — and caret-sized by the ceiling above, which
+      is what keeps this from becoming a second channel for scene data.
+
+      Never logged: it describes where somebody's mouse is right now, which is
+      meaningless to anybody replaying the room later. And not gated on write
+      authority, because a read-only member watching a drawing being edited is
+      exactly the case presence exists for.
+    */
+    const x = Number(parsed.x);
+    const y = Number(parsed.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, reason: "bad_pointer" };
+    const selected = Array.isArray(parsed.s)
+      ? parsed.s.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64).slice(0, 64)
+      : [];
+    return { ok: true, msg: { t: "pointer", x, y, s: selected } };
+  }
   if (parsed.t === "ping") return { ok: true, msg: { t: "ping" } };
   if (parsed.t === "bye") return { ok: true, msg: { t: "bye" } };
   return { ok: false, reason: "unknown_type" };

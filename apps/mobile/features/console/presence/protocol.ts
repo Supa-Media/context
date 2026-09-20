@@ -83,6 +83,16 @@ export type ServerFrame =
   /** The room is asking this client to send a compacted snapshot. */
   | { t: "compact" }
   /**
+   * Elements somebody else changed on a canvas.
+   *
+   * Base64 JSON, undecoded here: the reconciliation is Excalidraw's and runs
+   * in the editor page. A drawing merges by element and never as text — see
+   * `packages/drawings/src/collab.js`.
+   */
+  | { t: "draw"; d: string }
+  /** Where a peer's pointer is on a canvas, and what they have selected. */
+  | { t: "pointer"; id: string; x: number; y: number; selected: string[] }
+  /**
    * A tool wrote this note, and this client is the one asked to merge it.
    *
    * Sent to exactly one member — see `presenceRoom.js` — because every client
@@ -202,6 +212,26 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
     );
     return { t: "sync", updates };
   }
+  if (frame.t === "draw") {
+    return typeof frame.d === "string" && frame.d.length > 0 ? { t: "draw", d: frame.d } : null;
+  }
+  if (frame.t === "pointer") {
+    if (typeof frame.id !== "string" || frame.id.length === 0) return null;
+    const x = Number(frame.x);
+    const y = Number(frame.y);
+    // A pointer that is not two numbers is not a pointer. Drawing one at the
+    // origin would be a claim about where somebody is, and a wrong one.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return {
+      t: "pointer",
+      id: frame.id,
+      x,
+      y,
+      selected: Array.isArray(frame.s)
+        ? frame.s.filter((id): id is string => typeof id === "string").slice(0, 64)
+        : [],
+    };
+  }
   if (frame.t === "compact") return { t: "compact" };
   if (frame.t === "external") {
     // A missing text is not an empty note: it is a frame this client does not
@@ -238,6 +268,21 @@ export function syncFrame(payload: string): string {
  */
 export function askFrame(payload: string): string {
   return JSON.stringify({ t: "ask", d: payload });
+}
+
+/** Elements this person changed on a canvas, on their way to the room. */
+export function drawFrame(payload: string): string {
+  return JSON.stringify({ t: "draw", d: payload });
+}
+
+/** The whole scene, when the room asks a canvas for a compaction. */
+export function drawSnapshotFrame(payload: string): string {
+  return JSON.stringify({ t: "drawsnap", d: payload });
+}
+
+/** Where this person's pointer is on a canvas. */
+export function pointerFrame(x: number, y: number, selected: string[]): string {
+  return JSON.stringify({ t: "pointer", x, y, s: selected });
 }
 
 /** The whole document, when the room asks for a compaction. */

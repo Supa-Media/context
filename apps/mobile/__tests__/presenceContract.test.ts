@@ -27,10 +27,19 @@ import {
   askFrame,
   cursorFrame,
   decodeServerFrame,
+  drawFrame,
+  drawSnapshotFrame,
   pingFrame,
+  pointerFrame,
   snapshotFrame,
   syncFrame,
 } from "../features/console/presence/protocol";
+import {
+  changedElements,
+  decodeElements,
+  encodeElements,
+  remember,
+} from "@context/drawings";
 import {
   encodeSyncStep1,
   encodeUpdate,
@@ -186,6 +195,73 @@ describe("what the room sends, the client reads", () => {
 
   test("the room's compaction request is one the client understands", () => {
     expect(decodeServerFrame(JSON.stringify({ t: "compact" }))).toEqual({ t: "compact" });
+  });
+
+  test("a canvas's elements are accepted, relayed and read back", () => {
+    /*
+      The drawing half of the same seam, and the same reason for existing: the
+      gateway decides what a `draw` frame is, this app decides how one is
+      built, and two codebases in two languages that never import each other
+      are exactly where a rename passes both suites and breaks in a browser.
+
+      What travels is elements. Merging the `.excalidraw.md` *file* as
+      collaborative text would merge two people's compressed payloads character
+      by character, which produces a scene that is neither person's drawing.
+    */
+    const scene = [
+      { id: "r1", type: "rectangle", version: 3, versionNonce: 7, x: 10, y: 20 },
+      { id: "t1", type: "text", version: 1, versionNonce: 9, text: "héllo 🌍" },
+    ];
+
+    const atRoom = decodeClientFrame(drawFrame(encodeElements(scene)));
+    expect(atRoom.ok).toBe(true);
+    expect(atRoom.msg?.t).toBe("draw");
+
+    // The room relays it under the same type whichever way it arrived, so a
+    // compaction and an ordinary change read identically on the far side.
+    const snapAtRoom = decodeClientFrame(drawSnapshotFrame(encodeElements(scene)));
+    expect(snapAtRoom.ok).toBe(true);
+    expect(snapAtRoom.msg?.t).toBe("drawsnap");
+
+    const atClient = decodeServerFrame(JSON.stringify({ t: "draw", d: atRoom.msg?.d }));
+    expect(atClient).not.toBeNull();
+    if (atClient && atClient.t === "draw") {
+      const back = decodeElements(atClient.d);
+      expect(back).toEqual(scene);
+    }
+  });
+
+  test("only this person's own changes go out, not everything on the canvas", () => {
+    // Excalidraw reports a change per animation frame per element. The frame
+    // the room sees must be the delta, or a drag of a hundred shapes is a
+    // hundred elements a hundred times.
+    const seen = new Map();
+    const scene = [
+      { id: "a", type: "rectangle", version: 1, versionNonce: 1 },
+      { id: "b", type: "ellipse", version: 1, versionNonce: 2 },
+    ];
+    remember(changedElements(scene, seen), seen);
+
+    const moved = [scene[0], { ...scene[1], version: 2, versionNonce: 3 }];
+    const delta = changedElements(moved, seen);
+    expect(delta.map((one) => one.id)).toEqual(["b"]);
+
+    const atRoom = decodeClientFrame(drawFrame(encodeElements(delta)));
+    expect(atRoom.ok).toBe(true);
+    expect(decodeElements(atRoom.msg!.d).map((one) => one.id)).toEqual(["b"]);
+  });
+
+  test("a pointer on a canvas is two numbers and some ids", () => {
+    const accepted = decodeClientFrame(pointerFrame(12.5, -3, ["el1", "el2"]));
+    expect(accepted.ok).toBe(true);
+    expect(accepted.msg?.t).toBe("pointer");
+    // Nothing else rides along: this is not a second channel for scene data.
+    expect(Object.keys(accepted.msg!).sort()).toEqual(["s", "t", "x", "y"]);
+
+    const relayed = decodeServerFrame(
+      JSON.stringify({ t: "pointer", id: "m1", x: 12.5, y: -3, s: ["el1"] }),
+    );
+    expect(relayed).toEqual({ t: "pointer", id: "m1", x: 12.5, y: -3, selected: ["el1"] });
   });
 
   test("who seeds the document is the room's answer, and it survives the wire", () => {

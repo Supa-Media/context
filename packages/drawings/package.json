@@ -14,10 +14,11 @@
     "./scene": "./src/scene.js",
     "./lzstring": "./src/lzstring.js",
     "./serialize": "./src/serialize.js",
-    "./scaffold": "./src/scaffold.js"
+    "./scaffold": "./src/scaffold.js",
+    "./collab": "./src/collab.js"
   },
   "scripts": {
-    "test": "node test/test.mjs && node test/serialize.test.mjs",
+    "test": "node test/test.mjs && node test/serialize.test.mjs && node test/collab.test.mjs",
     "typecheck": "echo \"no typecheck (JSDoc-typed ESM, checked by consumers)\" && exit 0",
     "lint": "echo \"no lint configured yet\" && exit 0"
   },

@@ -646,6 +646,68 @@ export async function runPresenceChecks(check) {
       (await askingRoom.readLog()).length === 0,
     );
 
+    /* ----------------- two people on one canvas -------------------------- */
+
+    const drawBefore = writerSocket.sent.length;
+    await askingRoom.webSocketMessage(readerSocket, JSON.stringify({ t: "draw", d: "QUJD" }));
+    check(
+      "a read-only member's shape never reaches anybody else",
+      // The same rule as an edit to a note, on the frame that carries a
+      // drawing: opening the canvas needs read, changing it needs write, and
+      // non-negotiable #4 says the second is never implied by the first.
+      writerSocket.sent.length === drawBefore && (await askingRoom.readLog()).length === 0,
+    );
+
+    const readerPointerBefore = writerSocket.sent.length;
+    await askingRoom.webSocketMessage(
+      readerSocket,
+      JSON.stringify({ t: "pointer", x: 12.5, y: -3, s: ["el1"] }),
+    );
+    const pointerFrames = writerSocket.frames().slice(readerPointerBefore);
+    check(
+      "...but their pointer does, because watching somebody draw is a read",
+      pointerFrames.some(
+        (frame) => frame.t === "pointer" && frame.x === 12.5 && frame.y === -3,
+      ),
+    );
+    check(
+      "...stamped with the id the room gave them, never one they chose",
+      pointerFrames.every((frame) => frame.t !== "pointer" || typeof frame.id === "string"),
+    );
+    check(
+      "...and never written to the log, because a mouse position replays as nothing",
+      (await askingRoom.readLog()).length === 0,
+    );
+
+    const drawnBefore = readerSocket.sent.length;
+    await askingRoom.webSocketMessage(writerSocket, JSON.stringify({ t: "draw", d: "ZGVmZw==" }));
+    check(
+      "an element change from somebody who may edit is relayed and kept",
+      // Kept, because somebody joining mid-drag has to arrive at the canvas the
+      // others can see, and the log is the only thing here that knows what
+      // that is. Reconciliation is by element version, so replaying the same
+      // element twice is the same drawing.
+      readerSocket.frames().slice(drawnBefore).some(
+        (frame) => frame.t === "draw" && frame.d === "ZGVmZw==",
+      ) && (await askingRoom.readLog()).includes("ZGVmZw=="),
+    );
+
+    check(
+      "a pointer frame carries two numbers and some ids, and nothing else",
+      // The ceiling that stops this becoming a second channel for scene data,
+      // and a shape check so a payload cannot ride along beside the numbers.
+      (() => {
+        const decoded = decodeClientFrame(
+          JSON.stringify({ t: "pointer", x: 1, y: 2, s: ["a"], elements: [{ big: "payload" }] }),
+        );
+        return (
+          decoded.ok &&
+          Object.keys(decoded.msg).sort().join(",") === "s,t,x,y" &&
+          decodeClientFrame(JSON.stringify({ t: "pointer", x: "left", y: 2 })).ok === false
+        );
+      })(),
+    );
+
     /* ------------ a tool wrote the note somebody has open ---------------- */
 
     const external = async (room, body) =>
@@ -708,14 +770,17 @@ export async function runPresenceChecks(check) {
     );
 
     const writerFramesBeforeEdit = writerSocket.sent.length;
+    const logBeforeEdit = (await askingRoom.readLog()).length;
     await askingRoom.webSocketMessage(readerSocket, JSON.stringify({ t: "y", d: "ZGVm" }));
     check(
       "...while an edit from the same read-only member still reaches nobody",
       // The distinction the whole `ask` type rests on: the reader may ask, and
       // may not answer. Non-vacuous — the writer's socket received the ask a
-      // moment ago, so "no new frame" is a fact about this frame.
+      // moment ago, so "no new frame" is a fact about this frame. The log is
+      // compared against what it held rather than against empty, because the
+      // drawing checks above deliberately put an entry in it.
       writerSocket.sent.length === writerFramesBeforeEdit &&
-        (await askingRoom.readLog()).length === 0,
+        (await askingRoom.readLog()).length === logBeforeEdit,
     );
   } finally {
     if (previousPair === undefined) delete globalThis.WebSocketPair;

@@ -246,6 +246,103 @@ describe("the editor is offered only when a save would land", () => {
   });
 });
 
+describe("what the room sends while the page is still loading", () => {
+  /*
+    THE BUG TWO BROWSERS FOUND, AND FOUR GREEN SUITES DID NOT.
+
+    The editor is a 2.4MB page fetched on demand; the socket is open long
+    before it has booted. The room replays its log the instant a socket opens —
+    which on a canvas is the whole drawing everybody else can already see — and
+    a `postMessage` into a frame with no listener yet is *gone*, not queued.
+
+    The symptom was exact and unmistakable in a browser and invisible
+    everywhere else: a second person opens a shared canvas and finds it blank,
+    then it fills in the moment somebody draws something new.
+  */
+  function ready(container: HTMLElement): void {
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { channel: DRAWING_CHANNEL, type: "ready" },
+          origin: window.location.origin,
+          source: frame.contentWindow,
+        }),
+      );
+    });
+  }
+
+  function collaboration(deliver: { remote?: (elements: unknown[]) => void }) {
+    return {
+      share: () => {},
+      point: () => {},
+      compact: () => {},
+      onRemoteElements: (handler: (elements: unknown[]) => void) => {
+        deliver.remote = handler;
+        return () => {
+          deliver.remote = undefined;
+        };
+      },
+      onPeers: () => () => {},
+      onCompactRequest: () => () => {},
+    };
+  }
+
+  test("elements that arrive before the page is listening are held, then delivered", () => {
+    const deliver: { remote?: (elements: unknown[]) => void } = {};
+    const posted: unknown[] = [];
+    const container = mount({
+      path: PATH,
+      source: drawingFile(ELEMENTS),
+      canEdit: true,
+      onChange: () => {},
+      collaboration: collaboration(deliver),
+    });
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    // jsdom gives an iframe a real `contentWindow`; spying on it is how "was
+    // this posted, and when" becomes a fact rather than an assumption.
+    const target = frame.contentWindow as Window;
+    target.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+
+    // The room's replay, arriving while the page is still fetching.
+    act(() => deliver.remote?.([{ id: "fromPeer", type: "rectangle", version: 1 }]));
+    expect(posted).toEqual([]);
+
+    ready(container);
+
+    const remote = posted.filter(
+      (one) => (one as { type?: string }).type === "remote",
+    ) as { elements: { id: string }[] }[];
+    expect(remote).toHaveLength(1);
+    expect(remote[0].elements.map((one) => one.id)).toEqual(["fromPeer"]);
+    // And the `load` went first, so the page has a scene to reconcile into.
+    expect((posted[0] as { type?: string }).type).toBe("load");
+  });
+
+  test("a canvas nobody shares is told it is not collaborating", () => {
+    // `isCollaborating` decides whether undo reverts this person's own work or
+    // the last thing that happened to the document. A drawing opened alone must
+    // get the ordinary undo.
+    const posted: unknown[] = [];
+    const container = mount({
+      path: PATH,
+      source: drawingFile(ELEMENTS),
+      canEdit: true,
+      onChange: () => {},
+    });
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    (frame.contentWindow as Window).postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+
+    ready(container);
+    const load = posted.find((one) => (one as { type?: string }).type === "load");
+    expect((load as { collaborating: boolean }).collaborating).toBe(false);
+  });
+});
+
 describe("a save is a splice of the file, never a new file", () => {
   test("the serializer keeps what the canvas knows nothing about", () => {
     const original = drawingFile(ELEMENTS);
