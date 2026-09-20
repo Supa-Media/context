@@ -25,7 +25,11 @@
 
 import { ERRORS, ROUTES } from "../core/contract.ts";
 import { TranscribeRefused } from "../core/capture/gatewayTranscriber.ts";
-import type { TranscribeAnswer, TranscribeRequest } from "../core/capture/gatewayTranscriber.ts";
+import type {
+  SpeechEvidence,
+  TranscribeAnswer,
+  TranscribeRequest,
+} from "../core/capture/gatewayTranscriber.ts";
 import type { TranscriptSegment } from "../core/contract.ts";
 import type { GatewayConnection } from "../core/sync/connection.ts";
 
@@ -127,7 +131,11 @@ export async function transcribeChunk(
       );
     }
 
-    const body = (await response.json()) as { segments?: unknown; refusedSegments?: unknown };
+    const body = (await response.json()) as {
+      segments?: unknown;
+      refusedSegments?: unknown;
+      speechEvidence?: unknown;
+    };
     return {
       segments: Array.isArray(body.segments) ? (body.segments as TranscriptSegment[]) : [],
       /*
@@ -145,6 +153,17 @@ export async function transcribeChunk(
         body.refusedSegments > 0
           ? Math.floor(body.refusedSegments)
           : 0,
+      /*
+        AND THE NUMBERS BEHIND THAT COUNT, OR `null`.
+
+        Read key by key rather than taken whole: this is a body from the
+        network arriving in the process that holds the credential, and the one
+        thing that must not happen is an object of unknown shape being carried
+        into a log line. Every value is a finite number or `null`, and `null`
+        is what a gateway too old to say produces — never a row of zeros, which
+        would read as an engine that measured silence.
+      */
+      speechEvidence: readSpeechEvidence(body.speechEvidence),
     };
   } catch (error) {
     if (error instanceof TranscribeRefused) throw error;
@@ -154,4 +173,33 @@ export async function transcribeChunk(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * The evidence summary out of a gateway's answer, or `null`.
+ *
+ * `null` for anything that is not an object, and `null` per field for anything
+ * that is not a finite number — the same direction `refusedSegments` is read
+ * in, and for the same reason: an absent reading substituted with a `0` would
+ * be a measurement this process made up, in the direction that looks like
+ * proof that nobody was talking.
+ */
+function readSpeechEvidence(value: unknown): SpeechEvidence | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const stated = value as Record<string, unknown>;
+  const number = (key: string): number | null => {
+    const one = stated[key];
+    return typeof one === "number" && Number.isFinite(one) ? one : null;
+  };
+  return {
+    segments: number("segments"),
+    statedNoSpeech: number("statedNoSpeech"),
+    statedLogprob: number("statedLogprob"),
+    keptNoSpeechMax: number("keptNoSpeechMax"),
+    keptLogprobMin: number("keptLogprobMin"),
+    refusedNoSpeechMin: number("refusedNoSpeechMin"),
+    refusedLogprobMax: number("refusedLogprobMax"),
+    duration: number("duration"),
+    durationAfterVad: number("durationAfterVad"),
+  };
 }

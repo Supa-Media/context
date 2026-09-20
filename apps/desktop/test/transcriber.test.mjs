@@ -35,6 +35,7 @@ import {
   TranscribeRefused,
   base64,
   gatewayTranscriber,
+  speechEvidenceLine,
 } from "../src/core/capture/gatewayTranscriber.ts";
 
 const SESSION = "mtg_abcdefghjkmnpqrstvwx";
@@ -454,6 +455,143 @@ export async function runTranscriberChecks(check) {
     check(
       "a chunk with words in it says nothing, however many pauses were refused",
       notices.length === 0,
+    );
+  }
+
+  /* ---------------------- the engine's own evidence ---------------------- */
+
+  /*
+    WHY THIS IS HERE AT ALL.
+
+    The silence refusal in `infra/transcribe-worker` cut invented words about
+    threefold on the owner's Mac and did not stop them. What decides the next
+    move is whether the survivors sit just past the thresholds or far from
+    them, and that question was unanswerable: the numbers were read inside a
+    Worker whose logs live in an account the person diagnosing a recording does
+    not have, and the transcript's own `confidence` is `null` on every segment
+    the deployed model has ever produced, because it does not emit that field.
+
+    So the evidence rides the answer to the recorder, and the recorder writes
+    one line per chunk. What these checks hold is that the line says "the
+    engine did not say" distinguishably from "the engine said zero", that it
+    carries no words, and that a sink which throws does not cost a meeting.
+
+    SABOTAGE, whole desktop suite run, reverted. Counts are failing checks.
+  */
+  {
+    const line = speechEvidenceLine({
+      chunkId: `${SESSION}-mic-c00001`,
+      kept: 1,
+      refused: 2,
+      evidence: {
+        segments: 3,
+        statedNoSpeech: 3,
+        statedLogprob: 3,
+        keptNoSpeechMax: 0.58,
+        keptLogprobMin: -0.99,
+        refusedNoSpeechMin: 0.94,
+        refusedLogprobMax: -1.6,
+        duration: 20,
+        durationAfterVad: null,
+      },
+    });
+    check(
+      "the evidence line names the chunk and both populations",
+      line.startsWith(`meeting_speech_evidence chunk=${SESSION}-mic-c00001 kept=1 refused=2`) &&
+        line.includes("kept_no_speech_max=0.58") &&
+        line.includes("kept_logprob_min=-0.99") &&
+        line.includes("refused_no_speech_min=0.94"),
+    );
+    check(
+      "...AND A FIELD THE ENGINE DID NOT STATE READS `absent`, NEVER A NUMBER",
+      line.includes("duration_after_vad=absent") && !line.includes("duration_after_vad=0"),
+    );
+    check(
+      "a service that said nothing at all says so in one word",
+      speechEvidenceLine({ chunkId: "c", kept: 0, refused: 0, evidence: null }) ===
+        "meeting_speech_evidence chunk=c kept=0 refused=0 evidence=absent",
+    );
+  }
+
+  {
+    const reports = [];
+    const stream = await gatewayTranscriber({
+      send: async () => ({
+        ...heardNothing(3),
+        speechEvidence: {
+          segments: 3,
+          statedNoSpeech: 3,
+          statedLogprob: 3,
+          keptNoSpeechMax: null,
+          keptLogprobMin: null,
+          refusedNoSpeechMin: 0.91,
+          refusedLogprobMax: -1.2,
+          duration: 20,
+          durationAfterVad: null,
+        },
+      }),
+      onEvidence: (report) => reports.push(report),
+    }).start({ sessionId: SESSION, sampleRate: 16_000, onSegment: () => {} });
+    stream.push(frame());
+    await stream.finish();
+    check("the evidence reaches the recorder, once per answered chunk", reports.length === 1);
+    check(
+      "...naming the chunk it belongs to, and how the answer came out",
+      reports[0].chunkId === chunkIdFor(`${SESSION}-mic`, 0) &&
+        reports[0].kept === 0 &&
+        reports[0].refused === 3,
+    );
+    check(
+      "...and the engine's own readings, unchanged",
+      reports[0].evidence.refusedNoSpeechMin === 0.91 &&
+        reports[0].evidence.keptNoSpeechMax === null,
+    );
+    check(
+      "NOTHING IN THE REPORT CAN HOLD A WORD SOMEBODY SAID",
+      Object.values(reports[0].evidence).every(
+        (value) => value === null || typeof value === "number",
+      ),
+    );
+  }
+
+  {
+    const segments = [];
+    const stream = await gatewayTranscriber({
+      send: async () => said("still transcribing"),
+      onEvidence: () => {
+        throw new Error("a diagnostic with a bug in it");
+      },
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: (segment) => segments.push(segment),
+    });
+    stream.push(frame());
+    await stream.finish();
+    check(
+      "a sink that throws costs a diagnostic, never the meeting",
+      segments.map((one) => one.text).join("") === "still transcribing",
+    );
+  }
+
+  {
+    const reports = [];
+    const stream = await gatewayTranscriber({
+      send: async () => {
+        throw new TranscribeRefused("the gateway could not be reached", false);
+      },
+      onEvidence: (report) => reports.push(report),
+    }).start({
+      sessionId: SESSION,
+      sampleRate: 16_000,
+      onSegment: () => {},
+      onNotice: () => {},
+    });
+    stream.push(frame());
+    await stream.finish();
+    check(
+      "a chunk the far end refused reports no evidence, because there is none",
+      reports.length === 0,
     );
   }
 }
