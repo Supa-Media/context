@@ -512,6 +512,51 @@ describe("what a short link unfurls with", () => {
     ).toEqual(generic);
   });
 
+  /*
+    A SHORT LINK OVER A NAMED-RECIPIENT SHARE MUST NOT UNFURL.
+
+    Every other check in this block builds its link with `unlisted`, which is
+    `createLinkShare` — an `anyone` row, where a public title is the point.
+    `createShare` is the other door: it takes a `@name` or an email, so its
+    audience is named people, and it defaults `titleInPreview` to `true` the
+    same way.
+
+    Before short links that default was unreachable. The only address that
+    resolved such a row was its 64-hex token, which nobody guesses, so the flag
+    sat true on rows whose title no stranger could ask for. A slug is an
+    owner-chosen word, and `setShareSlug` does not ask what the row's audience
+    is — so the same default became answerable at a guessable address, to a
+    caller with no session, for a note shared with named people only.
+
+    The link itself still works: a named recipient signs in and reads it, and
+    `readSharedNote` decides that exactly as before. What must not travel is the
+    title, to somebody who is not on the list.
+  */
+  test("a link shared with named people does not unfurl its title to strangers", async () => {
+    const f = await fixture();
+    const { shareId } = await asUser(f.t, f.owner).mutation(
+      api.functions.shares.createShare,
+      { workspaceId: f.workspaceId, path: ENTRY, recipient: "@somebody" },
+    ).then(async () => {
+      const rows = await asUser(f.t, f.owner).query(api.functions.shares.listShares, {
+        workspaceId: f.workspaceId,
+      });
+      const row = rows.find((candidate) => candidate.audience !== "anyone");
+      expect(row).toBeDefined();
+      return { shareId: row!.shareId };
+    });
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareSlug, {
+      shareId,
+      slug: "intake",
+    });
+    expect(
+      await f.t.query(api.functions.shares.previewForShortLink, {
+        handle: "seyi",
+        slug: "intake",
+      }),
+    ).toEqual({ title: null });
+  });
+
   test("a link whose owner turned the title off names nothing", async () => {
     const f = await fixture();
     const share = await shortLink(f, "intake");

@@ -1648,6 +1648,24 @@ export const previewForShortLink = query({
     const now = Date.now();
     const live = rows.find((row) => row.status === "active" && isLive(row, now));
     if (live === undefined || live.titleInPreview !== true) return nothing;
+    /*
+     * **`anyone`, and only `anyone`.** `titleInPreview` defaults to `true` on
+     * every row `createShare` writes as well, and those are addressed to a
+     * `@name` or an email — named people, which is the whole of what `team`
+     * means. That default was unreachable before there were short links: such a
+     * row answered to its 64-hex token and nothing else, so no stranger could
+     * ask for its title. A slug is an owner-chosen word at a guessable address,
+     * and `setShareSlug` does not ask what the row's audience is, so the same
+     * default became answerable with no session at all.
+     *
+     * Refused here rather than in `setShareSlug`, because a memorable address
+     * for a link shared with named people is a reasonable thing to want and
+     * still works — its readers sign in and `readSharedNote` authorises them
+     * exactly as before. It is the *title* that must not travel to somebody who
+     * is not on the list. A crawler's unfurl cannot be revoked once it is
+     * cached, so this is decided in the direction that cannot be taken back.
+     */
+    if (live.recipientKind !== "anyone") return nothing;
 
     const title = normalizePreviewTitle(live.previewTitle ?? "");
     return { title: title === null ? null : title };

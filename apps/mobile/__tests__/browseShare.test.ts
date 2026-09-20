@@ -351,6 +351,32 @@ describe("an owner reading a note can share it", () => {
     const share = pane.querySelector('[data-testid="browse-share"]');
     expect(share?.getAttribute("aria-label")).toBe("Share this");
   });
+
+  /**
+   * AND IT IS NOT ON THE EDGE OF THE WINDOW.
+   *
+   * The gutter was written — as `noteHeadCompact` — and applied by
+   * `compact && styles.noteHeadCompact`, on a row whose only render site is
+   * gated on `!compact`. So the one density that draws this row got none of
+   * it, and the style sat in the sheet looking like the problem was handled.
+   * The owner's report was that Share sits "a little too close to the edge".
+   *
+   * That is a guard nobody had checked, and the reason this is an assertion
+   * about a *number* rather than about a class being present: the padding
+   * moving back onto a branch that cannot fire would read the same in a diff
+   * and fail here.
+   */
+  test("and the row holds it off the trailing edge", () => {
+    const pane = paneWith();
+    const share = pane.querySelector<HTMLElement>('[data-testid="browse-share"]');
+    const row = share?.parentElement;
+    if (row == null) throw new Error("Share is not in a row");
+
+    // react-native-web writes `StyleSheet.create` values into an injected
+    // sheet, so this is read off the row's resolved style rather than off an
+    // inline attribute — `padding-right` is the claim, however it arrives.
+    expect(Number.parseFloat(window.getComputedStyle(row).paddingRight)).toBeGreaterThan(0);
+  });
 });
 
 /**
