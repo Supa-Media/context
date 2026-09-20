@@ -450,7 +450,11 @@ export class FormWidget extends WidgetType {
         if (input === undefined) continue;
         const value = response.values[field.name] ?? "";
         if (input instanceof HTMLInputElement && input.type === "checkbox") {
-          input.checked = value === "true";
+          // `yes`, because that is what the responses FILE holds — the word
+          // `renderResponsesFile` writes and a person reads in the answers
+          // note. This read `"true"`, the grammar's declaration word, so
+          // editing an answer arrived with every ticked box cleared.
+          input.checked = value === "yes";
         } else {
           input.value = value;
           input.dispatchEvent(new Event("input"));

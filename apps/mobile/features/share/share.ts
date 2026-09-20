@@ -227,6 +227,15 @@ export interface SharedNote {
   /** Whether this link needs no session. See the module comment. */
   openToAnyone: boolean;
   /**
+   * Whether this link is **taking answers** to a form on the note.
+   *
+   * Reported by the server, never inferred from the note carrying a form
+   * block: a note with a form on it is not the same thing as a link its owner
+   * published to collect through, and drawing a Send button on a link that is
+   * going to refuse is worse than drawing none.
+   */
+  collecting: boolean;
+  /**
    * The context this note can be edited in — `slug`, or `null`.
    *
    * Decided by the server from the reader's own membership. Never derived

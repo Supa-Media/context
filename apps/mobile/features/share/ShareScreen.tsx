@@ -40,6 +40,8 @@ import { radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { noteHref } from "../console/nav";
 import { NoteBody } from "./NoteBody";
+import { ShareForm, collectAddress, type CollectAddress } from "./ShareForm";
+import { fenceAsForm } from "./collectForm";
 import { noteTitle, parseNote } from "./markdown";
 import {
   firstParam,
@@ -206,6 +208,7 @@ export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}
             onOpen={open}
             onBack={backToEntry}
             onEdit={edit}
+            address={collectAddress(token, shortLink)}
           />
         )}
       </CenteredScroll>
@@ -342,12 +345,15 @@ function Note({
   onOpen,
   onBack,
   onEdit,
+  address,
 }: {
   note: SharedNote;
   awayFromEntry: boolean;
   onOpen: (path: string) => void;
   onBack: () => void;
   onEdit: (slug: string, path: string) => void;
+  /** How this page's link is addressed on the wire, for a form on it. */
+  address: CollectAddress | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -369,6 +375,30 @@ function Note({
     [parsed.blocks],
   );
   const links = onwardLinks(note);
+
+  /*
+    A FORM FENCE BECOMES A FORM ONLY WHEN THE SERVER SAID THIS LINK COLLECTS.
+
+    `note.collecting` and nothing else. A note carrying a form block is not the
+    same thing as a link its owner published to collect through — a read link
+    over the same note shows the block as what it is, because a Send button
+    that the server is going to refuse is worse than no Send button.
+
+    `address` is the other half: with no token and no short name there is
+    nothing to submit through, which is a URL that never resolved and reached
+    a different screen anyway. Guarded rather than asserted, because an
+    unreachable branch that renders a crash is worse than one that renders the
+    block.
+  */
+  const collecting = note.collecting && address !== null;
+  const renderForm = useCallback(
+    (block: { text: string; language?: string }) => {
+      const form = fenceAsForm(block, { collecting });
+      if (form === null || address === null) return null;
+      return <ShareForm form={form} address={address} />;
+    },
+    [address, collecting],
+  );
 
   return (
     <View style={styles.note}>
@@ -421,7 +451,7 @@ function Note({
           )}
         </View>
 
-        <NoteBody blocks={body} />
+        <NoteBody blocks={body} renderCode={renderForm} />
 
         {parsed.truncated ? (
           <Text variant="meta" style={styles.truncated}>
