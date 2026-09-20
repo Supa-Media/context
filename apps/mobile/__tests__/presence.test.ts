@@ -52,6 +52,8 @@ import {
   mergeExternalText,
   seedSharedDoc,
 } from "../features/console/presence/sharedDoc";
+import { applyExternalWrite } from "../features/console/presence/externalWrite";
+import { newDrawing, serializeDrawing } from "@context/drawings";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -436,6 +438,163 @@ describe("the shared document", () => {
     const { a } = pair();
     seedSharedDoc(a, "same");
     expect(mergeExternalText(a, "same")).toBe(false);
+  });
+});
+
+/*
+  A TOOL'S VERSION MAY ONLY BE ADOPTED BY A CLIENT THAT RECEIVED ITS CONTENT.
+
+  A console save is a conditional write against the etag the editor holds, and
+  that refusal is the only thing between a stale draft and a silent overwrite.
+  Moving the etag spends it. So the two halves of a write — its content and its
+  version — travel together or not at all.
+
+  These checks are here rather than in the hook because `usePresence`'s socket
+  handler is not reachable by any test in this repository, which
+  `docs/decisions/testing.md` now states outright. That is exactly why the
+  decision was moved out of it: measured beforehand, inverting the `if` that
+  used to live there failed **0** of the app's tests.
+*/
+describe("a tool's write, and the version that comes with it", () => {
+  /*
+    Built with the package's own serializer rather than hand-written, so the
+    fixture is a drawing by construction: a hand-rolled payload that stopped
+    parsing would turn these checks green for the wrong reason.
+  */
+  /** Two documents wired to each other, as the room wires them. */
+  function pair() {
+    let a: ReturnType<typeof createSharedDoc>;
+    let b: ReturnType<typeof createSharedDoc>;
+    a = createSharedDoc({ onLocalUpdate: (u) => b.applyRemote(u) });
+    b = createSharedDoc({ onLocalUpdate: (u) => a.applyRemote(u) });
+    return { a, b };
+  }
+
+  const DRAWING_PATH = "1-projects/plan.excalidraw.md";
+  const blank = newDrawing() as string;
+  const oneShape = serializeDrawing(blank, [
+    { id: "one", type: "rectangle", version: 3, versionNonce: 7, x: 0, y: 0, width: 10, height: 10 },
+  ] as never[]) as string;
+  const emptyScene = serializeDrawing(blank, [] as never[]) as string;
+
+  test("a note adopts it, and holds the text that came with it", () => {
+    const { a, b } = pair();
+    seedSharedDoc(a, "# Notes\n\nfirst line\n");
+    let adopted = 0;
+    applyExternalWrite(
+      { text: "# Notes\n\nfirst line\nfrom a tool\n", path: "1-projects/n.md", shared: a, drawing: false },
+      () => {},
+      () => {
+        adopted += 1;
+      },
+    );
+    expect(adopted).toBe(1);
+    expect(a.markdown()).toBe("# Notes\n\nfirst line\nfrom a tool\n");
+    // The peer bound to the same document has it too, which is what makes
+    // adopting the version safe rather than only defensible.
+    expect(b.markdown()).toBe(a.markdown());
+  });
+
+  test("a merge that throws does not move the version", () => {
+    /*
+      The document is left exactly as it was, so this client does not hold the
+      tool's text — and the branch that swallowed the throw moved the version
+      regardless, reasoning that "the bucket has the tool's version either
+      way". True before the version moved; false after it.
+    */
+    const { a } = pair();
+    seedSharedDoc(a, "intact");
+    const exploding = {
+      ...a,
+      doc: {
+        ...a.doc,
+        transact: () => {
+          throw new Error("a document mid-transaction");
+        },
+      },
+    } as unknown as typeof a;
+    let adopted = 0;
+    applyExternalWrite(
+      { text: "something else", path: "1-projects/n.md", shared: exploding, drawing: false },
+      () => {},
+      () => {
+        adopted += 1;
+      },
+    );
+    expect(adopted).toBe(0);
+    expect(a.markdown()).toBe("intact");
+  });
+
+  test("a canvas adopts it only once the elements are delivered", () => {
+    const drawn: unknown[][] = [];
+    let adopted = 0;
+    applyExternalWrite(
+      { text: oneShape, path: DRAWING_PATH, shared: null, drawing: true },
+      (elements) => drawn.push(elements),
+      () => {
+        adopted += 1;
+      },
+    );
+    expect(drawn.length).toBe(1);
+    expect((drawn[0] as { id: string }[]).map((element) => element.id)).toEqual(["one"]);
+    expect(adopted).toBe(1);
+  });
+
+  test("a payload carrying no elements delivers nothing and moves nothing", () => {
+    /*
+      Not a cleared canvas — Excalidraw deletes by flag, so a real clear
+      arrives as elements carrying `isDeleted`. This is a scene this client
+      cannot be brought onto, and claiming its version would have the next save
+      put the old shapes back over it.
+    */
+    const drawn: unknown[][] = [];
+    let adopted = 0;
+    applyExternalWrite(
+      { text: emptyScene, path: DRAWING_PATH, shared: null, drawing: true },
+      (elements) => drawn.push(elements),
+      () => {
+        adopted += 1;
+      },
+    );
+    expect([drawn.length, adopted]).toEqual([0, 0]);
+  });
+
+  test("a payload this console could not have opened delivers nothing either", () => {
+    /*
+      `parseDrawing` reports rather than throws, for all three of its reasons,
+      so this is the branch that has to carry them. Each one arrives with
+      `elements: null` and must leave the version where it is.
+
+      Measured before it was written: a `catch` here failed **0** checks,
+      because nothing makes that parser throw. A guard around a throw that
+      cannot happen is not a guard.
+    */
+    for (const text of ["# just a note", "", "```compressed-json\nnot-base64!!\n```"]) {
+      const drawn: unknown[][] = [];
+      let adopted = 0;
+      applyExternalWrite(
+        { text, path: DRAWING_PATH, shared: null, drawing: true },
+        (elements) => drawn.push(elements),
+        () => {
+          adopted += 1;
+        },
+      );
+      expect([text, drawn.length, adopted]).toEqual([text, 0, 0]);
+    }
+  });
+
+  test("a room that is neither receives nothing", () => {
+    // No document and not a canvas: there is nothing here that could take the
+    // write, so there is nothing that may take its version.
+    let adopted = 0;
+    applyExternalWrite(
+      { text: "anything", path: "1-projects/n.md", shared: null, drawing: false },
+      () => {},
+      () => {
+        adopted += 1;
+      },
+    );
+    expect(adopted).toBe(0);
   });
 
   test("exactly one member is the writer, and it survives them leaving", () => {

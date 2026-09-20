@@ -51,14 +51,14 @@ import {
   encodeUpdate,
   readSyncMessage,
 } from "./sync";
-import { decodeElements, encodeElements, parseDrawing } from "@context/drawings";
+import { decodeElements, encodeElements } from "@context/drawings";
 import {
   createSharedDoc,
   electWriter,
-  mergeExternalText,
   seedSharedDoc,
   type SharedDoc,
 } from "./sharedDoc";
+import { applyExternalWrite } from "./externalWrite";
 import {
   initialPresenceState,
   presenceReducer,
@@ -539,41 +539,25 @@ export function usePresence(options: {
             of the whole note, and carets and other people's in-flight edits
             survive it. The resulting update goes out through the ordinary
             local-update path, so everybody else sees it as an edit.
+
+            **A canvas receives the same write as elements**, because a tool
+            writes a `.excalidraw.md` as a *file* — the only shape `write_note`
+            has — and this room merges elements rather than text.
+
+            **And the version is adopted only if one of those deliveries
+            happened.** A merge that throws, a payload that will not parse and
+            a scene with nothing in it each leave this client without the
+            tool's content, and a client that claims the version of a write it
+            does not hold overwrites it on its next save with nobody shown a
+            conflict. `externalWrite.ts` holds both halves and is handed the
+            adoption rather than asked about it — there is no branch here to
+            get wrong, which matters because no test reaches this handler.
           */
-          const held = shared.current;
-          if (held) {
-            try {
-              mergeExternalText(held, frame.text);
-            } catch {
-              // A merge that throws leaves the document as it was, which is
-              // still a document somebody is typing into. The bucket has the
-              // tool's version either way.
-            }
-          } else if (mode === "drawing") {
-            /*
-              **The same write, arriving at a canvas.**
-
-              A tool writes a `.excalidraw.md` as a *file* — it is the only
-              shape `write_note` has — and this room merges elements, so the
-              text is parsed back into elements here and handed on exactly like
-              a peer's change. Without this the canvas adopted the version and
-              showed none of it: the etag moved, the drawing did not, and the
-              next save wrote the old shapes over the agent's.
-
-              Still one merger, for the reason above: the room picked this
-              client, and reconciliation by element version is what makes the
-              result the same on every screen.
-            */
-            try {
-              const parsed = parseDrawing(frame.text, path);
-              const elements = parsed.elements ?? [];
-              if (elements.length > 0) onDrawing.current?.(elements);
-            } catch {
-              // A drawing that will not parse is one the console could not
-              // have opened either. The bucket has the tool's version.
-            }
-          }
-          onExternalWrite.current?.({ path, etag: frame.etag });
+          applyExternalWrite(
+            { text: frame.text, path, shared: shared.current, drawing: mode === "drawing" },
+            (elements) => onDrawing.current?.(elements),
+            () => onExternalWrite.current?.({ path, etag: frame.etag }),
+          );
           return;
         }
 
