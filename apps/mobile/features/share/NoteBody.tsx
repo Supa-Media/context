@@ -12,25 +12,54 @@
  * text and is not tappable at all.
  */
 
+import type { ReactNode } from "react";
 import { Linking, StyleSheet, View } from "react-native";
 import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { Block, Inline } from "./markdown";
 
-export function NoteBody({ blocks }: { blocks: readonly Block[] }) {
+/**
+ * `renderCode` — the one place this renderer hands a block to somebody else.
+ *
+ * It exists for the form fence, which a *collect* link draws as a form you can
+ * fill in rather than as the block's source. Deliberately a hook and not a
+ * `case "form"` here: this file's rule is that nothing in it can turn a string
+ * into markup, and that stays true when the only escape hatch is a function
+ * the caller passed in, for one block kind, returning `null` to fall through
+ * to the ordinary code block.
+ *
+ * Every caller that does not pass one renders exactly what it rendered before.
+ */
+export function NoteBody({
+  blocks,
+  renderCode,
+}: {
+  blocks: readonly Block[];
+  renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
+}) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.body}>
       {blocks.map((block, index) => (
-        <BlockView key={index} block={block} />
+        <BlockView key={index} block={block} renderCode={renderCode} />
       ))}
     </View>
   );
 }
 
-function BlockView({ block }: { block: Block }) {
+function BlockView({
+  block,
+  renderCode,
+}: {
+  block: Block;
+  renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
+}) {
   const styles = useThemedStyles(makeStyles);
+  if (block.kind === "code" && renderCode !== undefined) {
+    const replaced = renderCode(block);
+    if (replaced !== null && replaced !== undefined) return <>{replaced}</>;
+  }
   switch (block.kind) {
     case "heading":
       return (

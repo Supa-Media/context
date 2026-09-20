@@ -53,6 +53,9 @@ const note = (over: Partial<SharedNote> = {}): SharedNote => ({
   entries: [],
   entryPath: "1-projects/overview.md",
   links: [],
+  // A read link by default: the collecting half is collect mode's, and its
+  // own tests set it.
+  collecting: false,
   openToAnyone: false,
   editableInContext: null,
   ...over,
@@ -798,6 +801,7 @@ describe("what the short-link page decides", () => {
       entries: [],
       entryPath: "1-projects/plan.md",
       links: [],
+      collecting: false,
       openToAnyone: false,
       editableInContext: null,
     };
@@ -821,6 +825,7 @@ describe("what the short-link page decides", () => {
       entries: [],
       entryPath: "1-projects/plan.md",
       links: [],
+      collecting: false,
       openToAnyone: true,
       editableInContext: null,
     };

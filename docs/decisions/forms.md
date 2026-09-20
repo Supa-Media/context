@@ -394,3 +394,72 @@ account answer a form. A collect link, an owner-chosen short link, and the
 tools that mint one are the subject of the UX pass this section was written
 beside, and each of them changes a rule in `privacy-and-sharing.md` rather than
 adding to this one.
+
+## A form on a share page draws itself, and is the page's one write
+
+`privacy-and-sharing.md` argues collect mode — what a collect link is, what it
+narrows, and why it is the only write in this product with no account behind
+it. This is the other end: the page somebody with no account actually opens.
+
+**The fence becomes a form only when the server says the link collects.**
+`readSharedNote` reports `collecting` off the share row, and the page reads
+nothing else. Inferring it from the note's own text — "there is a form block
+here, so draw a form" — would publish a write endpoint on every shared note
+that happens to carry one, which is not a decision its owner made. A read link
+over the same note draws the block as source, which is what it is.
+
+**`shareReadOnly.test.ts` was restated rather than relaxed.** It said "nothing
+on a share page may write", which was true and is now too narrow. What it
+checks instead is: one write action, `submitThroughLink`, in one file, and the
+general-purpose writes (`useMutation`, `writeNote`, `runFileOperation`,
+`createShare`) still forbidden outright. The distinction is real rather than
+verbal — `submitThroughLink` takes no path, no text and no destination: the
+link names the note, the note's own block names the answers file, and the
+server renders the row from values checked against that block's declared
+fields. There is a self-test for a *second* write being added, because
+"submitting is allowed here" must not read as "form actions are fine here".
+
+**The check is read before the fields are drawn.** With no
+`EXPO_PUBLIC_TURNSTILE_SITE_KEY` there is no way to produce a token and the
+control plane refuses every submission — so the page says it is not taking
+answers *instead of* rendering fields. Drawing them anyway would take two
+minutes of somebody's typing and refuse it at the end, which is the failure
+`lib/turnstile.ts` describes from the server's side. The native build reports
+the check permanently unavailable and says to open the link in a browser: there
+is no Turnstile widget outside one, and a server that waved a submission
+through because it came from an app would have no defence at all.
+
+**Validation is the server's function, run early.** `validateSubmission` is
+imported from `apps/mcp/src/forms.js` — the same file the gateway, the control
+plane and the console editor reach for — and what goes on the wire is *its*
+normalization, never the raw boxes. A page that sent what was typed and used
+the validator only for a yes/no would make "valid here" and "valid there" two
+questions, and the second one is answered in front of somebody with no account
+and no way to ask why.
+
+**One decision, one function.** `fenceAsForm` is what both `ShareScreen` and
+its test call. It was a closure in the screen with a copy in the test for about
+an hour, and sabotaging the copy failed the test while the screen would have
+gone on drawing forms on read links — #755's shape exactly, in the feature that
+shipped it.
+
+**An answer is final, and the page says so above the button.** No edit, no
+withdraw, no vote, no receipt, and the response id is deliberately not returned:
+a stranger cannot read the responses file, so there is nothing they could do
+with one, and handing somebody a handle to a thing they can never act on is an
+invitation to try.
+
+### Two bugs this page found in code it only passed through
+
+**A checkbox answer was unanswerable.** `validateSubmission` sent it through
+`parseBool`, which reads the *block grammar*'s vocabulary (`required: true`),
+while the responses file stores `yes`/`no` and the console's own widget submits
+`yes`/`no`. Every form carrying a checkbox was refused with a sentence naming
+two words nothing in the product shows. Nothing anywhere tested a checkbox
+field, which is how it survived. The answer's vocabulary is now its own
+function accepting both pairs and storing one; the declaration's is untouched,
+because widening it would change a stable storage format rather than fix a bug.
+
+**Reading one back cleared it.** The editor's form widget filled a checkbox
+from `value === "true"` — the same confusion at the other end — so editing an
+answer arrived with every ticked box unticked.
