@@ -76,7 +76,10 @@ export function fromBase64(value: string): Uint8Array {
  * browsers rather than a slow one.
  */
 export function createSharedDoc(options: {
-  onLocalUpdate: (base64: string) => void;
+  /** Raw bytes, so the caller frames them with the sync protocol. */
+  onLocalUpdateBytes?: (update: Uint8Array) => void;
+  /** Base64, kept for the tests that drive two documents directly. */
+  onLocalUpdate?: (base64: string) => void;
 }): SharedDoc {
   const doc = new Y.Doc();
   const text = doc.getText("note");
@@ -84,8 +87,13 @@ export function createSharedDoc(options: {
   const REMOTE = Symbol("remote");
 
   doc.on("update", (update: Uint8Array, origin: unknown) => {
-    if (origin === REMOTE) return;
-    options.onLocalUpdate(toBase64(update));
+    // Anything that did not originate in this editor is somebody else's edit
+    // arriving; echoing it back is a loop between two browsers.
+    if (origin === REMOTE || (typeof origin === "symbol" && origin.description?.includes("remote"))) {
+      return;
+    }
+    options.onLocalUpdateBytes?.(update);
+    options.onLocalUpdate?.(toBase64(update));
   });
 
   return {

@@ -230,11 +230,11 @@ export class PresenceRoom {
       writing is either broken or hostile, and neither is owed a diagnostic.
       Their own editor still shows their own typing; it simply reaches nobody.
     */
-    if ((decoded.msg.t === "u" || decoded.msg.t === "snap") && !attachment.canWrite) {
+    if ((decoded.msg.t === "y" || decoded.msg.t === "snap") && !attachment.canWrite) {
       return;
     }
 
-    if (decoded.msg.t === "u") {
+    if (decoded.msg.t === "y") {
       /*
         One keystroke, on its way to everybody else.
 
@@ -244,7 +244,7 @@ export class PresenceRoom {
         this character too, then sent to every socket but the sender's, who
         already has it — applying your own keystroke twice is work for nothing.
       */
-      this.broadcast({ t: "u", d: decoded.msg.d }, ws);
+      this.broadcast({ t: "y", d: decoded.msg.d }, ws);
       await this.appendUpdate(decoded.msg.d);
       return;
     }
@@ -270,7 +270,7 @@ export class PresenceRoom {
         handled in `checkpoint` below where eligibility is checked.
       */
       if (!attachment.canWrite) return;
-      this.broadcast({ t: "u", d: decoded.msg.d }, ws);
+      this.broadcast({ t: "y", d: decoded.msg.d }, ws);
       await this.appendUpdate(decoded.msg.d, { checkpoint: attachment.eligibleToCompact === true });
       return;
     }

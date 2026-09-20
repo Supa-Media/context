@@ -54,9 +54,25 @@ import {
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
+/**
+ * A peer, with its caret as an encoded relative position.
+ *
+ * The tests use readable stand-ins ("p:12") and a resolver that reads the
+ * number back out, because what these checks are about is the geometry the
+ * decorations produce — not Yjs's encoding, which `sync.test` covers against
+ * a real document.
+ */
 function member(over: Partial<PresenceMember> = {}): PresenceMember {
-  return { id: "m1", name: "@ana", color: "#8b5cf6", anchor: 0, head: 0, ...over };
+  return { id: "m1", name: "@ana", color: "#8b5cf6", anchor: "p:0", head: "p:0", ...over };
 }
+
+/** Reads the offset back out of a stand-in position. */
+const resolve = (encoded: string): number | null => {
+  const match = /^p:(-?\d+)$/.exec(encoded);
+  return match ? Number(match[1]) : null;
+};
+
+const at = (offset: number) => `p:${offset}`;
 
 function live(members: PresenceMember[]): PresenceState {
   return { ...initialPresenceState, phase: "live", notePath: "a.md", you: "me", members, stale: false };
@@ -104,16 +120,21 @@ describe("the presence wire", () => {
     expect(frame && frame.t === "join" ? frame.member.color : "unread").toBeNull();
   });
 
-  test("offsets from a peer are bounded before they are believed", () => {
-    const frame = decodeServerFrame('{"t":"cursor","id":"m1","a":-4,"h":1e12}');
-    expect(frame).toEqual({ t: "cursor", id: "m1", anchor: 0, head: 10_000_000 });
+  test("a caret position that is not a position is dropped, not guessed at", () => {
+    // Relative positions replaced integer offsets, so the check changed with
+    // them: there is no clamping to do, and the failure mode to guard is a
+    // peer sending something that is not an encoded position at all. `null`
+    // means "do not draw this caret" rather than "draw it at the start", which
+    // would put somebody's name at the top of the note and claim they are there.
+    const frame = decodeServerFrame('{"t":"cursor","id":"m1","a":"not base64!","h":12}');
+    expect(frame).toEqual({ t: "cursor", id: "m1", anchor: null, head: null });
   });
 
-  test("what this client sends is two integers and a type, and nothing else", () => {
+  test("a caret frame carries two positions and a type, and nothing else", () => {
     // The property the whole feature rests on, asserted rather than commented:
     // there is no field on this frame that note text could travel in.
-    expect(Object.keys(JSON.parse(cursorFrame(3, 9))).sort()).toEqual(["a", "h", "t"]);
-    expect(JSON.parse(cursorFrame(-1, 4.9))).toEqual({ t: "cursor", a: 0, h: 4 });
+    expect(Object.keys(JSON.parse(cursorFrame("p:3", "p:9"))).sort()).toEqual(["a", "h", "t"]);
+    expect(JSON.parse(cursorFrame(null, null))).toEqual({ t: "cursor", a: null, h: null });
   });
 
   test("the socket url carries the token in the path, over wss", () => {
@@ -183,13 +204,13 @@ describe("the presence state machine", () => {
   });
 
   test("a join for an id already present replaces rather than duplicates", () => {
-    const next = presenceReducer(live([member({ id: "m2", head: 4 })]), {
+    const next = presenceReducer(live([member({ id: "m2", head: at(4) })]), {
       type: "frame",
       notePath: "a.md",
-      frame: { t: "join", member: member({ id: "m2", head: 9 }) },
+      frame: { t: "join", member: member({ id: "m2", head: at(9) }) },
     });
     expect(next.members).toHaveLength(1);
-    expect(next.members[0].head).toBe(9);
+    expect(next.members[0].head).toBe(at(9));
   });
 
   test("a cursor for somebody not in the roster is dropped", () => {
@@ -199,7 +220,7 @@ describe("the presence state machine", () => {
     const next = presenceReducer(state, {
       type: "frame",
       notePath: "a.md",
-      frame: { t: "cursor", id: "ghost", anchor: 1, head: 2 },
+      frame: { t: "cursor", id: "ghost", anchor: at(1), head: at(2) },
     });
     expect(next).toBe(state);
   });
@@ -259,18 +280,18 @@ describe("the caret decorations", () => {
   test("an offset past the end of the document is clamped, not thrown on", () => {
     // The failure worth the whole feature being reverted: this throws inside
     // the update cycle of an editor somebody is typing in.
-    expect(() => buildCaretDecorations([member({ head: 9_000, anchor: 9_000 })], 10, 0, new Map())).not.toThrow();
-    const ranges = positions(buildCaretDecorations([member({ head: 9_000, anchor: 9_000 })], 10, 0, new Map()));
+    expect(() => buildCaretDecorations([member({ head: at(9_000), anchor: at(9_000) })], 10, 0, new Map(), resolve)).not.toThrow();
+    const ranges = positions(buildCaretDecorations([member({ head: at(9_000), anchor: at(9_000) })], 10, 0, new Map(), resolve));
     expect(ranges).toEqual([{ from: 10, to: 10 }]);
   });
 
   test("a reversed selection is drawn the right way round", () => {
-    const ranges = positions(buildCaretDecorations([member({ anchor: 8, head: 2 })], 20, 0, new Map()));
+    const ranges = positions(buildCaretDecorations([member({ anchor: at(8), head: at(2) })], 20, 0, new Map(), resolve));
     expect(ranges).toContainEqual({ from: 2, to: 8 });
   });
 
   test("an empty selection draws a caret and no highlight", () => {
-    const ranges = positions(buildCaretDecorations([member({ anchor: 5, head: 5 })], 20, 0, new Map()));
+    const ranges = positions(buildCaretDecorations([member({ anchor: at(5), head: at(5) })], 20, 0, new Map(), resolve));
     expect(ranges).toEqual([{ from: 5, to: 5 }]);
   });
 
@@ -278,15 +299,21 @@ describe("the caret decorations", () => {
     // `RangeSetBuilder` throws "Ranges must be added sorted" otherwise, and the
     // roster arrives in whatever order the room sent it.
     const ranges = positions(
-      buildCaretDecorations(
-        [member({ id: "a", anchor: 30, head: 30 }), member({ id: "b", anchor: 2, head: 6 })],
-        40,
-        0,
-        new Map(),
-      ),
+      buildCaretDecorations([member({ id: "a", anchor: at(30), head: at(30) }), member({ id: "b", anchor: at(2), head: at(6) })], 40, 0, new Map(), resolve),
     );
     expect(ranges.map((one) => one.from)).toEqual([2, 6, 30].slice(0, ranges.length));
     expect(ranges).toEqual([...ranges].sort((x, y) => x.from - y.from || x.to - y.to));
+  });
+
+  test("a caret the document cannot place is not drawn", () => {
+    // The replacement for clamping: a relative position referring to text this
+    // client has not received yet resolves to nothing, and nothing is the
+    // right thing to draw. Drawing at zero would be a claim about where
+    // somebody is standing, and a false one.
+    const ranges = positions(
+      buildCaretDecorations([member({ head: "p:unresolvable" })], 20, 0, new Map(), resolve),
+    );
+    expect(ranges).toEqual([]);
   });
 
   test("clamping is the client's job because the server cannot do it", () => {
@@ -297,8 +324,8 @@ describe("the caret decorations", () => {
 
   test("the label is drawn only while the caret is recently moved", () => {
     const moved = new Map([["m1", 1_000]]);
-    const fresh = buildCaretDecorations([member({ head: 3 })], 10, 1_000 + CARET_LABEL_MS - 1, moved);
-    const faded = buildCaretDecorations([member({ head: 3 })], 10, 1_000 + CARET_LABEL_MS + 1, moved);
+    const fresh = buildCaretDecorations([member({ head: at(3) })], 10, 1_000 + CARET_LABEL_MS - 1, moved, resolve);
+    const faded = buildCaretDecorations([member({ head: at(3) })], 10, 1_000 + CARET_LABEL_MS + 1, moved, resolve);
     // Same range either way — what changes is the widget, so compare the DOM
     // the widget builds rather than the positions.
     // The caret widget is not necessarily the first range: a member with a

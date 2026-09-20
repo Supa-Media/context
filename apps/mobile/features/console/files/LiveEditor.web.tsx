@@ -51,7 +51,12 @@ import { insertTable, MARKERS, toggleWrap } from "./markdownFormat";
 import { TableSizePicker } from "./TableSizePicker.web";
 import { drawInterim, takeBackRun } from "./dictate";
 import { closeFindPanel, findInNote } from "./findInNote";
-import { remoteCarets, reportSelection, setRemoteCarets } from "../presence/remoteCarets";
+import {
+  remoteCarets,
+  reportSelection,
+  setCaretDocument,
+  setRemoteCarets,
+} from "../presence/remoteCarets";
 import { yCollab } from "y-codemirror.next";
 import { mayPersist, type SharedDoc } from "../presence/sharedDoc";
 import type { PresenceMember } from "../presence/protocol";
@@ -1046,7 +1051,12 @@ export function LiveEditor({
       // binding takes. The first version of this typed it as `unknown` and
       // reached for `any` to get past the door, which is a lint error telling
       // the truth — the type was available the whole time.
-      effects: collab.current.reconfigure(text ? yCollab(text, null) : []),
+      effects: [
+        collab.current.reconfigure(text ? yCollab(text, null) : []),
+        // Carets arrive as positions relative to this document, so the
+        // extension needs the document itself to place them.
+        setCaretDocument.of(presence?.shared?.doc ?? null),
+      ],
     });
   }, [presence?.shared]);
 

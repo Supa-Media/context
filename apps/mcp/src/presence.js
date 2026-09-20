@@ -191,6 +191,12 @@ export function normalizeDisplayName(value) {
   return cleaned.length > MAX_DISPLAY_NAME ? cleaned.slice(0, MAX_DISPLAY_NAME) : cleaned;
 }
 
+/** An encoded relative position from a client, or `null` if it is not one. */
+export function relativePosition(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096) return null;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : null;
+}
+
 /** An offset a client sent, made safe to relay, or `null` if it was not one. */
 export function normalizeOffset(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -225,15 +231,21 @@ export function decodeClientFrame(raw) {
     return { ok: false, reason: "not_object" };
   }
   if (parsed.t === "cursor") {
-    // Same cap, checked before the branch returns. A caret is two integers; a
-    // cursor frame that is not caret-sized is not a caret frame.
+    // Same cap, checked before the branch returns. A caret frame that is not
+    // caret-sized is not a caret frame.
     if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
-    const anchor = normalizeOffset(parsed.a);
-    const head = normalizeOffset(parsed.h);
-    if (anchor === null || head === null) return { ok: false, reason: "bad_offset" };
+    /*
+      An encoded *relative* position now, rather than an integer offset: an
+      offset names a place in a document that is changing underneath it, so a
+      peer typing above your caret moved it without telling anybody. The room
+      still does not decode this — it checks the shape and relays it — and the
+      identity on the frame is still stamped here rather than claimed there.
+    */
+    const anchor = relativePosition(parsed.a);
+    const head = relativePosition(parsed.h);
     return { ok: true, msg: { t: "cursor", a: anchor, h: head } };
   }
-  if (parsed.t === "u" || parsed.t === "snap") {
+  if (parsed.t === "y" || parsed.t === "snap") {
     // Base64 of an encoded document update. Checked for *shape* and *size*
     // only: the room does not decode it, cannot decode it, and must not start
     // — see the header. An update that is malformed is somebody's own editor

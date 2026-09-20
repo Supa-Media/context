@@ -36,9 +36,10 @@ import {
   pingFrame,
   presenceSocketUrl,
   snapshotFrame,
-  updateFrame,
+  syncFrame,
   type PresenceMember,
 } from "./protocol";
+import { cursorPosition, encodeSyncStep1, encodeUpdate, readSyncMessage } from "./sync";
 import { createSharedDoc, isWriter, seedSharedDoc, type SharedDoc } from "./sharedDoc";
 import {
   initialPresenceState,
@@ -53,6 +54,14 @@ const CURSOR_THROTTLE_MS = 120;
 
 /** Reconnect this long before the gateway would close the socket itself. */
 const REAUTH_MARGIN_MS = 15_000;
+
+/**
+ * Marks a change as having arrived from the room rather than from this editor.
+ *
+ * Without it every applied message is echoed straight back out, which is an
+ * infinite loop between two browsers rather than a slow one.
+ */
+const REMOTE_ORIGIN = Symbol("presence-remote");
 
 export interface Presence {
   members: PresenceMember[];
@@ -184,13 +193,19 @@ export function usePresence(options: {
       appear" into "I see the sentence appear".
     */
     const document = createSharedDoc({
-      onLocalUpdate: (update) => {
+      onLocalUpdateBytes: (update) => {
         const live = socket.current;
         if (!live || live.readyState !== WebSocket.OPEN) return;
         try {
-          live.send(updateFrame(update));
+          live.send(syncFrame(encodeUpdate(update)));
         } catch {
-          // The edit is still in this document; a reconnect replays it.
+          /*
+            Dropped, and the protocol is what recovers it rather than a patch
+            of mine. A reconnect opens with SyncStep1, whoever holds more
+            answers with the difference, and this edit is in that difference.
+            The version of this that tried to solve it by announcing a whole
+            document on connect is the one that destroyed notes.
+          */
         }
       },
     });
@@ -232,27 +247,23 @@ export function usePresence(options: {
         dispatch({ type: "connected" });
 
         /*
-          **Our whole document, on every connect, and why it is not optional.**
+          **SyncStep1: what this client already has, not what it holds.**
 
-          Edits are causally ordered: a client that misses one cannot apply the
-          ones after it, so it stops updating and says nothing about it. That
-          makes a single dropped frame permanent divergence rather than a
-          hiccup — and frames do get dropped, because the send below is inside
-          a `try`.
+          The previous version sent the whole document here, and the room
+          replaced its history with it — so an empty document destroyed a full
+          one. This sends a state *vector*: a summary of what is already known.
+          Anybody holding more answers with exactly the difference, in both
+          directions, so two clients converge upward and neither can overwrite
+          the other. An empty document has nothing to send that could delete
+          anything.
 
-          An earlier comment on that `catch` claimed "a reconnect replays it".
-          That was wrong: a reconnect replays the *room's* log, which never
-          received the frame that failed to send. This is what actually makes
-          it true. A snapshot subsumes every edit this client has ever made, so
-          whatever the room missed it gets now — and sending it is cheap enough
-          to do unconditionally rather than trying to work out whether anything
-          was lost, which is the kind of bookkeeping that is wrong once and
-          then silently wrong forever.
+          The same exchange runs on every reconnect with no special case, which
+          also closes the dropped-frame gap the snapshot was patching.
         */
         try {
-          live.send(snapshotFrame(document.snapshot()));
+          live.send(syncFrame(encodeSyncStep1(document.doc)));
         } catch {
-          // The next reconnect tries again; the document is still here.
+          // The close handler reconnects, and the reconnect opens the same way.
         }
         timers.current.heartbeat = window.setInterval(() => {
           try {
@@ -268,16 +279,27 @@ export function usePresence(options: {
         const frame = decodeServerFrame(event.data);
         if (!frame) return;
 
-        if (frame.t === "u") {
-          document.applyRemote(frame.d);
+        if (frame.t === "y") {
+          // A reply is produced when a peer asked what we have; sending it is
+          // how a late joiner gets filled in by whoever is already here.
+          const outcome = readSyncMessage(frame.d, document.doc, REMOTE_ORIGIN);
+          if (outcome.kind === "reply") {
+            try {
+              live.send(syncFrame(outcome.payload));
+            } catch {
+              // They will ask again on their next reconnect.
+            }
+          }
           return;
         }
 
         if (frame.t === "sync") {
-          // The document so far. Applied before anything else this client
-          // does, so a person who joined mid-sentence is looking at the same
-          // text as everybody else before their first keystroke.
-          for (const update of frame.updates) document.applyRemote(update);
+          // The room's own log, replayed on join: every message it kept, in
+          // the order it received them. Same handler, because they are the
+          // same protocol messages — the room stored them without reading them.
+          for (const message of frame.updates) {
+            readSyncMessage(message, document.doc, REMOTE_ORIGIN);
+          }
           return;
         }
 
@@ -352,6 +374,11 @@ export function usePresence(options: {
    * sits still.
    */
   const report = useCallback((anchor: number, head: number) => {
+    // Named for what it is rather than `held`, which the throttle below
+    // already uses for the last caret it sent — the typechecker caught the
+    // shadowing, and two different things under one name in one function is
+    // how the wrong one gets read six months from now.
+    const document = shared.current;
     const live = socket.current;
     if (!live || live.readyState !== WebSocket.OPEN) return;
     const now = Date.now();
@@ -360,7 +387,16 @@ export function usePresence(options: {
 
     const send = (a: number, h: number) => {
       try {
-        if (live.readyState === WebSocket.OPEN) live.send(cursorFrame(a, h));
+        if (live.readyState === WebSocket.OPEN) {
+          // Relative positions, so a caret stays beside the character its owner
+          // put it next to rather than drifting when somebody types above it.
+          live.send(
+            cursorFrame(
+              document ? cursorPosition(document.text, a) : null,
+              document ? cursorPosition(document.text, h) : null,
+            ),
+          );
+        }
         lastSent.current = { at: Date.now(), anchor: a, head: h };
       } catch {
         // Dropped on the floor: the close handler reconnects and the next

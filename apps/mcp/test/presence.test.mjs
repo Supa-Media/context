@@ -237,8 +237,29 @@ export async function runPresenceChecks(check) {
   check("a null frame is refused", decodeClientFrame("null").ok === false);
   check("an unknown frame type is refused", decodeClientFrame('{"t":"edit"}').ok === false);
   check(
-    "a cursor frame with a non-numeric offset is refused",
-    decodeClientFrame('{"t":"cursor","a":"3","h":4}').ok === false,
+    "a caret position that is not a position becomes null, not a guess",
+    /*
+      This check changed shape with the protocol and is kept rather than
+      deleted, because what it guards did not change: a peer must not be able
+      to put a caret somewhere by sending nonsense.
+
+      Offsets became *relative* positions, so "refuse the frame" stopped being
+      the right answer — one end can be unusable while the other is fine, and
+      dropping the whole frame would throw away a good half. An end that is not
+      a position becomes `null`, and the view draws nothing for it. Drawing at
+      zero would put somebody's name at the top of the note and claim they are
+      standing there.
+    */
+    (() => {
+      const decoded = decodeClientFrame('{"t":"cursor","a":"not a position!","h":4}');
+      return decoded.ok === true && decoded.msg.a === null && decoded.msg.h === null;
+    })(),
+  );
+  check(
+    "...and a well-formed position is carried through",
+    // Non-vacuity: without this, a function that returned `null` for every
+    // input would pass the check above and no caret would ever be drawn.
+    decodeClientFrame('{"t":"cursor","a":"QUJD","h":"QUJE"}').msg.a === "QUJD",
   );
   check(
     "a cursor frame with a NaN offset is refused",

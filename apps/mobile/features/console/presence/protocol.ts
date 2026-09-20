@@ -28,33 +28,33 @@ export interface PresenceMember {
   name: string;
   /** `null` when the peer sent no usable colour; the view supplies one. */
   color: string | null;
-  /** The selection's fixed end, in document offsets. */
-  anchor: number;
-  /** The end that moves, and where the caret is drawn. */
-  head: number;
+  /**
+   * The selection's ends, as *relative* positions — see `sync.ts`.
+   *
+   * `null` when a peer has no usable position, which is an ordinary state: an
+   * empty document has no character for a caret to sit beside. The view draws
+   * nothing rather than drawing at zero, because a caret parked at the start
+   * of the document is a claim about where somebody is, and a wrong one.
+   */
+  anchor: string | null;
+  head: string | null;
 }
 
 export type ServerFrame =
   | { t: "welcome"; you: string; members: PresenceMember[]; reconnectAfterMs: number; heartbeatMs: number }
   | { t: "join"; member: PresenceMember }
-  | { t: "cursor"; id: string; anchor: number; head: number }
+  | { t: "cursor"; id: string; anchor: string | null; head: string | null }
   | { t: "leave"; id: string }
   /** One edit from somebody else, to apply to the shared document. */
-  | { t: "u"; d: string }
+  /** One Yjs sync-protocol message, relayed from another client. */
+  | { t: "y"; d: string }
   /** The document so far, replayed because this client just joined. */
   | { t: "sync"; updates: string[] }
   /** The room is asking this client to send a compacted snapshot. */
   | { t: "compact" }
   | { t: "pong" };
 
-const MAX_OFFSET = 10_000_000;
 
-function offset(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
-  const rounded = Math.trunc(value);
-  if (rounded < 0) return 0;
-  return rounded > MAX_OFFSET ? MAX_OFFSET : rounded;
-}
 
 /**
  * A colour from a peer is drawn into this document, so it is not taken on trust.
@@ -88,6 +88,12 @@ function name(value: unknown): string {
   return cleaned.length > 64 ? cleaned.slice(0, 64) : cleaned;
 }
 
+/** An encoded relative position from a peer, or `null` if it is not one. */
+function position(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096) return null;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : null;
+}
+
 function member(value: unknown): PresenceMember | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
@@ -96,8 +102,8 @@ function member(value: unknown): PresenceMember | null {
     id: raw.id,
     name: name(raw.name),
     color: color(raw.color),
-    anchor: offset(raw.a),
-    head: offset(raw.h),
+    anchor: position(raw.a),
+    head: position(raw.h),
   };
 }
 
@@ -133,13 +139,13 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
   }
   if (frame.t === "cursor") {
     if (typeof frame.id !== "string") return null;
-    return { t: "cursor", id: frame.id, anchor: offset(frame.a), head: offset(frame.h) };
+    return { t: "cursor", id: frame.id, anchor: position(frame.a), head: position(frame.h) };
   }
   if (frame.t === "leave") {
     return typeof frame.id === "string" ? { t: "leave", id: frame.id } : null;
   }
-  if (frame.t === "u") {
-    return typeof frame.d === "string" && frame.d.length > 0 ? { t: "u", d: frame.d } : null;
+  if (frame.t === "y") {
+    return typeof frame.d === "string" && frame.d.length > 0 ? { t: "y", d: frame.d } : null;
   }
   if (frame.t === "sync") {
     // Every entry checked, and a bad one dropped rather than failing the whole
@@ -156,17 +162,17 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
   return null;
 }
 
-/** The only two frames this client ever sends, besides a parting `bye`. */
-export function cursorFrame(anchor: number, head: number): string {
-  return JSON.stringify({ t: "cursor", a: offset(anchor), h: offset(head) });
+/** Where this editor's caret is, as relative positions. */
+export function cursorFrame(anchor: string | null, head: string | null): string {
+  return JSON.stringify({ t: "cursor", a: anchor, h: head });
 }
 
-/** One edit of this editor's, on its way to everybody else. */
-export function updateFrame(base64: string): string {
-  return JSON.stringify({ t: "u", d: base64 });
+/** One Yjs sync-protocol message on its way to the room. */
+export function syncFrame(payload: string): string {
+  return JSON.stringify({ t: "y", d: payload });
 }
 
-/** The whole document as one update, when the room asks for a compaction. */
+/** The whole document, when the room asks for a compaction. */
 export function snapshotFrame(base64: string): string {
   return JSON.stringify({ t: "snap", d: base64 });
 }
