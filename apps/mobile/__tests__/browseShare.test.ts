@@ -551,6 +551,31 @@ describe("the unlisted link has a control of its own", () => {
    * So with none, the row is **absent** rather than offering to copy nothing —
    * the console's standing rule, applied to a row instead of a button.
    */
+  /**
+   * THE SHORT LINK'S FIELD, ON THE SCREEN IT IS CLAIMED FROM.
+   *
+   * It shipped unreachable. `ShareDialog` drew the block correctly and
+   * `Explorer` wired it, and this pane — the one the pointer console actually
+   * renders — passed every other handler and not `onSetSlug`, so the block's
+   * own "absent when nothing is wired to claim with" guard hid it on the
+   * surface people use. A component test could not see that, because it
+   * supplies the prop itself.
+   *
+   * Which is the failure this whole file was written about, one control over:
+   * correct in the component, unreachable on a screen.
+   */
+  test("the short link's field is reachable from the pane, not just from the dialog", async () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    await act(async () => {});
+
+    expect(document.body.querySelector('[data-testid="share-short-link"]')).not.toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="share-short-link-name"]'),
+    ).not.toBeNull();
+  });
+
   test("with no link yet, there is no row at all — nothing here creates one", () => {
     const pane = paneRoot();
     pane.render(dataWith());
