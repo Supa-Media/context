@@ -487,3 +487,57 @@ reversed are in `apps/mcp/test/presence.test.mjs`: "a cursor frame carries
 offsets and nothing else", "another workspace's token addresses its own room,
 never the first's", "a private note and a missing note refuse identically" and
 "a client's own member header is overwritten, not honoured".
+
+### An agent asks for a link and is handed the URL, never the token
+
+Decided 2026-09-20, with short links, and it is the smaller half of the same
+complaint: the console has had share links since the beginning and nothing in
+the MCP surface could mint one. An agent asked for "a link to send them" had
+two options and took the wrong one — it wrote a URL out of the path it was
+holding. **A guessed URL is worse than no URL**: it looks right, it gets
+pasted, and it opens nothing.
+
+`create_link`, `list_links` and `revoke_link` close that, and the shape is
+chosen so nothing downstream ever assembles an address.
+
+- **The control plane builds the URL**, from the same `@context/shared`
+  function the console's Copy link uses. That function moved out of the app
+  into the package for this: two builders are two opinions about what a share
+  link looks like, and the one that drifts is the one nobody pastes and
+  notices. The edge router keeps its own *parser*, which it always had, held to
+  `shareSegment.fixtures.json`.
+- **The token is not in the answer.** `describeLink` prints the URL, the short
+  URL, what it opens, the audience and the share id. An agent that could see a
+  token could assemble an address, which is the thing being removed — and the
+  gateway test asserts the absence rather than trusting the description.
+- **`APP_ORIGIN` unset answers with the path and no URL.** A self-hosted
+  deployment that has not said where it is served from cannot be handed one,
+  and inventing an origin would send somebody's colleague to a domain we
+  picked. The tool says so instead of guessing.
+- **The clearance is the one queued work already passes.**
+  `gatewayOwnerClearance` wants `owner`, `context:write` and `context:private`
+  off a live grant, and `ownerClearanceForGateway` hands back the acting
+  identity so the audit row says who minted. Two predicates for one sentence —
+  "this person may act as owner of this context through an agent" — is how one
+  of them ends up laxer.
+- **The three tools are `PRIVATE_TIER_ONLY_TOOLS`.** The control plane refuses
+  a team-tier grant anyway; this is the listing half of the same answer, so an
+  agent does not spend a turn discovering it. The test that proves it needs a
+  grant that *writes* and reads at team tier — a member is filtered by write
+  scope and would pass whatever this set said.
+
+**`mintTeamShare` and `mintUnlistedLink` were extracted, and the split is auth
+from work.** The public mutation and action resolve a browser session; the
+gateway's routes resolve an access token; both arrive having proved `owner`,
+and the minting — supersession, capacity, the courtesy visibility check, the
+encryption refusal, the audit line, the card render — is written once. Each
+takes `actorUserId` and never reads a session, which is what makes it safe to
+share: an identity a function is *given* is one its caller had to establish.
+
+**One listing call now starts with `list`, and `tenancy.test.mjs` had to be
+told.** That file forbids a control-plane client method matching
+`^(list|all|enumerate|search|find)` — structurally, so bulk extraction is
+impossible rather than merely uncalled. `listLinks` enumerates within **one**
+workspace, the one the presented token resolves to, which is `getStorageBinding`'s
+shape and not what the rule is about. So it is exempted by name and held to the
+stronger property instead: it cannot be called without naming a context.

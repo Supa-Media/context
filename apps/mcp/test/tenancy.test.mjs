@@ -754,10 +754,34 @@ export async function runTenancyChecks(check) {
   const contractMethods = Object.keys(
     createControlPlane({ CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET })
   );
+  /*
+    ONE EXCEPTION, AND IT HAS TO EARN ITS NAME.
+
+    `listLinks` enumerates — within **one** workspace, the one the presented
+    access token resolves to. That is the same shape `getStorageBinding` has
+    and is not what this rule is about: what it forbids is a call that can be
+    made without naming a context, because that is the shape bulk extraction
+    needs. So the exception is listed by name and is held to the stronger
+    property below rather than being waved through by a prefix.
+  */
+  const singleContextListings = new Set(["listLinks"]);
   check(
     "the control-plane client exposes no bulk or enumerating call at all",
-    contractMethods.every((name) => !/^(list|all|enumerate|search|find)/i.test(name)) &&
-      contractMethods.includes("getStorageBinding")
+    contractMethods.every(
+      (name) =>
+        !/^(list|all|enumerate|search|find)/i.test(name) || singleContextListings.has(name)
+    ) && contractMethods.includes("getStorageBinding")
+  );
+  const client = createControlPlane({
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    GATEWAY_SECRET,
+  });
+  check(
+    "and the one listing there is cannot be called without naming a context",
+    // Two required arguments — the token and the workspace — exactly as
+    // `getStorageBinding` takes them. A listing that could default its
+    // workspace is the one that would have to be argued for again.
+    client.listLinks.length === 2 && client.getStorageBinding.length >= 2
   );
 
   /* --------------------------- 4. scope enforcement -------------------------- */

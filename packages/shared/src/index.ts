@@ -23,6 +23,18 @@ export const APP_SLUG = "context";
 export { normalizeEmail } from "./email";
 
 /**
+ * A share link's URL, built in the two places that build one: the console's
+ * Copy link, and the control plane answering an agent that asked for a link.
+ * See `shareLink.ts` for why it is not two builders.
+ */
+export {
+  MAX_SHARE_SLUG,
+  SHARE_ROUTE,
+  shareSegment,
+  shareSlug,
+} from "./shareLink";
+
+/**
  * The one shared workspace every account reaches without an invitation.
  *
  * Here rather than in either app because both sides have to agree about it and
