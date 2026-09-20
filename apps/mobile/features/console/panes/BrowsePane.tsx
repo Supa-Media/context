@@ -1627,6 +1627,7 @@ export function BrowsePane({
             written about: correct in the component, unreachable on a screen.
           */
           onSetSlug={(shareId, slug) => files.setShareSlug(shareId, slug)}
+          onSetCollecting={(shareId, on) => files.setShareCollecting(shareId, on)}
           onSetPreviewTitle={(share, on) =>
             files.setSharePreviewTitle(sharing, share, on)
           }

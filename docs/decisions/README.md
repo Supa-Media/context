@@ -92,6 +92,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A share follows the note, not the path it was minted on
 - A short link is a second locator, never a second tier
 - A collect link is a write path, and the only one with no account behind it
+- The switch that hands out a write sits under the link, and says so
 
 ## [Per-note encryption](./encryption.md)
 

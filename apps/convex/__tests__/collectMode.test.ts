@@ -363,6 +363,116 @@ describe("what the link has to be", () => {
   });
 });
 
+/* ------------------------- turning it on and off -------------------------- */
+
+describe("the owner's own switch", () => {
+  /** The one live `anyone` row over `path`, as `listShares` reports it. */
+  async function row(f: Fixture, path: string = FORM_NOTE) {
+    const rows = await asUser(f.t, f.owner).query(api.functions.shares.listShares, {
+      workspaceId: f.workspaceId,
+    });
+    return rows.find((candidate) => candidate.entryPath === path && candidate.audience === "anyone");
+  }
+
+  test("an owner can turn answer-taking on and off without re-minting the link", async () => {
+    // The whole reason this is its own mutation: a toggle routed through a
+    // creation path is how a press of "off" hands somebody a new token for a
+    // link they had already sent.
+    const f = await fixture();
+    const { token } = await link(f, "read");
+    const before = await row(f);
+    expect(before?.collecting).toBe(false);
+
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareCollecting, {
+      shareId: before!.shareId,
+      collecting: true,
+    });
+    const on = await row(f);
+    expect([on?.collecting, on?.token]).toEqual([true, token]);
+    // And it really collects now, rather than merely saying so.
+    await answer(f, token);
+    expect(await responsesFile(f)).toContain("Jordan");
+
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareCollecting, {
+      shareId: before!.shareId,
+      collecting: false,
+    });
+    const off = await row(f);
+    expect([off?.collecting, off?.token]).toEqual([false, token]);
+    expect(errorCode(await captureError(() => answer(f, token)))).toBe("LINK_NOT_COLLECTING");
+  });
+
+  test("a folder link cannot be switched on, which is the third door on that rule", async () => {
+    // `collect.ts` refuses a folder row and `mintUnlistedLink` refuses one at
+    // the mint. A rule enforced at two of the three places a row can be
+    // written is a rule with one way around it.
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/intake",
+      kind: "folder" as const,
+    });
+    const folder = await row(f, "1-projects/intake");
+    const failure = await captureError(() =>
+      asUser(f.t, f.owner).mutation(api.functions.shares.setShareCollecting, {
+        shareId: folder!.shareId,
+        collecting: true,
+      }),
+    );
+    expect(errorCode(failure)).toBe("COLLECT_NEEDS_A_NOTE");
+    expect((await row(f, "1-projects/intake"))?.collecting).toBe(false);
+  });
+
+  test("a members link cannot be switched on either", async () => {
+    const f = await fixture();
+    const { token } = await asUser(f.t, f.owner).mutation(
+      api.functions.shares.createTeamShare,
+      { workspaceId: f.workspaceId, path: FORM_NOTE },
+    );
+    const rows = await asUser(f.t, f.owner).query(api.functions.shares.listShares, {
+      workspaceId: f.workspaceId,
+    });
+    const members = rows.find((candidate) => candidate.token === token);
+    const failure = await captureError(() =>
+      asUser(f.t, f.owner).mutation(api.functions.shares.setShareCollecting, {
+        shareId: members!.shareId,
+        collecting: true,
+      }),
+    );
+    expect(errorCode(failure)).toBe("COLLECT_NEEDS_A_LINK");
+  });
+
+  test("a member of the context cannot open one, and is not told it exists", async () => {
+    // `revokeShare`'s refusal order: somebody who is in the context but not
+    // its owner learns nothing about the row beyond what they could guess.
+    const f = await fixture();
+    await link(f, "read");
+    const live = await row(f);
+    const failure = await captureError(() =>
+      asUser(f.t, f.member).mutation(api.functions.shares.setShareCollecting, {
+        shareId: live!.shareId,
+        collecting: true,
+      }),
+    );
+    expect(failure).not.toBeNull();
+    expect((await row(f))?.collecting).toBe(false);
+  });
+
+  test("turning it on is its own line in the audit trail", async () => {
+    // A publication decision, so it does not ride on `share.link.created` —
+    // the trail has to be able to answer "when did this start taking answers".
+    const f = await fixture();
+    await link(f, "read");
+    const live = await row(f);
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareCollecting, {
+      shareId: live!.shareId,
+      collecting: true,
+    });
+    const events = await f.t.run((ctx) => ctx.db.query("auditEvents").collect());
+    expect(events.map((event) => event.action)).toContain("share.collect.opened");
+  });
+});
+
 /* ------------------------------ what it writes ---------------------------- */
 
 describe("what an answer through a link is stamped with", () => {
