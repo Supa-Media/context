@@ -159,6 +159,7 @@ function browser(
     shares: undefined,
     share: () => {},
     revokeShare: () => {},
+    setShareSlug: async () => true,
     copyShareLink: async () => ({ ok: false, message: null }),
     setSharePreviewTitle: () => {},
     ensureListing: noop,

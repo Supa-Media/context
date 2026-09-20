@@ -695,6 +695,14 @@ export interface FileBrowser {
 
   /** Take a share back. Immediate, and final for that link. */
   revokeShare: (shareId: string) => void;
+  /**
+   * Claim or release a link's short name, answering whether it landed.
+   *
+   * A promise where `revokeShare` above is fire-and-forget, because the
+   * dialog's field decides what to do with what was typed on the strength of
+   * the answer — and the notice a refusal sets is behind the modal.
+   */
+  setShareSlug: (shareId: string, slug: string | null) => Promise<boolean>;
 
   /**
    * Put a link to this note on the clipboard, and say whether it landed.

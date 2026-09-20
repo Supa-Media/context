@@ -351,6 +351,32 @@ describe("an owner reading a note can share it", () => {
     const share = pane.querySelector('[data-testid="browse-share"]');
     expect(share?.getAttribute("aria-label")).toBe("Share this");
   });
+
+  /**
+   * AND IT IS NOT ON THE EDGE OF THE WINDOW.
+   *
+   * The gutter was written — as `noteHeadCompact` — and applied by
+   * `compact && styles.noteHeadCompact`, on a row whose only render site is
+   * gated on `!compact`. So the one density that draws this row got none of
+   * it, and the style sat in the sheet looking like the problem was handled.
+   * The owner's report was that Share sits "a little too close to the edge".
+   *
+   * That is a guard nobody had checked, and the reason this is an assertion
+   * about a *number* rather than about a class being present: the padding
+   * moving back onto a branch that cannot fire would read the same in a diff
+   * and fail here.
+   */
+  test("and the row holds it off the trailing edge", () => {
+    const pane = paneWith();
+    const share = pane.querySelector<HTMLElement>('[data-testid="browse-share"]');
+    const row = share?.parentElement;
+    if (row == null) throw new Error("Share is not in a row");
+
+    // react-native-web writes `StyleSheet.create` values into an injected
+    // sheet, so this is read off the row's resolved style rather than off an
+    // inline attribute — `padding-right` is the claim, however it arrives.
+    expect(Number.parseFloat(window.getComputedStyle(row).paddingRight)).toBeGreaterThan(0);
+  });
 });
 
 /**
@@ -525,6 +551,31 @@ describe("the unlisted link has a control of its own", () => {
    * So with none, the row is **absent** rather than offering to copy nothing —
    * the console's standing rule, applied to a row instead of a button.
    */
+  /**
+   * THE SHORT LINK'S FIELD, ON THE SCREEN IT IS CLAIMED FROM.
+   *
+   * It shipped unreachable. `ShareDialog` drew the block correctly and
+   * `Explorer` wired it, and this pane — the one the pointer console actually
+   * renders — passed every other handler and not `onSetSlug`, so the block's
+   * own "absent when nothing is wired to claim with" guard hid it on the
+   * surface people use. A component test could not see that, because it
+   * supplies the prop itself.
+   *
+   * Which is the failure this whole file was written about, one control over:
+   * correct in the component, unreachable on a screen.
+   */
+  test("the short link's field is reachable from the pane, not just from the dialog", async () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    await act(async () => {});
+
+    expect(document.body.querySelector('[data-testid="share-short-link"]')).not.toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="share-short-link-name"]'),
+    ).not.toBeNull();
+  });
+
   test("with no link yet, there is no row at all — nothing here creates one", () => {
     const pane = paneRoot();
     pane.render(dataWith());

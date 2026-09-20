@@ -753,11 +753,34 @@ const schema = defineSchema({
      * control than a clock nobody set.
      */
     expiresAt: v.optional(v.number()),
+    /**
+     * The owner-chosen name in a short link, `intake` in
+     * `context.lc/@seyi/intake`, or absent for a link that has only its token.
+     *
+     * **A second locator for this row, never a second authorization.** The read
+     * path resolves a slug to this row and then runs exactly the code the token
+     * runs, so a short link grants what the share granted and dies when it is
+     * revoked. What it changes is arrival: a token is handed to somebody, a
+     * slug can also be guessed — which is stated to the owner before they claim
+     * one and is the reason claiming is its own step. See `lib/shareSlug.ts`.
+     *
+     * Unique per workspace, enforced by a read through `by_workspace_slug`
+     * before the write rather than by the index, which Convex does not
+     * constrain. Freed when the share is revoked, because the alternative is a
+     * name an owner cannot reuse on their own context.
+     */
+    slug: v.optional(v.string()),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   })
     /** The owner's own listing, narrowed in the index for `listInvitations`' reason. */
     .index("by_workspace_status", ["workspaceId", "status"])
+    /**
+     * A short link's whole lookup: the handle names the workspace, this names
+     * the row. Live-ness is checked on the row, never in the index, so a
+     * revoked slug answers exactly as a slug nobody ever claimed does.
+     */
+    .index("by_workspace_slug", ["workspaceId", "slug"])
     /** "Shared with me": the `(kind, recipient)` prefix finds every share addressed to you. */
     .index("by_recipient", ["recipientKind", "recipient", "status"])
     .index("by_token", ["token"])

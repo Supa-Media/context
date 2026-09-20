@@ -122,8 +122,47 @@ export function createControlPlaneStub(options = {}) {
   const pendingAuthorizations = new Map();
   /** opaque gateway job ticket → job */
   const gatewayJobs = new Map();
+  /** Share rows this stub has minted, by share id. */
+  const links = new Map();
   /** workspaceId → when the gateway last said that context changed */
   const activityStamps = new Map();
+
+  /**
+   * The owner clearance the three link routes share.
+   *
+   * Lifted out rather than repeated three times: three copies is how one of
+   * them ends up missing the `context:private` line, which is exactly the
+   * mistake a stub must not teach the tests to accept.
+   */
+  async function clearedOwner(body) {
+    const grant = await grantForAccessToken(body.accessToken);
+    if (!grant) return null;
+    const named = coveredContexts(grant).find(
+      (entry) => entry.workspaceId === body.expectedWorkspaceId,
+    );
+    if (!named || named.role !== "owner") return null;
+    if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
+      return null;
+    }
+    return { workspaceId: named.workspaceId, actorUserId: grant.userId };
+  }
+
+  /** One row as the real route reports it: URLs, and never the token. */
+  function describeStubLink(row) {
+    const origin = "https://context.test";
+    const handle = workspaces.get(row.workspaceId)?.slug ?? null;
+    const path = `/s/${row.token}`;
+    return {
+      shareId: row.shareId,
+      url: `${origin}${path}`,
+      shortUrl: row.slug === null || handle === null ? null : `${origin}/@${handle}/${row.slug}`,
+      path,
+      audience: row.audience,
+      entryPath: row.entryPath,
+      slug: row.slug,
+      createdAt: row.createdAt,
+    };
+  }
 
   /** Every call the worker made, for assertions about what was sent. */
   const calls = [];
@@ -534,6 +573,91 @@ export function createControlPlaneStub(options = {}) {
           job.progress = body.result.progress;
         }
         return ok({ ok: true });
+      }
+
+      /*
+        LINKS — the reference implementation of the three link routes.
+
+        The clearance is copied from `/gateway/jobs/create` above rather than
+        loosened, because it is the same clearance in the real deployment:
+        `ownerClearanceForGateway` wants owner, `context:write` and
+        `context:private` off a live grant. A stub that cleared more than the
+        real route would let the gateway's own tests pass on an authority it
+        does not have.
+
+        The URL is built here the way the control plane builds it, and the
+        TOKEN IS NEVER RETURNED — which is the property the gateway tests
+        assert against this stub.
+      */
+      case "/gateway/links/create": {
+        const cleared = await clearedOwner(body);
+        if (!cleared) return ok({ link: null, shortRefused: null });
+        if (typeof body.path !== "string" || body.path === "") {
+          return ok({ link: null, shortRefused: null });
+        }
+        const audience = body.audience === "members" ? "members" : "anyone";
+        const key = `${cleared.workspaceId}:${body.path}:${audience}`;
+        const existing = [...links.values()].find(
+          (row) => row.key === key && row.status === "active",
+        );
+        const row = existing ?? {
+          shareId: `share_${links.size + 1}`,
+          key,
+          workspaceId: cleared.workspaceId,
+          token: `${"f".repeat(63)}${links.size + 1}`,
+          audience,
+          entryPath: body.path,
+          slug: null,
+          status: "active",
+          createdAt: 1,
+        };
+        links.set(row.shareId, row);
+
+        let shortRefused = null;
+        if (typeof body.short === "string") {
+          const slug = body.short.trim().toLowerCase();
+          const taken = [...links.values()].find(
+            (other) =>
+              other.workspaceId === cleared.workspaceId &&
+              other.slug === slug &&
+              other.status === "active" &&
+              other.shareId !== row.shareId,
+          );
+          if (!/^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(slug)) {
+            shortRefused =
+              "A short link's name is lowercase letters, digits and hyphens, and cannot start or end with a hyphen.";
+          } else if (["settings", "index", "privacy", "todo", "1-projects"].includes(slug)) {
+            shortRefused = "That name is reserved for Context itself.";
+          } else if (taken) {
+            shortRefused = "That name already points at another link in this context.";
+          } else {
+            row.slug = slug;
+          }
+        }
+        return ok({ link: describeStubLink(row), shortRefused });
+      }
+
+      case "/gateway/links/list": {
+        const cleared = await clearedOwner(body);
+        if (!cleared) return ok({ links: null });
+        return ok({
+          links: [...links.values()]
+            .filter((row) => row.workspaceId === cleared.workspaceId && row.status === "active")
+            .map((row) => describeStubLink(row)),
+        });
+      }
+
+      case "/gateway/links/revoke": {
+        const cleared = await clearedOwner(body);
+        if (!cleared) return ok({ revoked: false });
+        const row = links.get(body.shareId);
+        // The cleared workspace, never the row's: an id from another context
+        // answers exactly as an invented one does.
+        if (!row || row.status !== "active" || row.workspaceId !== cleared.workspaceId) {
+          return ok({ revoked: false });
+        }
+        row.status = "revoked";
+        return ok({ revoked: true });
       }
 
       case "/gateway/activity": {

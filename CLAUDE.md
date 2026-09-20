@@ -100,7 +100,7 @@ Originally a single-tenant personal `brain` Worker — a deployment name, and on
 of the few places the retired noun survives; being generalized in place.
 Zero npm dependencies — keep it that way. It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
-an in-memory store stub: fast, offline, currently 3,946 checks. **Do not let it
+an in-memory store stub: fast, offline, currently 3,980 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,

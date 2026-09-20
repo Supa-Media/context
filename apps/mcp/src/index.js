@@ -275,6 +275,34 @@ function searchBudgetFor(env) {
   return Math.min(SEARCH_BUDGET_MAX, Math.max(SEARCH_BUDGET_MIN, Math.floor(parsed)));
 }
 
+/**
+ * The three link calls, attached to the store the way queued work is.
+ *
+ * They need the session's access token and the workspace it resolved to, and a
+ * tool handler is given a store rather than a session — the same shape
+ * `enqueueGatewayJob` already uses, and the reason it uses it: what a handler
+ * may do is decided where the session is, not by a handler reaching for one.
+ *
+ * Absent where there is no control plane, which is the single-tenant
+ * deployment and the test stub. `toolCreateLink` and its siblings refuse with
+ * a sentence rather than throwing on `undefined`.
+ */
+function attachLinkCalls(store, session, controlPlane) {
+  if (!controlPlane) return;
+  Object.defineProperty(store, "links", {
+    value: {
+      create: (request) =>
+        controlPlane.createLink(session.accessToken, session.workspaceId, request),
+      list: () => controlPlane.listLinks(session.accessToken, session.workspaceId),
+      revoke: (shareId) =>
+        controlPlane.revokeLink(session.accessToken, session.workspaceId, shareId),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+}
+
 function attachGatewayJobQueue(store, session, controlPlane, env) {
   const queue = env?.GATEWAY_JOBS;
   if (!queue || typeof queue.send !== "function") return;
@@ -955,6 +983,7 @@ async function route(request, env, ctx) {
       // with the request, so a reused isolate carries nothing across tenants.
       store.searchSubrequestBudget = searchBudgetFor(env);
       attachGatewayJobQueue(store, session, controlPlane, env);
+      attachLinkCalls(store, session, controlPlane);
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -1133,6 +1162,7 @@ async function route(request, env, ctx) {
         const targetStore = await storeForSession(target, env, controlPlane);
         targetStore.searchSubrequestBudget = searchBudgetFor(env);
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
+        attachLinkCalls(targetStore, target, controlPlane);
         targetStore.defer = store.defer;
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
@@ -2527,6 +2557,19 @@ const PRIVATE_TIER_ONLY_TOOLS = new Set([
   "rotate_encryption_keys",
   "materialize_move",
   "migrate_storage_layout",
+  /*
+    The three link tools, because minting and revoking a share is the owner's.
+
+    The control plane refuses a non-owner anyway — `ownerClearanceForGateway`
+    wants `owner`, `context:write` and `context:private` off a live grant — so
+    this is the listing half of the same answer: a connection that could never
+    mint one is not shown three tools that would always refuse. The refusal
+    there is the control; this is what stops an agent spending a turn finding
+    that out.
+  */
+  "create_link",
+  "list_links",
+  "revoke_link",
 ]);
 
 /**
@@ -3732,6 +3775,72 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "create_link",
+      description:
+        "Mint a link to one note or folder and get the URL back. Use it whenever they ask for " +
+        "a link to send, publish, or put in a signature — never assemble a URL yourself, and " +
+        "never hand out a path and hope. audience=anyone opens without an account; " +
+        "audience=members needs a live membership. Pass short to also claim a memorable address " +
+        "under their handle, context.lc/@name/<short> — say first that a short name is guessable " +
+        "by anyone who types it, which is the point of having one and is not true of the long " +
+        "link. Owner-only, revocable, and it publishes nothing a link did not already publish.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The note, or the folder, this link opens." },
+          audience: {
+            type: "string",
+            enum: ["anyone", "members"],
+            description:
+              "anyone opens with no account and is the one to use for a form or a page you are publishing. members still needs a live membership, so a link that leaks opens nothing. Defaults to anyone.",
+          },
+          kind: {
+            type: "string",
+            enum: ["note", "folder"],
+            description:
+              "What path is. Say folder to link a folder and the subtree beneath it; the subtree is still filtered to what the workspace can read. Defaults to note.",
+          },
+          short: {
+            type: "string",
+            description:
+              "A memorable name under their handle: lowercase letters, digits and hyphens. Refused for a name Context writes into every workspace, or one already taken here — the link still works, and you are told why the name did not.",
+          },
+          title_in_preview: {
+            type: "boolean",
+            description:
+              "Whether the link's card names the note when it unfurls in a chat. Defaults to true; turning it off also takes the name out of the URL.",
+          },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "list_links",
+      description:
+        "Every live link in this context: what it opens, who it is for, and its URL. Answers " +
+        "\"what have I published\" without opening the console.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    {
+      name: "revoke_link",
+      description:
+        "Take a link back, by the id list_links gives. Immediate and final for that link — the " +
+        "note and everything in it stay exactly as they are. A card that already unfurled in a " +
+        "chat cannot be recalled, so say so if they are revoking something that was pasted.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          share_id: { type: "string", description: "The link's id, as list_links reports it." },
+        },
+        required: ["share_id"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    {
       name: "create_form",
       description:
         "Build a form on a new note: fields somebody fills in, answers appended to a second note " +
@@ -4113,6 +4222,12 @@ async function callTool(name, args, store, scope) {
     case "migrate_storage_layout":
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolMigrateStorageLayout(store, scope, args);
+    case "create_link":
+      return toolCreateLink(store, scope, args);
+    case "list_links":
+      return toolListLinks(store, scope);
+    case "revoke_link":
+      return toolRevokeLink(store, scope, args);
     case "create_form":
       return toolCreateForm(store, scope, rules, overrides, args);
     case "submit_form":
@@ -6875,6 +6990,128 @@ function valuesFromPairs(pairs) {
   return { values };
 }
 
+/* ---------------------------------- links --------------------------------- */
+
+/**
+ * Minting, listing and revoking a link, from an agent.
+ *
+ * ## Why these exist at all
+ *
+ * The console has had share links since the beginning and nothing in the MCP
+ * surface could mint one — so an agent asked for "a link to send them" had two
+ * options, both wrong: tell the person to go and find the console, or write a
+ * URL out of the path it was holding. The second is the one that actually
+ * happened, and a guessed URL is worse than no URL: it looks right, it gets
+ * pasted, and it opens nothing.
+ *
+ * ## The gateway builds nothing
+ *
+ * Every one of these hands back what the control plane returned. The URL is
+ * built there, from the same `@context/shared` function the console's Copy
+ * link uses, because the only thing worse than one guessed URL is two
+ * builders disagreeing about the real one. Where a deployment has not set
+ * `APP_ORIGIN` the control plane says so with a path and no URL, and the
+ * refusal below says that rather than inventing an origin.
+ *
+ * ## One refusal
+ *
+ * The control plane answers `null` for a caller who is not an owner, a path
+ * that is not a note, a note that is not team-visible, and an encrypted one.
+ * Nothing here unpicks that: an agent that could tell "not yours" from "not
+ * there" would be an oracle over somebody else's context, and the console's
+ * own dialog is where an owner gets the specific reason.
+ */
+async function toolCreateLink(store, scope, args) {
+  const calls = store?.links;
+  if (!calls) return toolError("links are not available on this deployment.");
+
+  const path = normalizePath(args.path);
+  if (!path) return toolError("path must be a note or folder path in this context");
+
+  const result = await calls.create({
+    path,
+    audience: args.audience === "members" ? "members" : "anyone",
+    ...(args.kind === undefined ? {} : { kind: args.kind }),
+    ...(typeof args.short === "string" ? { short: args.short } : {}),
+    ...(typeof args.title_in_preview === "boolean"
+      ? { titleInPreview: args.title_in_preview }
+      : {}),
+  });
+  if (result === null) {
+    return toolError(
+      "that link cannot be minted. Minting is the context owner's, the path has to be a note " +
+        "or folder the workspace can already read, and an encrypted note is never linkable."
+    );
+  }
+
+  const { link, shortRefused } = result;
+  const lines = [describeLink(link)];
+  if (shortRefused !== null) {
+    lines.push(`the short name was not claimed: ${shortRefused}`);
+    lines.push("The link above works; ask them for another name if they want a short one.");
+  }
+  if (link.audience === "anyone") {
+    lines.push(
+      link.shortUrl === null
+        ? "Anyone holding this link can open it without an account."
+        : "Anyone holding this link can open it without an account — and a short name is " +
+            "guessable by anyone who types it, which is what makes it worth having and is not " +
+            "true of the long link."
+    );
+  }
+  return toolText(lines.join("\n"));
+}
+
+async function toolListLinks(store, scope) {
+  const calls = store?.links;
+  if (!calls) return toolError("links are not available on this deployment.");
+
+  const links = await calls.list();
+  if (links === null) return toolError("listing this context's links is the owner's.");
+  if (links.length === 0) return toolText("no live links in this context.");
+  return toolText(links.map((link) => describeLink(link)).join("\n\n"));
+}
+
+async function toolRevokeLink(store, scope, args) {
+  const calls = store?.links;
+  if (!calls) return toolError("links are not available on this deployment.");
+
+  const shareId = typeof args.share_id === "string" ? args.share_id.trim() : "";
+  if (!shareId) return toolError("share_id is required; list_links reports it");
+
+  const revoked = await calls.revoke(shareId);
+  // One refusal covers "not yours", "already revoked" and "no such id" — the
+  // same three the console's own revoke refuses as one, for the same reason.
+  if (!revoked) return toolError("no live link with that id in this context.");
+  return toolText(
+    "revoked. That link no longer opens anything, and its short name is free again.\n" +
+      "A preview card that already unfurled somewhere is cached by whatever unfurled it and " +
+      "cannot be recalled; the link itself is dead immediately."
+  );
+}
+
+/** One link, as an agent reads it. The URL first, because that is the answer. */
+function describeLink(link) {
+  const lines = [
+    link.url === null
+      ? `link: ${link.path} (this deployment has not set its public origin, so prefix your own)`
+      : `link: ${link.url}`,
+  ];
+  if (link.shortUrl !== null) lines.push(`short link: ${link.shortUrl}`);
+  lines.push(`opens: ${link.entryPath}`);
+  lines.push(
+    `audience: ${
+      link.audience === "anyone"
+        ? "anyone with the link, no account needed"
+        : link.audience === "members"
+          ? "members of this context"
+          : link.audience
+    }`
+  );
+  lines.push(`id: ${link.shareId}`);
+  return lines.join("\n");
+}
+
 /**
  * Create a note that carries a form, from fields rather than from Markdown.
  *
@@ -6967,32 +7204,73 @@ async function toolCreateForm(store, scope, rules, overrides, args) {
   );
   if (written.isError) return written;
 
-  // Where the answers land, and who can read them, said plainly and once. The
-  // visibility is read rather than claimed: the response file inherits its
-  // folder, and an agent that assumed "private because the form is private"
-  // would be telling somebody their client intake is confidential when the
-  // folder default says otherwise.
-  const answersVisibility = effectiveVisibility(responses, rules, overrides);
-  // Three cases, not two. A note held to a named group is neither `team` nor
-  // `private`, and "only this person can read the answers" said of one would
-  // be the control lying in the direction that matters.
-  const whoReads =
-    answersVisibility === "team"
-      ? "Everyone with team access to this context can read the answers. " +
-        "Call set_visibility to hold them back."
-      : answersVisibility === "private"
-        ? "Only this context's owner can read the answers. " +
-          "Call set_visibility to share them with the team."
-        : `The answers are held to ${answersVisibility}: only the people that rule names can read them.`;
+  /*
+   * Where the answers land, and who can read them, said plainly and once —
+   * **and only to a caller the manifest would have told anyway.**
+   *
+   * The sentence itself is load-bearing: the response file inherits its folder,
+   * and an agent that assumed "private because the form is private" would be
+   * telling somebody their client intake is confidential when the folder
+   * default says otherwise.
+   *
+   * But `responses` is a path the *caller* names, and this is a read of
+   * `privacy.md` — a file a team connection cannot open (`read_note` answers
+   * `not found`). Printed unconditionally it answered, one path per call, the
+   * question that file is closed to: is this folder private, is it team, or is
+   * it held to a group — and in the last case it read the group's own name
+   * back, which is membership structure and the sharpest thing a rule carries.
+   * No other surface at that tier discloses it; `scope_info`, `orient` and
+   * `list_notes` each name neither a rule nor a group.
+   *
+   * `mayCollectResponsesAt` is already the predicate for "may this connection
+   * collect here", and it is exactly the line: where it is true, a team caller
+   * is looking at a `team` destination it could have established by writing
+   * there, and an owner may read the manifest regardless. Where it is false
+   * the collection did not happen, and `write_note` has already said so in
+   * words that name no rule.
+   */
+  const mayCollect = mayCollectResponsesAt(scope, responses, rules, overrides);
+  const answersVisibility = mayCollect
+    ? effectiveVisibility(responses, rules, overrides)
+    : null;
   const body = written.content?.[0]?.text ?? "";
+  // Built only where it is going to be printed. Computing it regardless would
+  // leave `The answers are held to null` sitting in a variable one edit away
+  // from a caller, which is how a suppressed disclosure comes back.
+  const destination = mayCollect
+    ? `answers go to: ${responses} (${answersVisibility})\n${whoReads(answersVisibility)}`
+    : `answers go to: ${responses}`;
   return toolText(
-    `${body}\n\nanswers go to: ${responses} (${answersVisibility})\n` +
-      whoReads +
+    `${body}\n\n${destination}` +
       `\nsubmitting: ${parsed[0].config.submit} and above` +
       (parsed[0].config.layout === "table"
         ? "\nlayout: table — one row per answer, so keep paragraph fields few"
         : "\nlayout: sections — one heading per answer")
   );
+}
+
+/**
+ * Who can read the answers, in the caller's own words.
+ *
+ * Three cases, not two. A note held to a named group is neither `team` nor
+ * `private`, and "only this person can read the answers" said of one would be
+ * the control lying in the direction that matters. Only ever called for a
+ * destination the caller may collect into — see `toolCreateForm`.
+ */
+function whoReads(visibility) {
+  if (visibility === "team") {
+    return (
+      "Everyone with team access to this context can read the answers. " +
+      "Call set_visibility to hold them back."
+    );
+  }
+  if (visibility === "private") {
+    return (
+      "Only this context's owner can read the answers. " +
+      "Call set_visibility to share them with the team."
+    );
+  }
+  return `The answers are held to ${visibility}: only the people that rule names can read them.`;
 }
 
 /** A form id from the note's own filename, which is what an author would pick. */

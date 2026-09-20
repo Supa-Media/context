@@ -56,9 +56,10 @@
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuthId } from "@supa-media/convex/auth";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import {
   action,
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -71,6 +72,9 @@ import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
 import { findName } from "./lib/nameClaims";
 import { isProductMandatedPath } from "./lib/scaffold";
+import { shortLinkSlugFrom, shortLinkSlugRejection } from "./lib/shareSlug";
+import { APP_ORIGIN_ENV_VAR } from "./lib/gatewayAuth";
+import { SHARE_ROUTE, shareSegment } from "@context/shared";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -536,6 +540,14 @@ const shareSummary = v.object({
   entryPath: v.string(),
   titleInPreview: v.boolean(),
   previewTitle: v.optional(v.string()),
+  /**
+   * The short link's name, or absent for a share that has only its token.
+   *
+   * Owner-only like `token` beside it, and for the same reason: this is the
+   * other half of the link the owner already holds. The console needs it to
+   * draw what was claimed, and to stop a second row claiming it.
+   */
+  slug: v.optional(v.string()),
   createdBy: v.id("users"),
   createdAt: v.number(),
   expiresAt: v.optional(v.number()),
@@ -712,7 +724,36 @@ export const createTeamShare = mutation({
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+    return await mintTeamShare(ctx, { ...args, actorUserId: userId });
+  },
+});
 
+/**
+ * The body of `createTeamShare`, with the acting identity passed in.
+ *
+ * Extracted so the gateway can mint the same row for an agent that asked for a
+ * link. **The split is auth from work, and nothing else moved**: the public
+ * mutation above resolves a browser session, the gateway's route resolves an
+ * access token to a grant and a role, and both arrive here having proved
+ * `owner` in this workspace. A second copy of the minting — supersession,
+ * capacity, the audit line, the card render — is the thing that would drift,
+ * so there is one.
+ *
+ * It takes `actorUserId` and never reads a session, which is what makes it
+ * safe to call from both: an identity that is passed in is one the caller had
+ * to establish, rather than one this function could be talked into.
+ */
+async function mintTeamShare(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    path: string;
+    titleInPreview?: boolean;
+    actorUserId: Id<"users">;
+  },
+): Promise<{ token: string }> {
+  {
+    const userId = args.actorUserId;
     const pathCheck = checkTeamSharePath(args.path);
     if (!pathCheck.ok) throw pathRejection(pathCheck);
 
@@ -786,8 +827,8 @@ export const createTeamShare = mutation({
 
     await scheduleCardRender(ctx, shareId);
     return { token };
-  },
-});
+  }
+}
 
 /**
  * Mint an unlisted link over one note. Owner-only.
@@ -859,6 +900,35 @@ export const createLinkShare = action({
       workspaceId: args.workspaceId,
       minimum: "owner",
     });
+    return await mintUnlistedLink(ctx, { ...args, actorUserId: userId });
+  },
+});
+
+/**
+ * The body of `createLinkShare`, with the acting identity passed in.
+ *
+ * `mintTeamShare`'s split, applied to the other mint: the public action above
+ * resolves a browser session and clears `owner`, the gateway's route resolves
+ * an access token to a grant that already had to be an owner's, and both
+ * arrive here having proved the same thing. What is below — the courtesy
+ * visibility check, the encryption refusal, the folder probe, the one
+ * credential barrier — is written once.
+ *
+ * `actorUserId` is passed in rather than read, which is what makes it safe to
+ * share: an identity a function is *given* is one its caller had to establish.
+ */
+async function mintUnlistedLink(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    path: string;
+    kind?: "note" | "folder";
+    titleInPreview?: boolean;
+    actorUserId: Id<"users">;
+  },
+): Promise<{ token: string; title: string | null }> {
+  {
+    const userId = args.actorUserId;
 
     /*
       AN UNSTATED KIND IS RESOLVED FROM THE LIVE ROW, NOT DEFAULTED TO `note`.
@@ -950,8 +1020,8 @@ export const createLinkShare = action({
         ? {}
         : { titleInPreview: args.titleInPreview }),
     });
-  },
-});
+  }
+}
 
 /**
  * What an existing unlisted link over this path points at, or `note`.
@@ -1314,6 +1384,7 @@ export const listShares = query({
         entryPath: row.entryPath,
         titleInPreview: row.titleInPreview,
         previewTitle: row.previewTitle,
+        slug: row.slug,
         createdBy: row.createdBy,
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
@@ -1379,6 +1450,674 @@ export const revokeShare = mutation({
  * was already dead. Same trade `resolveInvitationForCaller` documents — the
  * timing difference is only reachable by somebody already holding a real token.
  */
+/* -------------------------------------------------------------------------- */
+/* Short links: the same share row, reached by a name somebody can say         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Claim or release the name in `context.lc/@seyi/intake`. Owner-only.
+ *
+ * ## What this does and does not change
+ *
+ * It adds a second **locator** for a share that already exists. The row is
+ * unchanged, its token still works, revoking it still kills both addresses at
+ * once, and the read path below resolves a slug to this row and then runs the
+ * same `authorizeShareRead` every other reader runs. Nothing here widens what
+ * the share reaches or who may read it.
+ *
+ * What it does change is who can *arrive*. A token is 32 random bytes handed
+ * to somebody; a slug can also be typed by a stranger who guessed it. For an
+ * `anyone` row, arriving is the whole of the authorization — so claiming a
+ * slug on one is publishing that note to whoever guesses the word. That is the
+ * product the owner asked for, it is said in the console before the button,
+ * and it is why this is its own deliberate step rather than something
+ * `createLinkShare` does on the way past.
+ *
+ * ## Uniqueness is a read, because Convex has no unique index
+ *
+ * One live row per `(workspaceId, slug)`, checked through `by_workspace_slug`
+ * before the patch. Two owners of one context racing for the same word can
+ * both pass that read — the loser overwrites, and the link the winner already
+ * pasted stops resolving to their note and starts resolving to somebody
+ * else's. So the read is narrowed to *live* rows and the patch refuses when it
+ * finds one that is not this share: the race window is one transaction, which
+ * Convex serialises, so the check and the write are in the same mutation and
+ * there is no window at all. This comment exists because "check then write" in
+ * two mutations is the shape that would look equivalent and would not be.
+ *
+ * A revoked row's slug is free, deliberately. The alternative is a name an
+ * owner has permanently spent on their own context.
+ */
+export const setShareSlug = mutation({
+  args: {
+    shareId: v.id("noteShares"),
+    /** The name to claim, or `null` to give it back. */
+    slug: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+
+    // `revokeShare`'s ordering, and for its reason: a caller who is not a
+    // member of this share's context is told the share does not exist rather
+    // than that they lack a role.
+    const share = await ctx.db.get(args.shareId);
+    if (share === null || share.status !== "active") throw shareNotFound();
+    const membership = await getMembership(ctx, share.workspaceId, userId);
+    if (membership === null) throw shareNotFound();
+    await requireWorkspaceRole(ctx, share.workspaceId, userId, "owner");
+
+    if (args.slug === null) {
+      if (share.slug !== undefined) {
+        await ctx.db.patch(share._id, { slug: undefined });
+        await recordAudit(ctx, {
+          workspaceId: share.workspaceId,
+          actorUserId: userId,
+          action: "share.slug.released",
+          paths: [share.entryPath],
+          details: { slug: share.slug },
+        });
+      }
+      return null;
+    }
+
+    const slug = args.slug.trim().toLowerCase();
+    const rejection = shortLinkSlugRejection(slug);
+    if (rejection !== null) {
+      throw new ConvexError({ code: "SLUG_REJECTED", message: rejection });
+    }
+
+    const now = Date.now();
+    const holder = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", share.workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const taken = holder.find(
+      (row) => row._id !== share._id && row.status === "active" && isLive(row, now),
+    );
+    if (taken !== undefined) {
+      throw new ConvexError({
+        code: "SLUG_TAKEN",
+        message: "That name already points at another link in this context.",
+      });
+    }
+
+    await ctx.db.patch(share._id, { slug });
+    await recordAudit(ctx, {
+      workspaceId: share.workspaceId,
+      actorUserId: userId,
+      action: "share.slug.claimed",
+      paths: [share.entryPath],
+      details: { slug, audience: share.recipientKind },
+    });
+    return null;
+  },
+});
+
+/**
+ * The token a short link names, or `null`. INTERNAL.
+ *
+ * **The token is never returned to a browser.** A caller who guessed a slug is
+ * a caller the owner may not have meant, and handing them the bearer value of
+ * an `anyone` share would let them keep it after the slug was released — a
+ * capability outliving the address it was published at. So this is internal,
+ * `readShortLink` below consumes it in the same request, and what the client
+ * gets back is the note or a refusal, never the credential.
+ *
+ * Absence is uniform: an unclaimed handle, an unclaimed slug, a revoked row
+ * and an expired one all answer `null`.
+ */
+export const shortLinkToken = internalQuery({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const slug = shortLinkSlugFrom(args.slug.toLowerCase());
+    if (slug === null) return null;
+
+    const name = await findName(ctx, args.handle.replace(/^@/, "").toLowerCase());
+    const workspaceId = name?.workspaceId;
+    if (workspaceId === undefined) return null;
+
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const now = Date.now();
+    const live = rows.find((row) => row.status === "active" && isLive(row, now));
+    return live?.token ?? null;
+  },
+});
+
+/**
+ * Read what a short link points at: `readSharedNote`, addressed by name.
+ *
+ * It resolves the slug and then calls that action, rather than reimplementing
+ * it. Every rule about what a share reaches, who may read it, how a folder
+ * lists and how a link out of the entry note is bounded lives there, and a
+ * second copy reachable by a *guessable* address is precisely the copy that
+ * would drift in the wrong direction.
+ *
+ * A slug that resolves to nothing refuses exactly as an unknown token does, so
+ * "never claimed", "released" and "revoked" are one answer.
+ */
+export const readShortLink = action({
+  args: {
+    handle: v.string(),
+    slug: v.string(),
+    /** Omit for the entry note. Anything else must be linked from it. */
+    path: v.optional(v.string()),
+  },
+  returns: v.object({
+    path: v.string(),
+    text: v.union(v.string(), v.null()),
+    kind: v.union(v.literal("note"), v.literal("folder")),
+    entries: v.array(
+      v.object({
+        path: v.string(),
+        name: v.string(),
+        kind: v.union(v.literal("file"), v.literal("folder")),
+      }),
+    ),
+    entryPath: v.string(),
+    links: v.array(v.string()),
+    openToAnyone: v.boolean(),
+    editableInContext: v.union(v.string(), v.null()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    path: string;
+    text: string | null;
+    kind: "note" | "folder";
+    entries: { path: string; name: string; kind: "file" | "folder" }[];
+    entryPath: string;
+    links: string[];
+    openToAnyone: boolean;
+    editableInContext: string | null;
+  }> => {
+    const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
+      handle: args.handle,
+      slug: args.slug,
+    });
+    if (token === null) throw shareUnavailable();
+
+    return await ctx.runAction(api.functions.shares.readSharedNote, {
+      token,
+      ...(args.path === undefined ? {} : { path: args.path }),
+    });
+  },
+});
+
+/**
+ * The card a short link unfurls with: a title, or nothing.
+ *
+ * ## Why a guessable address may carry a title here
+ *
+ * `Link previews reveal nothing about a context` still holds for every path it
+ * was written about, and this is the same second rule `shareNotePreview`
+ * already lives under: a card may name something when the probe space is one
+ * the **owner** chose. `/@seyi/intake` is not `/@seyi/1-projects` — there is no
+ * list of likely slugs, because a slug exists only where an owner typed it,
+ * and `shortLinkSlugRejection` refuses every name this product writes so the
+ * guessable ones cannot be claimed at all.
+ *
+ * It is also the whole point of the feature. A short link is for pasting into
+ * a signature, a channel, a slide; a link that unfurls as bare branding does
+ * not get clicked, and a share nobody opens is a share that did not happen.
+ *
+ * Everything the note-preview rule pays for, this pays too:
+ *
+ *  - **The title is never read from the note.** It is the row's own
+ *    `previewTitle`, owner-chosen or derived from the filename, so no crawler
+ *    ever causes a GET against the customer's bucket.
+ *  - **Every absence is one absence.** Unknown handle, unclaimed slug, revoked
+ *    row, expired row, title switched off, title that normalised to nothing —
+ *    all `{ title: null }`, which renders the generic card byte for byte.
+ *  - **The shape is checked before the lookup**, so hammering `/@name/<junk>`
+ *    costs a regex.
+ *
+ * And it carries the cost that cannot be taken back, stated plainly because an
+ * owner claiming a memorable name is the most likely person to forget it:
+ * a card that has already unfurled somewhere is cached by the platform that
+ * unfurled it, and revoking cannot reach it. Revocation is enforced at the
+ * destination, where it is immediate and complete.
+ */
+export const previewForShortLink = query({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.object({ title: v.union(v.string(), v.null()) }),
+  handler: async (ctx, args) => {
+    const nothing = { title: null };
+
+    const slug = shortLinkSlugFrom(args.slug.toLowerCase());
+    if (slug === null) return nothing;
+
+    const name = await findName(ctx, args.handle.replace(/^@/, "").toLowerCase());
+    const workspaceId = name?.workspaceId;
+    if (workspaceId === undefined) return nothing;
+
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const now = Date.now();
+    const live = rows.find((row) => row.status === "active" && isLive(row, now));
+    if (live === undefined || live.titleInPreview !== true) return nothing;
+    /*
+     * **`anyone`, and only `anyone`.** `titleInPreview` defaults to `true` on
+     * every row `createShare` writes as well, and those are addressed to a
+     * `@name` or an email — named people, which is the whole of what `team`
+     * means. That default was unreachable before there were short links: such a
+     * row answered to its 64-hex token and nothing else, so no stranger could
+     * ask for its title. A slug is an owner-chosen word at a guessable address,
+     * and `setShareSlug` does not ask what the row's audience is, so the same
+     * default became answerable with no session at all.
+     *
+     * Refused here rather than in `setShareSlug`, because a memorable address
+     * for a link shared with named people is a reasonable thing to want and
+     * still works — its readers sign in and `readSharedNote` authorises them
+     * exactly as before. It is the *title* that must not travel to somebody who
+     * is not on the list. A crawler's unfurl cannot be revoked once it is
+     * cached, so this is decided in the direction that cannot be taken back.
+     */
+    if (live.recipientKind !== "anyone") return nothing;
+
+    const title = normalizePreviewTitle(live.previewTitle ?? "");
+    return { title: title === null ? null : title };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/* The gateway's half: an agent asking for a link, and getting the URL        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The URL a link is at, built here rather than by whoever asked.
+ *
+ * **An agent that assembled its own would be guessing**, which is the whole
+ * complaint this feature answers: `/s/` versus `/share/`, the readable slug or
+ * not, the origin of a self-hosted deployment. The console already builds it
+ * from `@context/shared`; so does this, from the same function.
+ *
+ * `null` when `APP_ORIGIN` is unset or is not https. A self-hosted deployment
+ * that has not told us where it is served from cannot be handed a URL, and
+ * inventing one would send somebody's colleague to a domain we picked. The
+ * caller reports the path instead, and says why.
+ */
+function shareUrlsFor(
+  row: { token: string; previewTitle?: string; titleInPreview: boolean; slug?: string },
+  handle: string | null,
+): { url: string | null; shortUrl: string | null; path: string } {
+  // The title only decorates the URL where the owner left it on the card: the
+  // URL travels further than the card does, so a setting that hides the name
+  // has to hide it here too. `shareUrlFor` in the console is the same rule.
+  const title = row.titleInPreview ? (row.previewTitle ?? null) : null;
+  const path = `${SHARE_ROUTE}/${shareSegment(row.token, title)}`;
+  const shortPath =
+    row.slug === undefined || handle === null ? null : `/@${handle}/${row.slug}`;
+
+  const origin = process.env[APP_ORIGIN_ENV_VAR];
+  if (typeof origin !== "string" || origin.length === 0) {
+    return { url: null, shortUrl: null, path };
+  }
+  let base: URL;
+  try {
+    base = new URL(origin);
+  } catch {
+    return { url: null, shortUrl: null, path };
+  }
+  if (base.protocol !== "https:") return { url: null, shortUrl: null, path };
+  const root = base.origin;
+  return {
+    url: `${root}${path}`,
+    shortUrl: shortPath === null ? null : `${root}${shortPath}`,
+    path,
+  };
+}
+
+/** One row, as every gateway link route reports it. */
+interface GatewayLink {
+  shareId: Id<"noteShares">;
+  url: string | null;
+  shortUrl: string | null;
+  path: string;
+  audience: "name" | "email" | "members" | "anyone";
+  entryPath: string;
+  slug: string | null;
+  createdAt: number;
+}
+
+/** What every gateway link route answers with, for one row. */
+const gatewayLinkSummary = v.object({
+  shareId: v.id("noteShares"),
+  /**
+   * The whole URL, or `null` on a deployment that has not set `APP_ORIGIN`.
+   *
+   * The *URL*, never the token: the point of this route is that nothing
+   * downstream assembles one. `path` is what a self-hosted deployment gets
+   * instead, so the answer is still usable by somebody who knows their own
+   * origin — and the agent is told to say so rather than guess.
+   */
+  url: v.union(v.string(), v.null()),
+  shortUrl: v.union(v.string(), v.null()),
+  path: v.string(),
+  audience: v.union(
+    v.literal("name"),
+    v.literal("email"),
+    v.literal("members"),
+    v.literal("anyone"),
+  ),
+  entryPath: v.string(),
+  slug: v.union(v.string(), v.null()),
+  createdAt: v.number(),
+});
+
+/**
+ * Mint a link for an agent, and hand back the URL. INTERNAL.
+ *
+ * Everything about *what a share is* happens in `mintTeamShare` and
+ * `mintUnlistedLink`, which the console's own buttons call. This adds three
+ * things and no fourth:
+ *
+ *  - the gateway's owner clearance, which is where the access token is spent;
+ *  - the optional short name, claimed through the same `setShareSlug` rules
+ *    the console claims one through — including the refusal on a name this
+ *    product writes;
+ *  - the URL, built from `@context/shared` so nothing downstream guesses.
+ *
+ * **The short name is claimed after the row exists, and a refusal does not
+ * un-mint it.** The link is real and usable at its token either way, so the
+ * honest answer is the link plus the reason the name was refused — rather than
+ * throwing away a working share because a word was taken.
+ */
+export const gatewayCreateLink = internalAction({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    path: v.string(),
+    audience: v.union(v.literal("members"), v.literal("anyone")),
+    kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
+    short: v.optional(v.string()),
+    titleInPreview: v.optional(v.boolean()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      link: gatewayLinkSummary,
+      /** Why the short name was not claimed, or `null`. */
+      shortRefused: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ link: GatewayLink; shortRefused: string | null } | null> => {
+    const cleared = await ctx.runQuery(
+      internal.functions.controlPlane.ownerClearanceForGateway,
+      {
+        hashedAccessToken: args.hashedAccessToken,
+        expectedWorkspaceId: args.expectedWorkspaceId,
+      },
+    );
+    if (cleared === null) return null;
+
+    if (args.audience === "anyone") {
+      await ctx.runAction(internal.functions.shares.gatewayMintUnlisted, {
+        workspaceId: cleared.workspaceId,
+        actorUserId: cleared.actorUserId,
+        path: args.path,
+        ...(args.kind === undefined ? {} : { kind: args.kind }),
+        ...(args.titleInPreview === undefined
+          ? {}
+          : { titleInPreview: args.titleInPreview }),
+      });
+    } else {
+      await ctx.runMutation(internal.functions.shares.gatewayMintTeam, {
+        workspaceId: cleared.workspaceId,
+        actorUserId: cleared.actorUserId,
+        path: args.path,
+        ...(args.titleInPreview === undefined
+          ? {}
+          : { titleInPreview: args.titleInPreview }),
+      });
+    }
+
+    return await ctx.runMutation(internal.functions.shares.gatewayNameAndDescribe, {
+      workspaceId: cleared.workspaceId,
+      actorUserId: cleared.actorUserId,
+      path: args.path,
+      audience: args.audience,
+      ...(args.short === undefined ? {} : { short: args.short }),
+    });
+  },
+});
+
+/** `mintUnlistedLink` for a cleared gateway caller. INTERNAL. */
+export const gatewayMintUnlisted = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    path: v.string(),
+    kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
+    titleInPreview: v.optional(v.boolean()),
+  },
+  returns: v.object({ token: v.string(), title: v.union(v.string(), v.null()) }),
+  handler: async (ctx, args): Promise<{ token: string; title: string | null }> =>
+    await mintUnlistedLink(ctx, args),
+});
+
+/** `mintTeamShare` for a cleared gateway caller. INTERNAL. */
+export const gatewayMintTeam = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    path: v.string(),
+    titleInPreview: v.optional(v.boolean()),
+  },
+  returns: v.object({ token: v.string() }),
+  handler: async (ctx, args) => await mintTeamShare(ctx, args),
+});
+
+/**
+ * Claim the short name if one was asked for, then describe the row. INTERNAL.
+ *
+ * One mutation for both because they are one transaction's worth of work and
+ * because the description has to be of the row *after* the name landed — a
+ * two-call version would return a `shortUrl` of `null` for a name it had just
+ * claimed, which is the kind of wrong that reads as a bug in the name rather
+ * than in the reporting.
+ */
+export const gatewayNameAndDescribe = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    path: v.string(),
+    audience: v.union(v.literal("members"), v.literal("anyone")),
+    short: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({ link: gatewayLinkSummary, shortRefused: v.union(v.string(), v.null()) }),
+  ),
+  // Annotated rather than inferred, like `readSharedNote`: a function that
+  // calls another in the same deployment is the inference cycle that degrades
+  // the whole generated `api` to `any`, and the symptom is implicit-any errors
+  // in unrelated test files.
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ link: GatewayLink; shortRefused: string | null } | null> => {
+    const path = normalizePath(args.path);
+    if (path === null) return null;
+
+    const row = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("entryPath", path)
+          .eq("recipientKind", args.audience)
+          .eq("recipient", ""),
+      )
+      .unique();
+    if (row === null || row.status !== "active") return null;
+
+    let shortRefused: string | null = null;
+    if (args.short !== undefined) {
+      const slug = args.short.trim().toLowerCase();
+      const rejection = shortLinkSlugRejection(slug);
+      if (rejection !== null) {
+        shortRefused = rejection;
+      } else {
+        const now = Date.now();
+        const holders = await ctx.db
+          .query("noteShares")
+          .withIndex("by_workspace_slug", (q) =>
+            q.eq("workspaceId", args.workspaceId).eq("slug", slug),
+          )
+          .collect();
+        const taken = holders.find(
+          (other) => other._id !== row._id && other.status === "active" && isLive(other, now),
+        );
+        if (taken !== undefined) {
+          shortRefused = "That name already points at another link in this context.";
+        } else {
+          await ctx.db.patch(row._id, { slug });
+          row.slug = slug;
+          await recordAudit(ctx, {
+            workspaceId: args.workspaceId,
+            actorUserId: args.actorUserId,
+            action: "share.slug.claimed",
+            paths: [path],
+            details: { slug, audience: row.recipientKind, via: "gateway" },
+          });
+        }
+      }
+    }
+
+    const handle = await workspaceHandle(ctx, args.workspaceId);
+    const urls = shareUrlsFor(row, handle);
+    return {
+      link: {
+        shareId: row._id,
+        url: urls.url,
+        shortUrl: urls.shortUrl,
+        path: urls.path,
+        audience: row.recipientKind,
+        entryPath: row.entryPath,
+        slug: row.slug ?? null,
+        createdAt: row.createdAt,
+      },
+      shortRefused,
+    };
+  },
+});
+
+/** Every live link in this context, for an agent that asked. INTERNAL. */
+export const gatewayListLinks = internalQuery({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(v.null(), v.array(gatewayLinkSummary)),
+  handler: async (ctx, args): Promise<GatewayLink[] | null> => {
+    const cleared = await ctx.runQuery(
+      internal.functions.controlPlane.ownerClearanceForGateway,
+      {
+        hashedAccessToken: args.hashedAccessToken,
+        expectedWorkspaceId: args.expectedWorkspaceId,
+      },
+    );
+    if (cleared === null) return null;
+
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_status", (q) =>
+        q.eq("workspaceId", cleared.workspaceId).eq("status", "active"),
+      )
+      .take(MAX_SHARES_RETURNED);
+    const handle = await workspaceHandle(ctx, cleared.workspaceId);
+
+    return rows
+      .filter((row) => isLive(row, now))
+      .map((row) => {
+        const urls = shareUrlsFor(row, handle);
+        return {
+          shareId: row._id,
+          url: urls.url,
+          shortUrl: urls.shortUrl,
+          path: urls.path,
+          audience: row.recipientKind,
+          entryPath: row.entryPath,
+          slug: row.slug ?? null,
+          createdAt: row.createdAt,
+        };
+      });
+  },
+});
+
+/**
+ * Take a link back on an agent's say-so. INTERNAL.
+ *
+ * Addressed by `shareId`, which is what `gatewayListLinks` hands out — never
+ * by token, because an agent holding a token it was given by a person is not
+ * the same as an agent whose own grant covers the context, and only the second
+ * gets to revoke. The row's workspace is compared against the cleared one, so
+ * an id from another context is one refusal and not an oracle.
+ */
+export const gatewayRevokeLink = internalMutation({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    shareId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const cleared = await ctx.runQuery(
+      internal.functions.controlPlane.ownerClearanceForGateway,
+      {
+        hashedAccessToken: args.hashedAccessToken,
+        expectedWorkspaceId: args.expectedWorkspaceId,
+      },
+    );
+    if (cleared === null) return false;
+
+    const shareId = ctx.db.normalizeId("noteShares", args.shareId);
+    if (shareId === null) return false;
+    const row = await ctx.db.get(shareId);
+    if (row === null || row.status !== "active") return false;
+    // The cleared workspace, never the row's: an id from another context must
+    // answer exactly as an invented one does.
+    if (row.workspaceId !== cleared.workspaceId) return false;
+
+    await ctx.db.patch(row._id, { status: "revoked", revokedAt: Date.now() });
+    await recordAudit(ctx, {
+      workspaceId: cleared.workspaceId,
+      actorUserId: cleared.actorUserId,
+      action: "share.revoked",
+      paths: [row.entryPath],
+      details: {
+        recipient: describeAudience(row.recipientKind, row.recipient),
+        via: "gateway",
+      },
+    });
+    return true;
+  },
+});
+
+/** The context's own handle, for the short half of a URL. */
+async function workspaceHandle(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<string | null> {
+  const workspace = await ctx.db.get(workspaceId);
+  return workspace?.slug ?? null;
+}
+
 export const resolveShare = query({
   args: { token: v.string() },
   returns: v.union(

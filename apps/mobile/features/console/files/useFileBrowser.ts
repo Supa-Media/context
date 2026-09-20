@@ -3543,6 +3543,36 @@ export function useFileBrowser(options: {
     [createLinkShareAction, createTeamShareMutation, mayShare, slug, workspaceId],
   );
 
+  const setShareSlugMutation = useMutation(api.functions.shares.setShareSlug);
+
+  /**
+   * Claim or release the name in `context.lc/@seyi/intake`.
+   *
+   * Answers whether it landed, unlike `revokeShare` beside it, because the
+   * dialog's field has to decide whether to clear itself — and the notice this
+   * sets is behind the modal, so a refusal it could not see would leave
+   * somebody pressing Claim on a button that appears to do nothing.
+   *
+   * The name is lowercased here and nowhere else in the client: the server
+   * lowercases it again, which is what actually decides, and a second place
+   * that *did not* would make `Intake` a refusal on one path and a claim on
+   * the other.
+   */
+  const setShareSlug = useCallback(
+    (shareId: string, slug: string | null): Promise<boolean> =>
+      runShare(
+        () =>
+          setShareSlugMutation({
+            shareId: shareId as Id<"noteShares">,
+            slug: slug === null ? null : slug.trim().toLowerCase(),
+          }),
+        slug === null
+          ? "Short link released. That name is free again."
+          : "Short link claimed. Anyone who types it gets what this link gives.",
+      ),
+    [runShare, setShareSlugMutation],
+  );
+
   const revokeShare = useCallback(
     (shareId: string) => {
       void runShare(
@@ -3920,6 +3950,7 @@ export function useFileBrowser(options: {
       shares,
       share,
       revokeShare,
+      setShareSlug,
       setSharePreviewTitle,
       ensureListing,
       readRaw,
@@ -3996,6 +4027,7 @@ export function useFileBrowser(options: {
       openLinkPaths,
       share,
       revokeShare,
+      setShareSlug,
       toasts,
       setSharePreviewTitle,
       copyShareLink,

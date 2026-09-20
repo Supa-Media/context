@@ -868,7 +868,7 @@ function gatewayJobError(message: string | undefined): string | undefined {
   return message.slice(0, GATEWAY_JOB_ERROR_MAX);
 }
 
-function canQueueGatewayJob(
+function gatewayOwnerClearance(
   session: {
     scopes: string[];
     workspaceId: Id<"workspaces">;
@@ -883,6 +883,49 @@ function canQueueGatewayJob(
   if (!session.scopes.includes("context:private")) return null;
   return covered.workspaceId;
 }
+
+/**
+ * Owner clearance for a gateway-borne access token, for the routes that mint
+ * or revoke on somebody's behalf. INTERNAL.
+ *
+ * The same two-factor shape every gateway route here has, stated once more
+ * because this one hands back an **identity** rather than a yes: the gateway
+ * secret got the caller through the door in `http.ts`, and this is where the
+ * *user's* proof is spent. The token's hash resolves to a live grant
+ * independently of anything the gateway concluded, and both the workspace and
+ * the acting user come off that grant — `expectedWorkspaceId` only ever
+ * selects within the token's own set and is never a lookup key.
+ *
+ * `gatewayOwnerClearance` is the same predicate a queued job passes, and that
+ * is deliberate rather than convenient: minting a share and queueing work are
+ * both "this person may act as owner of this context through an agent", and
+ * two predicates for one sentence is how one of them ends up laxer.
+ *
+ * The returned `actorUserId` is what the audit trail records. A share minted
+ * through an agent is a share somebody minted, and the row has to say who.
+ */
+export const ownerClearanceForGateway = internalQuery({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ workspaceId: v.id("workspaces"), actorUserId: v.id("users") }),
+  ),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return null;
+    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    if (live === null) return null;
+    const workspaceId = gatewayOwnerClearance(
+      {
+        scopes: live.grant.scopes,
+        workspaceId: live.grant.workspaceId,
+        workspaces: await contextsForGrant(ctx, live),
+      },
+      args.expectedWorkspaceId,
+    );
+    if (workspaceId === null) return null;
+    return { workspaceId, actorUserId: live.grant.userId };
+  },
+});
 
 /**
  * Open one workspace's storage credential for the gateway. INTERNAL ACTION,
@@ -1227,7 +1270,7 @@ export const createGatewayJob = internalMutation({
 
     const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
     if (live === null) return false;
-    const workspaceId = canQueueGatewayJob(
+    const workspaceId = gatewayOwnerClearance(
       {
         scopes: live.grant.scopes,
         workspaceId: live.grant.workspaceId,

@@ -1271,6 +1271,61 @@ export const shareNotePreview = httpAction(async (ctx, request) => {
 
 http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
 
+/**
+ * `POST /share/short` — the card for a short link, `/@seyi/intake`.
+ *
+ * **The fourth unauthenticated route, and the first one added since this list
+ * was called "a pin, not an amnesty".** So the argument in full, on its own
+ * terms.
+ *
+ * *Why it cannot be a field on one of the other three.* `/share/note` takes a
+ * handle and a note path; this takes a handle and a name that is not a path
+ * and does not resolve like one. Folding them together would mean one route
+ * whose second argument means two things depending on a flag, and the failure
+ * that list exists to prevent is exactly a field nobody looked at reaching an
+ * anonymous crawler.
+ *
+ * *Why it may answer at all, when `/@seyi` may not.* The same hinge
+ * `/share/note` turns on: the probe space is names the **owner** chose. There
+ * is no list of likely slugs — a slug exists only where somebody typed one —
+ * and `shortLinkSlugRejection` refuses every name this product writes, so the
+ * guessable ones cannot be claimed in the first place. What a prober learns is
+ * the title of something its owner deliberately published at a memorable
+ * address, which is the feature.
+ *
+ * *What it costs, stated.* Anyone holding or guessing the URL learns the title
+ * without signing in, and a card that has already unfurled is cached by the
+ * platform that unfurled it and cannot be recalled. Content still needs the
+ * live share; revocation is enforced at the destination, where it is immediate.
+ *
+ * *One field, and never the token.* `/share/note` returns a `cardToken`
+ * because a team link's token is a locator — its reader is authorised by
+ * membership on every request. A short link may sit over an `anyone` share,
+ * where the token **is** the authorization, so handing it to whoever guessed
+ * the name would be a capability outliving the name it was published at. This
+ * route therefore returns the title alone, and a short link unfurls with the
+ * product's own image rather than a per-share card.
+ *
+ * Always 200, always `{ "title": string | null }`. Every absence — unknown
+ * handle, unclaimed name, released, revoked, expired, title switched off — is
+ * that shape with `null`.
+ */
+export const shareShortLinkPreview = httpAction(async (ctx, request) => {
+  const body = await readJsonBody(request);
+  const handle = body === null ? null : stringField(body, "handle");
+  const slug = body === null ? null : stringField(body, "slug");
+  if (handle === null || slug === null) return json({ title: null });
+
+  const result = await ctx.runQuery(api.functions.shares.previewForShortLink, {
+    handle,
+    slug,
+  });
+  // Named rather than spread, for the reason stated on the three routes above.
+  return json({ title: result.title });
+});
+
+http.route({ path: "/share/short", method: "POST", handler: shareShortLinkPreview });
+
 /* -------------------------------------------------------------------------- */
 /* POST /stripe/webhook — a signed subscription event                          */
 /* -------------------------------------------------------------------------- */
@@ -1457,6 +1512,89 @@ http.route({
   method: "POST",
   handler: gatewayIngestRecord,
 });
+/* -------------------------------------------------------------------------- */
+/* Links, for an agent that asked for one                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `POST /gateway/links/create` — mint a link and answer with its URL.
+ *
+ * **The URL, never the token.** An agent that was handed a token would have to
+ * assemble the address itself, and a second builder is a second opinion about
+ * what a share link looks like — which is the whole complaint this answers.
+ * The control plane builds it from `@context/shared`, the same function the
+ * console's Copy link uses.
+ *
+ * The clearance is the ordinary two-factor one: this route's factory refuses
+ * without the gateway secret, and `ownerClearanceForGateway` then spends the
+ * *user's* access token against a live grant that has to be an owner's. One
+ * `null` covers every refusal, so an agent cannot tell "not yours" from "not a
+ * note" from "already encrypted".
+ */
+export const gatewayLinksCreate = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  const path = stringField(body, "path");
+  const audience = body.audience === "members" ? "members" : "anyone";
+  const kind = body.kind === "folder" ? "folder" : body.kind === "note" ? "note" : undefined;
+  const short = stringField(body, "short");
+  if (accessToken === null || expected === null || path === null) {
+    return json({ link: null, shortRefused: null });
+  }
+
+  const result = await ctx.runAction(internal.functions.shares.gatewayCreateLink, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+    path,
+    audience,
+    ...(kind === undefined ? {} : { kind }),
+    ...(short === null ? {} : { short }),
+    ...(typeof body.titleInPreview === "boolean"
+      ? { titleInPreview: body.titleInPreview }
+      : {}),
+  });
+  return json({
+    link: result?.link ?? null,
+    shortRefused: result?.shortRefused ?? null,
+  });
+});
+
+http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
+
+/** `POST /gateway/links/list` — every live link in this context. */
+export const gatewayLinksList = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  if (accessToken === null || expected === null) return json({ links: null });
+
+  const links = await ctx.runQuery(internal.functions.shares.gatewayListLinks, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+  });
+  return json({ links });
+});
+
+http.route({ path: "/gateway/links/list", method: "POST", handler: gatewayLinksList });
+
+/** `POST /gateway/links/revoke` — take one back. */
+export const gatewayLinksRevoke = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  const shareId = stringField(body, "shareId");
+  if (accessToken === null || expected === null || shareId === null) {
+    return json({ revoked: false });
+  }
+
+  const revoked = await ctx.runMutation(internal.functions.shares.gatewayRevokeLink, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+    shareId,
+  });
+  return json({ revoked });
+});
+
+http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
+
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 
 export default http;
