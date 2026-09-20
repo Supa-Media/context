@@ -130,15 +130,32 @@ export class PresenceRoom {
       const etag = typeof notice.etag === "string" ? notice.etag : null;
       const merger = this.mergerSocket();
       /*
-        **The text goes to one member; the version goes to all of them.**
+        **The version goes to the one member that is given the text, and to
+        nobody else.**
 
-        Only one client may merge, or the same characters are inserted once per
-        client. But every client's *next save* is checked against the bucket,
-        and the bucket has just moved — so a member who is told nothing keeps
-        the etag their editor opened with and conflicts the moment they become
-        the one saving. Two different facts, two different audiences.
+        This used to broadcast the etag to the whole room on the reasoning that
+        every client's next save is a conditional write and the bucket had just
+        moved. True, and it is the wrong half of the truth: that refusal is the
+        only thing standing between a stale draft and a silent overwrite, and
+        moving a client's etag is what spends it.
+
+        Only the merger is given the text. Everybody else is given the version
+        of a write they have not received — so their next save passes its
+        conditional check and writes their own older content over the tool's,
+        with nobody shown a conflict. On a canvas that is not even a race: the
+        merger reconciles the elements into its own scene and records them as
+        already-sent, precisely so it does not echo them back, so the agent's
+        drawing reaches exactly one screen and every other member is holding
+        its version without it.
+
+        A member who keeps their old etag conflicts once and is asked. That is
+        the outcome this feature wanted to remove, and it is the correct one
+        here, because the alternative is losing somebody's work quietly. The
+        case the feature was actually built for — the saver leaves, and the
+        next one elected has an etag two edits old — is the `saved` frame
+        below, where the content really has reached everybody: a note through
+        the shared document, a canvas through element reconciliation.
       */
-      if (etag !== null) this.broadcast({ t: "etag", v: etag }, merger);
       if (!merger) return json({ delivered: false });
       try {
         merger.send(JSON.stringify({ t: "external", text: notice.text, etag }));

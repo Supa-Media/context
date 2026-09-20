@@ -880,18 +880,46 @@ export async function runPresenceChecks(check) {
         ) &&
         readerSocket.frames().slice(readerBeforeNotice).every((frame) => frame.t !== "external"),
     );
+    /*
+      ...AND THE VERSION GOES WITH THE TEXT, TO NOBODY ELSE.
+
+      This check is RESTATED rather than relaxed. It used to assert the
+      opposite — that the etag reached the whole room, because every client's
+      next save is a conditional write and the bucket had just moved. True, and
+      the wrong half of the truth: that refusal is the only thing between a
+      stale draft and a silent overwrite, and moving a client's etag is what
+      spends it.
+
+      A member given the version of a write they were not given passes their
+      next conditional write and puts their own older content over the tool's,
+      with nobody shown a conflict. On a canvas it is not even a race — the
+      merger records the reconciled elements as already-sent so it does not
+      echo them back, so the agent's drawing reaches one screen and every other
+      member holds its version without it.
+
+      Conflicting once and being asked is the honest outcome. The case this
+      broadcast was built for is the `saved` frame, where the content really
+      has reached everybody.
+    */
     check(
-      "...while the version goes to everybody, because every save is checked against it",
-      /*
-        Two different facts with two different audiences. Only one client may
-        merge, or the characters arrive once per client. But every client's
-        *next* save is a conditional write against the bucket, and the bucket
-        has just moved — a member told nothing keeps the etag their editor
-        opened with and conflicts the moment they are the one saving.
-      */
-      readerSocket.frames().slice(readerBeforeNotice).some(
-        (frame) => frame.t === "etag" && frame.v === "e2",
+      "...and the version goes with it, never to a member who was not given the text",
+      readerSocket.frames().slice(readerBeforeNotice).every(
+        (frame) => !(frame.t === "etag" && frame.v === "e2"),
       ),
+    );
+    check(
+      "...while a peer's own save still tells the whole room its version",
+      // The non-vacuity half, and the distinction the rule rests on: a `saved`
+      // frame announces a write whose content the room has already carried, so
+      // every member may adopt it. Without this check the rule above passes by
+      // the room never reporting a version at all, which is the feature gone.
+      await (async () => {
+        const before = readerSocket.sent.length;
+        await askingRoom.webSocketMessage(writerSocket, JSON.stringify({ t: "saved", v: "e2b" }));
+        return readerSocket.frames().slice(before).some(
+          (frame) => frame.t === "etag" && frame.v === "e2b",
+        );
+      })(),
     );
 
     const readersOnly = fakeRoomRuntime();
