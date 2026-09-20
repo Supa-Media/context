@@ -65,6 +65,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
+    onExternalWrite: noop,
     flushAutosave: () => false,
     discardLocalCopies: noop,
     encryptedElsewhere: noop,

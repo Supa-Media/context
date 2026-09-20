@@ -12,6 +12,16 @@ import {
   readFromEditor,
   type FromEditor,
 } from "./drawingBridge";
+import type { DrawingCollaboration } from "./drawingCollaboration";
+
+/**
+ * How many messages are held for a page that has not booted yet.
+ *
+ * Generous, because the whole point is not to lose the replay of a busy
+ * canvas, and small enough that a page which never boots cannot grow a queue
+ * without bound.
+ */
+const PENDING_CAP = 500;
 
 /**
  * The drawing editor — web, as an iframe around a page of its own.
@@ -51,12 +61,22 @@ export function DrawingEditor({
   source,
   canEdit,
   onChange,
+  collaboration,
 }: {
   path: string;
   source: string;
   canEdit: boolean;
   /** Called with the complete new file body. The caller owns the write. */
   onChange: (next: string) => void;
+  /**
+   * The room this canvas is shared with, when there is one.
+   *
+   * Absent on every surface with no gateway — the landing page's demo console,
+   * a native `WebView`, a drawing nobody else has open — and the editor then
+   * behaves exactly as it did before any of this, which is the property that
+   * makes collaboration safe to switch off.
+   */
+  collaboration?: DrawingCollaboration;
 }) {
   const styles = useThemedStyles(makeStyles);
   const { scheme } = useTheme();
@@ -99,6 +119,88 @@ export function DrawingEditor({
     keepDrawingEditorOffline();
   }, []);
 
+  /*
+    The room, in a ref for the same reason `latest` is: every handler below is
+    registered once and must reach the current one, and rebuilding the message
+    listener on each roster change would drop frames mid-drag.
+  */
+  const room = useRef(collaboration);
+  room.current = collaboration;
+
+  /*
+    **Nothing is posted at the page until it says it is listening.**
+
+    The editor is a 2.4MB page fetched on demand; the socket is open long
+    before it has booted. A `postMessage` to a frame whose listener is not
+    registered yet is not queued by the browser, it is *gone* — and the frames
+    that arrive in that window are the room's replay, which is to say the
+    drawing everybody else can already see. Losing those is a second person
+    opening a shared canvas and finding it blank, which is exactly what two
+    browsers showed.
+
+    So messages are held until `ready` and then flushed in order. Bounded,
+    because a page that never boots must not turn a busy canvas into an
+    unbounded queue: past the cap the *oldest* are dropped, since a later
+    element supersedes an earlier one by version and the newest state is the
+    one worth keeping.
+  */
+  const queued = useRef<Record<string, unknown>[]>([]);
+  const listening = useRef(false);
+
+  const post = useCallback((message: Record<string, unknown>) => {
+    const target = frame.current?.contentWindow;
+    if (!target || !listening.current) {
+      queued.current.push(message);
+      if (queued.current.length > PENDING_CAP) queued.current.splice(0, queued.current.length - PENDING_CAP);
+      return;
+    }
+    target.postMessage({ channel: DRAWING_CHANNEL, ...message }, window.location.origin);
+  }, []);
+
+  const flush = useCallback(() => {
+    const target = frame.current?.contentWindow;
+    if (!target) return;
+    listening.current = true;
+    const held = queued.current;
+    queued.current = [];
+    for (const message of held) {
+      target.postMessage({ channel: DRAWING_CHANNEL, ...message }, window.location.origin);
+    }
+  }, []);
+
+  /*
+    Elements from a peer, straight into the canvas.
+
+    This console never merges them and holds no second copy of the scene: the
+    reconciliation is Excalidraw's `reconcileElements`, which lives in the page
+    because Excalidraw does. What arrives here is relayed and forgotten.
+  */
+  useEffect(() => {
+    if (!collaboration) return;
+    return collaboration.onRemoteElements((elements) => {
+      if (elements.length > 0) post({ type: "remote", elements });
+    });
+  }, [collaboration, post]);
+
+  useEffect(() => {
+    if (!collaboration) return;
+    return collaboration.onPeers((peers) => post({ type: "peers", peers }));
+  }, [collaboration, post]);
+
+  /*
+    The room asked for a compaction, which for a canvas means the whole scene —
+    and the console does not have it as elements, only as file bytes. So the
+    scene is read back out of the newest bytes the caller holds, which is what
+    every save has already been spliced into.
+  */
+  useEffect(() => {
+    if (!collaboration) return;
+    return collaboration.onCompactRequest(() => {
+      const scene = parseDrawing(latest.current, path);
+      collaboration.compact(scene.elements ?? []);
+    });
+  }, [collaboration, path]);
+
   const send = useCallback(() => {
     const target = frame.current?.contentWindow;
     if (!target) return;
@@ -110,10 +212,11 @@ export function DrawingEditor({
         appState: drawing.appState,
         theme: scheme,
         editable: canEdit,
+        collaborating: collaboration !== undefined,
       },
       window.location.origin
     );
-  }, [drawing, scheme, canEdit]);
+  }, [drawing, scheme, canEdit, collaboration]);
 
   useEffect(() => {
     if (!show) return;
@@ -139,6 +242,9 @@ export function DrawingEditor({
         case "ready":
           setReady(true);
           send();
+          // Everything that arrived while the page was still loading, in the
+          // order it arrived, now that there is something listening for it.
+          flush();
           break;
         case "change": {
           const next = serializeDrawing(latest.current, message.elements as never[]);
@@ -147,6 +253,20 @@ export function DrawingEditor({
           if (next !== null && next !== latest.current) onChange(next);
           break;
         }
+        case "share":
+          /*
+            This person's own changed elements, on their way to the room.
+
+            Separate from `change` on purpose: `change` is "the drawing is now
+            this, save it" and fires for every reason, a peer's element
+            included. Sharing that would send every incoming element straight
+            back to the room it came from.
+          */
+          room.current?.share(message.elements);
+          break;
+        case "point":
+          room.current?.point(message.x, message.y, message.selected);
+          break;
         case "error":
           setFailed(true);
           break;
@@ -155,7 +275,7 @@ export function DrawingEditor({
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [show, send, onChange]);
+  }, [show, send, onChange, flush]);
 
   // Re-send when the theme or the caller's write access changes: the page holds
   // what it was given and has no way to ask again.

@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { usePresence } from "../../../../features/console/presence/usePresence";
+import { useNoteRoom } from "../../../../features/console/presence/useNoteRoom";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
 import {
   anchorFromQuery,
@@ -114,26 +114,31 @@ export default function ContextBrowseRoute() {
     capability the surface does not have is not passed, rather than passed and
     refused.
   */
-  const presence = usePresence({
+  const { presence, drawingCollaboration } = useNoteRoom({
     workspaceId: data.selectedContextId,
     endpoint: data.endpoint,
     notePath: data.files.editor.path,
+    conflicted: data.files.editor.status === "conflict",
     /*
-      Off for everything that is not a saved markdown note somebody is looking
-      at: a draft with no name yet has no path to key a room on, a locked note
-      is not being read, and a conflict is a decision the person owes before
-      anybody else's caret is worth drawing over it.
+      A function rather than a value: it is read once, by whichever client
+      arrives to an empty room, and passing the draft itself would re-open the
+      socket on every keystroke.
     */
-    enabled:
-      data.files.editor.status !== "conflict" &&
-      data.files.editor.path !== null &&
-      (data.files.editor.path ?? "").endsWith(".md"),
+    textForSeed: () => data.files.editor.draft,
+    /*
+      An MCP client wrote this note while it was open. Presence has already
+      merged that write into the shared document; what is left is the
+      bookkeeping, so the next save is checked against the version the tool
+      left rather than the one this editor opened.
+    */
+    onExternalWrite: data.files.onExternalWrite,
   });
 
   return (
     <BrowsePane
       data={data}
       presence={presence}
+      drawingCollaboration={drawingCollaboration}
       /*
         `setParams`, not a push of `settingsHref`: this route is already the
         context the gear belongs to, and building a fresh URL would drop the

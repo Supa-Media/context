@@ -9,25 +9,37 @@
  * fix: a room per note, a member per open editor, and a caret offset that moves
  * as somebody types.
  *
- * **No note text passes through here, and none ever should.** A client sends
- * two integers; the server relays two integers. That is not an optimisation, it
- * is what keeps this feature on the safe side of non-negotiable #1 without
- * arguing about it: the gateway already carries note content per request, and a
- * presence room deliberately adds no second place where it sits. When somebody
- * proposes merging edits through this channel, that is a different feature with
- * a different decision behind it (`docs/decisions/gateway-protocol.md`), and it
- * starts by admitting that this line is being crossed.
+ * ## Note text DOES pass through here now, and that was a decision
  *
- * ## The server cannot check an offset, and says so rather than pretending
+ * This module was built on "a client sends two integers; the server relays two
+ * integers", and that sentence is no longer true. Concurrent editing merges
+ * documents, and a document is text — so edits, snapshots and a tool's write
+ * all cross this channel, and the room's log holds them for as long as the
+ * room exists. The old comment promised a line this feature has since walked
+ * over, which is worse than no comment, so here is the line as it actually
+ * stands:
  *
- * A caret at offset 900 in a 400-character note is nonsense, and this module
- * cannot tell: it has never seen the note and is not going to read it to find
- * out. So offsets are bounded for sanity (`MAX_OFFSET`) and clamped to the
- * document by the *client* that draws them. A peer sending garbage offsets can
- * therefore make its own caret appear in a silly place in somebody else's
- * editor, and can do nothing else — no crash, no exception, no read. That is
- * the honest trade, and `clampToDocument` on the client is the half that makes
- * it harmless.
+ *  - **The room never decodes any of it.** Updates are opaque base64 in and
+ *    opaque base64 out; the room checks shape and size and relays. It cannot
+ *    read a note and has no code that could start.
+ *  - **The log is the shortest-lived copy in the system**, dropped when the
+ *    room empties, and it is a derivative of a bucket that already holds the
+ *    canonical note. Non-negotiable #3's terms, not an exception to them.
+ *  - **The bucket stays canonical.** Nothing here is the only copy of
+ *    anything, and the elected writer flushes the merged text back.
+ *
+ * `docs/decisions/gateway-protocol.md` carries the argument and what it costs.
+ *
+ * ## The server cannot check a caret, and says so rather than pretending
+ *
+ * A caret is an encoded *relative* position now rather than an integer offset,
+ * because an offset names a place in a document that is moving underneath it.
+ * Either way this module cannot check it: it has never seen the note and is
+ * not going to read one to find out. So a caret is bounded for size and shape
+ * and resolved by the *client* that draws it — a position that does not
+ * resolve is not drawn at all. A peer sending nonsense can therefore make its
+ * own caret disappear, and can do nothing else: no crash, no exception, no
+ * read.
  *
  * ## A member cannot name itself
  *
@@ -90,6 +102,30 @@ export const MEMBER_IDLE_MS = 45_000;
  * to make structurally impossible rather than merely discouraged.
  */
 export const MAX_CLIENT_FRAME_BYTES = 1024;
+
+/**
+ * The ceiling for a merge frame, which is a different size of thing.
+ *
+ * A caret is two integers. An *edit* is an encoded document update: a
+ * keystroke is tens of bytes, a paste is more, and a snapshot of a long note
+ * is larger again. So these get their own ceilings rather than sharing the
+ * caret's — and they are still ceilings, because the room relays whatever it
+ * is handed and an unbounded frame is somebody else's memory.
+ *
+ * The room never decodes either one. See `presenceRoom.js`.
+ */
+export const MAX_UPDATE_BYTES = 32 * 1024;
+export const MAX_SNAPSHOT_BYTES = 512 * 1024;
+
+/**
+ * How many updates a room keeps before it asks for a snapshot.
+ *
+ * The log is replayed to whoever joins, so it cannot grow for the life of a
+ * long editing session: a thousand keystrokes is a thousand entries and a slow
+ * join. Past this the room asks the client that has been there longest for a
+ * compacted snapshot and replaces the log with it.
+ */
+export const UPDATE_LOG_CAP = 400;
 
 /** Longer than any name the control plane will hand us; truncated, not refused. */
 export const MAX_DISPLAY_NAME = 64;
@@ -167,6 +203,12 @@ export function normalizeDisplayName(value) {
   return cleaned.length > MAX_DISPLAY_NAME ? cleaned.slice(0, MAX_DISPLAY_NAME) : cleaned;
 }
 
+/** An encoded relative position from a client, or `null` if it is not one. */
+export function relativePosition(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 4096) return null;
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : null;
+}
+
 /** An offset a client sent, made safe to relay, or `null` if it was not one. */
 export function normalizeOffset(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -187,7 +229,10 @@ export function normalizeOffset(value) {
  */
 export function decodeClientFrame(raw) {
   if (typeof raw !== "string") return { ok: false, reason: "not_text" };
-  if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
+  // The outer ceiling is the largest any frame may be; the per-type ceilings
+  // below are tighter and are what actually decide. Checked first and on the
+  // encoded length, so a frame is bounded before it is parsed.
+  if (frameBytes(raw) > MAX_SNAPSHOT_BYTES + 1024) return { ok: false, reason: "too_large" };
   let parsed;
   try {
     parsed = JSON.parse(raw);
@@ -198,10 +243,118 @@ export function decodeClientFrame(raw) {
     return { ok: false, reason: "not_object" };
   }
   if (parsed.t === "cursor") {
-    const anchor = normalizeOffset(parsed.a);
-    const head = normalizeOffset(parsed.h);
-    if (anchor === null || head === null) return { ok: false, reason: "bad_offset" };
+    // Same cap, checked before the branch returns. A caret frame that is not
+    // caret-sized is not a caret frame.
+    if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
+    /*
+      An encoded *relative* position now, rather than an integer offset: an
+      offset names a place in a document that is changing underneath it, so a
+      peer typing above your caret moved it without telling anybody. The room
+      still does not decode this — it checks the shape and relays it — and the
+      identity on the frame is still stamped here rather than claimed there.
+    */
+    const anchor = relativePosition(parsed.a);
+    const head = relativePosition(parsed.h);
     return { ok: true, msg: { t: "cursor", a: anchor, h: head } };
+  }
+  if (parsed.t === "ask") {
+    /*
+      **"Tell me what I am missing" — a read, and shaped like one.**
+
+      This carries a Yjs state vector: a summary of what this client already
+      has, which peers answer with the diff. It is a separate type from `y`
+      for two reasons, and both are load-bearing.
+
+      It is never logged. An `ask` describes one client's ignorance at one
+      moment and is meaningless to anybody replaying the room later, so
+      routing it through `y` filled the log with entries that convey no text
+      and counted them towards compaction.
+
+      And it does not need write authority. Asking a peer what a note says is
+      a read, and a read-only member holds exactly that — so gating it like an
+      edit left a reader unable to sync from anybody, dependent on whatever
+      the room's log happened to still hold.
+
+      Sized as an update rather than a snapshot: a state vector is a few bytes
+      per contributing client, never a document.
+    */
+    if (typeof parsed.d !== "string" || parsed.d.length === 0) {
+      return { ok: false, reason: "bad_update" };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(parsed.d)) return { ok: false, reason: "not_base64" };
+    if (frameBytes(parsed.d) > MAX_UPDATE_BYTES) return { ok: false, reason: "too_large" };
+    return { ok: true, msg: { t: "ask", d: parsed.d } };
+  }
+  if (parsed.t === "draw" || parsed.t === "drawsnap") {
+    /*
+      **A drawing changes by element, never as a file.**
+
+      `draw` carries the Excalidraw elements that changed — created, moved,
+      restyled, deleted (Excalidraw deletes by flag, so a deletion is an
+      ordinary element update) — and `drawsnap` carries the whole scene when
+      the room asks for a compaction. Both are base64 JSON that this room does
+      not parse, exactly like an edit to a note.
+
+      Treating the `.excalidraw.md` *file* as collaborative text instead would
+      merge two people's base64 payloads character by character, which produces
+      a payload that is neither person's drawing and very likely nobody's.
+      Elements reconcile; serialized scenes do not.
+
+      Both take the snapshot ceiling. A delta is usually a few hundred bytes,
+      but dragging a selection of a hundred shapes is one change to a hundred
+      elements, and a cap that refused that would refuse an ordinary gesture.
+    */
+    if (typeof parsed.d !== "string" || parsed.d.length === 0) {
+      return { ok: false, reason: "bad_update" };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(parsed.d)) return { ok: false, reason: "not_base64" };
+    if (frameBytes(parsed.d) > MAX_SNAPSHOT_BYTES) return { ok: false, reason: "too_large" };
+    return { ok: true, msg: { t: parsed.t, d: parsed.d } };
+  }
+  if (parsed.t === "y" || parsed.t === "snap") {
+    // Base64 of an encoded document update. Checked for *shape* and *size*
+    // only: the room does not decode it, cannot decode it, and must not start
+    // — see the header. An update that is malformed is somebody's own editor
+    // refusing it on the far side, which is where a document belongs.
+    if (typeof parsed.d !== "string" || parsed.d.length === 0) {
+      return { ok: false, reason: "bad_update" };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(parsed.d)) return { ok: false, reason: "not_base64" };
+    const cap = parsed.t === "snap" ? MAX_SNAPSHOT_BYTES : MAX_UPDATE_BYTES;
+    if (frameBytes(parsed.d) > cap) return { ok: false, reason: "too_large" };
+    return { ok: true, msg: { t: parsed.t, d: parsed.d } };
+  }
+  /*
+    **Everything that is not a merge frame is still a caret-sized frame.**
+
+    Raising the outer ceiling to admit a snapshot is what let these through: a
+    padded cursor frame of half a megabyte was accepted, because the only
+    tight caps were on the two new types. The two checks that caught it exist
+    precisely to stop somebody streaming bulk down this channel, so the cap is
+    reapplied here rather than the tests being taught to expect less.
+  */
+  if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
+  if (parsed.t === "pointer") {
+    /*
+      Where somebody's pointer is on a canvas, and what they have selected.
+
+      A caret in a note is one relative position; a pointer on a drawing is two
+      scene coordinates and a set of element ids. Numbers and ids only — never
+      an element, never a payload — and caret-sized by the ceiling above, which
+      is what keeps this from becoming a second channel for scene data.
+
+      Never logged: it describes where somebody's mouse is right now, which is
+      meaningless to anybody replaying the room later. And not gated on write
+      authority, because a read-only member watching a drawing being edited is
+      exactly the case presence exists for.
+    */
+    const x = Number(parsed.x);
+    const y = Number(parsed.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false, reason: "bad_pointer" };
+    const selected = Array.isArray(parsed.s)
+      ? parsed.s.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64).slice(0, 64)
+      : [];
+    return { ok: true, msg: { t: "pointer", x, y, s: selected } };
   }
   if (parsed.t === "ping") return { ok: true, msg: { t: "ping" } };
   if (parsed.t === "bye") return { ok: true, msg: { t: "bye" } };
@@ -234,7 +387,7 @@ export function createRoom() {
  * Returns the member, or a refusal. The caller supplies `id` and `name`; see
  * the header for why a client may supply neither.
  */
-export function admit(room, { id, name, colorSeed, now }) {
+export function admit(room, { id, name, colorSeed, canWrite, now }) {
   if (room.members.has(id)) return { ok: false, reason: "duplicate_id" };
   if (room.members.size >= MAX_MEMBERS_PER_ROOM) return { ok: false, reason: "room_full" };
   const member = {
@@ -246,6 +399,22 @@ export function admit(room, { id, name, colorSeed, now }) {
     // apparently leaving and a differently-coloured stranger arriving. A seed
     // long enough to be a payload is ignored rather than trusted.
     color: colorFor(usableSeed(colorSeed) ?? id),
+    /*
+      **Whether this member's edits would be accepted, on the roster.**
+
+      Not a decoration: every client elects one of its peers to write the
+      merged text back to the bucket, and that election has to land on
+      somebody whose writes the room will actually relay. Without this it ran
+      over the whole roster, so a room whose lowest member id belonged to a
+      read-only viewer elected that viewer — and then nobody saved, because
+      the one client that believed it was saving was the one the room refuses
+      edits from.
+
+      Decided by the route from the caller's grant and role and carried here;
+      never claimed by a client. It tells peers only who may edit a note they
+      can all already see.
+    */
+    w: canWrite === true,
     a: 0,
     h: 0,
     seen: now,
@@ -301,6 +470,7 @@ export function roster(room) {
     id: member.id,
     name: member.name,
     color: member.color,
+    w: member.w === true,
     a: member.a,
     h: member.h,
   }));

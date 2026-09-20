@@ -999,6 +999,22 @@ async function route(request, env, ctx) {
           ? (work) => ctx.waitUntil(deferredWork(work))
           : null;
 
+      /*
+        **The room to tell when a tool writes a note somebody has open.**
+
+        An MCP client writing `1-projects/foo.md` while two people are editing
+        it in the console is the case this product is for — the agent that
+        saves what a session decided, into a note somebody is reading. Without
+        this the console learns about that write at the next reload, or worse,
+        at the conflict its own save raises.
+
+        The binding rather than a room: which room depends on the note, and is
+        resolved at the moment of the write. Null on a deployment without
+        presence, where every tool behaves exactly as it did before this
+        existed.
+      */
+      store.presenceRooms = env.PRESENCE_ROOM ?? null;
+
       /**
        * Count a thing that happened, behind the response and never in front of
        * it.
@@ -1358,6 +1374,20 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
     JSON.stringify({
       name: presenceDisplayName(session),
       colorSeed: url.searchParams.get("seed"),
+      /*
+        **Whether this caller may change the note, decided here and only here.**
+
+        Opening the socket needs read: you have to be able to see a note to
+        watch somebody edit it. Changing it needs write, and the two are not
+        the same question — non-negotiable #4 says write access to somebody
+        else's context is never implied by read, and a `member` of a shared
+        context holds exactly that shape of grant.
+
+        Resolved from the already-clamped scope set, so a role that cannot
+        write cannot acquire it here, and sent to the room rather than trusted
+        from the client.
+      */
+      canWrite: hasScope(session, SCOPE_WRITE),
     }),
   );
   return await room.fetch(new Request(request.url, { method: "GET", headers }));
@@ -6672,6 +6702,9 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
     version: put.etag,
     visibility: desiredVisibility,
   });
+  // And anybody who has this note open right now, so an agent's write appears
+  // in their editor as it lands rather than as a conflict later.
+  await announceWriteToPresence(store, { path, content, etag: put.etag });
   // After the note is safely stored, never before: a response file for a note
   // whose own write then failed is a file referring to a form that does not
   // exist.
@@ -7512,6 +7545,64 @@ async function ensureFormResponseFiles(store, scope, rules, overrides, blocks, n
  * cover a transient provider refusal without inventing a second write format:
  * every attempt starts by deleting this path's prior rows.
  */
+/**
+ * Tell the note's presence room that a tool just changed it.
+ *
+ * ## Why the room, and not every client
+ *
+ * The room holds live sockets for the people with this note open. They are
+ * already editing one shared document, and the whole point of that document is
+ * that two edits to it merge instead of colliding. A write arriving from an
+ * MCP client is a third editor — so it joins the same document rather than
+ * landing underneath it as a surprise at save time.
+ *
+ * **Exactly one client merges it, and the room picks which.** Every client
+ * applying the same text to its own copy would produce the same characters
+ * inserted N times, because each copy would generate its own operations for
+ * them — a merge that duplicates the note is worse than no merge. The room
+ * knows which of its sockets holds write authority and can therefore have its
+ * merge accepted, so the room chooses, exactly as it chooses who seeds.
+ *
+ * ## What this is not
+ *
+ * Not a guarantee. A room nobody is in drops the notice; a room of read-only
+ * members has nobody who may merge and drops it too, and those clients see the
+ * write at their next reconnect. The canonical copy is in the bucket either
+ * way — this is a live view catching up faster, never the only path by which a
+ * change is recorded, and it cannot fail the write that triggered it.
+ */
+async function announceWriteToPresence(store, { path, content, etag }) {
+  const rooms = store.presenceRooms;
+  if (!rooms) return "off";
+  const workspaceId = store.actor?.workspaceId;
+  if (typeof workspaceId !== "string" || !workspaceId) return "off";
+
+  const run = async () => {
+    try {
+      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, path)));
+      await room.fetch("https://presence.invalid/external", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: content, etag: etag ?? null }),
+      });
+    } catch {
+      // A room that cannot be reached is a live view that refreshes a little
+      // later. The note is already in the customer's bucket.
+    }
+  };
+
+  if (typeof store.defer === "function") {
+    try {
+      store.defer(run());
+      return "deferred";
+    } catch {
+      // A host that refuses deferral runs it inline, below.
+    }
+  }
+  await run();
+  return "inline";
+}
+
 async function projectWrittenNoteAfterResponse(
   store,
   { path, content, version, visibility },

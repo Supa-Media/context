@@ -110,6 +110,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
+    onExternalWrite: noop,
     flushAutosave: () => false,
     discardLocalCopies: noop,
     encryptedElsewhere: noop,

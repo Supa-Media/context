@@ -40,6 +40,7 @@
  */
 
 import {
+  UPDATE_LOG_CAP,
   HEARTBEAT_MS,
   MEMBER_IDLE_MS,
   PRESENCE_PROTOCOL_VERSION,
@@ -73,6 +74,14 @@ export const CLOSE_REAUTHORIZE = 4001;
 /** The close code for "you are not welcome here", which a client must not retry. */
 export const CLOSE_REFUSED = 4003;
 
+/** A small JSON answer, since this object has no access to the worker's. */
+function json(body) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 export class PresenceRoom {
   constructor(state, env) {
     this.state = state;
@@ -89,6 +98,51 @@ export class PresenceRoom {
    * sends arrives over the socket, below, where it is treated as hostile.
    */
   async fetch(request) {
+    /*
+      **A tool wrote this note. One member is asked to merge it.**
+
+      Reachable only from inside this worker — a Durable Object is not
+      addressable from the internet — so the sole caller is the gateway, which
+      has just authorized and completed a write to exactly this note in exactly
+      this workspace. Nothing here re-authorizes, for the same reason the
+      socket route's `x-presence-member` header is trusted: there is no other
+      way in.
+
+      The text goes to **one** socket, not all of them. Every client applying
+      the same text to its own copy of the shared document would insert those
+      characters once per client, because each copy generates its own
+      operations for them. So the room picks the member who may actually have
+      a merge accepted — write authority, lowest id, the same rule the clients
+      use to choose who saves — and everybody else receives the merge as the
+      ordinary edit it becomes.
+    */
+    if (new URL(request.url).pathname === "/external") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      let notice;
+      try {
+        notice = await request.json();
+      } catch {
+        return new Response(null, { status: 400 });
+      }
+      if (!notice || typeof notice.text !== "string") {
+        return new Response(null, { status: 400 });
+      }
+      const merger = this.mergerSocket();
+      if (!merger) return json({ delivered: false });
+      try {
+        merger.send(
+          JSON.stringify({
+            t: "external",
+            text: notice.text,
+            etag: typeof notice.etag === "string" ? notice.etag : null,
+          }),
+        );
+      } catch {
+        return json({ delivered: false });
+      }
+      return json({ delivered: true });
+    }
+
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected a websocket upgrade", { status: 426 });
     }
@@ -110,6 +164,7 @@ export class PresenceRoom {
       id,
       name: intent.name,
       colorSeed: intent.colorSeed,
+      canWrite: intent.canWrite === true,
       now,
     });
     if (!seated.ok) {
@@ -131,9 +186,41 @@ export class PresenceRoom {
     // rather than on `this`.
     server.serializeAttachment({
       ...seated.member,
+      /*
+        Write authority, decided by the route from the caller's grant and role
+        and carried here. Never taken from the client: a socket that could
+        assert its own write access would make the scope check theatre.
+      */
+      canWrite: intent.canWrite === true,
+      eligibleToCompact: false,
       deadline: now + PRESENCE_SOCKET_MAX_MS,
     });
     this.state.acceptWebSocket(server);
+
+    /*
+      **Who puts the note into the shared document, decided here.**
+
+      A note starts as text in a bucket and exactly one client has to seed it.
+      Two clients seeding means the note contains itself twice; none seeding
+      means the shared document starts empty, and the client elected to save
+      then writes that emptiness over the customer's note — the same shape as
+      the snapshot bug below, arrived at from the other direction.
+
+      The client used to decide this by asking whether the roster in its own
+      welcome was empty. It never is: `admit` seats the member before `roster`
+      reads the room, so the first person to open a note is told about
+      themselves and concludes somebody was already here. Every unit test
+      agreed, because every unit test built the frame the way the client
+      expected it; two browsers on a real socket disagreed inside a second.
+
+      So the room answers it, because the room is the only party that can. It
+      holds both halves: whether anybody else is seated, and whether the log
+      about to be replayed already carries the document. A client alone in a
+      room whose log survived the last person leaving must not seed either —
+      the replay is about to hand it the text.
+    */
+    const log = await this.readLog();
+    const seed = room.members.size === 1 && log.length === 0;
 
     server.send(
       JSON.stringify({
@@ -144,9 +231,38 @@ export class PresenceRoom {
         idleMs: MEMBER_IDLE_MS,
         reconnectAfterMs: PRESENCE_SOCKET_MAX_MS,
         members: roster(room),
+        seed,
       }),
     );
     this.broadcast({ t: "join", member: publicMember(seated.member) }, server);
+
+    /*
+      The document so far, replayed in order.
+
+      This is why the room keeps a log at all. Somebody opening a note two
+      other people are already editing has to arrive at the text they can see,
+      and the only thing here that knows what that text is is the sequence of
+      updates that produced it. The room replays them, the client applies them,
+      and it lands where everybody else is.
+
+      After the welcome, so a client has its own identity before any edit
+      arrives, and in one frame rather than N so a join is one round trip.
+    */
+    if (log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
+
+    /*
+      This socket has now been handed everything the room holds, so a snapshot
+      from it later is a complete state and is safe to compact against.
+      A socket that joined before some entry cannot vouch for the entries it
+      never saw, and the room will not delete anything on its word.
+    */
+    server.serializeAttachment({
+      ...seated.member,
+      canWrite: intent.canWrite === true,
+      eligibleToCompact: true,
+      deadline: now + PRESENCE_SOCKET_MAX_MS,
+    });
+
     await this.ensureAlarm();
 
     return new Response(null, { status: 101, webSocket: client });
@@ -178,7 +294,136 @@ export class PresenceRoom {
       return;
     }
 
+    /*
+      **Write authority is checked on the frame, by the server.**
+
+      The route authorizes a *read* to open this socket, which is right — you
+      have to be able to see a note to watch somebody edit it. It is not
+      authority to change it. Without this line a `member` with read-only
+      access could send edits that every other client would apply and the
+      elected writer would flush to the bucket, which is non-negotiable #4
+      exactly: "write access to somebody else's context is never implied by
+      read".
+
+      Refused silently rather than with an error: a client that should not be
+      writing is either broken or hostile, and neither is owed a diagnostic.
+      Their own editor still shows their own typing; it simply reaches nobody.
+    */
+    if (
+      (decoded.msg.t === "y" ||
+        decoded.msg.t === "snap" ||
+        decoded.msg.t === "draw" ||
+        decoded.msg.t === "drawsnap") &&
+      !attachment.canWrite
+    ) {
+      return;
+    }
+
+    if (decoded.msg.t === "ask") {
+      /*
+        A joiner asking the room's peers what it is missing.
+
+        **Relayed as an `ask`, and that is the whole of a security fix.** This
+        used to broadcast it as a `y`, on the reasoning that a peer reads both
+        with the same protocol reader — which is exactly the problem: that
+        reader chooses between *answering* and *applying* on a type byte inside
+        the payload, and the payload comes from the sender. So an `ask` holding
+        an ordinary update was an edit by the member whose edits the gate above
+        had just refused, applied by every peer and flushed to the bucket by
+        the elected writer.
+
+        This room cannot tell the two apart and must not learn how: it has no
+        Yjs and the bytes are opaque by design. Keeping the *type* is what lets
+        the client tell them apart, by reading an `ask` with a reader that can
+        only produce an answer (`answerStateVector`).
+
+        Not appended to the log — see `decodeClientFrame` — and deliberately
+        above the write gate, because asking is a read.
+      */
+      this.broadcast({ t: "ask", d: decoded.msg.d }, ws);
+      return;
+    }
+
+    if (decoded.msg.t === "y") {
+      /*
+        One keystroke, on its way to everybody else.
+
+        Relayed immediately and with no batching: this frame is the whole of
+        why somebody sees a letter appear as it is typed rather than a second
+        later. Appended to the log first so a person joining mid-sentence gets
+        this character too, then sent to every socket but the sender's, who
+        already has it — applying your own keystroke twice is work for nothing.
+      */
+      this.broadcast({ t: "y", d: decoded.msg.d }, ws);
+      await this.appendUpdate(decoded.msg.d);
+      return;
+    }
+
+    if (decoded.msg.t === "snap") {
+      /*
+        **A snapshot appends. It does not replace, and it never did safely.**
+
+        The first version of this called `replaceLog`, and every client sent a
+        snapshot on connect — so the second person to open a note replaced the
+        room's whole history with their own *empty* document and destroyed what
+        the first person had written. The elected writer would then have
+        flushed that empty text to the bucket. It is the worst bug in this
+        feature's history and it was introduced by a fix for a smaller one.
+
+        So: snapshots are ordinary entries in an append-only log. A snapshot is
+        a complete state, so replaying it followed by later updates converges
+        to the same document either way — appending costs storage and is
+        incapable of losing text, while replacing is one bad frame away from
+        losing all of it.
+
+        Compaction is the *room's* decision, never a client's, and it is
+        handled in `checkpoint` below where eligibility is checked.
+      */
+      if (!attachment.canWrite) return;
+      this.broadcast({ t: "y", d: decoded.msg.d }, ws);
+      await this.appendUpdate(decoded.msg.d, { checkpoint: attachment.eligibleToCompact === true });
+      return;
+    }
+
+    if (decoded.msg.t === "draw" || decoded.msg.t === "drawsnap") {
+      /*
+        One shape moving, on its way to everybody else.
+
+        Relayed and logged exactly like a note edit, and for the same reason:
+        somebody joining mid-drag has to arrive at the canvas the others can
+        see, and the log is the only thing here that knows what that is.
+        Excalidraw reconciles the replay by element version, so applying the
+        same element twice is the same drawing — which is what makes an
+        append-only log safe for a scene as well as for text.
+
+        `drawsnap` is a complete scene and therefore a checkpoint, on the same
+        terms as `snap`: only from a socket the room has already handed
+        everything to.
+      */
+      this.broadcast({ t: "draw", d: decoded.msg.d }, ws);
+      await this.appendUpdate(decoded.msg.d, {
+        checkpoint: decoded.msg.t === "drawsnap" && attachment.eligibleToCompact === true,
+      });
+      return;
+    }
+
     const room = this.roomFromSockets();
+    if (decoded.msg.t === "pointer") {
+      /*
+        Where somebody is on the canvas. Relayed and dropped: never logged,
+        never stored on the attachment — a pointer is only interesting while
+        the person is still there, and the roster already carries a caret for
+        the note case.
+      */
+      touch(room, attachment.id, now);
+      ws.serializeAttachment({ ...attachment, seen: now });
+      this.broadcast(
+        { t: "pointer", id: attachment.id, x: decoded.msg.x, y: decoded.msg.y, s: decoded.msg.s },
+        ws,
+      );
+      return;
+    }
+
     if (decoded.msg.t === "ping") {
       touch(room, attachment.id, now);
       ws.serializeAttachment({ ...attachment, seen: now });
@@ -223,7 +468,74 @@ export class PresenceRoom {
       this.broadcast({ t: "leave", id });
     }
 
+    // Nobody left: the room's copy of the note goes, and the object with it.
+    if (await this.dropLogIfEmpty()) return;
+
     await this.ensureAlarm();
+  }
+
+  /* -------------------------------- the log ------------------------------- */
+
+  /**
+   * Every update this room has relayed, oldest first.
+   *
+   * In Durable Object storage rather than memory, because hibernation evicts
+   * memory and somebody rejoining must not find the last ten minutes of
+   * everybody's typing gone. Keys are zero-padded so a lexicographic `list`
+   * returns them in arrival order, which is the order they must be applied in.
+   *
+   * **This is the one place in the feature where note content is durable
+   * outside the customer's bucket**, and it is deliberately the shortest-lived
+   * copy in the system: the client elected to save writes the merged text to
+   * the bucket on a debounce, and the log is dropped once the room empties.
+   * `docs/decisions/gateway-protocol.md` states what that costs.
+   */
+  async readLog() {
+    const stored = await this.state.storage.list({ prefix: "u:" });
+    return [...stored.values()];
+  }
+
+  /**
+   * Add one entry to the log.
+   *
+   * `checkpoint` says this entry is a complete state from a client the room
+   * knows has seen everything before it, so everything before it can go. That
+   * is the only path by which anything is ever deleted from the log, and the
+   * delete happens *after* the write, so a failure between them leaves a
+   * longer log rather than a shorter one.
+   */
+  async appendUpdate(update, { checkpoint = false } = {}) {
+    const seq = ((await this.state.storage.get("seq")) ?? 0) + 1;
+    const key = `u:${String(seq).padStart(9, "0")}`;
+    await this.state.storage.put({ [key]: update, seq });
+    if (checkpoint) await this.dropLogBefore(key);
+    else if (seq % 50 === 0) await this.askForSnapshotIfLong();
+  }
+
+  /** Everything before a confirmed checkpoint, which is now redundant. */
+  async dropLogBefore(key) {
+    const existing = await this.state.storage.list({ prefix: "u:", end: key });
+    if (existing.size === 0) return;
+    await this.state.storage.delete([...existing.keys()]);
+  }
+
+  /**
+   * Ask somebody to compact, once the log is long enough to slow a join.
+   *
+   * The *oldest* socket, because it has been applying updates longest and is
+   * likeliest to hold the whole document. Asked rather than told: a client
+   * that ignores this costs a slower join and nothing else.
+   */
+  async askForSnapshotIfLong() {
+    const entries = await this.state.storage.list({ prefix: "u:" });
+    if (entries.size < UPDATE_LOG_CAP) return;
+    const sockets = this.state.getWebSockets();
+    if (sockets.length === 0) return;
+    try {
+      sockets[0].send(JSON.stringify({ t: "compact" }));
+    } catch {
+      // The next fifty updates ask again.
+    }
   }
 
   /* ------------------------------ internals ------------------------------ */
@@ -244,12 +556,41 @@ export class PresenceRoom {
         id: attachment.id,
         name: attachment.name,
         color: attachment.color,
+        w: attachment.canWrite === true,
         a: attachment.a ?? 0,
         h: attachment.h ?? 0,
         seen: attachment.seen ?? 0,
       });
     }
     return room;
+  }
+
+  /**
+   * The one member asked to merge a write that came from outside the room.
+   *
+   * Write authority first, because a merge from a socket that cannot write is
+   * refused by `webSocketMessage` and would be a merge that silently reached
+   * nobody — the room would have handed the note's new text to the one client
+   * guaranteed not to be able to share it. Then the lowest member id, so the
+   * choice is stable across notices and matches the rule the clients already
+   * use to elect whoever saves.
+   *
+   * Null when nobody in the room may write, which is a real state and not an
+   * error: those clients see the change at their next reconnect.
+   */
+  mergerSocket() {
+    let best = null;
+    let bestId = null;
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = ws.deserializeAttachment();
+      if (!attachment || attachment.canWrite !== true) continue;
+      if (typeof attachment.id !== "string") continue;
+      if (bestId === null || attachment.id < bestId) {
+        best = ws;
+        bestId = attachment.id;
+      }
+    }
+    return best;
   }
 
   broadcast(message, except) {
@@ -272,6 +613,29 @@ export class PresenceRoom {
     const room = this.roomFromSockets();
     forget(room, attachment.id);
     this.broadcast({ t: "leave", id: attachment.id }, ws);
+  }
+
+  /**
+   * The last person left, so the room's copy of the note goes.
+   *
+   * Review found this missing: the header claimed the log is "dropped once the
+   * room empties" and nothing dropped it, so note content stayed in Durable
+   * Object storage indefinitely — a second durable copy outside the customer's
+   * bucket, which is the one cost this design is supposed to bound. A retention
+   * policy nobody implemented is not a policy, it is a sentence.
+   *
+   * Only when the room is genuinely empty, and only after the flush has had
+   * its chance: the elected writer saves on a debounce while connected, and a
+   * room that is emptying has just lost that client. So this runs on the sweep
+   * rather than on the close, which gives the write time to land and means a
+   * reconnect within the window finds its document still here.
+   */
+  async dropLogIfEmpty() {
+    if (this.state.getWebSockets().length > 0) return false;
+    const entries = await this.state.storage.list({ prefix: "u:" });
+    if (entries.size === 0) return false;
+    await this.state.storage.deleteAll();
+    return true;
   }
 
   dropSocket(ws, code, reason) {
@@ -297,9 +661,18 @@ export class PresenceRoom {
   }
 
   async ensureAlarm() {
-    // An object with nobody in it sets no alarm, so an empty room costs nothing
-    // and is evicted rather than waking on a timer forever.
-    if (this.state.getWebSockets().length === 0) return;
+    /*
+      An object with nobody in it and nothing stored sets no alarm, so an empty
+      room costs nothing and is evicted rather than waking forever.
+
+      The storage check is not redundant: without it, the last socket closing
+      cancels the sweep that would have deleted the log, and the note's content
+      sits in Durable Object storage with nothing scheduled to ever remove it.
+    */
+    if (this.state.getWebSockets().length === 0) {
+      const entries = await this.state.storage.list({ prefix: "u:", limit: 1 });
+      if (entries.size === 0) return;
+    }
     const existing = await this.state.storage.getAlarm();
     if (existing === null || existing === undefined) {
       await this.state.storage.setAlarm(Date.now() + PRESENCE_SWEEP_MS);
@@ -309,5 +682,12 @@ export class PresenceRoom {
 
 /** What a peer is told about another member. Never the heartbeat clock. */
 function publicMember(member) {
-  return { id: member.id, name: member.name, color: member.color, a: member.a, h: member.h };
+  return {
+    id: member.id,
+    name: member.name,
+    color: member.color,
+    w: member.w === true,
+    a: member.a,
+    h: member.h,
+  };
 }

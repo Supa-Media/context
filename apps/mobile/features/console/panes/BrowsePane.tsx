@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Presence } from "../presence/usePresence";
+import type { DrawingCollaboration } from "../files/drawingCollaboration";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { FrameIconButton } from "../../app/AppFrame";
 import { useConsoleNav } from "../ConsoleNavContext";
@@ -96,6 +97,7 @@ import { SetupPrompt } from "../setup/SetupPrompt";
 export function BrowsePane({
   data,
   presence,
+  drawingCollaboration,
   /**
    * Opens this context's settings. Absent where there is nowhere to go, and the
    * control is then not rendered rather than rendered dead.
@@ -112,6 +114,8 @@ export function BrowsePane({
    * and the chip and the carets are then not drawn rather than drawn empty.
    */
   presence?: Presence;
+  /** The live room behind an open canvas, when there is one. */
+  drawingCollaboration?: DrawingCollaboration;
   data: ConsoleData;
   /**
    * Optionally at a named section — which is what lets a control deep-link to
@@ -1268,6 +1272,7 @@ export function BrowsePane({
         canEdit={files.canEdit}
         reading={reading}
         presence={presence}
+        drawingCollaboration={drawingCollaboration}
         /*
           `activity.md` is drawn as a list rather than as its own source — see
           `ActivityPage`. Passed from here because this is where the console's

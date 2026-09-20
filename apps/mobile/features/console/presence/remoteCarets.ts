@@ -29,6 +29,8 @@ import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { clampToDocument, type PresenceMember } from "./protocol";
+import { cursorOffset } from "./sync";
+import type * as Y from "yjs";
 import { darkColors } from "../../design/tokens";
 
 /** Replace the whole roster. Nothing here merges: the reducer already did. */
@@ -93,12 +95,27 @@ export function buildCaretDecorations(
   docLength: number,
   now: number,
   lastMoved: Map<string, number>,
+  /**
+   * Resolves a peer's relative position into an offset in *this* document.
+   *
+   * Absent in the tests that only care about geometry, and then a member whose
+   * position cannot be resolved is simply not drawn — which is also the
+   * behaviour when a peer's caret refers to text this client has not received
+   * yet, and is why this returns `null` rather than guessing at zero.
+   */
+  resolve?: (encoded: string) => number | null,
 ): DecorationSet {
   const ranges: { from: number; to: number; deco: Decoration }[] = [];
 
   for (const member of members) {
-    const anchor = clampToDocument(member.anchor, docLength);
-    const head = clampToDocument(member.head, docLength);
+    const rawAnchor = member.anchor === null ? null : (resolve?.(member.anchor) ?? null);
+    const rawHead = member.head === null ? null : (resolve?.(member.head) ?? null);
+    // A caret whose position this document cannot place is not drawn at all.
+    // Drawing it at zero would put somebody's name at the top of the note and
+    // claim they are there.
+    if (rawHead === null) continue;
+    const anchor = clampToDocument(rawAnchor ?? rawHead, docLength);
+    const head = clampToDocument(rawHead, docLength);
     const from = Math.min(anchor, head);
     const to = Math.max(anchor, head);
 
@@ -183,10 +200,40 @@ const caretState = StateField.define<CaretState>({
   },
 });
 
-const caretDecorations = EditorView.decorations.compute([caretState, "doc"], (state) => {
-  const held = state.field(caretState);
-  return buildCaretDecorations(held.members, state.doc.length, Date.now(), held.lastMoved);
+/**
+ * The document carets are resolved against, set when the room binds.
+ *
+ * A relative position is meaningless without the document it refers to, so the
+ * extension needs the `Y.Doc` to draw anything at all. Held in a `StateField`
+ * alongside the roster rather than captured in a closure, for the reason the
+ * roster is: the editor is built before the room answers.
+ */
+export const setCaretDocument = StateEffect.define<Y.Doc | null>();
+
+const caretDocument = StateField.define<Y.Doc | null>({
+  create: () => null,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setCaretDocument)) return effect.value;
+    }
+    return value;
+  },
 });
+
+const caretDecorations = EditorView.decorations.compute(
+  [caretState, caretDocument, "doc"],
+  (state) => {
+    const held = state.field(caretState);
+    const doc = state.field(caretDocument);
+    return buildCaretDecorations(
+      held.members,
+      state.doc.length,
+      Date.now(),
+      held.lastMoved,
+      doc === null ? undefined : (encoded) => cursorOffset(encoded, doc),
+    );
+  },
+);
 
 /**
  * Repaint once a label is due to fade.
@@ -264,5 +311,5 @@ export type Reporter = (anchor: number, head: number) => void;
 
 /** The whole extension, for `editorExtensions` to include. */
 export function remoteCarets(): Extension {
-  return [caretState, caretDecorations, caretLabelTimer, caretTheme];
+  return [caretState, caretDocument, caretDecorations, caretLabelTimer, caretTheme];
 }

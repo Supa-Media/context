@@ -26,11 +26,22 @@
  *
  * Console → editor:
  *   `load`   — here are the elements to edit, and the theme to draw them in.
+ *   `remote` — somebody else changed these elements; reconcile them in.
+ *   `peers`  — who else is on this canvas and where their pointers are.
  *
  * Editor → console:
  *   `ready`  — the page booted and is waiting for `load`.
  *   `change` — the elements changed; here they are.
+ *   `share`  — these elements changed *locally*; put them on the wire.
+ *   `point`  — this person's pointer moved on the canvas.
  *   `error`  — the editor could not start. The console falls back to the view.
+ *
+ * `share` is separate from `change` and the split is the point. `change` is
+ * "the drawing is now this, save it", fired for every reason including a
+ * remote element arriving; `share` is "this person did this, tell the others",
+ * and it carries only what they changed. Collapsing them would echo every
+ * incoming element straight back to the room it came from, which is a loop
+ * that ends when somebody closes the tab.
  *
  * `change` carries elements rather than a file, and that is deliberate: the
  * editor never sees the customer's Markdown. Splicing the elements back into
@@ -43,17 +54,38 @@
 export type FromEditor =
   | { type: "ready" }
   | { type: "change"; elements: unknown[] }
+  /** Elements this person just changed, for the room. Never remote ones. */
+  | { type: "share"; elements: unknown[] }
+  /** Where this person's pointer is, in scene coordinates, and what they hold. */
+  | { type: "point"; x: number; y: number; selected: string[] }
   | { type: "error"; reason: string };
 
 /** Every message the console may send. */
-export type ToEditor = {
-  type: "load";
-  elements: unknown[];
-  appState: Record<string, unknown> | null;
-  theme: "light" | "dark";
-  /** False for a reader: the canvas loads, and nothing can be changed. */
-  editable: boolean;
-};
+export type ToEditor =
+  | {
+      type: "load";
+      elements: unknown[];
+      appState: Record<string, unknown> | null;
+      theme: "light" | "dark";
+      /** False for a reader: the canvas loads, and nothing can be changed. */
+      editable: boolean;
+      /**
+       * Whether anybody else could be on this canvas.
+       *
+       * Passed to Excalidraw as `isCollaborating`, which is what makes its
+       * undo stack behave: in a collaborative scene, undo reverts what *this*
+       * person did rather than the last thing that happened to the document,
+       * so undoing does not take back somebody else's rectangle.
+       */
+      collaborating: boolean;
+    }
+  /** Elements from somebody else, to reconcile into the local scene. */
+  | { type: "remote"; elements: unknown[] }
+  /** Who else is here, and where their pointers are. */
+  | {
+      type: "peers";
+      peers: { id: string; name: string; color: string | null; x: number; y: number; selected: string[] }[];
+    };
 
 /**
  * The channel name, carried on every message in both directions.
@@ -102,6 +134,17 @@ export function readFromEditor(
       return { type: "ready" };
     case "change":
       return Array.isArray(message.elements) ? { type: "change", elements: message.elements } : null;
+    case "share":
+      return Array.isArray(message.elements) ? { type: "share", elements: message.elements } : null;
+    case "point": {
+      const x = Number(message.x);
+      const y = Number(message.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      const selected = Array.isArray(message.selected)
+        ? message.selected.filter((id): id is string => typeof id === "string").slice(0, 64)
+        : [];
+      return { type: "point", x, y, selected };
+    }
     case "error":
       return { type: "error", reason: typeof message.reason === "string" ? message.reason : "unknown" };
     default:
@@ -115,7 +158,41 @@ export function readToEditor(data: unknown, origin: string, expectedOrigin: stri
   if (!data || typeof data !== "object") return null;
 
   const message = data as Envelope;
-  if (message.channel !== DRAWING_CHANNEL || message.type !== "load") return null;
+  if (message.channel !== DRAWING_CHANNEL) return null;
+
+  if (message.type === "remote") {
+    return Array.isArray(message.elements) ? { type: "remote", elements: message.elements } : null;
+  }
+
+  if (message.type === "peers") {
+    if (!Array.isArray(message.peers)) return null;
+    const peers = [];
+    for (const raw of message.peers) {
+      if (!raw || typeof raw !== "object") continue;
+      const peer = raw as Record<string, unknown>;
+      if (typeof peer.id !== "string" || peer.id.length === 0) continue;
+      const x = Number(peer.x);
+      const y = Number(peer.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      peers.push({
+        id: peer.id,
+        name: typeof peer.name === "string" ? peer.name : "Someone",
+        // A colour is drawn into somebody's canvas, so it is checked here for
+        // the same reason `protocol.ts` checks one: `null` lets the page pick.
+        color: typeof peer.color === "string" && /^#[0-9a-fA-F]{6}$/.test(peer.color)
+          ? peer.color
+          : null,
+        x,
+        y,
+        selected: Array.isArray(peer.selected)
+          ? peer.selected.filter((id): id is string => typeof id === "string").slice(0, 64)
+          : [],
+      });
+    }
+    return { type: "peers", peers };
+  }
+
+  if (message.type !== "load") return null;
   if (!Array.isArray(message.elements)) return null;
 
   return {
@@ -127,6 +204,7 @@ export function readToEditor(data: unknown, origin: string, expectedOrigin: stri
         : null,
     theme: message.theme === "dark" ? "dark" : "light",
     editable: message.editable === true,
+    collaborating: message.collaborating === true,
   };
 }
 

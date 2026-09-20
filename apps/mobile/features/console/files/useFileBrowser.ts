@@ -700,6 +700,21 @@ export function useFileBrowser(options: {
     if (editorRef.current.path !== done.to) return;
     dispatch({ type: "rebased", from: opFromEtag.current.get(done.id) ?? null, etag: done.etag });
   }, []);
+  /**
+   * A tool wrote the open note, and presence has already merged the shared
+   * document onto it.
+   *
+   * The etag moves so this client's next conditional save is checked against
+   * the version the tool left rather than the one the editor opened — which
+   * would otherwise be a conflict raised about a change already merged into
+   * the text being saved. Everything else about the editor is untouched: the
+   * draft is the merge, and it is still unsaved.
+   */
+  const onExternalWrite = useCallback((written: { path: string; etag: string | null }) => {
+    if (written.etag === null) return;
+    dispatch({ type: "externalWrite", path: written.path, etag: written.etag });
+  }, []);
+
   /*
     The version each op was sent with, by id — what `rebased` compares the
     editor against. Recorded as ops are sent rather than read off the queue,
@@ -3885,6 +3900,7 @@ export function useFileBrowser(options: {
       editor,
       setDraft,
       save,
+      onExternalWrite,
       applyPluginNoteWrite,
       flushAutosave,
       discardLocalCopies,

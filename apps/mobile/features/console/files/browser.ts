@@ -266,6 +266,16 @@ export interface FileBrowser {
   setDraft: (text: string) => void;
   save: () => void;
   /**
+   * A tool wrote the open note, and the live room has already merged it.
+   *
+   * Moves the editor onto the version the write produced, so this client's
+   * next conditional save is checked against what is actually in the bucket
+   * rather than against the version it opened — which would be a conflict
+   * raised about a change already present in the text being saved. Nothing
+   * else moves: the draft is the merge, and it is still unsaved.
+   */
+  onExternalWrite: (written: { path: string; etag: string | null }) => void;
+  /**
    * Reflect a plugin write only when the open editor is still the clean,
    * exact version that write replaced; a newer or dirty draft always wins the
    * screen and reaches the ordinary conflict flow on save.

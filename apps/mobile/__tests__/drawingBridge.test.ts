@@ -79,6 +79,7 @@ describe("origin is checked before anything is read", () => {
     expect(readToEditor(load, OURS, OURS)).toEqual({
       type: "load",
       elements: [],
+      collaborating: false,
       appState: null,
       theme: "dark",
       editable: true,
@@ -159,17 +160,31 @@ describe("shape is checked, not cast", () => {
     expect(readFromEditor(envelope({ type: "save" }), OURS, OURS)).toBeNull();
   });
 
+  /** `readToEditor` answers a union now, and only `load` carries these. */
+  const loaded = (data: unknown) => {
+    const message = readToEditor(data, OURS, OURS);
+    return message && message.type === "load" ? message : null;
+  };
+
   test("editable defaults to false rather than to true", () => {
     // A `load` that says nothing about write access must not grant it.
     const load = { channel: DRAWING_CHANNEL, type: "load", elements: [], theme: "light" };
-    expect(readToEditor(load, OURS, OURS)?.editable).toBe(false);
+    expect(loaded(load)?.editable).toBe(false);
     // And a truthy non-`true` value is not `true`.
-    expect(readToEditor({ ...load, editable: "yes" }, OURS, OURS)?.editable).toBe(false);
+    expect(loaded({ ...load, editable: "yes" })?.editable).toBe(false);
   });
 
   test("an unknown theme falls back to light rather than to undefined", () => {
     const load = { channel: DRAWING_CHANNEL, type: "load", elements: [], theme: "neon" };
-    expect(readToEditor(load, OURS, OURS)?.theme).toBe("light");
+    expect(loaded(load)?.theme).toBe("light");
+  });
+
+  test("collaborating defaults to false, so undo stays ordinary when alone", () => {
+    // `isCollaborating` changes how Excalidraw's history behaves. A `load`
+    // that does not ask for that must not get it.
+    const load = { channel: DRAWING_CHANNEL, type: "load", elements: [], theme: "light" };
+    expect(loaded(load)?.collaborating).toBe(false);
+    expect(loaded({ ...load, collaborating: true })?.collaborating).toBe(true);
   });
 });
 

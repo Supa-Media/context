@@ -125,6 +125,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The advertised `inputSchema` is enforced, and it is enforced in one place
 - Reach is described from the clamp that will decide it, on both surfaces
 - The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
+- Presence is a read that happens to be a socket
+- Phase 2: the room carries the document, and what that spends
+- A drawing merges by element, and by Excalidraw's own rules
 
 ## [Markdown forms](./forms.md)
 

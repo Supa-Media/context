@@ -340,6 +340,7 @@ function browser(
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
+    onExternalWrite: noop,
     flushAutosave: () => false,
     discardLocalCopies: record("discardLocalCopies"),
     encryptedElsewhere: record("encryptedElsewhere"),

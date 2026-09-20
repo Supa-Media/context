@@ -311,7 +311,7 @@ importers:
         version: 15.0.11(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))
       posthog-js:
         specifier: ^1.429.2
-        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0)
+        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0)
       posthog-react-native:
         specifier: ^4.68.6
         version: 4.68.9(ohiom62wyrczzcsohh7isxq75a)
@@ -354,6 +354,15 @@ importers:
       react-native-worklets:
         specifier: 0.5.1
         version: 0.5.1(@babel/core@7.29.7)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      y-codemirror.next:
+        specifier: ^0.3.6
+        version: 0.3.6(@codemirror/state@6.7.1)(@codemirror/view@6.43.9)(yjs@13.6.32)
+      y-protocols:
+        specifier: ^1.0.7
+        version: 1.0.7(yjs@13.6.32)
+      yjs:
+        specifier: ^13.6.32
+        version: 13.6.32
     devDependencies:
       '@eslint/js':
         specifier: ^8.57.1
@@ -5884,6 +5893,9 @@ packages:
     resolution: {integrity: sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw==}
     engines: {node: '>=20'}
 
+  isomorphic.js@0.2.5:
+    resolution: {integrity: sha512-PIeMbHqMt4DnUP3MA/Flc0HElYjMXArsw1qwJZcm9sqR8mq3l8NYizFMty0pWwE/tzIGH3EKK5+jes5mAr85yw==}
+
   istanbul-lib-coverage@3.2.2:
     resolution: {integrity: sha512-O8dpsF+r0WV/8MNRKfnmrtCWhuKjxrq2w+jpzBL5UZKTi2LeVWnWOmWRxFlesJONmc+wLAGvKQZEOanko0LFTg==}
     engines: {node: '>=8'}
@@ -6191,6 +6203,11 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
+
+  lib0@0.2.117:
+    resolution: {integrity: sha512-DeXj9X5xDCjgKLU/7RR+/HQEVzuuEUiwldwOGsHK/sfAfELGWEyTcf0x+uOvCvK3O2zPmZePXWL85vtia6GyZw==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   lighthouse-logger@1.4.2:
     resolution: {integrity: sha512-gPWxznF6TKmUHrOQjlVo2UbaL2EJ71mb2CCeRs/2qBpi4L/g4LUVc9+3lKQ6DTUZwJswfM7ainGrLO1+fOqa2g==}
@@ -8389,6 +8406,19 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
+  y-codemirror.next@0.3.6:
+    resolution: {integrity: sha512-GnmVXhTe+UtoFbbaSdwhq6gdAQZdIY9az0Xj6HR2J4PO6Yw4w3xaaSssU+6T72WhXAI0wf9FbuY2s0Ms+WrexA==}
+    peerDependencies:
+      '@codemirror/state': ^6.0.0
+      '@codemirror/view': ^6.0.0
+      yjs: ^13.5.6
+
+  y-protocols@1.0.7:
+    resolution: {integrity: sha512-YSVsLoXxO67J6eE/nV4AtFtT3QEotZf5sK5BHxFBXso7VDUT3Tx07IfA6hsu5Q5OmBdMkQVmFZ9QOA7fikWvnw==}
+    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
+    peerDependencies:
+      yjs: ^13.0.0
+
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
     engines: {node: '>=10'}
@@ -8418,6 +8448,10 @@ packages:
 
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
+
+  yjs@13.6.32:
+    resolution: {integrity: sha512-lfiJIIC4Xayt5ItynE407ehlE03pCjeOc4hkR4yxxvvNJ4kuiN25B0g+Qp8XagYz361LLL7DCzR5bvFJ81QKtQ==}
+    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
 
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
@@ -14438,6 +14472,8 @@ snapshots:
 
   isexe@4.0.0: {}
 
+  isomorphic.js@0.2.5: {}
+
   istanbul-lib-coverage@3.2.2: {}
 
   istanbul-lib-instrument@5.2.1:
@@ -14963,6 +14999,10 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
+
+  lib0@0.2.117:
+    dependencies:
+      isomorphic.js: 0.2.5
 
   lighthouse-logger@1.4.2:
     dependencies:
@@ -16090,7 +16130,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0):
+  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0):
     dependencies:
       '@posthog/browser-common': 0.8.2
       '@posthog/core': 1.53.1
@@ -16098,7 +16138,7 @@ snapshots:
       core-js: 3.50.0
       dompurify: 3.4.15
       fflate: 0.4.9
-      preact: 10.29.8(preact-render-to-string@6.5.11)
+      preact: 10.29.8(preact-render-to-string@6.5.11(preact@10.24.3))
       query-selector-shadow-dom: 1.0.1
       web-vitals: 6.2.1
       web-vitals-soft-navs: web-vitals@6.2.1
@@ -16132,16 +16172,11 @@ snapshots:
     dependencies:
       preact: 10.24.3
 
-  preact-render-to-string@6.5.11(preact@10.29.8):
-    dependencies:
-      preact: 10.29.8(preact-render-to-string@6.5.11)
-    optional: true
-
   preact@10.24.3: {}
 
-  preact@10.29.8(preact-render-to-string@6.5.11):
+  preact@10.29.8(preact-render-to-string@6.5.11(preact@10.24.3)):
     optionalDependencies:
-      preact-render-to-string: 6.5.11(preact@10.29.8)
+      preact-render-to-string: 6.5.11(preact@10.24.3)
 
   prelude-ls@1.2.1: {}
 
@@ -17483,6 +17518,18 @@ snapshots:
 
   xmlchars@2.2.0: {}
 
+  y-codemirror.next@0.3.6(@codemirror/state@6.7.1)(@codemirror/view@6.43.9)(yjs@13.6.32):
+    dependencies:
+      '@codemirror/state': 6.7.1
+      '@codemirror/view': 6.43.9
+      lib0: 0.2.117
+      yjs: 13.6.32
+
+  y-protocols@1.0.7(yjs@13.6.32):
+    dependencies:
+      lib0: 0.2.117
+      yjs: 13.6.32
+
   y18n@5.0.8: {}
 
   yallist@3.1.1: {}
@@ -17509,6 +17556,10 @@ snapshots:
     dependencies:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
+
+  yjs@13.6.32:
+    dependencies:
+      lib0: 0.2.117
 
   yocto-queue@0.1.0: {}
 

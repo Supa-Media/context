@@ -180,3 +180,39 @@ export declare function canSerializeDrawing(original: unknown): boolean;
 
 export declare function compressToBase64(input: string | null | undefined): string;
 export declare function decompressFromBase64(input: unknown): string | null;
+
+/** A version fingerprint of one element, as `changedElements` compares them. */
+export interface ElementVersion {
+  version: number;
+  nonce: number;
+}
+
+/**
+ * The elements new or changed since `seen` last recorded them. Does not mutate
+ * `seen` — call `remember` once the send has actually gone out.
+ */
+export declare function changedElements(
+  elements: readonly DrawingElement[],
+  seen: Map<string, ElementVersion>
+): DrawingElement[];
+
+/** Record elements as sent. Returns the same map. */
+export declare function remember(
+  elements: readonly DrawingElement[],
+  seen: Map<string, ElementVersion>
+): Map<string, ElementVersion>;
+
+/** A shallow shape check on something a peer sent, never a schema. */
+export declare function looksLikeElement(value: unknown): boolean;
+
+/**
+ * Elements to base64 JSON, UTF-8 safe.
+ *
+ * `unknown[]` rather than `DrawingElement[]`: this only serializes, and the
+ * console relays elements it deliberately does not model — the shape belongs
+ * to Excalidraw, and a type here would be this package claiming to know it.
+ */
+export declare function encodeElements(elements: readonly unknown[]): string;
+
+/** Base64 JSON back to elements; `[]` for anything that is not a list of them. */
+export declare function decodeElements(payload: string): DrawingElement[];
