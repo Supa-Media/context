@@ -15,7 +15,11 @@
  *  2. **A client cannot name itself, or pick its room.** The display name comes
  *     off the resolved session and the room key off the workspace that session
  *     resolved to, so a client that sends its own `x-presence-member` header or
- *     names another workspace in the URL gets neither.
+ *     names another workspace in the URL gets neither. "Off the session" is not
+ *     the end of that sentence, though, and the checks say which part of it:
+ *     the session carries every context the connection may address, and the
+ *     one that names the *person* is the personal one they own. A guest in
+ *     somebody else's personal context has the host's at the head of that set.
  *
  * The room itself is a Durable Object and there is no `WebSocketPair` in node,
  * so what runs here is the pure state module in full plus the route up to the
@@ -36,8 +40,28 @@
  *   `expire` never dropping an idle member                                       1
  *   `/presence` removed from `isTransportPath` (no origin check on the socket)   1
  *   room key built from a workspace named in the URL rather than the session's   0
+ *   `role === "owner"` dropped from `personalNameFor` (a guest is the host)     2
+ *   the client's registered name consulted before the verified handle           2
+ *   `kind === "personal"` dropped (a workspace slug labels a person)             2
+ *   the slug clause dropped (an absent handle becomes `@null`)                   1
  *
- * **The last row is why this discipline is worth the time.** Teaching the route
+ * The first two of those four share a fixture and therefore share their failures: the
+ * team connection's client is registered as `@presencetest`, the host's own
+ * handle, so a name that reaches the room from either the wrong context or the
+ * wrong field is the same string. That is the hostile case rather than a tidy
+ * one, and it is kept deliberately — a client that registers itself under the
+ * handle of the person whose note it is about to sit in is the thing being
+ * refused, and the two routes to it should both be red.
+ *
+ * The last two rows were **0** when first measured, because every fixture here
+ * was a caller in one context. `kind` is now covered by a caller who owns a
+ * *shared* context and a personal one, and the slug clause by a covered context
+ * the control plane returned no name for. Both were closed rather than recorded
+ * at zero: usernames and workspace slugs are one namespace, so `@sharedteam`
+ * and `@null` are both well-formed handles for people who do not exist.
+ *
+ * **The room-key row, still at 0, is why this discipline is worth the time.**
+ * Teaching the route
  * to read a workspace out of the query string reddened NOTHING: every tenancy
  * check here varied the *token*, so all of them passed while the URL quietly
  * picked the room. "Another workspace's token addresses its own room" is true
@@ -77,6 +101,8 @@ import {
 const OWNER_TOKEN = `cat_presence_owner_${"0".repeat(14)}`;
 const TEAM_TOKEN = `cat_presence_team_${"0".repeat(15)}`;
 const OTHER_TOKEN = `cat_presence_other_${"0".repeat(14)}`;
+const SHARED_TOKEN = `cat_presence_shared_${"0".repeat(13)}`;
+const NOHANDLE_TOKEN = `cat_presence_nohandle_${"0".repeat(11)}`;
 
 /** One team folder and one private note inside it, so a refusal is the rule. */
 const MANIFEST =
@@ -353,6 +379,37 @@ export async function runPresenceChecks(check) {
       capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
+    // The team connection's *own* personal context. `ws_presence` is somebody
+    // else's personal context that they were let into, which is the ordinary
+    // shape of "a person granting you access" and the one that decides whose
+    // handle a caret carries.
+    controlPlane.addWorkspace("ws_teamhome", "teamhome", {
+      provider: "r2-binding",
+      bindingName: "OTHER_BUCKET",
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      status: "active",
+    });
+    // A shared context this person owns, and their own personal one. Slugs and
+    // usernames are one namespace, so `@sharedteam` in a caret label is not
+    // distinguishable from a person of that name — a workspace slug must never
+    // be what labels a person.
+    controlPlane.addWorkspace(
+      "ws_shared",
+      "sharedteam",
+      {
+        provider: "r2-binding",
+        bindingName: "OTHER_BUCKET",
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+        status: "active",
+      },
+      { kind: "shared" },
+    );
+    controlPlane.addWorkspace("ws_ownhome", "ownhome", {
+      provider: "r2-binding",
+      bindingName: "OTHER_BUCKET",
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      status: "active",
+    });
     await controlPlane.addGrant({
       accessToken: OWNER_TOKEN,
       workspaceId: "ws_presence",
@@ -368,6 +425,10 @@ export async function runPresenceChecks(check) {
       scopes: ["context:read", "context:write"],
       clientId: "mcp_client_presence_team",
       userId: "user_presence_team",
+      // Asserted at registration by whoever registered the client, and shaped
+      // to be mistaken for the host's handle. It must lose to the verified one.
+      clientName: "@presencetest",
+      alsoMemberOf: [{ workspaceId: "ws_teamhome", role: "owner" }],
     });
     await controlPlane.addGrant({
       accessToken: OTHER_TOKEN,
@@ -376,6 +437,30 @@ export async function runPresenceChecks(check) {
       scopes: ["context:read", "context:write", "context:private"],
       clientId: "mcp_client_presence_other",
       userId: "user_presence_other",
+    });
+    // Approved against the shared context, so that is the head of the covered
+    // set — the same position `ws_presence` occupies for the guest above.
+    await controlPlane.addGrant({
+      accessToken: SHARED_TOKEN,
+      workspaceId: "ws_shared",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_presence_shared",
+      userId: "user_presence_shared",
+      alsoMemberOf: [{ workspaceId: "ws_ownhome", role: "owner" }],
+    });
+    // A control plane older than the slug field, or one that answered with a
+    // context it has no name for. `ws_nameless` is deliberately never added, so
+    // the stub reports it with a null slug exactly as `normalizeSession` would.
+    await controlPlane.addGrant({
+      accessToken: NOHANDLE_TOKEN,
+      workspaceId: "ws_shared",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_presence_nohandle",
+      userId: "user_presence_nohandle",
+      clientName: "Someone's Claude",
+      alsoMemberOf: [{ workspaceId: "ws_nameless", role: "owner" }],
     });
 
     bucket.seed("privacy.md", MANIFEST);
@@ -406,11 +491,45 @@ export async function runPresenceChecks(check) {
 
     const member = JSON.parse(rooms.calls.at(-1)?.member || "null");
     check(
-      "the member's name comes from the session, as their own handle",
-      // The acting person's handle is the slug of their personal workspace. The
-      // stub gives this grant none, so the check is that the name is derived
-      // rather than accepted: it is never the string the client sent.
-      typeof member?.name === "string" && member.name.length > 0,
+      "a guest's caret carries their own handle, not the host's",
+      // `ws_presence` is somebody else's *personal* context that this person
+      // was let into, so it is the first personal row in their covered set and
+      // it carries the host's slug. A caret labelled with it puts the guest in
+      // the room under the name of the person whose note it is — visible to
+      // that person, in their own note. The handle has to come from the one
+      // context in the set this caller actually owns.
+      member?.name === "@teamhome",
+    );
+    check(
+      "the client's registered name never stands in for a handle it does not have",
+      // `clientName` is asserted at an unauthenticated registration endpoint
+      // and decides nothing anywhere else. Shaped like a handle, it must still
+      // lose to the verified one.
+      member?.name !== "@presencetest",
+    );
+
+    const sharedJoin = await presenceRequest(env, SHARED_TOKEN, "?note=1-projects/roadmap.md");
+    check(
+      "a caret in a shared context is labelled with a person, never the context",
+      // The grant was approved against the shared context, so it heads this
+      // caller's covered set exactly as the host's personal one heads the
+      // guest's. Owning it is not being named by it: a workspace slug and a
+      // username come from one global namespace, so `@sharedteam` on a caret
+      // reads as a person who does not exist.
+      sharedJoin.status === 200 &&
+        JSON.parse(rooms.calls.at(-1)?.member || "null")?.name === "@ownhome",
+    );
+
+    const noHandle = await presenceRequest(env, NOHANDLE_TOKEN, "?note=1-projects/roadmap.md");
+    check(
+      "a caller the control plane gave no handle for is named by their client, not by @null",
+      // The slug is required by the schema, so this is what a control plane
+      // older than the field looks like rather than something a caller can
+      // arrange. What must not happen is a handle being *assembled* out of a
+      // missing one: `@null` is a well-formed handle in a namespace where
+      // usernames and workspace slugs are the same words.
+      noHandle.status === 200 &&
+        JSON.parse(rooms.calls.at(-1)?.member || "null")?.name === "Someone's Claude",
     );
     check("the colour seed is carried through", member?.colorSeed === "tab-a");
 
@@ -445,6 +564,13 @@ export async function runPresenceChecks(check) {
       // Non-vacuity for the two refusals above: the note is reachable by
       // somebody, so 404 is the rule and not a broken manifest.
       ownerJoins.status === 200,
+    );
+    check(
+      "the owner of a personal context is the one caret that carries its handle",
+      // The other half of the guest check, and the reason it cannot be passed
+      // by a function that has stopped producing handles at all: exactly one
+      // person in this workspace is `@presencetest`, and it is this one.
+      JSON.parse(rooms.calls.at(-1)?.member || "null")?.name === "@presencetest",
     );
 
     /* -- one tenant cannot reach another's room ---------------------------- */

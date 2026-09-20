@@ -1239,6 +1239,11 @@ export default {
  * member is set here after the client's own headers are copied, so a client
  * that sends `x-presence-member` has it overwritten rather than honoured.
  *
+ * "Taken from the resolved session" is half a sentence, and the other half is
+ * the part that was wrong once: the session carries every context this
+ * connection may *address*, and only one row of it names the person —
+ * see `personalNameFor`.
+ *
  * ## Groups are deliberately not passed to `canSee`
  *
  * Which means a note scoped to a group is, to this route, private — no room, no
@@ -1340,22 +1345,20 @@ async function objectExists(store, key) {
 /**
  * The name a caret is labelled with.
  *
- * A person's handle is the slug of their own personal workspace — the same
- * global namespace usernames and workspace slugs share — so the acting identity
- * already in the session answers this without a second control-plane round trip
- * and without a new field anywhere. Co-members of a shared context can already
- * address each other by that handle, so it discloses nothing new to the room.
+ * `personalNameFor` and nothing else, because a caret is a person and that
+ * function is where "which of these contexts *is* this person" is decided. A
+ * second copy of the predicate lived here and had two of its three clauses,
+ * which is the whole of the bug it caused: see that function.
  *
  * The client name is the fallback rather than the first choice: "@sayo's Claude"
- * describes a connection, and a caret belongs to a person.
+ * describes a connection, and a caret belongs to a person. It is asserted by
+ * whoever registered the client at an unauthenticated endpoint, so it is the
+ * last resort and is never allowed to displace a handle that was verified — nor
+ * to be assembled into one, which is why the fallback is reached whole rather
+ * than an absent slug being interpolated into `@${slug}`.
  */
 function presenceDisplayName(session) {
-  const personal = (session.workspaces || []).find(
-    (workspace) => workspace && workspace.kind === "personal" && workspace.slug,
-  );
-  if (personal) return `@${personal.slug}`;
-  if (session.actorClientName) return session.actorClientName;
-  return "Someone";
+  return personalNameFor(session) || session.actorClientName || "Someone";
 }
 
 /* ----------------------------- auth & scoping ----------------------------- */
@@ -2070,9 +2073,30 @@ function actorFor(session) {
  * claim to be from somebody else: `submitted_by` is stamped here, never taken
  * from an argument.
  *
+ * **All three clauses are load-bearing, and `role === "owner"` is the one that
+ * is easy to leave out.** `session.workspaces` is every context this connection
+ * may address, so a personal context in it is *not* evidence that it is this
+ * person's: a personal workspace "may gain more members when that person shares
+ * it" (`schema.ts`), and `contextsForGrant` puts the context the grant was
+ * approved against at the head of the set. A guest who connected to
+ * `/@alice/mcp` therefore has Alice's personal context first in their own
+ * covered set, and a copy of this predicate missing the role clause named that
+ * guest `@alice` — in Alice's note, to Alice. The role settles it because the
+ * control plane writes `role: "owner"` in exactly one place, when a workspace
+ * is created, for its creator, and an invitation can confer `editor` or
+ * `member` and nothing else: one member of a personal context is its owner, and
+ * that owner is the person its slug names.
+ *
+ * `kind === "personal"` is load-bearing for the same reason in the other
+ * direction. Usernames and workspace slugs are one global namespace, so a
+ * shared context's slug on a caret or a signature reads as a person who does
+ * not exist.
+ *
  * `null` for a connection whose person has no personal context — which is not
  * a state the product produces, but is one a self-hosted deployment or a stale
- * grant can, and the form tools refuse rather than invent a name.
+ * grant can, and the callers refuse or fall back rather than invent a name.
+ * Never `@null`: an absent slug is a missing handle, not a handle spelled
+ * "null", in a namespace where that is a word somebody could hold.
  */
 function personalNameFor(session) {
   const own = (session?.workspaces || []).find(
