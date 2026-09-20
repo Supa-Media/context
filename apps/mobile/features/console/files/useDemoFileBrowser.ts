@@ -240,6 +240,12 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       shares: undefined,
       share: noop,
       revokeShare: noop,
+      // The landing demo has no server. `ShareDialog` draws the short-link
+      // block only where a real one is wired, so this is never reached — and
+      // it answers `false` rather than `true` so that a future caller that
+      // did reach it would show the field keeping what was typed, which is
+      // the honest outcome of a claim that did not happen.
+      setShareSlug: async () => false,
       /*
         The landing page's console has no bucket and no clipboard promise to
         make. `false` is the honest answer and the one the dialog reads: it

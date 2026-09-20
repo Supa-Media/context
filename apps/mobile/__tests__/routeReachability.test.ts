@@ -229,6 +229,7 @@ describe("the guard can see", () => {
     expect(routes).toContain("/connect/dropbox");
     expect(routes).toContain("/note/[...address]");
     expect(routes).toContain("/s/[token]");
+    expect(routes).toContain("/[handle]/[slug]");
     expect(routes).toContain("/+not-found");
     // And the derivation itself, on the two shapes that are easy to get wrong:
     // a group segment is not in the URL, and `index` is its folder.
@@ -470,6 +471,15 @@ describe("every route is reachable, or says why not", () => {
     const exempt = ROUTE_REACHABILITY.filter((entry) => !entry.reachable);
     expect(exempt.map((entry) => entry.route).sort()).toEqual([
       "/+not-found",
+      /*
+        A short link, `/@seyi/intake`. Unreachable from inside the app by
+        construction and for the same reason `/s/[token]` is: it is a URL
+        somebody was handed, and the product that hands it out is the share
+        dialog rather than a rail entry. Reaching it from a menu would mean
+        the app knowing which names exist, which is the listing a share page
+        deliberately does not have.
+      */
+      "/[handle]/[slug]",
       "/admin",
       "/authorize",
       "/connect/dropbox",
