@@ -51,7 +51,7 @@ import {
   encodeUpdate,
   readSyncMessage,
 } from "./sync";
-import { decodeElements, encodeElements } from "@context/drawings";
+import { decodeElements, encodeElements, parseDrawing } from "@context/drawings";
 import {
   createSharedDoc,
   electWriter,
@@ -548,6 +548,29 @@ export function usePresence(options: {
               // A merge that throws leaves the document as it was, which is
               // still a document somebody is typing into. The bucket has the
               // tool's version either way.
+            }
+          } else if (mode === "drawing") {
+            /*
+              **The same write, arriving at a canvas.**
+
+              A tool writes a `.excalidraw.md` as a *file* — it is the only
+              shape `write_note` has — and this room merges elements, so the
+              text is parsed back into elements here and handed on exactly like
+              a peer's change. Without this the canvas adopted the version and
+              showed none of it: the etag moved, the drawing did not, and the
+              next save wrote the old shapes over the agent's.
+
+              Still one merger, for the reason above: the room picked this
+              client, and reconciliation by element version is what makes the
+              result the same on every screen.
+            */
+            try {
+              const parsed = parseDrawing(frame.text, path);
+              const elements = parsed.elements ?? [];
+              if (elements.length > 0) onDrawing.current?.(elements);
+            } catch {
+              // A drawing that will not parse is one the console could not
+              // have opened either. The bucket has the tool's version.
             }
           }
           onExternalWrite.current?.({ path, etag: frame.etag });

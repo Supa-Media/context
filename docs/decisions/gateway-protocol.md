@@ -673,6 +673,14 @@ which nobody may write has nobody who can merge and drops it too. Those clients
 see the write at their next reconnect, within the five-minute reauthorization
 window. The bucket had the change before the room heard about it.
 
+**A tool's write reaches a canvas too, by being parsed back into elements.**
+`write_note` has one shape — a file — so a `.excalidraw.md` arrives as text. The
+client the room asked to merge parses it and hands the elements on exactly like
+a peer's change, and reconciliation by element version makes the result the
+same on every screen. Before this the canvas adopted the version and showed
+none of it: the etag moved, the drawing did not, and the next save wrote the
+old shapes over the agent's.
+
 **Edits made outside the product — Obsidian, rclone, an S3 client — are
 deliberately not covered.** There is no event to hang a notice on, and inventing
 one would mean polling the bucket. Those land the way they always have: the next
