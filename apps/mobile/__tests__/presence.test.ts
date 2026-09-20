@@ -44,6 +44,12 @@ import {
   CARET_LABEL_MS,
   buildCaretDecorations,
 } from "../features/console/presence/remoteCarets";
+import {
+  createSharedDoc,
+  isWriter,
+  mergeExternalText,
+  seedSharedDoc,
+} from "../features/console/presence/sharedDoc";
 
 function member(over: Partial<PresenceMember> = {}): PresenceMember {
   return { id: "m1", name: "@ana", color: "#8b5cf6", anchor: 0, head: 0, ...over };
@@ -306,5 +312,99 @@ describe("the caret decorations", () => {
     };
     expect(label(fresh)).toBe("@ana");
     expect(label(faded)).toBe("");
+  });
+});
+
+describe("the shared document", () => {
+  /**
+   * TWO EDITORS, ONE NOTE.
+   *
+   * These wire two documents to each other the way the room does — whatever
+   * one produces, the other applies — and assert the thing the feature is for:
+   * both people type at once and both keep every character.
+   */
+  function pair() {
+    let a: ReturnType<typeof createSharedDoc>;
+    let b: ReturnType<typeof createSharedDoc>;
+    a = createSharedDoc({ onLocalUpdate: (u) => b.applyRemote(u) });
+    b = createSharedDoc({ onLocalUpdate: (u) => a.applyRemote(u) });
+    return { a, b };
+  }
+
+  test("a letter typed in one editor appears in the other", () => {
+    const { a, b } = pair();
+    seedSharedDoc(a, "hello");
+    a.text.insert(5, "!");
+    expect(b.markdown()).toBe("hello!");
+  });
+
+  test("two people typing at the same time keep both sets of characters", () => {
+    // The whole point. Neither edit is discarded and neither overwrites the
+    // other, which is what a conflict box exists to ask about and what this
+    // removes the need to ask.
+    const { a, b } = pair();
+    seedSharedDoc(a, "the quick fox");
+    a.text.insert(4, "very ");
+    b.text.insert(13, " jumps");
+    expect(a.markdown()).toBe(b.markdown());
+    expect(a.markdown()).toContain("very ");
+    expect(a.markdown()).toContain(" jumps");
+  });
+
+  test("only one client seeds, so the note does not arrive twice", () => {
+    // The duplicated-first-paragraph bug every CRDT editor ships once.
+    const { a, b } = pair();
+    expect(seedSharedDoc(a, "the note")).toBe(true);
+    expect(seedSharedDoc(b, "the note")).toBe(false);
+    expect(a.markdown()).toBe("the note");
+  });
+
+  test("a late joiner replayed the log lands on the same text", () => {
+    const { a } = pair();
+    const log: string[] = [];
+    const origin = createSharedDoc({ onLocalUpdate: (u) => log.push(u) });
+    seedSharedDoc(origin, "a shared note");
+    origin.text.insert(13, ", edited");
+
+    const late = createSharedDoc({ onLocalUpdate: () => {} });
+    for (const update of log) late.applyRemote(update);
+    expect(late.markdown()).toBe(origin.markdown());
+    void a;
+  });
+
+  test("a malformed update from a peer is refused, not fatal", () => {
+    const { a } = pair();
+    seedSharedDoc(a, "intact");
+    expect(() => a.applyRemote("bm90IGEgdmFsaWQgdXBkYXRl")).not.toThrow();
+    expect(a.markdown()).toBe("intact");
+  });
+
+  test("an agent's whole-file write lands as just the part that changed", () => {
+    // An MCP agent appends a paragraph. If this replaced the document, every
+    // caret in the room would jump to the end; instead the untouched prefix is
+    // left alone and the new text is an insert.
+    const { a, b } = pair();
+    seedSharedDoc(a, "# Notes\n\nfirst line\n");
+    const before = a.text.toString().indexOf("first");
+    mergeExternalText(a, "# Notes\n\nfirst line\nsecond line\n");
+    expect(b.markdown()).toBe("# Notes\n\nfirst line\nsecond line\n");
+    // The prefix was not re-inserted: the position of existing text is unmoved.
+    expect(a.text.toString().indexOf("first")).toBe(before);
+  });
+
+  test("an external write identical to the document changes nothing", () => {
+    const { a } = pair();
+    seedSharedDoc(a, "same");
+    expect(mergeExternalText(a, "same")).toBe(false);
+  });
+
+  test("exactly one member is the writer, and it survives them leaving", () => {
+    // Two writers would race to save the same document and conflict with each
+    // other — the bug this feature removes, reintroduced from the other end.
+    expect(isWriter("m2", ["m3", "m9"])).toBe(true);
+    expect(isWriter("m9", ["m2", "m3"])).toBe(false);
+    // m2 left; m3 takes over off the very next roster, with no gap.
+    expect(isWriter("m3", ["m9"])).toBe(true);
+    expect(isWriter(null, ["m1"])).toBe(false);
   });
 });

@@ -40,6 +40,7 @@
  */
 
 import {
+  UPDATE_LOG_CAP,
   HEARTBEAT_MS,
   MEMBER_IDLE_MS,
   PRESENCE_PROTOCOL_VERSION,
@@ -147,6 +148,22 @@ export class PresenceRoom {
       }),
     );
     this.broadcast({ t: "join", member: publicMember(seated.member) }, server);
+
+    /*
+      The document so far, replayed in order.
+
+      This is why the room keeps a log at all. Somebody opening a note two
+      other people are already editing has to arrive at the text they can see,
+      and the only thing here that knows what that text is is the sequence of
+      updates that produced it. The room replays them, the client applies them,
+      and it lands where everybody else is.
+
+      After the welcome, so a client has its own identity before any edit
+      arrives, and in one frame rather than N so a join is one round trip.
+    */
+    const log = await this.readLog();
+    if (log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
+
     await this.ensureAlarm();
 
     return new Response(null, { status: 101, webSocket: client });
@@ -175,6 +192,31 @@ export class PresenceRoom {
 
     if (decoded.msg.t === "bye") {
       this.dropSocket(ws, 1000, "bye");
+      return;
+    }
+
+    if (decoded.msg.t === "u") {
+      /*
+        One keystroke, on its way to everybody else.
+
+        Relayed immediately and with no batching: this frame is the whole of
+        why somebody sees a letter appear as it is typed rather than a second
+        later. Appended to the log first so a person joining mid-sentence gets
+        this character too, then sent to every socket but the sender's, who
+        already has it — applying your own keystroke twice is work for nothing.
+      */
+      this.broadcast({ t: "u", d: decoded.msg.d }, ws);
+      await this.appendUpdate(decoded.msg.d);
+      return;
+    }
+
+    if (decoded.msg.t === "snap") {
+      // A compacted state from a client, replacing everything before it. Taken
+      // on trust as *bytes* and on nobody's word as *content*: the room cannot
+      // tell a good snapshot from a bad one, so what protects the document is
+      // that the bucket holds the last flushed text and every other client
+      // still holds its own copy.
+      await this.replaceLog(decoded.msg.d);
       return;
     }
 
@@ -224,6 +266,67 @@ export class PresenceRoom {
     }
 
     await this.ensureAlarm();
+  }
+
+  /* -------------------------------- the log ------------------------------- */
+
+  /**
+   * Every update this room has relayed, oldest first.
+   *
+   * In Durable Object storage rather than memory, because hibernation evicts
+   * memory and somebody rejoining must not find the last ten minutes of
+   * everybody's typing gone. Keys are zero-padded so a lexicographic `list`
+   * returns them in arrival order, which is the order they must be applied in.
+   *
+   * **This is the one place in the feature where note content is durable
+   * outside the customer's bucket**, and it is deliberately the shortest-lived
+   * copy in the system: the client elected to save writes the merged text to
+   * the bucket on a debounce, and the log is dropped once the room empties.
+   * `docs/decisions/gateway-protocol.md` states what that costs.
+   */
+  async readLog() {
+    const stored = await this.state.storage.list({ prefix: "u:" });
+    return [...stored.values()];
+  }
+
+  async appendUpdate(update) {
+    const seq = ((await this.state.storage.get("seq")) ?? 0) + 1;
+    await this.state.storage.put({ [`u:${String(seq).padStart(9, "0")}`]: update, seq });
+    if (seq % 50 === 0) await this.askForSnapshotIfLong();
+  }
+
+  /**
+   * Replace the whole log with one compacted state.
+   *
+   * The delete and the write are one `transaction`, so a room that dies midway
+   * cannot come back holding neither — which would be an empty document handed
+   * to the next person who opens the note.
+   */
+  async replaceLog(snapshot) {
+    await this.state.storage.transaction(async (txn) => {
+      const existing = await txn.list({ prefix: "u:" });
+      await txn.delete([...existing.keys()]);
+      await txn.put({ "u:000000001": snapshot, seq: 1 });
+    });
+  }
+
+  /**
+   * Ask somebody to compact, once the log is long enough to slow a join.
+   *
+   * The *oldest* socket, because it has been applying updates longest and is
+   * likeliest to hold the whole document. Asked rather than told: a client
+   * that ignores this costs a slower join and nothing else.
+   */
+  async askForSnapshotIfLong() {
+    const entries = await this.state.storage.list({ prefix: "u:" });
+    if (entries.size < UPDATE_LOG_CAP) return;
+    const sockets = this.state.getWebSockets();
+    if (sockets.length === 0) return;
+    try {
+      sockets[0].send(JSON.stringify({ t: "compact" }));
+    } catch {
+      // The next fifty updates ask again.
+    }
   }
 
   /* ------------------------------ internals ------------------------------ */

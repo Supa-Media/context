@@ -91,6 +91,30 @@ export const MEMBER_IDLE_MS = 45_000;
  */
 export const MAX_CLIENT_FRAME_BYTES = 1024;
 
+/**
+ * The ceiling for a merge frame, which is a different size of thing.
+ *
+ * A caret is two integers. An *edit* is an encoded document update: a
+ * keystroke is tens of bytes, a paste is more, and a snapshot of a long note
+ * is larger again. So these get their own ceilings rather than sharing the
+ * caret's — and they are still ceilings, because the room relays whatever it
+ * is handed and an unbounded frame is somebody else's memory.
+ *
+ * The room never decodes either one. See `presenceRoom.js`.
+ */
+export const MAX_UPDATE_BYTES = 32 * 1024;
+export const MAX_SNAPSHOT_BYTES = 512 * 1024;
+
+/**
+ * How many updates a room keeps before it asks for a snapshot.
+ *
+ * The log is replayed to whoever joins, so it cannot grow for the life of a
+ * long editing session: a thousand keystrokes is a thousand entries and a slow
+ * join. Past this the room asks the client that has been there longest for a
+ * compacted snapshot and replaces the log with it.
+ */
+export const UPDATE_LOG_CAP = 400;
+
 /** Longer than any name the control plane will hand us; truncated, not refused. */
 export const MAX_DISPLAY_NAME = 64;
 
@@ -187,7 +211,10 @@ export function normalizeOffset(value) {
  */
 export function decodeClientFrame(raw) {
   if (typeof raw !== "string") return { ok: false, reason: "not_text" };
-  if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
+  // The outer ceiling is the largest any frame may be; the per-type ceilings
+  // below are tighter and are what actually decide. Checked first and on the
+  // encoded length, so a frame is bounded before it is parsed.
+  if (frameBytes(raw) > MAX_SNAPSHOT_BYTES + 1024) return { ok: false, reason: "too_large" };
   let parsed;
   try {
     parsed = JSON.parse(raw);
@@ -202,6 +229,19 @@ export function decodeClientFrame(raw) {
     const head = normalizeOffset(parsed.h);
     if (anchor === null || head === null) return { ok: false, reason: "bad_offset" };
     return { ok: true, msg: { t: "cursor", a: anchor, h: head } };
+  }
+  if (parsed.t === "u" || parsed.t === "snap") {
+    // Base64 of an encoded document update. Checked for *shape* and *size*
+    // only: the room does not decode it, cannot decode it, and must not start
+    // — see the header. An update that is malformed is somebody's own editor
+    // refusing it on the far side, which is where a document belongs.
+    if (typeof parsed.d !== "string" || parsed.d.length === 0) {
+      return { ok: false, reason: "bad_update" };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(parsed.d)) return { ok: false, reason: "not_base64" };
+    const cap = parsed.t === "snap" ? MAX_SNAPSHOT_BYTES : MAX_UPDATE_BYTES;
+    if (frameBytes(parsed.d) > cap) return { ok: false, reason: "too_large" };
+    return { ok: true, msg: { t: parsed.t, d: parsed.d } };
   }
   if (parsed.t === "ping") return { ok: true, msg: { t: "ping" } };
   if (parsed.t === "bye") return { ok: true, msg: { t: "bye" } };
