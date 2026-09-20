@@ -750,6 +750,18 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link an owner pasted into a chat",
   },
   {
+    route: "/[handle]/[slug]",
+    file: "app/[handle]/[slug].tsx",
+    reachable: false,
+    reason:
+      "The short link, `/@seyi/intake` — the same share at an address somebody " +
+      "can say out loud. Unreachable from inside the app for the reason " +
+      "`/s/[token]` is, plus one of its own: reaching it from a control would " +
+      "mean the app knowing which names exist, and a share page has no listing " +
+      "precisely so that nothing here confirms that any particular one does.",
+    marker: "the short link, the one an owner can say out loud",
+  },
+  {
     route: "/welcome",
     file: "app/(app)/welcome.tsx",
     reachable: true,

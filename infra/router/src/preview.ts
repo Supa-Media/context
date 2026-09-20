@@ -521,6 +521,77 @@ function boundTitle(title: string | null | undefined): string | null {
 }
 
 /**
+ * A short link: `/@seyi/intake`.
+ *
+ * Returns the handle and the name, or `null` when the URL is not one.
+ * Shape-checked here, before anything is fetched, exactly as `shareTokenFrom`
+ * and `consoleNoteFrom` are: a segment that could never have been claimed
+ * never becomes an upstream request, so hammering `/@name/<junk>` costs a
+ * regex rather than a round trip.
+ *
+ * ## Why this may unfurl, when `/@seyi` may not
+ *
+ * The hinge `consoleNoteFrom` turns on, applied to a second address: the probe
+ * space is names the **owner** chose. There is no list of likely slugs,
+ * because a slug exists only where somebody typed one, and the control plane
+ * refuses every name this product writes — so the guessable ones cannot be
+ * claimed at all. `/@seyi` itself is unchanged and still gets the frozen card:
+ * a handle is guessable *and* unbounded, which is the combination the byte-
+ * identity rule exists for.
+ *
+ * ## The shape is the control plane's, restated
+ *
+ * Lowercase Latin alphanumerics and hyphens, 1–48, no leading or trailing
+ * hyphen. Duplicated because this package cannot import from `apps/convex`,
+ * and held to it the way `shareSegment` is held: both run
+ * `shortLinkSlug.fixtures.json`, so the two copies are compared against the
+ * same corpus rather than against a comment saying they agree.
+ *
+ * Reserved words parse here and resolve to nothing upstream, deliberately: a
+ * second list in this file would be a second place for the two to disagree.
+ */
+export function shortLinkFrom(url: URL): { handle: string; slug: string } | null {
+  const segments = normalisePath(url.pathname).split("/").filter(Boolean);
+  if (segments.length !== 2) return null;
+
+  const first = decodeSafely(segments[0]);
+  if (!first.startsWith("@")) return null;
+  const handle = first.slice(1);
+  // The same shape a name claim can have. Anything else never existed.
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(handle)) return null;
+
+  const slug = decodeSafely(segments[1]);
+  if (!SHORT_LINK_SLUG.test(slug)) return null;
+
+  return { handle, slug };
+}
+
+/** The control plane's `SHORT_LINK_SLUG_RE`, restated. See `shortLinkFrom`. */
+const SHORT_LINK_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
+
+/**
+ * The card a short link unfurls with.
+ *
+ * The note's own name and nothing else. **No image**, and that absence is the
+ * design rather than an omission: the card image is addressed by share token,
+ * and a short link may sit over an `anyone` share where the token *is* the
+ * authorization — so a per-share card here would mean handing the capability
+ * to whoever guessed the name. The product's own image is what a short link
+ * gets, and `/share/short` upstream returns no token to make any other choice
+ * possible from here.
+ */
+export function previewForShortLink(title: string | null | undefined): PreviewMeta {
+  const bounded = boundTitle(title);
+  if (bounded === null) return GENERIC_PREVIEW;
+  return {
+    ...GENERIC_PREVIEW,
+    title: `${bounded} — Context`,
+    description:
+      "Shared with you on Context — plain markdown in a bucket its owner controls.",
+  };
+}
+
+/**
  * The card a readable team link unfurls with.
  *
  * `previewForShare`'s reasoning applies unchanged — title only, canonical still

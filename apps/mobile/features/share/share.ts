@@ -173,6 +173,54 @@ export function shareSignInHref(segment: string | null, path?: string): string {
 }
 
 /**
+ * Where a short link lives: `/@seyi/intake`.
+ *
+ * A second address for the same share row, and the whole reason it exists is
+ * that somebody can say it out loud. It resolves server-side to the row's
+ * token, which never comes back here — see `readShortLink`.
+ *
+ * The shape is the control plane's, restated, for the reason the router
+ * restates it too: a segment that could never have been claimed should not
+ * become a request. All three copies run `shortLinkSlug.fixtures.json`.
+ */
+const SHORT_LINK_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
+const SHORT_LINK_HANDLE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/** What a short link addresses, or `null` when the URL is not one. */
+export interface ShortLinkAddress {
+  /** The workspace's name, undecorated — `seyi`, never `@seyi`. */
+  handle: string;
+  slug: string;
+}
+
+/**
+ * Read a short link out of its two route parameters.
+ *
+ * The `@` is stripped here rather than being part of the handle, so exactly
+ * one form of the name exists downstream. A first segment without one is not a
+ * short link at all — it is some other two-segment URL — and the caller sends
+ * it to the not-found screen rather than to this page's uniform refusal, which
+ * is the one case where telling the two apart helps somebody.
+ */
+export function shortLinkAddress(
+  handle: string | null,
+  slug: string | null,
+): ShortLinkAddress | null {
+  if (handle === null || slug === null) return null;
+  if (!handle.startsWith("@")) return null;
+  const name = handle.slice(1);
+  if (!SHORT_LINK_HANDLE.test(name)) return null;
+  if (!SHORT_LINK_SLUG.test(slug)) return null;
+  return { handle: name, slug };
+}
+
+/** The URL of a short link, with an optional note inside it. */
+export function shortLinkHref(address: ShortLinkAddress, path?: string): string {
+  const base = `/@${encodeURIComponent(address.handle)}/${encodeURIComponent(address.slug)}`;
+  return path === undefined ? base : `${base}?path=${encodeURIComponent(path)}`;
+}
+
+/**
  * A route parameter that may arrive as an array.
  *
  * Expo Router hands back `string[]` when a segment repeats — `/s/a/b` — and a
@@ -239,6 +287,16 @@ export interface ShareInputs {
    * note breaking a link somebody already has.
    */
   segment?: string | null;
+  /**
+   * The short link this page was opened at, when it was opened at one.
+   *
+   * Present instead of a token, never beside one: a short link's token is
+   * resolved on the server and deliberately never reaches this screen. What
+   * this is for is the two things the screen cannot do without an address —
+   * refusing when there is none, and building the URL to come back to after a
+   * sign-in.
+   */
+  shortLink?: ShortLinkAddress | null;
   auth: { isLoading: boolean; isAuthenticated: boolean };
   /** `undefined` while in flight, an `Error` when the action refused. */
   note: ShareResult;
@@ -279,22 +337,41 @@ export type ShareView =
       awayFromEntry: boolean;
     };
 
+/**
+ * The sign-in URL that comes back to the address the reader is actually on.
+ *
+ * Two addresses reach this screen and only one of them is in the URL bar at a
+ * time, so the `next` has to be built from whichever one it was. Getting this
+ * wrong is not cosmetic: a short link's reader sent to `/s/<token>` afterwards
+ * would be handed a URL carrying the capability, which is the one thing the
+ * short-link path exists to keep server-side.
+ */
+function signInBackTo(inputs: ShareInputs): string {
+  const shortLink = inputs.shortLink ?? null;
+  if (shortLink !== null) {
+    return loginHref(shortLinkHref(shortLink, inputs.requestedPath ?? undefined));
+  }
+  return shareSignInHref(
+    inputs.segment ?? inputs.token,
+    inputs.requestedPath ?? undefined,
+  );
+}
+
 export function resolveShareView(inputs: ShareInputs): ShareView {
   if (inputs.auth.isLoading) return { kind: "wait" };
 
-  // Somebody opened `/s/` with nothing after it. The same screen a spent token
-  // gets: this page never confirms that any particular token exists.
-  if (inputs.token === null) return { kind: "unavailable" };
+  // Somebody opened `/s/` with nothing after it, or `/@name/<not a name>`.
+  // The same screen a spent token gets: this page never confirms that any
+  // particular token — or any particular name — exists.
+  const shortLink = inputs.shortLink ?? null;
+  if (inputs.token === null && shortLink === null) return { kind: "unavailable" };
 
   if (inputs.note instanceof Error) {
     // The one code this screen reads. See the module comment.
     if (isNotAuthenticated(inputs.note)) {
       return {
         kind: "signIn",
-        href: shareSignInHref(
-          inputs.segment ?? inputs.token,
-          inputs.requestedPath ?? undefined,
-        ),
+        href: signInBackTo(inputs),
       };
     }
     return { kind: "unavailable" };
@@ -305,13 +382,7 @@ export function resolveShareView(inputs: ShareInputs): ShareView {
   // one, it is withdrawn — see the module comment. An unlisted link never had
   // one to lose.
   if (!inputs.note.openToAnyone && !inputs.auth.isAuthenticated) {
-    return {
-      kind: "signIn",
-      href: shareSignInHref(
-        inputs.segment ?? inputs.token,
-        inputs.requestedPath ?? undefined,
-      ),
-    };
+    return { kind: "signIn", href: signInBackTo(inputs) };
   }
 
   return {

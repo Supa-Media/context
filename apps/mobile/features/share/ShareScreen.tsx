@@ -43,6 +43,7 @@ import { NoteBody } from "./NoteBody";
 import { noteTitle, parseNote } from "./markdown";
 import {
   firstParam,
+  shortLinkHref,
   shareTokenFromSegment,
   linkLabel,
   onwardLinks,
@@ -50,9 +51,20 @@ import {
   shareHref,
   type ShareResult,
   type SharedNote,
+  type ShortLinkAddress,
 } from "./share";
 
-export function ShareScreen() {
+/**
+ * The same page at two addresses.
+ *
+ * `/s/<segment>` carries the token; `/@seyi/intake` carries a name the server
+ * resolves to the same share row and **does not** hand back. So the screen is
+ * parameterised by which address it was opened at rather than duplicated: one
+ * view-resolution, one uniform refusal, one set of onward links. A second copy
+ * of this screen reachable by a guessable address is precisely the copy that
+ * would drift in the wrong direction.
+ */
+export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}) {
   const styles = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{ token?: string | string[]; path?: string | string[] }>();
   // The URL segment as the reader has it — `Chapter-transition-<64 hex>`, or a
@@ -66,19 +78,38 @@ export function ShareScreen() {
   const router = useRouter();
 
   const readSharedNote = useAction(api.functions.shares.readSharedNote);
+  const readShortLink = useAction(api.functions.shares.readShortLink);
   const [note, setNote] = useState<ShareResult>(undefined);
+
+  /** The URL to come back to, at whichever address this page was opened. */
+  const hrefFor = useCallback(
+    (path?: string) => {
+      if (shortLink !== undefined) return shortLinkHref(shortLink, path);
+      return segment === null ? null : shareHref(segment, path);
+    },
+    [segment, shortLink],
+  );
 
   useEffect(() => {
     // Not gated on being *authenticated* — an unlisted link's reader never is,
     // and `share.ts` records why the server is what decides that. Gated on auth
     // having settled, so a signed-in recipient's first request is not sent
     // anonymously and bounced to a sign-in they have already done.
-    if (auth.isLoading || token === null) return;
+    if (auth.isLoading) return;
+    if (token === null && shortLink === undefined) return;
     let cancelled = false;
     // Reset to `undefined` so navigating between linked notes shows the loading
     // state rather than the previous note's text under the new one's heading.
     setNote(undefined);
-    readSharedNote({ token, ...(requestedPath === null ? {} : { path: requestedPath }) })
+    const pathArg = requestedPath === null ? {} : { path: requestedPath };
+    // One of the two, never both: a short link's token is resolved on the
+    // server and never reaches this screen, so there is nothing here that
+    // could fall back to the token call.
+    const request =
+      shortLink !== undefined
+        ? readShortLink({ handle: shortLink.handle, slug: shortLink.slug, ...pathArg })
+        : readSharedNote({ token: token as string, ...pathArg });
+    request
       .then((result) => {
         if (!cancelled) setNote(result as SharedNote);
       })
@@ -98,25 +129,42 @@ export function ShareScreen() {
     // `isAuthenticated` is a dependency as well as `isLoading`: signing in
     // mid-view must re-ask (the anonymous answer was the narrower one), and
     // signing out must re-ask rather than leave a stale note in state.
-  }, [auth.isAuthenticated, auth.isLoading, readSharedNote, requestedPath, token]);
+  }, [
+    auth.isAuthenticated,
+    auth.isLoading,
+    readSharedNote,
+    readShortLink,
+    requestedPath,
+    shortLink,
+    token,
+  ]);
 
   // `token` rather than `segment`: a segment whose tail is not a token is not a
   // share link at all, and it must reach the same screen a spent one does
   // rather than a different one — the rule this page is built around.
-  const view = resolveShareView({ token, auth, note, requestedPath, segment });
+  const view = resolveShareView({
+    token,
+    auth,
+    note,
+    requestedPath,
+    segment,
+    ...(shortLink === undefined ? {} : { shortLink }),
+  });
 
   const open = useCallback(
     (path: string) => {
-      if (segment === null) return;
-      router.push(shareHref(segment, path));
+      const href = hrefFor(path);
+      if (href === null) return;
+      router.push(href);
     },
-    [router, segment],
+    [hrefFor, router],
   );
 
   const backToEntry = useCallback(() => {
-    if (segment === null) return;
-    router.push(shareHref(segment));
-  }, [router, segment]);
+    const href = hrefFor();
+    if (href === null) return;
+    router.push(href);
+  }, [hrefFor, router]);
 
   /**
    * Leave the share page for the console, where the note is editable.

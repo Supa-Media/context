@@ -156,6 +156,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     shares: undefined,
     share: () => {},
     revokeShare: () => {},
+    setShareSlug: async () => true,
     copyShareLink: async () => ({ ok: false, message: null }),
     setSharePreviewTitle: () => {},
     ensureListing: noop,

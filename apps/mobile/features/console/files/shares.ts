@@ -45,6 +45,13 @@ export interface NoteShare {
   entryPath: string;
   titleInPreview: boolean;
   previewTitle?: string;
+  /**
+   * The name in this link's short address, or absent for one that has none.
+   *
+   * Owner-only like `token` beside it, and the same reasoning: `listShares` is
+   * owner-only and this is the other half of a link they already hold.
+   */
+  slug?: string;
   createdAt: number;
 }
 
