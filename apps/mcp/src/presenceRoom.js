@@ -320,6 +320,9 @@ export class PresenceRoom {
       this.broadcast({ t: "leave", id });
     }
 
+    // Nobody left: the room's copy of the note goes, and the object with it.
+    if (await this.dropLogIfEmpty()) return;
+
     await this.ensureAlarm();
   }
 
@@ -435,6 +438,29 @@ export class PresenceRoom {
     this.broadcast({ t: "leave", id: attachment.id }, ws);
   }
 
+  /**
+   * The last person left, so the room's copy of the note goes.
+   *
+   * Review found this missing: the header claimed the log is "dropped once the
+   * room empties" and nothing dropped it, so note content stayed in Durable
+   * Object storage indefinitely — a second durable copy outside the customer's
+   * bucket, which is the one cost this design is supposed to bound. A retention
+   * policy nobody implemented is not a policy, it is a sentence.
+   *
+   * Only when the room is genuinely empty, and only after the flush has had
+   * its chance: the elected writer saves on a debounce while connected, and a
+   * room that is emptying has just lost that client. So this runs on the sweep
+   * rather than on the close, which gives the write time to land and means a
+   * reconnect within the window finds its document still here.
+   */
+  async dropLogIfEmpty() {
+    if (this.state.getWebSockets().length > 0) return false;
+    const entries = await this.state.storage.list({ prefix: "u:" });
+    if (entries.size === 0) return false;
+    await this.state.storage.deleteAll();
+    return true;
+  }
+
   dropSocket(ws, code, reason) {
     this.releaseSocket(ws);
     try {
@@ -458,9 +484,18 @@ export class PresenceRoom {
   }
 
   async ensureAlarm() {
-    // An object with nobody in it sets no alarm, so an empty room costs nothing
-    // and is evicted rather than waking on a timer forever.
-    if (this.state.getWebSockets().length === 0) return;
+    /*
+      An object with nobody in it and nothing stored sets no alarm, so an empty
+      room costs nothing and is evicted rather than waking forever.
+
+      The storage check is not redundant: without it, the last socket closing
+      cancels the sweep that would have deleted the log, and the note's content
+      sits in Durable Object storage with nothing scheduled to ever remove it.
+    */
+    if (this.state.getWebSockets().length === 0) {
+      const entries = await this.state.storage.list({ prefix: "u:", limit: 1 });
+      if (entries.size === 0) return;
+    }
     const existing = await this.state.storage.getAlarm();
     if (existing === null || existing === undefined) {
       await this.state.storage.setAlarm(Date.now() + PRESENCE_SWEEP_MS);

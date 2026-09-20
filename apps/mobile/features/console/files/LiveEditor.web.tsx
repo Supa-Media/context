@@ -53,7 +53,7 @@ import { drawInterim, takeBackRun } from "./dictate";
 import { closeFindPanel, findInNote } from "./findInNote";
 import { remoteCarets, reportSelection, setRemoteCarets } from "../presence/remoteCarets";
 import { yCollab } from "y-codemirror.next";
-import type { SharedDoc } from "../presence/sharedDoc";
+import { mayPersist, type SharedDoc } from "../presence/sharedDoc";
 import type { PresenceMember } from "../presence/protocol";
 import {
   editability,
@@ -739,12 +739,24 @@ export function LiveEditor({
             `canWrite` is true when there is no room at all, which is what
             keeps a note nobody else is in behaving exactly as it always did.
           */
-          if (presenceRef.current && presenceRef.current.shared && !presenceRef.current.canWrite) {
-            return;
-          }
+          if (!mayPersist(presenceRef.current)) return;
           handlers.current.onChange(text);
         },
-        onSave: () => handlers.current.onSave(),
+        onSave: () => {
+          /*
+            **A manual save is a save, so writer election decides it too.**
+
+            Review found this: `onChange` was gated and ⌘S was not, so any
+            client in the room could push its own draft to the bucket with a
+            keystroke — which is the racing-writers collision the election
+            exists to prevent, reachable by the one control that bypasses
+            autosave entirely. For a non-writer the merged text is already
+            being saved by somebody else, so the right behaviour is to do
+            nothing rather than to save a duplicate.
+          */
+          if (!mayPersist(presenceRef.current)) return;
+          handlers.current.onSave();
+        },
       },
     };
 
@@ -1073,7 +1085,24 @@ export function LiveEditor({
     if (current === null) return;
     if (value === latestValue.current) return;
 
+    /*
+      **The guard the comment above promised, which was missing.**
+
+      Review found this: the header said this effect stands down while a shared
+      document is bound and there was no condition under it doing so. With a
+      room live, `value` is the local draft — which for every client except the
+      elected writer is *stale by construction*, because they deliberately stop
+      calling `onChange`. Writing it over the document would replace everybody's
+      text with one client's stale copy on the next unrelated re-render.
+
+      `latestValue` is still updated first, so when the binding is torn down —
+      a different note, a discarded draft — the next authoritative value is
+      compared against what the editor actually holds rather than against
+      whatever it held before the room existed.
+    */
     latestValue.current = value;
+    if (presenceRef.current?.shared) return;
+
     // Not an edit — a different note, a discarded draft, a resolved conflict —
     // and not an entry in the undo history either, or the bar's undo key steps
     // back into the note before this one. See `replaceDocument`.

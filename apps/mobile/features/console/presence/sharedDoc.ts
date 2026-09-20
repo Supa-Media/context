@@ -187,3 +187,20 @@ export function isWriter(you: string | null, memberIds: string[]): boolean {
   const all = [...memberIds, you].sort();
   return all[0] === you;
 }
+
+/**
+ * May this editor put text into the local draft, or save it?
+ *
+ * The same question for typing and for ⌘S, so it is one function rather than
+ * two conditions that can drift — and they had drifted: `onChange` was gated
+ * and the save key was not, so any client in a room could push its own draft
+ * to the bucket with one keystroke, which is the racing-writers collision the
+ * election exists to prevent.
+ *
+ * True when there is no room at all, which is what keeps a note nobody else is
+ * in behaving exactly as it always did.
+ */
+export function mayPersist(presence: { shared: unknown; canWrite: boolean } | undefined): boolean {
+  if (!presence || !presence.shared) return true;
+  return presence.canWrite;
+}
