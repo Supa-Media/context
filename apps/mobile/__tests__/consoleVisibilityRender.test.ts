@@ -25,6 +25,14 @@ jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
+  /*
+    The real `useConvex` returns `undefined` when there is no provider in the
+    tree, which is exactly this harness. `PremiumPanel` asks the question and
+    renders its non-subscribing half on that answer — so the stub returns what
+    the real hook would, rather than a fake client that would then be asked for
+    a subscription nothing here can serve.
+  */
+  useConvex: () => undefined,
 }));
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -84,6 +92,23 @@ function mount(render: () => ReturnType<typeof createElement>): HTMLElement {
 }
 
 /**
+ * The same mount, with the device's answer flushed in.
+ *
+ * The intro band asks `openStore()` whether this context's line has already
+ * been read and draws nothing until that answers — see `contextIntro.ts` on
+ * why a band that appears and then vanishes is worse than one that arrives a
+ * frame late. A synchronous `mount` therefore photographs the console half a
+ * promise too early, so every assertion about that band goes through here.
+ */
+async function mountLive(
+  render: () => ReturnType<typeof createElement>,
+): Promise<HTMLElement> {
+  const container = mount(render);
+  await act(async () => {});
+  return container;
+}
+
+/**
  * The demo console, with one of its three contexts selected.
  *
  * A probe component rather than a hand-written fixture: a literal typed here
@@ -116,9 +141,24 @@ const CHIP = "team level only";
   runs its own `act`, and an `act` nested inside the render callback of another
   never flushes — the probe would still be holding `null`.
 */
-function browse(contextId: string): string {
-  const data = demoData(contextId);
-  return mount(() => createElement(BrowsePane, { data })).textContent ?? "";
+async function browse(contextId: string): Promise<string> {
+  const data = live(demoData(contextId));
+  return (await mountLive(() => createElement(BrowsePane, { data }))).textContent ?? "";
+}
+
+/**
+ * The demo console driven as the **live** console, which is what these tests
+ * are about.
+ *
+ * `demo: true` is the landing page's picture, and the one surface where the
+ * intro band is permanent and has no control — its line there is "This is a
+ * demo. Sign in to edit your own workspace", a call to action rather than an
+ * orientation somebody finishes with. Left set, every assertion below would
+ * quietly be about that path instead of the console a member of a real context
+ * sees, which is the one the band was drawn wrong on.
+ */
+function live(data: ConsoleData): ConsoleData {
+  return { ...data, demo: false };
 }
 
 function settings(contextId: string): string {
@@ -154,11 +194,45 @@ describe("the chip is worn once, by the frame", () => {
     }
   });
 
-  test("no pane repeats it", () => {
+  test("no pane repeats it", async () => {
     for (const context of [MEMBER_OF, EDITOR_OF, OWNED]) {
-      expect(browse(context)).not.toContain(CHIP);
+      expect(await browse(context)).not.toContain(CHIP);
       expect(settings(context)).not.toContain(CHIP);
     }
+  });
+});
+
+describe("personal communications stay out of shared workspaces", () => {
+  /*
+    One section covering mail, calendars and chats became four — Email,
+    Calendar, Chats, Meetings — because the thing they had in common was our
+    plumbing (one Google account carries all three) and not the reader's
+    question. What this pair protects is unchanged by that split and is the
+    only reason it was ever asserted: **a workspace must never be told it can
+    connect somebody's Gmail.**
+  */
+  test("a personal workspace shows every way of filling it", () => {
+    const text = settings(OWNED);
+
+    // The sections' own words, not ours: every heading is
+    // `settingsSectionLabel` now, so none can drift from the row that opens it
+    // the way "Integrations" over a row reading "Mail, calendar & chats" did.
+    for (const label of ["Email", "Calendar", "Chats", "Meetings"]) {
+      expect(text).toContain(label);
+    }
+    expect(text).toContain("Google accounts");
+    expect(text).not.toContain("Switch to a personal workspace");
+  });
+
+  test("a shared workspace explains that email, chat and iMessage imports do not belong there", () => {
+    const text = settings(EDITOR_OF);
+
+    // The exact sentence a workspace is handed, in the panels that would
+    // otherwise be offering somebody else's mailbox.
+    expect(text).toContain("Switch to a personal workspace");
+    expect(text).toContain("This workspace does not receive email");
+    expect(text).not.toContain("Google accounts");
+    expect(text).not.toContain("Connect Google account");
   });
 });
 
@@ -188,22 +262,22 @@ describe("Browse says so in words, because Browse is where the absence is invisi
   */
   const LINE = "Team access";
 
-  test("a context you are only a member of gets the sentence", () => {
-    expect(browseRoot(MEMBER_OF)).toContain(LINE);
+  test("a context you are only a member of gets the sentence", async () => {
+    expect(await browseRoot(MEMBER_OF)).toContain(LINE);
   });
 
-  test("a context you can edit is told write access did not include it", () => {
+  test("a context you can edit is told write access did not include it", async () => {
     // The conflation `functions/files.ts` exists to prevent, said out loud:
     // being trusted to write is a separate thing from seeing what somebody
     // marked private.
-    expect(browseRoot(EDITOR_OF)).toContain("you can edit this context");
+    expect(await browseRoot(EDITOR_OF)).toContain("you can edit this context");
   });
 
-  test("your own context carries no notice at all", () => {
-    expect(browseRoot(OWNED)).not.toContain(LINE);
+  test("your own context carries no notice at all", async () => {
+    expect(await browseRoot(OWNED)).not.toContain(LINE);
   });
 
-  test("a role that has not loaded is told nothing, rather than assumed filtered", () => {
+  test("a role that has not loaded is told nothing, rather than assumed filtered", async () => {
     /*
       The failure this rules out is the one the owner reported as "I am the
       owner??": a predicate that defaults to "filtered until proven otherwise"
@@ -214,42 +288,52 @@ describe("Browse says so in words, because Browse is where the absence is invisi
       the pure rule was already right and the question is whether the pane can
       reach a state that renders it anyway.
     */
-    const loading = { ...atRoot(demoData(MEMBER_OF)), loading: true, contexts: [] } as ConsoleData;
-    expect(mount(() => createElement(BrowsePane, { data: loading })).textContent).not.toContain(
-      LINE,
-    );
+    const loading = live({
+      ...atRoot(demoData(MEMBER_OF)),
+      loading: true,
+      contexts: [],
+    } as ConsoleData);
+    expect(
+      (await mountLive(() => createElement(BrowsePane, { data: loading }))).textContent,
+    ).not.toContain(LINE);
   });
 
-  test("a team link into a note is told the view is filtered", () => {
+  test("a team link into a note is told the view is filtered", async () => {
     /*
       The demo console opens on a note, which is what makes it the right fixture
       for this: `demoData` is the "inside a file" state, and it is the state a
       team link lands somebody in.
     */
-    const data = demoData(MEMBER_OF);
-    expect(mount(() => createElement(BrowsePane, { data })).textContent).toContain(LINE);
+    const data = live(demoData(MEMBER_OF));
+    expect((await mountLive(() => createElement(BrowsePane, { data }))).textContent).toContain(
+      LINE,
+    );
   });
 
-  test("a team link into a folder is told the same", () => {
+  test("a team link into a folder is told the same", async () => {
     const data = demoData(MEMBER_OF);
     const folder = Object.keys(data.files.listings).find((path) => path !== "");
     // A fixture that silently had no folder in it would make this vacuous.
     expect(folder).toBeDefined();
-    const inFolder = {
+    const inFolder = live({
       ...data,
       files: { ...data.files, selectedPath: folder! },
-    } as ConsoleData;
-    expect(mount(() => createElement(BrowsePane, { data: inFolder })).textContent).toContain(LINE);
+    } as ConsoleData);
+    expect(
+      (await mountLive(() => createElement(BrowsePane, { data: inFolder }))).textContent,
+    ).toContain(LINE);
   });
 
-  test("it is drawn once, not once per thing that could carry it", () => {
+  test("it is drawn once, not once per thing that could carry it", async () => {
     for (const data of [demoData(MEMBER_OF), atRoot(demoData(MEMBER_OF))]) {
-      const container = mount(() => createElement(BrowsePane, { data }));
-      expect(container.querySelectorAll('[data-testid="browse-tier-notice"]')).toHaveLength(1);
+      const container = await mountLive(() =>
+        createElement(BrowsePane, { data: live(data) }),
+      );
+      expect(container.querySelectorAll('[data-testid="browse-context-intro"]')).toHaveLength(1);
     }
   });
 
-  test("the line is one line, and the argument for it is nowhere near it", () => {
+  test("the line is one line, and the argument for it is nowhere near it", async () => {
     /*
       Both halves matter and they used to be printed together, four lines deep,
       on the one screen the notice appeared on. `tierExplanation`'s own docstring
@@ -257,7 +341,11 @@ describe("Browse says so in words, because Browse is where the absence is invisi
       on every screen" — and now that the line *is* on every screen, printing
       the paragraph with it would be that mistake multiplied.
     */
-    for (const text of [browseRoot(MEMBER_OF), browse(MEMBER_OF), browseRoot(EDITOR_OF)]) {
+    for (const text of [
+      await browseRoot(MEMBER_OF),
+      await browse(MEMBER_OF),
+      await browseRoot(EDITOR_OF),
+    ]) {
       expect(text).not.toContain("Only a context's owner sees their private notes.");
       expect(text).not.toContain("Being trusted to write is a separate thing");
     }
@@ -289,9 +377,9 @@ function atRoot(data: ConsoleData): ConsoleData {
   return { ...data, files: { ...data.files, selectedPath: null } };
 }
 
-function browseRoot(contextId: string): string {
-  const data = atRoot(demoData(contextId));
-  return mount(() => createElement(BrowsePane, { data })).textContent ?? "";
+async function browseRoot(contextId: string): Promise<string> {
+  const data = live(atRoot(demoData(contextId)));
+  return (await mountLive(() => createElement(BrowsePane, { data }))).textContent ?? "";
 }
 
 describe("the owner's side of the same fact lives with the people it is about", () => {

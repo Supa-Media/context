@@ -130,8 +130,8 @@ export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * @property {string} threadId  The provider's thread id. Hashed, never written.
  * @property {string} sentAt    ISO 8601. Decides the day and the order.
  * @property {string} subject   May be empty; may be attacker-chosen.
- * @property {{name?: string, address?: string}} from
- * @property {Array<{name?: string, address?: string}>} [to]
+ * @property {{name?: string, address?: string, providerUserId?: string}} from
+ * @property {Array<{name?: string, address?: string, providerUserId?: string}>} [to]
  * @property {string} body      The normalized text. Always fenced when rendered.
  * @property {Array<{filename?: string, contentType?: string, size?: number}>} [attachments]
  */

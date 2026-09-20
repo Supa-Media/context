@@ -39,6 +39,22 @@ jobs:
       # `undefined` and the app cannot reach the control plane at all, which
       # is why the preflight below refuses to continue without it.
       EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
+      EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+      EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+      EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
+      # The site key for the human check in front of a collect link — the
+      # public half of the pair whose secret half `deploy-convex.yml` pushes.
+      # Public by construction: it is in the markup of every page that runs the
+      # widget. Here rather than committed because this repository is, and
+      # `CLAUDE.md` keeps account identifiers out of it. Absent is a working
+      # state and a deliberate one: the form says it is not taking answers,
+      # which is the same thing the control plane says with no secret set.
+      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       # Read by app.config.js to resolve extra.eas.projectId. An account
       # identifier, not committed (CLAUDE.md: "no internal hostnames, no
       # account identifiers") — see apps/mobile/app.config.js.
@@ -141,6 +157,16 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
+
+      # The drawing editor is a page of its own, not part of the console
+      # bundle — measured, an `import()` of it inside the console is not a lazy
+      # chunk under Metro and costs every page load 9MB. It is built here into
+      # `public/drawing-assets/` and served from our own origin, fonts
+      # included, so the editor never reaches for esm.sh when somebody opens
+      # their own private drawing. It fails loudly rather than skipping: a
+      # silent skip is a deploy whose drawings do not open.
+      - name: Build the drawing editor
+        run: node scripts/build-drawing-editor.mjs
 
       - name: Export web bundle
         working-directory: apps/mobile

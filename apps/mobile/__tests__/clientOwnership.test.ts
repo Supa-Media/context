@@ -5,7 +5,7 @@
 /**
  * Whose connected client is this?
  *
- * The question arrived from outside: somebody invited into a personal brain
+ * The question arrived from outside: somebody invited into a personal workspace
  * opened Settings, found nine clients that were not theirs, and asked whether
  * that was intended. It was not. The fix has two halves and this file holds
  * the console's.
@@ -32,7 +32,7 @@ import { ConvexProvider } from "convex/react";
 import { getFunctionName } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 
-import { ClientRow } from "../features/console/panes/ConnectionsPane";
+import { ClientRow } from "../features/console/clients/ClientRow";
 import type { ConsoleClient } from "../features/console/types";
 import { useLiveConsoleData } from "../features/console/useLiveConsoleData";
 

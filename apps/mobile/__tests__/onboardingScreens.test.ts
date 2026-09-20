@@ -5,8 +5,10 @@
 import { describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { ConvexProvider } from "convex/react";
 import { NameStep } from "../features/onboarding/steps/NameStep";
 import { StructureStep } from "../features/onboarding/steps/StructureStep";
+import { VaultImportStep } from "../features/onboarding/steps/VaultImportStep";
 import { AgentsStep } from "../features/onboarding/steps/AgentsStep";
 import { defaultSeedPrompt, seedPromptFor } from "../features/onboarding/agents";
 import { DoneStep } from "../features/onboarding/steps/DoneStep";
@@ -49,14 +51,34 @@ interface Rendered {
 function render(node: ReturnType<typeof createElement>): Rendered {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  const root = createRoot(container, {
+    onUncaughtError: () => {},
+    onCaughtError: () => {},
+  });
   act(() => {
     root.render(node);
   });
-  const rendered = { text: container.textContent ?? "", html: container.innerHTML };
+  const rendered = {
+    text: container.textContent ?? "",
+    html: container.innerHTML,
+  };
   act(() => root.unmount());
   container.remove();
   return rendered;
+}
+
+function withConvex(node: ReturnType<typeof createElement>): ReturnType<typeof createElement> {
+  const watch = {
+    localQueryResult: () => null,
+    onUpdate: () => () => {},
+    journal: () => undefined,
+  };
+  const client = {
+    action: async () => ({}),
+    mutation: async () => ({}),
+    watchQuery: () => watch,
+  } as never;
+  return createElement(ConvexProvider, { client }, node);
 }
 
 /** A controller with nothing happening, for a screen to read. */
@@ -79,8 +101,14 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     canClaim: false,
     connect: async () => ({ status: "unverified" }),
     connectState: { kind: "idle" },
+    // No offer: the default for these screens is a deployment that cannot
+    // provide managed storage, which is every deployment until an account
+    // exists to put the buckets in.
+    managed: null,
     skipStorage: () => {},
     continuePastStorage: () => {},
+    skipVaultImport: () => {},
+    finishVaultImport: () => {},
     structureStep: { kind: "ask" },
     template: "para",
     setTemplate: () => {},
@@ -120,7 +148,10 @@ describe("the name screen", () => {
       createElement(NameStep, {
         controller: controller({
           name: "seyi",
-          nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
+          nameStatus: nameStatus("seyi", {
+            available: true,
+            normalized: "seyi",
+          }),
         }),
       }),
     );
@@ -140,7 +171,10 @@ describe("the name screen", () => {
       createElement(NameStep, {
         controller: controller({
           name: "seyi",
-          nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
+          nameStatus: nameStatus("seyi", {
+            available: true,
+            normalized: "seyi",
+          }),
           claimFailure: {
             headline: "That name is reserved",
             next: "That name is reserved.",
@@ -163,7 +197,10 @@ describe("the name screen", () => {
       createElement(NameStep, {
         controller: controller({
           name: "seyi",
-          nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
+          nameStatus: nameStatus("seyi", {
+            available: true,
+            normalized: "seyi",
+          }),
           claimFailure: {
             headline: "That's a lot of contexts in one go",
             next: "Creating them is limited to a few an hour. Try again shortly.",
@@ -211,6 +248,45 @@ describe("the layout screen", () => {
   });
 });
 
+describe("the Obsidian vault screen", () => {
+  test("offers a folder import for a new customer-owned or managed bucket", () => {
+    const { text } = render(
+      withConvex(
+        createElement(VaultImportStep, {
+          controller: controller({
+            step: "vault",
+            claimed: { workspaceId: "w1" as never, slug: "seyi" },
+          }),
+        }),
+      ),
+    );
+
+    expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
+    expect(text).toContain("Choose a vault or notes folder");
+    expect(text).toContain("No, start fresh");
+    expect(text).toContain("Existing files stay unchanged.");
+  });
+
+  test("still offers an import when connected storage already contains files", () => {
+    const { text } = render(
+      withConvex(
+        createElement(VaultImportStep, {
+          controller: controller({
+            step: "vault",
+            claimed: { workspaceId: "w1" as never, slug: "seyi" },
+            structureStep: { kind: "existing" },
+          }),
+        }),
+      ),
+    );
+
+    expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
+    expect(text).toContain("How should these notes be added?");
+    expect(text).toContain("Merge without replacing");
+    expect(text).toContain("Keep it in its own folder");
+  });
+});
+
 describe("the tools screen", () => {
   test("hands over a prompt naming the folders this context actually has", () => {
     // The failure this catches is silent and lands in somebody else's product:
@@ -235,7 +311,10 @@ describe("the tools screen", () => {
     // promising otherwise describes a product we deliberately do not ship.
     const { text } = render(
       createElement(AgentsStep, {
-        controller: controller({ step: "agents", seedPrompt: defaultSeedPrompt() }),
+        controller: controller({
+          step: "agents",
+          seedPrompt: defaultSeedPrompt(),
+        }),
         onContinue: () => {},
       }),
     );
@@ -249,7 +328,10 @@ describe("the last screen", () => {
     // warning was withheld from exactly the person who most needed it.
     const { text } = render(
       createElement(DoneStep, {
-        controller: controller({ shape: { storage: "unverified" }, step: "done" }),
+        controller: controller({
+          shape: { storage: "unverified" },
+          step: "done",
+        }),
         onOpenConsole: () => {},
       }),
     );
@@ -272,7 +354,10 @@ describe("the last screen", () => {
   test("says nothing about the bucket when the bucket is fine", () => {
     const { text } = render(
       createElement(DoneStep, {
-        controller: controller({ shape: { storage: "connected" }, step: "done" }),
+        controller: controller({
+          shape: { storage: "connected" },
+          step: "done",
+        }),
         onOpenConsole: () => {},
       }),
     );

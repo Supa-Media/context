@@ -992,7 +992,7 @@ async function runSyncReportChecks(check) {
         accessKeyId: "AKIAEXAMPLEEXAMPLESYN",
         secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLESYN",
         forcePathStyle: true,
-        capabilities: { conditionalWrite: true },
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
         status: "active",
       },
       {},
@@ -1053,7 +1053,7 @@ function s3Binding(bucket, searchIndex) {
     accessKeyId: "AKIAEXAMPLEEXAMPLEPRJ",
     secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEPRJ",
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
     ...(searchIndex ? { searchIndex } : {}),
   };
@@ -1155,6 +1155,38 @@ async function runEndToEndChecks(check) {
         CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
         GATEWAY_SECRET,
         ...(budget ? { SEARCH_SUBREQUEST_BUDGET: String(budget) } : {}),
+      },
+      harness.ctx,
+    );
+    const body = await response.json();
+    await harness.settle();
+    return { response, body };
+  }
+
+  async function write(path, content) {
+    const harness = createWorkerCtx();
+    const response = await worker.fetch(
+      new Request("https://gateway.test/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: {
+            name: "write_note",
+            arguments: {
+              path,
+              content,
+              visibility: "team",
+              confirm_team_publish: true,
+            },
+          },
+        }),
+      }),
+      {
+        CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+        GATEWAY_SECRET,
       },
       harness.ctx,
     );
@@ -1275,10 +1307,34 @@ async function runEndToEndChecks(check) {
     );
     check("and says nothing it has already said", progressReports().length === 0);
 
+    // A note written after the projection becomes ready must be searchable
+    // without waiting for the listing reconciliation clock or forcing a full
+    // rebuild. This is the production failure that used to require turning
+    // Fast Search off and on again: write_note changed the canonical bucket,
+    // but no request told the ready projection about the new version.
+    const liveWrite = await write(
+      "1-projects/live-echidna.md",
+      "# Live update\n\nThe echidna arrived after Fast Search was ready.\n",
+    );
+    check(
+      "a post-activation note write succeeds",
+      liveWrite.response.status === 200 && !liveWrite.body.result?.isError,
+    );
+    check(
+      "and is written through to the ready projection",
+      d1.rows("SELECT path FROM notes WHERE path = ?", ["1-projects/live-echidna.md"])
+        .length === 1,
+    );
+    const liveAnswer = await search("echidna");
+    check(
+      "so the next Fast Search finds it without a rebuild",
+      JSON.stringify(liveAnswer.body).includes("1-projects/live-echidna.md"),
+    );
+
     const projected = d1.rows("SELECT path, visibility FROM notes ORDER BY path");
     check(
       "repeated searches copy the whole context into its own database",
-      projected.length === SEEDED_NOTES + 1,
+      projected.length === SEEDED_NOTES + 2,
     );
     check(
       "including the note that arrived while the backfill was running",
@@ -1344,6 +1400,35 @@ async function runEndToEndChecks(check) {
     check(
       "and never a credential",
       !bodies.includes(API_TOKEN) && !bodies.includes(ACCOUNT_ID),
+    );
+
+    // D1 is a disposable derivative. Even three consecutive provider
+    // refusals must not turn a successful canonical bucket write into a
+    // failed write, and retrying must not leak provider details to the caller.
+    d1.state.fail = 503;
+    const requestsBeforeFailedWrite = d1.requests.length;
+    const writeDuringOutage = await write(
+      "1-projects/durable-platypus.md",
+      "# Durable write\n\nThe platypus survives a projection outage.\n",
+    );
+    d1.state.fail = null;
+    check(
+      "a projection outage does not fail the canonical note write",
+      writeDuringOutage.response.status === 200 && !writeDuringOutage.body.result?.isError,
+    );
+    check(
+      "and the note remains safe in the bucket",
+      bucket.get("1-projects/durable-platypus.md")?.body.includes("survives a projection outage"),
+    );
+    check(
+      "the ready projection retries a transient refusal three times",
+      d1.requests.length - requestsBeforeFailedWrite === 3,
+    );
+    check(
+      "without returning provider or credential details",
+      !JSON.stringify(writeDuringOutage.body).includes(API_TOKEN) &&
+        !JSON.stringify(writeDuringOutage.body).includes(ACCOUNT_ID) &&
+        !JSON.stringify(writeDuringOutage.body).includes(DATABASE_ID),
     );
 
     // -- the token never escapes -------------------------------------------
@@ -1538,7 +1623,7 @@ async function runServeChecks(check) {
       // The manifest and the shards. Counted apart from notes because the
       // manifest is the one index object a fast hit used to read in front of
       // the caller, and the claim below is that it no longer does.
-      if (key.startsWith(".index/")) indexReads.push(key);
+      if (key.startsWith(".context/search/")) indexReads.push(key);
       // `privacy.md` is the manifest the privacy engine is built from and is
       // read once per request whatever answers it — counting it would make
       // "the answer read no note" false for every search ever made, which is
@@ -1712,14 +1797,14 @@ async function runServeChecks(check) {
      * manifest shed, which is exactly what makes the R2 path warn, and
      * confirm an answer served out of the database still does not.
      */
-    const manifestObject = bucket.get(".index/v2/manifest.json");
+    const manifestObject = bucket.get(".context/search/v2/manifest.json");
     const shedManifest = JSON.parse(manifestObject.body);
     shedManifest.stats[0] = {
       ...shedManifest.stats[0],
       shed: 1,
       shedPaths: ["1-projects/roster.md"],
     };
-    bucket.set(".index/v2/manifest.json", {
+    bucket.set(".context/search/v2/manifest.json", {
       ...manifestObject,
       body: JSON.stringify(shedManifest),
     });
@@ -1730,7 +1815,7 @@ async function runServeChecks(check) {
     );
     // Put it back: the checks below measure this fixture's index, and a
     // manifest this one edited is not the one they were written against.
-    bucket.set(".index/v2/manifest.json", manifestObject);
+    bucket.set(".context/search/v2/manifest.json", manifestObject);
     check(
       "the manifest is still read, behind that same response",
       fast.deferredIndexReads > 0,

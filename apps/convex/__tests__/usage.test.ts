@@ -65,7 +65,7 @@ async function activeRows(t: TestConvex) {
 describe("what a counter may hold", () => {
   test("a recognized metric increments one row per day", async () => {
     const t = setupTest();
-    const ws = await newWorkspace(t, "alpha");
+    const ws = await newWorkspace(t, "alfa");
 
     await t.mutation(internal.functions.usage.record, {
       events: [{ metric: "mcp.tool_call", workspaceId: ws, count: 3 }],
@@ -108,7 +108,7 @@ describe("what a counter may hold", () => {
 
   test("a stored row has no field a path or query could occupy", async () => {
     const t = setupTest();
-    const ws = await newWorkspace(t, "alpha");
+    const ws = await newWorkspace(t, "alfa");
     await t.mutation(internal.functions.usage.record, {
       events: [{ metric: "search.query", workspaceId: ws }],
       surface: "mcp",
@@ -170,7 +170,7 @@ describe("what a counter may hold", () => {
 
   test("a platform-wide metric never carries a workspace", async () => {
     const t = setupTest();
-    const ws = await newWorkspace(t, "alpha");
+    const ws = await newWorkspace(t, "alfa");
     await t.mutation(internal.functions.usage.record, {
       events: [{ metric: "web.visit", workspaceId: ws }],
       surface: "web",
@@ -185,7 +185,7 @@ describe("what a counter may hold", () => {
 describe("active contexts are a cardinality, not a log", () => {
   test("many calls in a day write one active row", async () => {
     const t = setupTest();
-    const ws = await newWorkspace(t, "alpha");
+    const ws = await newWorkspace(t, "alfa");
     for (let i = 0; i < 25; i += 1) {
       await t.mutation(internal.functions.usage.record, {
         events: [{ metric: "mcp.tool_call", workspaceId: ws }],
@@ -201,8 +201,8 @@ describe("active contexts are a cardinality, not a log", () => {
 
   test("two contexts on one day are two rows, and two surfaces are two rows", async () => {
     const t = setupTest();
-    const alpha = await newWorkspace(t, "alpha");
-    const beta = await newWorkspace(t, "beta");
+    const alpha = await newWorkspace(t, "alfa");
+    const beta = await newWorkspace(t, "bravo");
     await t.mutation(internal.functions.usage.record, {
       events: [
         { metric: "mcp.tool_call", workspaceId: alpha },
@@ -222,8 +222,8 @@ describe("active contexts are a cardinality, not a log", () => {
     const t = setupTest();
     process.env.ADMIN_EMAILS = "staff@supa.media";
     const admin = await createUser(t, "staff@supa.media");
-    const alpha = await newWorkspace(t, "alpha");
-    const beta = await newWorkspace(t, "beta");
+    const alpha = await newWorkspace(t, "alfa");
+    const beta = await newWorkspace(t, "bravo");
 
     await t.mutation(internal.functions.usage.record, {
       events: [
@@ -256,7 +256,7 @@ describe("the console's own report", () => {
   test("a member's session marks their context active", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.com");
-    const ws = await createWorkspace(t, owner, "alpha");
+    const ws = await createWorkspace(t, owner, "alfa");
     const userId = await createUser(t, "member@example.com");
     await addMember(t, ws, userId, "member");
 
@@ -331,7 +331,7 @@ describe("the gateway's reporting route", () => {
   test("an authorized report is applied", async () => {
     const t = setupTest();
     process.env.GATEWAY_SECRET = TEST_GATEWAY_SECRET;
-    const ws = await newWorkspace(t, "alpha");
+    const ws = await newWorkspace(t, "alfa");
 
     const response = await gatewayPost(t, "/gateway/usage", {
       events: [
@@ -353,7 +353,7 @@ describe("the gateway's reporting route", () => {
   test("the caller cannot choose the day or the surface", async () => {
     const t = setupTest();
     process.env.GATEWAY_SECRET = TEST_GATEWAY_SECRET;
-    const ws = await newWorkspace(t, "alpha");
+    const ws = await newWorkspace(t, "alfa");
 
     await gatewayPost(t, "/gateway/usage", {
       // Both are fields the mutation understands. Neither is read from the

@@ -39,6 +39,7 @@ import {
   renderChannelDayNote,
   renderContactNote,
 } from "@context/communications";
+import { renderFile } from "@context/shared/src/activity.cjs";
 import type { CommunicationEvent } from "@context/communications/protocol";
 import type { FileEntry, FolderListing, Visibility } from "./files/types";
 import type { IngestionSettings } from "./ingestion/settings";
@@ -113,6 +114,43 @@ const DEMO_EDGES: MapEdge[] = [
 ];
 
 export const DEMO_GRAPH: MapGraph = { nodes: DEMO_NODES, edges: DEMO_EDGES };
+
+/**
+ * What the demo context's `activity.md` says, once.
+ *
+ * Both the rendered file in `NOTE_BODIES` and the console's own activity view
+ * are built from this array, so the page can never show a row the file does
+ * not contain. One row carries an agent's summary and one does not, because
+ * those are the two shapes a row has and a demo that shows one of them is a
+ * demo of half the feature.
+ *
+ * Dated to the rest of the demo's world — `1-projects/context-lc.md` is
+ * `updated: 2026-08-26` — rather than to `Date.now()`, so the page reads as a
+ * context somebody worked in on a particular day rather than one that mints
+ * fresh history every time the marketing page is loaded.
+ */
+export const DEMO_ACTIVITY = [
+  {
+    at: "2026-08-26T09:12:00.000Z",
+    kind: "added",
+    paths: ["1-projects/dc-chapter.md"],
+    n: 1,
+    vis: "team" as const,
+    by: "@seyi",
+    via: "Claude",
+    note: "notes from the chapter call",
+  },
+  {
+    at: "2026-08-26T08:40:00.000Z",
+    kind: "revised",
+    paths: ["1-projects/context-lc.md"],
+    n: 1,
+    vis: "team" as const,
+    by: "@seyi",
+    via: null,
+    note: null,
+  },
+];
 
 /**
  * The demo account's four tiles.
@@ -497,6 +535,20 @@ const SEYI_TREE: DemoContextTree = {
       folder("3-resources", "private"),
       folder("4-archive", "private"),
       file("index.md"),
+      /*
+        The activity file, at the root beside the other two, because that is
+        where it is in a real bucket — and because the board could not show the
+        page it opens into until it was here. `ActivityPage` is the console's
+        one document view nothing in a browser had ever drawn, which is how a
+        column pinned to the left edge at a hard 760 shipped and was found in a
+        screenshot instead of in CI.
+
+        Private, like the real one: it names paths from every corner of a
+        context, so a member is served the filtered rendering and never the
+        file. `NOTE_BODIES` carries a real rendered file for it, machine
+        comments and all.
+      */
+      file("activity.md"),
       file("privacy.md", { readOnly: true }),
     ]),
     "0-inbox": listing("0-inbox", "private", [
@@ -515,6 +567,7 @@ const SEYI_TREE: DemoContextTree = {
     "2-areas": listing("2-areas", "private", [
       folder("2-areas/public-worship", "team"),
       folder("2-areas/supa-media", "private"),
+      file("2-areas/architecture-map.md"),
       file("2-areas/weekly-review.md"),
     ]),
     "2-areas/public-worship": listing("2-areas/public-worship", "team", [
@@ -524,7 +577,27 @@ const SEYI_TREE: DemoContextTree = {
     "3-resources": listing("3-resources", "private", [
       file("3-resources/doxology-framework.md"),
       file("3-resources/matthew-13-soil.md"),
+      folder("3-resources/books", "private"),
     ]),
+    /*
+      Four folders deep — past the old `MAX_FOLDER_CRUMBS` cap — so the demo
+      console itself is real evidence that nothing elides any more. It is the
+      exact path `crumbs.ts`'s header and `docs/decisions/app-and-console.md`
+      measured against a browser when the cap and the character budget still
+      existed; `scripts/ux-audit-shots.ts`'s "deep-path" shot is what
+      photographs it now.
+    */
+    "3-resources/books": listing("3-resources/books", "private", [
+      folder("3-resources/books/reading-notes", "private"),
+    ]),
+    "3-resources/books/reading-notes": listing("3-resources/books/reading-notes", "private", [
+      folder("3-resources/books/reading-notes/2026", "private"),
+    ]),
+    "3-resources/books/reading-notes/2026": listing(
+      "3-resources/books/reading-notes/2026",
+      "private",
+      [file("3-resources/books/reading-notes/2026/the-lean-startup.md")],
+    ),
   },
   notes: {
     "index.md": [
@@ -558,6 +631,38 @@ const SEYI_TREE: DemoContextTree = {
       "opposite: the craft serves the room rather than the recording.",
       "",
     ].join("\n"),
+    /*
+      THE PARAGRAPHS HERE ARE ONE LINE EACH, AND THAT IS THE POINT.
+
+      This note is `defaultSelection` — it is what the console opens on, what
+      the e2e fixture shows first, and what every screenshot of the editor has
+      ever contained. It used to be hard-wrapped at about fifty characters, so
+      the demo text *appeared* to wrap at a comfortable width on a wide screen
+      while the layout was doing nothing at all: measured in Chromium at
+      1440x900, the element holding the first sentence was 1160px wide with
+      `max-width: none` on every ancestor. A reader saw a tidy column; a real
+      note, written the way people write them, ran to about 150 characters a
+      line. Pre-wrapped demo data hid that from every visual check there was,
+      which is why it survived — `--lp-measure`, in `LiveEditor.web.tsx` and in
+      `files/webview/styles.ts`, is the fix, and this note is how it is seen.
+
+      So the wording is a persona's and the line breaks are the browser's. Do
+      not re-wrap this.
+    */
+    /*
+      The activity file, rendered from `DEMO_ACTIVITY` by the real `renderFile`
+      — not a hand-drawn approximation. Built from the module so the demo
+      cannot drift from the format: the fixture's first draft of the
+      *indicator*'s data named notes in a folder the demo has never had, drew
+      no dot, and the board reported on itself. A literal here would be the
+      same mistake one level down, in a file whose whole point is that a parser
+      reads it.
+
+      The file and the console's view of it come from **one** array for the
+      same reason. Two lists would be two chances for the page to show rows the
+      file does not contain.
+    */
+    "activity.md": renderFile(DEMO_ACTIVITY),
     "1-projects/context-lc.md": [
       "---",
       "updated: 2026-08-26",
@@ -566,14 +671,9 @@ const SEYI_TREE: DemoContextTree = {
       "",
       "# Context.LC — build decisions",
       "",
-      "Tenancy is bucket-level, never prefix-level. No key",
-      "namespacing inside a customer bucket, so an existing",
-      "brain connects with zero migration and Obsidian",
-      "Remotely Save keeps working.",
+      "Tenancy is bucket-level, never prefix-level. No key namespacing inside a customer bucket, so an existing workspace connects with zero migration and Obsidian Remotely Save keeps working.",
       "",
-      "A shared context is just a workspace with more than",
-      "one member — so a storage binding hangs off a",
-      "workspaceId, never a userId.",
+      "A shared context is just a workspace with more than one member — so a storage binding hangs off a workspaceId, never a userId.",
       "",
     ].join("\n"),
     "1-projects/dc-chapter.md": [
@@ -608,11 +708,73 @@ const SEYI_TREE: DemoContextTree = {
       "what decides, and it lists this note as an exception.",
       "",
     ].join("\n"),
+    /*
+      The note `apps/mobile/e2e/webkit/htmlPreview.spec.ts` renders, and the
+      only fixture in this file whose content is chosen by an attacker rather
+      than by a persona.
+
+      It carries three things on purpose:
+
+       - an `html-preview` fence holding a small version of the real
+         architecture diagram, so "the diagram draws" is measurable;
+       - a `<script>` inside that fence which sets `window.PWNED`. **Anyone can
+         email `<name>@context.lc`**, so this is exactly what a note written by
+         a stranger looks like, and the WebKit suite asserts the global is
+         still undefined after the frame has loaded. A bare `sandbox` attribute
+         is what makes that true, and jsdom cannot prove it — it does not
+         enforce iframe sandboxing at all;
+       - a plain ```` ```html ```` fence below it, which must stay a code block.
+         Opting in is the whole convention.
+
+      The `<script>` is inert everywhere this file is read: it is inside a
+      fenced code block in a string in a TypeScript module, and the only thing
+      that ever renders it is a frame that cannot run code.
+    */
+    "2-areas/architecture-map.md": [
+      "# Where the notes actually live",
+      "",
+      "Three zones, and only one of them holds a note.",
+      "",
+      "```html-preview",
+      "<script>window.PWNED = 1</script>",
+      "<style>",
+      ".zmap{--ink:#17171B;--ln:#B9B9B2;--ht:#B0740B;font-family:system-ui,sans-serif;",
+      "display:grid;grid-template-columns:1fr 96px;color:var(--ink)}",
+      ".zmap .stk{grid-column:1;display:flex;flex-direction:column;gap:8px}",
+      ".zmap .bd{border:1.5px solid var(--bc);background:var(--bg);border-radius:12px;padding:10px 12px}",
+      ".zmap .bd h3{font-size:13px;margin:0;color:var(--bi)}",
+      ".zmap .bd p{font-family:ui-monospace,monospace;font-size:11px;margin:2px 0 0;color:var(--bi);opacity:.72}",
+      ".zmap .c1{--bc:#3B5BA5;--bg:#EDF1FA;--bi:#1E3266}",
+      ".zmap .c2{--bc:#6D4AA6;--bg:#F3EEFB;--bi:#3E2A63}",
+      ".zmap .c3{--bc:#2E6B4F;--bg:#E9F3ED;--bi:#1C4732}",
+      ".zmap .rail{grid-column:2;position:relative}",
+      ".zmap .rail .br{position:absolute;top:16px;bottom:22px;left:6px;right:20px;",
+      "border:3px solid var(--ht);border-left:none;border-radius:0 14px 14px 0}",
+      "</style>",
+      '<div class="zmap">',
+      '  <div class="stk">',
+      '    <div class="bd c1"><h3>CLOUDFLARE</h3><p>stateless - stores nothing</p></div>',
+      '    <div class="bd c2"><h3>CONVEX - the directory</h3><p>metadata only - never note content</p></div>',
+      '    <div class="bd c3"><h3>THE FILES</h3><p>one bucket per workspace</p></div>',
+      "  </div>",
+      '  <div class="rail"><div class="br"></div></div>',
+      "</div>",
+      "```",
+      "",
+      "The block above is a diagram. The block below is a quotation, and stays",
+      "one:",
+      "",
+      "```html",
+      "<div>quoted, never drawn</div>",
+      "```",
+      "",
+    ].join("\n"),
     // Carries a wikilink, a checked and an unchecked task, and a plain bullet
     // long enough to wrap at 390pt — the constructs `apps/mobile/e2e/webkit`
-    // drives real touch events against. One folder deep and already the
-    // subject of `breadcrumb-shots.ts`'s first shot, so adding to it is the
-    // one place a WebKit run and a screenshot regression share a fixture.
+    // drives real touch events against. No table: `callouts.spec.ts` types at
+    // the end of this note and arrows back up into it, and a drawn table is an
+    // atomic range the caret steps over. The table fixture is the org chart
+    // below.
     "2-areas/weekly-review.md": [
       "# Weekly review",
       "",
@@ -624,12 +786,33 @@ const SEYI_TREE: DemoContextTree = {
       "- Keep this list short enough to actually run through before the next Friday, because a list nobody rereads is not a review",
       "",
     ].join("\n"),
+    /*
+      THE NOTE WITH A TABLE IN IT, and it is a fixture as much as a persona's
+      page. The decision log's rule is "a fixture that cannot show the thing
+      under review is reporting on itself": a GFM table is drawn as a grid
+      *while the note is being written* and is typed into in place, and until
+      something in this tree carried one there was nowhere in the running app
+      to look at that. A table somebody has to make first is not the same
+      screen as a table that was already in the file.
+
+      Here rather than in `weekly-review.md` because that note is the one the
+      touch specs type into and arrow around in, and a drawn table is an atomic
+      range the caret steps over. `tables.spec.ts` opens this one.
+
+      A seat per row is also what the prose above it describes, which is the
+      other half of a fixture: it has to be a page somebody would really have.
+    */
     "2-areas/public-worship/org-chart.md": [
       "# Org chart",
       "",
       "Executive Director → Music, Production, Formation, Operations.",
       "Each lead holds a seat, and a seat carries duties rather than a",
       "person's name — so a handover is a change to one field.",
+      "",
+      "| Seat | Holder | Backup |",
+      "| --- | --- | --- |",
+      "| Music | **Sayo** | LK |",
+      "| Production | John | LK |",
       "",
       "Shared with the team on purpose: everyone should be able to see",
       "who is responsible for what without asking.",
@@ -664,6 +847,13 @@ const SEYI_TREE: DemoContextTree = {
       "somewhere one is possible.",
       "",
     ].join("\n"),
+    "3-resources/books/reading-notes/2026/the-lean-startup.md": [
+      "# The Lean Startup",
+      "",
+      "Build-measure-learn as a loop rather than three separate phases —",
+      "the point is the cycle time, not any one step done well.",
+      "",
+    ].join("\n"),
     ...COMMS_NOTES,
     "privacy.md": privacyNote(
       [
@@ -685,7 +875,7 @@ const SEYI_TREE: DemoContextTree = {
   },
   defaultSelection: "1-projects/context-lc.md",
   defaultExpanded: ["1-projects"],
-  readOnlyReason: "This is a demo. Sign in to edit your own brain.",
+  readOnlyReason: "This is a demo. Sign in to edit your own workspace.",
 };
 
 // ── @lk — someone else's context, team access ────────────────────────────────
@@ -712,7 +902,7 @@ const LK_TREE: DemoContextTree = {
       "",
       "Music and formation, Public Worship.",
       "",
-      "You are seeing this brain with **team** access, which is why it",
+      "You are seeing this workspace with **team** access, which is why it",
       "looks small: private folders are not listed at all, so there is",
       "nothing here whose absence you could notice.",
       "",
@@ -770,7 +960,7 @@ const LK_TREE: DemoContextTree = {
   defaultSelection: "1-projects/worship-with-strangers.md",
   defaultExpanded: ["1-projects"],
   readOnlyReason:
-    "You have team access to this brain. Anything LK keeps private is not listed here at all — that is the privacy model, not a loading state.",
+    "You have team access to this workspace. Anything LK keeps private is not listed here at all — that is the privacy model, not a loading state.",
 };
 
 // ── @public-worship — shared, several members ────────────────────────────────
@@ -962,7 +1152,7 @@ const PUBLIC_WORSHIP_TREE: DemoContextTree = {
   },
   defaultSelection: "1-projects/ltn-2026.md",
   defaultExpanded: ["1-projects"],
-  readOnlyReason: "This is a demo. Sign in to edit your own brain.",
+  readOnlyReason: "This is a demo. Sign in to edit your own workspace.",
 };
 
 /** The demo contexts, keyed by the id `useDemoConsoleData` gives them. */

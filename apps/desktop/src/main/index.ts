@@ -17,7 +17,7 @@
  * dropped rather than starting a recording of whatever is happening instead.
  */
 
-import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, session } from "electron";
+import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, session, shell } from "electron";
 import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -64,13 +64,21 @@ import {
   grantCoversMeetings,
 } from "../core/sync/connection.ts";
 import { keychainTokenStore } from "./tokenStore.ts";
+import { createLocalAgent, sweepAbandonedRuns } from "./localAgent.ts";
+import { run as runCommand } from "../platform/exec.ts";
 import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
+import {
+  FULL_DISK_ACCESS_SETTINGS_URL,
+  fullDiskAccessNotice,
+} from "../core/imessage/permission.ts";
 import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
 import { DesktopUpdater } from "./updater.ts";
+import type { ManualUpdateCheckOutcome } from "./updater.ts";
+import { INSTALL_REFUSED_PROMPT, updateCheckPrompt } from "../core/update/prompt.ts";
 import {
   createConsoleWindow,
   createNotepad,
@@ -503,6 +511,73 @@ function askSomething(
  * end a meeting": `window-all-closed` below refuses to quit, the tray stays,
  * and a recording in progress runs on in this process with no window at all.
  */
+let checkForUpdatesFromMenu = () => {
+  console.log("[update] manual check requested before updater startup finished.");
+  void showUpdateCheckMessage({ type: "not-started" });
+};
+
+function showNativeNotification(body: string): void {
+  if (Notification.isSupported()) new Notification({ title: "Context", body }).show();
+}
+
+/**
+ * Show the outcome of a manual check, and let the person act on it.
+ *
+ * The dialog used to be one *OK* button whatever it said — including on
+ * *"Update ready. Version 0.1.44 is ready to install."*, which named an action
+ * and then offered no way to take it; the only route was a *Restart to update*
+ * item in the menu bar the dialog never mentioned. `updateCheckPrompt()` now
+ * decides the buttons, and `installButton` is the one index this function will
+ * turn into an install.
+ *
+ * `install` is `DesktopUpdater.install()`, which asks `mayInstall()` and
+ * re-reads `controller.recording` at the moment of the click — so a meeting
+ * that started while this box was open refuses the press rather than tearing
+ * itself down, and says so.
+ */
+async function showUpdateCheckMessage(
+  outcome: ManualUpdateCheckOutcome,
+  install: () => boolean = () => false,
+): Promise<void> {
+  const prompt = updateCheckPrompt(outcome);
+  const { installButton, ...options } = prompt;
+  const parent = liveFocusedWindow();
+  const answer = await askSomething(parent, { ...options, title: "Check for Updates" });
+  if (installButton === null || answer.response !== installButton) return;
+  if (!install()) sayInstallRefused();
+}
+
+/**
+ * *Restart Now* pressed into a refusal, because a meeting started while the box
+ * was open.
+ *
+ * A **notification** and not a second alert when there is no window to hang a
+ * sheet off: `askSomething`'s header measured what a parentless
+ * `showMessageBox` does — `-[NSAlert runModal]` spins its own run loop and this
+ * process stops, draining nothing — and the one moment that must never happen
+ * is the one this branch is reached in, with a recording running.
+ */
+function sayInstallRefused(): void {
+  const { message, detail } = INSTALL_REFUSED_PROMPT;
+  const parent = liveFocusedWindow();
+  if (parent === null) {
+    showNativeNotification(`${message} ${detail}`);
+    return;
+  }
+  void askSomething(parent, {
+    type: INSTALL_REFUSED_PROMPT.type,
+    title: "Check for Updates",
+    message,
+    detail,
+    buttons: INSTALL_REFUSED_PROMPT.buttons,
+  });
+}
+
+function liveFocusedWindow(): BrowserWindow | null {
+  const parent = BrowserWindow.getFocusedWindow();
+  return parent === null || parent.isDestroyed() ? null : parent;
+}
+
 function installApplicationMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -510,6 +585,7 @@ function installApplicationMenu(): void {
         label: app.getName(),
         submenu: [
           { role: "about" },
+          { label: "Check for Updates...", click: () => checkForUpdatesFromMenu() },
           { type: "separator" },
           { role: "hide" },
           { role: "hideOthers" },
@@ -610,6 +686,55 @@ async function main(): Promise<void> {
   const tokens = FAKE ? memoryTokenStore(null) : keychainTokenStore(app.getPath("userData"));
   const connection = new GatewayConnection({ store: tokens, refresh: browserlessRefresher() });
   await connection.load();
+
+  /*
+    Is there a `claude` on this machine to ask?
+
+    Probed once at startup and remembered, rather than on every question: the
+    answer decides which road the console's agent panel offers and it is asked
+    the moment the panel mounts. Someone who installs the CLI while the app is
+    running restarts it, which is the same deal every other thing this app
+    detects at launch gets.
+
+    `command -v` through the login shell rather than reading `process.env.PATH`:
+    a GUI app on macOS is launched by `launchd` and inherits a PATH that has
+    never seen the customer's `.zshrc`, so `claude` installed by npm or
+    Homebrew is invisible to it. The shell is `-lc` for that reason and the
+    argument is a constant — there is no interpolation here and nothing
+    attacker-controlled reaches it.
+  */
+  let claudeBinary: string | null = null;
+  if (!FAKE) {
+    try {
+      const found = await runCommand("/bin/sh", ["-lc", "command -v claude"], { timeoutMs: 5_000 });
+      const line = found.trim().split("\n")[0] ?? "";
+      claudeBinary = line.startsWith("/") ? line : null;
+    } catch {
+      // Not installed, which is the ordinary case and never an error.
+      claudeBinary = null;
+    }
+  }
+
+  /*
+    Anything a previous run left behind, before this one starts making more.
+
+    A local turn writes the context's bearer grant to a 0600 file so the CLI
+    can be handed a path instead of the JSON, and unlinks it in a `finally`.
+    That covers a throw and a timeout and cannot cover being killed, which is
+    the case its own comment names — so a force-quit mid-question left a live
+    grant in `userData` with nothing looking for it. See `sweepAbandonedRuns`.
+
+    Not awaited: it is cleanup of a previous process, nothing this launch does
+    depends on it, and a slow disk must not hold up a window.
+  */
+  void sweepAbandonedRuns(app.getPath("userData"));
+
+  const localAgent = createLocalAgent({
+    scratchRoot: app.getPath("userData"),
+    claudePath: () => claudeBinary,
+    endpoint: () => settings.gatewayEndpoint,
+    token: () => tokens.read(),
+  });
   const imessage = new ImessageSyncService({
     store,
     connection,
@@ -830,6 +955,25 @@ async function main(): Promise<void> {
     console.error(`[shell] ${sentence}`);
     if (Notification.isSupported()) new Notification({ title: "Context", body: sentence }).show();
   }
+
+  checkForUpdatesFromMenu = () => {
+    const result = updater.checkNow();
+    push();
+    // `install()` is handed to the dialog rather than called for it: the
+    // person decides, `mayInstall()` re-checks the meeting, and `push()`
+    // refreshes the tray when an install was refused after all.
+    const installNow = () => {
+      const installing = updater.install();
+      if (!installing) push();
+      return installing;
+    };
+    if (!result.started) {
+      void showUpdateCheckMessage(result.outcome, installNow);
+      return;
+    }
+    showNativeNotification("Checking for updates...");
+    void result.outcome.then((outcome) => showUpdateCheckMessage(outcome, installNow));
+  };
 
   const tray = new AppTray({
     togglePanel: (bounds) => {
@@ -1724,6 +1868,22 @@ async function main(): Promise<void> {
       writeMeeting: writeMeetingFromConsole,
       imessage: () => imessage.status(),
       setImessageEnabled: (enabled) => void update({ imessageEnabled: enabled }),
+      requestImessageFullDiskAccess: async () => {
+        const parent = consoleWindow === null || consoleWindow.isDestroyed() ? null : consoleWindow;
+        const answer = await askSomething(parent, {
+          type: "info",
+          title: "Allow iMessage import",
+          message: fullDiskAccessNotice(app.getName()),
+          detail: `After turning it on, quit and reopen ${app.getName()}, then return to Settings → Chats.`,
+          buttons: ["Open System Settings", "Not now"],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+        });
+        if (answer.response === 0) await shell.openExternal(FULL_DISK_ACCESS_SETTINGS_URL);
+      },
+      localAgent: () => localAgent.status(),
+      askLocalAgent: (request) => localAgent.ask(request),
     });
 
     consoleWindow = createConsoleWindow(url, RENDERER_DIR, {

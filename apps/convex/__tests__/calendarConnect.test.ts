@@ -446,7 +446,7 @@ describe("the row shape: products and the nested calendar object", () => {
     expect(row?.gmail?.mailboxSlug).toBe("person-at-example-invalid");
   });
 
-  test("reconnecting Calendar keeps its own cursor across the reconnect", async () => {
+  test("reconnecting Calendar keeps its own cursor and destination across the reconnect", async () => {
     const { t, owner, workspaceId } = await personalScenario();
     await bindCalendar(t, workspaceId, owner);
     await t.run(async (ctx) => {
@@ -454,13 +454,20 @@ describe("the row shape: products and the nested calendar object", () => {
         .query("googleConnections")
         .withIndex("by_workspace_address", (q) => q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"))
         .unique();
-      await ctx.db.patch(row!._id, { calendar: { ...row!.calendar!, syncToken: "cal-token-abc" } });
+      await ctx.db.patch(row!._id, {
+        calendar: {
+          ...row!.calendar!,
+          syncToken: "cal-token-abc",
+          destinationFolder: "2-areas/communications/daily",
+        },
+      });
     });
 
     await bindCalendar(t, workspaceId, owner);
 
     const row = await connectionRow(t, workspaceId, "person@example.invalid");
     expect(row?.calendar?.syncToken).toBe("cal-token-abc");
+    expect(row?.calendar?.destinationFolder).toBe("2-areas/communications/daily");
   });
 
   test("reconnecting Calendar never touches Gmail's own settings, folder slug included", async () => {
@@ -588,13 +595,13 @@ describe("attacker and victim in the same database", () => {
   async function twoTenants() {
     const t = setupTest();
     const victim = await createUser(t, "victim@example.invalid");
-    const victimWorkspace = await createWorkspace(t, victim, "victim-brain");
+    const victimWorkspace = await createWorkspace(t, victim, "victim-workspace");
     const attacker = await createUser(t, "attacker@example.invalid");
-    const attackerWorkspace = await createWorkspace(t, attacker, "attacker-brain");
+    const attackerWorkspace = await createWorkspace(t, attacker, "attacker-workspace");
     return { t, victim, victimWorkspace, attacker, attackerWorkspace };
   }
 
-  test("a stranger cannot start a Calendar connect against somebody else's brain", async () => {
+  test("a stranger cannot start a Calendar connect against somebody else's workspace", async () => {
     enableCalendarConnect();
     const { t, attacker, victimWorkspace } = await twoTenants();
 
@@ -1164,5 +1171,58 @@ describe("an editor is not an owner, and that is what the guards actually refuse
       connectionId,
     });
     expect((await connectionRow(t, workspaceId, "person@example.invalid"))?.disconnectedAt).toBeDefined();
+  });
+});
+
+describe("a calendar connection records the folder it files into", () => {
+  /*
+    Calendar's half of the rule stated in full in `chatProduct.test.ts`,
+    "a connection records the folder it files into": the folder a customer's
+    days are written to is a fact about the connection, recorded once, not a
+    constant every pass re-reads. Gmail has always pinned it at connect;
+    Calendar stored nothing, so `defaultGoogleDestinationFolder("calendar")`
+    decided — in source — where already-connected customers' calendars land,
+    and editing it would relocate them.
+  */
+  test("a first calendar connect records its destination folder on the row", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    await bindCalendar(t, workspaceId, owner);
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique(),
+    );
+    // This account's own folder under the calendar folder, since 2026-09-18.
+    // Two Google accounts used to write one file between them, which is a pair
+    // of calendars no folder rule in `privacy.md` could tell apart.
+    expect(row?.calendar?.destinationFolder).toBe("0-inbox/calendar/person-at-example-invalid");
+  });
+
+  test("a reconnect keeps a destination the owner chose", async () => {
+    enableCalendarConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await bindCalendar(t, workspaceId, owner);
+    const connection = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique(),
+    );
+    await asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+      workspaceId,
+      connectionId: connection!._id,
+      service: "calendar",
+      destinationPath: "2-areas/calendar",
+    });
+    await bindCalendar(t, workspaceId, owner);
+
+    const row = await t.run((ctx) => ctx.db.get(connection!._id));
+    expect(row?.calendar?.destinationFolder).toBe("2-areas/calendar");
   });
 });

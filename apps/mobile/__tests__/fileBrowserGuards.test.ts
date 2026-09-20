@@ -7,6 +7,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing, OpenNote } from "../features/console/files/types";
+import { parseDrawing } from "@context/drawings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -144,7 +145,12 @@ describe("the guards that decide whether the server is called at all", () => {
       etag: "etag-2",
       conflictCheck: "conditional",
     });
-    actions[name("deleteEntry")] = async () => ({ path: NOTE });
+    actions[name("trashEntry")] = async () => ({
+      kind: "moved",
+      from: NOTE,
+      to: `4-archive/stamp/${NOTE}`,
+      paths: [`4-archive/stamp/${NOTE}`],
+    });
     actions[name("moveEntry")] = async () => ({ path: NOTE });
   });
 
@@ -171,12 +177,12 @@ describe("the guards that decide whether the server is called at all", () => {
     // visitor. `useFileBrowser` has exactly one non-test call site
     // (`useLiveConsoleData.ts`), and the marketing console runs
     // `useDemoFileBrowser` instead. It is a signed-in workspace **member**,
-    // who does hold a credential — and `deleteEntry` would refuse them at
+    // who does hold a credential — and `archiveEntry` would refuse them at
     // `minimum: "editor"`. So the server backstop exists, and the reason this
     // guard is worth holding is narrower and true: a request that cannot
     // succeed surfaces as "that did not work", which reads as a broken console
     // rather than as a permission they do not have.
-    expect(called("deleteEntry")).toHaveLength(0);
+    expect(called("trashEntry")).toHaveLength(0);
     expect(called("moveEntry")).toHaveLength(0);
   });
 
@@ -194,11 +200,11 @@ describe("the guards that decide whether the server is called at all", () => {
       browser.rename(NOTE, "renamed.md");
     });
     await settle();
-    expect(called("deleteEntry")).toHaveLength(1);
+    expect(called("trashEntry")).toHaveLength(1);
     expect(called("moveEntry")).toHaveLength(1);
   });
 
-  test("the delete confirmation is the literal the backend demands", async () => {
+  test("delete moves into recoverable storage without a confirmation argument", async () => {
     unmount = mount({ canEdit: true });
     await settle();
     await act(async () => {
@@ -206,29 +212,8 @@ describe("the guards that decide whether the server is called at all", () => {
     });
     await settle();
 
-    // `deleteEntry` refuses anything but this exact string, and the console is
-    // the only caller that supplies it, so a typo turns every delete into a
-    // refusal the UI reports as "that did not work".
-    //
-    // **What this pins, exactly**, because the first version of this comment
-    // claimed more: it pins the *hook's* literal, and nothing here pins it to
-    // the server's. Measured — changing `DELETE_CONFIRMATION` in
-    // `functions/lib/fileOps.ts` leaves the whole mobile suite green. The
-    // server's own copy is pinned incidentally, by a hardcoded literal in
-    // `shareRead.test.ts`, so a one-sided rename does turn CI red — but on an
-    // unrelated share test, and a deliberate rename updating both would break
-    // the console silently.
-    //
-    // Importing the server constant here is the obvious fix and does not work:
-    // `functions/files.ts` pulls `@convex-dev/auth/server`, which does not
-    // resolve under this file's jsdom environment (`consoleVisibility.test.ts`
-    // gets away with the same import because it runs under node). Closing it
-    // properly means moving the literal somewhere both sides can reach, which
-    // is a change to production layout and not this test's to make.
-    expect(called("deleteEntry")[0].args).toMatchObject({
-      path: NOTE,
-      confirmation: "permanently delete",
-    });
+    expect(called("trashEntry")[0].args).toEqual({ path: NOTE, workspaceId: "w1" });
+    expect(called("deleteEntry")).toHaveLength(0);
   });
 
   test("saving a read-only note never reaches writeNote", async () => {
@@ -268,6 +253,63 @@ describe("the guards that decide whether the server is called at all", () => {
     });
     await settle();
     expect(called("writeNote")).toHaveLength(1);
+  });
+
+  test("a new drawing is written as a drawing, not as a heading", async () => {
+    /*
+      `createNote` seeds `# name\n\n`, which is right for a note and is a file
+      the gateway refuses on a `.excalidraw.md` path: `toolWriteNote` demands
+      that a write to one carries a payload, so this used to be a dead end that
+      surfaced as an error message. It is also why the console could offer no
+      New drawing at all.
+    */
+    unmount = mount({ canEdit: true });
+    await settle();
+
+    await act(async () => {
+      browser.createDrawing("1-projects", "ingest");
+    });
+    await settle();
+
+    const write = called("writeNote").at(-1)?.args as { path: string; text: string };
+    // The suffix is added for you: a person types a name, not a file format.
+    expect(write.path).toBe("1-projects/ingest.excalidraw.md");
+    const parsed = parseDrawing(write.text, write.path);
+    expect(parsed.unreadable).toBeNull();
+    expect(parsed.elements).toEqual([]);
+  });
+
+  test("and typing the suffix into New note reaches the same file", async () => {
+    // The other half, and the one that was actively broken: `plan.excalidraw`
+    // is a name somebody types, and it has to mean the same thing whichever
+    // control they reached for.
+    unmount = mount({ canEdit: true });
+    await settle();
+
+    await act(async () => {
+      browser.createNote("1-projects", "plan.excalidraw");
+    });
+    await settle();
+
+    const write = called("writeNote").at(-1)?.args as { path: string; text: string };
+    expect(write.path).toBe("1-projects/plan.excalidraw.md");
+    expect(parseDrawing(write.text, write.path).unreadable).toBeNull();
+  });
+
+  test("an ordinary note is still a heading and nothing else", async () => {
+    // The control. Without it the branch above could widen onto every note and
+    // this file would not notice.
+    unmount = mount({ canEdit: true });
+    await settle();
+
+    await act(async () => {
+      browser.createNote("1-projects", "plan");
+    });
+    await settle();
+
+    const write = called("writeNote").at(-1)?.args as { path: string; text: string };
+    expect(write.path).toBe("1-projects/plan.md");
+    expect(write.text).toBe("# plan\n\n");
   });
 
   test("selecting a folder does not try to read it as a note", async () => {

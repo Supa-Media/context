@@ -391,7 +391,7 @@ export function describeIngestionAbsence(state: IngestionState): IngestionAbsenc
       // The backend's own sentence, so somebody who ever does trip
       // `INGESTION_NOT_AVAILABLE` reads the same thing twice rather than two
       // explanations that have to be reconciled.
-      text: "Only a brain receives email. A note reaches a workspace when someone moves it here.",
+      text: "Only a personal workspace receives email. A note reaches a shared one when someone moves it here.",
     };
   }
   if (state.loading || state.settings !== null) return null;
@@ -399,7 +399,7 @@ export function describeIngestionAbsence(state: IngestionState): IngestionAbsenc
     return {
       reason: "owner-only",
       title: "Only an owner sees these rules",
-      text: "Where mail lands, and who may send it, belongs to whoever owns this brain.",
+      text: "Where mail lands, and who may send it, belongs to whoever owns this workspace.",
     };
   }
   return {
@@ -409,7 +409,7 @@ export function describeIngestionAbsence(state: IngestionState): IngestionAbsenc
     // until you set a target folder" — a fail-closed-sounding claim about a
     // pipeline that has never run once, and one of the sentences
     // `__tests__/captureHonesty.test.ts` bans by vocabulary.
-    text: "Ingestion is off for this brain — you have to set a target folder and say who may send.",
+    text: "Ingestion is off for this workspace — you have to set a target folder and say who may send.",
   };
 }
 
@@ -692,7 +692,7 @@ export function describeSenderPolicy(draft: IngestionDraft): {
   if (draft.allowAnySender) {
     return {
       tone: "crit",
-      text: "Anyone who learns this address is allowed to post into your brain. Nothing is checked.",
+      text: "Anyone who learns this address is allowed to post into your workspace. Nothing is checked.",
     };
   }
   const entries = senderEntries(draft);

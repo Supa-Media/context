@@ -25,6 +25,8 @@ import { afterEach, describe, expect, test } from "@jest/globals";
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { noteColumnWidth, noteGutterFor } from "../features/app/frame";
+import { layout } from "../features/design/tokens";
 import { FolderView } from "../features/console/files/FolderView";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 
@@ -222,6 +224,43 @@ describe("what an empty folder is told", () => {
   });
 });
 
+describe("the folder's placeholder", () => {
+  /**
+   * The `README.md` a folder is made of is plumbing, not a note, and this page
+   * is the surface it was loudest on: the first row of every folder, before
+   * anything anybody wrote.
+   *
+   * It is dropped here by `listedEntries`, which the tree uses too — one filter,
+   * so a file cannot be a row on one surface and absent on the other. See
+   * `fileEditor.test.ts` for the rule itself.
+   *
+   * SABOTAGE: listing `listing.entries` directly again fails both tests here.
+   */
+  test("is not one of the rows", () => {
+    const view = mount({
+      listing: listing([file("README.md"), file("findings.md")]),
+    });
+    expect(view.container.textContent).toContain("findings");
+    expect(view.container.textContent).not.toContain("README");
+  });
+
+  test("a folder holding nothing else is empty, and the sentence is the owner's", () => {
+    const view = mount({ listing: listing([file("README.md")]), canSetVisibility: true });
+    expect(view.container.textContent).toContain("nothing in it yet");
+  });
+
+  /**
+   * The empty sentence still forks on who is asking. A member whose every note
+   * in this folder is private, plus a placeholder, must not be told the folder
+   * is empty — that is the claim this file exists to prevent, and the new filter
+   * must not become a way to make it.
+   */
+  test("a member is still told what they are not being shown", () => {
+    const view = mount({ listing: listing([file("README.md")]), canSetVisibility: false });
+    expect(view.container.textContent).toContain("Nothing in this folder is shared with you");
+  });
+});
+
 describe("the controls", () => {
   /**
    * **This pane draws neither of them any more, and that is the change.**
@@ -273,5 +312,68 @@ describe("the controls", () => {
     const text = mount({ listing: listing([]) }).container.textContent ?? "";
     expect(text).toContain("team —");
     expect(text).not.toContain("There is no public tier");
+  });
+});
+
+describe("a folder is a page in the note's own column", () => {
+  /**
+   * REPORTED FROM A DESKTOP WINDOW, WITH A SCREENSHOT OF EACH: a note is a
+   * centred column of prose and a folder listing was a column of rows pinned
+   * to the left edge of a 900pt pane, with the rest of the pane empty. Two
+   * pages in the same frame, laid out by two different rules — and the folder's
+   * was the one with no argument behind it, since `readingMeasureEm` exists
+   * precisely so a line of text does not run the width of the glass.
+   *
+   * The fix is the column, not a number: `FolderView` reads the same
+   * `noteColumnWidth` the editor cuts its measure from.
+   */
+  test("the listing is held to the measure and centred in what is left", () => {
+    const view = mount({ listing: listing([file("findings.md")]) });
+    const column = view.container.querySelector('[data-testid="folder-column"]');
+    expect(column).not.toBeNull();
+    const style = getComputedStyle(column!);
+    expect(Number.parseFloat(style.maxWidth)).toBe(noteColumnWidth);
+    expect(style.alignSelf).toBe("center");
+  });
+
+  /**
+   * THE property, and the reason the width is imported rather than written:
+   * a centred column of `noteColumnWidth` starts at exactly the character the
+   * note's first line starts at. The breadcrumb over both pages is indented to
+   * `noteGutterFor`, so a folder name that did not land on the same sum would
+   * sit visibly off the path above it.
+   *
+   * Both halves are asserted, because the constant can drift from the column
+   * it is supposed to name in two different directions:
+   *
+   *  - It is the measure the **editor** cuts, which `LiveEditor.web.tsx`
+   *    spends as `readingMeasureEm` em of the note's own `noteFontSize`. A
+   *    `noteColumnWidth` that stopped being that product would centre the
+   *    folder on a column no note has.
+   *  - It is the measure **`noteGutterFor`** centres, which is what everything
+   *    drawn above a page lines up with.
+   *
+   * SABOTAGE: give either one a number of its own — 620, say, which is what
+   * `BrowsePane` carried as a dead style — and one of these two fails.
+   */
+  test("its first character is the note's first character", () => {
+    // The editor's own measure, multiplied out exactly as the CSS does.
+    expect(noteColumnWidth).toBe(layout.readingMeasureEm * layout.noteFontSize);
+    for (const width of [900, 1024, 1440]) {
+      // What the column's own left edge works out to: the document box centres
+      // it, so half of what the measure did not use sits either side.
+      const centred = (width - layout.notePadX * 2 - noteColumnWidth) / 2;
+      expect(layout.notePadX + centred).toBe(noteGutterFor(width));
+    }
+  });
+
+  /**
+   * The `maxWidth` must not become a phone's layout. A 390pt screen is far
+   * narrower than the measure, so the cap cannot bind there and the reading
+   * margin goes on governing — the same floor the editor's `max(0, …)` has.
+   */
+  test("it cannot bind on a phone, where the margin governs", () => {
+    expect(noteColumnWidth).toBeGreaterThan(390);
+    expect(noteGutterFor(390)).toBe(layout.notePadX);
   });
 });

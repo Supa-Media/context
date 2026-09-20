@@ -33,8 +33,8 @@
  * ## Which index each block drives, since there are now two
  *
  * The gateway answers from the **sharded** index (CONTRACT.md § v2): a search
- * through the worker syncs `.index/v2/manifest.json` and its shards, and never
- * touches `.index/search-v1.json`. So every block here that goes through
+ * through the worker syncs `.context/search/v2/manifest.json` and its shards, and never
+ * touches `.context/search/search-v1.json`. So every block here that goes through
  * `searchText` / `callTool` exercises v2 and reads its objects; the blocks that
  * call `syncIndex` directly — the plateau and byte-cap fixtures, the per-note
  * char cap, the parallel-wave backfill, the etag-less backend — are checks
@@ -382,7 +382,7 @@ function indexedPaths(bucket) {
 /** Every v2 object gone, which is what "nothing has indexed this bucket" means. */
 function removeV2Index(bucket) {
   for (const key of [...bucket.objects.keys()]) {
-    if (key.startsWith(".index/v2/")) bucket.remove(key);
+    if (key.startsWith(".context/search/v2/")) bucket.remove(key);
   }
 }
 
@@ -421,7 +421,7 @@ export async function runSearchIntegrationChecks(check) {
       controlPlane.addWorkspace(workspace, slug, {
         provider: "r2-binding",
         bindingName: binding,
-        capabilities: { conditionalWrite: true },
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
         status: "active",
       });
     }
@@ -970,7 +970,7 @@ export async function runSearchIntegrationChecks(check) {
     //
     // The cap above was read-side only and the write had none, so the loop
     // stored objects it already knew it would reject: grow, refuse, rebuild
-    // from empty, grow again, forever. A brain whose capped index crosses the
+    // from empty, grow again, forever. A workspace whose capped index crosses the
     // ceiling never converges, and — worse — a *converged* index (`pending: 0`)
     // is reachable, written, and thrown away on the next pass. Refusing the
     // write instead makes coverage plateau: the last object small enough to
@@ -1289,7 +1289,7 @@ export async function runSearchIntegrationChecks(check) {
     // -- the budget is a deployment setting, bounded ------------------------
     //
     // The default assumes the free tier's 50-subrequest ceiling; a paid-plan
-    // worker gets 1000, and holding it to 40 there stretches a real brain's
+    // worker gets 1000, and holding it to 40 there stretches a real workspace's
     // first index across dozens of searches. `SEARCH_SUBREQUEST_BUDGET` in the
     // environment raises it; garbage must fall back to the default rather than
     // take search down.
@@ -1432,7 +1432,7 @@ export async function runSearchIntegrationChecks(check) {
     controlPlane.addWorkspace("ws_search_recall", "searchrecall", {
       provider: "r2-binding",
       bindingName: "RECALL_BUCKET",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
     const RECALL_OWNER = `cat_searchidx_recall_owner_${"0".repeat(9)}`;

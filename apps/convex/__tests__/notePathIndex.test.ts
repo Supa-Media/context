@@ -22,6 +22,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import {
   type FileStore,
@@ -45,8 +46,8 @@ function bucket(): MemoryStore & FileStore {
 }
 
 async function shareProjects(store: FileStore): Promise<void> {
-  await setFolderVisibility(store, { path: "1-projects", visibility: "team", scope: "private" });
-  await setVisibility(store, { path: "1-projects/pay.md", visibility: "private", scope: "private" });
+  await setFolderVisibility(store, { path: "1-projects", visibility: "team", clearance: clearanceOf("private") });
+  await setVisibility(store, { path: "1-projects/pay.md", visibility: "private", clearance: clearanceOf("private") });
 }
 
 /** Run maintenance to convergence, the way `searchContext` schedules it. */
@@ -60,14 +61,14 @@ async function indexed(store: FileStore): Promise<void> {
 describe("notePathIndex", () => {
   test("a bucket with no index at all answers null, never an empty list", async () => {
     const store = bucket();
-    const found = await notePathIndex(store, "private");
+    const found = await notePathIndex(store, clearanceOf("private"));
     expect(found).toBeNull();
   });
 
   test("once indexed, returns every note path the owner can see, sorted", async () => {
     const store = bucket();
     await indexed(store);
-    const found = await notePathIndex(store, "private");
+    const found = await notePathIndex(store, clearanceOf("private"));
 
     expect(found).not.toBeNull();
     expect(found!.paths).toEqual([
@@ -84,10 +85,10 @@ describe("notePathIndex", () => {
     await shareProjects(store);
     await indexed(store);
 
-    const asOwner = await notePathIndex(store, "private");
+    const asOwner = await notePathIndex(store, clearanceOf("private"));
     expect(asOwner!.paths).toContain("1-projects/pay.md");
 
-    const asTeam = await notePathIndex(store, "team");
+    const asTeam = await notePathIndex(store, clearanceOf("team"));
     expect(asTeam!.paths).not.toContain("1-projects/pay.md");
     // Not the path anywhere in the answer, the same way `consoleSearch.test.ts`
     // checks a search result never carries the withheld path in any field.
@@ -100,18 +101,18 @@ describe("notePathIndex", () => {
   test("privacy.md itself is never offered as a link target", async () => {
     const store = bucket();
     await indexed(store);
-    const found = await notePathIndex(store, "private");
+    const found = await notePathIndex(store, clearanceOf("private"));
     expect(found!.paths).not.toContain(PRIVACY_KEY);
   });
 
   test("PRIVACY_KEY is a plumbing key excluded from the docmap entirely, not merely filtered here", async () => {
     // Documented rather than merely asserted: `isPlumbing` runs *in addition*
     // to `canSee` in `notePathIndex`, but the indexer's own `isIndexable`
-    // already keeps `.index/` and `privacy.md` out of the docmap in the first
+    // already keeps `.context/search/` and `privacy.md` out of the docmap in the first
     // place. This pins the outcome either layer is responsible for.
     const store = bucket();
     await indexed(store);
-    const found = await notePathIndex(store, "private");
-    expect(found!.paths.some((path) => path.startsWith(".index/"))).toBe(false);
+    const found = await notePathIndex(store, clearanceOf("private"));
+    expect(found!.paths.some((path) => path.startsWith(".context/search/"))).toBe(false);
   });
 });

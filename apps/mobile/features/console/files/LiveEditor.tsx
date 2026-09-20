@@ -64,7 +64,7 @@ import { Keyboard, Platform, StyleSheet, TextInput, View, useWindowDimensions } 
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
 import { Text } from "../../design/components/Text";
-import { fonts, leading, radii, space } from "../../design/tokens";
+import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   EDITOR_HTML,
@@ -101,9 +101,17 @@ export function LiveEditor({
   onScrollBy,
   accessibilityLabel,
   onOpenNote,
-  onPressNote,
   notePath,
   notePaths,
+  onSubmitForm,
+  onReadFormResponses,
+  onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
+  onSuggest,
+  onPickSuggestion,
+  onLoadImage,
+  onStoreImage,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -160,7 +168,15 @@ export function LiveEditor({
     onBlur,
     onScrollBy,
     onOpenNote,
-    onPressNote,
+    onSubmitForm,
+    onReadFormResponses,
+    onVoteForm,
+    onUpdateFormResponse,
+    onRetractFormResponse,
+    onSuggest,
+    onPickSuggestion,
+    onLoadImage,
+    onStoreImage,
   });
   handlers.current = {
     onChange,
@@ -170,7 +186,15 @@ export function LiveEditor({
     onBlur,
     onScrollBy,
     onOpenNote,
-    onPressNote,
+    onSubmitForm,
+    onReadFormResponses,
+    onVoteForm,
+    onUpdateFormResponse,
+    onRetractFormResponse,
+    onSuggest,
+    onPickSuggestion,
+    onLoadImage,
+    onStoreImage,
   };
 
   /**
@@ -250,8 +274,64 @@ export function LiveEditor({
             navigating to a note relative to whichever note was open when the
             editor mounted.
           */
-          onOpenNote: (path) => handlers.current.onOpenNote?.(path),
-          onPressNote: (path) => handlers.current.onPressNote?.(path),
+          onOpenNote: (path, mode) => handlers.current.onOpenNote?.(path, mode),
+          /*
+            Also off the ref, and here the staleness would be worse than a
+            mis-aimed navigation: the host resolves a submission against the
+            note it currently has open, so a callback captured at mount would
+            write somebody's bug report into the note they had open when the
+            editor was created.
+
+            Always supplied rather than conditional on the prop: this bridge is
+            built once (`useMemo`, keyed on the caret helper alone), so a sink
+            chosen from the prop's value at mount would be the *first* render's
+            answer to "can this note submit" for the life of the editor. The
+            ref is read at press time and refuses then if there is nothing
+            there, which is the same message the host would have sent.
+          */
+          onSubmitForm: (submission) =>
+            handlers.current.onSubmitForm?.(submission) ??
+            Promise.resolve({ ok: false, message: "This note can’t send responses here." }),
+          onReadFormResponses: (responsesPath) =>
+            handlers.current.onReadFormResponses?.(responsesPath) ??
+            Promise.resolve({ ok: false, message: "Responses are unavailable here." }),
+          onVoteForm: (vote) =>
+            handlers.current.onVoteForm?.(vote) ??
+            Promise.resolve({ ok: false, message: "Voting is unavailable here." }),
+          onUpdateFormResponse: (change) =>
+            handlers.current.onUpdateFormResponse?.(change) ??
+            Promise.resolve({ ok: false, message: "Editing is unavailable here." }),
+          onRetractFormResponse: (change) =>
+            handlers.current.onRetractFormResponse?.(change) ??
+            Promise.resolve({ ok: false, message: "Deleting is unavailable here." }),
+          /*
+            Images, off the ref like every other sink here. `null` rather than a
+            message when this surface has no bucket: the row inside the guest
+            draws its own absence, and there is no button waiting on a sentence.
+          */
+          onLoadImage: (target) =>
+            handlers.current.onLoadImage?.(target) ?? Promise.resolve(null),
+          onStoreImage: (image) =>
+            handlers.current.onStoreImage?.(image) ??
+            Promise.resolve({ error: "Images can’t be added here." }),
+          /*
+            Off the ref for the reason every callback here is, and with a
+            sharper consequence than most: `askSuggestions` is rebuilt whenever
+            the set of running sandboxes changes, so a version captured at mount
+            would go on asking the frames that were alive when this note was
+            opened — which is a plugin that answers nothing after the first
+            restart, and answers it silently.
+
+            Always supplied rather than conditional on the prop, like the form
+            sinks above: this bridge is built once, so choosing the sink from a
+            prop's value at mount would freeze the first render's answer. What
+            varies is `setSuggest` below, which is a message and can be sent
+            again.
+          */
+          onSuggest: (line, ch) =>
+            handlers.current.onSuggest?.(line, ch) ?? Promise.resolve([]),
+          onPickSuggestion: (index) =>
+            handlers.current.onPickSuggestion?.(index) ?? Promise.resolve(null),
         },
       ),
     [keepCaretClear],
@@ -277,6 +357,14 @@ export function LiveEditor({
       undo: () => bridge.run({ name: "undo" }),
       redo: () => bridge.run({ name: "redo" }),
       blur: () => bridge.run({ name: "blur" }),
+      /*
+        Reachable, and deliberately not reached today: no phone build has a
+        dictation engine (`features/voice/engine.ts`), so nothing calls this.
+        It is wired anyway because the *joining* rule lives in `runCommand` on
+        both sides of the bridge — a surface that grew an engine later and
+        found this missing would reimplement the spacing and get it different.
+      */
+      dictate: (text) => bridge.run({ name: "dictate", text }),
     };
   }
 
@@ -324,6 +412,22 @@ export function LiveEditor({
   useEffect(() => {
     bridge.setLinks(notePath ?? null, notePaths);
   }, [bridge, notePath, notePaths]);
+
+  /*
+    Whether a plugin can be asked for suggestions right now.
+
+    Its own effect, and the one piece of this that has to be a message rather
+    than a sink: the guest's completion source asks nothing at all while this is
+    false, which is what keeps a note on a phone with no plugin running free of
+    a bridge round trip per keystroke. `onSuggest` is absent on every surface
+    with no runtime behind it — a member's console, the demo — and present the
+    moment one appears, so this is the prop's presence and nothing else. The
+    bridge drops a repeat, so the identity churn in `askSuggestions` as
+    sandboxes come and go costs one comparison rather than a message.
+  */
+  useEffect(() => {
+    bridge.setSuggest(onSuggest !== undefined);
+  }, [bridge, onSuggest]);
 
   /**
    * KEEPING THE CARET OFF THE KEYBOARD, and it is answered differently at the
@@ -565,8 +669,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.well,
     color: colors.text2,
     fontFamily: fonts.mono,
-    fontSize: 12.5,
-    lineHeight: leading(12.5, 1.7),
+    fontSize: t.meta,
+    lineHeight: leading(t.meta, 1.7),
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
@@ -576,8 +680,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: "transparent",
     color: colors.text,
     fontFamily: fonts.body,
-    fontSize: 16,
-    lineHeight: leading(16, 1.5),
+    fontSize: t.body,
+    lineHeight: leading(t.body, 1.5),
     paddingTop: space.x2,
     paddingHorizontal: space.x6,
     paddingBottom: space.x8,

@@ -48,6 +48,19 @@ export class CalendarApiError extends Error {
 }
 
 /**
+ * A page walk ended without Google's terminal page and therefore without the
+ * only `nextSyncToken` that can safely advance the calendar cursor. Fixed and
+ * content-free so a scheduler can classify it without carrying provider text.
+ */
+export class CalendarPaginationError extends Error {
+  constructor() {
+    super("Google Calendar pagination did not converge");
+    this.name = "CalendarPaginationError";
+    this.code = "PAGINATION_STALLED";
+  }
+}
+
+/**
  * One page of `calendar.events.list`.
  *
  * The access token is sent **only** in the `Authorization` header, never as a
@@ -93,7 +106,7 @@ export class CalendarApiError extends Error {
  * @param {{fetchImpl: typeof fetch, accessToken: string, calendarId: string,
  *          syncToken?: string|null, windowStart?: string|null, windowEnd?: string|null,
  *          timezone?: string, pageToken?: string|null}} args
- * @returns {Promise<{items: object[], nextPageToken: string|null, nextSyncToken: string|null}>}
+ * @returns {Promise<{items: object[], nextPageToken: string|null, nextSyncToken: string|null, timeZone: string|null}>}
  */
 export async function fetchCalendarPage({
   fetchImpl,
@@ -133,6 +146,7 @@ export async function fetchCalendarPage({
     items: Array.isArray(body.items) ? body.items : [],
     nextPageToken: typeof body.nextPageToken === "string" ? body.nextPageToken : null,
     nextSyncToken: typeof body.nextSyncToken === "string" ? body.nextSyncToken : null,
+    timeZone: typeof body.timeZone === "string" && body.timeZone ? body.timeZone : null,
   };
 }
 
@@ -142,22 +156,42 @@ export async function fetchCalendarPage({
  * every page but the one that has it.
  *
  * @param {Parameters<typeof fetchCalendarPage>[0]} args
- * @returns {Promise<{items: object[], nextSyncToken: string|null}>}
+ * @returns {Promise<{items: object[], nextSyncToken: string|null, timeZone: string|null}>}
  */
 export async function fetchAllPages(args) {
   const items = [];
   let pageToken = null;
   let nextSyncToken = null;
+  let timeZone = null;
+  let complete = false;
+  const seenPageTokens = new Set();
   // A page cap, not a product limit: a fixture or a misbehaving server that
   // never stops paginating must not hang a sync forever.
   for (let page = 0; page < 1000; page += 1) {
     const result = await fetchCalendarPage({ ...args, pageToken });
     items.push(...result.items);
     if (result.nextSyncToken) nextSyncToken = result.nextSyncToken;
-    if (!result.nextPageToken) break;
+    if (result.timeZone) {
+      if (timeZone !== null && timeZone !== result.timeZone) {
+        throw new CalendarPaginationError();
+      }
+      timeZone = result.timeZone;
+    }
+    if (!result.nextPageToken) {
+      complete = true;
+      break;
+    }
+    if (seenPageTokens.has(result.nextPageToken)) {
+      throw new CalendarPaginationError();
+    }
+    seenPageTokens.add(result.nextPageToken);
     pageToken = result.nextPageToken;
   }
-  return { items, nextSyncToken };
+  // Hitting the cap is not a partial success. Google's resumable sync token
+  // exists only on the terminal page, so returning the old/null token here
+  // would make the next scheduled pass replay the same thousand pages forever.
+  if (!complete) throw new CalendarPaginationError();
+  return { items, nextSyncToken, timeZone };
 }
 
 /** An attendee or organizer resource, normalized. `null` fields stay absent rather than becoming `""`. */

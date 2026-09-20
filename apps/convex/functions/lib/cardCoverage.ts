@@ -1,11 +1,23 @@
 /**
  * Which characters the card font can draw.
  *
- * The same cmap reader as `infra/router/src/fontCoverage.ts`, and it is a copy
- * because the router is a dependency-free Worker that cannot import from
- * `apps/convex`. Two copies of a security-adjacent decision is a real cost, so
- * `__tests__/cardCoverage.test.ts` asserts the two agree on a battery of
- * titles rather than trusting that they do.
+ * **There is one copy of this, and there used to be two.** It was written as
+ * the twin of a cmap reader in `infra/router/src/fontCoverage.ts`, because the
+ * router drew the card and is a dependency-free Worker that cannot import from
+ * `apps/convex`; a parity test held the pair. `#126` moved the drawing here and
+ * deleted the router's reader and its fonts, so the twin and the parity test
+ * both went with it.
+ *
+ * The description of that arrangement outlived it, which is worth more than a
+ * tidy-up: it named `infra/router/src/fontCoverage.ts` and
+ * `__tests__/cardCoverage.test.ts` as things a reader could go and check, and
+ * **neither exists**. A comment that names a test is read as evidence that a
+ * guard is held. Anyone auditing this file was told to keep two copies in sync
+ * and pointed at a file that would have to be re-created to obey.
+ *
+ * What is true now: one implementation, and `__tests__/shareCard.test.ts`
+ * exercises `isRenderableTitle` directly. If a second renderer ever comes back,
+ * the parity test comes back with it.
  *
  * What it exists for: satori draws a glyph it has no font for as tofu (`\u25a1`)
  * **silently**. There is no exception to catch. A card rendered without this

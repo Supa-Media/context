@@ -43,7 +43,7 @@ const NOTE = "1-projects/transition/implementation-handoff.md";
 async function scenario(t: TestConvex) {
   const ownerId = await createUser(t, "owner@example.invalid");
   const lkId = await createUser(t, "lk@example.invalid");
-  const workspaceId = await createWorkspace(t, ownerId, "owner-brain");
+  const workspaceId = await createWorkspace(t, ownerId, "owner-workspace");
   await createWorkspace(t, lkId, "lk");
   return { ownerId, lkId, workspaceId };
 }
@@ -186,7 +186,7 @@ describe("what an unauthenticated crawler is told", () => {
     const result = await preview(t, token);
     expect(Object.keys(result).sort()).toEqual(["openToAnyone", "title"]);
     const serialised = JSON.stringify(result);
-    expect(serialised).not.toContain("owner-brain");
+    expect(serialised).not.toContain("owner-workspace");
     expect(serialised).not.toContain("1-projects");
     expect(serialised).not.toContain("lk");
   });

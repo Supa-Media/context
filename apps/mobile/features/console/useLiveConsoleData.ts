@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   useAction,
@@ -8,8 +8,10 @@ import {
 } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
+import { storageLayoutAnswerIsCurrent } from "@context/convex/functions/lib/storageLayout";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "./placeholderData";
 import { describeQueryFailure } from "./failure";
+import { prefetchWorkspacePhotos } from "./useWorkspaceIcons";
 import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
@@ -17,12 +19,40 @@ import { capabilitiesForRole } from "./capabilities";
 import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
+import { useActivity } from "./activity/useActivity";
+import { hasNewActivity } from "./activity/activity";
 import { useFastSearch } from "./search/useFastSearch";
+import { useGroups } from "./groups/useGroups";
+import { useShares } from "./shares/useShares";
+import { useAdvanced } from "./advanced/useAdvanced";
+import { usePlugins } from "./plugins/usePlugins";
+import { useContextPlugins } from "./plugins/useContextPlugins";
+import { useManagedInstalls } from "./plugins/useManagedInstalls";
+import { useGrants } from "./plugins/useGrants";
+import { useLifecycle } from "./plugins/useLifecycle";
+import { useRuntime } from "./plugins/useRuntime";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
-import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
+import {
+  atName,
+  contextToneFor,
+  describeScopes,
+  formatCount,
+  grantTone,
+  lastUsedLabel,
+} from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
-import { formatNotesTotal, totalNotes } from "./noteTotals";
-import { forgetContextCopies, forgetLocalCopies } from "../offline/forget";
+import { formatNotesTotal, notesTotalLabel, totalNotes } from "./noteTotals";
+import {
+  forgetContextCopies,
+  forgetDepartedContexts,
+  forgetLocalCopies,
+} from "../offline/forget";
+import { useBackgroundDrain } from "../offline/useBackgroundDrain";
+import { useMirrorSync, type MirrorActions } from "../offline/useMirrorSync";
+import { useMirrorStatuses } from "../offline/mirrorStatus";
+import type { BatchRead, ManifestPage } from "../offline/mirrorSync";
+import { useRememberedContexts } from "../offline/useRememberedContexts";
+import { queuedOpSender, queuedWriteSender } from "./files/queuedWrite";
 import { defaultContext } from "./nav";
 import {
   buildConstellation,
@@ -37,6 +67,11 @@ import {
   type ConsoleStorage,
   type StorageActions,
 } from "./types";
+import type { GoogleConnection } from "./google/GoogleConnectionsCard";
+import {
+  resetObservabilityUser,
+  setObservabilityUser,
+} from "../observability/client";
 
 /**
  * The live console.
@@ -72,10 +107,53 @@ interface WorkspaceSummary {
   displayName: string;
   kind: string;
   role: string;
+  /** Where meetings land here, when the owner has chosen. Absent is the default. */
+  meetingsFolder?: string;
+  /**
+   * When this context last changed, and when this person last caught up here.
+   *
+   * The two halves of the dot on its mark, kept apart because the rule that
+   * combines them belongs in one place — `hasNewActivity` — rather than being
+   * recomputed wherever a row is drawn.
+   */
+  activityAt?: number;
+  activitySeenAt?: number;
+  /**
+   * The layout a setup flow last recorded — `para` or `custom`, absent where
+   * neither flow got that far. `listMyWorkspaces` has always returned it.
+   */
+  structureTemplate?: string;
+  /**
+   * The mark this workspace draws, when its owner chose one. A photo is its
+   * leaf; see `ConsoleContext.icon` for why the bytes are not on this row.
+   */
+  icon?: { kind: "photo"; leaf: string } | { kind: "emoji"; emoji: string };
+  /** The pinned context. See `ConsoleContext.pinned` for what it changes here. */
+  pinned?: boolean;
+}
+
+/**
+ * The workspaces this account is actually *in*.
+ *
+ * Everything that subscribes per workspace has to be driven off this rather
+ * than off the raw list, because the pinned context is reach without a
+ * membership row: `listGrants`, `getStorageBinding` and
+ * `listGoogleConnections` all go through `requireWorkspaceAccess` and throw
+ * `WORKSPACE_NOT_FOUND` for it. Subscribing anyway would not break the console
+ * — `usable()` turns a failed query into `undefined` — which is exactly why it
+ * is worth naming: the damage would be three silently failing subscriptions per
+ * paint, and a storage pip that reads "unknown" because the query errored
+ * rather than because the bucket is quiet.
+ */
+function memberOf(
+  workspaces: readonly WorkspaceSummary[] | undefined,
+): WorkspaceSummary[] {
+  return (workspaces ?? []).filter((workspace) => workspace.pinned !== true);
 }
 
 interface StorageBinding {
   provider: string;
+  managed: boolean;
   /**
    * Optional, because a Dropbox binding has none of them — see the validator
    * on `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`
@@ -107,6 +185,38 @@ interface StorageBinding {
   noteCountedAt?: number;
   noteCountTruncated?: boolean;
   /**
+   * The verifier's word for what it found in the bucket — `empty`,
+   * `existing-context`, `created`, `partial`, `failed`.
+   *
+   * Absent means nobody has looked, or a deployment older than the field, and
+   * **never** "empty": `features/console/setup.ts` turns on that distinction,
+   * because the difference between the two is a card offering to write folders
+   * into somebody's live vault.
+   */
+  scaffoldReason?: string;
+  /**
+   * Where the storage-layout migration got to. Absent until it has run through
+   * us, which is the only state the console still offers it in.
+   */
+  storageLayoutState?:
+    | "copying"
+    | "copied"
+    | "cleaning"
+    | "conflict"
+    | "unsupported"
+    | "complete";
+  storageLayoutAt?: number;
+  /**
+   * Whether the bucket has been *asked* where the migration got to, and by
+   * which generation of the question. Absent state with both set is the real
+   * "nobody has run it"; absent checked is "nobody has looked", which is not
+   * something to offer on; and a stale version is an answer from the probe
+   * that got a freshly scaffolded bucket wrong. `storageLayoutAnswerIsCurrent`
+   * is the one place those three are told apart.
+   */
+  storageLayoutCheckedAt?: number;
+  storageLayoutCheckedVersion?: number;
+  /**
    * Load-bearing for Re-verify: the probe is queued, not awaited, so the pane
    * watches this field to know its outcome landed. See `storage/reverify.ts`.
    */
@@ -130,6 +240,67 @@ interface GrantSummary {
    */
   isMine: boolean;
   lastUsedAt?: number;
+}
+
+interface GoogleConnectionSummary {
+  connectionId: Id<"googleConnections">;
+  email: string;
+  syncServices: { gmail: boolean; calendar: boolean; chat: boolean };
+  syncStatus: string;
+  /** How often this account is polled, and how the last poll went. */
+  sync: {
+    intervalMinutes: number;
+    everSynced: boolean;
+    cursorReady: boolean;
+    catchingUp: boolean;
+    lastAttemptAt?: number;
+    nextDueAt?: number;
+    lastFailureAt?: number;
+    lastFailureCode?: string;
+    lastFailure?: string;
+  };
+  lastSyncStartedAt?: number;
+  lastSyncCompletedAt?: number;
+  errorCode?: string;
+  lastError?: string;
+  gmail?: {
+    backfillDays: number;
+    folders: Array<"inbox" | "sent">;
+    destinationFolder: string;
+    destinationPath: string;
+    historyCursorReady: boolean;
+    lastSyncedAt?: number;
+  };
+  calendar?: {
+    destinationFolder: string;
+    destinationPath: string;
+    syncCursorReady: boolean;
+    lastSyncedAt?: number;
+  };
+  chat?: {
+    destinationFolder: string;
+    destinationPath: string;
+    cursorCount: number;
+    lastSyncedAt?: number;
+  };
+  syncRun?: {
+    runId: Id<"googleSyncRuns">;
+    mode: "backfill";
+    services: Array<"gmail" | "calendar" | "chat">;
+    status: "queued" | "running" | "complete" | "failed";
+    requestedBackfillDays: number;
+    totalUnits: number;
+    completedUnits: number;
+    itemsFound?: number;
+    daysWithMail?: number;
+    bytesWritten?: number;
+    currentService?: "gmail" | "calendar" | "chat";
+    currentUnit?: string;
+    startedAt?: number;
+    completedAt?: number;
+    errorCode?: string;
+    lastError?: string;
+  };
 }
 
 /**
@@ -167,7 +338,7 @@ export function useLiveConsoleData(): ConsoleData {
     () => ({
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
-      // Which contexts a blended search would actually reach. It rides in the
+      // Which contexts a blended search will reach. It rides in the
       // same spec for the reason `listMyInvitations` does — Convex dedupes
       // identical subscriptions, so the search page subscribing to it as well
       // is not a second round trip — and it is here rather than on the page
@@ -191,13 +362,30 @@ export function useLiveConsoleData(): ConsoleData {
   const invitations = usable<Array<{ slug: string; token: string }>>(
     specResults.invitations,
   );
-  const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
-  // `fastSearch.searchableContexts` answers `{ eligible, notEligible }` now
-  // (see `apps/convex/functions/fastSearch.ts`); this reader only ever wanted
-  // the count of the first half.
-  const searchableContexts = usable<{ eligible: Array<{ workspaceId: string }> }>(
+  /*
+    The live list, or the one this device remembers when there is no network to
+    ask and nothing has landed.
+
+    `useRememberedContexts` carries the whole argument for when a memory may
+    stand in for an answer — and the cast is the one place a remembered row
+    becomes a `WorkspaceSummary` again. It is safe because the row was written
+    from this exact type on a load that did land: `workspaceId` is the string a
+    `Id<"workspaces">` already is, and every consumer below uses it as an
+    argument or a key rather than as proof of anything. The proof is the
+    server's, and offline there is nothing to prove to — a remembered id that
+    was somehow wrong reaches a bucket read that refuses it, which is the
+    direction this whole feature is allowed to be wrong in.
+  */
+  const liveWorkspaces = usable<WorkspaceSummary[]>(workspacesResult);
+  const workspaces = useRememberedContexts(liveWorkspaces) as WorkspaceSummary[] | undefined;
+  // `fastSearch.searchableContexts` answers `{ contexts }` (see
+  // `apps/convex/functions/fastSearch.ts`); this reader only ever wanted how
+  // many there are. That is now every context the person belongs to rather
+  // than the fast-search ones, which is the honest condition for drawing a
+  // Search row: the page reads whatever it is given, quickly or slowly.
+  const searchableContexts = usable<{ contexts: Array<{ workspaceId: string }> }>(
     specResults.searchable,
-  )?.eligible.length;
+  )?.contexts.length;
   const failure =
     workspacesResult instanceof Error
       ? describeQueryFailure(workspacesResult, "your context")
@@ -222,15 +410,30 @@ export function useLiveConsoleData(): ConsoleData {
   const queries = useMemo<RequestForQueries>(() => {
     // An account with no contexts subscribes to nothing, and says so with the
     // shared constant rather than a fresh `{}`.
-    if ((workspaces ?? []).length === 0) return EMPTY_QUERY_SPEC;
+    const joined = memberOf(workspaces);
+    if (joined.length === 0) return EMPTY_QUERY_SPEC;
     const spec: RequestForQueries = {};
-    for (const workspace of workspaces ?? []) {
+    for (const workspace of joined) {
       spec[`grants:${workspace.workspaceId}`] = {
         query: api.functions.grants.listGrants,
         args: { workspaceId: workspace.workspaceId },
       };
       spec[`storage:${workspace.workspaceId}`] = {
         query: api.functions.storage.getStorageBinding,
+        args: { workspaceId: workspace.workspaceId },
+      };
+      spec[`google:${workspace.workspaceId}`] = {
+        query: api.functions.googleConnect.listGoogleConnections,
+        args: { workspaceId: workspace.workspaceId },
+      };
+      /*
+        Whether a model key exists, for the one control that would otherwise
+        offer a conversation nothing can answer. It returns fingerprints and
+        connection times — never a key, and never a fragment of one — and this
+        projection keeps only whether the list is empty.
+      */
+      spec[`providers:${workspace.workspaceId}`] = {
+        query: api.functions.providers.listProviders,
         args: { workspaceId: workspace.workspaceId },
       };
     }
@@ -240,8 +443,26 @@ export function useLiveConsoleData(): ConsoleData {
   const results = useQueries(queries);
   const revoke = useMutation(api.functions.grants.revokeGrant);
   const bindStorage = useAction(api.functions.storage.bindStorage);
+  /*
+    The same action `useFileBrowser` holds, taken here too rather than threaded
+    up through `FileBrowser`'s interface: `useAction` returns a callable, not a
+    subscription, so a second handle costs nothing and widening that interface
+    with a writer no view calls would. Both go through `queuedWriteSender`, so
+    there is still exactly one definition of what a queued write is.
+  */
+  const writeNoteAction = useAction(api.functions.files.writeNote);
+  const syncManifestAction = useAction(api.functions.files.syncManifest);
+  const readNotesAction = useAction(api.functions.files.readNotes);
+  /** The bytes behind a workspace's icon. See the prefetch below for why here. */
+  const workspaceIconPhotoAction = useAction(api.functions.files.workspaceIconPhoto);
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
+  const observeStorageLayout = useMutation(
+    api.functions.storage.observeStorageLayout,
+  );
   const disconnectStorage = useMutation(api.functions.storage.disconnectStorage);
+  const disconnectGoogle = useMutation(
+    api.functions.googleConnect.disconnectGoogleConnection,
+  );
   const leaveWorkspace = useMutation(api.functions.workspaces.leaveWorkspace);
   const deleteAccountMutation = useMutation(api.functions.account.deleteAccount);
   // Not destructured: the context is undefined in test harnesses that
@@ -269,10 +490,63 @@ export function useLiveConsoleData(): ConsoleData {
     displayName: workspace.displayName,
     role: workspace.role,
     kind: workspace.kind,
-    status: contextTone(
-      usable<StorageBinding | null>(results[`storage:${workspace.workspaceId}`])?.status,
-    ),
+    structureTemplate: workspace.structureTemplate,
+    /*
+      `contextToneFor`, not `contextTone`: the pinned context has no storage
+      subscription behind it (see `memberOf`), and `contextTone` reads that
+      silence as a missing binding and answers `warn` — a permanent amber alarm
+      about somebody else's bucket, on every account's rail. The distinction is
+      argued in full where the function lives.
+    */
+    status: contextToneFor({
+      storageStatus: usable<StorageBinding | null>(
+        results[`storage:${workspace.workspaceId}`],
+      )?.status,
+      pinned: workspace.pinned,
+    }),
+    meetingsFolder: workspace.meetingsFolder,
+    // One rule, one place. See `hasNewActivity`.
+    hasNewActivity: hasNewActivity(workspace.activityAt, workspace.activitySeenAt),
+    // The leaf, not the picture: the bytes are fetched once per leaf per
+    // session, just below. Putting them on this row would make every poll of
+    // the console carry a megabyte per workspace.
+    icon: workspace.icon,
+    pinned: workspace.pinned,
   }));
+
+  /*
+    THE ONE PLACE A WORKSPACE ICON PHOTO IS FETCHED.
+
+    Here rather than in the components that draw it, and that is not tidiness:
+    `useAction` throws outside a `ConvexProvider`, and the mark is also drawn by
+    the landing page's picture of the console and by the demo console, neither
+    of which has a backend. A drawing surface that needed a Convex client would
+    be a marketing page that crashes.
+
+    This hook is the one that runs the queries, so the client is guaranteed
+    here by construction. `prefetchWorkspacePhotos` fills a module-scope cache
+    that `useWorkspaceIcons` reads without importing anything from Convex, and
+    a surface with no backend simply never fills it — which is right, because it
+    has no real workspace to ask about.
+
+    Called from an effect keyed on the leaves rather than on the array: the
+    console re-renders on every poll, and the prefetch itself is idempotent, but
+    re-entering it several times a second to do nothing is still a cost worth
+    not paying.
+  */
+  const iconLeaves = contexts
+    .flatMap((context) => (context.icon?.kind === "photo" ? [`${context.id}|${context.icon.leaf}`] : []))
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (iconLeaves === "") return;
+    prefetchWorkspacePhotos(contexts, (args) =>
+      workspaceIconPhotoAction({ workspaceId: args.workspaceId as Id<"workspaces"> }),
+    );
+    // `contexts` is rebuilt on every render; `iconLeaves` is what actually
+    // changes when there is a new photo to fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iconLeaves, workspaceIconPhotoAction]);
 
   // One entry per reachable context, and all three cases kept apart: the
   // binding, `null` for a context with no bucket, `undefined` for one whose
@@ -280,14 +554,17 @@ export function useLiveConsoleData(): ConsoleData {
   // still-loading context as bucketless, so the first paint printed an exact
   // total missing a whole bucket's notes. See `noteTotals.ts`.
   const notes = totalNotes(
-    (workspaces ?? []).map((workspace) => {
+    // Contexts this person is in. Counting our notes into somebody's own total
+    // would be wrong twice over: they are not theirs, and the console has no
+    // binding subscription for that row to count them from.
+    memberOf(workspaces).map((workspace) => {
       const result = results[`storage:${workspace.workspaceId}`];
       if (result === undefined || result instanceof Error) return undefined;
       return (result as StorageBinding | null) ?? null;
     }),
   );
 
-  const activeGrants: GrantSummary[] = (workspaces ?? []).flatMap((workspace) =>
+  const activeGrants: GrantSummary[] = memberOf(workspaces).flatMap((workspace) =>
     (usable<GrantSummary[]>(results[`grants:${workspace.workspaceId}`]) ?? []).filter(
       (grant) => grant.status === "active",
     ),
@@ -296,7 +573,13 @@ export function useLiveConsoleData(): ConsoleData {
   // The map is laid out from ids and labels only, so it should not be recomputed
   // when an unrelated field (a `lastUsedAt` tick) changes.
   const graphKey = JSON.stringify([
-    (workspaces ?? []).map((w) => [w.workspaceId, w.slug, w.role, w.kind]),
+    /*
+      The map is this person's own estate — their contexts and the clients
+      connected to them — so the pinned context is not a node on it. Drawing one
+      would put a workspace with none of their clients attached in the middle of
+      a picture whose whole subject is what they have connected where.
+    */
+    memberOf(workspaces).map((w) => [w.workspaceId, w.slug, w.role, w.kind]),
     activeGrants.map((g) => [g.grantId, g.workspaceId, g.clientName ?? g.clientId]),
   ]);
 
@@ -370,6 +653,18 @@ export function useLiveConsoleData(): ConsoleData {
           noteCount: binding.noteCount,
           noteCountedAt: binding.noteCountedAt,
           noteCountTruncated: binding.noteCountTruncated,
+          scaffoldReason: binding.scaffoldReason,
+          layoutState: binding.storageLayoutState,
+          layoutStateAt: binding.storageLayoutAt,
+          /*
+            Asked *and* answered by the question we still stand behind. The
+            probe before this one looked only for a migration state file, so a
+            bucket we scaffolded ourselves answered "nobody has run it" and
+            every new workspace was offered the update on its first load. Those
+            rows are still out there; the predicate is what gets them re-asked
+            rather than believed.
+          */
+          layoutChecked: storageLayoutAnswerIsCurrent(binding),
           forcePathStyle: binding.forcePathStyle,
           // `objectCount`, `paraPresent` and `versioningOn` are deliberately
           // not set. Nothing has counted this bucket, looked for PARA folders,
@@ -379,9 +674,72 @@ export function useLiveConsoleData(): ConsoleData {
           errorCode: binding.errorCode,
           updatedAt: binding.updatedAt,
           lastVerifiedAt: binding.lastVerifiedAt,
+          managed: binding.managed,
         };
 
   const selected = contexts.find((c) => c.id === selectedContextId) ?? null;
+
+  /*
+    The selected context, for everything that needs a membership row behind it.
+
+    `null` for the pinned context, which every account reaches and nobody
+    joined, and `null` is the value every one of these hooks already skips on —
+    it is what they see when nothing is selected at all. So one derivation turns
+    off the member list, fast-search status, the plugin inventory and switches,
+    plugin grants and lifecycle, shares, groups, the advanced pane, ingestion
+    and the plugin runtime, all of which go through `requireWorkspaceAccess` and
+    would answer `WORKSPACE_NOT_FOUND` for a pinned reader.
+
+    **`useFileBrowser` deliberately keeps the real id.** Reading notes is the
+    one thing the pin opens — `authorizeFileAccess` grants it at `member`,
+    `team` — and it is the only reason to have the context in the list at all.
+
+    One lever rather than a `pinned` argument threaded through eleven hooks: a
+    hook that needs the row and was not told about the flag is a failing
+    subscription nobody notices, because `usable()` turns a failed query into
+    `undefined` and every one of these renders `undefined` as "still loading".
+  */
+  const membershipContextId: Id<"workspaces"> | null =
+    selected?.pinned === true ? null : selectedContextId;
+  /**
+   * Whether the selected context has a model key. `undefined` until answered.
+   *
+   * `usable` answers `undefined` for a query that has not landed *and* for one
+   * that failed, which is the right reading for both here: a console that
+   * cannot ask offers no conversation rather than an offer that errors.
+   */
+  const modelConnected: boolean | undefined =
+    selectedContextId === null
+      ? undefined
+      : (() => {
+          const answer = usable<{ provider: string }[]>(
+            results[`providers:${selectedContextId}`],
+          );
+          return answer === undefined ? undefined : answer.length > 0;
+        })();
+
+  const googleConnections: GoogleConnection[] =
+    selectedContextId === null
+      ? []
+      : (
+          usable<GoogleConnectionSummary[]>(
+            results[`google:${selectedContextId}`],
+          ) ?? []
+        ).map((connection) => ({
+          connectionId: connection.connectionId,
+          email: connection.email,
+          syncServices: connection.syncServices,
+          syncStatus: connection.syncStatus,
+          sync: connection.sync,
+          lastSyncStartedAt: connection.lastSyncStartedAt,
+          lastSyncCompletedAt: connection.lastSyncCompletedAt,
+          errorCode: connection.errorCode,
+          lastError: connection.lastError,
+          gmail: connection.gmail,
+          calendar: connection.calendar,
+          chat: connection.chat,
+          syncRun: connection.syncRun,
+        }));
 
   // Read access and write access are different grants (CLAUDE.md, "The
   // workspace model"), so a `member` gets a console with no Save button rather
@@ -412,30 +770,158 @@ export function useLiveConsoleData(): ConsoleData {
             });
           },
           disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
+          /*
+            Not a control anybody presses. It is the console asking the bucket
+            where the storage-layout migration got to, so an already-migrated
+            context stops being offered it — see
+            `storage/StorageMigration.tsx`. Owner-only with the rest of this
+            object because the backend is: it spends the workspace's request
+            budget against the workspace's bucket.
+          */
+          observeLayout: () => observeStorageLayout({ workspaceId: selectedContextId }),
         };
 
   // Same owner-only rule as the storage binding, and one rule beyond it: only a
   // personal context has a capture address at all, so a shared one is handed a
   // state that says so rather than a form for an inbox it does not have.
   const ingestion = useIngestionSettings({
-    workspaceId: selectedContextId,
+    workspaceId: membershipContextId,
     availability: ingestionAvailabilityFor(selected?.kind),
     canEdit: isOwner,
   });
 
   const members = useMembers({
-    workspaceId: selectedContextId,
+    workspaceId: membershipContextId,
     role: selected?.role,
   });
+
+  /*
+    What has changed in this context, from `activity.md`.
+
+    The same `membershipContextId` every other per-context subscription here
+    takes, so switching contexts switches this with them rather than leaving
+    one surface a frame behind — the frame where the paths on screen belong to
+    the context somebody just left.
+  */
+  /** The viewer's own `@name`, or null for an account with no personal context. */
+  const ownSlug = ownPersonalContext(contexts)?.slug ?? null;
+  const ownName = ownSlug === null ? null : `@${ownSlug}`;
+  const activity = useActivity(
+    membershipContextId ?? null,
+    // The viewer's own name, from their own personal context — the same
+    // `@name` the gateway stamps on what their clients do, which is what makes
+    // "was this me?" answerable at all.
+    ownName,
+  );
 
   // Read for every member — how a context's search is served is not privileged
   // — and the switch attached only where the server said `canChange`. That is
   // the hook's own rule rather than this file's, so `isOwner` is deliberately
   // not passed: `status` answers the authorization question with the server's
   // answer, and a second one derived here could disagree with it.
-  const fastSearch = useFastSearch({ workspaceId: selectedContextId });
+  const fastSearch = useFastSearch({ workspaceId: membershipContextId });
+  /*
+    Owner-only, and a scan rather than a subscription — see `usePlugins`. The
+    read itself takes no path argument, because the gateway's own read takes
+    none: `list_plugins` cannot be aimed, which is what keeps a tool reading
+    outside the privacy manifest's reach from becoming a way to read around it.
+  */
+  const plugins = usePlugins({ workspaceId: membershipContextId, role: selected?.role });
+  /*
+    The built-ins, which are not a scan and not owner-only. No `role` is passed:
+    every member may see which features their context has — a member who cannot
+    is a member who files "the form isn't there" as a bug — and whether they may
+    work the switches comes back from the server as `canManage` rather than
+    being decided twice. See `useContextPlugins`.
+  */
+  const contextPlugins = useContextPlugins({ workspaceId: membershipContextId });
+  // A live subscription, unlike the inventory above — a Revoke pressed here has
+  // to stop reading as "Approved" in the same frame. See `useGrants`.
+  const pluginGrants = useGrants({ workspaceId: membershipContextId, role: selected?.role });
+  /*
+    `onChanged` is the inventory's own re-read. Installing or removing a plugin
+    leaves the list on screen describing a bucket that no longer exists, and the
+    scan is the only thing that knows the new one — so the lifecycle asks it
+    rather than trying to patch rows itself.
+  */
+  // `withheld` and `loading` are the two states with no `read` to call: one is
+  // a viewer who may not scan, the other is a scan already running.
+  const rereadPlugins =
+    plugins.state === "loading" || plugins.state === "withheld"
+      ? undefined
+      : plugins.actions?.read;
+  /*
+    What Context installed, read on arrival rather than on a press — see
+    `useManagedInstalls` for why that is a different cost from the scan above,
+    and for what the missing answer cost.
+  */
+  const managedInstalls = useManagedInstalls({
+    workspaceId: selectedContextId,
+    role: selected?.role,
+  });
+  /*
+    Both reads follow an install, and both are needed.
+
+    The scan is the only thing that knows whether the new plugin runs; the
+    pointer read is the only one that answers at all when no scan has been run,
+    which is the state a first visit is in. Refreshing only the scan would leave
+    the registry still offering Install for what was just installed — the bug
+    this pair exists to close.
+  */
+  const rereadInstalls = managedInstalls.state === "withheld" ? undefined : managedInstalls.read;
+  const afterLifecycleChange = useCallback(async () => {
+    await Promise.all([rereadInstalls?.(), rereadPlugins?.()]);
+  }, [rereadInstalls, rereadPlugins]);
+  const pluginBrowse = useLifecycle({
+    workspaceId: membershipContextId,
+    role: selected?.role,
+    onChanged: afterLifecycleChange,
+  });
+
+  // Shared links — owner-only on the backend (`listShares`/`revokeShare`), so
+  // this hook decides for itself, from `role`, whether to subscribe at all.
+  // See `useShares` for why that is stricter than `useMembers`'s own gate.
+  const shares = useShares({ workspaceId: membershipContextId, role: selected?.role });
+  const groups = useGroups({ workspaceId: membershipContextId, role: selected?.role });
+
+  // Both halves are owner-only in the console — see `useAdvanced` for why the
+  // audit trail is stricter here than `listEvents` allows on the backend.
+  const advanced = useAdvanced({
+    workspaceId: membershipContextId,
+    role: selected?.role,
+    // For the deletion card only: a personal workspace is not deletable from a settings
+    // panel, and the name is what confirms the deletion.
+    kind: selected?.kind,
+    slug: selected?.slug,
+  });
+
+  /*
+    THE CONTEXTS SOMETHING COULD BE MOVED INTO.
+
+    Built from the list the rail already draws rather than from a query of its
+    own, and filtered on the *destination* half of the rule: a move lands as an
+    ordinary write, so `editor` or `owner` there. The **source** half — owning
+    the context it is leaving — is applied inside `useFileBrowser`, which is
+    the one place that knows which context this browser is standing in.
+
+    The pinned context is excluded by the role filter and would be by intent
+    anyway: it is somebody else's docs, read-only, and nobody put this person
+    in it.
+  */
+  const moveDestinations = useMemo(
+    () =>
+      contexts
+        .filter((context) => context.role === "owner" || context.role === "editor")
+        .map((context) => ({
+          id: context.id,
+          label: atName(context.slug),
+          displayName: context.displayName,
+        })),
+    [contexts],
+  );
 
   const files = useFileBrowser({
+    destinations: moveDestinations,
     slug: selected?.slug,
     workspaceId: selectedContextId,
     canEdit,
@@ -450,10 +936,26 @@ export function useLiveConsoleData(): ConsoleData {
     // `storageActions`, and the same reason — the control is absent rather than
     // present and refused.
     isOwner,
+    /*
+      Two read-only sentences, because there are two reasons and the advice
+      differs. "Ask an owner for editor access" is right for a context somebody
+      put you in and wrong for the pinned one — nobody put you in it, there is
+      no owner of it you know, and asking us for write access to our own docs is
+      not a thing the product does.
+
+      So the pinned context says what it *is* instead, and names the thing a
+      viewer can do rather than the thing they cannot: the bug form is the whole
+      reason the context is in their rail. `participatesInForms` in the gateway
+      carves out exactly that write for a `member`, explicitly so that a
+      view-only workspace is not "useless for collecting a bug report".
+    */
     readOnlyReason:
       selected === null
         ? undefined
-        : "You have read-only access to this context. Ask an owner for editor access to change anything.",
+        : selected.pinned === true
+          ? "This is Context's own workspace, not yours — read anything here, and " +
+            "use a form to file a bug or a request. Your own notes are never in it."
+          : "You have read-only access to this context. Ask an owner for editor access to change anything.",
     // From the connect-time probe, through the binding query this hook already
     // subscribes to. A second subscription would be a second answer that could
     // disagree with the one the settings pane and the status bar draw from.
@@ -478,6 +980,168 @@ export function useLiveConsoleData(): ConsoleData {
     email: members.members.find((member) => member.isMe)?.email,
   });
 
+  /*
+    Below `useFileBrowser` on purpose, and the order is the point: the runtime
+    hands every loaded plugin the note this console has open, so it has to be
+    able to see it. `editor.path` and `editor.etag` are the whole of what
+    crosses — never the text, which a plugin reads through the audited RPC like
+    any other file.
+
+    The etag also carries the console's own saves: the same path coming back
+    with a different version is a write, and it is the only part of "a change
+    Context made" that this hook cannot be told about directly.
+  */
+  const activeFile = useMemo(
+    () => (files.editor.path === null
+      ? null
+      : { path: files.editor.path, etag: files.editor.etag }),
+    [files.editor.etag, files.editor.path],
+  );
+  const pluginRuntime = useRuntime({
+    workspaceId: membershipContextId,
+    role: selected?.role,
+    activeFile,
+    // Who may be told a path at all. See `maySeePaths`: a plugin approved for
+    // nothing but its own settings is told nothing, and an unanswered query is
+    // treated as nobody rather than everybody.
+    grants: pluginGrants.grants,
+    onNoteWrite: files.applyPluginNoteWrite,
+  });
+
+  /*
+    Every *other* context's queue, emptied on the same reconnection.
+
+    `useFileBrowser` holds a live queue for the context on screen and drains
+    that one itself; until this was mounted, nothing drained the rest. Edit in
+    your own context, switch to a shared one and edit there, go through a
+    tunnel: the context on screen sent its writes and the other sat unsent
+    until somebody navigated back into it. The status strip said "3 notes
+    waiting to sync", correctly, about work the app had no way to act on.
+
+    Here rather than inside `useOfflineNotes` because that hook is instantiated
+    per open context and its whole surface describes that context — a
+    device-wide pass inside it would mean the object describing one context
+    quietly acted on four others. `drainAll.ts` carries the rest of the
+    argument, including why the open context is excluded rather than shared.
+  */
+  const sendQueuedTo = useMemo(() => queuedWriteSender(writeNoteAction), [writeNoteAction]);
+  const moveEntryAction = useAction(api.functions.files.moveEntry);
+  const archiveEntryAction = useAction(api.functions.files.archiveEntry);
+  const trashEntryAction = useAction(api.functions.files.trashEntry);
+  const createDirectoryAction = useAction(api.functions.files.createDirectory);
+  const sendQueuedOpTo = useMemo(
+    () =>
+      queuedOpSender({
+        moveEntry: moveEntryAction,
+        archiveEntry: archiveEntryAction,
+        trashEntry: trashEntryAction,
+        createDirectory: createDirectoryAction,
+      }),
+    [archiveEntryAction, createDirectoryAction, moveEntryAction, trashEntryAction],
+  );
+  useBackgroundDrain({ openWorkspaceId: selectedContextId, write: sendQueuedTo, op: sendQueuedOpTo });
+
+  /*
+    Every note of every context this person can reach, on the device, kept in
+    step with the bucket — `features/offline/useMirrorSync.ts` decides when and
+    `mirrorSync.ts` what. From `liveWorkspaces` and never from `workspaces`, for
+    the reason the departed purge below gives at length: a remembered list is a
+    memory, and a sync *prunes* — driving it from a memory that aged a live
+    context out would delete that context's notes at the one moment they are
+    earning their keep.
+
+    The two actions are cast at this boundary and nowhere else: the validators
+    type `visibility` as a string where the console's `Visibility` is the
+    narrower template type, which is the same widening every other read in
+    `useFileBrowser` accepts.
+  */
+  const mirrorActions = useMemo<MirrorActions>(
+    () => ({
+      syncManifest: async ({ workspaceId, cursor }) =>
+        (await syncManifestAction({
+          workspaceId: workspaceId as Id<"workspaces">,
+          ...(cursor === undefined ? {} : { cursor }),
+        })) as unknown as ManifestPage,
+      readNotes: async ({ workspaceId, paths }) =>
+        (await readNotesAction({
+          workspaceId: workspaceId as Id<"workspaces">,
+          paths,
+        })) as unknown as { results: BatchRead[] },
+    }),
+    [readNotesAction, syncManifestAction],
+  );
+  useMirrorSync({
+    contexts: liveWorkspaces?.map((workspace) => ({
+      workspaceId: workspace.workspaceId,
+      role: workspace.role,
+    })),
+    actions: mirrorActions,
+  });
+  const mirrors = useMirrorStatuses();
+
+  /*
+    The purge for "removed" belongs next to the purge for "left".
+
+    `leaveContext` below clears a context's local copies on the server's answer,
+    which covers the one ending this device can see. Every other way a
+    membership ends — an owner removing somebody, a shared context deleted, a
+    grant revoked — happens on another machine and produces no event here, so
+    those copies sat on the device until `sweep`'s thirty-day age bound reached
+    them. Thirty days is a cache-hygiene number, not a decision about how long a
+    removal takes to land on somebody's laptop.
+
+    This list is the fix, and it costs no new query: `listMyWorkspaces` returns
+    the memberships that are still live — plus the pinned context, which is
+    reach without a membership row and must count as live too, which is why this
+    reads the raw list rather than `memberOf`. A workspace with copies on this
+    device that is not in it is a context the server would no longer serve this
+    person.
+
+    The guard is the whole safety argument, and `forget.ts` carries it: the list
+    must be *known*. `usable()` answers `undefined` while the subscription is in
+    flight and for a query that failed — both of which produce an empty key here
+    — and `forgetDepartedContexts` refuses an empty list, so a slow or broken
+    subscription purges nothing rather than blanking the cache at the one moment
+    it is earning its keep. What it takes is notes and listings only, never a
+    draft or a queued write, so even a wrong reading of this list cannot cost
+    somebody's typing.
+
+    Keyed by the ids joined rather than by `workspaces`, because that array's
+    identity changes on every tick of any field on any row: a re-render because
+    somebody renamed a context is not a membership change, and the dependency
+    should say so. Splitting the key back apart is sound because a Convex
+    document id is base32 and cannot contain the separator — and if that ever
+    stopped being true, the fragments would match no cached workspace, so the
+    failure is a purged cache for a context the person still has. A cache miss,
+    in the direction this whole function is allowed to be wrong in.
+  */
+  /*
+    `liveWorkspaces`, never `workspaces`, and this is the one place below that
+    difference matters.
+
+    `workspaces` may be the list this device *remembers* when there is no
+    network (see `useRememberedContexts`). A purge driven by a memory would be
+    exactly the failure the paragraph above rules out: the guard is that the
+    list must be **known**, and a remembered list is the opposite of an answer.
+    It is also not merely redundant — a remembered row expires on its own age
+    bound, so a memory can be a strict subset of what this person still has,
+    and purging from it would delete the cached notes of a live context at the
+    one moment they are earning their keep.
+  */
+  const knownContextKey = (liveWorkspaces ?? [])
+    .map((workspace) => workspace.workspaceId)
+    .join(",");
+  useEffect(() => {
+    if (knownContextKey === "") return;
+    void forgetDepartedContexts(knownContextKey.split(","));
+  }, [knownContextKey]);
+
+  const viewerUserId = members.members.find((member) => member.isMe)?.userId;
+  useEffect(() => {
+    if (viewerUserId === undefined) return;
+    setObservabilityUser(viewerUserId);
+  }, [viewerUserId]);
+
   return {
     demo: false,
     viewer,
@@ -485,6 +1149,7 @@ export function useLiveConsoleData(): ConsoleData {
     invitations,
     selectedContextId,
     selectContext,
+    activity,
     searchableContexts,
     graph,
     // Walking out of somebody else's context is the member's own move — the
@@ -523,6 +1188,7 @@ export function useLiveConsoleData(): ConsoleData {
       // stance — it can report, and it can never block this.
       await forgetLocalCopies();
       await authActions?.signOut();
+      resetObservabilityUser();
     },
     // Three tiles, not the mockup's four. "in your own bucket" is still gone:
     // nothing measures a bucket's size, so there is no honest value to put in
@@ -547,20 +1213,57 @@ export function useLiveConsoleData(): ConsoleData {
       : [
           ...(notes === null
             ? []
-            : [{ value: formatNotesTotal(notes), label: "notes across all" }]),
+            : [
+                {
+                  value: formatNotesTotal(notes),
+                  /*
+                    Dated by its stalest walk, because the number is a
+                    measurement rather than a live reading: `noteCount` is
+                    written only by verification, so a context filled in
+                    afterwards through the gateway contributes what it held
+                    then, for ever. The caption is where that goes — see
+                    `noteTotals.ts` — and an undated total keeps the wording it
+                    has always had.
+                  */
+                  label: notesTotalLabel(notes, Date.now()),
+                },
+              ]),
           { value: formatCount(contexts.length), label: "in your context" },
           { value: formatCount(activeGrants.length), label: "AI clients connected" },
         ],
     clients,
     storage,
     storageActions,
+    googleConnections,
+    modelConnected,
+    googleActions:
+      selectedContextId === null || !isOwner || selected?.kind !== "personal"
+        ? undefined
+        : {
+            workspaceId: selectedContextId,
+            disconnect: (connectionId: string) =>
+              disconnectGoogle({
+                workspaceId: selectedContextId,
+                connectionId: connectionId as Id<"googleConnections">,
+              }),
+          },
     endpoint: MCP_ENDPOINT,
     ingestionAddress:
       ingestion.settings?.address ?? placeholderIngestionAddress(selected?.slug ?? "you"),
     ingestion,
     files,
     members,
+    shares,
+    groups,
+    advanced,
+    plugins,
+    contextPlugins,
+    pluginInstalls: managedInstalls,
+    pluginGrants,
+    pluginBrowse,
+    pluginRuntime,
     fastSearch,
+    mirrors,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the
     // quieter version of the blank page this replaced.

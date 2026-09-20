@@ -1,7 +1,11 @@
 import { describe, expect, test } from "@jest/globals";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { CONTINUITY_STEPS, TEAM_THOUGHT } from "../features/landing/ContinuityDemo";
+import { CONTINUITY_STEPS, TEAM_THOUGHT } from "../features/landing/demoCopy";
+import {
+  PROOF_BODY,
+  PROOF_EYEBROW,
+  PROOF_FOOT,
+  PROOF_TITLE,
+} from "../features/landing/copy";
 
 describe("the landing-page continuity story", () => {
   test("moves one team-safe thought through three distinct AI relationships", () => {
@@ -32,14 +36,24 @@ describe("the landing-page continuity story", () => {
     const teammate = CONTINUITY_STEPS[2];
     expect(teammate.access).toBe("Team access");
     expect(teammate.reply).toMatch(/private notes were never available/i);
-    expect(teammate.receipt).toMatch(/your brain hidden/i);
+    expect(teammate.receipt).toMatch(/yours hidden/i);
   });
 
+  /**
+   * Addressed to the copy constants rather than to `Landing.tsx`'s source.
+   *
+   * This read the component's text and matched literals in it, which was the
+   * only way to ask the question before the page's words had names. They have
+   * names now, and grepping a component for a sentence breaks the moment that
+   * sentence is lifted into a constant — which is exactly what happened, and
+   * is why this assertion is here in the same commit as that lift. The claim
+   * is unchanged: the proof section still has to say what the product is
+   * rather than implying magic.
+   */
   test("the handoff is followed by an honest plain-markdown explanation", () => {
-    const landing = readFileSync(join(__dirname, "../features/landing/Landing.tsx"), "utf8");
-    expect(landing).toMatch(/No magic layer/);
-    expect(landing).toMatch(/Just Markdown\. Yours to touch\./);
-    expect(landing).toMatch(/open in Obsidian/i);
-    expect(landing).toMatch(/write,\s*rename, move, and shape it all by hand/);
+    expect(PROOF_EYEBROW).toMatch(/No magic layer/);
+    expect(PROOF_TITLE).toMatch(/Just Markdown\. Yours to touch\./);
+    expect(PROOF_FOOT).toMatch(/open in Obsidian/i);
+    expect(PROOF_BODY).toMatch(/write,\s*rename, move, and shape it all by hand/);
   });
 });

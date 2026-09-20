@@ -28,11 +28,26 @@ import type { EditorState } from "./editor";
 import type { ConflictCheck } from "./types";
 import { connectionLine, queueLine, type SyncFacts } from "../../offline/copy";
 
-export interface StatusFacts {
+/**
+ * What the save claim is made from.
+ *
+ * Its own interface because the claim itself is no longer part of the strip —
+ * `saveChip` answers it and the top bar draws it, beside the bucket it is
+ * about. A caller that wants only that does not have to invent a
+ * `storageLabel` it has no use for.
+ */
+export interface SaveFacts {
   editor: EditorState;
+  /** Wall-clock ms, passed in so this stays pure and testable. */
+  now: number;
+  /** When the open note was last saved in this session. */
+  savedAt?: number;
+}
+
+export interface StatusFacts extends SaveFacts {
   /** From the last SaveResult. `undefined` until something has been saved. */
   conflictCheck?: ConflictCheck;
-  /** "R2 · brain", or null when no bucket is bound. */
+  /** "R2 · my-bucket", or null when no bucket is bound. */
   storageLabel: string | null;
   /**
    * How much of this context is in the hosted fast-search index — already
@@ -61,10 +76,6 @@ export interface StatusFacts {
    * is optional there.
    */
   index?: { label: string; detail: string; tone: "quiet" | "warn" } | null;
-  /** Wall-clock ms, passed in so this stays pure and testable. */
-  now: number;
-  /** When the open note was last saved in this session. */
-  savedAt?: number;
   /**
    * The connection, and the writes that have not reached the bucket.
    *
@@ -80,10 +91,10 @@ export type StatusTone = "quiet" | "ok" | "warn" | "crit";
 
 export interface StatusSegment {
   id:
+    | "path"
     | "connection"
     | "queue"
     | "words"
-    | "characters"
     | "save"
     | "index"
     | "conflictCheck"
@@ -92,6 +103,25 @@ export interface StatusSegment {
   tone: StatusTone;
   /** Longer explanation for a tooltip / a tap. */
   detail?: string;
+  /**
+   * Drawn in the mono face.
+   *
+   * One segment uses it — the note's key — and it is a flag rather than a rule
+   * about the id because what earns the face is being *a path a person could
+   * type*, not being first. The tree, the breadcrumb and the share sheet draw
+   * keys the same way; a bar that drew this one in the prose face would be the
+   * only surface in the product that did.
+   */
+  /**
+   * A 6pt pip in front of the words — see `StatusBarSegment.pip`.
+   *
+   * One segment uses it: `storage`, which is the bar's only *health* claim
+   * rather than a measurement. A flag rather than "every toned segment gets
+   * one", because every segment has a tone and a row of lights is the opposite
+   * of a bar you can read at a glance.
+   */
+  pip?: boolean;
+  mono?: boolean;
 }
 
 /**
@@ -107,19 +137,6 @@ export function countWords(text: string): number {
   const trimmed = text.trim();
   if (trimmed === "") return 0;
   return trimmed.split(/\s+/).length;
-}
-
-/**
- * `text.length` — **UTF-16 code units**, which is what JavaScript counts and
- * what the editor holds for the exact string handed to the bucket adapter to be
- * encoded. It is deliberately not described to the person as "characters you
- * can see": an emoji outside the BMP is two code units, and a combining
- * sequence is several, so this is not a grapheme count and must never be
- * labelled as one. It is also not a byte count — UTF-8 encoding happens below
- * this layer and inflates non-ASCII further.
- */
-function countUnits(text: string): number {
-  return text.length;
 }
 
 /** 1234 → "1,234". Written out rather than via `toLocaleString`, which varies. */
@@ -165,8 +182,34 @@ export function relativeTime(then: number, now: number): string {
   return sameYear ? stamp : `${stamp} ${d.getFullYear()}`;
 }
 
-/** The save segment, or `null` when nothing is open. */
-function saveSegment(facts: StatusFacts): StatusSegment | null {
+/**
+ * Whether the open note is in the customer's bucket — the one claim in this
+ * module that is about the note rather than about the context.
+ *
+ * **It is a chip in the top bar now, and it used to be a segment in this
+ * strip.** The move is the second half of an argument the strip already won
+ * once. The editor drew a Save pill at the foot of the note; the strip said the
+ * same thing 40pt below it; the strip kept the claim because it is the surface
+ * that never moves, and the pill stayed only in the two states where pressing
+ * it does something. What that left was a console where the ordinary act of
+ * typing put two controls over somebody's text — "Discard changes" and "Save",
+ * in the middle of the screen, for as long as the draft was unwritten — while
+ * the sentence that could have said it quietly was at the bottom of the window
+ * in 11pt grey, between a word count and a bucket name.
+ *
+ * So the claim went where a person already looks for the state of their
+ * storage: beside the bucket chip, at the top-right, which is a *place* rather
+ * than one more fact in a row of facts. The strip keeps everything that is a
+ * measurement — the path, the count, the index, how writes are checked, the
+ * bucket — and gives up the one thing that changes while you type.
+ *
+ * Still shaped as a `StatusSegment`, and deliberately: the tones, the ids and
+ * the detail strings are the same vocabulary, `StatusBarSegment` can still draw
+ * it if the bar ever wants it back, and the states below are pinned by
+ * `status.test.ts` exactly as they were. `null` when nothing is open — an idle
+ * "Saved" against no note is a claim about a file that is not there.
+ */
+export function saveChip(facts: SaveFacts): StatusSegment | null {
   const { editor, now, savedAt } = facts;
   const message = editor.message;
 
@@ -304,7 +347,7 @@ function conflictCheckSegment(check: ConflictCheck | undefined): StatusSegment |
  *
  * `index` leads that group and is deliberately **not** adjacent to `storage`.
  * The two describe different objects: the bucket is the customer's, and the
- * fast-search index is a copy in a database Supa Media runs. "R2 · brain · 62%
+ * fast-search index is a copy in a database Supa Media runs. "R2 · notes-bucket · 62%
  * indexed" run together reads as 62% of the bucket, which is a claim about
  * somebody's own storage that nothing has measured — the exact species of
  * invention issue #25 was about.
@@ -318,20 +361,25 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
     this screen can reach the bucket at all — and because a person who has lost
     signal should not have to read past a word count to find that out.
   */
-  if (facts.sync !== undefined) {
-    const connection = connectionLine(facts.sync);
-    if (connection !== null) {
-      segments.push({
-        id: "connection",
-        text: connection.text,
-        tone: "warn",
-        detail: connection.detail,
-      });
-    }
-    const queue = queueLine(facts.sync);
-    if (queue !== null) {
-      segments.push({ id: "queue", text: queue.text, tone: queue.tone, detail: queue.detail });
-    }
+  if (facts.sync !== undefined) segments.push(...syncSegments(facts.sync));
+
+  /*
+    The note's key, at the leading edge and before everything else.
+
+    **The bar had no path, and that is what made it a row of numbers.** The
+    breadcrumb above the note names the folders and the note's own title; what
+    neither says is the key this note actually has in the bucket — which is the
+    thing a person types into another client, pastes into an agent's tool call,
+    or checks when two notes have the same title in two folders. The whole
+    product is that the file is real and portable, and the one surface that
+    never moves is where its name belongs.
+
+    Leading, like `connection`, and for the opposite reason: this one is what
+    the rest of the bar is *about*, so it reads as a subject with the facts
+    after it rather than as one more fact among them.
+  */
+  if (editor.path !== null) {
+    segments.push({ id: "path", text: editor.path, tone: "quiet", mono: true });
   }
 
   // Counts describe an open note. With nothing open they would be zeroes about
@@ -342,17 +390,36 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
       text: plural(countWords(editor.draft), "word", "words"),
       tone: "quiet",
     });
-    segments.push({
-      id: "characters",
-      text: plural(countUnits(editor.draft), "character", "characters"),
-      tone: "quiet",
-      // Says what is counted, without claiming graphemes or bytes.
-      detail: "Counted in UTF-16 code units, so an emoji counts as more than one.",
-    });
+    /*
+      NO CHARACTER COUNT.
+
+      "61 words" and "390 characters" are the same fact told twice, and the
+      second one is the one nobody asked for: a word count is how long a note
+      is, and a UTF-16 code-unit count is a fact about an encoding that had to
+      be explained in its own tooltip. Two segments of arithmetic beside the
+      save claim is also what pushed the bar's leading group past the middle of
+      a 1440pt window.
+
+      `countUnits` went with it rather than staying as an exported counter
+      nobody counts with: it was this segment's and only this segment's, and a
+      helper kept "in case" is the dead code this repository asks to be
+      removed. The arithmetic was never the interesting part — that a code-unit
+      count is not a grapheme count was, and it was interesting *because* the
+      label had to avoid claiming otherwise.
+
+      The canvas's bar is `path … words · R2`, the save claim having gone
+      to the top bar (`saveChip`).
+    */
   }
 
-  const save = saveSegment(facts);
-  if (save) segments.push(save);
+  /*
+    NO SAVE SEGMENT. It is `saveChip`, in the top bar, beside the bucket it is
+    a claim about — see that function for why it left this row. The bar is the
+    facts that are *measured* about the note and the context; whether the last
+    keystroke has reached the bucket is the one thing here that changes while
+    somebody types, and it was the one thing here nobody could see from the
+    caret.
+  */
 
   /*
     How much of this context is in the hosted index.
@@ -389,11 +456,207 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
       id: "storage",
       text: facts.storageLabel,
       tone: "quiet",
+      // The one health claim in the bar, and the only segment with a pip. See
+      // `StatusBarSegment.pip`.
+      pip: true,
       detail: "Your notes live in this bucket, which you own. Context is a tenant in it.",
     });
   }
 
   return segments;
+}
+
+/**
+ * The connection and the queue, as segments — the strip's first two, and the
+ * whole of what a phone is told about either.
+ *
+ * Its own function so the two surfaces that say these things cannot come to
+ * say them differently: the strip at a pointer width (`statusSegments`) and the
+ * phone's header pill and sheet (`compactSync`, `syncSheetSections`) all start
+ * here, and the sentences themselves are `copy.ts`'s. A phone that composed its
+ * own "Offline" would be a second opinion about when to say it — and the rule
+ * that it is absent while the platform has not answered is exactly the kind of
+ * thing a second opinion drops.
+ */
+export function syncSegments(sync: SyncFacts): StatusSegment[] {
+  const segments: StatusSegment[] = [];
+  const connection = connectionLine(sync);
+  if (connection !== null) {
+    segments.push({
+      id: "connection",
+      text: connection.text,
+      tone: "warn",
+      detail: connection.detail,
+    });
+  }
+  const queue = queueLine(sync);
+  if (queue !== null) {
+    segments.push({ id: "queue", text: queue.text, tone: queue.tone, detail: queue.detail });
+  }
+  return segments;
+}
+
+/**
+ * Whether the open note's own save claim is one a phone has to be shown.
+ *
+ * `warn` and `crit` only — `Queued`, `Cached copy`, `Conflict`, `Not saved`.
+ * The quiet states (`Saving soon`, `Saving…`, `Saved`) are the ordinary case,
+ * and on a phone the note already ends in a sentence that says them
+ * (`NoteEditor`'s durability line). A chip that sits in a 390pt header for
+ * every note ever opened is a chip people stop seeing, which is the argument
+ * `connectionLine` makes about "Offline"; the loud four are the ones that
+ * change what somebody should believe about the note in front of them.
+ */
+export function loudSave(chip: StatusSegment | null): StatusSegment | null {
+  if (chip === null) return null;
+  return chip.tone === "warn" || chip.tone === "crit" ? chip : null;
+}
+
+/** What the phone's header pill draws. */
+export interface CompactSync {
+  /** `crit` whenever anything in it is — a conflict outranks everything else. */
+  tone: "warn" | "crit";
+  /** The words on the pill: short, because it shares a row with two buttons. */
+  text: string;
+  /** Every fact the pill stands for, in full, for a screen reader. */
+  label: string;
+}
+
+/**
+ * The phone's header pill, or `null` when there is nothing to say.
+ *
+ * **A phone has no status strip** (`frame.ts` answers `statusBar: false` at
+ * compact), so until this existed the three states `copy.ts` words — Offline,
+ * "N notes waiting to sync", "N notes need you" — were drawn on no surface a
+ * phone could see, and neither was the open note's `Queued` or `Cached copy`.
+ * The owner's requirement was the plain one: it should be clear when notes are
+ * not synced.
+ *
+ * Built from `syncSegments` and `saveChip`, never from counts of its own, so the
+ * pill is absent in exactly the states the strip is silent in: online with an
+ * empty queue, and — the one that matters — while the platform has not said
+ * whether it is online at all. `null` is the common case and draws nothing.
+ *
+ * The text is the strip's own words where they fit and a count where they do
+ * not. Offline with writes waiting reads `Offline · 3`, the 3 being every note
+ * not yet in the bucket; online, the queue segment's sentence is short enough
+ * to print as it is ("2 notes need you"). The label carries all of it in full,
+ * and the sheet behind the pill carries the rest.
+ */
+export function compactSync(
+  sync: SyncFacts | undefined,
+  save: StatusSegment | null,
+): CompactSync | null {
+  const segments = sync === undefined ? [] : syncSegments(sync);
+  const note = loudSave(save);
+  if (segments.length === 0 && note === null) return null;
+
+  const connection = segments.find((segment) => segment.id === "connection");
+  const queue = segments.find((segment) => segment.id === "queue");
+  const unsent =
+    sync === undefined ? 0 : sync.counts.pending + sync.counts.conflicted + sync.counts.rejected;
+
+  const parts: string[] = [];
+  if (connection !== undefined) {
+    parts.push(unsent > 0 ? `${connection.text} · ${group(unsent)}` : connection.text);
+  } else if (queue !== undefined) {
+    parts.push(queue.text);
+  }
+  if (note !== null) parts.push(note.text);
+
+  const all = [...segments, ...(note === null ? [] : [note])];
+  const tone = all.some((segment) => segment.tone === "crit") ? "crit" : "warn";
+  /*
+    "This note" is said, because "Queued" beside "3 notes waiting to sync" is
+    ambiguous about which note is queued — sighted people have the pill's
+    position to tell them, and a screen reader has only the words.
+  */
+  const label = [
+    ...segments.map((segment) => segment.text),
+    ...(note === null ? [] : [`This note: ${note.text}`]),
+  ].join(". ");
+
+  return { tone, text: parts.join(" · "), label };
+}
+
+/** One block of the phone's sync sheet. */
+export interface SyncSheetSection {
+  id: "connection" | "stuck" | "waiting" | "note" | "mirror";
+  text: string;
+  /** `quiet` only for `mirror` — a whole mirror is a fact, never a warning. */
+  tone: "quiet" | "warn" | "crit";
+  detail: string;
+  /** The notes this block is about, each one a row that opens it. */
+  paths: readonly string[];
+}
+
+/**
+ * What the sheet behind the phone's pill says, in the order it says it.
+ *
+ * The strip names at most three stuck notes in a sentence (`copy.ts`'s
+ * `namesOf`), because it is one line in a fixed-height bar. A sheet is not, so
+ * every note is a row a person can press to open — and opening is how a
+ * waiting note is checked and a stuck one is answered. The sentences are still
+ * `queueLine`'s, asked twice:
+ *
+ *  - once as it stands, which answers the crit block when anything is stuck;
+ *  - once with only the pending count, which answers the waiting block. The
+ *    strip never needs that second sentence, because a conflict outranks it on
+ *    a single line; a sheet has room for both and must not drop the notes that
+ *    are merely waiting just because one is stuck.
+ *
+ * `stuckPaths` is left off both calls: the rows are the names, and a sentence
+ * listing three of them above a list of all of them says them twice.
+ */
+export function syncSheetSections(
+  sync: SyncFacts | undefined,
+  pending: { queued: readonly string[]; conflicted: readonly string[] },
+  save: StatusSegment | null,
+): SyncSheetSection[] {
+  const sections: SyncSheetSection[] = [];
+  if (sync !== undefined) {
+    const connection = connectionLine(sync);
+    if (connection !== null) {
+      sections.push({ id: "connection", tone: "warn", paths: [], ...connection });
+    }
+    const unnamed = { ...sync, stuckPaths: undefined };
+    const stuck = queueLine(unnamed);
+    if (stuck !== null && stuck.tone === "crit") {
+      sections.push({
+        id: "stuck",
+        tone: "crit",
+        text: stuck.text,
+        detail: stuck.detail,
+        paths: pending.conflicted,
+      });
+    }
+    const waiting = queueLine({
+      ...unnamed,
+      counts: { pending: sync.counts.pending, conflicted: 0, rejected: 0 },
+    });
+    if (waiting !== null) {
+      sections.push({
+        id: "waiting",
+        tone: "warn",
+        text: waiting.text,
+        detail: waiting.detail,
+        paths: pending.queued,
+      });
+    }
+  }
+  const note = loudSave(save);
+  if (note !== null) {
+    sections.push({
+      id: "note",
+      tone: note.tone === "crit" ? "crit" : "warn",
+      text: `This note: ${note.text}`,
+      // `Cached copy`'s detail is where its age lives ("read 3 hours ago"),
+      // and a phone has no tooltip — the sheet is the only place it is said.
+      detail: note.detail ?? "",
+      paths: [],
+    });
+  }
+  return sections;
 }
 
 /** The ids rendered against the trailing edge of the bar. */

@@ -288,7 +288,7 @@ export async function runSearchIndexerChecks(check) {
   // token count, which is a different rule entirely.
   //
   // At `>= 3`, every two-character term silently stops being searchable. "AI",
-  // "ML", "US", "id", "ok", "go", "PR" are ordinary words in a personal brain,
+  // "ML", "US", "id", "ok", "go", "PR" are ordinary words in a personal workspace,
   // and the failure mode is a miss with no explanation attached — the same
   // shape as a term past the per-note cap, and this one would not even have the
   // sentence on the miss to explain it.
@@ -299,7 +299,7 @@ export async function runSearchIndexerChecks(check) {
   // one-letter identifiers.
   //
   // An earlier version of this comment argued that from index SIZE and put a
-  // number on it: "a brain of prose has a single-letter run on most lines".
+  // number on it: "a workspace of prose has a single-letter run on most lines".
   // Measured over this repo's own prose, single-character runs appear on 49.3%
   // of CLAUDE.md's token-bearing lines, 33.1% of README.md's and 47.1% of
   // CONTRACT.md's — never "most" — and they are 5.8% of token occurrences for
@@ -343,7 +343,7 @@ export async function runSearchIndexerChecks(check) {
     // nothing exercised the stemmer.
     //
     // `[\p{L}\p{N}]+` narrowed to `[a-z0-9]+` passed every check. That is not
-    // a degradation, it is a French, Russian or Japanese brain becoming
+    // a degradation, it is a French, Russian or Japanese workspace becoming
     // **entirely unsearchable** — every token dropped, every query empty — and
     // the suite would have said nothing.
     check(

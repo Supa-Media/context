@@ -171,6 +171,14 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
     again — the same reason every earlier row is.
   */
   5: VERSION_1_MEMBERS,
+  /** Version 6 adds one method inside `imessage`, not a top-level member. */
+  6: VERSION_1_MEMBERS,
+  /*
+    Version 7 adds `agent`, another sub-object, so this row is version 1's list
+    unchanged for the sixth time — every earlier row untouched, for the reason
+    row 1 carries.
+  */
+  7: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -230,6 +238,26 @@ const REQUIRED_SUB_MEMBERS: Readonly<
   5: Object.freeze({
     ...VERSION_3_SUB_MEMBERS,
     imessage: Object.freeze(["status", "setEnabled", "onChange"]),
+  }),
+  6: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
+    imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
+  }),
+  /*
+    Version 7 adds `agent`, the two verbs that ask the coding CLI on the
+    machine. Rows 1-6 are untouched as always: a shell that shipped before this
+    answers 6, has no `agent`, and is doing nothing wrong — the console simply
+    takes the gateway road on it, which is the road every browser takes.
+
+    Required *here* although `DesktopBridge.agent` is optional on the type, and
+    the two are not in tension: the type is optional because a v6 shell is a
+    legitimate shell, and this row says what a shell claiming to be v7 has
+    promised. A v7 shell that cannot be asked is malformed, not old.
+  */
+  7: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
+    imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
+    agent: Object.freeze(["status", "ask"]),
   }),
 });
 

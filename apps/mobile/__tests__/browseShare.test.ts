@@ -211,6 +211,10 @@ function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
     revokeShare: () => {},
     setSharePreviewTitle: () => {},
     ...over,
+  // No move into another context is running. `BrowsePane` reads this on
+  // every render, so a fixture without it crashes the pane rather than
+  // failing the assertion the test was written for.
+  contextMoves: [],
   } as unknown as FileBrowser;
 
   const data = {
@@ -313,8 +317,65 @@ describe("an owner reading a note can share it", () => {
     expect(pane.querySelector('[data-testid="browse-share"]')).not.toBeNull();
   });
 
-  test("and it says what it is, with the ellipsis that promises a dialog", () => {
-    expect(paneWith().textContent).toContain("Share");
+  /**
+   * It used to read "Share…" in words, and the ellipsis was the assertion: a
+   * button that promises a dialog rather than an immediate act.
+   *
+   * The control is a glyph now, matching the phone, so the words are in the
+   * accessible name instead of the text. That is the half worth pinning — a
+   * screen reader and an end-to-end test both reach for the label, and an icon
+   * with no name is the failure this check exists to catch. What is gone is the
+   * ellipsis, which cannot be drawn in a padlock-sized target.
+   */
+  /**
+   * The padlock beside it is not coming back.
+   *
+   * `_layout.tsx` took it off the phone for a reason it states at length: two
+   * controls for one question, overlapping on the dangerous state, with
+   * audience moved inside `ShareDialog` as named positions and the public step
+   * confirmed in words. #461 drew it here as an icon while claiming to match
+   * the phone, which reintroduced on a pointer layout exactly what the phone
+   * had removed.
+   *
+   * Nothing became unreachable: the dialog this row opens takes `onSetScope`.
+   * That is what makes this check an assertion about *where* the control is
+   * rather than about whether it exists.
+   */
+  test("and the row carries no second control for the same question", () => {
+    const pane = paneWith();
+    expect(pane.querySelector('[data-testid="browse-visibility"]')).toBeNull();
+  });
+
+  test("and it names itself, for anything that cannot see a glyph", () => {
+    const pane = paneWith();
+    const share = pane.querySelector('[data-testid="browse-share"]');
+    expect(share?.getAttribute("aria-label")).toBe("Share this");
+  });
+
+  /**
+   * AND IT IS NOT ON THE EDGE OF THE WINDOW.
+   *
+   * The gutter was written — as `noteHeadCompact` — and applied by
+   * `compact && styles.noteHeadCompact`, on a row whose only render site is
+   * gated on `!compact`. So the one density that draws this row got none of
+   * it, and the style sat in the sheet looking like the problem was handled.
+   * The owner's report was that Share sits "a little too close to the edge".
+   *
+   * That is a guard nobody had checked, and the reason this is an assertion
+   * about a *number* rather than about a class being present: the padding
+   * moving back onto a branch that cannot fire would read the same in a diff
+   * and fail here.
+   */
+  test("and the row holds it off the trailing edge", () => {
+    const pane = paneWith();
+    const share = pane.querySelector<HTMLElement>('[data-testid="browse-share"]');
+    const row = share?.parentElement;
+    if (row == null) throw new Error("Share is not in a row");
+
+    // react-native-web writes `StyleSheet.create` values into an injected
+    // sheet, so this is read off the row's resolved style rather than off an
+    // inline attribute — `padding-right` is the claim, however it arrives.
+    expect(Number.parseFloat(window.getComputedStyle(row).paddingRight)).toBeGreaterThan(0);
   });
 });
 
@@ -449,6 +510,7 @@ describe("the unlisted link has a control of its own", () => {
     entryPath: NOTE,
     titleInPreview: true,
     previewTitle: "Plan",
+    collecting: false,
     createdAt: 1,
   };
 
@@ -457,6 +519,8 @@ describe("the unlisted link has a control of its own", () => {
     const pane = paneRoot();
     pane.render(
       dataWith({
+        // The row exists only where a link does — see below.
+        shares: [openShare],
         copyShareLink: async (target: unknown) => {
           asked.push(target);
           return { ok: true, message: "Link copied." };
@@ -476,16 +540,105 @@ describe("the unlisted link has a control of its own", () => {
    * renders outside the pane's own container, so a test that mounted two panes
    * to compare states would be reading one dialog twice.
    */
-  test("with no link yet, it offers to create one and has nothing to revoke", () => {
+  /**
+   * **This row no longer mints anything, and that is the point.**
+   *
+   * It used to read "Create link" when there was none — minting exactly the
+   * share row the top bar's padlock minted on its third press. Two controls,
+   * one state, one screen: the complaint this whole change answers. Whether a
+   * link exists is now the audience control's question, and this row's only
+   * job is handing you the link that does exist.
+   *
+   * So with none, the row is **absent** rather than offering to copy nothing —
+   * the console's standing rule, applied to a row instead of a button.
+   */
+  /**
+   * THE SHORT LINK'S FIELD, ON THE SCREEN IT IS CLAIMED FROM.
+   *
+   * It shipped unreachable. `ShareDialog` drew the block correctly and
+   * `Explorer` wired it, and this pane — the one the pointer console actually
+   * renders — passed every other handler and not `onSetSlug`, so the block's
+   * own "absent when nothing is wired to claim with" guard hid it on the
+   * surface people use. A component test could not see that, because it
+   * supplies the prop itself.
+   *
+   * Which is the failure this whole file was written about, one control over:
+   * correct in the component, unreachable on a screen.
+   */
+  test("the short link's field is reachable from the pane, not just from the dialog", async () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    await act(async () => {});
+
+    expect(document.body.querySelector('[data-testid="share-short-link"]')).not.toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="share-short-link-name"]'),
+    ).not.toBeNull();
+  });
+
+  /**
+   * ANSWER-TAKING, ON THE SCREEN IT IS SWITCHED ON FROM.
+   *
+   * The short link's field shipped unreachable for exactly this reason: the
+   * dialog drew the block, `Explorer` wired it, and this pane — the one the
+   * pointer console actually renders — passed every other handler and not the
+   * new one. A component test cannot see that, because it supplies the prop
+   * itself. This switch is the one control on the screen that hands out a
+   * WRITE, so it gets the check the last one had to earn.
+   */
+  test("the answer-taking switch is reachable from the pane, not just from the dialog", async () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    await act(async () => {});
+
+    expect(document.body.querySelector('[data-testid="share-collect-row"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="share-collect-switch"]')).not.toBeNull();
+  });
+
+  test("...and pressing it asks for that row, with the state it is going to", async () => {
+    const asked: unknown[] = [];
+    const pane = paneRoot();
+    pane.render(
+      dataWith({
+        shares: [openShare],
+        setShareCollecting: async (shareId: string, on: boolean) => {
+          asked.push([shareId, on]);
+          return true;
+        },
+      } as never),
+    );
+    press("browse-share");
+    await act(async () => {});
+    press("share-collect-switch");
+    await act(async () => {});
+    expect(asked).toEqual([["s-open", true]]);
+  });
+
+  test("...and it says what it hands out before it is pressed", async () => {
+    // Everything else on this screen gives somebody a read. This one lets a
+    // stranger with no account append to a file in the owner's own bucket, and
+    // that has to be on the screen rather than in a help page.
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    await act(async () => {});
+    const row = document.body.querySelector('[data-testid="share-collect-row"]');
+    expect(row?.textContent).toContain("without an account");
+  });
+
+  test("with no link yet, there is no row at all — nothing here creates one", () => {
     const pane = paneRoot();
     pane.render(dataWith());
     press("browse-share");
-    expect(
-      document.body.querySelector('[data-testid="share-open-link"]')?.textContent,
-    ).toContain("Create link");
+    expect(document.body.querySelector('[data-testid="share-open-link"]')).toBeNull();
     expect(
       document.body.querySelector('[data-testid="share-open-link-revoke"]'),
     ).toBeNull();
+    // The positive control: the sheet did open, so this cannot pass on a
+    // dialog that failed to mount.
+    expect(document.body.querySelector('[data-testid="share-access"]')).not.toBeNull();
   });
 
   test("with one live, it offers to copy that link and to take it back", () => {
@@ -527,7 +680,11 @@ describe("the unlisted link has a control of its own", () => {
     pane.render(dataWith({ shares: [openShare] } as never));
     press("browse-share");
     const text = document.body.textContent ?? "";
-    expect(text).toContain("ANYONE WITH THE LINK");
+    // The heading was retired when the three link sections became one
+    // GENERAL ACCESS block — three eyebrows and a paragraph each was the
+    // dialog reading as a policy document. The control kept its name as a row
+    // title, and the two sentences below are what this test is actually about.
+    expect(text).toContain("Anyone with the link");
     expect(text).toMatch(/no account, no sign-in/i);
     expect(text).toMatch(/cannot take back a copy somebody already has/i);
   });
@@ -619,13 +776,24 @@ describe("who does not get it", () => {
       The note IS open — otherwise this would pass for the wrong reason, which
       is what the first version of this test did.
 
-      `privacy`, not `privacy.md`: the breadcrumb's leaf drops the extension on
-      both densities now, which is the trim `noteHeading` has always made when
-      it falls back to a filename. The chip beside it is what says this file is
-      the access map.
+      This used to prove that by finding `privacy` in the pane: the breadcrumb's
+      leaf, minus its extension. The pointer breadcrumb draws folders only now
+      — the note's name is the H1 below it and the tab above it, and a line that
+      repeats both in a smaller face is a line a reader learns to skip — so this
+      file has no folders and therefore no crumbs at all.
+
+      `access map` is the replacement and is a better witness than the name was:
+      `Breadcrumb` only draws the access clause for a selection, so the string
+      cannot appear unless a note is open, whereas a filename could have come
+      from anywhere in the pane. `Write in markdown…` is the editor's own
+      placeholder, which pins the second half — the note is open *in the
+      editor*, not merely selected somewhere.
+
+      The wording is the brief form at every density now; `the access map` with
+      its article was the long one.
     */
-    expect(pane.textContent).toContain("privacy");
-    expect(pane.textContent).toContain("the access map");
+    expect(pane.textContent).toContain("access map");
+    expect(pane.textContent).toContain("Write in markdown");
     expect(pane.querySelector('[data-testid="browse-share"]')).toBeNull();
   });
 

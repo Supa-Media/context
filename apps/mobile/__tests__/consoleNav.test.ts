@@ -19,7 +19,9 @@ import {
   settingsHref,
   slugFromSegment,
   type ConsoleRoute,
+  settingsFromQuery,
 } from "../features/console/nav";
+import { DEFAULT_SETTINGS_SECTION } from "../features/console/settings/sections";
 
 /**
  * The console's two scopes.
@@ -148,12 +150,78 @@ describe("the route table", () => {
   });
 
   test("settings hangs off the context, not off the app", () => {
-    expect(settingsHref("public-worship")).toBe("/console/@public-worship/settings");
+    // Still the context's, and now a parameter on the context's own page
+    // rather than a route that replaces it: the console renders one `<Slot />`,
+    // so a settings *route* covers Browse instead of overlaying it, and
+    // closing it had to guess whether to return to the context root or to
+    // whatever note was open. As a parameter there is nothing to guess.
+    expect(settingsHref("public-worship")).toBe(
+      "/console/@public-worship?settings=workspace",
+    );
+    expect(settingsHref("public-worship", "integrations")).toBe(
+      "/console/@public-worship?settings=integrations",
+    );
+    // The old path stays a context route, because it is in the wild — the
+    // Dropbox failure notice and the search nudge both link to it — and
+    // `app/(app)/console/[slug]/settings.tsx` redirects it to the parameter.
     expect(routeForPath("/console/@public-worship/settings")).toEqual({
       kind: "context",
       slug: "public-worship",
       view: "settings",
     });
+  });
+
+  test("a settings parameter is read back fail-closed", () => {
+    // The same shape `safeNotePath` uses: a hand-edited or stale value closes
+    // the overlay rather than opening a blank panel on a section we do not
+    // have — and an empty value closes, because closing is what produces it.
+    expect(settingsFromQuery("integrations")).toBe("integrations");
+    expect(settingsFromQuery(DEFAULT_SETTINGS_SECTION)).toBe(DEFAULT_SETTINGS_SECTION);
+    // Empty is *closed*, not the default: closing sets the parameter to
+    // `undefined`, and a router that serialises that as a bare `?settings=`
+    // would otherwise re-open the panel the press was trying to dismiss.
+    expect(settingsFromQuery("")).toBeNull();
+    expect(settingsFromQuery(undefined)).toBeNull();
+    expect(settingsFromQuery("not-a-section")).toBeNull();
+    // The search nudge's destination: `search` is an alias now — the index is
+    // a block on Storage — so a link that names it opens the screen holding
+    // the switch rather than failing closed.
+    expect(settingsFromQuery("search")).toBe("storage");
+    expect(settingsFromQuery(["integrations", "storage"])).toBe("integrations");
+  });
+
+  test("a stale ?settings=account link opens Profile too", () => {
+    // "Sign out & delete" stopped being a section; both buttons are at the
+    // foot of Profile.
+    expect(settingsFromQuery("account")).toBe("profile");
+  });
+
+  test("a stale ?settings=appearance link opens Profile too", () => {
+    // The picker is gone and the app follows the device; Profile is where the
+    // sentence saying so lives.
+    expect(settingsFromQuery("appearance")).toBe("profile");
+  });
+
+  test("a stale ?settings=devices link opens Profile, not nothing", () => {
+    // "Your devices" stopped being a section and became a card at the foot of
+    // Profile. A link somebody kept — or an older build's redirect — still
+    // names it, and failing closed would answer somebody coming to revoke a
+    // lost Mac with no screen at all.
+    expect(settingsFromQuery("devices")).toBe("profile");
+  });
+
+  test("a stale ?settings=sources link opens Integrations, not nothing", () => {
+    // `sources` was the section's key before it split into Email, Calendar,
+    // Chats and Meetings — and those four are one section again, so the alias
+    // points where the content actually is rather than at a key that has been
+    // retired twice.
+    // Without this alias, `isSettingsSection` no longer recognises the key and
+    // a bookmarked or shared `?settings=sources` link would fail closed like
+    // any other unrecognised value — silently *closing* the overlay instead of
+    // opening the section it used to name. This is a rename alias, not a
+    // section: it must never appear in `SETTINGS_SECTIONS`, the sidebar, or
+    // search results, so it is handled here rather than by adding a row.
+    expect(settingsFromQuery("sources")).toBe("integrations");
   });
 
   test("there is no top-level storage URL any more", () => {

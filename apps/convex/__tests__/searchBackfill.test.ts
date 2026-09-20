@@ -110,6 +110,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { memoryS3, memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { d1AndBucketFetch, stubD1, type StubD1 } from "./searchBackfill.helpers";
 import {
@@ -234,11 +235,11 @@ describe("a projection pass the control plane runs itself", () => {
     // having an index. The projection's census is that index's own docmap, so
     // a pass that only projected would have nothing to walk, forever.
     const store = bucket();
-    expect(store.snapshot()[".index/v2/manifest.json"]).toBeUndefined();
+    expect(store.snapshot()[".context/search/v2/manifest.json"]).toBeUndefined();
 
     await chain(store, stubD1().client);
 
-    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".index/"))).toBe(
+    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/"))).toBe(
       true,
     );
   });
@@ -248,7 +249,7 @@ describe("a projection pass the control plane runs itself", () => {
     await setFolderVisibility(store, {
       path: "1-projects",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const d1 = stubD1();
 
@@ -272,7 +273,7 @@ describe("a projection pass the control plane runs itself", () => {
 
   test("a pass that only moved the R2 index is still progress", async () => {
     /*
-     * The link a cold brain lives on. A bucket wide enough that the listing,
+     * The link a cold workspace lives on. A bucket wide enough that the listing,
      * the diff and the note re-reads spend the whole budget leaves the copy
      * nothing to do that pass — and if that counts as "moved nothing", the
      * chain stops on link one and the projection never starts. Which is the
@@ -292,7 +293,7 @@ describe("a projection pass the control plane runs itself", () => {
     expect(pass.failure).toBe(null);
     // Non-vacuity: the index really did advance, so "moved" is describing
     // something rather than being hardcoded true.
-    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".index/"))).toBe(
+    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/"))).toBe(
       true,
     );
   });
@@ -445,9 +446,18 @@ async function opted(
   await seedAppSecret(t, D1_ACCOUNT_SECRET, FAKE_D1.accountId);
 
   const now = Date.now();
-  await t.run((ctx) =>
-    ctx.db.insert("searchIndexes", {
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspacePlans", {
       workspaceId,
+      managedStorage: false,
+      fastSearch: true,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("searchIndexes", {
+      workspaceId,
+      generation: "premium-v1",
       optedIn: options.optedIn ?? true,
       optedInBy: owner,
       optedInAt: now,
@@ -458,8 +468,8 @@ async function opted(
       notesIndexed: 0,
       createdAt: now,
       updatedAt: now,
-    }),
-  );
+    });
+  });
   return { t, workspaceId, owner, d1, bucket };
 }
 
@@ -504,6 +514,7 @@ describe("the trigger", () => {
 
     await t.action(internal.functions.fastSearchProvision.provisionIndex, {
       workspaceId,
+      generation: "premium-v1",
     });
 
     // The row says the schema is on and the copy is due...
@@ -609,7 +620,7 @@ describe("the trigger", () => {
       workspaceId: w2,
       scope: "private" as const,
       // A cap of zero notes: the R2 index advances, the copy does not, which
-      // is the cold-brain link.
+      // is the cold-workspace link.
       operation: { kind: "projectIndex" as const, passes: 4 },
     });
     expect((await queued(t2, "runFileOperation")).length).toBeLessThanOrEqual(1);

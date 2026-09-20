@@ -428,6 +428,20 @@ export async function runEncryptionPassphraseChecks(check) {
     ["an argon2 version this build does not implement", { ...kdfFor(1), v: 0x10 }],
     ["memory a device could not allocate", { ...kdfFor(1), m: KDF_LIMITS.maxMemory + 1 }],
     ["memory below argon2's own floor", { ...kdfFor(1), m: 4 }],
+    /*
+      THE LANE FLOOR NEEDS MORE THAN ONE LANE TO BE VISIBLE.
+
+      The row above was the only one aimed at `m < 8 * p`, and it cannot reach
+      it: with the shipped `p: 1` the floor is 8 KiB, which is exactly
+      `KDF_LIMITS.minMemory`, so `bounded(m, 8, …)` refuses `m: 4` first and the
+      floor never runs. Deleting that line left the whole gateway suite green.
+
+      **Masking, not subsumption** — the distinction the vault importer's sieve
+      turned on. An input that isolates it exists: any `p > 1` puts the floor
+      (`8p`) above the flat minimum, so `m: 8, p: 2` is inside every other bound
+      and below argon2's own requirement for its lanes.
+    */
+    ["memory below argon2's floor for the lanes it asks for", { ...kdfFor(1), m: 8, p: 2 }],
     ["iterations that would never finish", { ...kdfFor(1), t: 1000000 }],
     ["a salt short enough to precompute", { ...kdfFor(1), salt: "AAAA" }],
     ["a fractional parameter", { ...kdfFor(1), t: 1.5 }],

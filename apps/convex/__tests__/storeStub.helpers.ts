@@ -90,8 +90,12 @@ export interface MemoryStore extends ScaffoldStore {
    * it does not have — which is the exact production bug the capability probe
    * exists to catch.
    */
-  delete(key: string): Promise<void>;
-  capabilities: { conditionalWrite: boolean };
+  delete(key: string, options?: { onlyIf?: { etagMatches?: string } }): Promise<void | null>;
+  capabilities: {
+    conditionalWrite: boolean;
+    conditionalCreate?: boolean;
+    conditionalDelete?: boolean;
+  };
 }
 
 export function memoryStore(
@@ -107,6 +111,38 @@ export function memoryStore(
      * half-written bucket and no way to finish it.
      */
     refuseWrite?: (key: string) => boolean;
+    /**
+     * Honour `onlyIf: { absent: true }` on `put` and `onlyIf: { etagMatches }`
+     * on `delete`, and **say so** in `capabilities`.
+     *
+     * Opt-in rather than on, because the two halves have to move together: a
+     * stub that enforced the preconditions while still reporting no capability
+     * would exercise the read-compare fallback and call it the conditional
+     * path, and one that reported the capability without enforcing it is the
+     * B2 bug this file already models in the other direction.
+     *
+     * R2 and AWS S3 are what this describes — the backends a cross-context
+     * move requires, because copy-then-verify-then-delete is only safe if the
+     * delete can be made conditional on the etag the copy was taken at.
+     */
+    conditional?: boolean;
+    /**
+     * Accept `If-Match` on DELETE and **ignore it**, while enforcing it on PUT.
+     *
+     * Not a hypothetical backend: this is R2, measured. Every real binding
+     * probes `conditionalDelete: false` and `conditionalWrite: true`, which is
+     * why `retireMovedSource` substitutes a conditional PUT for a conditional
+     * delete. A stub that only models the honest case cannot tell the
+     * substitute from the hazard it replaces.
+     */
+    ignoreIfMatchOnDelete?: boolean;
+    /**
+     * Accept `startAfter` on `list` and ignore it, the way `DropboxStore`
+     * does — its `list_folder` has no such position. A walk that trusted the
+     * store to have resumed would hand back the start of the bucket again,
+     * under a cursor that promised the rest of it.
+     */
+    ignoreStartAfter?: boolean;
   } = {},
 ): MemoryStore {
   const objects = new Map<string, StoredValue>();
@@ -114,11 +150,29 @@ export function memoryStore(
 
   return {
     objects,
-    capabilities: { conditionalWrite: options.ignoreIfMatch !== true },
+    capabilities: {
+      conditionalWrite: options.ignoreIfMatch !== true,
+      ...(options.conditional === true
+        ? {
+            conditionalCreate: true,
+            conditionalDelete: options.ignoreIfMatchOnDelete !== true,
+          }
+        : {}),
+    },
     seed(key, body) {
       objects.set(key, stored(body, `m${++counter}`));
     },
-    async delete(key) {
+    async delete(key, deleteOptions) {
+      const expected = deleteOptions?.onlyIf?.etagMatches;
+      if (
+        options.conditional === true &&
+        options.ignoreIfMatchOnDelete !== true &&
+        expected !== undefined
+      ) {
+        // `null` is "the precondition did not hold", which is how every caller
+        // in `lib/fileOps.ts` tells a conflict from a delete that happened.
+        if (objects.get(key)?.etag !== expected) return null;
+      }
       objects.delete(key);
     },
     /**
@@ -155,12 +209,20 @@ export function memoryStore(
       if (expected && !options.ignoreIfMatch && objects.get(key)?.etag !== expected) {
         return null;
       }
+      if (
+        options.conditional === true &&
+        putOptions?.onlyIf?.absent === true &&
+        objects.has(key)
+      ) {
+        return null;
+      }
       const etag = `m${++counter}`;
       objects.set(key, stored(body, etag));
       return { etag };
     },
     async list(listOptions) {
-      return listPage(objects, listOptions ?? {});
+      const { startAfter, ...rest } = listOptions ?? {};
+      return listPage(objects, options.ignoreStartAfter === true ? rest : { ...rest, startAfter });
     },
   };
 }
@@ -173,7 +235,15 @@ function listPage(
     delimiter,
     cursor,
     limit,
-  }: { prefix?: string; delimiter?: string; cursor?: string; limit?: number },
+    startAfter,
+  }: {
+    prefix?: string;
+    delimiter?: string;
+    cursor?: string;
+    limit?: number;
+    /** ListObjectsV2's `start-after`: superseded by a continuation token. */
+    startAfter?: string;
+  },
 ) {
   const contents: string[] = [];
   const prefixes = new Set<string>();
@@ -196,8 +266,9 @@ function listPage(
     ...[...prefixes].map((name) => ({ name, kind: "prefix" as const })),
   ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
-  const start = cursor
-    ? entries.findIndex((entry) => entry.name > cursor)
+  const resumeAfter = cursor ?? startAfter;
+  const start = resumeAfter
+    ? entries.findIndex((entry) => entry.name > resumeAfter)
     : 0;
   const from = start < 0 ? entries.length : start;
   const max = limit && limit > 0 ? limit : 1000;
@@ -327,6 +398,7 @@ export function memoryS3(
         prefix: url.searchParams.get("prefix") ?? "",
         delimiter: url.searchParams.get("delimiter") ?? undefined,
         cursor: url.searchParams.get("continuation-token") ?? undefined,
+        startAfter: url.searchParams.get("start-after") ?? undefined,
         limit: Number(url.searchParams.get("max-keys")) || undefined,
       });
       return new Response(listXml(page), {
@@ -351,6 +423,46 @@ export function memoryS3(
         (init.headers as Record<string, string>) ?? {},
       );
       const expected = headers.get("if-match")?.replace(/^"(.*)"$/, "$1");
+      // `ignoreIfMatch` models a backend that ignores write preconditions, and
+      // If-None-Match is the same feature as If-Match — a bucket that honours
+      // neither must be simulated as honouring neither, or a test asks its
+      // question of a backend that cannot be the one in doubt.
+      const createOnly = headers.get("if-none-match") === "*";
+      if (createOnly && !options.ignoreIfMatch && objects.has(key)) {
+        return new Response("", { status: 412 });
+      }
+      // A PUT carrying `x-amz-copy-source` copies server-side and never reads
+      // the request body — treating it as an ordinary write would have stored
+      // an empty object under the destination and called it a copy.
+      const copySource = headers.get("x-amz-copy-source");
+      if (copySource) {
+        const sourceKey = decodeURIComponent(copySource)
+          .replace(/^\/+/, "")
+          .split("/")
+          .slice(1)
+          .join("/");
+        const source = objects.get(sourceKey);
+        if (!source) {
+          return errorResponse(404, "NoSuchKey", "The specified key does not exist");
+        }
+        const sourceExpected = headers
+          .get("x-amz-copy-source-if-match")
+          ?.replace(/^"(.*)"$/, "$1");
+        if (
+          sourceExpected &&
+          !options.ignoreIfMatch &&
+          source.etag !== sourceExpected
+        ) {
+          return new Response("", { status: 412 });
+        }
+        const copyEtag = `m${++counter}`;
+        objects.set(key, stored(source.bytes, copyEtag));
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult>` +
+            `<ETag>&quot;${copyEtag}&quot;</ETag></CopyObjectResult>`,
+          { status: 200, headers: { "content-type": "application/xml" } },
+        );
+      }
       if (
         expected &&
         !options.ignoreIfMatch &&
@@ -368,6 +480,24 @@ export function memoryS3(
     }
 
     if (method === "DELETE") {
+      // `S3Store.delete` sends `If-Match` and reads 412 as a refusal, and R2
+      // and AWS S3 both honour it. This stub used to drop the header on the
+      // floor, so every probe run against it recorded `conditionalDelete:
+      // false` — the honest backend was never simulated, and the capability
+      // that gates every move was untested in the direction that works.
+      const deleteHeaders = new Headers(
+        (init.headers as Record<string, string>) ?? {},
+      );
+      const deleteExpected = deleteHeaders
+        .get("if-match")
+        ?.replace(/^"(.*)"$/, "$1");
+      if (
+        deleteExpected &&
+        !options.ignoreIfMatch &&
+        objects.get(key)?.etag !== deleteExpected
+      ) {
+        return new Response("", { status: 412 });
+      }
       objects.delete(key);
       // 204 is a null-body status; a body here is a `Response` constructor
       // error in some runtimes, not an empty response.

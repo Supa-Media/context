@@ -74,7 +74,7 @@ describe("the workspace data key", () => {
   test("is created on first use and is the same key every time after", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
 
     const first = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
@@ -102,7 +102,7 @@ describe("the workspace data key", () => {
   test("is sealed at rest, and the material is not in the row", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
 
     const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
@@ -122,8 +122,8 @@ describe("the workspace data key", () => {
   test("is one key per context, and one context's envelope does not open in another", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const alpha = await createWorkspace(t, owner, "alpha");
-    const beta = await createWorkspace(t, owner, "beta", { kind: "shared" });
+    const alpha = await createWorkspace(t, owner, "alfa");
+    const beta = await createWorkspace(t, owner, "bravo", { kind: "shared" });
 
     const alphaKey = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId: alpha,
@@ -157,7 +157,7 @@ describe("the workspace data key", () => {
   test("reading does not create one", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
 
     // No `create`, which is how every read path calls it.
     const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
@@ -174,7 +174,7 @@ describe("the workspace data key", () => {
   test("...and an existing key still opens without asking to create one", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
 
     const created = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
@@ -192,7 +192,7 @@ describe("the workspace data key", () => {
   test("a key nobody can open is a refusal, not a silently different key", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -239,7 +239,7 @@ describe("workspace-key rotation", () => {
   test("mints k2, retires k1, and both rows persist with the right retiredAt shape", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -269,7 +269,7 @@ describe("workspace-key rotation", () => {
   test("opening the key after rotation returns BOTH generations, current pointing at the new one", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     const before = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -289,7 +289,7 @@ describe("workspace-key rotation", () => {
   test("a workspace that never had a key has nothing to rotate", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
 
     expect(
       await t.action(internal.functions.encryptionKeys.startWorkspaceKeyRotation, {
@@ -301,7 +301,7 @@ describe("workspace-key rotation", () => {
   test("starting a rotation while one is in progress returns the SAME target, not a third generation", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -332,7 +332,7 @@ describe("workspace-key rotation", () => {
   test("sabotage: without the mutation's re-check, two racing starts would mint two rotations", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -371,7 +371,7 @@ describe("workspace-key rotation", () => {
   test("completing a rotation is idempotent, and a stale target completes nothing", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -427,7 +427,7 @@ describe("exportEncryptionKeys (the console action)", () => {
   test("an owner gets every live generation's material in the clear", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -449,7 +449,7 @@ describe("exportEncryptionKeys (the console action)", () => {
   test("a workspace that has never encrypted anything exports nothing, not a refusal", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
 
     expect(
       await asUser(t, owner).action(api.functions.encryptionKeys.exportEncryptionKeys, {
@@ -462,7 +462,7 @@ describe("exportEncryptionKeys (the console action)", () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
     const editor = await createUser(t, "editor@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await addMember(t, workspaceId, editor, "editor");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
@@ -494,7 +494,7 @@ describe("exportEncryptionKeys (the console action)", () => {
     const t = setupTest();
     const mine = await createUser(t, "mine@example.invalid");
     const theirs = await createUser(t, "theirs@example.invalid");
-    await createWorkspace(t, mine, "mine");
+    await createWorkspace(t, mine, "ours");
     const theirWorkspace = await createWorkspace(t, theirs, "theirs");
     const opened = await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId: theirWorkspace,
@@ -526,7 +526,7 @@ describe("exportEncryptionKeys (the console action)", () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
     const reader = await createUser(t, "reader@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await addMember(t, workspaceId, reader, "member");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
@@ -553,7 +553,7 @@ describe("exportEncryptionKeys (the console action)", () => {
     const t = setupTest();
     const first = await createUser(t, "first@example.invalid");
     const second = await createUser(t, "second@example.invalid");
-    const workspaceId = await createWorkspace(t, first, "alpha");
+    const workspaceId = await createWorkspace(t, first, "alfa");
     await addMember(t, workspaceId, second, "owner");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
@@ -579,7 +579,7 @@ describe("exportEncryptionKeys (the console action)", () => {
   test("a signed-out caller is refused", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
 
     await expect(
       t.action(api.functions.encryptionKeys.exportEncryptionKeys, { workspaceId }),
@@ -589,7 +589,7 @@ describe("exportEncryptionKeys (the console action)", () => {
   test("every export writes an audit row naming the acting owner", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,
@@ -611,7 +611,7 @@ describe("exportEncryptionKeys (the console action)", () => {
   test("rate limited after five exports in the window, and the sixth attempt writes no audit row", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "alpha");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
     await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
       workspaceId,
       create: true,

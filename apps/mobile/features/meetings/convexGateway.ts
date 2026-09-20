@@ -52,7 +52,7 @@ import { hasNothingCaptured } from "./session";
  *  - **No session record in the bucket.** `putSession`, `putSegments` and
  *    `putNotes` are acknowledged locally and write nothing. That is not a
  *    silent drop: on this path the *device* is the session store until the note
- *    is written, which it already was, and `.meetings/sessions/<id>.json` is a
+ *    is written, which it already was, and `.context/meetings/sessions/<id>.json` is a
  *    gateway implementation detail rather than part of the on-bucket format
  *    (`isPlumbing` hides it from every tool at every tier). What it costs is
  *    that a meeting in progress is not visible from another device.
@@ -91,16 +91,36 @@ import { hasNothingCaptured } from "./session";
  * half can move between a write whose answer was lost and its retry:
  *
  *  - **The path** carries the title's slug, so a rename in that window composes
- *    a second key. Nothing in the app offers one — and the reason first written
- *    here was wrong, which is worth more than the conclusion: it said the title
- *    is editable on `LiveMeetingScreen`, and that screen renders it as static
- *    text (`:130-131`). `controller.setTitle` exists and has no callers at all.
- *    So the guarantee is stronger than claimed and rests on a surface that does
- *    not exist, which is exactly the shape a future reader would reason from
- *    and get wrong.
+ *    a second key. **The app now offers a rename, and it is bounded to the
+ *    other side of that window rather than left to chance.**
+ *
+ *    The history is worth keeping, because it is the shape a reader would
+ *    reason from and get wrong twice. This paragraph first said the title was
+ *    editable on `LiveMeetingScreen` and that the residual was live; that was
+ *    false — the screen rendered static text and `controller.setTitle` had no
+ *    callers at all, so the guarantee was stronger than claimed and rested on a
+ *    surface that did not exist. It then said nothing in the app offers a
+ *    rename, which was true and is not any more.
+ *
+ *    What holds it now is a coincidence of two conditions rather than a rule
+ *    somebody has to remember: `MeetingTitleField` is drawn **only** on
+ *    `LiveMeetingScreen`, `app/(app)/meetings/[id].tsx` draws that screen for
+ *    exactly `recording` and `paused` (`isLive`), and the window this residual
+ *    is about opens at the *first finalize* — which is what `end()` queues on
+ *    the way out of both. A session that can be renamed has therefore never
+ *    been finalized, and `finalizing -> recording` is the one move that could
+ *    put a renameable session back inside the window: it is in
+ *    `MEETING_TRANSITIONS` and nothing in this app makes it, because `start()`
+ *    mints a fresh id and is the only caller of the `start` event.
+ *
+ *    So the bound is structural, and the thing that would break it is adding a
+ *    rename to `MeetingNoteScreen` or a way back from `finalizing` to
+ *    `recording`. `MeetingNoteScreen` deliberately has neither: its title opens
+ *    the note instead, which is `complete`'s own rule — the note is the meeting
+ *    and it is edited as a note.
  *  - **The workspace.** `resolveWorkspaceId` reads a ref that is re-assigned on
  *    every render, so a retry after the workspace list changed underneath —
- *    a membership landing, a brain claimed between a lost answer and the next
+ *    a membership landing, a workspace claimed between a lost answer and the next
  *    drain — resolves somewhere else. The retry then creates in a *different*
  *    bucket, where there is no conflict to catch it: two notes, one meeting.
  *    Bounded by `meetingWorkspaceId` being `ownPersonalContext`, which changes
@@ -271,7 +291,7 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
         throw new MeetingGatewayError(
           ERRORS.unavailable,
           to === null
-            ? MEETING_WRITE_SENTENCES.noBrainYet
+            ? MEETING_WRITE_SENTENCES.noWorkspaceYet
             : MEETING_WRITE_SENTENCES.unknownContext,
         );
       }
@@ -456,8 +476,8 @@ export const MEETING_WRITE_SENTENCES = {
   /** The destination named a context this account cannot reach. */
   unknownContext:
     "This device has not opened the context this meeting is going to, so it is being kept here.",
-  /** There was no destination, and no brain to fall back to. */
-  noBrainYet:
+  /** There was no destination, and no workspace to fall back to. */
+  noWorkspaceYet:
     "You have not claimed your @name yet, so there is nowhere for this meeting to go. It is being kept here — claim one and it will be filed.",
   noBucket: "No bucket is connected to that context yet, so the meeting is being kept here.",
   signedOut: "This device is signing back in to your context, so the meeting is being kept here.",

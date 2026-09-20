@@ -61,7 +61,7 @@ const {
 } = require("../features/meetings/components/Waveform") as typeof import("../features/meetings/components/Waveform");
 const { LiveWaveform } =
   require("../features/meetings/components/LiveWaveform") as typeof import("../features/meetings/components/LiveWaveform");
-const { loudest, useAudioLevel } =
+const { METER_FLOOR_DB, loudest, meterLevel, publishRecorderLevel, useAudioLevel } =
   require("../features/meetings/capture/level") as typeof import("../features/meetings/capture/level");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -128,10 +128,19 @@ describe("the meter's three states", () => {
     );
   });
 
-  test("NO METER AT ALL IS NOT SILENCE — a phone draws the mark it always drew", () => {
-    // `null` is "nothing here can tell you", and reading it as `0` would be the
-    // invented fact this repo has shipped twice: a browser and a phone would
-    // both claim a silent room they cannot hear.
+  test("NO METER AT ALL IS NOT SILENCE — the mark declines to claim one", () => {
+    /*
+      `null` is "nothing here can tell you", and reading it as `0` would be the
+      invented fact this repo has shipped twice: a surface with no meter would
+      claim a silent room it cannot hear.
+
+      **This test's name used to say "a phone draws the mark it always drew"**,
+      and the phone is no longer the example — `expo-audio` meters, the
+      recorder publishes it, and a phone in a meeting draws a real level. The
+      state is still reachable and still has to be drawn honestly: a browser,
+      a notes-only session, a shell older than the level channel, and the first
+      moment of any recording before a reading has arrived.
+    */
     expect(waveformProfile({ live: true, level: null }).fractions).toEqual([...WAVEFORM_SILHOUETTE]);
     expect(waveformProfile({ live: true, level: Number.NaN }).fractions).toEqual([
       ...WAVEFORM_SILHOUETTE,
@@ -240,6 +249,129 @@ describe("the level reaches the leaf and nothing above it", () => {
   test("a surface with no shell behind it reports no meter rather than silence", () => {
     const view = mount(createElement(Probe, { live: true, bridgeOf: (() => null) as never }));
     expect(read(view.host)).toBe("null");
+    view.unmount();
+  });
+});
+
+describe("the phone has a meter of its own now", () => {
+  /*
+    IT DID NOT, AND NOBODY HAD CHECKED.
+
+    This file's subject used to be the desktop shell's bridge, and
+    `capture/level.ts` said in as many words that "the phone's `expo-audio` and
+    the browser's `MediaRecorder`" cannot produce a level. Half of that was
+    false: `expo-audio` meters on both phone platforms, behind one flag nobody
+    had set. So every meeting ever recorded on a phone drew a mark that could
+    not move, under a design whose own header says *"a meter that responds to
+    sound is a capability claim"* — and the owner read the unmoving mark
+    exactly as the claim implies, twice: once concluding his microphone was
+    dead, once asking why the meter that is supposed to does not.
+  */
+
+  function Probe({ live, bridgeOf }: { live: boolean; bridgeOf: () => never }) {
+    const level = useAudioLevel(live, bridgeOf as never);
+    return createElement("span", { "data-testid": "level" }, String(level));
+  }
+
+  const read = (host: HTMLElement) =>
+    host.querySelector("[data-testid='level']")?.textContent ?? "";
+
+  const noShell = (() => null) as unknown as () => never;
+
+  test("decibels become a fraction of the mark, with a floor a voice sits above", () => {
+    /*
+      A **display** floor, not the format's. -160 dBFS is digital silence, and
+      a meter scaled across 160 dB leaves a human voice in the top eighth of
+      the bar and everything quieter flat — which is the unmoving mark again,
+      arrived at by arithmetic instead of by omission.
+    */
+    expect(meterLevel(0)).toBe(1);
+    expect(meterLevel(METER_FLOOR_DB)).toBe(0);
+    expect(meterLevel(-160)).toBe(0);
+    expect(meterLevel(METER_FLOOR_DB / 2)).toBeCloseTo(0.5, 5);
+    // Speech at arm's length is around -25 to -15 dBFS, and it has to read as
+    // loud rather than as a rounding error above the floor.
+    expect(meterLevel(-20)).toBeGreaterThan(0.5);
+    expect(meterLevel(-40)).toBeLessThan(meterLevel(-20)!);
+    // Above full scale is clipping, not a bar taller than the mark.
+    expect(meterLevel(6)).toBe(1);
+  });
+
+  test("no reading is `null`, and never zero", () => {
+    /*
+      The distinction the whole meter rests on: `Waveform` draws a different
+      mark for "nothing can tell you" than for "listening, and the room is
+      quiet". `metering` is absent from a recorder that was not asked for it
+      and from one that is not running, and `20 * log10(0)` is `-Infinity` on
+      Android's path. None of those is a quiet room.
+    */
+    expect(meterLevel(undefined)).toBeNull();
+    expect(meterLevel(null)).toBeNull();
+    expect(meterLevel(Number.NaN)).toBeNull();
+    expect(meterLevel(-Infinity)).toBeNull();
+    expect(meterLevel("-20" as unknown as number)).toBeNull();
+    // ...and a real silence is 0, which is a reading and draws the live floor.
+    expect(meterLevel(-160)).toBe(0);
+  });
+
+  test("with no shell, the recorder's own readings reach the leaf", () => {
+    const view = mount(createElement(Probe, { live: true, bridgeOf: noShell }));
+    // Nothing published yet is not silence.
+    expect(read(view.host)).toBe("null");
+
+    act(() => publishRecorderLevel(0.75));
+    expect(read(view.host)).toBe("0.75");
+
+    act(() => publishRecorderLevel(0));
+    expect(read(view.host)).toBe("0");
+
+    // And the recorder saying it has no reading is carried through as itself.
+    act(() => publishRecorderLevel(null));
+    expect(read(view.host)).toBe("null");
+
+    view.unmount();
+  });
+
+  test("a meeting that is not recording hears nothing from the recorder either", () => {
+    /*
+      Same rule as the bridge half: `live={false}` is a paused or finished
+      meeting, and a meter left standing at whatever the room was doing when
+      somebody pressed pause claims a closed microphone is hearing them.
+    */
+    const view = mount(createElement(Probe, { live: true, bridgeOf: noShell }));
+    act(() => publishRecorderLevel(0.6));
+    expect(read(view.host)).toBe("0.6");
+
+    view.rerender(createElement(Probe, { live: false, bridgeOf: noShell }));
+    expect(read(view.host)).toBe("null");
+
+    // Unsubscribed, not merely ignored: a publish while paused changes nothing.
+    act(() => publishRecorderLevel(0.9));
+    expect(read(view.host)).toBe("null");
+
+    view.unmount();
+    // And an unmounted probe is not still being written into.
+    act(() => publishRecorderLevel(0.4));
+  });
+
+  test("the shell is preferred where there is one, because it hears more", () => {
+    /*
+      A phone's meter is the microphone. The shell's is the louder of the
+      microphone and the machine's own audio, which is the honest answer to
+      "is this recording hearing anything" on a call. So a surface with a
+      bridge listens to the bridge, and a publish from a recorder that is not
+      the one it is watching cannot move it.
+    */
+    const shell = fakeDesktopBridge({ capabilities: { mic: true } });
+    const bridgeOf = (() => shell.bridge) as unknown as () => never;
+    const view = mount(createElement(Probe, { live: true, bridgeOf }));
+
+    act(() => shell.emitLevel({ mic: 0.25, systemAudio: 0.8 }));
+    expect(read(view.host)).toBe("0.8");
+
+    act(() => publishRecorderLevel(0.1));
+    expect(read(view.host)).toBe("0.8");
+
     view.unmount();
   });
 });

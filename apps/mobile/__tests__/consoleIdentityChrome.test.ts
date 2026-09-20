@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -21,7 +21,7 @@ import { createRoot } from "react-dom/client";
  *     indistinguishable at the moment of choosing which to open.
  *  3. The identity at the foot of the rail changed with the viewed context.
  *
- * `storagePill.test.ts`, `railSections.test.ts` and `viewerIdentity.test.ts`
+ * `storagePill.test.ts`, `railGroup.test.ts` and `viewerIdentity.test.ts`
  * prove the rules; this proves the real layout is wired to them, which is the
  * failure that actually shipped — the words on the glass, the press that
  * navigates, the headings in the rendered rail. The identity wiring from the
@@ -34,25 +34,55 @@ import { createRoot } from "react-dom/client";
 
 const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 const mockPushed: string[] = [];
+const mockReplaced: string[] = [];
+/** What the console asked the browser to make, as `<kind>:<folder>`. */
+const mockCreated: string[] = [];
+let mockQuickParams: { quickAction?: string } = {};
 let mockPathname = "/console/@seyi";
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
 }));
 
+const mockParamsSet: Record<string, string | undefined>[] = [];
+
 jest.mock("expo-router", () => ({
   Slot: () => null,
   useRouter: () => ({
-    replace: () => {},
+    replace: (href: string) => {
+      mockReplaced.push(href);
+      mockQuickParams = {};
+    },
     push: (href: string) => {
       mockPushed.push(href);
     },
+    // Settings is a parameter on the page somebody is already on, not a
+    // navigation to a new one — that is what keeps an open note open behind
+    // the overlay. Recorded as the URL it produces so the assertions below
+    // still read as "where pressing this lands you".
+    setParams: (params: Record<string, string | undefined>) => {
+      mockParamsSet.push(params);
+    },
   }),
   usePathname: () => mockPathname,
+  useLocalSearchParams: () => mockQuickParams,
 }));
 
 jest.mock("@convex-dev/auth/react", () => ({
   useAuthActions: () => ({ signOut: async () => {} }),
+}));
+
+/*
+  The console layout mints this app's gateway grant through `useAgentEngine`,
+  which is the first thing in it to reach `convex/react` directly — everything
+  else goes through `useLiveConsoleData`, mocked below. The action is never
+  called here: `VoiceButton` is what would call it, and nothing in this file
+  asks the agent anything.
+*/
+jest.mock("convex/react", () => ({
+  useAction: () => async () => {
+    throw new Error("not used in this test");
+  },
 }));
 
 jest.mock("../features/console/useLiveConsoleData", () => ({
@@ -89,7 +119,7 @@ const SHARED_CONTEXT: ConsoleContext = {
   status: "ok",
 };
 
-/** A workspace the viewer created. `owner`, and deliberately not a brain. */
+/** A shared workspace the viewer created. `owner`, and deliberately not personal. */
 const WORKSPACE_CONTEXT: ConsoleContext = {
   id: "w3",
   slug: "acme-eng",
@@ -149,6 +179,8 @@ function mockConsoleData(): never {
     paste: () => {},
     createNote: () => {},
     createFolder: () => {},
+    /* Recorded: the quick-note link's whole job is to reach this. */
+    createUntitled: (folder: string, kind: string) => mockCreated.push(`${kind}:${folder}`),
     rename: () => {},
     move: () => {},
     duplicate: () => {},
@@ -161,7 +193,9 @@ function mockConsoleData(): never {
     demo: false,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     contexts: shape.contexts ?? [OWN_CONTEXT],
-    selectedContextId: (shape.contexts ?? [OWN_CONTEXT])[0]!.id,
+    // `?? null` rather than `[0]!.id`: an account with *no* contexts is a
+    // state this file now mounts — it is where the claim entry lives.
+    selectedContextId: (shape.contexts ?? [OWN_CONTEXT])[0]?.id ?? null,
     selectContext: () => {},
     graph: { nodes: [], edges: [] },
     stats: [],
@@ -191,6 +225,7 @@ const ConsoleLayout = (
 function mountConsole(next: Shape = {}, width = 1440) {
   shape = next;
   mockPushed.length = 0;
+  mockParamsSet.length = 0;
 
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: width,
@@ -210,10 +245,36 @@ function mountConsole(next: Shape = {}, width = 1440) {
     root.render(createElement(ConsoleLayout as never));
   });
 
+  /*
+    `document.body`, not the container: the switcher's list is a `Menu`, which
+    react-native-web renders through a portal outside the tree it was declared
+    in. Querying the container alone would report every row as absent.
+  */
   const find = (testId: string) =>
-    container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+    document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+
+  const clickNode = (node: HTMLElement | null) => {
+    if (node === null) throw new Error("nothing to press");
+    act(() => {
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
 
   return {
+    /**
+     * Open the workspace switcher, which is where the rail's list went.
+     *
+     * The list used to be a column and its rows were in the tree from the
+     * first render, so these tests read them straight off the console. It is a
+     * menu under the workspace's name now (`SwitcherMenu`), so the rows exist
+     * once it has been opened — which is a press, and the only difference this
+     * fold makes to what they assert.
+     */
+    openSwitcher: () => {
+      clickNode(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]'));
+    },
     text: () => container.textContent ?? "",
     find,
     press: (node: HTMLElement | null) => {
@@ -240,7 +301,49 @@ const DROPBOX_STORAGE: ConsoleStorage = {
   updatedAt: 0,
 };
 
+beforeEach(() => {
+  mockQuickParams = {};
+  mockReplaced.length = 0;
+  mockCreated.length = 0;
+});
+
 /* -------------------------------------------------------------------------- */
+
+describe("the widget note command is consumed", () => {
+  /**
+   * IT MAKES THE NOTE NOW, RATHER THAN ASKING WHAT TO CALL IT.
+   *
+   * This used to assert the naming prompt's own sentence — "It will be created
+   * in 0-inbox as markdown." — which is exactly the modal the owner asked to be
+   * rid of: a quick-note link is one press from wherever somebody was, and a
+   * text field in front of it is the opposite of quick. The note is
+   * `untitled-<date>` in `0-inbox` and takes the first heading typed into it;
+   * see `features/console/files/untitled.ts`.
+   *
+   * The *consumed-once* half is unchanged and is what the test is really for:
+   * the command is stripped from the history entry before it is acted on, so a
+   * remount or a trip back through history cannot write a second note.
+   */
+  test("creates once, then a remount of the clean history entry stays idle", () => {
+    mockQuickParams = { quickAction: "note" };
+    const first = mountConsole();
+    expect(mockCreated).toEqual(["note:0-inbox"]);
+    expect(mockReplaced).toEqual(["/console/@seyi"]);
+    /*
+      And no prompt on the way. Asserted by the sentence the prompt used to
+      print rather than by "there is no input": this layout draws the explorer,
+      whose filter field is an input at rest, so the absence of *inputs* is a
+      claim that was never true here.
+    */
+    expect(document.body.textContent).not.toContain("as markdown");
+    first.unmount();
+
+    const returned = mountConsole();
+    expect(mockCreated).toEqual(["note:0-inbox"]);
+    expect(mockReplaced).toEqual(["/console/@seyi"]);
+    returned.unmount();
+  });
+});
 
 describe("the storage pill on a Dropbox binding", () => {
   test("says Dropbox — never 'undefined' — with the folder when there is one", () => {
@@ -260,7 +363,7 @@ describe("the storage pill on a Dropbox binding", () => {
   test("pressing it opens this context's storage settings", () => {
     const app = mountConsole({ storage: DROPBOX_STORAGE });
     app.press(app.find("storage-pill"));
-    expect(mockPushed).toEqual(["/console/@seyi/settings"]);
+    expect(mockParamsSet).toEqual([{ settings: "workspace" }]);
     app.unmount();
   });
 });
@@ -275,7 +378,7 @@ describe("the storage pill on every other binding", () => {
   test("and is a press target too — the way in is not Dropbox-only", () => {
     const app = mountConsole({});
     app.press(app.find("storage-pill"));
-    expect(mockPushed).toEqual(["/console/@seyi/settings"]);
+    expect(mockParamsSet).toEqual([{ settings: "workspace" }]);
     app.unmount();
   });
 
@@ -283,70 +386,142 @@ describe("the storage pill on every other binding", () => {
     const app = mountConsole({ storage: null });
     expect(app.text()).toContain("no bucket connected");
     app.press(app.find("storage-pill"));
-    expect(mockPushed).toEqual(["/console/@seyi/settings"]);
+    expect(mockParamsSet).toEqual([{ settings: "workspace" }]);
     app.unmount();
   });
 });
 
 /* -------------------------------------------------------------------------- */
 
-describe("the rail's two context sections, rendered", () => {
-  test("brains and workspaces sit under the product's own two nouns", () => {
+/**
+ * The one context list, rendered — in the switcher, where the rail's was.
+ *
+ * **Every test here used to read the rows straight off the console**, because
+ * the rail was a column and its entries were in the tree from the first frame.
+ * The rail folded into `SwitcherMenu` (`docs/decisions/app-and-console.md`),
+ * so each one opens the menu first and reads the rows out of it. What they
+ * assert — one list, the pin, the mark, the two offers and where each is drawn
+ * — is unchanged, and that is the point of rewriting them rather than deleting
+ * them: they are §1464's reversal guards, and the decision they guard moved
+ * container without changing.
+ */
+describe("the one context list, rendered", () => {
+  /** Every row in one list, and the retired noun nowhere on the glass. */
+  test("every context sits in one list", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
-    const text = app.text();
+    app.openSwitcher();
+    const text = document.body.textContent ?? "";
 
-    expect(text).toContain("Brains");
-    expect(text).toContain("Workspaces");
-    // The headings the ownership split used to draw are gone from the rail.
+    expect(text).not.toMatch(/brain/i);
+    /*
+      The headings the old splits drew are gone, and so is the one that
+      replaced them. "Workspaces" was the rail's, over a column; a six-row menu
+      with a heading over its only group is a row spent saying what the rows
+      already say. `railGroup.heading` is still drawn by `ConsoleShell`, which
+      is the landing page's picture of a console that still has a rail.
+    */
     expect(text).not.toContain("Shared with you");
     // Every row is still a reachable entry.
-    expect(app.container.querySelector('[aria-label="Open @seyi"]')).not.toBeNull();
-    expect(app.container.querySelector('[aria-label="Open @lk"]')).not.toBeNull();
-    expect(app.container.querySelector('[aria-label="Open @acme-eng"]')).not.toBeNull();
+    expect(app.find("switcher-context-seyi")).not.toBeNull();
+    expect(app.find("switcher-context-lk")).not.toBeNull();
+    expect(app.find("switcher-context-acme-eng")).not.toBeNull();
 
     app.unmount();
   });
 
   /**
-   * Where ownership went. Somebody else's brain sits in the same group as
-   * yours, so the mark is the only thing separating them — and it must appear
-   * exactly once, on the right row.
+   * The pin, on the glass rather than in `railGroup`'s return value. The
+   * viewer's own workspace arrives third here and must still be drawn first —
+   * personal and shared contexts interleaved in one run is exactly the case
+   * the two headed groups used to make impossible.
    */
-  test("only the viewer's own brain is marked", () => {
+  test("the viewer's own workspace is drawn first, whatever order it arrived in", () => {
+    const app = mountConsole({
+      contexts: [WORKSPACE_GUEST, WORKSPACE_CONTEXT, OWN_CONTEXT, SHARED_CONTEXT],
+    });
+    app.openSwitcher();
+    const rows = [...document.body.querySelectorAll("[data-testid]")]
+      .map((node) => node.getAttribute("data-testid") ?? "")
+      .filter((id) => id.startsWith("switcher-context-"));
+
+    expect(rows[0]).toBe("switcher-context-seyi");
+    // A pin and not a sort: the rest keep the order they came in.
+    expect(rows).toEqual([
+      "switcher-context-seyi",
+      "switcher-context-public-worship",
+      "switcher-context-acme-eng",
+      "switcher-context-lk",
+    ]);
+
+    app.unmount();
+  });
+
+  /**
+   * Where ownership went. Somebody else's personal context sits in the same
+   * list as yours, so the mark is the only thing separating them — and it must
+   * appear exactly once, on the right row.
+   */
+  test("only the viewer's own workspace is marked", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
-    expect(app.text().match(/yours/g)?.length ?? 0).toBe(1);
+    app.openSwitcher();
+    expect((document.body.textContent ?? "").match(/yours/g)?.length ?? 0).toBe(1);
 
-    const own = app.container.querySelector('[aria-label="Open @seyi"]');
-    expect(own?.textContent).toContain("yours");
-    // Not on somebody else's brain, and not on a workspace the viewer created —
-    // `WORKSPACE_CONTEXT` is `role: "owner"`, which is the half of the test
-    // that fails if the mark is derived from role alone.
-    expect(
-      app.container.querySelector('[aria-label="Open @lk"]')?.textContent,
-    ).not.toContain("yours");
-    expect(
-      app.container.querySelector('[aria-label="Open @acme-eng"]')?.textContent,
-    ).not.toContain("yours");
+    expect(app.find("switcher-context-seyi")?.textContent).toContain("yours");
+    // Not on somebody else's personal context, and not on a shared workspace
+    // the viewer created — `WORKSPACE_CONTEXT` is `role: "owner"`, which is the
+    // half of the test that fails if the mark is derived from role alone.
+    expect(app.find("switcher-context-lk")?.textContent).not.toContain("yours");
+    expect(app.find("switcher-context-acme-eng")?.textContent).not.toContain("yours");
 
     app.unmount();
   });
 
-  test("an account in no workspaces still gets the group, because the entry is in it", () => {
+  test("an account in no shared workspace still gets the new-workspace entry", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT] });
-    expect(app.text()).toContain("Workspaces");
-    expect(app.find("rail-create-workspace")).not.toBeNull();
+    app.openSwitcher();
+    expect(app.find("switcher-context-seyi")).not.toBeNull();
+    expect(app.find("switcher-new")).not.toBeNull();
     app.unmount();
   });
 
-  test("an invited-only account sees the claim entry in an otherwise empty Brains group", () => {
+  /**
+   * The empty state and the claim entry are alternatives, not neighbours.
+   *
+   * Both are for an account with nothing in the list, and the old two-group
+   * rail could draw them together — "Nothing here yet" sitting above a live
+   * offer, which reads as a screen that failed to load *and* a screen that
+   * works. With one group the rail has to choose, and it chooses the offer.
+   */
+  test("an empty account offered a name gets the offer, not 'Nothing here yet'", () => {
+    const app = mountConsole({ contexts: [] });
+    app.openSwitcher();
+    expect(app.find("switcher-claim")).not.toBeNull();
+    expect(document.body.textContent ?? "").not.toContain("Nothing here yet");
+    app.unmount();
+  });
+
+  /**
+   * The claim entry stands in for the pinned row, so it is drawn *where that
+   * row would be* — above the contexts, not under them. Somebody invited into
+   * one workspace and owning nothing is the only person who ever sees it.
+   */
+  test("an invited-only account sees the claim entry in the pinned top slot", () => {
     const app = mountConsole({ contexts: [WORKSPACE_GUEST] });
-    // `offerOwnContext` answers yes for an invitee, so the group survives to
-    // hold the one entry that matters to them…
-    expect(app.find("rail-claim-context")).not.toBeNull();
-    expect(app.text()).toContain("Brains");
-    // …and the workspace they were let into is under its own heading, not
-    // beside the claim entry.
-    expect(app.text()).toContain("Workspaces");
+    app.openSwitcher();
+    // `offerOwnContext` answers yes for an invitee…
+    const claim = app.find("switcher-claim");
+    expect(claim).not.toBeNull();
+    expect(document.body.textContent ?? "").not.toMatch(/brain/i);
+
+    // …and it leads the list, ahead of the workspace they were let into. The
+    // slot is `railGroup`'s rule — the claim stands in for the row that would
+    // be first — and it survived the move into the menu.
+    const entry = app.find("switcher-context-public-worship");
+    expect(entry).not.toBeNull();
+    expect(
+      claim!.compareDocumentPosition(entry!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
     app.unmount();
   });
 });

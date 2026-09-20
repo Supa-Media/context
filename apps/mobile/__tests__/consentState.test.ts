@@ -534,6 +534,31 @@ describe("preselection and small helpers", () => {
     expect(redirectHost("not a url")).toBe("not a url");
   });
 
+  /*
+    USERINFO SMUGGLING, WHICH IS THE ONE ATTACK ON THIS FUNCTION.
+
+    `https://claude.ai@evil.test/cb` is a perfectly ordinary URL whose host is
+    `evil.test`; the part before the `@` is a username and is not where anything
+    is sent. The gateway's `redirectUriIsAcceptable` accepts it — https, no
+    fragment, under the length cap — so a client CAN register it, and
+    `redirectUriMatches` then matches it against itself exactly.
+
+    Which makes this line the last thing standing between that registration and
+    a person reading "Approving sends it back to claude.ai". `parsed.host` is
+    right and always was; what was missing is anything that fails if somebody
+    replaces it with string surgery — `uri.split("/")[2]`, a "strip the port"
+    tidy-up, a regex — each of which yields the smuggled name.
+  */
+  test("a name smuggled into the userinfo is not the host, and is not shown", () => {
+    expect(redirectHost("https://claude.ai@evil.test/cb")).toBe("evil.test");
+    expect(redirectHost("https://user:pw@evil.test/cb")).toBe("evil.test");
+  });
+
+  test("the port survives, because a loopback client is named by it", () => {
+    expect(redirectHost("https://claude.ai@evil.test:8443/cb")).toBe("evil.test:8443");
+    expect(redirectHost("http://127.0.0.1:53411/cb")).toBe("127.0.0.1:53411");
+  });
+
   test("errorCodeOf reads a ConvexError and shrugs at anything else", () => {
     expect(errorCodeOf(convexError("NOPE"))).toBe("NOPE");
     expect(errorCodeOf(new Error("plain"))).toBe(undefined);
@@ -605,5 +630,67 @@ describe("isSafeRedirect", () => {
   test("refuses anything that is not an absolute URL", () => {
     expect(isSafeRedirect("/relative")).toBe(false);
     expect(isSafeRedirect("")).toBe(false);
+  });
+
+  /*
+    The rule this function's own docblock describes, which it did not implement.
+
+    It said: *"`https:` is the only scheme allowed for a hosted client, plus the
+    custom app schemes desktop and CLI clients register … What is refused is the
+    family that executes rather than navigates."* The first clause is an
+    allowlist and the second is a denylist, and the code was only the second —
+    six names, and **everything else admitted**. Measured before the change:
+
+      ALLOW  ms-msdt:/id PCWDiagnostic      ALLOW  intent://x#Intent;end
+      ALLOW  search-ms:query=x              ALLOW  view-source:http://x
+      ALLOW  smb://host/share               ALLOW  chrome://settings
+      ALLOW  jar:http://x!/y                ALLOW  ftp://host/f
+
+    Nothing reached it with one of those, and that is why this is a tightening
+    rather than a row about a live hole: every caller's input is constrained
+    upstream. `leaveTo` and `ConsentScreen` get a redirect URI the gateway
+    already allowlisted at registration time — `redirectUriIsAcceptable` takes
+    `https:` and loopback `http:` and refuses custom schemes outright, *"for no
+    current benefit"* — and `openProviderLink` gets the `CLIENT_PROVIDERS`
+    catalogue, which is six `https` constants and one `cursor://` deep link.
+
+    What makes it worth closing anyway is the company it keeps. **This app has
+    five ways out to another application, and the other four are stricter than
+    this one:** `safeHref` over a shared note's Markdown is an allowlist
+    (`https`, `mailto`, `tel`), `leaveForGoogle` and `leaveForDropbox` check an
+    exact origin, and the `Landing` links are module constants. One denylist
+    among four allowlists, guarding the value a *remote party* had the most
+    influence over, is the odd one out — and the docblock had already decided
+    which way it should go.
+  */
+  test("a scheme nothing here uses is refused, not merely the ones that execute", () => {
+    for (const url of [
+      // The Windows protocol handlers that made this class famous.
+      "ms-msdt:/id PCWDiagnostic",
+      "search-ms:query=secret&crumb=location:\\\\attacker.example\\share",
+      // An Android intent, which is a way to name any installed app.
+      "intent://scan/#Intent;scheme=zxing;package=com.example;end",
+      // And the ordinary ones nobody meant to allow either.
+      "smb://host/share",
+      "jar:http://host/x!/y",
+      "view-source:http://host/x",
+      "chrome://settings",
+      "ftp://host/file",
+      "ws://host/socket",
+    ]) {
+      expect(isSafeRedirect(url)).toBe(false);
+    }
+  });
+
+  test("and mailto and tel are a note's business, not a redirect's", () => {
+    /*
+      `safeHref` admits both, because a link in somebody's note reasonably is an
+      address or a number. A *redirect target* never is: nothing in the OAuth
+      flow or the client catalogue produces one, so admitting them here would be
+      surface with no caller — the same argument the gateway's own validator
+      makes about custom schemes at registration.
+    */
+    expect(isSafeRedirect("mailto:someone@example.test")).toBe(false);
+    expect(isSafeRedirect("tel:+15551234567")).toBe(false);
   });
 });

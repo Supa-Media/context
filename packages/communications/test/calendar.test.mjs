@@ -84,6 +84,7 @@ export function runCalendarChecks(check) {
     "applyIncremental",
     "rebuildCache",
     "projectDay",
+    "mergeEventCaches",
     "occursOn",
     "zonedClock",
     "zoneAbbreviation",

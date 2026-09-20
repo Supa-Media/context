@@ -1,12 +1,13 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useNoteRoom } from "../../../../features/console/presence/useNoteRoom";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
 import {
   anchorFromQuery,
   contextIdForSlug,
   noteFromQuery,
   noteHref,
-  settingsHref,
 } from "../../../../features/console/nav";
+import { DEFAULT_SETTINGS_SECTION } from "../../../../features/console/settings/sections";
 import { placeFor } from "../../../../features/console/lastPlace";
 import { useContextSlug } from "../../../../features/console/useContextSlug";
 import { useRememberPlace } from "../../../../features/console/useLastPlace";
@@ -85,14 +86,77 @@ export default function ContextBrowseRoute() {
     data.files,
     { contextId: contextIdForSlug(data.contexts, slug), note },
     data.selectedContextId,
-    useNoteUrl(),
+    /*
+      A navigation pushes, so the browser's own back button walks between
+      notes; a correction replaces. See `useNoteUrl`.
+
+      `pushable` is false while the address carries anything besides the note,
+      because a push rebuilds the address out of the context and the note alone
+      and would drop the rest — closing the settings overlay as a side effect
+      of the open note changing underneath it, which is the defect that overlay
+      exists to avoid. Read as "every key except these two" rather than by
+      naming `settings`: this route is where a console query parameter lands,
+      and the next one added would otherwise be dropped silently by a rule that
+      had never heard of it.
+    */
+    useNoteUrl(slug, Object.keys(params).every((key) => key === "note" || key === "slug")),
   );
   useRememberPlace(placeFor(data.contexts, slug, note));
+
+  /*
+    Who else has this note open.
+
+    Computed here rather than inside `BrowsePane` because the pane is also the
+    landing page's demo console, where there is no account, no grant to mint and
+    no gateway to reach. A hook that called a Convex action from inside that
+    tree would be a live credential path on a marketing page; a prop that is
+    simply absent there is the same rule `onOpenSettings` above follows — a
+    capability the surface does not have is not passed, rather than passed and
+    refused.
+  */
+  const { presence, drawingCollaboration } = useNoteRoom({
+    workspaceId: data.selectedContextId,
+    endpoint: data.endpoint,
+    notePath: data.files.editor.path,
+    conflicted: data.files.editor.status === "conflict",
+    /*
+      A function rather than a value: it is read once, by whichever client
+      arrives to an empty room, and passing the draft itself would re-open the
+      socket on every keystroke.
+    */
+    textForSeed: () => data.files.editor.draft,
+    /*
+      An MCP client wrote this note while it was open. Presence has already
+      merged that write into the shared document; what is left is the
+      bookkeeping, so the next save is checked against the version the tool
+      left rather than the one this editor opened.
+    */
+    onExternalWrite: data.files.onExternalWrite,
+    /*
+      And the other direction: a save made here, told to the room, because it
+      goes through the control plane rather than the gateway and nothing else
+      would announce it.
+    */
+    onSaved: data.files.onSaved,
+  });
 
   return (
     <BrowsePane
       data={data}
-      onOpenSettings={slug === null ? undefined : () => router.push(settingsHref(slug))}
+      presence={presence}
+      drawingCollaboration={drawingCollaboration}
+      /*
+        `setParams`, not a push of `settingsHref`: this route is already the
+        context the gear belongs to, and building a fresh URL would drop the
+        `?note=` beside it — closing the note as a side effect of opening
+        settings, which is the defect the overlay exists to fix.
+      */
+      onOpenSettings={
+        slug === null
+          ? undefined
+          : (section) =>
+              router.setParams({ settings: section ?? DEFAULT_SETTINGS_SECTION })
+      }
       /*
         What the URL has asked for. The pane pairs it with the browser's own
         `opening` to cover both halves of the gap before a linked note is on

@@ -15,14 +15,55 @@
 // injected client, never against Convex directly".
 
 import { planChannelDay } from "../../../../../packages/communications/src/note.js";
+import { contactDraftsFromCommunication } from "../../../../../packages/communications/src/contacts.js";
+import { channelDestinationFolder } from "../../../../../packages/communications/src/paths.js";
 import { fnv1a64 } from "../../../../../packages/communications/src/anchors.js";
 import { chatMessageToEvent, fallbackSpaceLabel, isHistoryOn, spaceDisplayName } from "./transform.js";
-import { DAY_MS, DEFAULT_BACKFILL_DAYS, REGEN_LOOKBACK_DAYS } from "./protocol.js";
+import { DAY_MS, REGEN_LOOKBACK_DAYS } from "./protocol.js";
+
+/** A hard ceiling behind the cycle check, for a provider that emits fresh junk forever. */
+const MAX_PAGE_WALK = 1000;
+
+/** Fixed, content-free failure a scheduler can classify without parsing provider prose. */
+export class ChatPaginationError extends Error {
+  constructor() {
+    super("Google Chat pagination did not converge");
+    this.name = "ChatPaginationError";
+    this.code = "PAGINATION_STALLED";
+  }
+}
+
+function acceptNextPageToken(seen, nextPageToken, pages) {
+  if (!nextPageToken) return undefined;
+  if (seen.has(nextPageToken) || pages >= MAX_PAGE_WALK) {
+    throw new ChatPaginationError();
+  }
+  seen.add(nextPageToken);
+  return nextPageToken;
+}
 
 function calendarDate(iso) {
   const t = Date.parse(String(iso ?? ""));
   if (!Number.isFinite(t)) return null;
   return new Date(t).toISOString().slice(0, 10);
+}
+
+/**
+ * A day note's `updated` value must describe the provider data, not the wall
+ * clock of whichever scheduled pass happened to regenerate it. Otherwise a
+ * quiet Chat day is byte-different every few minutes and a real store has to
+ * rewrite it forever. Gmail's scheduled path uses the same rule: the newest
+ * message timestamp advances exactly when the day gains a message. An
+ * unavailable-only notice has no message timestamp, so the day's own stable
+ * midnight is the honest fallback.
+ */
+function stableDayUpdated(events, date) {
+  let latest = Date.parse(`${date}T00:00:00.000Z`);
+  for (const event of events) {
+    const sentAt = Date.parse(String(event?.sentAt ?? ""));
+    if (Number.isFinite(sentAt) && sentAt > latest) latest = sentAt;
+  }
+  return new Date(latest).toISOString();
 }
 
 /**
@@ -48,6 +89,107 @@ export function dayNonce(nonceSeed, account, date) {
   return fnv1a64(`${String(nonceSeed ?? "")} ${String(account ?? "")} ${String(date ?? "")}`);
 }
 
+/** One notice's sort key: label and reason, NUL-joined so neither can run into the other. */
+function unavailableSpaceKey(space) {
+  return `${space?.label ?? ""}\u0000${space?.reason ?? ""}`;
+}
+
+/**
+ * Render the shared Chat daily notes from every active account's persisted
+ * contribution. The runner groups nothing implicitly: destination is part of
+ * each contribution, and two copies of the same account at one destination
+ * fail closed rather than allowing polling order to choose a winner.
+ *
+ * @param {{
+ *   contributions: Array<{
+ *     account: string, destinationFolder?: string,
+ *     days: Array<{date: string, events: object[], unavailableSpaces?: Array<{label: string, reason: string}>}>
+ *   }>,
+ *   nonceSeed: string,
+ *   root?: string,
+ * }} args
+ */
+export function renderSharedGoogleChat({ contributions, nonceSeed, root }) {
+  /** destination -> {folder, accounts, days} */
+  const destinations = new Map();
+  for (const contribution of contributions ?? []) {
+    const account = String(contribution?.account ?? "");
+    const accountKey = account.trim().toLowerCase();
+    if (!accountKey) throw new TypeError("Chat contribution requires an account");
+    // A destination is the folder a key actually lands in, so the grouping
+    // key is the one `channelDayNotePath` will resolve to rather than the raw
+    // setting string. `channelDestinationFolder` already trims, collapses
+    // separators, strips a trailing slash and reads an empty value as the
+    // channel default — grouping on the string in front of it made
+    // `0-inbox/google-chat` and `0-inbox/google-chat/` two destinations that
+    // then rendered the same path twice, one note per account, and whichever
+    // the runner wrote last erased the other. That is the erasure this helper
+    // exists to prevent, reachable by a trailing slash in a settings field.
+    const folder = channelDestinationFolder("google-chat", undefined, contribution?.destinationFolder);
+    if (folder === null) throw new TypeError("Chat contribution has a destination this package will not file into");
+    const destinationKey = folder;
+    if (!destinations.has(destinationKey)) {
+      destinations.set(destinationKey, { folder, accounts: new Set(), days: new Map() });
+    }
+    const destination = destinations.get(destinationKey);
+    if (destination.accounts.has(accountKey)) {
+      throw new TypeError(`duplicate Chat contribution: ${account}`);
+    }
+    destination.accounts.add(accountKey);
+    const seenDates = new Set();
+    for (const day of contribution?.days ?? []) {
+      const date = String(day?.date ?? "");
+      if (seenDates.has(date)) {
+        throw new TypeError(`duplicate Chat contribution day: ${date}`);
+      }
+      seenDates.add(date);
+      if (!destination.days.has(date)) {
+        destination.days.set(date, { events: [], unavailableSpaces: [] });
+      }
+      const aggregate = destination.days.get(date);
+      aggregate.events.push(...(day?.events ?? []));
+      aggregate.unavailableSpaces.push(...(day?.unavailableSpaces ?? []));
+    }
+  }
+
+  const notes = [];
+  for (const destinationKey of [...destinations.keys()].sort()) {
+    const destination = destinations.get(destinationKey);
+    for (const date of [...destination.days.keys()].sort()) {
+      const aggregate = destination.days.get(date);
+      // Codepoint order, for the reason `chronological` in
+      // `packages/communications/src/note.js` already gives: this comparator
+      // decides which bytes land in the note, and a default-locale collation
+      // makes that a property of the machine that rendered the day. It is
+      // also what makes the NUL join mean anything — a collation treats
+      // U+0000 as ignorable, so `localeCompare` read label and reason as one
+      // run-together string and called two different notices equal, leaving
+      // their order to be decided by which account happened to be polled
+      // first.
+      const unavailableSpaces = [...aggregate.unavailableSpaces].sort((left, right) => {
+        const leftKey = unavailableSpaceKey(left);
+        const rightKey = unavailableSpaceKey(right);
+        if (leftKey === rightKey) return 0;
+        return leftKey < rightKey ? -1 : 1;
+      });
+      const parts = planChannelDay(
+        {
+          channel: "google-chat",
+          date,
+          events: aggregate.events,
+          unavailableSpaces,
+          nonce: dayNonce(nonceSeed, `shared:${destinationKey}`, date),
+          now: stableDayUpdated(aggregate.events, date),
+          origin: "google-chat-sync",
+        },
+        { root, folder: destination.folder },
+      );
+      notes.push(...parts);
+    }
+  }
+  return notes;
+}
+
 /** `"included"` unless the connection says otherwise — a newly joined space starts visible. */
 function spaceState(spaceSettings, key) {
   const value = spaceSettings && typeof spaceSettings === "object" ? spaceSettings[key] : undefined;
@@ -65,7 +207,10 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
   const events = [];
   let latestMs = sinceMs;
   let pageToken;
+  let pages = 0;
+  const seenPageTokens = new Set();
   do {
+    pages += 1;
     const page = await listMessages({ spaceName, sinceCreateTime: new Date(sinceMs).toISOString(), pageToken });
     for (const message of page.items ?? []) {
       const date = calendarDate(message?.createTime);
@@ -74,7 +219,7 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
       const t = Date.parse(message.createTime);
       if (Number.isFinite(t) && t > latestMs) latestMs = t;
     }
-    pageToken = page.nextPageToken;
+    pageToken = acceptNextPageToken(seenPageTokens, page.nextPageToken, pages);
   } while (pageToken);
   return { events, latestMs };
 }
@@ -91,9 +236,9 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
  * (`packages/communications`, "the same message rendered twice gets the same
  * anchor").
  *
- * **Bounded.** A space with no cursor yet is read from `now - backfillDays`
- * forward, never earlier — `DEFAULT_BACKFILL_DAYS` unless the connection
- * says otherwise.
+ * **Forward-only.** A space with no cursor yet is baselined at `now`, so the
+ * first pass records where future sync should begin without importing old
+ * messages.
  *
  * **Resilient.** One space's failure (network, an unexpected error) is
  * recorded in `errors` and does not stop any other space's sync, nor does it
@@ -105,7 +250,7 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
  *   connection: {
  *     account: string, nonceSeed: string,
  *     cursors?: Record<string, string>, spaceSettings?: Record<string, "included"|"excluded"|"paused">,
- *     backfillDays?: number,
+ *     backfillDays?: number, destinationFolder?: string, selfUserName?: string,
  *   },
  *   now?: string, root?: string,
  * }} args
@@ -113,17 +258,22 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
 export async function syncGoogleChat({ listSpaces, listMessages, connection, now = new Date().toISOString(), root }) {
   const account = String(connection?.account ?? "");
   const nonceSeed = String(connection?.nonceSeed ?? "");
-  const backfillDays = Number.isFinite(connection?.backfillDays) ? connection.backfillDays : DEFAULT_BACKFILL_DAYS;
   const nowMs = Date.parse(now);
-  const backfillFloorMs = nowMs - backfillDays * DAY_MS;
   const today = calendarDate(now);
 
   const spaces = [];
   let spacePageToken;
+  let spacePages = 0;
+  const seenSpacePageTokens = new Set();
   do {
+    spacePages += 1;
     const page = await listSpaces({ pageToken: spacePageToken });
     for (const space of page.items ?? []) spaces.push(space);
-    spacePageToken = page.nextPageToken;
+    spacePageToken = acceptNextPageToken(
+      seenSpacePageTokens,
+      page.nextPageToken,
+      spacePages,
+    );
   } while (spacePageToken);
 
   const cursors = { ...(connection?.cursors ?? {}) };
@@ -144,10 +294,10 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
     if (state !== "included") continue;
 
     const existingCursorMs = Date.parse(cursors[spaceName] ?? "");
-    const sinceMs = Math.max(
-      backfillFloorMs,
-      Number.isFinite(existingCursorMs) ? existingCursorMs - REGEN_LOOKBACK_DAYS * DAY_MS : backfillFloorMs
-    );
+    const hasCursor = Number.isFinite(existingCursorMs);
+    const sinceMs = hasCursor
+      ? existingCursorMs - REGEN_LOOKBACK_DAYS * DAY_MS
+      : nowMs;
     const historyOn = isHistoryOn(space);
 
     try {
@@ -160,7 +310,7 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
         if (!eventsByDay.has(date)) eventsByDay.set(date, []);
         eventsByDay.get(date).push(event);
       }
-      cursors[spaceName] = new Date(Math.max(latestMs, existingCursorMs || 0)).toISOString();
+      cursors[spaceName] = new Date(Math.max(latestMs, hasCursor ? existingCursorMs : nowMs)).toISOString();
       if (!historyOn) {
         unavailableToday.set(spaceName, { label: spaceDisplayName(space) || fallbackSpaceLabel(space), reason: "history-off" });
       }
@@ -179,13 +329,29 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
     }
   }
 
-  const notes = [];
   const dates = new Set(eventsByDay.keys());
   if (unavailableToday.size && today) dates.add(today);
 
-  for (const date of dates) {
-    const events = eventsByDay.get(date) ?? [];
-    const unavailableSpaces = date === today ? [...unavailableToday.values()] : [];
+  const contribution = {
+    account,
+    destinationFolder: connection?.destinationFolder,
+    days: [...dates].sort().map((date) => ({
+      date,
+      events: eventsByDay.get(date) ?? [],
+      unavailableSpaces: date === today ? [...unavailableToday.values()] : [],
+    })),
+  };
+
+  const notes = [];
+  const contactDrafts = [];
+
+  for (const { date, events, unavailableSpaces } of contribution.days) {
+    contactDrafts.push(...contactDraftsFromCommunication(events, {
+      root,
+      folder: connection?.destinationFolder,
+      selfAddresses: [account],
+      selfProviderUserIds: [connection?.selfUserName],
+    }));
     const parts = planChannelDay(
       {
         channel: "google-chat",
@@ -194,13 +360,13 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
         events,
         unavailableSpaces,
         nonce: dayNonce(nonceSeed, account, date),
-        now,
+        now: stableDayUpdated(events, date),
         origin: "google-chat-sync",
       },
-      { root }
+      { root, folder: connection?.destinationFolder }
     );
     for (const part of parts) notes.push(part);
   }
 
-  return { notes, cursors, spaces: spacesSeen, errors };
+  return { notes, contactDrafts, contribution, cursors, spaces: spacesSeen, errors };
 }

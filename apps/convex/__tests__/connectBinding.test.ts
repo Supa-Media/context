@@ -137,6 +137,7 @@ describe("every third-party connect carries the browser binding", () => {
       "chatProduct.completeChatConnect",
       "dropboxConnect.completeDropboxConnect",
       "googleConnect.completeGmailConnect",
+      "googleConnect.completeGoogleConnect",
     ]);
     expect(attemptMutations.map((f) => f.where)).toEqual([
       "calendarConnect.consumeCalendarAttemptAndExchange",
@@ -146,6 +147,7 @@ describe("every third-party connect carries the browser binding", () => {
       "dropboxConnect.consumeAttemptAndExchange",
       "dropboxConnect.parkAttempt",
       "googleConnect.consumeAttemptAndExchange",
+      "googleConnect.consumeGoogleAttemptAndExchange",
       "googleConnect.parkAttempt",
     ]);
   });
@@ -296,6 +298,21 @@ const FLOWS: Flow[] = [
     complete: (t, args) => t.action(api.functions.googleConnect.completeGmailConnect, args),
   },
   {
+    name: "google",
+    enable: () => {
+      vi.stubEnv("MAIL_CONNECT_ENABLED", "true");
+      vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
+      vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
+    },
+    start: (t, owner, workspaceId) =>
+      asUser(t, owner).action(api.functions.googleConnect.startGoogleConnect, {
+        workspaceId,
+        redirectUri: `${APP}/connect/google`,
+        syncServices: { gmail: true, calendar: true, chat: true },
+      }),
+    complete: (t, args) => t.action(api.functions.googleConnect.completeGoogleConnect, args),
+  },
+  {
     name: "calendar",
     enable: () => {
       vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
@@ -332,7 +349,7 @@ describe("the attack, run against every flow there is", () => {
    * **THE ATTACK, as it was constructed against `main` — where all four of
    * these passed.**
    *
-   *  1. the attacker owns their own brain and starts a connect for it: every
+   *  1. the attacker owns their own workspace and starts a connect for it: every
    *     check in the start action passes, because they really are the owner,
    *     and the redirect really is ours;
    *  2. they send the resulting authorize URL to somebody else;

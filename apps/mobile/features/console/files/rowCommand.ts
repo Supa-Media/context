@@ -2,7 +2,7 @@ import type { FileBrowser } from "./browser";
 import type { Clipboard } from "./clipboard";
 import { canPasteInto } from "./menu";
 import { findEntry, targetFolder } from "./tree";
-import { isMarkdown, parentPath, restoreTargetFor } from "./paths";
+import { parentPath, restoreTargetFor } from "./paths";
 import type { FolderListing } from "./types";
 
 /**
@@ -74,10 +74,10 @@ export const ROW_COMMANDS: readonly RowCommand[] = [
 /**
  * What to do, resolved against the selection.
  *
- * The first six carry the same tags as `Explorer`'s `Dialog` union, so a caller
- * holding one of those hands it straight to `ExplorerDialogs` rather than
- * translating — two spellings of "the rename dialog" is two things to keep in
- * step.
+ * The ones that are still a question carry the same tags as `Explorer`'s
+ * `Dialog` union, so a caller holding one of those hands it straight to
+ * `ExplorerDialogs` rather than translating — two spellings of "the rename
+ * dialog" is two things to keep in step.
  */
 export type RowIntent =
   | { kind: "newNote"; folder: string }
@@ -85,7 +85,7 @@ export type RowIntent =
   | { kind: "rename"; path: string }
   | { kind: "move"; path: string }
   | { kind: "archive"; path: string }
-  | { kind: "delete"; path: string; isFolder: boolean }
+  | { kind: "trash"; path: string }
   | { kind: "duplicate"; path: string }
   | { kind: "copy"; path: string }
   | { kind: "cut"; path: string }
@@ -143,8 +143,6 @@ export function intentForRowCommand(
   const entry = findEntry(listings, selectedPath);
   if (entry !== null && entry.readOnly) return null;
 
-  const isFolder = entry === null ? !isMarkdown(selectedPath) : entry.kind === "folder";
-
   switch (command) {
     case "rename":
       return { kind: "rename", path: selectedPath };
@@ -168,7 +166,7 @@ export function intentForRowCommand(
         : { kind: "restore", path: selectedPath, to: original };
     }
     case "deleteForever":
-      return { kind: "delete", path: selectedPath, isFolder };
+      return { kind: "trash", path: selectedPath };
   }
 }
 
@@ -181,17 +179,28 @@ export function intentForRowCommand(
  * Answers **false** for an intent it did not act on, which is what the keymap
  * needs to leave the browser's own behaviour alone.
  *
- * The five direct ones go to the browser; the six that need somebody to type or
- * confirm something go to whoever owns the dialogs. Restore is a move, exactly
- * as it is on the row menu, computed from the archived path rather than
- * remembered.
+ * The direct ones go to the browser; the commands that need names or a
+ * destination go to whoever owns the dialogs. Restore is a move, exactly as it
+ * is on the row menu, computed from the archived path rather than remembered.
  */
 export function applyRowIntent(
   intent: RowIntent,
-  files: Pick<FileBrowser, "duplicate" | "copy" | "cut" | "paste" | "move">,
+  files: Pick<
+    FileBrowser,
+    "duplicate" | "copy" | "cut" | "paste" | "move" | "destroy" | "createUntitled"
+  >,
   onDialog: (dialog: Extract<RowIntent, { kind: DialogKind }>) => void,
 ): boolean {
   switch (intent.kind) {
+    /*
+      ⌘N makes the note. It used to raise a naming dialog, which is a modal and
+      a text field between a keystroke and the thing it is for — and the field
+      asks for the one thing nobody has yet. `untitled.ts` has the argument and
+      the name the file gets instead.
+    */
+    case "newNote":
+      files.createUntitled(intent.folder, "note");
+      return true;
     case "duplicate":
       files.duplicate(intent.path);
       return true;
@@ -207,6 +216,9 @@ export function applyRowIntent(
     case "restore":
       files.move(intent.path, parentPath(intent.to));
       return true;
+    case "trash":
+      files.destroy(intent.path);
+      return true;
     default:
       onDialog(intent);
       return true;
@@ -216,8 +228,11 @@ export function applyRowIntent(
 /**
  * The intents that are a dialog rather than a call.
  *
- * Named so `applyRowIntent`'s `onDialog` is typed as the six it can actually
+ * Named so `applyRowIntent`'s `onDialog` is typed as the four it can actually
  * receive: a callback taking every `RowIntent` would accept `copy`, and the
  * caller would have to handle a case that cannot reach it.
+ *
+ * `newNote` left this list when new notes stopped being named up front — it is
+ * a call now, not a question.
  */
-type DialogKind = "newNote" | "newFolder" | "rename" | "move" | "archive" | "delete";
+type DialogKind = "newFolder" | "rename" | "move" | "archive";

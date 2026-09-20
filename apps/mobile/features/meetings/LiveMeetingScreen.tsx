@@ -1,21 +1,24 @@
 import { useCallback, useMemo } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Screen } from "../app/Screen";
 import { floatingGapFor } from "../app/frame";
 import { KeyboardSticky, dismissKeyboard, useKeyboardHeight } from "../design/keyboardSticky";
-import { fonts, layout, radii } from "../design/tokens";
+import { fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { Waveform } from "./components/Waveform";
 import { LiveWaveform } from "./components/LiveWaveform";
+import { TransportMark } from "./components/TransportMark";
 import { NotesPad } from "./components/NotesPad";
+import { MeetingTitleField } from "./components/MeetingTitleField";
 import { meetings, recordElapsedMs } from "./controller";
 import { attendeeCount, clock, sourceLabel, timeOfDay } from "./format";
+import { liveAudioLine } from "./keptAudio";
 import type { MeetingRecord } from "./record";
 import { isSynced } from "./record";
+import { UNTITLED_MEETING } from "./session";
 import { useMeetingsSnapshot, useTick } from "./useMeetings";
 
 /**
@@ -126,6 +129,17 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
     [meetingId],
   );
 
+  /*
+    Stable for the same reason, and separate from the notes for a different
+    one: `MeetingTitleField` is uncontrolled like `NotesPad`, so a callback
+    that changed identity would be the one prop that could re-render it while
+    somebody is mid-word in the name of their meeting.
+  */
+  const onChangeTitle = useCallback(
+    (text: string) => meetings.setTitle(meetingId, text),
+    [meetingId],
+  );
+
   if (record === null) {
     // Loading is not absence — see `MeetingNoteScreen`, which carries the
     // argument. Reachable here too: this route is the live screen only while a
@@ -157,6 +171,13 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
     make in words; this is the same refusal in the shape it is read in.
   */
   const hearing = snapshot.capture.audio && session.state === "recording";
+  /*
+    This meeting, not any meeting: the controller ends one at a time, but the
+    flag names which, and a screen that read it as a boolean would draw
+    "Ending…" over a meeting somebody navigated to while a different one was
+    stopping. See `MeetingsSnapshot.ending`.
+  */
+  const ending = snapshot.ending === session.id;
 
   return (
     <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
@@ -172,9 +193,30 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
       </View>
 
       <View style={styles.head}>
-        <Text variant="paneTitle" style={styles.title} numberOfLines={2}>
-          {session.title}
-        </Text>
+        {/*
+          A field, not a heading. See `MeetingTitleField`: `setTitle` had no
+          callers in this app, so every meeting it has ever written is called
+          "New meeting" — in the list, in the note's `# ` heading and in the
+          key the note is filed under.
+
+          **It is editable here and nowhere else, and that is a correctness
+          rule rather than a layout one.** `convexGateway` composes the note's
+          key from the title's slug and has no claim record to fall back on, so
+          a rename *between a finalize whose answer was lost and its retry*
+          composes a second key: two notes, one meeting. That window opens at
+          the first finalize, and the first finalize is what `end()` queues —
+          so a session that is still `recording` or `paused` has never been in
+          it. This screen is drawn for exactly those two states (`isLive`, in
+          `app/(app)/meetings/[id].tsx`), which is what makes "renameable" and
+          "outside the window" the same condition rather than two that have to
+          be kept in step. `docs/decisions/meetings.md` carries the argument.
+        */}
+        <MeetingTitleField
+          initialValue={session.title}
+          onChangeText={onChangeTitle}
+          placeholder={UNTITLED_MEETING}
+          testID="meeting-title"
+        />
         <View style={styles.facts}>
           <Fact label={timeOfDay(session.startedAt)} />
           <Fact label={peopleLabel(attendeeCount(session.attendees))} />
@@ -194,6 +236,34 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
         <TranscriptChip record={record} />
         <SyncChip record={record} syncing={snapshot.syncing} />
       </View>
+
+      {/*
+        The wait, in words, because the label on the button is four characters
+        and this is a five-second silence somebody is sitting through.
+
+        It says what is being waited *for* rather than "please wait": the last
+        chunk is being transcribed so the end of the meeting is in the note, and
+        somebody who knows that is waiting rather than wondering whether the
+        press landed. The same rule `Summary` follows on the note screen —
+        "the sentence says which of those is outstanding rather than implying
+        somebody only has to wait".
+      */}
+      {ending ? (
+        <View style={styles.ending} testID="meeting-ending">
+          <Text variant="rowSub" style={styles.endingText}>
+            Ending — saving the last of the recording, so the end of the meeting is in
+            the note.
+          </Text>
+        </View>
+      ) : null}
+
+      {snapshot.backgroundCaptureWarning === null ? null : (
+        <View style={styles.backgroundWarning} testID="meeting-background-warning">
+          <Text variant="rowSub" style={styles.backgroundWarningText}>
+            {snapshot.backgroundCaptureWarning}
+          </Text>
+        </View>
+      )}
 
       {/*
         The transport's place in the flow, so the chips above it are never
@@ -222,18 +292,38 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             <Icon name="keyboardHide" size={19} color={colors.text2} />
           </Pressable>
 
+          {/* Refused while ending — see `RecordingBar`, which carries why. */}
           <Pressable
-            onPress={paused ? () => meetings.resume() : () => meetings.pause()}
+            onPress={paused ? () => void meetings.resume() : () => void meetings.pause()}
             accessibilityRole="button"
             accessibilityLabel={paused ? "Resume recording" : "Pause recording"}
+            accessibilityState={{ disabled: ending }}
+            disabled={ending}
             style={({ pressed }) => [
               styles.round,
               paused ? styles.roundWarn : styles.roundOk,
+              ending && styles.endBusy,
               pressed && styles.roundPressed,
             ]}
             testID="meeting-pause"
           >
-            <Waveform tone={paused ? "muted" : "ok"} paused={paused} size={17} />
+            {/*
+              A BUTTON'S GLYPH, WHICH IS WHAT THIS ALWAYS WAS.
+
+              It drew a `Waveform` — the same five-bar mark the meter beside it
+              is drawn from — so this bar carried two equalizers and only one of
+              them was a meter. The owner read it exactly as it looks: *"why are
+              there two different equalizers, and the one that's supposed to it
+              doesn't even move"*. The static one was a button's icon and was
+              never going to.
+
+              `Waveform`'s own header has the rule this broke — "a meter that
+              responds to sound is a capability claim" — and a mark shaped like
+              a meter makes that claim whether or not anything is measuring. So
+              the one thing on this bar that moves is the meter, and there is
+              one of it.
+            */}
+            <TransportMark paused={paused} size={17} testID="meeting-pause-mark" />
           </Pressable>
 
           <View style={styles.clockGroup}>
@@ -257,15 +347,40 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             </Text>
           </View>
 
+          {/*
+            THE PRESS THAT LOOKED LIKE IT DID NOTHING.
+
+            `end()` runs `recorder.stop()`, which drains the last chunk so the
+            end of the meeting is in the note rather than arriving after the
+            first sync — `capture/audio.ts` calls that "a spinner rather than a
+            microphone", and the spinner was never drawn. The session stayed
+            `recording` for the whole drain, this bar went on ticking, and the
+            owner pressed End and watched nothing happen for five seconds.
+
+            So the control says what it is doing and stops taking presses while
+            it does. `snapshot.ending` is the controller's own answer and is set
+            before the await, so this is the state of a call in flight rather
+            than a timer this screen started and hopes is still true.
+          */}
           <Pressable
             onPress={() => void meetings.end()}
             accessibilityRole="button"
-            accessibilityLabel="End the meeting and write the note"
-            style={({ pressed }) => [styles.end, pressed && styles.chipPressed]}
+            accessibilityLabel={
+              ending
+                ? "Ending the meeting. Saving the last of the recording."
+                : "End the meeting and write the note"
+            }
+            accessibilityState={{ disabled: ending, busy: ending }}
+            disabled={ending}
+            style={({ pressed }) => [
+              styles.end,
+              ending && styles.endBusy,
+              pressed && styles.chipPressed,
+            ]}
             testID="meeting-end"
           >
             <Text variant="mini" style={styles.endLabel}>
-              End
+              {ending ? "Ending…" : "End"}
             </Text>
           </Pressable>
         </View>
@@ -274,6 +389,9 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
     </Screen>
   );
 }
+
+/** Whether this build keeps audio it could not send. A phone does; a browser does not. */
+const KEEPS_AUDIO = Platform.OS !== "web";
 
 /**
  * What the transcript is doing, in one chip.
@@ -301,6 +419,40 @@ function TranscriptChip({ record }: { record: MeetingRecord }) {
     was taken by a call" is what somebody needs, not "this build cannot capture
     audio" — which would be false, since it was capturing a moment ago.
   */
+  /*
+    AUDIO KEPT ON THE PHONE, SAID BEFORE ANYTHING ELSE WHEN OFFLINE.
+
+    Offline, the one thing somebody recording needs to know is that the
+    recording is not being lost: it is on this phone, and it will be
+    transcribed when they are back. That outranks a capture error — which
+    offline is usually just a send that could not go, i.e. the same fact said
+    worse. Online, a real capture error (a microphone taken by a call) comes
+    first, and the count of what is still waiting follows it.
+
+    A phone only: a browser keeps no audio (`capture/spoolDevice.web.ts`), and
+    `audio.web.ts` says so in its own words through `captureError`.
+  */
+  const counts = snapshot.audio[record.session.id];
+  const kept =
+    snapshot.capture.audio && (KEEPS_AUDIO || (counts?.waiting ?? 0) > 0)
+      ? liveAudioLine(counts, snapshot.offline)
+      : null;
+  if (kept !== null && (snapshot.offline || snapshot.captureError === null)) {
+    return (
+      <View style={[styles.chip, styles.chipWarn]} testID="meeting-transcript-chip">
+        <View style={[styles.pip, { backgroundColor: colors.warn }]} aria-hidden />
+        <Text
+          variant="pill"
+          style={styles.chipWarnText}
+          numberOfLines={2}
+          testID="meeting-audio-kept"
+        >
+          {kept}
+        </Text>
+      </View>
+    );
+  }
+
   if (snapshot.captureError !== null) {
     return (
       <View style={[styles.chip, styles.chipCrit]} testID="meeting-transcript-chip">
@@ -448,7 +600,11 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     paddingBottom: 8,
   },
   head: { paddingHorizontal: layout.readingMargin, paddingTop: 10, gap: 14 },
-  title: { fontSize: 27, lineHeight: 32, letterSpacing: -0.81 },
+  title: {
+    fontSize: t.title,
+    lineHeight: leading(t.title, 1.18),
+    letterSpacing: tracking(t.title, -0.03),
+  },
   facts: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
   fact: {
     flexDirection: "row",
@@ -463,7 +619,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   factText: { color: colors.text2 },
   factOk: { borderColor: colors.okBorder, backgroundColor: colors.okWash },
-  factOkText: { color: colors.okText, fontSize: 12.5 },
+  factOkText: { color: colors.okText, fontSize: t.meta },
   chips: {
     flexDirection: "row",
     alignItems: "center",
@@ -487,6 +643,36 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   chipText: { color: colors.muted, fontWeight: "500" },
   chipCrit: { backgroundColor: colors.critWash, borderColor: colors.critBorder },
   chipCritText: { color: colors.critText },
+  chipWarn: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder, height: undefined, minHeight: 26 },
+  chipWarnText: { color: colors.warnText, flexShrink: 1 },
+  backgroundWarning: {
+    marginHorizontal: layout.readingMargin,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radii.card,
+    backgroundColor: colors.warnWash,
+    borderWidth: 1,
+    borderColor: colors.warnBorder,
+  },
+  backgroundWarningText: { color: colors.warnText },
+  /*
+    The background warning's band, in the quiet tone rather than the warning
+    one. Ending a meeting is the ordinary path through this screen and nothing
+    is wrong; an amber box around "this is working" is how a product teaches
+    people to ignore amber boxes.
+  */
+  ending: {
+    marginHorizontal: layout.readingMargin,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radii.card,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  endingText: { color: colors.text2 },
   chipPressed: { opacity: 0.8 },
   pip: { width: 5, height: 5, borderRadius: 3 },
   /**
@@ -539,7 +725,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   clockGroup: { flexDirection: "row", alignItems: "center", gap: 10 },
   clock: {
     fontFamily: fonts.mono,
-    fontSize: 15.5,
+    fontSize: t.body,
     fontWeight: "500",
     color: colors.text,
     fontVariant: ["tabular-nums"],
@@ -552,7 +738,15 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  endLabel: { color: colors.ink, fontSize: 15 },
+  /*
+    Dimmed rather than redrawn. The control keeps its size and its place — a
+    button that changed shape under a thumb already on it is a worse answer
+    than one that says it is busy — and the opacity is the app's own disabled
+    tone, the same number `MeetingNoteScreen` spends on Re-run while a meeting
+    is finalizing.
+  */
+  endBusy: { opacity: 0.5 },
+  endLabel: { color: colors.ink, fontSize: t.lede },
   missing: { padding: layout.readingMargin },
   quiet: { flex: 1 },
 });

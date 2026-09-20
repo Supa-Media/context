@@ -97,7 +97,7 @@ function createBucket() {
       counts.puts = [];
     },
     shardGets() {
-      return counts.gets.filter((key) => key.startsWith(".index/v2/shard-"));
+      return counts.gets.filter((key) => key.startsWith(".context/search/v2/shard-"));
     },
     seed(key, body) {
       objects.set(key, { body, etag: `e${(etags += 1)}`, uploaded: SEEDED_AT });
@@ -397,7 +397,7 @@ export async function runSearchFilterChecks(check) {
     await converge(bucket);
     const manifest = parseManifest(bucket.objects.get(MANIFEST_KEY).body);
 
-    const refused = new Set([".index/v2/shard-000.json", `${ROOTS[0]}/note-0.md`]);
+    const refused = new Set([".context/search/v2/shard-000.json", `${ROOTS[0]}/note-0.md`]);
     // A GET that succeeds and a body that then does not. Separately, because
     // they are separately catchable and one of them was not caught: the fetch
     // sat inside a `try` and the `await object.text()` after it did not.
@@ -441,7 +441,7 @@ export async function runSearchFilterChecks(check) {
   // Every index in production is one. A manifest whose filters are all `null`
   // must route to everything and then be filled in by ordinary passes, because
   // the alternative — treating "no filter" as "no terms" — is every search on
-  // every existing brain answering nothing.
+  // every existing workspace answering nothing.
   {
     const bucket = createBucket();
     for (let i = 0; i < 400; i += 1) {

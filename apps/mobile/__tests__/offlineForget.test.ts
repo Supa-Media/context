@@ -39,6 +39,7 @@ jest.mock("../features/offline/store", () => ({
 const {
   CLEAR_DEADLINE_MS,
   forgetContextCopies,
+  forgetDepartedContexts,
   forgetLocalCopies,
   unsentOnDevice,
 } = require("../features/offline/forget") as typeof import("../features/offline/forget");
@@ -356,6 +357,145 @@ describe("counting what is waiting on a store that will not answer", () => {
     expect(await counting).toEqual({ pending: 0, conflicted: 0, rejected: 0 });
     expect(warnings).toEqual([
       "[offline] the count of unsent work: this device's store did not answer in time",
+    ]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The contexts nobody left, and nobody is a member of any more.
+ *
+ * `forgetContextCopies` fires on the one transition this device can see — the
+ * person pressing Leave. Every other way a membership ends happens on somebody
+ * else's machine: an owner removes you, a shared context is deleted, a grant is
+ * revoked. Nothing here hears about any of them, so the only thing that ever
+ * takes those copies off the device is `sweep`'s age bound — thirty days, a
+ * cache-hygiene number nobody chose as a revocation bound.
+ *
+ * The console does already hold the answer: the context list the server returns
+ * *is* the set of memberships that are still live, recomputed on every
+ * subscription tick. A workspace with copies on this device that is not in that
+ * list is a context this person can no longer read from the server, and its
+ * cached bodies are the copy that outlived the membership.
+ *
+ * Two hazards decide the shape, and both point the same way:
+ *
+ *  1. **The list must be known, not merely empty.** `workspaces` is `undefined`
+ *     while the subscription is in flight and `[]` for an account that genuinely
+ *     has none; purging on either would blank the cache of somebody whose
+ *     network is simply slow — which is the one moment the offline copy exists
+ *     for. So an empty list purges nothing, and says `unmeasured` rather than
+ *     claiming a clear it did not attempt.
+ *  2. **Scoped kinds only.** A `note` or a `listing` is a copy of what the
+ *     bucket answered and the server can hand it back; a `draft` or an `outbox`
+ *     record is somebody's own typing and this device is the only place it
+ *     exists. Being wrong in the safe direction costs a cache miss. Being wrong
+ *     in the unsafe direction costs unsent work, and somebody whose membership
+ *     was revoked mid-write is exactly who would pay it.
+ *
+ * Stale-version keys stay too, for the reason `keysForWorkspace` takes them and
+ * this cannot: a key this version cannot parse cannot be attributed to a
+ * workspace at all, so "not in the list" is unanswerable for it. `sweep`
+ * deletes that whole set unconditionally on the first mount after an upgrade
+ * anyway, so nothing is kept here that anything else was keeping.
+ */
+describe("contexts that are no longer in the person's list", () => {
+  const OTHER_LISTING_KEY = scopedKeyFor("listing", "team", "w2", "1-projects");
+  const OTHER_DRAFT_KEY = keyFor("draft", "w2", "1-projects/other.md");
+  const OTHER_OUTBOX_KEY = keyFor("outbox", "w2", "");
+  const STALE_KEY = `context.lc.offlinev1notew21-projects/old.md`;
+
+  beforeEach(() => {
+    mockOpened = store({}, {
+      ...SEEDED,
+      [OTHER_LISTING_KEY]: JSON.stringify({ value: { entries: [] }, cachedAt: 1 }),
+      [OTHER_DRAFT_KEY]: JSON.stringify({
+        path: "1-projects/other.md",
+        text: "typed",
+        baseEtag: null,
+      }),
+      [OTHER_OUTBOX_KEY]: JSON.stringify({ writes: [] }),
+      [STALE_KEY]: "from a shape this version cannot read",
+    });
+  });
+
+  test("their notes and listings go, and their unsent work stays", async () => {
+    expect(await forgetDepartedContexts(["w1"])).toEqual({ verdict: "cleared" });
+
+    expect((await mockOpened.keys()).sort()).toEqual(
+      [
+        NOTE_KEY,
+        DRAFT_KEY,
+        OTHER_DRAFT_KEY,
+        OTHER_OUTBOX_KEY,
+        STALE_KEY,
+        "some.other.feature key",
+      ].sort(),
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  test("a list that is empty purges nothing at all", async () => {
+    // Hazard 1. An empty array is what an account with no contexts and a caller
+    // that has not checked both look like, and only one of those may reach a
+    // `remove()`.
+    const before = (await mockOpened.keys()).sort();
+    expect(await forgetDepartedContexts([])).toEqual({ verdict: "unmeasured" });
+    expect((await mockOpened.keys()).sort()).toEqual(before);
+  });
+
+  test("a context still in the list keeps everything", async () => {
+    // The anti-vacuity witness for the test above it: with both workspaces
+    // named, `cleared` has to leave every key standing — otherwise "nothing was
+    // purged" would also be true of a function that purges nothing ever.
+    const before = (await mockOpened.keys()).sort();
+    expect(await forgetDepartedContexts(["w1", "w2"])).toEqual({ verdict: "cleared" });
+    expect((await mockOpened.keys()).sort()).toEqual(before);
+  });
+
+  test("a store that accepts a removal and performs none says so", async () => {
+    mockOpened = store(
+      { remove: async () => {} },
+      { [OTHER_NOTE_KEY]: JSON.stringify({ value: { text: "private" }, cachedAt: 1 }) },
+    );
+
+    expect(await forgetDepartedContexts(["w1"])).toEqual({ verdict: "left-behind" });
+    expect(warnings).toEqual([
+      "[offline] departed contexts: 1 record(s) could not be removed from this device",
+    ]);
+  });
+
+  test("a store that cannot say what it holds never throws", async () => {
+    mockOpened = store({
+      keys: async () => {
+        throw new Error("nope");
+      },
+    });
+
+    expect(await forgetDepartedContexts(["w1"])).toEqual({ verdict: "unmeasured" });
+    expect(warnings).toEqual([
+      "[offline] departed contexts: this device's store could not be read or written",
+    ]);
+  });
+
+  test("and a store that never answers is bounded like every other clear", async () => {
+    jest.useFakeTimers();
+    mockOpened = store({ keys: () => new Promise<string[]>(() => {}) });
+
+    const clearing = forgetDepartedContexts(["w1"]);
+    let answered = false;
+    void clearing.then(() => {
+      answered = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(CLEAR_DEADLINE_MS - 1);
+    expect(answered).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(await clearing).toEqual({ verdict: "unmeasured" });
+    expect(warnings).toEqual([
+      "[offline] departed contexts: this device's store did not answer in time",
     ]);
   });
 });

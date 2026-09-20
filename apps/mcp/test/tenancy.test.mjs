@@ -41,6 +41,32 @@
  * 5. **The store factory drops `rootPrefix` for Dropbox.** 4 checks failed
  *    here, because a folder the customer chose is not something the adapter may
  *    lose track of. See `storeFactory.test.mjs` for the rest of that record.
+ * 6. **The loopback exception's host and scheme comparisons**, one at a time.
+ *    Before the two checks added beside the port attack, each failed
+ *    **nothing**; now each fails 1. The host half is the serious one: the
+ *    branch is reached whenever the *registered* URI is loopback, which is
+ *    every CLI client, so without the equality `http://127.0.0.1/callback`
+ *    matches `http://evil.test/callback` and the authorization code goes to
+ *    whoever owns that name. Sabotage 2 above covered the exact-match path and
+ *    this one is the exception carved out of it — the carve-out needed its own
+ *    record, because "ignores the port and nothing else" was a claim about
+ *    three fields with one of them asserted.
+ * 7. **`normalizeClientName`, one filter at a time, then both, then the
+ *    character class from both sides.** Dropping the hostile-character strip
+ *    fails **2** and *not* the line-break check, because the whitespace
+ *    collapse catches `\n` as well — two guards over one input, each of which
+ *    reads as covered alone. Dropping the collapse alone fails **1**; dropping
+ *    both fails **4**, which is the number that says what is actually held.
+ *    Capping before the collapse rather than after fails 1, and removing the
+ *    trailing-surrogate trim fails 1 — that last is a defect the function would
+ *    introduce itself, so it is sabotaged like any other.
+ *
+ *    The class is pinned in **both** directions, which is the part worth
+ *    keeping: widening it back to all of `Cf` — the first version of this fix —
+ *    fails **2**, because it takes apart a Persian name and an emoji sequence;
+ *    narrowing it to `Cc` alone also fails **2**, because the bidi overrides and
+ *    the invisible spacers walk through. A normaliser is the kind of function
+ *    that only ever gets tested for doing too little.
  */
 
 import worker from "../src/index.js";
@@ -181,7 +207,7 @@ export async function runTenancyChecks(check) {
     accessKeyId: "AKIAEXAMPLEEXAMPLEAA",
     secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEAA",
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
   controlPlane.addWorkspace("ws_b", "alphabet", {
@@ -192,7 +218,7 @@ export async function runTenancyChecks(check) {
     accessKeyId: "AKIAEXAMPLEEXAMPLEBB",
     secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEBB",
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
 
@@ -203,14 +229,14 @@ export async function runTenancyChecks(check) {
     provider: "dropbox",
     accessToken: DROPBOX_TOKEN_C,
     rootPrefix: "context/",
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
   controlPlane.addWorkspace("ws_d", "delta", {
     provider: "dropbox",
     accessToken: DROPBOX_TOKEN_D,
     rootPrefix: "context/",
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
 
@@ -514,7 +540,7 @@ export async function runTenancyChecks(check) {
           workspaceId: "ws_c",
           provider: "dropbox",
           rootPrefix: "context/",
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };
@@ -543,7 +569,7 @@ export async function runTenancyChecks(check) {
           accessToken: DROPBOX_TOKEN_C,
           refreshToken: "rt.FAKE-long-lived-must-never-arrive",
           rootPrefix: "context/",
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };
@@ -618,7 +644,7 @@ export async function runTenancyChecks(check) {
           accessKeyId: "AKIAEXAMPLEEXAMPLEBB",
           secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEBB",
           forcePathStyle: true,
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };
@@ -643,7 +669,7 @@ export async function runTenancyChecks(check) {
           workspaceId: "ws_a",
           provider: "r2-binding",
           bindingName: "LOCAL_CONTEXT_BUCKET",
-          capabilities: { conditionalWrite: true },
+          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
       };
@@ -728,10 +754,34 @@ export async function runTenancyChecks(check) {
   const contractMethods = Object.keys(
     createControlPlane({ CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET })
   );
+  /*
+    ONE EXCEPTION, AND IT HAS TO EARN ITS NAME.
+
+    `listLinks` enumerates — within **one** workspace, the one the presented
+    access token resolves to. That is the same shape `getStorageBinding` has
+    and is not what this rule is about: what it forbids is a call that can be
+    made without naming a context, because that is the shape bulk extraction
+    needs. So the exception is listed by name and is held to the stronger
+    property below rather than being waved through by a prefix.
+  */
+  const singleContextListings = new Set(["listLinks"]);
   check(
     "the control-plane client exposes no bulk or enumerating call at all",
-    contractMethods.every((name) => !/^(list|all|enumerate|search|find)/i.test(name)) &&
-      contractMethods.includes("getStorageBinding")
+    contractMethods.every(
+      (name) =>
+        !/^(list|all|enumerate|search|find)/i.test(name) || singleContextListings.has(name)
+    ) && contractMethods.includes("getStorageBinding")
+  );
+  const client = createControlPlane({
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    GATEWAY_SECRET,
+  });
+  check(
+    "and the one listing there is cannot be called without naming a context",
+    // Two required arguments — the token and the workspace — exactly as
+    // `getStorageBinding` takes them. A listing that could default its
+    // workspace is the one that would have to be argued for again.
+    client.listLinks.length === 2 && client.getStorageBinding.length >= 2
   );
 
   /* --------------------------- 4. scope enforcement -------------------------- */
@@ -1027,6 +1077,115 @@ export async function runTenancyChecks(check) {
   check("dynamic client registration returns 201", registration.status === 201);
   check("registration returns a client_id", typeof registered.client_id === "string");
   check("a public client gets no secret", registered.client_secret === undefined);
+
+  /*
+    WHAT A CLIENT MAY CALL ITSELF, GIVEN THAT THE PERSON READS IT.
+
+    `client_name` is client-asserted — registration is unauthenticated by
+    construction — and it is the string the consent screen puts in the sentence
+    somebody reads before pressing Approve, as well as the one the connections
+    list and the audit trail carry. `software_id`, which nothing renders, is
+    already bounded to a boring alphabet so that "nothing that lands in the
+    control plane can carry markup, whitespace tricks, or a paragraph". The
+    field that IS rendered had only `trim()` and a length cap, which remove
+    neither.
+
+    What currently stops a name full of newlines from pushing the redirect host
+    out of the reader's way is a ScrollView that holds the whole page including
+    the buttons — so scrolling to Approve scrolls past the truth. That is a real
+    defence and it is why this is not worse; it is also a layout chosen to make
+    an OAuth flow finishable on a phone, not to bound this. A guard nobody
+    picked is a guard nobody will keep.
+
+    Asserted on what reaches the CONTROL PLANE, not on the echo: the echo is a
+    courtesy to the client, the stored row is what every reader renders.
+  */
+  const registerNamed = async (name) => {
+    const response = await worker.fetch(
+      new Request("https://mcp.context.test/oauth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: name,
+          redirect_uris: ["https://client.test/callback"],
+          token_endpoint_auth_method: "none",
+        }),
+      }),
+      env,
+      { waitUntil() {} }
+    );
+    const json = await response.json();
+    return { echoed: json.client_name, stored: controlPlane.clients.get(json.client_id).clientName };
+  };
+
+  const lineBroken = await registerNamed("Context\n\n\n\n\nAlready approved — press Approve");
+  check(
+    "a client name cannot carry a line break into the sentence somebody reads",
+    !/[\r\n]/.test(lineBroken.stored)
+  );
+  check(
+    "collapsing the break leaves the words, not a run of spaces",
+    lineBroken.stored === "Context Already approved — press Approve"
+  );
+
+  const invisible = await registerNamed("Cont\u200bext\u202eDesktop\u0007\u2066\ufeff");
+  check(
+    "a client name cannot carry a control, a bidi override or an invisible spacer",
+    !/[\p{Cc}\u061C\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/u.test(
+      invisible.stored
+    )
+  );
+
+  /*
+    THE CARVE-OUT, WHICH NEEDS ITS OWN PROOF RATHER THAN THE RULE'S.
+
+    `U+200C`/`U+200D` are `Cf` like the bidi controls, and the first version of
+    the normaliser took the whole category — which silently rewrites any name
+    that is not in English. The non-joiner is orthography in Persian and several
+    Indic scripts, and the joiner is what holds an emoji sequence together, so
+    both are kept on purpose. An exception asserted by nothing is an exception
+    the next tidy-up deletes.
+  */
+  const persian = await registerNamed("\u0645\u06cc\u200c\u0631\u0648\u062f");
+  check(
+    "a zero-width non-joiner survives, because in Persian it is a letter boundary",
+    persian.stored === "\u0645\u06cc\u200c\u0631\u0648\u062f"
+  );
+
+  const emoji = await registerNamed("Context on Seyi's \u{1F468}\u200D\u{1F4BB}");
+  check(
+    "an emoji sequence is not taken apart by the normaliser",
+    emoji.stored === "Context on Seyi's \u{1F468}\u200D\u{1F4BB}"
+  );
+
+  const ordinary = await registerNamed("  Claude Code (v2.1) — Seyi's laptop  ");
+  check(
+    "an ordinary name with punctuation and accents is kept as written",
+    ordinary.stored === "Claude Code (v2.1) — Seyi's laptop"
+  );
+
+  const onlyNoise = await registerNamed("\u200b\u200b\u0000\n\t");
+  check(
+    "a name that is nothing but noise falls back rather than reaching the console empty",
+    onlyNoise.stored === "Unnamed MCP client"
+  );
+
+  const longAfterCollapse = await registerNamed(`${"\n".repeat(200)}${"a".repeat(130)}`);
+  check(
+    "the length cap is applied after the collapse, so padding cannot eat the name",
+    longAfterCollapse.stored === "a".repeat(120)
+  );
+
+  const cutMidPair = await registerNamed(`${"b".repeat(119)}\u{1F600}x`);
+  check(
+    "the cap never cuts a character in half, which only this function could do",
+    !/[\uD800-\uDBFF]$/.test(cutMidPair.stored) && cutMidPair.stored === "b".repeat(119)
+  );
+
+  check(
+    "the client is told what was kept, so a normalised name is not a silent edit",
+    lineBroken.echoed === lineBroken.stored && invisible.echoed === invisible.stored
+  );
 
   /*
     WHAT THE REGISTRATION RATE LIMIT IS KEYED ON, AND THAT IT IS NOT AN ADDRESS.
@@ -1495,6 +1654,187 @@ export async function runTenancyChecks(check) {
     loopbackPathAttack.status === 400
   );
 
+  /*
+    "…and nothing else" is a claim about three fields and the check above tests
+    one of them. Measured: deleting `a.hostname !== b.hostname` from
+    `redirectUriMatches` reddened **nothing**, and so did deleting the protocol
+    comparison. Both are load-bearing.
+
+    The host one is the serious half. The loopback branch is reached whenever
+    the *registered* URI is loopback — which is every CLI client — and with the
+    equality gone the *presented* host is unconstrained, so
+    `http://127.0.0.1/callback` matches `http://evil.test/callback` and the
+    authorization code is handed to whoever owns that name. Verified directly
+    against the weakened function before this was written, rather than reasoned
+    about.
+
+    The protocol one admits a scheme registration would never have stored:
+    `redirectUriIsAcceptable` allows only https and loopback http, but it runs
+    at registration and says nothing about what is presented later.
+  */
+  const loopbackHostAttack = await worker.fetch(
+    new Request(
+      `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${nativeClient.client_id}` +
+        `&redirect_uri=${encodeURIComponent("http://evil.test:51763/callback")}` +
+        `&code_challenge=${challengeValue}&code_challenge_method=S256`
+    ),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "the loopback exception does not let the host be substituted",
+    loopbackHostAttack.status === 400
+  );
+  const loopbackSchemeAttack = await worker.fetch(
+    new Request(
+      `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${nativeClient.client_id}` +
+        `&redirect_uri=${encodeURIComponent("https://127.0.0.1:51763/callback")}` +
+        `&code_challenge=${challengeValue}&code_challenge_method=S256`
+    ),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "...nor the scheme, even to a stricter-looking one",
+    loopbackSchemeAttack.status === 400
+  );
+
+  /*
+    THE GUARDS AFTER THE REDIRECT CHECK, WHICH REFUSE BY REDIRECTING.
+
+    Everything above this point answers with a 400, because the redirect URI is
+    not yet proven and there is nowhere safe to send an error. Once it matches,
+    `handleAuthorize` switches to `fail()` — a 302 back to the client carrying
+    `error=`. That ordering is the whole confused-deputy defence and it is worth
+    asserting from the outside: these checks pin both the refusal *and* that it
+    arrives as a redirect to the client's own URI rather than as a 400.
+
+    Measured before writing them, each guard removed on its own:
+
+      code_challenge required          -> ALL PASS   (the shape check caught it)
+      code_challenge shape             -> ALL PASS   (the required check caught it)
+      BOTH, together                   -> ALL PASS   (nothing at all)
+      resource indicator must match us -> ALL PASS
+      unknown scope refused            -> 1 FAILURES (already held)
+
+    The first three are the interesting result. Either guard alone covers a
+    missing `code_challenge`, because `test(null)` stringifies to `"null"` and
+    fails the pattern — so removing one is masked by the other and only removing
+    both shows that **nothing pinned PKCE being mandatory at the authorize
+    endpoint**. Fail-closed either way: a code minted without a challenge can
+    never be exchanged, because `verifyPkce` reads `codeChallenge.length` and
+    the control plane's validator refuses a null. No bypass — but the headline
+    protection for public clients deserves better than an accident.
+  */
+  const authorizeWithout = (name) => {
+    const url = new URL(authorizeUrl());
+    url.searchParams.delete(name);
+    return url.toString();
+  };
+  const noChallenge = await worker.fetch(
+    new Request(authorizeWithout("code_challenge")),
+    env,
+    { waitUntil() {} }
+  );
+  const noChallengeLocation = noChallenge.headers.get("Location") || "";
+  check(
+    "PKCE is mandatory: an authorize request with no code_challenge is refused",
+    noChallenge.status === 302 &&
+      noChallengeLocation.startsWith("https://client.test/callback?") &&
+      noChallengeLocation.includes("error=invalid_request")
+  );
+  const shortChallenge = await worker.fetch(
+    new Request(authorizeUrl({ code_challenge: "too-short" })),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "...and a code_challenge that is not a 43-128 character unreserved string is refused",
+    shortChallenge.status === 302 &&
+      (shortChallenge.headers.get("Location") || "").includes("error=invalid_request")
+  );
+  const foreignResource = await worker.fetch(
+    new Request(authorizeUrl({ resource: "https://mcp.somebody-else.test/mcp" })),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "a resource indicator naming another server is refused (RFC 8707 §2)",
+    foreignResource.status === 302 &&
+      (foreignResource.headers.get("Location") || "").includes("error=invalid_target")
+  );
+
+  /*
+    THE CONSENT URL MUST BE https, OR LOOPBACK.
+
+    This is the guard that stops the authorize redirect becoming a confused
+    deputy with our name on it, and it exists *because a defect was found*: it
+    previously exempted `control-plane.test` so this very suite could use a
+    plain-http double, which `oauth.js` calls "a permanent cleartext carve-out
+    in a production code path — one that widens the moment anything can
+    influence the consent hostname, and that no deployment can turn off."
+
+    Nothing pinned the fix. Removing the check reddened nothing, because every
+    stub in this file serves https and so never exercised it. The stub now takes
+    a `consentOrigin` separate from the origin it intercepts, which is what lets
+    a test hand the gateway a consent URL it must refuse without also stopping
+    the stub answering the gateway's own calls.
+
+    Both halves, because a carve-out needs its own assertion and not the trust
+    of the rule it was carved out of — the lesson the loopback *redirect*
+    exception taught two hours earlier in this same file.
+  */
+  const consentProbe = async (consentOrigin) => {
+    const plane = createControlPlaneStub({ consentOrigin });
+    const restore = plane.install();
+    try {
+      const registration = await worker.fetch(
+        new Request("https://mcp.context.test/oauth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_name: "Consent probe",
+            redirect_uris: ["https://client.test/callback"],
+            token_endpoint_auth_method: "none",
+          }),
+        }),
+        env,
+        { waitUntil() {} }
+      );
+      const probeClient = await registration.json();
+      return await worker.fetch(
+        new Request(
+          `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${probeClient.client_id}` +
+            `&redirect_uri=${encodeURIComponent("https://client.test/callback")}` +
+            `&code_challenge=${challengeValue}&code_challenge_method=S256`
+        ),
+        env,
+        { waitUntil() {} }
+      );
+    } finally {
+      restore();
+    }
+  };
+
+  const cleartextConsent = await consentProbe("http://consent.test");
+  const cleartextLocation = cleartextConsent.headers.get("Location") || "";
+  check(
+    "a consent URL that is neither https nor loopback is refused",
+    cleartextConsent.status === 302 &&
+      cleartextLocation.startsWith("https://client.test/callback?") &&
+      cleartextLocation.includes("error=server_error")
+  );
+  check(
+    "...and the refusal does not name the host it rejected",
+    !cleartextLocation.includes("consent.test")
+  );
+  const loopbackConsent = await consentProbe("http://127.0.0.1:8788");
+  check(
+    "...while a loopback consent URL is still allowed, which is the carve-out",
+    loopbackConsent.status === 302 &&
+      (loopbackConsent.headers.get("Location") || "").startsWith("http://127.0.0.1:8788/")
+  );
+
   /* ---------------------- 10. the token endpoint and PKCE -------------------- */
 
   const authorizationRecord = {
@@ -1799,6 +2139,76 @@ export async function runTenancyChecks(check) {
         client_id: "mcp_client_alpha_sibling",
       })
     ).status === 200
+  );
+
+  /*
+    RFC 7009 §2.1: `token_type_hint` is an OPTIMISATION, and if the server
+    cannot find the token under the hinted type it **MUST extend its search
+    across all of its supported token types**. A client is entitled to send no
+    hint at all.
+
+    The check above this one, and every other revocation check in this file,
+    passes `token_type_hint: "access_token"`. So the hinted path was covered and
+    the unhinted path was not — and unhinted defaults to `"refresh"`, which
+    looks in `by_refresh_token` and stops. An access token presented without a
+    hint was therefore looked up among refresh tokens, missed, and left live.
+
+    **Behind the 200 that §2.2 mandates**, which is exactly the answer that
+    cannot tell the caller their revocation did nothing. `CLAUDE.md` makes
+    per-client revocability the reason MCP access is OAuth rather than a shared
+    token, so a revoke that silently no-ops is that promise failing quietly.
+  */
+  const TOKEN_A_UNHINTED = token("tenant_a_unhinted");
+  await controlPlane.addGrant({
+    accessToken: TOKEN_A_UNHINTED,
+    workspaceId: "ws_a",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_alpha_sibling",
+    userId: "user_a",
+  });
+  check(
+    "the unhinted grant works before it is revoked",
+    (await rpc(env, TOKEN_A_UNHINTED, "ping", {})).body?.result !== undefined
+  );
+  const unhinted = await postForm(env, "/oauth/revoke", {
+    token: TOKEN_A_UNHINTED,
+    client_id: "mcp_client_alpha_sibling",
+  });
+  check("an unhinted revocation answers 200", unhinted.status === 200);
+  check(
+    "...and actually revokes, because the hint is an optimisation and not the lookup",
+    (await rpc(env, TOKEN_A_UNHINTED, "ping", {})).status === 401
+  );
+
+  // The mirror, so the MUST is pinned in both directions rather than for the
+  // one type that happened to be the default. A refresh token presented under
+  // the *wrong* hint has to be found too — and with the fallback in place the
+  // default stops mattering at all, which is the point of it.
+  const TOKEN_A_MISHINTED = token("tenant_a_mishinted");
+  const REFRESH_A_MISHINTED = token("tenant_a_mishinted_refresh");
+  await controlPlane.addGrant({
+    accessToken: TOKEN_A_MISHINTED,
+    refreshToken: REFRESH_A_MISHINTED,
+    workspaceId: "ws_a",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_alpha_sibling",
+    userId: "user_a",
+  });
+  check(
+    "the mis-hinted grant works before it is revoked",
+    (await rpc(env, TOKEN_A_MISHINTED, "ping", {})).body?.result !== undefined
+  );
+  const mishinted = await postForm(env, "/oauth/revoke", {
+    token: REFRESH_A_MISHINTED,
+    token_type_hint: "access_token",
+    client_id: "mcp_client_alpha_sibling",
+  });
+  check("a refresh token revoked under the wrong hint answers 200", mishinted.status === 200);
+  check(
+    "...and is revoked anyway, which is the other half of RFC 7009 §2.1",
+    (await rpc(env, TOKEN_A_MISHINTED, "ping", {})).status === 401
   );
 
   /* ------------------- 13. the credential is never cached -------------------- */

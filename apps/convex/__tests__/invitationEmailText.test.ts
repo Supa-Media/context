@@ -205,7 +205,7 @@ describe("what the email says", () => {
   /**
    * A personal context's display name IS its owner's handle, so the shared
    * sentence would say the same word twice — "@ada invited you to ada" — and
-   * read like a template nobody finished. Naming what it is — their brain, in
+   * read like a template nobody finished. Naming what it is — their workspace, in
    * the product's vocabulary — says more, and "part of" is the honest phrase:
    * an invitee gets the `team` tier, never the owner's own view.
    */
@@ -214,11 +214,11 @@ describe("what the email says", () => {
       facts({ workspaceKind: "personal", workspaceName: "ada" }),
     );
     for (const body of [personal.subject, personal.text, personal.html]) {
-      expect(body).toContain("part of their brain");
+      expect(body).toContain("part of their workspace");
     }
     // The redundant second mention is gone, not merely reworded.
     expect(personal.subject).toBe(
-      "Ada Lovelace (@ada) invited you into part of their brain on Context",
+      "Ada Lovelace (@ada) invited you into part of their workspace on Context",
     );
   });
 

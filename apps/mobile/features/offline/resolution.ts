@@ -42,6 +42,8 @@ export type MergeRefusal =
   | "ancestor-moved"
   /** The version in the bucket has not been read yet, because there is no signal. */
   | "offline"
+  /** The bucket version was deliberately deleted, so there is no second body. */
+  | "deleted"
   /** The three versions are too far apart to align. */
   | "too-far-apart";
 
@@ -61,6 +63,8 @@ const REFUSALS: Record<MergeRefusal, string> = {
     "Merging needs the version you started from, and the copy on this device has already moved past it. You can still keep one side or the other.",
   offline:
     "The version in your bucket has not been read yet, so there is nothing to merge with. Reconnect and this note will offer it.",
+  deleted:
+    "This note was deleted from your bucket, so there is no other text to merge. You can leave it deleted or recreate it with your version.",
   "too-far-apart":
     "These two versions are too far apart to line up, so a merge would be a guess rather than a proposal. You can still keep one side or the other.",
 };
@@ -81,12 +85,15 @@ export function offerMerge(input: {
   mine: string;
   /** The body in the bucket now, or `null` while it has not been read. */
   theirs: string | null;
+  /** `true` when the conflict itself authoritatively says the path is absent. */
+  theirsDeleted?: boolean;
 }): MergeOffer {
   const refuse = (reason: MergeRefusal): MergeOffer => ({
     merge: null,
     refusal: { reason, sentence: REFUSALS[reason] },
   });
 
+  if (input.theirsDeleted === true) return refuse("deleted");
   if (input.theirs === null) return refuse("offline");
   if (input.draftBase === null) return refuse("no-ancestor");
   if (input.cached === null) return refuse("ancestor-evicted");

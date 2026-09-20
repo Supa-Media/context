@@ -146,8 +146,10 @@ const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
 const { fakeGateway } =
   require("../features/meetings/fakeGateway") as typeof import("../features/meetings/fakeGateway");
-const { DestinationSheet, MIC_ONLY_SENTENCE } =
-  require("../features/meetings/components/DestinationSheet") as typeof import("../features/meetings/components/DestinationSheet");
+const { MIC_ONLY_SENTENCE } =
+  require("../features/meetings/disclosure") as typeof import("../features/meetings/disclosure");
+const { defaultMachineAudio, recallMachineAudio, rememberMachineAudio, recallSystemAudio } =
+  require("../features/meetings/machineAudio") as typeof import("../features/meetings/machineAudio");
 const { ThisMachineCard } =
   require("../features/meetings/components/ThisMachineCard") as typeof import("../features/meetings/components/ThisMachineCard");
 const { describeMachine, machineTitle } =
@@ -627,49 +629,55 @@ describe("system audio is offered only where it exists", () => {
   });
 });
 
-describe("the sheet offers what the machine can do, and nothing else", () => {
-  const choice = {
-    kind: "choose" as const,
-    selectedIndex: 0,
-    offers: [
-      {
-        destination: { kind: "personalInbox" as const, contextSlug: "@you", folder: "0-inbox" },
-        audience: "Only you",
-        tone: "quiet" as const,
-        refusal: null,
-      },
-    ],
-  };
-
-  function sheet(systemAudio: { on: boolean; onToggle: (on: boolean) => void } | null) {
-    return createElement(DestinationSheet, {
-      choice: choice as never,
-      selectedIndex: 0,
-      onSelect: () => {},
-      onStart: () => {},
-      onCancel: () => {},
-      systemAudio,
-    });
-  }
-
-  /*
-    Read off `document.body` rather than off the container: the sheet is a
-    `Modal`, and react-native-web renders one into a portal. Same reason
-    `meetingsFlow.test.ts` gives for doing it that way.
-  */
-  test("no capability, no switch — a sentence instead", () => {
-    const mounted = mount(sheet(null));
-    expect(has(document.body, "meeting-system-audio")).toBe(false);
-    expect(has(document.body, "meeting-mic-only")).toBe(true);
-    expect(document.body.textContent).toContain("far side of a call");
-    mounted.unmount();
+describe("the whole-call switch, now that there is no sheet to put it on", () => {
+  /**
+   * THE SWITCH OUTLIVED THE SHEET, AND IT HAD TO.
+   *
+   * It used to be a row on the destination sheet, answered per meeting. The
+   * sheet is gone — pressing New meeting records — and on a phone or inside the
+   * desktop shell that costs nothing: the shell's loopback tap is silent and a
+   * phone cannot do this at all. **In a browser it would have been a capability
+   * deleted**, because taking the far side of a call there needs
+   * `getDisplayMedia`, which costs a source picker, so it cannot be the default
+   * and there would have been nowhere left to turn it on.
+   *
+   * So the answer is a per-device setting (`machineAudio.ts`), read at the
+   * press, and these are its halves. What it does to a recording is
+   * `meetingsFlow.test.ts`'s; what the settings pane says about it is prose
+   * beside the switch.
+   */
+  test("a machine that can tap silently defaults to on", () => {
+    expect(defaultMachineAudio(false)).toBe(true);
   });
 
-  test("a machine that can hear the call is offered the switch", () => {
-    const mounted = mount(sheet({ on: true, onToggle: () => {} }));
-    expect(has(document.body, "meeting-system-audio")).toBe(true);
-    expect(document.body.textContent).toContain("Record the whole call");
-    mounted.unmount();
+  test("a browser that would show a picker defaults to off", () => {
+    // A picker in front of every meeting, including every in-person one, is how
+    // a feature gets switched off wholesale.
+    expect(defaultMachineAudio(true)).toBe(false);
+  });
+
+  test("a device that has never been asked says so, rather than guessing", async () => {
+    await expect(recallMachineAudio(memoryStore())).resolves.toBeNull();
+  });
+
+  test("an answer survives the device it was given on", async () => {
+    const store = memoryStore();
+    await rememberMachineAudio(store, true);
+    await expect(recallMachineAudio(store)).resolves.toBe(true);
+    await rememberMachineAudio(store, false);
+    await expect(recallMachineAudio(store)).resolves.toBe(false);
+  });
+
+  test("a stored answer beats the surface's default, in both directions", async () => {
+    const store = memoryStore();
+    await rememberMachineAudio(store, true);
+    await expect(recallSystemAudio(store, true)).resolves.toBe(true);
+    await rememberMachineAudio(store, false);
+    await expect(recallSystemAudio(store, false)).resolves.toBe(false);
+  });
+
+  test("and the sentence a mic-only build shows is still about the far side of a call", () => {
+    expect(MIC_ONLY_SENTENCE).toMatch(/far side of a call/i);
   });
 });
 
@@ -1106,6 +1114,203 @@ describe("this machine, in settings", () => {
     // Unmounting detaches: a settings pane is opened and closed all day, and a
     // handler that could not be detached is a leak per visit.
     expect(shell.listenerCount()).toBe(0);
+  });
+
+  test("the desktop integration card exposes iMessage import from the bridge", async () => {
+    const shell = fakeDesktopBridge({
+      imessage: {
+        enabled: false,
+        permission: "granted",
+        lastSyncedAt: null,
+        lastError: null,
+      },
+    });
+    installShell(shell);
+
+    const mounted = mount(createElement(ThisMachineCard));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(has(mounted.container, "this-machine-imessage")).toBe(true);
+    expect(mounted.container.textContent).toContain("iMessage");
+    expect(mounted.container.textContent).toContain("Import is off on this Mac.");
+
+    const button = mounted.container.querySelector(
+      '[data-testid="this-machine-imessage-toggle"]',
+    );
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(shell.imessageSetEnabledCalls).toEqual([true]);
+
+    mounted.unmount();
+    expect(shell.listenerCount()).toBe(0);
+  });
+
+  test("a denied iMessage grant explains the exact recovery and opens Full Disk Access", async () => {
+    const shell = fakeDesktopBridge({
+      imessage: {
+        enabled: true,
+        permission: "denied",
+        lastSyncedAt: null,
+        lastError: null,
+      },
+    });
+    installShell(shell);
+
+    const mounted = mount(createElement(ThisMachineCard));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(has(mounted.container, "this-machine-imessage-permission-guide")).toBe(true);
+    expect(mounted.container.textContent).toContain("Privacy & Security → Full Disk Access");
+    expect(mounted.container.textContent).toContain("quit and reopen");
+    expect(has(mounted.container, "this-machine-imessage-toggle")).toBe(false);
+
+    const open = mounted.container.querySelector('[data-testid="this-machine-imessage-open-settings"]');
+    await act(async () => {
+      open?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(shell.imessageFullDiskAccessRequests).toBe(1);
+
+    mounted.unmount();
+  });
+
+  test("the first permission refusal raises the guide without waiting for another click", async () => {
+    const shell = fakeDesktopBridge({
+      imessage: {
+        enabled: true,
+        permission: "unknown",
+        lastSyncedAt: null,
+        lastError: null,
+      },
+    });
+    installShell(shell);
+    const mounted = mount(createElement(ThisMachineCard));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      shell.emitImessage({
+        enabled: true,
+        permission: "denied",
+        lastSyncedAt: null,
+        lastError: null,
+      });
+      await Promise.resolve();
+    });
+    expect(shell.imessageFullDiskAccessRequests).toBe(1);
+
+    // A later status heartbeat in the same denied state must not stack sheets.
+    await act(async () => {
+      shell.emitImessage({
+        enabled: true,
+        permission: "denied",
+        lastSyncedAt: null,
+        lastError: null,
+      });
+      await Promise.resolve();
+    });
+    expect(shell.imessageFullDiskAccessRequests).toBe(1);
+    mounted.unmount();
+  });
+
+  /*
+    One machine, two settings panels.
+
+    Settings asks about recording under **Meetings** and about Messages under
+    **Chats**, because a person looking for their texts does not think
+    "meetings". This card is the one place both live, so it takes a `focus`
+    rather than being split — and what makes that safe is that the two halves
+    are not symmetrical. Both spend the *same* machine grant (`apps/desktop`'s
+    iMessage import writes through `write_note` with this machine's token), so
+    Chats cannot simply drop the connection state: an unconnected machine is
+    precisely why somebody's messages are not arriving.
+  */
+  const IMESSAGE_SHELL = {
+    enabled: false,
+    permission: "granted" as const,
+    lastSyncedAt: null,
+    lastError: null,
+  };
+
+  async function machine(focus: "meetings" | "chats" | undefined, shell: FakeDesktopBridge) {
+    installShell(shell);
+    const mounted = mount(createElement(ThisMachineCard, focus === undefined ? {} : { focus }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    return mounted;
+  }
+
+  test("Meetings is the machine without the Messages half", async () => {
+    const mounted = await machine(
+      "meetings",
+      fakeDesktopBridge({ imessage: { ...IMESSAGE_SHELL, enabled: true } }),
+    );
+
+    expect(has(mounted.container, "this-machine-title")).toBe(true);
+    expect(has(mounted.container, "this-machine-imessage")).toBe(false);
+    expect(mounted.container.textContent).not.toContain("iMessage");
+
+    mounted.unmount();
+  });
+
+  test("Chats keeps Messages and drops the meetings sentence", async () => {
+    const mounted = await machine(
+      "chats",
+      fakeDesktopBridge({
+        imessage: IMESSAGE_SHELL,
+        connection: {
+          state: "connected",
+          gateway: "https://gateway.invalid",
+          encrypted: true,
+          connecting: false,
+          error: null,
+        },
+      }),
+    );
+
+    expect(has(mounted.container, "this-machine-imessage")).toBe(true);
+    expect(mounted.container.textContent).toContain("Import is off on this Mac.");
+    // The machine's own copy is about meetings, because that is what the grant
+    // was built for. Under a Chats heading it answers a question nobody asked.
+    expect(mounted.container.textContent).not.toContain("Meetings recorded here go to");
+    // And Disconnect stops meetings too, so it lives on the panel that says so.
+    expect(has(mounted.container, "this-machine-disconnect")).toBe(false);
+
+    mounted.unmount();
+  });
+
+  test("...and says an unconnected machine is why nothing is arriving, with the way out", async () => {
+    const mounted = await machine("chats", fakeDesktopBridge({ imessage: IMESSAGE_SHELL }));
+
+    expect(mounted.container.textContent).toContain("nothing arrives until it is connected");
+    // The one control that unblocks Messages is here, unlike Disconnect.
+    expect(has(mounted.container, "this-machine-connect")).toBe(true);
+
+    mounted.unmount();
+  });
+
+  test("Chats draws nothing at all where the shell has no Messages support", async () => {
+    // A card headed with this Mac's name over one blank line is a worse answer
+    // than no card — the same rule the settings sections themselves follow.
+    const mounted = await machine("chats", fakeDesktopBridge({ noImessage: true }));
+
+    expect(mounted.container.textContent).toBe("");
+
+    mounted.unmount();
   });
 });
 

@@ -15,7 +15,7 @@ import { browseHref, landingHref, noteHref, safeNotePath } from "./nav";
  * process is still there and so is the router's state — but a **cold relaunch**
  * starts at `/`, which resolves to `/console`, which resolves to the first
  * context this account owns. Somebody who was reading a note, took a call, and
- * came back an hour later got the top of their brain and no way back to where
+ * came back an hour later got the top of their workspace and no way back to where
  * they were except finding it again.
  *
  * So this is one record, written as the address changes and read once by

@@ -7,7 +7,7 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
-import { fonts, radii } from "../tokens";
+import { fonts, pointerType as t, radii } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { FocusRing } from "./FocusRing";
 import { Text } from "./Text";
@@ -31,6 +31,14 @@ export interface TextFieldProps extends TextInputProps {
   error?: string;
   /** Renders a "· optional" marker beside the label. */
   optional?: boolean;
+  /**
+   * Keep the label as the field's name, draw no label row.
+   *
+   * For a field whose surroundings already name it — a search box in a
+   * toolbar, under the heading it searches. The accessible name is unchanged,
+   * which is the whole point: this hides a line of type, never a label.
+   */
+  labelHidden?: boolean;
   testID?: string;
   containerStyle?: ViewStyle;
 }
@@ -40,6 +48,7 @@ export function TextField({
   hint,
   error,
   optional = false,
+  labelHidden = false,
   testID,
   containerStyle,
   ...props
@@ -52,20 +61,34 @@ export function TextField({
 
   return (
     <View style={containerStyle}>
-      <View style={styles.labelRow}>
-        <Text variant="eyebrow" nativeID={labelId}>
-          {label}
-        </Text>
-        {optional ? (
-          <Text variant="eyebrow" style={styles.optional}>
-            optional
+      {/*
+        `labelHidden` draws no label row and keeps the name: a field in a
+        toolbar is named by the thing it sits in — a search box on a pane
+        titled Plugins, beside that pane's own filters — and printing
+        "Search plugins" above a placeholder reading "Name, what it does, or a
+        tool name" spends a line saying what the next one says better. The
+        `accessibilityLabel` below still falls back to `label`, so nothing a
+        screen reader hears changes.
+
+        `label=""` is not the same thing and is not a substitute: an empty
+        `Text` still takes a line box, which is the gap this exists to remove.
+      */}
+      {labelHidden ? null : (
+        <View style={styles.labelRow}>
+          <Text variant="eyebrow" nativeID={labelId}>
+            {label}
           </Text>
-        ) : null}
-      </View>
+          {optional ? (
+            <Text variant="eyebrow" style={styles.optional}>
+              optional
+            </Text>
+          ) : null}
+        </View>
+      )}
       <TextInput
         {...props}
         testID={testID}
-        aria-labelledby={labelId}
+        aria-labelledby={labelHidden ? undefined : labelId}
         aria-describedby={describedBy}
         aria-invalid={error !== undefined}
         // The visible label is the default, but a caller may override it. A
@@ -418,7 +441,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.well,
     paddingHorizontal: 14,
     paddingVertical: 13,
-    fontSize: 15,
+    fontSize: t.lede,
     fontFamily: fonts.body,
     color: colors.text,
   },

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Animated, Easing, Platform, StyleSheet, type ViewStyle } from "react-native";
-import { gradient } from "../design/css";
-import { radii } from "../design/tokens";
+import { radii, type Colors, type Shadows } from "../design/tokens";
+import { useThemedStyles } from "../design/theme";
 import { useReducedMotion } from "../design/useReducedMotion";
 import { BURST, CUBE, DOCUMENT, HUB, TileMark, type Glyph } from "./TileMark";
 
@@ -26,11 +26,10 @@ interface TileSpec {
   /** Negative CSS `animation-delay`, in ms. */
   phase: number;
   style: ViewStyle;
-  warm?: boolean;
 }
 
 const TILES: TileSpec[] = [
-  { glyph: BURST, phase: 0, style: { left: "2%", top: 186 }, warm: true },
+  { glyph: BURST, phase: 0, style: { left: "2%", top: 186 } },
   { glyph: CUBE, phase: 2200, style: { right: "3%", top: 132 } },
   { glyph: DOCUMENT, phase: 4400, style: { left: "5%", top: 474 } },
   { glyph: HUB, phase: 6600, style: { right: "5%", top: 508 } },
@@ -98,6 +97,7 @@ function FloatingTile({
     animation.start();
     return () => animation.stop();
   }, [animate, drift, tile.phase]);
+  const styles = useThemedStyles(makeStyles);
 
   const translateY = drift.interpolate({ inputRange: [0, 1], outputRange: [0, -RISE] });
 
@@ -107,12 +107,6 @@ function FloatingTile({
       style={[
         styles.tile,
         tile.style,
-        tile.warm ? styles.warm : null,
-        gradient(
-          tile.warm
-            ? "linear-gradient(155deg,rgba(251,146,86,.16),rgba(251,146,86,.03))"
-            : "linear-gradient(155deg,rgba(255,255,255,.075),rgba(255,255,255,.018))",
-        ),
         { transform: [{ translateY }, { rotate }] },
       ]}
     >
@@ -121,26 +115,32 @@ function FloatingTile({
   );
 }
 
-const styles = StyleSheet.create({
-  /** `.tile` */
-  tile: {
-    position: "absolute",
-    pointerEvents: "none",
-    width: 106,
-    height: 106,
-    borderRadius: radii.tile,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,.09)",
-    // Flat stand-in for the gradient on platforms that drop `background-image`.
-    backgroundColor: "rgba(255,255,255,.045)",
-    boxShadow:
-      "0 26px 60px -22px rgba(0,0,0,.95), inset 0 1px 0 rgba(255,255,255,.07)",
-  },
-  /** `.tile.warm` */
-  warm: {
-    borderColor: "rgba(251,146,86,.2)",
-    backgroundColor: "rgba(251,146,86,.09)",
-  },
-});
+/**
+ * The tiles were built for a dark ground and only a dark ground: white-alpha
+ * fill and border over a near-black shadow, plus one tile washed in
+ * `rgba(251,146,86,…)` — the retired orange, written as a literal where no
+ * palette could answer for it. On the light ground they became flat white
+ * squares under a bruise of a shadow, and the orange one was the last thing on
+ * the page still wearing the old accent.
+ *
+ * Now they read the palette, and the coloured one is gone rather than
+ * recoloured: hue in this product means something, and a decorative tile is
+ * not one of the things it means.
+ */
+const makeStyles = (colors: Colors, shadows: Shadows) =>
+  StyleSheet.create({
+    /** `.tile` */
+    tile: {
+      position: "absolute",
+      pointerEvents: "none",
+      width: 106,
+      height: 106,
+      borderRadius: radii.tile,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.surface2,
+      boxShadow: shadows.floating,
+    },
+  });

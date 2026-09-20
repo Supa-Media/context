@@ -32,7 +32,7 @@ moving the note to `1-projects/` orphans the transcript, archiving one archives
 half a meeting, and `4-archive/` slowly fills with transcripts whose notes moved
 away. Every one of those is a bug report the customer files against *Obsidian*,
 because that is where they saw it. The bucket is the vault
-([obsidian-plugins](./obsidian-plugins.md)), and a file that only makes sense
+([plugins](./plugins.md)), and a file that only makes sense
 to the program that wrote it is exactly what plain-file portability is supposed
 to rule out.
 
@@ -109,6 +109,104 @@ a grep-shaped guard with the usual weakness — see
 [testing](./testing.md), *a guard nobody has checked is not a guard* — so it is
 written against outbound host allowlisting rather than against import names.
 
+### A browser records the whole call only if somebody hands it the call
+
+Reported by the owner, on the web build: *"when I have headphones on, it does
+not record what I'm hearing through my headphones."* Correct, and it was
+documented as correct — `capture/audio.web.ts` said in its own header that
+system audio was the desktop app's job, and the sheet said in as many words that
+the far side of a call on headphones is not in the recording. Honest, and still
+the wrong answer to somebody on a call in a browser, which is most people.
+
+**A browser cannot tap the machine's output, and that has not changed.** There
+is no `getUserMedia`-shaped route to the speakers, and there never will be: a
+page that could silently record everything a machine plays is a page that can
+record every other tab. What a browser *can* do is `getDisplayMedia` — put the
+platform's own picker in front of the person, take the tab or screen they
+choose, and record the audio of that source if they tick the option offering it.
+Mixed with the microphone through a `MediaStreamAudioDestinationNode`, that is
+both sides of a call in one recording, chosen by the person, once per meeting,
+with the browser's own sharing indicator lit the whole time.
+
+**So `capability.systemAudio` now means two mechanisms, and the sheet may never
+say them in the same words.** The shell's is a loopback tap: the switch is on,
+the machine's output is in the recording, nothing is asked again. The browser's
+costs a picker, every meeting, with a checkbox most people have never noticed on
+it. `systemAudioNeedsPicker` is the second field that keeps them apart, and it
+carries three consequences that are the whole of this decision:
+
+- **The offer is off by default in a browser and on in the shell.** A default of
+  on would put a screen-share picker in front of every meeting anybody records,
+  including the in-person ones. That is not a feature people turn off; it is a
+  feature people stop using.
+- **A caller who says nothing gets what the build can do *without asking
+  again*.** `controller.start`'s fallback used to be the capability itself,
+  which was right while the only mechanism was silent. Left that way, any code
+  path that starts a meeting without going through the sheet would open a picker
+  on behalf of somebody who was never asked.
+- **The picker is opened before the microphone prompt, and that order is not a
+  preference.** `getDisplayMedia` requires transient activation and
+  `getUserMedia` does not, so a microphone prompt sitting on screen while
+  somebody finds Allow spends the activation the picker needs — and the share
+  would then be refused for a reason that has nothing to do with what anybody
+  chose.
+
+**Three ways the ask comes back empty, and they are the ordinary case rather
+than the edge one.** The picker is cancelled; the source chosen carries no audio
+(a whole screen on most platforms, anything at all on a browser that shares no
+audio); or nothing on the page can mix two inputs into one recording. All three
+leave a microphone recording, all three say one sentence, and the share is
+handed straight back rather than held — a captured tab with its indicator lit,
+contributing nothing to the transcript, is the worst available outcome. Pressing
+the browser's own "Stop sharing" mid-meeting is a fourth, and it says so too:
+what was recorded before it has both sides and what comes after does not.
+
+**What is claimed is *"this browser can ask"*, which is true, and no more.**
+There is no API that says in advance whether a browser will hand over audio —
+Firefox has `getDisplayMedia` and shares none from it — so the capability probe
+checks the two things that *are* knowable (a picker exists, and there is
+something to mix its audio into) and every empty answer is reported in a
+sentence. That is the same rule as everywhere else here: an absent capability is
+reported, never faked.
+
+**Nothing about *nothing joins the call* moves.** This records a source the
+person handed over on the machine they are sitting at. It authenticates to no
+platform, sends no participant, and appears in no attendee list.
+
+The checks are `both halves of the probe, or no offer at all`, `the picker is
+opened before the microphone prompt`, `nobody is asked to share anything unless
+they asked for it`, `a shared source is mixed with the microphone, and the mix
+is what records`, `the call's audio is never played back into the room`, the two
+`a microphone recording, and a sentence saying so` rows, `a source with no audio
+is let go rather than held`, `a share stopped mid-meeting is said out loud, and
+the rest is recorded`, `ending a meeting turns the sharing indicator off as well
+as the recording one`, `a refused microphone hands the share back rather than
+leaving it running`, `a browser says a picker is coming, and what to pick`, and
+`a picker is not opened on somebody's behalf`.
+
+**Not proven here:** that a real Chrome hands back a real tab's audio and that
+the mix is intelligible. The suite drives a fake browser; the last step needs a
+machine, a call and a pair of headphones.
+
+### iOS recording survives screen lock through two deliberate controls
+
+The recorder has two controls: the shipped native configuration declares
+`UIBackgroundModes: ["audio"]`, and the OTA-delivered meeting audio mode opts
+the active recorder in with `allowsBackgroundRecording: true`. Both are needed;
+the runtime switch alone cannot add a native entitlement, while the entitlement
+alone does not opt a session in. This covers ordinary screen lock and app
+backgrounding, not force-quit or OS process termination. Acceptance is a real
+iPhone lock/unlock test confirming the transcript continues without a gap.
+
+Some shipped iOS runtimes reject the background-capable audio-mode object even
+though they can still record with the prior foreground mode. The recorder tries
+the background mode first, then restores foreground capture if that request is
+rejected and immediately tells the person that locking the phone will stop
+audio. That limitation has its own sticky, multiline notice on the live screen;
+transcription notices must not overwrite it. It must never turn an optional
+background upgrade into a total recording failure, and it must never make that
+downgrade silently.
+
 ### Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 
 This is the one place where "we never hold your data" needs a footnote, and the
@@ -135,6 +233,15 @@ Four rules follow, and they are the enforceable part:
    attachment, not as a cache, not "temporarily" in a queue that has no expiry.
    The note is the artifact; the recording is not. The check is
    `no ingestion path writes an audio content type`.
+
+   **Amended 2026-09-18, and narrowed rather than dropped.** "Us" is the
+   control plane, the gateway, the transcription Worker and the customer's
+   bucket, and on every one of them this rule stands exactly as written. What
+   changed is the customer's *own phone*: audio that has not reached the
+   transcriber yet is now kept there, in a queue with no expiry, until it has.
+   That is the owner's call and the argument is *Audio nobody has transcribed
+   yet is kept on the device* below; the sentence above is left as it was
+   because it was right about everything it was about.
 2. **Every note records how it was made.** `transcription: on-device` or
    `transcription: cloud` in the frontmatter, alongside the device that recorded
    it. A person reading a meeting from eight months ago can tell whether its
@@ -185,6 +292,71 @@ operate and better at diarization, and it would delete the free tier's actual
 claim. Collapsing to on-device only would delete diarization and lock the
 product to recent Apple hardware — `SpeechAnalyzer` is iOS/macOS 26 and later,
 and on watchOS it does not exist at all.
+
+### The channel is the only speaker signal this product has, and a turn never crosses it
+
+The section above promises that the paid tier buys "diarization that on-device
+transcription does not provide at all". **As shipped it does not, and this is
+the entry that says so rather than leaving the promise standing.** The
+transcription Worker runs `@cf/openai/whisper-large-v3-turbo` with
+`@cf/openai/whisper` behind it; neither returns a speaker label, so
+`apps/mcp/src/meetings/transcribe.js` sets `speaker: null` on every segment and
+explains why in its own comment — *a "Speaker 1" it did not produce is a label
+with more confidence than it earned*. That comment is right. The promise was
+ahead of the code, and what follows is what is true.
+
+**What there is instead is `channel`.** The recorder stamps every frame `mic`,
+`system` or `mixed`, because the engine is handed one file and "cannot know
+whether it was the room or the call". That is one real bit of knowledge about
+who was speaking, and `groupIntoTurns` used to throw it away: with `speaker`
+null on both sides, a two-sided call folded into one turn and rendered as
+`**[00:00] Speaker** — so the pricing is fine with us`, half of it said by
+somebody else. **A channel change now breaks a turn.** The check is `the
+microphone and the call never merge into one turn`, and the sabotage record is
+in the test file: removing the condition fails two checks in `packages/meetings`
+and none in `apps/mcp`, because the gateway never looks at a turn.
+
+**What is deliberately not decided here is what a turn is called.** The obvious
+move — mic is "You", system is "Them" — is wrong in the case this product was
+built for: in an in-person meeting everybody is on the microphone, and labelling
+the room "You" is a false attribution written into somebody's permanent note. A
+label needs evidence that the session was two-sided, which is a session-level
+fact the renderer does not hold today. (`capture/transcriber.ts`'s
+`speaker: frame.channel === "mic" ? "You" : null` is a test engine's fixture,
+not a precedent.) Turns split honestly and stay labelled `Speaker` until that is
+decided.
+
+Three routes out, and the third is the one people assume:
+
+1. **Channel labels, conditioned on a session that really had two sides.**
+   Cheap, no new vendor, no new audio path. It buys "me" against "the call" and
+   never buys "Sayo" against "John".
+2. **A diarizing engine on the paid tier.** It buys real speaker turns, and it
+   costs a second vendor holding audio transiently — widening the seam the
+   section above discloses — plus per-hour inference against Workers AI's
+   account-level pricing. The part that decides it is not the bill:
+   **speaker identity does not survive `SEGMENT_MS`.** Chunks are twenty seconds
+   and are transcribed independently, so whoever is "Speaker 1" in chunk three
+   is not knowably "Speaker 1" in chunk four. This is therefore not a model swap
+   inside `infra/transcribe-worker`; it is a per-meeting streaming session
+   against a provider that keeps speaker state, in a Worker that is stateless by
+   construction. Price that, not the model.
+3. **One pass over the whole recording when the meeting ends**, which is where
+   the best accuracy is. **Rule 1 above forecloses it**: whole-file diarization
+   needs the whole file, and audio is never persisted by us. The device queue in
+   *Audio nobody has transcribed yet is kept on the device* is not a way round
+   it — that is the customer's own machine holding audio that has **not been
+   transcribed yet**, not a meeting's worth held back so we can read it twice.
+   Taking this route means amending rule 1 with an argument, not a footnote.
+
+Recommended: 1 now, 2 when somebody is paying for it, 3 not without reopening
+rule 1. Matching a voice to a *named person* is a further step again — it needs
+an enrolled voice per contact, which is biometric data this product has nowhere
+to put and no non-negotiable that would survive putting it there.
+
+What a "simplification" of this costs: drop the channel break and the far side
+of every call goes back inside a block attributed to whoever spoke first, which
+is worse than no attribution because it reads like evidence.
 
 ### The cloud path knows *who* is asking, opaquely, and the ceiling is the control plane's
 
@@ -572,7 +744,7 @@ from any `context:write` grant directly, without passing through
 `transcribeChunk` at all. The gateway caps a segment's text, one request body,
 and how many segments a session holds — but never the size of the stored record,
 so a padded id was the one field those caps did not reach. The record lives at
-`.meetings/sessions/<id>.json`, and `isPlumbing` refuses a dot-prefixed segment
+`.context/meetings/sessions/<id>.json`, and `isPlumbing` refuses a dot-prefixed segment
 at every tier including the owner's, so the growth is invisible to the person
 whose storage bill it lands on. `MAX_SEGMENT_ID_CHARS` = 200 closes it.
 
@@ -608,6 +780,14 @@ inference`, `refuses characters that mean something to a renderer, a path, or a
 shell`, `the refusal names the field without quoting what was sent` and
 `an anonymous caller with a bad chunk id is still just anonymous`.
 ### The device is never waiting on the network, and a backlog is dropped rather than kept
+
+**Amended 2026-09-18: the second half of this title is reversed.** A backlog is
+now *kept*, on the device, and the section that says so — *Audio nobody has
+transcribed yet is kept on the device*, next — records what that costs. The
+first half stands: the send is still off the chain that owns the microphone,
+and everything below about offsets, chunk ids and releasing the device is
+unchanged. The paragraph that argues for dropping is left as the record of the
+decision that was reversed, not as current behaviour.
 
 Capture rotates on a fixed wall clock, and the first version of it closed a
 chunk, **awaited the transcription round trip**, and only then reopened the
@@ -662,6 +842,154 @@ not close does not take the next twenty seconds too`, `an interruption's lost
 time lands in the offset`, `a chunk whose path the file system refuses still
 releases the device`, and `a recording a previous run left behind is swept at
 startup`.
+
+### Audio nobody has transcribed yet is kept on the device
+
+The owner's call, 2026-09-18: **offline audio is spooled, never dropped.** A
+meeting recorded in a basement, on a train, or on one bar of signal came out of
+the app with a transcript full of holes, because every chunk sent without a
+connection failed once and was gone — its file had been deleted *before* the
+request that carried it, which was the point — and past
+`MAX_INFLIGHT_CHUNKS` the recorder dropped chunks outright with a sentence
+saying so. Losing signal is the ordinary case (*Ingestion is idempotent by
+construction*, above), and the words a meeting recorder most needs to keep are
+the ones it could not send.
+
+**What is built.** Every chunk a phone records is written into a spool before
+it is sent — `apps/mobile/features/meetings/capture/spool.ts`, one file per
+chunk under the app's *documents* directory, named
+`<index>_<offsetMs>_<durationMs>.<wav|m4a>` in a folder per meeting, so the
+file name is the whole index and there is no manifest to disagree with it. A
+chunk is sent when there is a connection and fewer than `MAX_INFLIGHT_CHUNKS`
+already out; otherwise it waits. It is deleted only once the transcriber has
+answered for it **and** its words have been handed to its meeting (and, on the
+drain's path, written down on the device). What waits is sent by
+`spoolDrain.ts` — on launch, on reconnect, on returning to the foreground, and
+after End — sequentially, oldest meeting first, in index order, through the
+same `transcribeChunk` with the same chunk id, offset and duration.
+
+- **`MAX_INFLIGHT_CHUNKS` is about network concurrency and nothing else now.**
+  Chunks in the spool are not in flight. Recording goes on for as long as the
+  meeting does, offline, with no bound.
+- **Offline, nothing is dispatched.** `ConvexReactClient.action()` has no
+  timeout: offline it holds its arguments — here twenty seconds of base64 — until
+  the socket returns. Sending anyway would put an hour of a meeting in the heap.
+  The reachability hook's "offline" is mirrored into `capture/connectivity.ts`.
+- **The note waits for its audio.** `sync()` does not finalize a meeting while
+  its audio is still waiting, because `complete` refuses every later segment
+  (`acceptsTranscript`) and the words would arrive to a note that can no longer
+  take them. `recoverStaleFinalizes` skips such a meeting (it is waiting, not
+  stuck), and End no longer calls a meeting whose only content is kept audio
+  `empty`, which is terminal.
+- **Idempotency is the chunk id's, and needs no server change.**
+  `transcribeChunk` derives every segment id from the chunk id and the
+  segment's position, so the same chunk answers with the same ids
+  (`two identical calls produce identical segments`), and the meeting upserts
+  by id. Making the server "remember" a chunk would mean the control plane
+  holding a transcript, which non-negotiable #1 forbids. The one residual:
+  Whisper re-run on the same audio could split it into a different number of
+  segments, and then a re-sent chunk whose first answer *was* folded in leaves
+  the extra rows of the longer answer. That needs an answer to be folded and
+  its chunk then re-sent — a crash in the milliseconds between the two — and
+  the drain orders it so that is the only way.
+- **A send that outlives its meeting leaves its chunk for the drain.** The
+  recorder emits only to a listener for the meeting a chunk names; a send that
+  answers after End's wait, or after the next meeting has started, leaves the
+  chunk where it is and the drain delivers it by id. The same change made End
+  hold its listener until its wait is over, which fixes an older loss: the last
+  seconds of every meeting were emitted after the controller had stopped
+  listening.
+- **One bad chunk cannot hold a note forever.** A chunk the transcriber refuses
+  on its own merits (`TRANSCRIPTION_FAILED`, `INVALID_CHUNK_ID`) is set aside
+  after `MAX_REFUSALS` in one process: it stops holding its meeting, stays on the
+  device, and is counted on the screen as kept and not transcribed. A network
+  failure, a rate limit or an expired session is never counted against a chunk.
+- **Somebody's content, not a cache** — the rule the offline layer already keeps
+  for a queued write. Nothing sweeps the spool, nothing bounds it, nothing ages
+  it out. A chunk leaves because its words arrived, because the person
+  discarded its meeting, or because they signed out: `forgetLocalCopies` wipes
+  it first (it needs no store, so a failing store cannot stand in front of it),
+  after `endSession()`, and re-counts rather than trusts. Every write carries the
+  epoch the recording started under and is checked on both sides of the write,
+  so a recorder still running behind a sign-out writes nothing and a write the
+  sign-out overtook is taken back. **And the person is asked first**: the
+  sign-out question counts meetings with audio on the phone
+  (`unsentMeetingAudio`) beside unsent note edits and says *"1 meeting's audio
+  has not been transcribed yet — signing out deletes it from this phone"*;
+  without it, sign-out was a silent way to lose exactly what the spool exists to
+  keep. `asks first, naming the meeting whose audio would be deleted`
+  (`signOutHygiene.test.ts`) fails if the spool is left out of the count.
+- **Written beside, then moved in.** Bytes go to `<name>.part` and are renamed
+  when whole; a crash mid-write leaves a `.part` that is never listed or sent.
+  A refused write removes its own `.part`.
+
+**What the person sees.** Recording offline, the live screen's chip says
+*"Offline — recording is saved on this phone and will be transcribed when
+you're back online"* with the count waiting, and it outranks a capture error
+(offline, that error is the same fact said worse). The recording bar, which has
+room for two words, shows *On phone · N* with the whole sentence as its label.
+An ended meeting whose audio is waiting says the note is written once the
+pieces are in; the transcript says *Incomplete — N pieces of audio on this
+phone are not in this transcript yet*; set-aside audio is said to be on the
+phone and not in the note. All of it is one pure module, `keptAudio.ts`.
+
+**A browser keeps nothing, and says so.** `spoolDevice.web.ts` is `null`. Holding
+minutes of somebody's meeting in IndexedDB on a machine that may be shared,
+under a quota the browser evicts without asking, is a different decision from
+the phone's and was not taken. Offline, `audio.web.ts` no longer dispatches
+into a socket that will not answer; it says once that this stretch is not being
+transcribed, that typed notes are still saved, and that the phone keeps audio.
+Browser *dictation* offline now names the computer's own dictation (macOS and
+Windows both have it) instead of "the words cannot be made right now", and
+checks `navigator.onLine` before it opens the microphone.
+
+**What it costs, stated.** The audio of a meeting now exists on the phone for as
+long as it takes to reach the transcriber — minutes normally, days if the phone
+stays offline — which is exactly the property the old design existed to rule
+out, and "audio is transient" is now true of everything *except* the
+customer's own device. On iOS the documents directory is included in the
+person's device backup, and this `expo-file-system` has no way to exclude a
+file; it is their backup of their meeting, and a chunk is gone from the device
+the moment its words land. A note waits for its audio, so a meeting recorded
+offline is not in the bucket until the phone has been back online long enough
+to send it — twenty chunks a minute, so an hour offline is about nine minutes
+of sending. And uncompressed 16 kHz audio is about 115 MB an hour on a phone
+that has no signal to send it.
+
+**What a "simplification" would cost.** Deleting the file before the send again
+is the transcript full of holes this reversed. Bounding the spool, or sweeping
+it by age, is a meeting silently losing its middle on the day somebody was
+offline longest. Finalizing without waiting for the spool writes the note
+without the words and then refuses them when they arrive. Dropping the epoch
+checks puts one person's meeting audio on the device after they signed out, for
+the next person to have sent under their own session.
+
+**The tests that fail if it is reversed**, each sabotaged and seen to fail:
+`a send that fails keeps its chunk, and says it is kept rather than lost`,
+`offline, nothing is sent and every chunk is kept, well past the in-flight
+bound`, `with the sends backed up, the rest are kept rather than dropped` and
+`an answer that arrives after its meeting has moved on leaves the chunk for the
+drain` (`meetingsCapture.test.ts`); `a meeting is not written while its audio is
+still on the phone`, `audio on the phone and nothing else is still a meeting`,
+`waiting on audio is not mistaken for a stuck finalize`, `a chunk sent twice is
+in the transcript once`, `words that come back while End waits reach the
+meeting` and `sign-out takes the audio with it` (`meetingsKeptAudio.test.ts`);
+`a chunk is let go only after its words are written down`, `a lost connection
+stops the pass and sets nothing aside` and `a sign-out during the round trip
+delivers nothing and confirms nothing` (`meetingsSpoolDrain.test.ts`); `a write
+that a sign-out overtook is taken back`, `a wipe that did not land says so` and
+`only whole chunks are listed` (`meetingsAudioSpool.test.ts`).
+
+**Not verified by any of this: a device.** Every test drives fakes of
+`expo-audio` and `expo-file-system`. Before this is trusted, on a real iPhone
+and a real Android phone: record in airplane mode for at least three minutes
+(locked for part of it), and confirm the chunk files under
+`Documents/meeting-audio/<meetingId>/` grow and the live chip says the audio is
+saved; end the meeting offline and confirm the note says it is waiting; turn
+the network back on and confirm the transcript fills in order, the files go,
+and the note is written once; kill the app mid-meeting offline, relaunch online
+and confirm the failed meeting still gets its words; sign out with audio
+waiting and confirm the folder is gone.
 
 ### The recorder is one interface with two implementations, and nothing above it knows which
 
@@ -1001,7 +1329,7 @@ inbox anyway, in silence. `FinalizeBody.folder` is that answer arriving.
 field.** `MeetingDestination` in the app
 (`apps/mobile/features/meetings/destination.ts`) carries a `contextSlug`
 alongside the folder, and **the context half is the one carrying a privacy
-rule**: the first offer on the sheet is always the person's own brain, whatever
+rule**: the first offer on the sheet is always the person's own workspace, whatever
 context they happen to be standing in, because somebody reading a note in a
 shared workspace who presses record would otherwise drop a transcript of a
 conversation they have not read yet into a folder their colleagues are watching.
@@ -1292,6 +1620,15 @@ Detection may *suggest*, and the suggestion is a prompt with a "not now" — a
 detector that silently starts recording would be the same product with the
 indicator removed.
 
+The first native release's Pause, Resume and End controls are authenticated
+deep links into the app, not commands executed by the widget extension: a tap
+opens Context and may require the phone to be unlocked before the JavaScript
+recorder can act. Each rendered state carries a fresh 256-bit, one-use control
+capability; the app requires the current live meeting and consumes that token
+before touching audio, so a guessed or replayed `context://` URL is inert.
+Direct locked-screen execution is deferred until recorder ownership can move
+out of JavaScript without making Resume unreliable.
+
 **"Wherever they are looking" is mounted once, at the root of the app — and so
 is everything the recording depends on.** The phone's bar lived inside the
 meetings navigator, which made it visible on the
@@ -1383,7 +1720,7 @@ maintain; it is the same entry on the two different bars a phone and a desktop
 have.
 
 This is not the `App` group returning ([app-and-console](./app-and-console.md),
-*The rail splits on kind*). That group held Map and Connections — facts *about a
+*The rail is one list*). That group held Map and Connections — facts *about a
 context*, which is why they moved into that context's settings — and it was
 headed APP over YOURS over SHARED WITH YOU, which is what made the rail read as
 a second, unrelated left navigation. One pinned row with no heading is not a
@@ -1475,7 +1812,7 @@ Three things close it, and they are not three versions of one fix. The first two
 were both needed, and the third is the one the person actually reached for.
 
 **The way to the list is a row on the destination sheet**, beside the heading
-and above the fork, offered whether or not the viewer owns a brain to record
+and above the fork, offered whether or not the viewer owns a workspace to record
 into. The alternatives were weighed and each cost something this one does not:
 an eighth key does not fit (`bottomBarGeometry`, seven targets at 45.29pt
 against a 44pt floor, verified to 309pt), and a menu on the pinned account mark
@@ -1518,7 +1855,7 @@ and neither fades — a failure that cleared itself after a second and a half
 would be the silence this whole seam is about.
 
 The checks are `a phone can reach its meetings from the key it records with`,
-`and can reach them without owning a brain to record into`,
+`and can reach them without owning a workspace to record into`,
 `pressing End lands on the meeting that just ended`,
 `and does not push a second copy of a screen you are already on`,
 `and that meeting says plainly it has not reached the bucket`,
@@ -1528,6 +1865,440 @@ The checks are `a phone can reach its meetings from the key it records with`,
 this belongs to has its own guard —
 [app-and-console](./app-and-console.md), *a route with no way in is a route
 nobody has*.
+
+**And the seventh key is the phone's only microphone, because a second one grew
+beside it.** Dictation shipped as a floating control at the bottom-right of the
+note region (`features/voice/VoiceButton.tsx`), and on a 390pt screen it landed
+24pt above this key: the same `mic` glyph twice, raising two different sheets —
+one asking *dictate or record*, one asking *where does this meeting go*. The
+owner's whole report was four words: *"why are there 2 microphones?"*
+
+The floating one yields, and it yields to the key rather than the other way
+round because that direction was already decided above: this key is the phone's
+only way into meeting capture, and the only route to a **finished** meeting
+hangs off the sheet it raises — a route that exists because somebody recorded a
+meeting on their phone and could not find it again. Keeping a floating button
+by deleting the key would re-open that hole to close a smaller one.
+
+`VoiceButton` already held the rule and applied it to one case only — *"there is
+a single microphone on this machine and the meeting has it"*, which is why it
+draws nothing while a recording runs. A control on the glass that opens a
+microphone is the same case with nothing running, so the yield now covers both.
+What it does not cover is a microphone that is already **open**: the live
+capsule is the only way to stop a run and take back what it typed, and the
+failure card is a sentence owed to whoever opened one. Both are drawn whatever
+the toolbar is doing.
+
+**Dictation is not lost on a phone by this, it is offered later and better
+placed.** The frame hides its toolbar while the keyboard accessory bar is up
+(`AppFrame`'s `toolbarHidden`), so the floating microphone returns at exactly
+the moment there is a caret for words to land at. On a native build there is no
+browser engine to open at all, and the sheet has always said so in as many words
+— *"Your keyboard already has a microphone key, and it types straight into the
+note"* (`engine.ts`) — so what this yields on iOS and Android is a button whose
+only live row was the meeting the key beside it already raised.
+
+The checks are `a phone with a note open draws one microphone, on the bottom
+row`, `the keyboard takes the bottom row away, so the microphone comes back`,
+and — since the console's corner became a `+`, see *A meeting opens in the
+panel* below — `the corner is the + now, so the editor draws no microphone at
+rest` beside `...and a pointer surface with no + keeps it, because nothing
+replaced it`. All of them driven
+through the real editor in
+`apps/mobile/__tests__/oneMicrophone.test.ts`, because the condition has two
+halves and no unit test of either component can see them together.
+
+### The press records, and the indicator is the disclosure (2026-09-19)
+
+**This reverses *"it navigates. It does not record"* and half of the section
+above it, at the owner's instruction, and the reversal is narrower than it
+sounds.** The rule was that no control anywhere may open a microphone without
+the sentence about the audio beside it, which the phone's seventh key satisfied
+by raising a destination sheet: two rows naming a context and a folder, an
+audience line on each, the audio sentence, and a Start beside it. Every meeting
+anybody has ever recorded in this product went through that sheet.
+
+The owner used it and removed it: *"all meetings from now on should go into
+0-inbox/meetings, no need to ask people it will just confuse them"*, and, of
+the sentence that remained on the running meeting's card, *"we dont need all
+these extra details"*. So:
+
+- **Pressing New meeting starts recording.** No sheet, no destination question,
+  no Start. `useMeetingFlow.startMeetingFlow` opens the microphone.
+- **The destination is a rule, not a choice**: the person's own inbox —
+  `0-inbox/meetings`, or whatever folder they have set for their own context
+  (`automaticDestination`). Filing afterwards is what an inbox is for.
+- **The audio sentence is said once**, at first run and in the meetings settings
+  pane (`features/meetings/disclosure.ts`), rather than in front of every
+  conversation.
+
+**What *Consent is the customer's* actually protects is untouched, and it was
+never the question.** That section's test is "a session in `recording` always
+has a surface", and the surfaces got *better* rather than thinner: on a console
+the right panel opens on the running meeting with a red mark, a clock, a live
+meter, the path the note is going to, a name field and the two controls that end
+it; fold that panel and the clock moves into the title bar
+(`ConsoleLiveMeeting`); on a phone the press lands on the meeting's own screen,
+which is all of the above plus the notepad. What was removed is a *modal in
+front of* the indicator, not the indicator.
+
+**The privacy half of the destination sheet is kept, and with the sheet gone it
+matters more rather than less.** `destination.ts` argued that a meeting recorded
+while reading something in a shared workspace must not land in that workspace,
+visible to everyone in it, before the person has read a word of the transcript —
+and that was a rule with a sheet, an audience line and a row in front of it.
+There is nothing in front of it now, so the rule is absolute: the destination is
+`ownPersonalContext`'s inbox, wherever the person is standing, exactly as
+`meetingWorkspaceId` already answered for a meeting nobody addressed. The check
+is `a meeting recorded in a shared workspace still lands in your own inbox`, and
+its pure half is `standing in a shared workspace does not put the meeting in it`.
+
+**The whole-call switch outlived the sheet on purpose.** It was a row on it, and
+in a browser it is the only way to take the far side of a call — `getDisplayMedia`
+costs a source picker, so it cannot be a default and would have been deleted
+along with the sheet. It is a per-device setting now
+(`features/meetings/machineAudio.ts`), set in the meetings pane and read at the
+press; the defaults are the sheet's own, on where a shell can tap silently, off
+where a picker would appear in front of every in-person meeting.
+
+**Two presses can still be refused, and both say so.** A device whose controller
+has not been pointed at a context yet, and somebody who owns no personal
+workspace — offered their @name instead. `MeetingRefusal` is what is left of the
+sheet, and it exists because a control that quietly does nothing is the defect
+this feature has closed at every layer.
+
+**The phone's route to its finished meetings moved with the sheet it hung off.**
+"Past meetings" was a row on the destination sheet; the key records now, so the
+row is on the account menu — the one menu a phone always has. The alternatives
+are unchanged and still refused: an eighth key does not fit, and a long press is
+not discoverability. `routeReachability.test.ts` holds it, and the region
+`bottomBar` left its claimed-regions list in the same change, which is the guard
+noticing that the sheet took a route with it.
+
+The checks are `one press opens the microphone, with no sheet in the way`,
+`a meeting recorded in a shared workspace still lands in your own inbox`,
+`two presses in the same moment record one meeting`,
+`pressing it again while one is running shows that one rather than starting a
+second`, `a device with no context yet says so rather than throwing`,
+`somebody who owns no workspace is offered their name, not a recording`,
+`the machine's own audio follows the setting, not a question`, and, on the phone
+itself, `the app's other place is the last key, and pressing it records`.
+
+### A meeting opens in the panel, and the corner is a `+` (2026-09-19)
+
+**A meeting was a page, and it should not have been.** `/meetings/:id` is a full
+screen: opening a running meeting from the console replaced the note somebody
+was reading, and getting back was a navigation. The owner's words are the whole
+of the argument — *"meetings should stop opening up in the big ugly page and
+only open up in the side panel"*.
+
+So the console's right panel — which already held chat, and already held a
+read-only card about a running meeting — is where a meeting lives now
+(`features/console/aside/MeetingsTab.tsx`). The name, the clock, the meter,
+where the note is going, a composer that stamps a typed line with the meeting's
+own clock, and the controls that stop it. Nothing in the console navigates to
+`/meetings/:id` any more; the route stays, because a phone has no panel and an
+old link must not break.
+
+**A finished meeting is a file, and the panel says so rather than editing it.**
+Its summary, its notes and its path are shown, and the one action is *Open the
+note* — into the editor behind the panel, which is where this product renames
+and edits Markdown. A second, weaker editor in a 330pt column, writing to a
+record whose note has already been filed, is how a rename ends up on a device
+and never in the bucket.
+
+**An explicit start takes the tab; a meeting merely starting still does not.**
+`tabs.ts` refuses the seize because a panel that swaps out from under a composer
+loses a half-typed question. Pressing New meeting *is* somebody asking, which is
+the same trade the ⌘K handoff already makes in the other direction.
+
+**The corner is a `+`.** It was a microphone, and it was drawn only over a live
+editor — so it vanished on a folder page, on the map and on search: *"it should
+show up all the time, even when on a folder page, and not just show up when on
+a note"*. `CreateButton` is mounted by the console **layout** rather than by the
+note editor, which is the whole of that fix, and it offers the three things
+somebody starts from a console: a meeting, a note, a chat. Dictation is not a
+fourth — it needs a caret, so it stays on the note's own context menu, and the
+live capsule and failure card stay with `VoiceButton` because they are the only
+way to stop a run.
+
+**Two indicators in one corner is the defect this product keeps re-finding, so
+the floating recording bar stands down while a console is carrying the
+meeting** (`features/meetings/carried.ts`, the shape `bottomChrome.ts` already
+uses). A phone-width console carries it nowhere, and the bar is still the whole
+indicator there.
+
+The checks are `and one opens in the panel rather than on a page`,
+`its note opens in the editor behind the panel, which is where a file is
+edited`, `a filed meeting offers no second editor of its own`,
+`the + menu's New meeting opens the panel on Meetings`,
+`and a meeting that merely starts still only marks the tab`,
+`the corner is the + now, so the editor draws no microphone at rest`, and
+`...and a pointer surface with no + keeps it, because nothing replaced it` —
+the last one being the fixture and the demo console, which are desktop-width
+consoles with no `+` in that corner at all.
+
+### The phone has a meter, and it always did
+
+**The claim that was never checked.** `capture/level.ts` argued that a level
+does not belong on `MeetingRecorder`, and gave three reasons. The second was
+that *"only one of the five recorders can produce one — the desktop shell holds
+an `AnalyserNode` on the stream it is recording; the phone's `expo-audio` and
+the browser's `MediaRecorder` do not"*.
+
+Half of it was false. `expo-audio` meters on both phone platforms: iOS from
+`AVAudioRecorder.averagePower`, Android by converting `MediaRecorder`'s
+`maxAmplitude`, both answering in dBFS on `getStatus()`. It is behind one flag
+— `isMeteringEnabled` — and nothing set it, so `useAudioLevel` answered `null`
+on every phone and the mark beside the clock drew its static silhouette for the
+length of every meeting.
+
+**It cost the owner two evenings, for the reason `Waveform`'s own header
+predicts.** That file records "a meter that responds to sound is a capability
+claim" and the first evening it was written about: *"the bar is still not
+moving. And I can't tell that it can hear me talking."* The fix then was to
+animate the desktop meter, and the phone was left drawing the same unmoving
+mark under the same claim. The second evening was the question that followed —
+why is there a mark shaped like a meter that does not move — and the answer was
+that nobody had asked the device.
+
+**So the recorder reads its own meter and publishes it, and the conclusion
+about the interface survives.** The channel is a module-level publisher in
+`capture/level.ts`, not an event on `MeetingRecorder` and not a field on the
+snapshot: the first reason in that header is intact and is the load-bearing
+one — a level moves ten times a second, everything that reaches the controller
+rebuilds the app's whole meetings snapshot, and six hundred rebuilds a minute
+for a number one leaf reads is a cost for nothing. `notesOnly` still has no
+input and a build with no shell still has no bridge, so an interface method
+would still oblige implementations to answer a question they cannot. (A browser
+was the third name on that list until the section below took it off.)
+
+**The shell stays preferred where there is one.** A phone's meter is the
+microphone; the shell's is the louder of the microphone and the machine's own
+audio, which is the honest answer to "is this recording hearing anything" on a
+call.
+
+**The floor is a display decision, not the format's.** -160 dBFS is digital
+silence, and a meter scaled across 160 dB leaves a human voice in the top
+eighth of the bar and everything quieter flat — the unmoving mark again,
+reached by arithmetic instead of by omission. `METER_FLOOR_DB` is -55, roughly
+a quiet room on a phone microphone, which puts speech at arm's length in the
+middle and upper half of the mark.
+
+**`null` is still not zero**, and that is the rule the whole meter rests on:
+`Waveform` draws a different mark for "nothing can tell you" than for
+"listening, and the room is quiet". An absent `metering`, a `NaN`, and the
+`-Infinity` Android's conversion produces for true silence are all published as
+no reading rather than as a silent room.
+
+The checks are `the recorder is asked for a meter, on both platforms`,
+`what the microphone hears reaches the meter, as a fraction of the mark`,
+`a recorder with no reading publishes \`null\`, never a silent room`,
+`the meter goes quiet when the microphone does, rather than keeping its last
+reading`, `decibels become a fraction of the mark, with a floor a voice sits
+above`, `no reading is \`null\`, and never zero`, `with no shell, the
+recorder's own readings reach the leaf`, and `the shell is preferred where
+there is one, because it hears more`.
+
+**Not proven here, and it is the same gap the section below has:** the meter is
+driven from a fake device. That a phone's bar moves when somebody speaks needs
+a native build and a voice.
+
+### ...and so does a browser, which is the third surface that drew a claim it could not keep
+
+Reported in the same breath as the headphones: *"the equalizer does not move on
+web so it looks off."* The same defect as the phone's, one surface along, and
+the section above predicted it — it listed a browser among the surfaces that
+cannot answer "how loud is it", which was true of `MediaRecorder` and not true
+of the page it runs in.
+
+**`MediaRecorder` has no meter and Web Audio does.** An `AnalyserNode` over the
+same inputs being recorded is what the shell has done since the meter landed;
+there is nothing about it that needs a shell. So the browser recorder builds the
+graph it was going to build anyway for mixing, hangs one analyser off every
+input, and publishes RMS dBFS on the same module channel the phone polls, at the
+same 10 Hz.
+
+**One analyser fed by both inputs, rather than two and `loudest` over the pair.**
+The bridge carries `{ mic, systemAudio }` because the shell genuinely knows both
+and a diagnostics screen may one day want the split. Here the two inputs are
+already being summed into one recording, and the question the mark answers —
+*"can this hear anything"* — is a question about that recording.
+
+**The mic-only path records exactly the bytes it always did.** The analyser is a
+sink hanging off the side of the microphone's own stream; `MediaRecorder` is
+handed the mixed destination only when there are genuinely two inputs to
+combine. A meter is a decoration and may not change what lands in somebody's
+bucket.
+
+**`null` is still not zero, and digital silence is a reading.** A browser with
+no `AudioContext` publishes nothing at all, which draws the static silhouette —
+*"nothing here can tell you"*. A window of exact zeros is `20 * log10(0)`, which
+is `-Infinity`, which `meterLevel` reads as no reading: it is returned as
+`METER_FLOOR_DB` instead, because something genuinely is listening and the honest
+answer is the bottom of the mark rather than the absence of one.
+
+**A suspended `AudioContext` is checked rather than assumed away**, and that
+guard is about the recording, not the meter: autoplay policy can hand back a
+suspended context, and a suspended context's destination node produces a stream
+of silence — a meeting that records perfectly and contains nothing. It is
+resumed, and a context that will not run is closed and answered as `null`, so
+capture falls back to the microphone's own stream.
+
+The checks are `a browser with no AudioContext publishes nothing at all`, `a
+room with a voice in it moves the mark`, `a quiet room reads zero, which is not
+the same as no meter`, `a meeting that ends says it has no reading rather than
+keeping its last`, `a paused meeting is not listening, and the meter says so`,
+`the shared source is in the reading, not just the microphone`, and `a browser
+that cannot mix records the microphone and says so`.
+
+**Not proven here, and it is the same gap the section above has:** the analyser
+is a fake. That a real bar moves when somebody speaks into a real microphone
+needs a browser and a voice.
+
+### Ending a meeting is not waiting for it to be transcribed
+
+The lock-screen fix worked and arrived with two defects of its own, reported
+together: *"the post process is a little slow, and it keeps recording while
+it's processing… the countdown doesn't stop."* Both were one line.
+
+**`stop()` did too much.** It stopped the device, cut the remaining audio out of
+the file, and then waited for every outstanding transcription. The comment on
+that last wait said it "costs a spinner rather than a microphone", which had
+been true of the rotating recorder and was not true of this one: on the
+continuous path the device is released *after* `closeChunk`, and `closeChunk`
+is where the waiting moved to. So the input stayed open for the length of the
+drain, on a meeting somebody had finished.
+
+It was also a tail-chase. The slicer cuts what is on the file, and a recorder
+that is still running adds another 32 KB a second — so each pass found the
+audio recorded during the previous pass's wait, and the drain converged only
+because sending happens to be faster than recording.
+
+**And `controller.end()` cannot fold the `end` event until `stop()` resolves.**
+So the session stayed `recording` for the whole of it: the live screen, the
+running clock, the microphone chip, over a meeting that was over.
+
+Three changes, in the order they matter:
+
+ - **The device is stopped before a byte is taken.** The input goes back at the
+   moment End is pressed, and the file is a fixed size, so what is left to cut
+   is bounded by what the ticks had not already taken.
+ - **`sliceAll` ends when the file is fully cut, not when the queue is empty.**
+   "The audio is off the device" and "the meeting has been transcribed" are
+   different questions and only the first is that function's. It still waits
+   when the send queue is full, because that is what bounds how much of a
+   backlog is cut into memory at once.
+ - **`stop()` and `drain()` are separate.** `stop()` resolves with the
+   microphone back and the audio queued; `drain()` waits for the words. The
+   controller ends the meeting between them.
+
+**The wait is kept, and keeping it is the point.** The finalize composes the
+note from the transcript the session holds, so a segment arriving after it is a
+note missing the end of the meeting — usually the decision. What changed is
+where it falls: after the fold, behind `MeetingNoteScreen`, instead of in front
+of a screen still claiming to record.
+
+**Which exposed a sentence that was true and unhelpful.** That screen had one
+line for a meeting with no note yet — *"Waiting to reach your context"* — and it
+now had a visible window in which the honest answer was different: nothing is
+wrong with the connection, the last of the audio is still being turned into
+words, and the finalize is held on purpose until it is. `snapshot.transcribing`
+carries that, beside `ending` and for the same reason. Telling somebody about a
+network problem they do not have is the same defect as telling them nothing,
+one sentence further on.
+
+The checks are `the microphone is back before anything is waited for` — which
+asserts the *order* against the recorder's own log, because "the microphone is
+back" is true of the broken version too and only "before the first byte was
+sent" is not — `ending does not wait for the transcript, and \`drain\` does`,
+and `the clock stops when the microphone does, not when the transcript lands`.
+
+**What none of this makes faster.** The transcription takes as long as it takes:
+a round trip per slice, through Convex to a Whisper worker, bounded at three in
+flight. This change is about what the person is looking at while it happens and
+about not holding a microphone through it. If the wait itself needs to shrink,
+that is the chunk size, the concurrency, or the engine — and it is a different
+decision.
+
+### One recording per meeting, because iOS will not let a locked phone start a second one
+
+**The defect.** A meeting recorded on an unlocked phone was fine. The same
+meeting with the screen off produced a transcript that stopped a few minutes in
+and no error anywhere — the owner's was 03:01 long, out of a meeting that was
+not.
+
+Everything anybody would check was already right. `UIBackgroundModes: ["audio"]`
+was in the binary, `allowsBackgroundRecording: true` was in the audio session,
+and a native build carrying both had shipped. The entitlement was never the
+problem, and neither were JavaScript timers, which is where this was first
+looked for.
+
+**The cause is that a rotation is a `record()`.** Capture rotated chunks by
+stopping the recorder every twenty seconds and starting a new one, and iOS
+refuses to *start* a recording from the background —
+`AVAudioSessionErrorCodeCannotStartRecording`, a privacy restriction since
+iOS 12.4. The exemption is narrow and is exactly the wrong shape for a rotation:
+a recording that is **already running** when the app is backgrounded may carry
+on, and one that is not may not begin. So every twenty seconds the app gave up
+the one thing a backgrounded recorder is allowed to keep and then asked for it
+back. In the foreground, granted. Locked, refused, and the meeting was over.
+
+**So the device is started once and the chunks come out of the file.**
+`record()` is called by `start`, by `resume` and by the interruption recovery,
+all of which are either in front of the person or already failing. The rotation
+tick touches the device not at all: it reads what the recorder has written since
+last time, cuts it on a sample boundary, wraps it in a WAVE header and sends it.
+This is what the meeting recorders that survive a lock screen do.
+
+**That forces linear PCM, and the cost is disk.** A growing `.m4a` cannot be
+read — AAC in an MPEG-4 container is not valid until `stop()` writes the `moov`
+atom, so a prefix of one is not a shorter recording, it is not a recording. A
+WAVE file writes its header up front and appends samples, so the bytes on disk
+at any moment are the audio so far. 16 kHz mono 16-bit costs about 115 MB an
+hour against roughly 8 MB for AAC, in a cache directory, for the length of one
+meeting — and 16 kHz mono is the transcription model's own input, so nothing
+downstream resamples.
+
+**iOS only.** Android's `MediaRecorder` has no linear-PCM output and does not
+have the disease: its foreground service keeps the process scheduled, so the
+rotation goes on working there. Rotation is therefore kept rather than ported,
+and the tests that were written for it now run against the platform that runs it.
+
+**Nothing trusts the options it asked for.** `parseWavHeader` reads the format
+out of the file the device actually produced. A device may substitute a sample
+rate, and a slice labelled 16 kHz that is really 44.1 kHz transcribes as
+nonsense at a third speed — which reads as a broken model rather than a broken
+header, and is the most expensive kind of wrong. The header is also not
+assumed to be 44 bytes: WAVE permits chunks before `data`, and slicing from a
+constant would feed header bytes into the transcript.
+
+**Two smaller things fell out of it, both of which were latent.** The recorder
+was being constructed with a *nested* `RecordingPresets` object, and the native
+side decodes one flat record — so everything under `ios:` had always been
+dropped in silence. It cost nothing while the answer was AAC either way, and it
+would have cost the whole change here, because `outputFormat` is the field that
+selects linear PCM. And a backed-up send queue no longer drops audio: the file
+is the buffer, so the slicer simply does not advance and the next tick takes the
+same bytes — where a rotation had to drop, because the file it held was about to
+be deleted.
+
+The checks are `the microphone is started once, however long the meeting runs`,
+`the recorder is asked for linear PCM, in the flat record the native side
+reads`, `the slices are the recording, in order, with nothing dropped or
+repeated`, `a slice is as long as the audio it holds, not as long as the tick
+was`, `a backed-up queue leaves the audio on disk instead of dropping it`,
+`ending sends everything still on disk before the microphone goes back`,
+`pausing puts the microphone back, and resuming does not re-send what it heard`,
+`the file it is recording into is not left open once per tick`, and the whole of
+`__tests__/meetingsWav.test.ts`, whose round trip is the one that catches what
+the individual assertions let through.
+
+**What is still not proven here.** Every check above runs against a fake device
+and a fake file system. That a locked iPhone now records for the length of a
+meeting is the claim this change is *for*, and it cannot be made by this suite —
+it needs a native build and a phone with its screen off. Until somebody has run
+that, the honest statement is that the call iOS refuses is no longer made.
 
 ### A meeting is written the way a note is, because that is what it is
 
@@ -1586,12 +2357,25 @@ not destroying one.
 named one of them and called it the residual.**
 
  - **The path** carries the title's slug, so a rename between a lost answer and
-   a retry composes a second key. Nothing in the app offers one — and the reason
-   first given here was false, which matters more than the conclusion: it said
-   the title is editable on `LiveMeetingScreen`. That screen renders the title
-   as static text, and `controller.setTitle` has no callers at all. The
-   guarantee is safer than claimed and was argued from a surface that does not
-   exist.
+   a retry composes a second key. **The app offers a rename now, and the bound
+   moved from "nobody can" to "not from inside the window".**
+
+   Twice-wrong history, kept because it is the reasoning a reader repeats: this
+   first said the title was editable on `LiveMeetingScreen` and the residual
+   live, which was false — that screen rendered static text and
+   `controller.setTitle` had no callers, so the guarantee was safer than claimed
+   and argued from a surface that did not exist. It then said nothing in the app
+   offers one, which was true until `MeetingTitleField` existed.
+
+   The window opens at the **first finalize**. `MeetingTitleField` is drawn only
+   on `LiveMeetingScreen`; `[id].tsx` draws that screen for exactly `recording`
+   and `paused`; and the move out of both is `end()`, which queues the finalize.
+   A renameable session has therefore never been finalized. The one transition
+   that could put a renameable session back inside the window is
+   `finalizing -> recording`, which `MEETING_TRANSITIONS` allows and nothing in
+   this app makes — `start()` mints a fresh id and is the only caller of the
+   `start` event. Breaking the bound means adding a rename to
+   `MeetingNoteScreen`, or a route back from `finalizing` to `recording`.
  - **The workspace.** `resolveWorkspaceId` reads a ref re-assigned on every
    render, so a retry taken after the workspace list moved underneath resolves
    somewhere else — and a create in a *different* bucket meets no conflict to
@@ -1709,7 +2493,7 @@ The checks are `a meeting whose timestamp will not parse is shown without a day,
 not dropped`, `and it goes last, so it never displaces a day that is real`, and
 `a meeting with no readable date is on the list, not silently missing`.
 
-### A meeting nobody addressed goes to the recorder's own brain
+### A meeting nobody addressed goes to the recorder's own workspace
 
 The one-tap Record on `/meetings` asks nobody anything, so the meeting it starts
 carries no destination — and something has to answer *where does this go?* The
@@ -1718,14 +2502,14 @@ nothing else, over a list sorted oldest-first.
 
 That is the failure this feature's own destination module exists to prevent,
 arriving through the one path that never opens the sheet. Somebody who owns a
-shared workspace older than their brain had a transcript written into a bucket
+shared workspace older than their own had a transcript written into a bucket
 their colleagues watch, at whatever visibility that folder carries, with nothing
 on screen having named the audience. Somebody who owns no context at all but is
 an `editor` somewhere fell through to `contexts[0]` — another person's context.
 
 **The rule is `ownPersonalContext`: `kind === "personal"` and `role === "owner"`,
 which is the rule the sheet's first offer already uses**, because it is the same
-question. *The default is the person's own brain, whatever context they are in*
+question. *The default is the person's own workspace, whatever context they are in*
 is a privacy rule rather than a convenience, and a capture nobody filed is
 exactly what it is about. `defaultContext` decides which screen somebody lands
 on and nothing about a bucket.
@@ -1734,11 +2518,11 @@ The alternative considered was to refuse a destination-less meeting and make
 one-tap Record raise the sheet. It was rejected: it reverses a stated decision
 with its own argument — *"you open the app and hit record"*, no dialog between
 somebody and a meeting that has already started — and it buys nothing this does
-not. The sheet exists to let somebody choose *away* from their own brain and to
+not. The sheet exists to let somebody choose *away* from their own workspace and to
 put the audience in front of them when they do; a meeting that lands in their
 own inbox needs neither.
 
-Owning no brain answers `null` and the meeting stays on the device, retried
+Owning no workspace answers `null` and the meeting stays on the device, retried
 rather than parked, so claiming an @name lands it on the next drain. Every other
 fallback available at that point is somebody else's bucket.
 
@@ -1750,13 +2534,13 @@ own header argued against the line eighty lines below it.
 
 `gateway.ts` documented `null` as "the connection's own default context", which
 is true on the HTTP path — the grant names one context, so the connection's
-default and the person's brain are the same bucket — and was silently redefined
+default and the person's workspace are the same bucket — and was silently redefined
 by the Convex path, whose control-plane session reaches every context the person
 is a member of. Both now say what each does.
 
-The checks are `a meeting nobody addressed goes to the recorder's own brain`,
+The checks are `a meeting nobody addressed goes to the recorder's own workspace`,
 `and never to a shared workspace, however old it is`, `somebody who owns no
-brain has nowhere for it to go, and is told so`, and `a context this account
+workspace has nowhere for it to go, and is told so`, and `a context this account
 cannot reach is null, not a fallback`.
 
 ### A refusal is a sentence this app wrote, and it maps the codes the server sends
@@ -2218,6 +3002,62 @@ round, one model change silently transcribes nothing while every health check
 stays green, which is the exact failure shape `isReadableAnswer` was added for.
 Six checks stand on that line, which is more than stand on the refusal itself.
 
+#### The rule was armed, and could not fire, because nobody had asked the engine to run its VAD
+
+Reported by the owner after all of the above shipped: *"when things are silent
+it transcribes a bunch of random things."* Still. The refusal was in place, the
+thresholds were the engine authors' own, and quiet chunks were still coming back
+with sentences in them.
+
+The section below had already written down why, without drawing the conclusion:
+***`vad_filter` defaults to `false` on that model***, and with VAD off
+`faster-whisper` sets `duration_after_vad = duration`. So rule 1 read a positive
+number on every chunk, had no opinion on every chunk, and was — exactly as
+documented — *"armed for a deployment that turns VAD on"*. Nobody turned it on.
+That left rule 2 alone, and rule 2 is the one this file says is *"either
+redundant or the whole fix, depending on a serving detail nobody outside
+Cloudflare can read"*. It was redundant.
+
+**So the Worker asks for it: `env.AI.run(TURBO_MODEL, { audio, vad_filter: true })`.**
+This is not a new policy and no threshold of ours appears in it. It turns on the
+engine's own front end so that the engine's own evidence exists, which is the
+deployment rule 1 was written for. Two things follow and both are wanted: a
+chunk that is entirely non-speech comes back with `duration_after_vad: 0` and
+rule 1 fires; and a chunk that is *mostly* quiet has its silence cut **before
+decoding**, which is where the hallucinations come from in the first place. The
+second half needs no rule at all — it is the engine not being handed the
+silence.
+
+**Only the turbo model is asked.** `@cf/openai/whisper` declares `audio` and
+nothing else, reports no `duration_after_vad` to arm anything with, and is the
+only path an account without the turbo model has. An undeclared key there would
+risk turning that path into a 502 to arm a rule the model cannot feed.
+
+**What it costs, stated.** Silero VAD decides what speech is, and speech it
+drops is speech nobody transcribes — the same trade rule 2 already takes, moved
+one step earlier and taken by the engine's own front end rather than by a number
+in this repository. It is visible rather than silent: a wholly refused chunk
+puts one sentence on the recorder's screen while the meeting runs. **How a wrong
+call here would show up** is that sentence appearing during a meeting people are
+talking in, or a transcript with holes where a quiet speaker was — the first
+thing to look at if anybody reports a short transcript.
+
+**What this does not touch** is the half of the defect that happens at full
+volume. The counting-script inventions were confidently decoded segments over
+real audio; VAD keeps that audio, correctly, and `TRANSCRIPT_CAVEAT` is still
+the only honest answer to it.
+
+**And an audio gate is still not shipped.** The owner asked for "some basic
+noise gate" in the same message, and the measurement below still says a loudness
+threshold cannot separate this room's silence from this room's speech — the
+medians are identical and the silent room's peak is louder than speech's 90th
+percentile. The one measurement that would reopen it is named there and still
+does not exist. Turning the engine's VAD on is the gate, taken by the thing that
+has a voice model rather than by a number over a level meter.
+
+The checks are `asks the turbo model to run its VAD, which is what arms the
+silence rule` and `does not send the older model a key it does not declare`.
+
 #### Whether either rule can fire is a property of how the engine is run, and adversarial review checked it against the vendor's schema
 
 The numbers above were taken from the engine authors on trust; review went and
@@ -2472,9 +3312,10 @@ this session can never keep.
 **Nothing is deleted, because there is nothing of a recording left to delete.**
 The question a review has to ask of a rule that files no note is whether it
 throws away a recording, and the answer is a property of the product rather
-than of this code: *audio is never persisted by us* — a chunk's file dies
-before the request carrying its contents (`The device is never waiting on the
-network`, above), no adapter writes audio to the bucket, and `empty` writes and
+than of this code: *audio is never persisted by us* — no adapter writes audio to
+the bucket, a chunk kept on the phone is kept only until its words land (*Audio
+nobody has transcribed yet is kept on the device*, above; a meeting with any of
+it waiting is never `empty`), and `empty` writes and
 deletes nothing at all: no note, no claim, and the session record itself stays
 readable with its reason. So the case that looks like data loss — a meeting
 whose audio was captured and whose transcription failed on every chunk, which
@@ -2906,6 +3747,113 @@ which sentence is true; a refusal is said underneath it, and content still
 waiting on the device is said underneath that. **The test that fails if this is
 reversed** is `A REFUSAL AFTER THE NOTE LANDED DOES NOT UN-SAY THE PATH` in
 `apps/mobile/__tests__/meetingsScreens.test.ts`.
+
+### The folder is a setting; the question is not
+
+Mail, calendars and Chat each carry an editable destination per connection.
+A meeting carried `MEETINGS_FOLDER` — a constant — interpolated into a
+paragraph on the settings panel, with no control beside it and no setter
+anywhere in the codebase. Somebody who files meetings under `2-areas/meetings`
+had to move every note by hand, forever.
+
+The panel's own docstring defended that absence, and the argument it used was
+right about something else: the destination is **asked for every time, before
+the microphone opens, precisely so that no remembered setting can answer it
+silently**. That is a rule about *which context* a meeting lands in, and it is
+untouched — the first offer is still always the person's own workspace, the page
+they are standing on is still offered second with its audience named, and the
+sheet still opens. What was neither asked nor settable is *which folder the
+first offer points at*. Two decisions; conflating them is why the setting did
+not exist for as long as it did.
+
+So `workspaces.meetingsFolder` is optional, `setMeetingsFolder` is owner-only
+and personal-only (only the personal-inbox offer reads it, so on a shared
+workspace it would be a control with no effect), and the value rides to the
+sheet on `DestinationContext` — where it belongs, because `ownPersonalContext`
+already finds the one context the setting is about, and a parallel argument
+would be a second thing every caller has to keep pointed at the same row.
+
+Three things hold it honest:
+
+- **The validator is the gateway's own.** `setMeetingsFolder` runs
+  `normalizeMeetingFolder`, the same function that decides whether a folder a
+  client asked for is one the write will accept. Validating any other way would
+  let somebody save a folder the gateway then refuses — a setting that appears
+  to work and files somewhere else, which is verbatim the defect
+  `features/meetings/destination.ts` exists to prevent, arriving through
+  settings instead of through a request.
+- **A stored folder this build would not file into is treated as absent.**
+  `inboxFolderOf` falls back to `INBOX_FOLDER` rather than offering it. An
+  offer with no `refusal` on it is a promise, and a row written by a newer
+  control plane — or one predating a rule this bundle ships — must not produce
+  a destination whose write is rejected. The phone cannot import
+  `packages/meetings`, so the check is `fileableFolder`, the restatement this
+  module already keeps, and the agreement test is what holds the two together.
+- **Clearing stores nothing, not the default's spelling.** A stored
+  `0-inbox/meetings` would stop following the default if it ever moved, pinning
+  somebody who never expressed a preference to a decision they did not make.
+
+**What a "simplification" would cost**: honouring the stored value without the
+fileable check turns a settings typo into meetings that never land, with the
+failure surfacing at the write rather than at the field. Dropping the
+personal-only gate puts a control on a workspace that nothing reads. Letting
+the setting answer *which context* — rather than which folder — drops a
+transcript of a conversation somebody has not read yet into a bucket their
+colleagues are watching, which is the one thing this whole seam was built to
+stop.
+
+**The tests that fail if any of it is reversed**: `where the first offer points
+is the workspace's own setting` in `apps/mobile/__tests__/meetingsDestination.test.ts`
+(seven checks, including every folder the real `normalizeMeetingFolder`
+refuses), `apps/convex/__tests__/meetingsFolder.test.ts`, and
+`apps/mobile/__tests__/meetingsFolderPanel.test.ts` for the panel's own gating.
+## The seventh key became a row in the `+`, and the route it guarded did not move
+
+Everything above about "the seventh key" describes a microphone at the end of the
+phone's bottom row. On 2026-09-19 the owner removed it: *"we no longer need a
+dedicated mic button on the bottom row, just a plus button that opens different
+options"*. The row is six keys, the separator that marked the key off is gone
+with it, and **recording a meeting is a row in the sheet the `+` raises**
+(`CreatePrompt`, driven by `files/createSheet.ts` — see
+[app-and-console](./app-and-console.md), *Nothing is named before it is written,
+and the phone's `+` is the only key*, and *The corner makes five things* above
+it, which is where the corner's own list is argued).
+
+What that costs and does not cost, because this file spent a lot of words on that
+key:
+
+- **The route survives.** Everything argued above rests on the phone having *a*
+  way into capture and on the only route to a finished meeting hanging off the
+  sheet that way raises. The `+` raises the same flow (`startMeetingFlow`), so
+  both still hold — one press deeper, and now beside the four other things
+  somebody starts.
+- **The "one microphone" rule survives, and was never about the glyph.**
+  `NoteEditor`'s `microphoneElsewhere` still stands the floating microphone down
+  while the bottom row is on the glass, and the floating one still returns with
+  the keyboard accessory bar, at exactly the moment there is a caret. The
+  condition is unchanged because what it protects is *the corner* — one floating
+  control at a time — and the row's `+` is that control now.
+- **The `+` had to stop being gated on `canEdit`.** It was, while it meant
+  *note*. A meeting is something a member of somebody else's context can still
+  start, so that gate would have taken capture off every shared context somebody
+  reads — which is the hole this file's own argument exists to keep shut. The
+  read-only rule moved a row lower: the sheet draws no Note, Drawing or Folder
+  without `canEdit`, and `canCreateAnything` hides the key only when the sheet
+  would have no rows at all.
+- **The width argument gets easier, not harder.** Seven targets plus the rule
+  needed 309pt and spent the pill's padding and part of the sliver at 375 and
+  below. Six need less, and `bottomRowWidth.test.ts` keeps the seven-key solve as
+  a probe of `BottomBar` — the shape the geometry must survive if a destination
+  is ever added back — separately from `CONSOLE_KEYS`, which is what the product
+  draws.
+
+**The tests that fail if it is reversed**: `is six keys, ending at Save, with no
+separator and no microphone` in `apps/mobile/__tests__/bottomRowWidth.test.ts`,
+`the app's other place is a row in the + sheet, and choosing it records` in
+`apps/mobile/__tests__/consoleChrome.test.ts` (driven through the real row, to a
+real refusal from a console with no controller behind it), and the four states of
+`apps/mobile/__tests__/oneMicrophone.test.ts`, every one of which is unchanged by
+this — which is the point.
 
 ## A permanent, correct refusal is not the same fact as a transient one, and must not share its sentence
 

@@ -121,3 +121,39 @@ a merge conflict you cannot resolve without guessing which side loses
 behaviour, a change that would break one of the non-negotiables above, or work
 the person explicitly framed as a spike. In each of those, say what is blocking
 and what you propose — a statement, not a request for permission to continue.
+
+## A deploy filter is a copy of an import graph, and it drifted
+
+`apps/convex` is not self-contained and never has been: `convex deploy` bundles
+the storage adapter, the search engine, the forms engine, the plugin scanner and
+the sandbox shim straight out of `apps/mcp/src` and `packages/`.
+`deploy-convex.yml` listed four of those paths by hand.
+
+So a change to the plugin scanner deployed the gateway, deployed the app, passed
+CI, merged — and left the control plane running the previous month's copy of the
+same file. The plugin scan a person sees in the console runs **in Convex**. It
+kept answering from code that had been replaced three pull requests ago, with
+today's date printed beside the answer, and the person who reported "this still
+doesn't work" was right while every check said otherwise.
+
+Measured when it was found: six trees Convex bundles were outside the filter —
+`plugins/`, `search/`, `store/`, `forms.js`, `storageLayout.js` and
+`packages/obsidian-runtime/` — and every one had changed since the last deploy
+that happened to fire for some other reason. One was a path-traversal fix.
+
+The list was not wrong when it was written. It was a hand-maintained copy of an
+import graph, and the graph moved. A longer copy fixes today and schedules the
+same failure for the next import, which is what
+[testing](./testing.md) means by a guard nobody has checked.
+
+So the filter is whole trees now, and `scripts/check-convex-deploy-paths.mjs`
+walks what `apps/convex` actually imports — transitively, since a change two
+files down is just as invisible — and fails CI when anything bundled is not
+covered. It checks one direction only, on purpose: an over-trigger costs an
+idempotent redeploy, an under-trigger silently ships nothing.
+
+**What a simplification costs.** Narrowing the filter back to the exact set
+re-opens it the next time somebody adds an import. Dropping the checker leaves
+the filter unverified again, which is the state it was already in. Checking the
+reverse direction — a path covering nothing — would fail CI for something
+harmless and get the whole guard deleted.

@@ -50,6 +50,7 @@ import {
   query,
 } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { decodeSegment } from "../../mcp/src/store/index.js";
 import {
   CredentialCryptoError,
   decryptSecret,
@@ -61,7 +62,20 @@ import {
 import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSigningArtifacts } from "./lib/verification";
-import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
+import {
+  STORAGE_LAYOUT_PROBE_VERSION,
+  storageLayoutAnswerIsCurrent,
+  storageLayoutStateValidator,
+} from "./lib/storageLayout";
+import {
+  requireWorkspaceAccess,
+  requireWorkspaceRole,
+} from "./lib/workspaceAuth";
+import {
+  managedAccountId,
+  managedBucketName,
+  refuseManagedEndpoint,
+} from "./lib/managedStorage";
 
 const providerValidator = v.union(
   v.literal("r2"),
@@ -81,12 +95,37 @@ const providerValidator = v.union(
  * failure mode a notes product cannot have.
  */
 function initialCapabilities(): StorageCapabilities {
-  return { conditionalWrite: false };
+  return {
+    conditionalWrite: false,
+    conditionalCreate: false,
+    conditionalDelete: false,
+    serverSideCopy: false,
+  };
 }
 
 export interface StorageCapabilities {
   conditionalWrite: boolean;
+  conditionalCreate?: boolean;
+  conditionalDelete?: boolean;
+  serverSideCopy?: boolean;
 }
+
+/**
+ * The capability object, once, for every validator that carries it.
+ *
+ * It was restated in four places — `recordVerification`, the sealed-row query,
+ * the gateway credential union (twice) and the console's binding view — and a
+ * field added to the schema and to three of the five is a field the gateway
+ * never sees, which is a silent capability loss rather than a type error.
+ * `serverSideCopy` was added as exactly that: probed since #374, in the schema
+ * from this change, and worth nothing until every hop below carries it.
+ */
+export const capabilitiesValidator = v.object({
+  conditionalWrite: v.boolean(),
+  conditionalCreate: v.optional(v.boolean()),
+  conditionalDelete: v.optional(v.boolean()),
+  serverSideCopy: v.optional(v.boolean()),
+});
 
 /** What the binding write returns. Named so the action can annotate itself. */
 export interface BindingResult {
@@ -207,9 +246,24 @@ export interface RekeyResult {
   googleConnectionsRekeyed: number;
   googleConnectionsSkipped: number;
   googleConnectionsUnreadable: number;
+  providerCredentialsRekeyed: number;
+  providerCredentialsSkipped: number;
+  providerCredentialsUnreadable: number;
   platformSecretsRekeyed: number;
   platformSecretsSkipped: number;
   platformSecretsUnreadable: number;
+  managedMigrationsRekeyed: number;
+  managedMigrationsSkipped: number;
+  managedMigrationsUnreadable: number;
+}
+
+export interface ManagedMigrationRekeyCandidates {
+  candidates: {
+    rowId: Id<"managedStorageMigrations">;
+    workspaceId: Id<"workspaces">;
+    envelope: string;
+  }[];
+  unreadable: number;
 }
 
 /** Platform-scoped envelopes, one per `appSecrets` row. */
@@ -263,9 +317,16 @@ function isBlockedIpv6(hostname: string): boolean {
 
 /**
  * Reject an endpoint that would send the credential somewhere unencrypted, that
- * is not an absolute URL at all, or that points back inside our own network.
+ * is not an absolute URL at all, that points back inside our own network, or
+ * that addresses the account holding managed buckets.
  */
 function assertUsableEndpoint(endpoint: string): void {
+  // No-ops on a deployment with no managed account, which is most of them —
+  // see `managedAccountId`. Reads an environment variable and never a
+  // credential, which is what keeps this callable from a public function:
+  // `__tests__/structure.test.ts` fails any public path reaching `decryptSecret`.
+  refuseManagedEndpoint(endpoint, managedAccountId());
+
   let parsed: URL;
   try {
     parsed = new URL(endpoint);
@@ -307,7 +368,9 @@ function assertUsableEndpoint(endpoint: string): void {
  * emphatically NOT tenancy, so it must never be derived from a workspace id.
  * Normalized to `foo/bar/` (no leading slash, one trailing slash).
  */
-function normalizeRootPrefix(rootPrefix: string | undefined): string | undefined {
+function normalizeRootPrefix(
+  rootPrefix: string | undefined,
+): string | undefined {
   if (rootPrefix === undefined) return undefined;
   const trimmed = rootPrefix.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   if (trimmed.length === 0) return undefined;
@@ -316,6 +379,33 @@ function normalizeRootPrefix(rootPrefix: string | undefined): string | undefined
       code: "INVALID_ROOT_PREFIX",
       message: "The root prefix must not contain '..'.",
     });
+  }
+  /*
+    AND THE SAME RULE ON THE DECODED SEGMENT.
+
+    The check above compares raw text; the adapter's `describeKeyProblem` does
+    not — it percent-decodes each segment before comparing, so `%2E%2E` is a
+    ".." to the layer that finally builds the request and to no layer above it.
+    A prefix refused only there is a binding that saves, probes into `error`,
+    and throws on every request afterwards, which is the outcome the addressing
+    check below is written to avoid: a probe records a status, it cannot explain
+    a value, and the screen where the value was typed is where it can be.
+
+    `decodeSegment` is the adapter's own, imported rather than restated — the
+    decoding is the subtle half, and `apps/convex` already bundles this module.
+    Equality per segment rather than `includes`, because the adapter compares
+    whole segments: `a%2E%2Eb` is a prefix it accepts, and refusing it here
+    would refuse a folder no layer objects to. Nothing escapes a bucket either
+    way — the adapter holds — so this is about which door says so.
+  */
+  for (const segment of trimmed.split("/")) {
+    const decoded = decodeSegment(segment);
+    if (decoded === "." || decoded === "..") {
+      throw new ConvexError({
+        code: "INVALID_ROOT_PREFIX",
+        message: "The root prefix must not contain '..'.",
+      });
+    }
   }
   return `${trimmed}/`;
 }
@@ -350,7 +440,10 @@ function normalizeRootPrefix(rootPrefix: string | undefined): string | undefined
  * `URL` lowercases the hostname; the bucket is compared as given, which is the
  * same comparison `S3Store` makes.
  */
-export function addressingIsAmbiguous(endpoint: string, bucket: string): boolean {
+export function addressingIsAmbiguous(
+  endpoint: string,
+  bucket: string,
+): boolean {
   let hostname: string;
   try {
     hostname = new URL(endpoint).hostname;
@@ -441,7 +534,10 @@ export const bindStorage = action({
         message: "A bucket name is required.",
       });
     }
-    if (args.accessKeyId.trim().length === 0 || args.secretAccessKey.length === 0) {
+    if (
+      args.accessKeyId.trim().length === 0 ||
+      args.secretAccessKey.length === 0
+    ) {
       throw new ConvexError({
         code: "INVALID_CREDENTIAL",
         message: "Both an access key id and a secret access key are required.",
@@ -452,7 +548,10 @@ export const bindStorage = action({
     // there is still a person and a form to answer the question. Left to the
     // probe it becomes a permanently-`error` binding whose only documented cure
     // is re-pasting a credential that was never the problem.
-    if (args.forcePathStyle === undefined && addressingIsAmbiguous(args.endpoint, bucket)) {
+    if (
+      args.forcePathStyle === undefined &&
+      addressingIsAmbiguous(args.endpoint, bucket)
+    ) {
       throw ambiguousAddressingError(bucket);
     }
     const rootPrefix = normalizeRootPrefix(args.rootPrefix);
@@ -501,6 +600,8 @@ export const applyBinding = internalMutation({
     accessKeyId: v.string(),
     encryptedSecretAccessKey: v.string(),
     forcePathStyle: v.optional(v.boolean()),
+    /** Keep a newly minted managed credential amber while IAM propagates. */
+    verificationRetryUntil: v.optional(v.number()),
   },
   returns: v.object({ bindingId: v.id("storageBindings"), status: v.string() }),
   handler: async (ctx, args) => {
@@ -555,6 +656,21 @@ export const applyBinding = internalMutation({
       noteCount: undefined,
       noteCountedAt: undefined,
       noteCountTruncated: undefined,
+      // And where the storage-layout migration got to, which is the one whose
+      // survival would be silent. It is what decides whether the console still
+      // offers that migration, so a `complete` carried onto a different bucket
+      // is a bucket that never gets offered it — the pre-v1 plumbing left in
+      // place, dual reads carrying it, and nothing on any screen saying so.
+      storageLayoutState: undefined,
+      storageLayoutAt: undefined,
+      // And the record that it was ever *asked*, which is the half that
+      // decides whether the console offers at all. Left behind, a new bucket
+      // reads as "checked, never run" and is never offered the migration.
+      storageLayoutCheckedAt: undefined,
+      // With the generation that asked, for the same reason: it qualifies an
+      // answer about a different bucket, and an answer nobody gave needs no
+      // qualifying.
+      storageLayoutCheckedVersion: undefined,
       // And the Dropbox grant, which is the one with a life of its own.
       //
       // `applyDropboxBinding` clears every S3 field on the way in and says why:
@@ -603,11 +719,18 @@ export const applyBinding = internalMutation({
     // re-encrypts a field into itself without touching `provider`). Removing
     // it changes no test, which is the honest signal — and a reader meeting it
     // cannot tell that without running the sabotage, so it is written here.
-    if (existing?.provider === "dropbox" && existing.encryptedRefreshToken !== undefined) {
-      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
-        workspaceId: args.workspaceId,
-        encryptedRefreshToken: existing.encryptedRefreshToken,
-      });
+    if (
+      existing?.provider === "dropbox" &&
+      existing.encryptedRefreshToken !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.dropboxConnect.revokeDropboxGrant,
+        {
+          workspaceId: args.workspaceId,
+          encryptedRefreshToken: existing.encryptedRefreshToken,
+        },
+      );
     }
 
     let bindingId: Id<"storageBindings">;
@@ -657,7 +780,11 @@ export const applyBinding = internalMutation({
     await ctx.scheduler.runAfter(
       0,
       internal.functions.provisioning.verifyStorageBinding,
-      { workspaceId: args.workspaceId, actorUserId: args.actorUserId },
+      {
+        workspaceId: args.workspaceId,
+        actorUserId: args.actorUserId,
+        retryUntil: args.verificationRetryUntil,
+      },
     );
 
     return { bindingId, status: "unverified" };
@@ -738,7 +865,7 @@ export const recordVerification = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     ok: v.boolean(),
-    capabilities: v.optional(v.object({ conditionalWrite: v.boolean() })),
+    capabilities: v.optional(capabilitiesValidator),
     error: v.optional(v.string()),
     /**
      * The machine-readable companion to `error`. See the schema's `errorCode`
@@ -806,6 +933,31 @@ export const recordVerification = internalMutation({
       updatedAt: now,
     });
 
+    // A managed bucket is not delivered when its row is written; it is
+    // delivered when the exact credential the gateway will use has answered.
+    // Transient failures inside the IAM propagation window never reach this
+    // mutation (the verifier reschedules them), so a failure here is final for
+    // this attempt and may truthfully replace the running state.
+    if (binding.bucket === managedBucketName(args.workspaceId)) {
+      const plan = await ctx.db
+        .query("workspacePlans")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .unique();
+      if (
+        plan !== null &&
+        plan.managedStorage === true &&
+        (plan.managedProvisioning === "running" ||
+          plan.managedProvisioning === "failed")
+      ) {
+        await ctx.db.patch(plan._id, {
+          managedProvisioning: args.ok ? "ready" : "failed",
+          managedProvisioningError: args.ok ? undefined : args.errorCode,
+          managedProvisioningAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: args.actorUserId,
@@ -814,6 +966,82 @@ export const recordVerification = internalMutation({
         conditionalWrite: (args.capabilities ?? binding.capabilities)
           .conditionalWrite,
       },
+    });
+    return null;
+  },
+});
+
+/**
+ * Record where the storage-layout migration got to.
+ *
+ * Internal, and the same shape as `recordNoteCount` for the same reason: it is
+ * a thing we observed while holding a credential, which no query can recompute
+ * without becoming a public function that opens one.
+ *
+ * The bucket stays authoritative — `migrateStorageLayout` persists its own
+ * state under `.context/` and short-circuits on `complete`. This is the copy
+ * the console reads, and it exists because the console had nothing to read:
+ * "available" was as close to "pending" as it could get, so the offer to run
+ * the migration was answered by a flag on one device and came back on every
+ * other one, for a bucket that had already been migrated.
+ *
+ * Called on every outcome, including the refusals — a bucket without
+ * conflict-safe writes answers `unsupported` and that is an answer, not a
+ * failure to record. A binding that vanished mid-migration drops the write,
+ * exactly as the count does: the state describes a bucket this row no longer
+ * names.
+ *
+ * ## An absent `state` is an answer too, and it is why this takes one
+ *
+ * `state` is optional because **"we looked, and this bucket has never run the
+ * migration" is a different fact from "nobody has looked"** — and the console
+ * had no way to tell them apart, so it offered the update to every context
+ * migrated before this field existed, for ever, on every device. Recording the
+ * *question* separately from the *answer* is what ends that:
+ * `storageLayoutCheckedAt` says the bucket was asked, and is set on every call
+ * here; `storageLayoutState` stays what it said, and is left absent when it
+ * has genuinely never run.
+ *
+ * A bucket that would not answer at all must not reach this function. That is
+ * not a state, it is the absence of an observation, and writing a timestamp
+ * for it would claim we know something we do not — `readStorageLayout` returns
+ * `observed: false` and its caller records nothing.
+ */
+export const recordStorageLayoutState = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    /** Absent means the bucket answered that it has never run this. */
+    state: v.optional(storageLayoutStateValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding === null) return null;
+
+    const now = Date.now();
+    await ctx.db.patch(binding._id, {
+      /*
+        Written even when it clears a state we had. The bucket is authoritative
+        and this row is a copy of it: a state file that is gone means this
+        bucket is no longer migrated as far as anything can tell, and the
+        honest consequence is that the console offers the update again. A copy
+        that outlived the thing it copied is the stale-green-check failure the
+        rebind clear exists to avoid.
+      */
+      storageLayoutState: args.state,
+      ...(args.state === undefined ? {} : { storageLayoutAt: now }),
+      storageLayoutCheckedAt: now,
+      /*
+        And which generation of the question this answer came from. The one
+        before it looked only for a migration state file, so a bucket we
+        scaffolded ourselves answered "never run" and every new workspace was
+        offered an update with nothing behind it. Stamping the answer is what
+        lets those rows be asked once more instead of backfilled by hand.
+      */
+      storageLayoutCheckedVersion: STORAGE_LAYOUT_PROBE_VERSION,
     });
     return null;
   },
@@ -889,7 +1117,7 @@ export const getBindingRow = internalQuery({
       accessTokenExpiresAt: v.optional(v.number()),
       dropboxAccountId: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
   ),
@@ -954,14 +1182,14 @@ export const getBindingForGateway = internalAction({
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
     v.object({
       provider: v.literal("dropbox"),
       accessToken: v.string(),
       rootPrefix: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
   ),
@@ -985,7 +1213,11 @@ export const getBindingForGateway = internalAction({
     //    behind; spread, that reaches the gateway as a credential for storage
     //    this binding no longer points at.
     if (binding.provider === "dropbox") {
-      const accessToken = await dropboxAccessToken(ctx, args.workspaceId, binding);
+      const accessToken = await dropboxAccessToken(
+        ctx,
+        args.workspaceId,
+        binding,
+      );
       return {
         provider: "dropbox",
         accessToken,
@@ -1103,7 +1335,11 @@ async function dropboxAccessToken(
 
   let refreshToken: string;
   try {
-    refreshToken = await decryptSecret(binding.encryptedRefreshToken, keyset, context);
+    refreshToken = await decryptSecret(
+      binding.encryptedRefreshToken,
+      keyset,
+      context,
+    );
   } catch (error) {
     if (error instanceof CredentialCryptoError) {
       throw new ConvexError({
@@ -1130,7 +1366,11 @@ async function dropboxAccessToken(
 
   let refreshed;
   try {
-    refreshed = await refreshDropboxToken({ clientId, clientSecret, refreshToken });
+    refreshed = await refreshDropboxToken({
+      clientId,
+      clientSecret,
+      refreshToken,
+    });
   } catch (error) {
     // A revoked grant is not a transient failure, and the two need different
     // words: one is "reconnect Dropbox", the other is "try again".
@@ -1151,7 +1391,11 @@ async function dropboxAccessToken(
     internal.functions.storage.recordDropboxRefresh as never,
     {
       workspaceId,
-      encryptedAccessToken: await encryptSecret(refreshed.accessToken, keyset, context),
+      encryptedAccessToken: await encryptSecret(
+        refreshed.accessToken,
+        keyset,
+        context,
+      ),
       accessTokenExpiresAt: refreshed.expiresAt,
       encryptedRefreshToken: refreshed.refreshToken
         ? await encryptSecret(refreshed.refreshToken, keyset, context)
@@ -1264,6 +1508,8 @@ export const ROTATED_ENVELOPE_COLUMNS = [
   ...ENVELOPE_FIELDS,
   "encryptedDataKey",
   "encryptedValue",
+  "encryptedTargetSecretAccessKey",
+  "encryptedApiKey",
 ] as const;
 
 /**
@@ -1277,7 +1523,7 @@ export const ROTATED_ENVELOPE_COLUMNS = [
  *
  *  - `cloudflareProvisioning.encryptedSetupCredential` — one in-flight bucket
  *    creation, alive for seconds, deleted in the transaction that writes the
-  *    binding and cleared on failure. A rotation landing inside that window
+ *    binding and cleared on failure. A rotation landing inside that window
  *    fails that one attempt, which the owner retries. There is nothing here to
  *    carry forward: by design the row is gone before a pass would reach it.
  *
@@ -1420,7 +1666,11 @@ export const listDataKeyRekeyCandidates = internalQuery({
         continue;
       }
       if (keyId === args.currentKeyId) continue;
-      candidates.push({ rowId: row._id, workspaceId: row.workspaceId, envelope });
+      candidates.push({
+        rowId: row._id,
+        workspaceId: row.workspaceId,
+        envelope,
+      });
     }
     return { candidates, unreadable };
   },
@@ -1457,6 +1707,81 @@ export const applyDataKeyRekey = internalMutation({
 });
 
 /**
+ * Candidate envelopes on `providerCredentials`, the agent's model account.
+ *
+ * A fourth table and therefore a fourth walk, for the reason the mail
+ * connection's own header gives one paragraph down: the cross-schema guard
+ * catches an unaccounted column *name*, and cannot catch a table this pass
+ * never visits. `providerCredentials` is not exempt — losing the envelope
+ * means the customer re-pastes an API key from somebody else's console, which
+ * is not "an action the owner is already in the middle of" — so it moves
+ * forward with everything else.
+ */
+export const listProviderCredentialRekeyCandidates = internalQuery({
+  args: { currentKeyId: v.string(), limit: v.number() },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        rowId: v.id("providerCredentials"),
+        workspaceId: v.id("workspaces"),
+        envelope: v.string(),
+      }),
+    ),
+    unreadable: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db.query("providerCredentials").take(args.limit);
+    const candidates = [];
+    let unreadable = 0;
+    for (const row of rows) {
+      const envelope = row.encryptedApiKey;
+      if (typeof envelope !== "string" || envelope.length === 0) {
+        unreadable += 1;
+        continue;
+      }
+      let keyId: string;
+      try {
+        keyId = envelopeKeyId(envelope);
+      } catch {
+        unreadable += 1;
+        continue;
+      }
+      if (keyId === args.currentKeyId) continue;
+      candidates.push({ rowId: row._id, workspaceId: row.workspaceId, envelope });
+    }
+    return { candidates, unreadable };
+  },
+});
+
+/**
+ * Re-seal one provider key under the current envelope key.
+ *
+ * Conditional on the bytes the pass read, like every other apply here: a
+ * customer who reconnected a provider mid-pass holds a *newer* key under the
+ * current generation, and restoring a re-encryption of the old one would
+ * quietly put back a credential they had just replaced.
+ */
+export const applyProviderCredentialRekey = internalMutation({
+  args: {
+    rowId: v.id("providerCredentials"),
+    expectedEnvelope: v.string(),
+    envelope: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.rowId);
+    if (row === null) return false;
+    if (row.encryptedApiKey !== args.expectedEnvelope) return false;
+    await ctx.db.patch(args.rowId, { encryptedApiKey: args.envelope });
+    await recordAudit(ctx, {
+      workspaceId: row.workspaceId,
+      action: "encryption.rekeyed",
+    });
+    return true;
+  },
+});
+
+/**
  * Every field on a mail connection that holds an encrypted envelope.
  *
  * A mailbox connection has its own table (`googleConnections`, never a column
@@ -1475,7 +1800,18 @@ const googleConnectionEnvelopeField = v.union(
   v.literal("encryptedRefreshToken"),
   v.literal("encryptedAccessToken"),
 );
-type GoogleConnectionEnvelopeField = "encryptedRefreshToken" | "encryptedAccessToken";
+type GoogleConnectionEnvelopeField =
+  "encryptedRefreshToken" | "encryptedAccessToken";
+
+/** Candidate envelopes on `providerCredentials`, one per row. */
+export interface ProviderCredentialRekeyCandidates {
+  candidates: {
+    rowId: Id<"providerCredentials">;
+    workspaceId: Id<"workspaces">;
+    envelope: string;
+  }[];
+  unreadable: number;
+}
 
 /** Candidate envelopes on `googleConnections`, one per field. */
 export interface GoogleConnectionRekeyCandidates {
@@ -1506,7 +1842,10 @@ export const listGoogleConnectionRekeyCandidates = internalQuery({
     const candidates = [];
     let unreadable = 0;
     for (const row of rows) {
-      for (const field of ["encryptedRefreshToken", "encryptedAccessToken"] as const) {
+      for (const field of [
+        "encryptedRefreshToken",
+        "encryptedAccessToken",
+      ] as const) {
         const envelope = row[field];
         // A disconnected mailbox's refresh token is the empty string, not a
         // missing envelope — see `disconnectGoogleConnection`. Empty is never a
@@ -1520,7 +1859,12 @@ export const listGoogleConnectionRekeyCandidates = internalQuery({
           continue;
         }
         if (keyId === args.currentKeyId) continue;
-        candidates.push({ connectionId: row._id, workspaceId: row.workspaceId, field, envelope });
+        candidates.push({
+          connectionId: row._id,
+          workspaceId: row.workspaceId,
+          field,
+          envelope,
+        });
       }
     }
     return { candidates, unreadable };
@@ -1545,8 +1889,14 @@ export const applyGoogleConnectionRekey = internalMutation({
     const connection = await ctx.db.get(args.connectionId);
     if (connection === null) return false;
     if (connection[args.field] !== args.expectedEnvelope) return false;
-    await ctx.db.patch(args.connectionId, { [args.field]: args.envelope, updatedAt: Date.now() });
-    await recordAudit(ctx, { workspaceId: connection.workspaceId, action: "mail.rekeyed" });
+    await ctx.db.patch(args.connectionId, {
+      [args.field]: args.envelope,
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: connection.workspaceId,
+      action: "mail.rekeyed",
+    });
     return true;
   },
 });
@@ -1617,6 +1967,73 @@ export const applyPlatformSecretRekey = internalMutation({
   },
 });
 
+/** Destination credentials parked while a managed-storage copy is in flight. */
+export const listManagedMigrationRekeyCandidates = internalQuery({
+  args: { currentKeyId: v.string(), limit: v.number() },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        rowId: v.id("managedStorageMigrations"),
+        workspaceId: v.id("workspaces"),
+        envelope: v.string(),
+      }),
+    ),
+    unreadable: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("managedStorageMigrations")
+      .take(args.limit);
+    const candidates = [];
+    let unreadable = 0;
+    for (const row of rows) {
+      const envelope = row.encryptedTargetSecretAccessKey;
+      let keyId: string;
+      try {
+        keyId = envelopeKeyId(envelope);
+      } catch {
+        unreadable += 1;
+        continue;
+      }
+      if (keyId !== args.currentKeyId) {
+        candidates.push({
+          rowId: row._id,
+          workspaceId: row.workspaceId,
+          envelope,
+        });
+      }
+    }
+    return { candidates, unreadable };
+  },
+});
+
+export const applyManagedMigrationRekey = internalMutation({
+  args: {
+    rowId: v.id("managedStorageMigrations"),
+    expectedEnvelope: v.string(),
+    envelope: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.rowId);
+    if (
+      row === null ||
+      row.encryptedTargetSecretAccessKey !== args.expectedEnvelope
+    ) {
+      return false;
+    }
+    await ctx.db.patch(row._id, {
+      encryptedTargetSecretAccessKey: args.envelope,
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: row.workspaceId,
+      action: "storage.rekeyed",
+    });
+    return true;
+  },
+});
+
 /**
  * Re-encrypt bindings still on an older key. INTERNAL ACTION — decrypts.
  *
@@ -1638,9 +2055,15 @@ export const rekeyStorageBindings = internalAction({
     googleConnectionsRekeyed: v.number(),
     googleConnectionsSkipped: v.number(),
     googleConnectionsUnreadable: v.number(),
+    providerCredentialsRekeyed: v.number(),
+    providerCredentialsSkipped: v.number(),
+    providerCredentialsUnreadable: v.number(),
     platformSecretsRekeyed: v.number(),
     platformSecretsSkipped: v.number(),
     platformSecretsUnreadable: v.number(),
+    managedMigrationsRekeyed: v.number(),
+    managedMigrationsSkipped: v.number(),
+    managedMigrationsUnreadable: v.number(),
   }),
   handler: async (ctx, args): Promise<RekeyResult> => {
     const keyset = requireKeyset();
@@ -1718,10 +2141,11 @@ export const rekeyStorageBindings = internalAction({
     // is the same class of miss `encryptedDataKey` was before its own pass
     // existed, and it gets the same fix: a dedicated candidate query, wired in
     // here, not merely a column name added to a list somewhere.
-    const googleConnections: GoogleConnectionRekeyCandidates = await ctx.runQuery(
-      internal.functions.storage.listGoogleConnectionRekeyCandidates,
-      { currentKeyId: keyset.current.id, limit },
-    );
+    const googleConnections: GoogleConnectionRekeyCandidates =
+      await ctx.runQuery(
+        internal.functions.storage.listGoogleConnectionRekeyCandidates,
+        { currentKeyId: keyset.current.id, limit },
+      );
 
     let googleConnectionsRekeyed = 0;
     let googleConnectionsSkipped = 0;
@@ -1748,6 +2172,40 @@ export const rekeyStorageBindings = internalAction({
       else googleConnectionsSkipped += 1;
     }
 
+    // The agent's model account. A fourth table, so a fourth walk — wired in
+    // here rather than only named in `ROTATED_ENVELOPE_COLUMNS`, because a
+    // column listed as rotated whose table this pass never visits is the exact
+    // shape of the `encryptedDataKey` miss.
+    const providerCredentials: ProviderCredentialRekeyCandidates =
+      await ctx.runQuery(
+        internal.functions.storage.listProviderCredentialRekeyCandidates,
+        { currentKeyId: keyset.current.id, limit },
+      );
+
+    let providerCredentialsRekeyed = 0;
+    let providerCredentialsSkipped = 0;
+    let providerCredentialsUnreadable = providerCredentials.unreadable;
+    for (const candidate of providerCredentials.candidates) {
+      const context = { workspaceId: candidate.workspaceId as string };
+      let plaintext: string;
+      try {
+        plaintext = await decryptSecret(candidate.envelope, keyset, context);
+      } catch {
+        providerCredentialsUnreadable += 1;
+        continue;
+      }
+      const applied: boolean = await ctx.runMutation(
+        internal.functions.storage.applyProviderCredentialRekey,
+        {
+          rowId: candidate.rowId,
+          expectedEnvelope: candidate.envelope,
+          envelope: await encryptSecret(plaintext, keyset, context),
+        },
+      );
+      if (applied) providerCredentialsRekeyed += 1;
+      else providerCredentialsSkipped += 1;
+    }
+
     // And the platform's own credentials. Losing these is an outage rather than
     // data loss — an operator re-enters them — but a rotation that cannot be
     // finished without one is a rotation nobody performs, which is the state
@@ -1764,7 +2222,11 @@ export const rekeyStorageBindings = internalAction({
     for (const candidate of platform.candidates) {
       let value: string;
       try {
-        value = await decryptSecret(candidate.envelope, keyset, platformContext);
+        value = await decryptSecret(
+          candidate.envelope,
+          keyset,
+          platformContext,
+        );
       } catch {
         platformSecretsUnreadable += 1;
         continue;
@@ -1781,6 +2243,35 @@ export const rekeyStorageBindings = internalAction({
       else platformSecretsSkipped += 1;
     }
 
+    const managedMigrations: ManagedMigrationRekeyCandidates =
+      await ctx.runQuery(
+        internal.functions.storage.listManagedMigrationRekeyCandidates,
+        { currentKeyId: keyset.current.id, limit },
+      );
+    let managedMigrationsRekeyed = 0;
+    let managedMigrationsSkipped = 0;
+    let managedMigrationsUnreadable = managedMigrations.unreadable;
+    for (const candidate of managedMigrations.candidates) {
+      const context = { workspaceId: candidate.workspaceId as string };
+      let plaintext: string;
+      try {
+        plaintext = await decryptSecret(candidate.envelope, keyset, context);
+      } catch {
+        managedMigrationsUnreadable += 1;
+        continue;
+      }
+      const applied: boolean = await ctx.runMutation(
+        internal.functions.storage.applyManagedMigrationRekey,
+        {
+          rowId: candidate.rowId,
+          expectedEnvelope: candidate.envelope,
+          envelope: await encryptSecret(plaintext, keyset, context),
+        },
+      );
+      if (applied) managedMigrationsRekeyed += 1;
+      else managedMigrationsSkipped += 1;
+    }
+
     return {
       rekeyed,
       skipped,
@@ -1791,9 +2282,15 @@ export const rekeyStorageBindings = internalAction({
       googleConnectionsRekeyed,
       googleConnectionsSkipped,
       googleConnectionsUnreadable,
+      providerCredentialsRekeyed,
+      providerCredentialsSkipped,
+      providerCredentialsUnreadable,
       platformSecretsRekeyed,
       platformSecretsSkipped,
       platformSecretsUnreadable,
+      managedMigrationsRekeyed,
+      managedMigrationsSkipped,
+      managedMigrationsUnreadable,
     };
   },
 });
@@ -1831,7 +2328,7 @@ export const getStorageBinding = query({
        * console never caches the account it showed last.
        */
       dropboxAccountId: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
       lastVerifiedAt: v.optional(v.number()),
       lastError: v.optional(v.string()),
@@ -1886,12 +2383,49 @@ export const getStorageBinding = query({
       noteCount: v.optional(v.number()),
       noteCountedAt: v.optional(v.number()),
       noteCountTruncated: v.optional(v.boolean()),
+      /**
+       * Where the storage-layout migration got to, and when we last heard.
+       *
+       * Absent means nobody has run it through us, which is the only state
+       * that still offers it — see `lib/storageLayout.ts` for the other six.
+       *
+       * Not clamped to the owner, unlike `noteCount`. That number is about
+       * private notes and this is about our own plumbing: it names no key and
+       * counts nothing of the customer's. Every member of a context can
+       * already see its provider, its bucket and its verification status, and
+       * this says less than any of them.
+       */
+      storageLayoutState: v.optional(storageLayoutStateValidator),
+      storageLayoutAt: v.optional(v.number()),
+      /**
+       * Whether the bucket has been *asked*, which is the half that decides
+       * whether the console offers at all. Absent state plus absent checked is
+       * "nobody has looked"; absent state with this set is the real "nobody
+       * has run it". See the schema column for what conflating them cost.
+       */
+      storageLayoutCheckedAt: v.optional(v.number()),
+      /**
+       * Which generation of the question that answer came from, so a console
+       * can tell an answer the current probe stands behind from one the
+       * probe before it got wrong. `storageLayoutAnswerIsCurrent` is the
+       * predicate, and the console and `observeStorageLayout` share it rather
+       * than each deciding — a console that thought the question was open
+       * while the mutation refused to ask it would put the notice back on
+       * exactly the buckets this closed it for.
+       */
+      storageLayoutCheckedVersion: v.optional(v.number()),
       updatedAt: v.number(),
+      /** True only for the deterministic bucket this service operates. */
+      managed: v.boolean(),
     }),
   ),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const { membership } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    const { membership } = await requireWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      userId,
+    );
     const isOwner = membership.role === "owner";
 
     const binding = await ctx.db
@@ -1927,7 +2461,12 @@ export const getStorageBinding = query({
       noteCount: isOwner ? binding.noteCount : undefined,
       noteCountedAt: isOwner ? binding.noteCountedAt : undefined,
       noteCountTruncated: isOwner ? binding.noteCountTruncated : undefined,
+      storageLayoutState: binding.storageLayoutState,
+      storageLayoutAt: binding.storageLayoutAt,
+      storageLayoutCheckedAt: binding.storageLayoutCheckedAt,
+      storageLayoutCheckedVersion: binding.storageLayoutCheckedVersion,
       updatedAt: binding.updatedAt,
+      managed: binding.bucket === managedBucketName(args.workspaceId),
     };
   },
 });
@@ -1952,6 +2491,104 @@ export const getStorageBinding = query({
  */
 const REVERIFY_LIMIT = 6;
 const REVERIFY_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Ask this bucket where the storage-layout migration got to, and run nothing.
+ *
+ * ## Why a context that was already migrated kept being offered the migration
+ *
+ * `storageBindings.storageLayoutState` was added so the console could stop
+ * offering an update that had already run. It was only ever written by a
+ * migration *pass*, so it answered for contexts migrated from then on and for
+ * nobody else: every context migrated before it existed kept `complete` in its
+ * own bucket and nothing in this row, and an empty column reads as "nobody has
+ * run this". The notice came back on every device, for ever, for exactly the
+ * people who had already done what it was asking. The owner who reported the
+ * original nag was one of them.
+ *
+ * The bucket has always known. Nothing ever asked it outside of a migration.
+ * This asks.
+ *
+ * ## Why it is safe to call whenever the console wonders
+ *
+ * It schedules `runFileOperation` with `readStorageLayout`, which is one `get`
+ * against a single JSON key under `.context/` — no write, no delete, and none
+ * of the conditional-write capability `migrateStorage` demands. A bucket that
+ * can never *run* the migration can still say whether it already has.
+ *
+ * It is also self-limiting by construction: the observation sets
+ * `storageLayoutCheckedAt`, and the guard below refuses once that is set. One
+ * probe per binding, and one more after a rebind, which is a bucket nobody has
+ * looked at either.
+ *
+ * ## A mutation that schedules rather than an action that probes
+ *
+ * `reverifyStorage`'s reason exactly: `runFileOperation` opens a credential,
+ * and a public function that *called* it would have that in its own call
+ * graph. The scheduler discards the job's result, so this can cause the read
+ * without ever being able to see what it opened. Watch `getStorageBinding` for
+ * the outcome.
+ *
+ * Owner-only, because it spends the workspace's request budget against the
+ * workspace's bucket — the same reason `reverifyStorage` is.
+ */
+export const observeStorageLayout = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ queued: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding === null) return { queued: false };
+    /*
+      Nothing to ask, or nothing to ask it with. An unverified or errored
+      binding is one the console is already telling its owner about in a louder
+      notice, and a probe against it would fail for that reason rather than
+      teach anybody anything.
+    */
+    if (binding.status !== "connected") return { queued: false };
+    /*
+      Already answered — by an observation, or by a migration pass that
+      recorded its own outcome. Either way the question is spent.
+
+      Spent *by the current probe*, which is the one distinction this guard
+      has to make. An answer with no state in it is only as good as the
+      question that produced it, and the first generation asked one that every
+      newly scaffolded bucket answered wrongly. `storageLayoutAnswerIsCurrent`
+      is the same predicate the console reads as `layoutChecked`, so a binding
+      the notice is holding its tongue for is exactly one this will re-ask.
+    */
+    if (storageLayoutAnswerIsCurrent(binding)) return { queued: false };
+
+    await consumeRateLimit(ctx, {
+      key: `storage.observeLayout:${args.workspaceId}`,
+      limit: OBSERVE_LAYOUT_LIMIT,
+      windowMs: OBSERVE_LAYOUT_WINDOW_MS,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: { kind: "readStorageLayout" },
+    });
+    return { queued: true };
+  },
+});
+
+/**
+ * The guard above spends itself after one success, so this is only ever the
+ * ceiling on *unsuccessful* probes — a bucket that will not answer, asked
+ * again by a console that mounted again. Low, because nobody is waiting on it:
+ * it is a background reconcile, and the cost of a refusal is that a notice
+ * somebody can already dismiss stays up a while longer.
+ */
+const OBSERVE_LAYOUT_LIMIT = 4;
+const OBSERVE_LAYOUT_WINDOW_MS = 60 * 60 * 1000;
+
 
 /**
  * Check an existing binding again, without re-supplying the credential.
@@ -2052,6 +2689,118 @@ export const reverifyStorage = mutation({
   },
 });
 
+/** Bindings one sweep may re-probe. Matches the other sweeps in `crons.ts`. */
+export const CAPABILITY_SWEEP_BATCH = 20;
+
+/**
+ * Re-probe a binding that predates a capability field, so the field reaches it.
+ *
+ * ## The failure this repairs
+ *
+ * `capabilities` held one boolean until 2026-09-12. `conditionalCreate` and
+ * `conditionalDelete` were added that day as optional fields, and nothing went
+ * back for the rows that already existed. The gateway reads
+ * `declared && probed` (`store/factory.js`) and cannot distinguish "probed
+ * false" from "never asked", so it fails closed on both — correctly, and that
+ * rule is not what changes here. The consequence was that every binding older
+ * than that date reported no conditional delete, `moveSafetyRefusal` turned
+ * every `move_note`, `move_notes`, `move_folder` and cross-context move into a
+ * refusal quoting the storage provider, and the bucket underneath was R2,
+ * which has supported all of it the whole time. Nothing re-asked: there is no
+ * storage job in `crons.ts`, and `reverifyStorage` needs an owner to press a
+ * button for a fault they cannot see and would not guess at.
+ *
+ * ## Why this is a sweep and not a one-shot migration
+ *
+ * A one-shot repairs today's rows and leaves the next optional capability to
+ * be found by a customer again. The predicate is "any capability field this
+ * deployment knows about is absent from this row", so a field added tomorrow
+ * is backfilled by the same job without anybody remembering to write one.
+ * That is also why it is bounded and self-terminating: once every row carries
+ * every field it matches nothing, costs one indexless scan an hour, and stays
+ * quiet until the schema grows again.
+ *
+ * ## What `crons.ts` requires of a job that acts outside this database
+ *
+ * It holds no decision. Whether this binding may be probed at all, whether its
+ * credential still opens, and what the bucket actually enforces are re-asked
+ * by `verifyStorageBinding` at the moment it runs, against the row as it then
+ * stands — this only decides *when to look*, and it looks exactly once per
+ * row per missing field.
+ *
+ * It does reach a customer's bucket, and that is the part worth stating rather
+ * than filing quietly: `probeStore` writes and deletes objects under
+ * `.context/`, never note surface, and cleans up after itself. That is the
+ * same probe the owner's own reconnect runs. What it must never do is carry a
+ * `structure` argument — that would scaffold — so it passes none, which makes
+ * this a look-only verification.
+ *
+ * Restricted to `connected` rows: an `error` or `unverified` binding has an
+ * owner already being told to act, and re-probing a credential the provider
+ * has revoked on an hourly clock is noise against somebody else's endpoint.
+ *
+ * ## The scan is indexless, and that is a bound worth naming
+ *
+ * "Is a field absent" is not something an index answers, so this reads
+ * `storageBindings` — one row per workspace that has storage — and stops at
+ * the first `CAPABILITY_SWEEP_BATCH` matches. Once every row is repaired it
+ * matches nothing and reads the table in full, hourly, for nothing.
+ *
+ * That is affordable at this deployment's size and it is **not** affordable
+ * forever: a Convex transaction may read on the order of ten thousand
+ * documents, so a deployment past that many bindings turns this into an hourly
+ * error. It fails loudly rather than silently, which is the tolerable
+ * direction, and the remedy when it happens is to make the predicate indexed —
+ * a `capabilitiesProbedVersion` on the row, bumped when a capability is added,
+ * read through a range index — rather than to raise the batch. Stated here so
+ * the next person meets the limit as a decision instead of as an incident.
+ */
+export const sweepUnprobedCapabilities = internalMutation({
+  args: {},
+  returns: v.object({ queued: v.number() }),
+  handler: async (ctx): Promise<{ queued: number }> => {
+    const rows = await ctx.db
+      .query("storageBindings")
+      // Bounded, like every other sweep: a backlog drains over several runs
+      // rather than in one transaction big enough to hit a limit. The filter
+      // runs before the take, so a deployment whose first twenty rows are
+      // already repaired still reaches the twenty-first.
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("status"), "connected"),
+          q.or(
+            q.eq(q.field("capabilities.conditionalCreate"), undefined),
+            q.eq(q.field("capabilities.conditionalDelete"), undefined),
+            q.eq(q.field("capabilities.serverSideCopy"), undefined),
+          ),
+        ),
+      )
+      .take(CAPABILITY_SWEEP_BATCH);
+
+    for (const row of rows) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.provisioning.verifyStorageBinding,
+        // No `actorUserId`: nobody asked for this one. No `structure`: a
+        // verification carrying one scaffolds, and this is a look.
+        { workspaceId: row.workspaceId },
+      );
+      // Audited with no actor, which is the honest record of a system action.
+      // `verifyStorageBinding` writes no audit of its own — the owner-facing
+      // `reverifyStorage` is what audits a probe somebody asked for — so
+      // without this the owner would find probe objects appearing and
+      // disappearing under `.context/` in a bucket they are told they own,
+      // with nothing in their trail that accounts for it.
+      await recordAudit(ctx, {
+        workspaceId: row.workspaceId,
+        action: "storage.capability_reprobe_queued",
+        details: { fromStatus: row.status },
+      });
+    }
+    return { queued: rows.length };
+  },
+});
+
 /**
  * Forget the credential.
  *
@@ -2076,17 +2825,32 @@ export const disconnectStorage = mutation({
       .unique();
     if (binding === null) return { disconnected: false };
 
+    if (binding.bucket === managedBucketName(args.workspaceId)) {
+      throw new ConvexError({
+        code: "MANAGED_STORAGE",
+        message:
+          "Managed storage cannot be disconnected here; move or export the notes first.",
+      });
+    }
+
     // A Dropbox disconnect also disables the grant at Dropbox — otherwise we
     // forget our copy of the credential while the authorization lives on in
     // the person's account, and their next connect silently auto-approves
     // instead of asking. Scheduled, not called: this public mutation must not
     // reach the decrypt. Best-effort, and the envelope travels in the args
     // because the row is deleted on the next line.
-    if (binding.provider === "dropbox" && binding.encryptedRefreshToken !== undefined) {
-      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
-        workspaceId: args.workspaceId,
-        encryptedRefreshToken: binding.encryptedRefreshToken,
-      });
+    if (
+      binding.provider === "dropbox" &&
+      binding.encryptedRefreshToken !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.dropboxConnect.revokeDropboxGrant,
+        {
+          workspaceId: args.workspaceId,
+          encryptedRefreshToken: binding.encryptedRefreshToken,
+        },
+      );
     }
 
     await ctx.db.delete(binding._id);

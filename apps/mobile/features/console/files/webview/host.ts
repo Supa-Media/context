@@ -33,10 +33,17 @@ import {
   type ToGuest,
   type ToHost,
 } from "./protocol";
+import { layout } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
 /**
- * The palette and the measure, as the custom properties `styles.ts` draws with.
+ * The palette and the type scale, as the custom properties `styles.ts` draws
+ * with.
+ *
+ * ("The measure" below means the type scale — size, leading, padding — which is
+ * what this file has always called it. The note's *line length* is a separate
+ * property added later, `--lp-measure`, and it is at the bottom of the returned
+ * object with its own note.)
  *
  * Sent as values rather than as a scheme name for the reason no module in this
  * app holds a palette: a surface that decided its own colours would be a third
@@ -76,6 +83,15 @@ export function themeVars(
     "--lp-muted": colors.text2,
     "--lp-link": colors.codeKey,
     "--lp-code-bg": colors.well,
+    // Hairlines. See the web half's note: a rule that wants an edge used to
+    // borrow the code fence's fill, which is not one.
+    "--lp-line": colors.line,
+    "--lp-line-strong": colors.lineStrong,
+    // The wash behind a focused control. `accentDim` is already that colour;
+    // `--lp-selection` is the same value for the same reason.
+    "--lp-focus-ring": colors.accentDim,
+    // What a destructive menu item is drawn in; `crit` is the rust family.
+    "--lp-danger": colors.crit,
     "--lp-caret": colors.text,
     "--lp-selection": colors.accentDim,
     // `fonts.body` is `undefined` on native on purpose — there are no bundled
@@ -85,11 +101,37 @@ export function themeVars(
     "--lp-body": "-apple-system, system-ui, sans-serif",
     "--lp-mono": `${mono ?? "ui-monospace"}, ui-monospace, Menlo, monospace`,
 
-    "--lp-size": compact ? "16px" : "14.5px",
+    /*
+      16px at both densities. This was 14.5px on the pointer layout, and the
+      reading measure is a multiple of it, so the small type was shrinking the
+      column as well as the glyphs: at 40em, 14.5px drew 580px of text where
+      16px draws 640px. Measured against Obsidian in a pane of the same width,
+      14.5px put about 12px of ink on a line against Obsidian's 14px and left
+      320px gutters against its 238 — the note read as small text lost in a
+      wide pane, which is what it was. One size is also one thing to keep in
+      step rather than two.
+    */
+    "--lp-size": "16px",
     "--lp-leading": compact ? "1.5" : "1.75",
     "--lp-pad-top": compact ? "8px" : "14px",
     "--lp-pad-x": compact ? "24px" : "16px",
     "--lp-pad-bottom": compact ? "32px" : "14px",
+
+    /*
+      The reading measure — the note's line length, which is the one value
+      here that does NOT change with the density, because it is a multiple of
+      whatever the density's own type size is: 36 of them at 16px and at
+      14.5px. It travels as a bare number and `styles.ts` multiplies by 1em
+      where the text is; see `layout.readingMeasureEm` for why the unit is em
+      and why the multiplication is down there.
+
+      Sending it at all is the point rather than an optimisation. `styles.ts`
+      reads `var(--lp-measure)`, and a custom property no one declares makes
+      its whole declaration invalid at computed-value time — so an undeclared
+      one here is not a fallback to a sensible width, it is the measure
+      silently gone, which is the shape of the bug PR #487 fixed.
+    */
+    "--lp-measure": String(layout.readingMeasureEm),
   };
 }
 
@@ -203,6 +245,20 @@ export function allowInitialLoadOnly(request: { url: string }): boolean {
   return request.url === "about:blank" || request.url.startsWith("about:");
 }
 
+/**
+ * Base64 back to bytes.
+ *
+ * Re-exported rather than defined here: it lives in `files/imageBytes.ts`
+ * beside `base64FromBytes`, which is its inverse, so the app has one base64
+ * implementation for images rather than one per caller. It moved when the
+ * workspace-icon picker needed it — importing it from *this* module would have
+ * pulled `EDITOR_BUNDLE`, the whole committed editor build, into the settings
+ * panel's import graph.
+ */
+import { bytesFromBase64 } from "../imageBytes";
+
+export { bytesFromBase64 };
+
 export interface HostSink {
   onChange: (text: string) => void;
   onSave: () => void;
@@ -218,10 +274,68 @@ export interface HostSink {
   onCaret?: (caret: { top: number; bottom: number }) => void;
   /** The guest failed to start. A blank rectangle otherwise. */
   onFailed?: (message: string) => void;
-  /** A link to another note was followed with a modifier held. Navigate. */
-  onOpenNote?: (path: string) => void;
-  /** One was long-pressed. **Ask first** — see the `press-link` message. */
-  onPressNote?: (path: string) => void;
+  /**
+   * A link to another note was followed. See the `open-link` message.
+   *
+   * `"background"` is a ⌘-click or middle-click and must not move the person:
+   * the note opens in a tab behind the one they are reading.
+   */
+  onOpenNote?: (path: string, mode: "foreground" | "background") => void;
+  /**
+   * A form block on the note was filled in and submitted.
+   *
+   * Absent means this surface cannot send one, and the guest is told so rather
+   * than left waiting: see the `form-submit` case below, which replies with a
+   * refusal instead of dropping the message. A request with no reply is a
+   * button that stays on "Sending…" for the rest of the session.
+   */
+  onSubmitForm?: (submission: {
+    formId: string;
+    values: ReadonlyArray<{ field: string; value: string }>;
+  }) => Promise<{ ok: boolean; message: string }>;
+  onReadFormResponses?: (
+    responsesPath: string,
+  ) => Promise<{ ok: boolean; text?: string; message: string }>;
+  onVoteForm?: (vote: {
+    formId: string;
+    responseId: string;
+    vote: "up" | "none";
+  }) => Promise<{ ok: boolean; message: string }>;
+  onUpdateFormResponse?: (change: {
+    formId: string;
+    responseId: string;
+    values: ReadonlyArray<{ field: string; value: string }>;
+  }) => Promise<{ ok: boolean; message: string }>;
+  onRetractFormResponse?: (change: {
+    formId: string;
+    responseId: string;
+  }) => Promise<{ ok: boolean; message: string }>;
+  /**
+   * The bytes behind an image the note embeds, as a `data:` URL.
+   *
+   * Absent means this surface has no bucket behind it, and the guest is told
+   * `null` rather than left waiting — every branch of the two cases below
+   * replies, for the reason `onSubmitForm` gives.
+   */
+  onLoadImage?: (target: string) => Promise<string | null>;
+  /** Store a pasted image, and answer with the key to embed. */
+  onStoreImage?: (image: {
+    bytes: ArrayBuffer;
+    contentType: string;
+  }) => Promise<{ target: string } | { error: string }>;
+  /**
+   * Ask the running plugins what they would offer at this point in the line.
+   *
+   * Absent means this surface has no plugin runtime behind it, and the guest is
+   * told so with `setSuggest(false)` rather than left asking — but the guest is
+   * a separate bundle that can be paired with a host it does not know, so the
+   * `suggest-ask` case below still answers when this is missing. An empty list
+   * is a real answer; a dropped request is a completion that never resolves.
+   */
+  onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  /** Take the pick. Resolves to the rewritten line, or `null` if nothing
+   * answered — including when nobody was asked. */
+  onPickSuggestion?: (index: number) => Promise<string | null>;
 }
 
 export interface HostBridge {
@@ -248,6 +362,15 @@ export interface HostBridge {
    * frontmatter.
    */
   run: (command: EditorCommand) => void;
+  /**
+   * Whether a plugin can be asked for in-editor suggestions right now.
+   *
+   * The console knows this and the guest cannot: the plugins run out here, in
+   * their own sandboxes. Told rather than asked, so that a note on a surface
+   * with no plugin running costs no bridge traffic per keystroke — see the
+   * `suggest` message.
+   */
+  setSuggest: (available: boolean) => void;
   /** A raw `onMessage` payload. */
   receive: (raw: string) => void;
   /** Testing seam: what the guest is believed to hold. */
@@ -270,7 +393,7 @@ export interface HostBridge {
 /**
  * How many note paths are worth sending across the bridge.
  *
- * See `setLinks`. Chosen as "a large brain still fits" rather than measured:
+ * See `setLinks`. Chosen as "a large workspace still fits" rather than measured:
  * five thousand keys is a few hundred kilobytes of JSON, once per note opened,
  * and the thing it buys is bare `[[name]]` links resolving. A bucket past it
  * loses that one style rather than paying the cost on every open.
@@ -303,6 +426,13 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
   let known = "";
   let linkPath: string | null = null;
   let linkPaths: readonly string[] | undefined;
+  /**
+   * Whether a plugin can answer a suggestion right now.
+   *
+   * `false` to start, which is what every surface is before its plugins have
+   * loaded, and resent on `ready` with everything else.
+   */
+  let suggesting = false;
 
   const post = (message: ToGuest) => {
     if (!ready) return;
@@ -364,6 +494,11 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
       linkPaths = capped;
       post({ v: PROTOCOL_VERSION, type: "links", path, paths: capped });
     },
+    setSuggest: (available) => {
+      if (available === suggesting && ready) return;
+      suggesting = available;
+      post({ v: PROTOCOL_VERSION, type: "suggest", available });
+    },
     /**
      * The first of the three refusals a bar key meets.
      *
@@ -394,6 +529,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           send(encode({ v: PROTOCOL_VERSION, type: "theme", vars }));
           send(encode({ v: PROTOCOL_VERSION, type: "inset", bottom: inset }));
           send(encode({ v: PROTOCOL_VERSION, type: "links", path: linkPath, paths: linkPaths }));
+          send(encode({ v: PROTOCOL_VERSION, type: "suggest", available: suggesting }));
           send(encode({ v: PROTOCOL_VERSION, type: "doc", text: doc }));
           known = doc;
           return;
@@ -440,16 +576,227 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           sink.onFailed?.(message.message);
           return;
         /*
-          Neither is gated on `editable`: following a link is reading, and a
-          note somebody may only read is exactly the note they are most likely
-          to be following links out of.
+          Not gated on `editable`: following a link is reading, and a note
+          somebody may only read is exactly the note they are most likely to be
+          following links out of.
         */
         case "open-link":
-          sink.onOpenNote?.(message.path);
+          sink.onOpenNote?.(message.path, message.mode);
           return;
-        case "press-link":
-          sink.onPressNote?.(message.path);
+        /*
+          Also not gated on `editable`, and for a stronger reason than the two
+          above: a `member` is *always* on a read-only note, and a member
+          filling in a form is the case markdown forms exist for. Gating this
+          on `editable` would switch the feature off for everybody it is for.
+
+          The reply always goes back, on both branches and on a throw. The
+          guest has disabled its button and is showing "Sending…" until one
+          arrives, so a swallowed failure is a form that can never be sent
+          again without reloading the note.
+        */
+        /*
+          The two image cases. `image-load` is not gated on `editable` — an
+          image in a note somebody may only read still has to be visible — and
+          `image-store` is, because a paste is a write and the server would
+          refuse it anyway: the point of refusing here is that the guest hears
+          a sentence instead of watching a paste vanish.
+        */
+        case "image-load": {
+          const { token, target } = message;
+          const reply = (src: string | null): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "image-loaded", token, src }));
+          const load = sink.onLoadImage;
+          if (load === undefined) {
+            reply(null);
+            return;
+          }
+          load(target)
+            .then((src) => reply(src))
+            .catch(() => reply(null));
           return;
+        }
+        case "image-store": {
+          const { token, bytes, contentType } = message;
+          const reply = (outcome: { target?: string; error?: string }): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "image-stored", token, ...outcome }));
+          if (!editable) {
+            reply({ error: "You can’t add an image to this note." });
+            return;
+          }
+          const store = sink.onStoreImage;
+          if (store === undefined) {
+            reply({ error: "Images can’t be added here." });
+            return;
+          }
+          let decoded: ArrayBuffer;
+          try {
+            decoded = bytesFromBase64(bytes);
+          } catch {
+            reply({ error: "That image did not arrive intact." });
+            return;
+          }
+          store({ bytes: decoded, contentType })
+            .then((outcome) =>
+              reply("target" in outcome ? { target: outcome.target } : { error: outcome.error }),
+            )
+            .catch((error: unknown) =>
+              reply({
+                error: error instanceof Error ? error.message : "That image could not be stored.",
+              }),
+            );
+          return;
+        }
+        case "form-submit": {
+          const { token, formId, values } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const submit = sink.onSubmitForm;
+          if (submit === undefined) {
+            reply(false, "This note can’t send responses here.");
+            return;
+          }
+          submit({ formId, values })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "That didn’t send."),
+            );
+          return;
+        }
+        case "form-responses": {
+          const { token, responsesPath } = message;
+          const reply = (outcome: { ok: boolean; text?: string; message: string }): void =>
+            send(
+              encode({
+                v: PROTOCOL_VERSION,
+                type: "form-responses-result",
+                token,
+                ...outcome,
+              }),
+            );
+          const read = sink.onReadFormResponses;
+          if (read === undefined) {
+            reply({ ok: false, message: "Responses are unavailable here." });
+            return;
+          }
+          read(responsesPath)
+            .then(reply)
+            .catch((error: unknown) =>
+              reply({
+                ok: false,
+                message: error instanceof Error ? error.message : "Responses are unavailable.",
+              }),
+            );
+          return;
+        }
+        case "form-vote": {
+          const { token, formId, responseId, vote } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const cast = sink.onVoteForm;
+          if (cast === undefined) {
+            reply(false, "Voting is unavailable here.");
+            return;
+          }
+          cast({ formId, responseId, vote })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "That vote didn’t send."),
+            );
+          return;
+        }
+        case "form-update": {
+          const { token, formId, responseId, values } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const update = sink.onUpdateFormResponse;
+          if (update === undefined) {
+            reply(false, "Editing is unavailable here.");
+            return;
+          }
+          update({ formId, responseId, values })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "Those changes didn’t save."),
+            );
+          return;
+        }
+        /*
+          Asking is a read and picking is a write, and they are gated
+          differently for that reason alone.
+
+          The ask is not gated on `editable`: it sends the caret's line to a
+          plugin, and whether a plugin may see note content is decided by
+          `maySeeContent` against the `vault:read` grant, out where the
+          sandboxes are. A member on a read-only note is exactly who a
+          suggesting plugin is for — the same argument the form cases make one
+          block up.
+
+          The pick IS gated, because a pick exists to produce an edit.
+          `EditorView.editable.of(false)` does not stop a programmatic one, so
+          this is the second of the three refusals every edit meets here, on the
+          other side of a process boundary from the guest's own `changeFilter`.
+          There is no legitimate pick on a note the viewer may not write, so the
+          plugin is not troubled for an answer that would be thrown away.
+        */
+        case "suggest-ask": {
+          const { token } = message;
+          if (typeof token !== "string") return;
+          const reply = (items: { text: string }[]): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "suggest-result", token, items }));
+          const ask = sink.onSuggest;
+          /*
+            The guest is the least trusted thing in this app — it is rendering
+            somebody's markdown — and `line` is about to be handed to a
+            third-party plugin. A shape check rather than a length cap: the line
+            is a line of the note the host itself sent in, so there is no size
+            here that is suspicious, but a `line` that arrived as an object
+            would reach the sandbox as `[object Object]`.
+          */
+          if (
+            ask === undefined ||
+            typeof message.line !== "string" ||
+            !Number.isInteger(message.ch) ||
+            message.ch < 0
+          ) {
+            reply([]);
+            return;
+          }
+          ask(message.line, message.ch)
+            .then(reply)
+            .catch(() => reply([]));
+          return;
+        }
+        case "suggest-pick": {
+          const { token } = message;
+          if (typeof token !== "string") return;
+          const reply = (text: string | null): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "suggest-pick-result", token, text }));
+          const pick = sink.onPickSuggestion;
+          if (pick === undefined || !acceptsChange(editable) || !Number.isInteger(message.index)) {
+            reply(null);
+            return;
+          }
+          pick(message.index)
+            .then((text) => reply(typeof text === "string" ? text : null))
+            .catch(() => reply(null));
+          return;
+        }
+        case "form-retract": {
+          const { token, formId, responseId } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const retract = sink.onRetractFormResponse;
+          if (retract === undefined) {
+            reply(false, "Deleting is unavailable here.");
+            return;
+          }
+          retract({ formId, responseId })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "That response wasn’t deleted."),
+            );
+          return;
+        }
       }
     },
   };

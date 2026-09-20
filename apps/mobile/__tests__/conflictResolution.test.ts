@@ -53,6 +53,10 @@ jest.mock("convex/react", () => {
 });
 
 import { useFileBrowser } from "../features/console/files/useFileBrowser";
+import {
+  CONFLICT_READ_RETRY_MS,
+  CONFLICT_READ_TIMEOUT_MS,
+} from "../features/console/files/useConflictReview";
 
 const PATH = "1-projects/pilot.md";
 
@@ -138,6 +142,39 @@ function conflictWith(etag: string) {
   });
 }
 
+/** The bucket no longer has the note the draft was based on. */
+function conflictWithDeletion() {
+  return new ConvexError({
+    code: "CONFLICT",
+    message: "That file was deleted somewhere else while you were editing it.",
+  });
+}
+
+async function reachTheDeletedConflict() {
+  browser.select(PATH);
+  await settle();
+  browser.setDraft(MINE);
+  await settle();
+
+  actions[name("readNote")] = async () => {
+    throw new ConvexError({ code: "FILE_NOT_FOUND", message: "That file is gone." });
+  };
+  actions[name("writeNote")] = async (args: never) => {
+    const write = args as unknown as {
+      path: string;
+      text: string;
+      expectedEtag?: string;
+    };
+    writes.push({ path: write.path, text: write.text, expectedEtag: write.expectedEtag });
+    if (write.expectedEtag !== undefined) throw conflictWithDeletion();
+    inBucket = noteAt(write.text, "recreated");
+    return { path: write.path, etag: inBucket.etag, conflictCheck: "conditional" };
+  };
+
+  browser.save();
+  await settle();
+}
+
 /**
  * Open the note, type over it, press save, and let the refusal land.
  *
@@ -199,6 +236,95 @@ describe("a conflict, and the decision it asks for", () => {
     expect(review!.theirsEtag).toBe("e2");
   });
 
+  test("a transient failure reading their version heals without a hard refresh", async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    actions[name("readNote")] = async () => {
+      reads += 1;
+      if (reads === 2) throw new TypeError("temporary transport failure");
+      return inBucket;
+    };
+
+    try {
+      await reachTheConflict();
+
+      expect(browser.conflict!.theirs).toBeNull();
+      expect(browser.conflict!.unreadable).toContain("could not be read just now");
+      expect(writes).toHaveLength(1);
+      browser.resolveWith(browser.conflict!.mine);
+      await settle();
+      expect(writes).toHaveLength(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(CONFLICT_READ_RETRY_MS);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+
+      expect(browser.conflict!.theirs).toBe(THEIRS);
+      expect(browser.conflict!.theirsEtag).toBe("e2");
+      expect(browser.conflict!.unreadable).toBeNull();
+      expect(writes).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a conflict read that never answers times out and heals in place", async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    actions[name("readNote")] = async () => {
+      reads += 1;
+      if (reads === 2) return new Promise<OpenNote>(() => {});
+      return inBucket;
+    };
+
+    try {
+      await reachTheConflict();
+      expect(browser.conflict!.reading).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(CONFLICT_READ_TIMEOUT_MS);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+      expect(browser.conflict!.unreadable).toContain("retry automatically");
+
+      await act(async () => {
+        jest.advanceTimersByTime(CONFLICT_READ_RETRY_MS);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+      expect(browser.conflict!.theirs).toBe(THEIRS);
+      expect(writes).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a server refusal is not retried in the background", async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    actions[name("readNote")] = async () => {
+      reads += 1;
+      if (reads > 1) {
+        throw new ConvexError({ code: "FORBIDDEN", message: "No access." });
+      }
+      return inBucket;
+    };
+
+    try {
+      await reachTheConflict();
+      expect(browser.conflict!.retry).toBeUndefined();
+
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+      expect(reads).toBe(2);
+      expect(writes).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("the merge is a three-way merge, and it keeps both edits", async () => {
     await reachTheConflict();
 
@@ -248,6 +374,57 @@ describe("a conflict, and the decision it asks for", () => {
     expect(browser.editor.status).toBe("clean");
     expect(browser.editor.draft).toBe(THEIRS);
     expect(browser.conflict).toBeNull();
+  });
+
+  test("a remotely deleted note can be left deleted without another read or write", async () => {
+    await reachTheDeletedConflict();
+
+    expect(browser.conflict?.theirsDeleted).toBe(true);
+    expect(browser.conflict?.mergeRefusal?.reason).toBe("deleted");
+    expect(writes).toHaveLength(1);
+
+    browser.useTheirs();
+    await settle();
+
+    expect(writes).toHaveLength(1);
+    expect(browser.selectedPath).toBeNull();
+    expect(browser.editor.status).toBe("empty");
+    expect(browser.conflict).toBeNull();
+  });
+
+  test("keeping mine after remote deletion is a create-only write", async () => {
+    await reachTheDeletedConflict();
+
+    browser.resolveWith(browser.conflict!.mine);
+    await settle();
+
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toEqual({ path: PATH, text: MINE, expectedEtag: undefined });
+    expect(browser.editor.status).toBe("saved");
+  });
+
+  test("a note recreated before Keep mine returns as a fresh ordinary conflict", async () => {
+    await reachTheDeletedConflict();
+    inBucket = noteAt("# Pilot\n\nRecreated elsewhere.\n", "e3");
+    actions[name("readNote")] = async () => inBucket;
+    actions[name("writeNote")] = async (args: never) => {
+      const write = args as unknown as {
+        path: string;
+        text: string;
+        expectedEtag?: string;
+      };
+      writes.push({ path: write.path, text: write.text, expectedEtag: write.expectedEtag });
+      throw conflictWith(inBucket.etag);
+    };
+
+    browser.resolveWith(browser.conflict!.mine);
+    await settle();
+
+    expect(writes[1]?.expectedEtag).toBeUndefined();
+    expect(browser.editor.status).toBe("conflict");
+    expect(browser.conflict?.theirsDeleted).toBe(false);
+    expect(browser.conflict?.theirsEtag).toBe("e3");
+    expect(browser.conflict?.theirs).toContain("Recreated elsewhere");
   });
 
   /**
@@ -379,6 +556,18 @@ describe("what may be offered, as a rule rather than as a screen", () => {
     expect(offer.refusal?.reason).toBe("offline");
   });
 
+  test("a deleted bucket version is a deliberate two-way choice, not an offline read", () => {
+    const offer = offerMerge({
+      cached,
+      draftBase: "e1",
+      mine: MINE,
+      theirs: null,
+      theirsDeleted: true,
+    });
+    expect(offer.merge).toBeNull();
+    expect(offer.refusal?.reason).toBe("deleted");
+  });
+
   /**
    * A bucket that cannot do conditional writes must not be described as if it
    * could — and the claim is driven by the binding's connect-time probe, not by
@@ -429,6 +618,7 @@ describe("the resolver, drawn", () => {
     mine: MINE,
     theirs: THEIRS,
     theirsEtag: "e2",
+    theirsDeleted: false,
     reading: false,
     unreadable: null,
     merge: { text: MERGED, conflicts: 0 },
@@ -519,11 +709,58 @@ describe("the resolver, drawn", () => {
         merge: null,
         mergeRefusal: { reason: "offline", sentence: "The version in your bucket has not been read yet." },
       },
-      { keepTheirs: () => (pressed += 1) },
+      {
+        keepTheirs: () => (pressed += 1),
+        resolveWith: () => (pressed += 1),
+      },
     );
     press(container, "conflict-keep-theirs");
+    press(container, "conflict-keep-mine");
     expect(pressed).toBe(0);
     expect(container.textContent).toContain("only your version is here");
+  });
+
+  test("remote deletion leaves both deliberate choices available", () => {
+    let kept = "";
+    const container = draw(
+      {
+        ...REVIEW,
+        theirs: null,
+        theirsEtag: null,
+        theirsDeleted: true,
+        merge: null,
+        mergeRefusal: {
+          reason: "deleted",
+          sentence: "The bucket copy was deleted, so there is no text to merge.",
+        },
+      },
+      {
+        keepTheirs: () => (kept = "deleted"),
+        resolveWith: () => (kept = "mine"),
+      },
+    );
+
+    expect(container.textContent).toContain("deleted from your bucket");
+    press(container, "conflict-keep-theirs");
+    expect(kept).toBe("deleted");
+    press(container, "conflict-keep-mine");
+    expect(kept).toBe("mine");
+  });
+
+  test("a transient unread version can be retried without refreshing the app", () => {
+    let retried = 0;
+    const container = draw({
+      ...REVIEW,
+      theirs: null,
+      theirsEtag: null,
+      merge: null,
+      mergeRefusal: { reason: "offline", sentence: "The version has not been read yet." },
+      retry: () => (retried += 1),
+    });
+
+    press(container, "conflict-retry-read");
+    expect(retried).toBe(1);
+    expect(container.textContent).toContain("without reloading this page");
   });
 
   /**

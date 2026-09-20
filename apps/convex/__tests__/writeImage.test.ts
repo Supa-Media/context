@@ -220,7 +220,7 @@ describe("what a leaf may be", () => {
     // And the `dot <= 0` gate, which nothing pinned: sabotaging it alone left
     // all 37 checks green. It is reachable, not a backstop — without it
     // `slice(-1 + 1)` is the whole leaf, so a leaf that IS an extension name
-    // passes the set lookup and writes `.images/png`.
+    // passes the set lookup and writes `.context/assets/images/png`.
     ["png", "a leaf that is only an extension name, so there is no dot"],
     ["jpeg", "the same, with the other spelling"],
   ])("%s is refused (%s)", async (leaf) => {

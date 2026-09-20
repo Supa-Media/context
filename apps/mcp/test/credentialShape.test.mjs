@@ -67,7 +67,7 @@ const BINDING = Object.freeze({
   accessKeyId: "AKIAEXAMPLEEXAMPLE00",
   secretAccessKey: SECRET_KEY,
   forcePathStyle: true,
-  capabilities: { conditionalWrite: true },
+  capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
 });
 
 const controlPlane = {
@@ -179,7 +179,7 @@ export async function runCredentialShapeChecks(check) {
       workspaceId: "ws_home",
       accessToken: DROPBOX_TOKEN,
       rootPrefix: "/context",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     },
     {}
   );

@@ -37,7 +37,7 @@ export function hashTitle(title: string): string {
  *  - **The title hash makes a retitle a new object**, which is the only
  *    invalidation there is: the Workers cache is per-datacenter with no global
  *    purge, so a changed URL is how a new card reaches a crawler.
- *  - **The token is truncated to 16 characters.** A card in `.images/` is
+ *  - **The token is truncated to 16 characters.** A card in `.context/assets/images/` is
  *    reachable by anybody who can read a note that references it, so the full
  *    64-character token — the capability itself — must not be sitting in a
  *    filename. Sixteen hex characters is 64 bits: enough that two shares in one

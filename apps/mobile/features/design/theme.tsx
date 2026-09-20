@@ -1,4 +1,9 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useColorScheme } from "react-native";
 
 import {
@@ -33,11 +38,23 @@ import {
  *
  * `useColorScheme()` already answers the question on every platform this app
  * ships to, so the hooks below work with no provider above them. The provider
- * exists for the two cases the platform cannot answer: a test that needs to
- * mount a screen in a named scheme, and (later) a user who wants to pin the
- * app to one appearance regardless of the system. Making it required would
- * have meant a crash in every one of the hundred-odd tests that mount a
- * component on its own, in exchange for nothing.
+ * exists for the one case the platform cannot answer: a test that needs to
+ * mount a screen in a named scheme.
+ *
+ * ## The app follows the device, and has nothing to remember
+ *
+ * There was a stored choice — Light, Dark, or follow the device — with a
+ * settings panel behind it, a module-level store to keep that panel and the
+ * provider from disagreeing, a synchronous peek on web and an async read on
+ * native, and a launch image held up in `app/_layout.tsx` until that read
+ * landed. All of it existed to make one pinned value arrive before the first
+ * frame.
+ *
+ * The pinning is gone, so the machinery is too rather than being left in
+ * place with nothing able to write to it: a stored `"dark"` that no surface
+ * could change would be a setting somebody is locked into, which is worse
+ * than the setting not existing. What "Appearance" means now is the sentence
+ * Profile prints — this app is light when the device is.
  */
 
 /**

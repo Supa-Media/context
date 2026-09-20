@@ -8,7 +8,8 @@
  * resolves an upstream to a real origin, validates that configuration, and
  * turns a decision into an actual Response.
  */
-import { previewForNote, previewForShare, renderPreviewHtml } from "./preview";
+import { previewForNote,
+  previewForShortLink, previewForShare, renderPreviewHtml } from "./preview";
 import { route, type Upstream } from "./route";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
@@ -119,6 +120,27 @@ export default {
       case "note-preview": {
         const meta = previewForNote(
           ...(await noteTitle(decision.slug, decision.path, readOrigin(env.CONVEX_ORIGIN))),
+        );
+        return new Response(renderPreviewHtml(meta), {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
+            Vary: "User-Agent",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+          },
+        });
+      }
+
+      case "short-link-preview": {
+        const meta = previewForShortLink(
+          await shortLinkTitle(
+            decision.handle,
+            decision.slug,
+            readOrigin(env.CONVEX_ORIGIN),
+          ),
         );
         return new Response(renderPreviewHtml(meta), {
           status: 200,
@@ -450,6 +472,43 @@ function withCardHeaders(response: Response): Response {
  * POST, like every route it talks to: a GET would put a handle and a note path
  * in this Worker's outbound URL and from there into logs.
  */
+/**
+ * The title a short link unfurls with, or `null`.
+ *
+ * `noteTitle`'s shape, one field narrower, and the narrowness is the point:
+ * `/share/short` returns no card token, so there is nothing here that could
+ * assemble a per-share image out of a capability. Every failure — an origin
+ * that is not configured, a timeout, a non-200, a body that is not what this
+ * documents — is `null`, which renders the generic card.
+ */
+async function shortLinkTitle(
+  handle: string,
+  slug: string,
+  convexOrigin: string | null,
+): Promise<string | null> {
+  if (!convexOrigin) return null;
+
+  const timeout =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(SHARE_TITLE_TIMEOUT_MS)
+      : undefined;
+
+  try {
+    const response = await fetch(`${convexOrigin}/share/short`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle, slug }),
+      ...(timeout ? { signal: timeout } : {}),
+    });
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    const title = (body as { title?: unknown } | null)?.title;
+    return typeof title === "string" && title.trim() !== "" ? title : null;
+  } catch {
+    return null;
+  }
+}
+
 async function noteTitle(
   slug: string,
   path: string,

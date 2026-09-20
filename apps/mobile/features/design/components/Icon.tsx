@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
+import { Circle, Path, Svg } from "react-native-svg";
 import { useColors } from "../theme";
 
 /**
@@ -22,24 +23,43 @@ import { useColors } from "../theme";
  *
  * ## Why not an icon font or an SVG library
  *
- * `react-native-svg` is the obvious answer, and one of the two reasons given
- * here for not taking it has expired. It said the dependency was native, so it
+ * `react-native-svg` was refused here on two grounds, and **both have now
+ * expired** — so two drawings in this file are paths. See "The escape hatch"
+ * below for which, and for the rule that keeps it at two.
+ *
+ * The first reason went a while ago. It said the dependency was native, so it
  * would land in `native-deps.json` and need a new development build on both
  * platforms before anybody could see a single icon. It is in `package.json` at
  * 15.12.1 and in `native-deps.json` `core` — every build already carries it,
  * because the baseline was deliberately over-provisioned before the first
  * binary — so that cost is paid and there is no build to wait for.
  *
- * The reason that survives is the one that was doing the work anyway: it buys
- * nothing this app needs. There is no icon here with a curve a rectangle
- * cannot fake, and the two that have one (the search lens, a dot) are circles,
- * which `borderRadius` draws exactly. An icon font is worse again: a binary in
- * the repo, a load that can fail, and a glyph box we would be back to
- * fighting.
+ * The second was the load-bearing one: it buys nothing this app needs, because
+ * *"there is no icon here with a curve a rectangle cannot fake"*. The eye is
+ * that curve, and it took two failed attempts to establish it. A rectangle can
+ * fake a curve; what it cannot fake is **a curve at constant stroke weight**.
+ * A rounded border tapers to nothing where two borders of different widths
+ * meet — which is an eyelid's canthus and is also why the eye read first as a
+ * toggle switch and then as a pair of brush strokes. Walking the same arc as
+ * round-capped `bar`s holds the weight and beads at every joint instead. The
+ * owner's reference — one weight the whole way round, meeting in points — is
+ * not reachable from `borderRadius`, and the third attempt was a `<Path>`.
+ *
+ * An icon font is still worse than either: a binary in the repo, a load that
+ * can fail, and a glyph box we would be back to fighting.
  *
  * A `View` with a background colour is a `<div>` on web and a layer on native.
- * Rotation is `transform`, which both platforms have. That is the whole
- * toolkit, and it costs nothing to reach for.
+ * Rotation is `transform`, which both platforms have. That is still the whole
+ * toolkit for forty-odd of these, and it costs nothing to reach for.
+ *
+ * ## The escape hatch
+ *
+ * **Reach for a path only when the drawing needs a curve at constant weight.
+ * Everything a rectangle can fake stays a rectangle.** Two icons qualify —
+ * `eye` and `pencil` — and they are drawn by `glyph` below, in the same unit
+ * space as everything else. That is a stated trigger rather than an open door:
+ * without it this file becomes a slow, unargued rewrite in which the forty
+ * working drawings are churned one at a time for no gain.
  *
  * ## The rules
  *
@@ -86,6 +106,20 @@ import { useColors } from "../theme";
 export const ICON_NAMES = [
   /** The sidebar toggle, as Obsidian draws it: a pane with its leading column filled. */
   "panelLeft",
+  /**
+   * Its mirror: the right panel's toggle, a pane with its *trailing* column
+   * filled.
+   *
+   * Drawn rather than reusing `panelLeft` flipped, because this set has no
+   * mirroring primitive and a `scaleX(-1)` transform on a `View` full of
+   * absolutely positioned children is a different thing on native and on web.
+   * Two rects is cheaper than one transform anybody has to reason about.
+   *
+   * The pair is the point: the console reads as symmetric — a panel each side,
+   * each with one toggle in the same bar — rather than as having something
+   * bolted on.
+   */
+  "panelRight",
   "search",
   "plus",
   "check",
@@ -109,6 +143,16 @@ export const ICON_NAMES = [
    * confusion `docs/decisions/meetings.md` refuses for the microphone.
    */
   "copy",
+  /**
+   * Recent, drawn as a clock because every platform draws recency as one.
+   *
+   * Deliberately not an `undo`-style curved arrow: that mark means "put this
+   * back" everywhere else in this set, and the sheet it opens does not undo
+   * anything — it lists where you have been. It replaced the tab-count square,
+   * which was a number rather than a drawing; see `RecentSheet.tsx` for why the
+   * number went.
+   */
+  "clock",
   /** The Map pane: nodes with edges between them. */
   "constellation",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
@@ -176,14 +220,56 @@ export const ICON_NAMES = [
   /** The toolbar's filter, over the note list. */
   "filter",
   /**
-   * The note toolbar's Share, in the group at the top-right of a phone.
+   * The note toolbar's Share, in the group at the top-right of a phone, and
+   * the trailing action on the pointer layout's note header.
    *
-   * The share *graph* — three nodes and the two edges between them — rather
-   * than iOS's arrow out of a tray. That mark means "send this somewhere
-   * else"; a share here grants somebody a way in to a note that stays exactly
-   * where it is, which is a relationship rather than a departure.
+   * iOS's arrow out of a tray. This was the share *graph* — three nodes and
+   * two edges — on the argument that a share here grants somebody a way in to
+   * a note that stays where it is, which is a relationship rather than a
+   * departure. The argument is still true and it lost anyway, to the owner
+   * asking for this glyph with a picture of it: the graph is also Android's
+   * share mark, so the distinction it was drawing was never read as one, and
+   * at 17pt three discs and two bars read as a smudge — the finding at the top
+   * of this file, in a mark rather than a character.
+   *
+   * The landing page's third assurance panel — "Leaving is free, on both
+   * plans" — carries this too, and it got better out of the change rather than
+   * merely surviving it: an arrow lifting out of a tray is the export, which
+   * is what that panel is about.
    */
   "share",
+  /**
+   * Reading mode, as an eye — and one of the two drawings in this file that is
+   * a `<Path>` rather than a stack of `View`s. The header says why.
+   *
+   * Added with the control it is for — the note's read toggle — which is this
+   * set's stated rule. It is deliberately not `book`: that mark is the docs
+   * link in Settings, and one glyph meaning both "open the manual" and "stop
+   * editing this note" is the confusion `copy` and `share` are kept apart to
+   * avoid.
+   *
+   * Two arcs of one circle meeting in a point at each canthus, with the iris a
+   * ring inside them. Filled, the iris reads as a bullet in a bracket at small
+   * sizes and the mark stops being an eye.
+   */
+  "eye",
+  /**
+   * Its other half: the same control while the note is already in reading
+   * mode, so the glyph names the act rather than the state.
+   *
+   * This is what let the read toggle stop carrying its state as an accent
+   * fill. One mark cannot draw "will hide the markup" and "will bring it back",
+   * which is the argument the old comment here made for lighting the button
+   * instead; two marks can, and a lit *pencil* would say "pencil mode is on" —
+   * the opposite of what pressing it does.
+   *
+   * A pencil rather than a sheet with a nib, or a pen: a pencil is the mark
+   * every editor on both platforms uses for "edit this", and the collar across
+   * the barrel is the one detail that keeps it from reading as a felt marker
+   * at 17pt. The lead is a 48° point, rounded by the join — sharper reads as a
+   * needle, blunter as a crayon.
+   */
+  "pencil",
   /**
    * The file tree's sort order, as Obsidian draws it: an up arrow beside three
    * rules of decreasing length.
@@ -234,6 +320,100 @@ export const ICON_NAMES = [
    * section on.
    */
   "mic",
+
+  /* ------------------------------------------------------------------ *
+   * The settings list.
+   *
+   * Nineteen destinations set in one weight, with no mark on any of them, is
+   * a list that has to be *read* rather than scanned — `BottomBar`'s finding
+   * at the top of this file, one screen further down. These are the marks
+   * that let the eye find a row by its shape.
+   *
+   * Four sections take marks that already exist and mean the right thing:
+   * `mic` for Meetings, `lock` for Privacy, `share` for Shared links, and
+   * `search` for Search. A fifth would have been `gear` for Advanced, and it
+   * is not: `gear` is how settings itself is reached, and a row inside
+   * settings wearing the mark that opens settings is a loop.
+   * ------------------------------------------------------------------ */
+
+  /** AI apps: four panes, which is what a set of connected clients looks like. */
+  "grid",
+  /** Profile — one head over one pair of shoulders. */
+  "person",
+  /** People: two heads over one silhouette, so the plural is the drawing. */
+  "people",
+  /**
+   * Groups — three heads and no shoulders.
+   *
+   * Deliberately not `people` with a third head added: at 18pt that reads as
+   * `people` drawn badly. A cluster with no body is a *set*, which is what a
+   * group is, and it cannot be mistaken for the row above it.
+   */
+  "group",
+  /** Email: an envelope, flap down. */
+  "mail",
+  /**
+   * Invitations — the same envelope with the flap open.
+   *
+   * A pair that differs at one end, like `undo`/`redo` above: two unrelated
+   * marks for two kinds of mail would be two things to learn, and these are
+   * the same thing in two states.
+   */
+  "mailOpen",
+  "calendar",
+  /** Chats: a bubble with a tail and the three dots every platform draws. */
+  "chat",
+  /** Your devices — a laptop, because that is the only machine that captures. */
+  "laptop",
+  /**
+   * Appearance, as a sun.
+   *
+   * A crescent would be the better half of the usual pair and this set cannot
+   * draw one: a crescent is a disc with a disc bitten out of it, and there is
+   * no clipping here — see the header. A sun with four rays is the half that
+   * is drawable, and it is what the row means either way: how this looks.
+   */
+  "sun",
+  /** Sign out & delete: a door with the way out beside it. */
+  "signOut",
+  /** Overview — the section that only tells you things. */
+  "info",
+  /** Premium: a card, which is the thing the section actually changes. */
+  "card",
+  /**
+   * Storage — two bays, not a cylinder.
+   *
+   * A database cylinder needs an ellipse, which React Native's border radii do
+   * not make reliably across both platforms; `globe` records the same refusal
+   * two drawings up.
+   */
+  "drive",
+  /** Advanced: two sliders, off their defaults. */
+  "sliders",
+  /**
+   * Plugins — a board with one piece joined to its corner.
+   *
+   * Not a puzzle piece, which is the obvious mark and undrawable here: a
+   * jigsaw tab is a path with two concave shoulders, and there is no clipping
+   * in this set (see `globe` and `drive`, which record the same refusal). Two
+   * rounded rectangles meeting at a corner say the thing that actually matters
+   * about this section anyway — something of somebody else's, attached to
+   * what you already have — and the filled one is the *added* half, so the
+   * drawing has a subject.
+   *
+   * Deliberately not `grid`, which is AI apps: four equal panes are a set of
+   * peers, and a plugin is not a peer of the vault it runs against.
+   */
+  "plugin",
+  /**
+   * The Model row: a big four-point star with a small one beside it.
+   *
+   * Two crossed bars is `plus`, which this set already uses for "add". The
+   * second, smaller star is what makes this a different mark rather than a
+   * bigger one — and the pair is the glyph every product in this decade uses
+   * for a model, so it needs no caption on a row that has none.
+   */
+  "sparkle",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -502,14 +682,27 @@ function shackle(
  * a turned box lands somewhere else and the "stays inside its box" check in
  * `icons.test.ts` is then measuring a box the drawing has left. Three borders
  * and the two *bottom* radii, positioned where they are declared.
+ *
+ * `radius` defaults to half the width, which is the semicircle the microphone
+ * wants and was the only shape this could draw. `share`'s tray wants the same
+ * three borders with an ordinary corner on them — a U with a semicircular foot
+ * is a bowl, and the mark is a box you lift something out of — so the radius
+ * is a parameter rather than a second near-identical primitive.
  */
 function cradle(
   key: string,
   u: number,
   w: number,
   color: string,
-  { x0, y0, x1, y1 }: { x0: number; y0: number; x1: number; y1: number },
+  {
+    x0,
+    y0,
+    x1,
+    y1,
+    radius,
+  }: { x0: number; y0: number; x1: number; y1: number; radius?: number },
 ) {
+  const corner = (radius ?? (x1 - x0) / 2) * u;
   return (
     <View
       key={key}
@@ -522,13 +715,144 @@ function cradle(
         borderBottomWidth: w,
         borderLeftWidth: w,
         borderRightWidth: w,
-        borderBottomLeftRadius: ((x1 - x0) / 2) * u,
-        borderBottomRightRadius: ((x1 - x0) / 2) * u,
+        borderBottomLeftRadius: corner,
+        borderBottomRightRadius: corner,
         borderColor: color,
       }}
     />
   );
 }
+
+/**
+ * The escape hatch: one drawing as stroked paths, in the same unit space.
+ *
+ * `lid` used to live here — an eyelid as one rounded border — and it is gone
+ * with its only caller. It is worth saying what it could not do, because the
+ * eye has now been drawn wrong twice and the reason was the same both times.
+ *
+ * A rounded border draws a *tapering* stroke. Where a border of width `w` meets
+ * one of width zero, the corner between them is drawn as a wedge running to a
+ * point, so an arc made this way is at full weight in the middle and at nothing
+ * by the ends. Worse, a corner radius is clamped by the box's own height, so a
+ * wide shallow arc keeps a dead-straight run across its middle — which is how
+ * the first eye came out as two flat bars with a dot between them, a toggle
+ * switch. Fixing the flat run by stretching a semicircle sideways only exposed
+ * the taper underneath. Walking the true arc as round-capped `bar`s holds the
+ * weight and beads at every joint, because the caps that let segments join are
+ * the same caps that bulge past a tight curve.
+ *
+ * A stroked path has none of those problems: one weight all the way round, and
+ * the ends meet where they are told to. **`icons.test.ts` asserts exactly
+ * that** — it is the guard that would have caught both earlier attempts.
+ *
+ * `viewBox="0 0 1 1"` keeps path data in the same fractions of the box every
+ * other primitive here uses, so a drawing is still readable beside them and
+ * still independent of the size asked for. `strokeWidth` is `w / u` for the
+ * same reason: the weight arrives in points from `strokeFor` and has to be
+ * expressed in the viewBox's units, or a 32pt icon would be drawn at a 20pt
+ * icon's proportions.
+ */
+function glyph(
+  key: string,
+  u: number,
+  w: number,
+  color: string,
+  { paths, circles = [] }: { paths: string[]; circles?: { cx: number; cy: number; r: number }[] },
+) {
+  return (
+    <Svg key={key} width={u} height={u} viewBox="0 0 1 1">
+      {paths.map((d, index) => (
+        <Path
+          key={`p${index}`}
+          d={d}
+          fill="none"
+          stroke={color}
+          strokeWidth={w / u}
+          // Round on both counts. A mitre at the pencil's 48° lead spikes well
+          // past the box at any weight this set uses; a butt cap leaves the
+          // collar's ends square against a barrel drawn round.
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ))}
+      {circles.map((circle, index) => (
+        <Circle
+          key={`c${index}`}
+          cx={circle.cx}
+          cy={circle.cy}
+          r={circle.r}
+          fill="none"
+          stroke={color}
+          strokeWidth={w / u}
+        />
+      ))}
+    </Svg>
+  );
+}
+
+/**
+ * The eye's geometry, named rather than inlined, because `icons.test.ts`
+ * checks the shape these produce and the arc radius is derived from the other
+ * two. A literal there and a literal here is how the drawing and its guard
+ * drift apart.
+ *
+ * 0.88 wide over 0.56 tall — a little over 11:7, which is the ratio an eye is
+ * drawn at everywhere. Taller is a leaf, flatter is a lens. Not wider: the
+ * stroke is centred on the outline, so half of it hangs past the canthus, and
+ * `icons.test.ts` holds the whole drawing inside the box at every size.
+ */
+const EYE_HALF_WIDTH = 0.44;
+/** How far each lid bows from the midline. Both lids share `y = 0.5`. */
+const EYE_SAGITTA = 0.28;
+/**
+ * The iris, at 59% of the eye's height.
+ *
+ * Large enough to nearly fill the almond, which is what stops the mark reading
+ * as a lens or a leaf at 17pt — the lids have to hold their weight out to the
+ * canthi to contain something this size, which is the whole reason this icon
+ * is a path.
+ */
+const EYE_IRIS = 0.165;
+/**
+ * The radius of the circle both lids are arcs of, from the chord and the
+ * sagitta. Deriving it is what makes the two lids arcs of *one* circle, so
+ * they meet at the same angle at both canthi.
+ */
+const EYE_ARC = (EYE_HALF_WIDTH * EYE_HALF_WIDTH + EYE_SAGITTA * EYE_SAGITTA) / (2 * EYE_SAGITTA);
+
+/**
+ * The pencil, as the five points of its outline plus the collar.
+ *
+ * Laid out along the box's leading diagonal from a point at the bottom left:
+ * `along` walks up the barrel, `across` steps out to each side of it. Built
+ * from the direction vectors rather than from five literal coordinates so the
+ * barrel is the same width along its whole length by construction — by hand,
+ * it is five numbers that have to agree and eventually will not.
+ */
+const PENCIL = (() => {
+  const tip = { x: 0.17, y: 0.83 };
+  const along = { x: Math.SQRT1_2, y: -Math.SQRT1_2 };
+  const across = { x: Math.SQRT1_2, y: Math.SQRT1_2 };
+  /** Half the barrel's width: 0.23 across, which keeps it open at 17pt. */
+  const half = 0.115;
+  const at = (t: number) => ({ x: tip.x + t * along.x, y: tip.y + t * along.y });
+  const offset = (from: { x: number; y: number }, side: number) => ({
+    x: from.x + side * half * across.x,
+    y: from.y + side * half * across.y,
+  });
+  // Where the lead stops and the barrel starts, and the blunt end.
+  const collar = at(0.26);
+  const end = at(0.82);
+  return {
+    tip,
+    collarA: offset(collar, 1),
+    collarB: offset(collar, -1),
+    endA: offset(end, 1),
+    endB: offset(end, -1),
+  };
+})();
+
+const point = ({ x, y }: { x: number; y: number }) => `${x} ${y}`;
 
 /**
  * The keys of one icon's strokes, for the test that they are distinct.
@@ -566,6 +890,22 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
           x0: 0.11 + w / u,
           y0: 0.16 + w / u,
           x1: 0.37,
+          y1: 0.84 - w / u,
+          radius: 0.1,
+          fill: c,
+        }),
+      ];
+
+    case "panelRight":
+      // `panelLeft`'s numbers with the filled pane's x-range mirrored about
+      // the box: 0.11 ↔ 0.89, 0.37 ↔ 0.63. Written out rather than derived, so
+      // the two marks are legible side by side in this file.
+      return [
+        rect("frame", u, w, c, { x0: 0.11, y0: 0.16, x1: 0.89, y1: 0.84, radius: 0.16 }),
+        rect("pane", u, w, c, {
+          x0: 0.63,
+          y0: 0.16 + w / u,
+          x1: 0.89 - w / u,
           y1: 0.84 - w / u,
           radius: 0.1,
           fill: c,
@@ -659,6 +999,20 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
       return [
         rect("back", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.66, y1: 0.66, radius: 0.11 }),
         rect("front", u, w, c, { x0: 0.34, y0: 0.34, x1: 0.88, y1: 0.88, radius: 0.11 }),
+      ];
+
+    case "clock":
+      /*
+        Hands at 3:00 — the one setting where neither hand lies along the
+        other, so both are readable at 20pt, and the one every platform's clock
+        glyph settles on for the same reason. Each hand is a bar centred on its
+        own midpoint (see `bar`), so the arithmetic is "half its length out from
+        the middle of the face" rather than an endpoint.
+      */
+      return [
+        ring("face", u, w, c, { cx: 0.5, cy: 0.5, r: 0.37 }),
+        bar("minute", u, w, c, { cx: 0.5, cy: 0.39, length: 0.22, angle: 90 }),
+        bar("hour", u, w, c, { cx: 0.58, cy: 0.5, length: 0.16 }),
       ];
 
     case "constellation":
@@ -815,19 +1169,72 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         chevron("head", u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
       ];
 
+    case "eye": {
+      /*
+        An almond, and an iris inside it.
+
+        One closed path: two arcs of the same circle, running left to right and
+        back again. Both start and end at `y = 0.5`, so the outline closes in a
+        point at each canthus — a gap of even a hundredth reads at 20pt as a
+        broken outline rather than as a soft corner, and `Z` makes the gap
+        impossible rather than merely small.
+
+        `sweep = 1` on both: the first goes over the top, and the second, now
+        travelling right to left, goes under the bottom. The same flag, because
+        it is measured against the direction of travel and the direction has
+        reversed.
+      */
+      const left = 0.5 - EYE_HALF_WIDTH;
+      const right = 0.5 + EYE_HALF_WIDTH;
+      const arc = `A ${EYE_ARC} ${EYE_ARC} 0 0 1`;
+      return glyph("eye", u, w, c, {
+        paths: [`M ${left} 0.5 ${arc} ${right} 0.5 ${arc} ${left} 0.5 Z`],
+        circles: [{ cx: 0.5, cy: 0.5, r: EYE_IRIS }],
+      });
+    }
+
+    case "pencil":
+      /*
+        The barrel as one closed path, and the collar as a second.
+
+        Two paths rather than one: the collar is a line *across* the barrel, and
+        a single path would have to travel back along the shoulder to reach it,
+        drawing that edge twice at double weight where they overlap.
+
+        The outline runs tip → collar → blunt end → collar → back to the tip, so
+        both lead edges are drawn by the same closed loop and meet at the point
+        by construction.
+      */
+      return glyph("pencil", u, w, c, {
+        paths: [
+          `M ${point(PENCIL.tip)} L ${point(PENCIL.collarA)} L ${point(PENCIL.endA)}` +
+            ` L ${point(PENCIL.endB)} L ${point(PENCIL.collarB)} Z`,
+          `M ${point(PENCIL.collarA)} L ${point(PENCIL.collarB)}`,
+        ],
+      });
+
     case "share":
       /*
-        Three nodes and two edges. The edges stop short of the discs rather
-        than running under them — at 20pt a bar that reaches a node's centre
-        turns the whole mark into a filled wedge — so each one is drawn a
-        little shorter than the distance it spans and the gap does the rest.
+        A tray with an arrow lifting out of it.
+
+        The arrow's stem runs *into* the tray rather than stopping on its rim:
+        the two overlap by a little under a seventh of the box, which is what
+        makes the mark read as one object being taken out of another instead of
+        as a chevron parked above a bowl. The tray's top edge is absent
+        entirely — `cradle` is three borders — so there is nothing for the stem
+        to cross, and no gap to keep centred as the weight scales.
+
+        The head is a `chevron`, which is a square turned to point: its apex
+        sits `side / √2` above the declared centre, so the centre is placed
+        that far *below* where the point is wanted rather than at it. Putting
+        the chevron's centre on the tip is how an arrow ends up drawn half out
+        of its box, which the set's bounds check would catch at 24 and the eye
+        would catch nowhere.
       */
       return [
-        bar("up", u, w, c, { cx: 0.5, cy: 0.34, length: 0.34, angle: -34 }),
-        bar("down", u, w, c, { cx: 0.5, cy: 0.66, length: 0.34, angle: 34 }),
-        dot("hub", u, c, { cx: 0.24, cy: 0.5, r: 0.13 }),
-        dot("top", u, c, { cx: 0.76, cy: 0.2, r: 0.13 }),
-        dot("bottom", u, c, { cx: 0.76, cy: 0.8, r: 0.13 }),
+        cradle("tray", u, w, c, { x0: 0.16, y0: 0.48, x1: 0.84, y1: 0.92, radius: 0.1 }),
+        bar("stem", u, w, c, { cx: 0.5, cy: 0.36, length: 0.52, angle: 90 }),
+        chevron("head", u, w, c, { cx: 0.5, cy: 0.312, side: 0.3, angle: -45 }),
       ];
 
     case "book":
@@ -963,6 +1370,193 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         cradle("cradle", u, w, c, { x0: 0.22, y0: 0.42, x1: 0.78, y1: 0.72 }),
         bar("stem", u, w, c, { cx: 0.5, cy: 0.8, length: 0.12, angle: 90 }),
         bar("base", u, w, c, { cx: 0.5, cy: 0.88, length: 0.3 }),
+      ];
+
+    case "grid":
+      return [
+        rect("a", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.46, y1: 0.46, radius: 0.1 }),
+        rect("b", u, w, c, { x0: 0.54, y0: 0.12, x1: 0.88, y1: 0.46, radius: 0.1 }),
+        rect("c", u, w, c, { x0: 0.12, y0: 0.54, x1: 0.46, y1: 0.88, radius: 0.1 }),
+        rect("d", u, w, c, { x0: 0.54, y0: 0.54, x1: 0.88, y1: 0.88, radius: 0.1 }),
+      ];
+
+    case "sparkle":
+      /*
+        Two stars, four bars. The large one is off-centre so the small one has
+        somewhere to sit without the pair reading as a single lopsided plus,
+        and the small one's bars are a third of the length rather than a half —
+        at 20pt a half-length second star is two marks of nearly one size,
+        which reads as a mistake.
+      */
+      return [
+        bar("bigV", u, w, c, { cx: 0.42, cy: 0.42, length: 0.54, angle: 90 }),
+        bar("bigH", u, w, c, { cx: 0.42, cy: 0.42, length: 0.54 }),
+        bar("smallV", u, w, c, { cx: 0.78, cy: 0.76, length: 0.26, angle: 90 }),
+        bar("smallH", u, w, c, { cx: 0.78, cy: 0.76, length: 0.26 }),
+      ];
+
+    case "plugin":
+      return [
+        rect("board", u, w, c, { x0: 0.12, y0: 0.36, x1: 0.64, y1: 0.88, radius: 0.12 }),
+        rect("piece", u, w, c, { x0: 0.58, y0: 0.12, x1: 0.88, y1: 0.42, radius: 0.1, fill: c }),
+      ];
+
+    case "person":
+      /*
+        `shackle` for the shoulders, which is the arch it already draws for a
+        padlock turned to the job it was shaped for: an outline open at the
+        bottom. A rounded rectangle would be a head above a box.
+      */
+      return [
+        ring("head", u, w, c, { cx: 0.5, cy: 0.3, r: 0.18 }),
+        shackle("shoulders", u, w, c, { x0: 0.2, y0: 0.56, x1: 0.8, y1: 0.88 }),
+      ];
+
+    case "people":
+      // The second head is smaller and set back, so the pair reads as depth
+      // rather than as two people of different sizes.
+      return [
+        ring("headA", u, w, c, { cx: 0.34, cy: 0.32, r: 0.15 }),
+        ring("headB", u, w, c, { cx: 0.7, cy: 0.34, r: 0.12 }),
+        shackle("shoulders", u, w, c, { x0: 0.1, y0: 0.58, x1: 0.9, y1: 0.88 }),
+      ];
+
+    case "group":
+      return [
+        ring("a", u, w, c, { cx: 0.31, cy: 0.33, r: 0.16 }),
+        ring("b", u, w, c, { cx: 0.69, cy: 0.33, r: 0.16 }),
+        ring("c", u, w, c, { cx: 0.5, cy: 0.69, r: 0.16 }),
+      ];
+
+    case "mail":
+      return [
+        rect("body", u, w, c, { x0: 0.1, y0: 0.24, x1: 0.9, y1: 0.76, radius: 0.12 }),
+        /*
+          Two chords from the body's top corners to a point below its centre.
+
+          Drawn shallower once — 0.3 long at 20° — and at 19pt the pair closed
+          into a single rule across the top of a rounded box, which is `card`
+          four drawings down. A flap has to descend far enough to be a V: these
+          run corner to corner and drop to 0.54, which is a third of the body.
+        */
+        bar("flapL", u, w, c, { cx: 0.31, cy: 0.41, length: 0.46, angle: 34 }),
+        bar("flapR", u, w, c, { cx: 0.69, cy: 0.41, length: 0.46, angle: -34 }),
+      ];
+
+    case "mailOpen":
+      return [
+        /*
+          The letter coming out, not the flap going up.
+
+          A raised flap is the obvious drawing and it cannot be done here: a
+          chevron's arms land exactly on the body's top edge, which is itself
+          a straight rule, so the pair renders as a pentagon — a house, at any
+          size, verified on device at 19pt. A card rising out of the envelope
+          says "there is something in here for you" and has no edge to
+          collide with.
+
+          Deliberately not two equal squares offset on the diagonal, which is
+          `copy`: this is a tall narrow card centred over a wide body.
+        */
+        rect("letter", u, w, c, { x0: 0.28, y0: 0.14, x1: 0.72, y1: 0.5, radius: 0.06 }),
+        rect("body", u, w, c, { x0: 0.1, y0: 0.42, x1: 0.9, y1: 0.84, radius: 0.1 }),
+      ];
+
+    case "calendar":
+      return [
+        rect("body", u, w, c, { x0: 0.12, y0: 0.2, x1: 0.88, y1: 0.88, radius: 0.12 }),
+        bar("head", u, w, c, { cx: 0.5, cy: 0.4, length: 0.76 }),
+        bar("pegL", u, w, c, { cx: 0.34, cy: 0.14, length: 0.14, angle: 90 }),
+        bar("pegR", u, w, c, { cx: 0.66, cy: 0.14, length: 0.14, angle: 90 }),
+      ];
+
+    case "chat":
+      /*
+        Three dots rather than two rules. Rules inside a rounded box is
+        `file`, three drawings up, and at 18pt the only thing separating the
+        two would be the corner radius.
+      */
+      return [
+        rect("bubble", u, w, c, { x0: 0.12, y0: 0.16, x1: 0.88, y1: 0.7, radius: 0.18 }),
+        bar("tail", u, w, c, { cx: 0.3, cy: 0.8, length: 0.2, angle: 58 }),
+        dot("d1", u, c, { cx: 0.34, cy: 0.43, r: 0.055 }),
+        dot("d2", u, c, { cx: 0.5, cy: 0.43, r: 0.055 }),
+        dot("d3", u, c, { cx: 0.66, cy: 0.43, r: 0.055 }),
+      ];
+
+    case "laptop":
+      return [
+        rect("screen", u, w, c, { x0: 0.16, y0: 0.18, x1: 0.84, y1: 0.66, radius: 0.1 }),
+        bar("base", u, w, c, { cx: 0.5, cy: 0.8, length: 0.88 }),
+      ];
+
+    case "sun":
+      /*
+        Four rays, not eight. Eight at 18pt is a blot with a ring in it — the
+        count `filter` and `globe` both settle on for the same reason.
+
+        A big core and stubby rays, which is the proportion that reads as a
+        sun. Drawn twice the other way round — a small ring with long rays —
+        and on device at 19pt it was a crosshair both times. The ray is a
+        stub *because* the core is large; shorten one without growing the
+        other and it goes back to being an aperture.
+      */
+      return [
+        ring("core", u, w, c, { cx: 0.5, cy: 0.5, r: 0.28 }),
+        bar("rayN", u, w, c, { cx: 0.5, cy: 0.09, length: 0.14, angle: 90 }),
+        bar("rayS", u, w, c, { cx: 0.5, cy: 0.91, length: 0.14, angle: 90 }),
+        bar("rayW", u, w, c, { cx: 0.09, cy: 0.5, length: 0.14 }),
+        bar("rayE", u, w, c, { cx: 0.91, cy: 0.5, length: 0.14 }),
+      ];
+
+    case "signOut":
+      return [
+        rect("door", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.56, y1: 0.88, radius: 0.1 }),
+        bar("shaft", u, w, c, { cx: 0.72, cy: 0.5, length: 0.3 }),
+        chevron("head", u, w, c, { cx: 0.84, cy: 0.5, side: 0.26, angle: 45 }),
+      ];
+
+    case "info":
+      return [
+        ring("edge", u, w, c, { cx: 0.5, cy: 0.5, r: 0.38 }),
+        dot("tittle", u, c, { cx: 0.5, cy: 0.31, r: 0.065 }),
+        // 0.26, for the reason `share`'s stem is 0.48: a bar is laid out
+        // horizontally and turned afterwards, so its declared box is the
+        // horizontal one.
+        bar("stem", u, w, c, { cx: 0.5, cy: 0.58, length: 0.26, angle: 90 }),
+      ];
+
+    case "card":
+      return [
+        rect("body", u, w, c, { x0: 0.08, y0: 0.24, x1: 0.92, y1: 0.76, radius: 0.12 }),
+        bar("stripe", u, w, c, { cx: 0.5, cy: 0.4, length: 0.84 }),
+        bar("chip", u, w, c, { cx: 0.28, cy: 0.62, length: 0.16 }),
+      ];
+
+    case "drive":
+      /*
+        Two separate bays, not one box with a rule through it.
+
+        The first draft was exactly that, and beside `card` two rows down it
+        was a credit card with a line on it — same outline, same radius, same
+        proportions. Two stacked outlines is a rack, and a rack cannot be
+        mistaken for a card at any size.
+      */
+      return [
+        rect("bayTop", u, w, c, { x0: 0.1, y0: 0.18, x1: 0.9, y1: 0.46, radius: 0.09 }),
+        dot("ledTop", u, c, { cx: 0.76, cy: 0.32, r: 0.055 }),
+        rect("bayBottom", u, w, c, { x0: 0.1, y0: 0.54, x1: 0.9, y1: 0.82, radius: 0.09 }),
+        dot("ledBottom", u, c, { cx: 0.76, cy: 0.68, r: 0.055 }),
+      ];
+
+    case "sliders":
+      // Knobs off centre and on opposite sides: two rings at the same x is a
+      // drawing of a control nobody has touched.
+      return [
+        bar("trackTop", u, w, c, { cx: 0.5, cy: 0.32, length: 0.76 }),
+        ring("knobTop", u, w, c, { cx: 0.66, cy: 0.32, r: 0.13 }),
+        bar("trackBottom", u, w, c, { cx: 0.5, cy: 0.68, length: 0.76 }),
+        ring("knobBottom", u, w, c, { cx: 0.36, cy: 0.68, r: 0.13 }),
       ];
   }
 }

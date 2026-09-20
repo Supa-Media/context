@@ -62,6 +62,7 @@ import {
   type ConnectState,
   type WatchedBinding,
 } from "../onboarding/verify";
+import { useManagedOffer, type ManagedOffer } from "../onboarding/useManagedOffer";
 import {
   afterWorkspaceLayout,
   afterWorkspaceStorage,
@@ -117,6 +118,11 @@ export interface CreateWorkspaceController {
   // ── Step 2: the bucket ────────────────────────────────────────────────────
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   connectState: ConnectState;
+  /**
+   * The Context-managed answer on the bucket step, or `null` where this
+   * deployment cannot provide it. Same shape, and same hook, as onboarding's.
+   */
+  managed: ManagedOffer | null;
   skipStorage: () => void;
   continuePastStorage: () => void;
 
@@ -301,6 +307,34 @@ export function useCreateWorkspace(): CreateWorkspaceController {
     setStep(afterWorkspaceStorage("connected"));
   }, [clearTimer, connectState.kind, step]);
 
+  /*
+    THE THIRD ANSWER HERE TOO, AND WHY IT IS NOT A SECOND IMPLEMENTATION.
+
+    Managed storage is priced and provisioned per **workspace**, not per
+    account: `billing.status`, `startCheckout` and `managedBucketName` are all
+    keyed by `workspaceId`, and the plan is owner-gated on this workspace
+    alone. So a workspace can be put on storage we run the moment it exists,
+    and this step leaving the card out was a wiring gap rather than a policy —
+    the only route to it was finishing the flow and finding Premium in the
+    workspace's own settings.
+
+    `origin: "settings"` is the one deliberate difference from first run.
+    Stripe returns to a URL, and this flow is component state: `/workspace/new`
+    would start again at step 1 with the name already claimed, which is the
+    worst possible landing for somebody who has just paid. The workspace's own
+    Premium section is a real page that already draws the settling wait, so
+    that is where the return goes — the same trade the Dropbox route makes,
+    and `WorkspaceStorageStep` says so before the press rather than after it.
+
+    `returned` is always `null`: nothing comes back to this screen, so there is
+    no checkout outcome for it to read.
+  */
+  const managedOffer = useManagedOffer({
+    workspaceId: created?.workspaceId ?? null,
+    returned: null,
+    origin: "settings",
+  });
+
   const skipStorage = useCallback(() => {
     setStorage("skipped");
     setStep(afterWorkspaceStorage("skipped"));
@@ -450,6 +484,11 @@ export function useCreateWorkspace(): CreateWorkspaceController {
 
     connect,
     connectState,
+    // Absent unless it can be delivered — but kept once a screen behind it is
+    // open, so pressing the card cannot make the card vanish. `useOnboarding`
+    // draws the same line.
+    managed:
+      managedOffer.available || managedOffer.mode !== "choose" ? managedOffer : null,
     skipStorage,
     continuePastStorage,
 

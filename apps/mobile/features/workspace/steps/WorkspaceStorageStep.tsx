@@ -5,8 +5,11 @@ import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { StorageChoice } from "../../console/storage/StorageChoice";
-import { connectProgressLabel } from "../../onboarding/verify";
-import { storageLede } from "../create";
+import type { ConnectFormValues } from "../../console/storage/connect";
+import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
+import { connectProgressLabel, type ConnectState } from "../../onboarding/verify";
+import type { ManagedOffer } from "../../onboarding/useManagedOffer";
+import { storageLede, WORKSPACE_AFTER_PAY } from "../create";
 import type { CreateWorkspaceController } from "../useCreateWorkspace";
 
 /**
@@ -20,12 +23,12 @@ import type { CreateWorkspaceController } from "../useCreateWorkspace";
  * ## The one thing this says that the onboarding version does not
  *
  * **A storage binding belongs to a `workspaceId`, never a `userId`.** This
- * bucket is not the creator's brain and is not shared with it: a workspace has
+ * bucket is not the creator's own and is not shared with it: a workspace has
  * its own binding, its own credential envelope, and its own audit trail. People
  * arrive at this screen expecting to point the workspace at the bucket they
  * already connected, and it is worth one sentence to say that a separate bucket
  * is the design rather than an oversight — the whole point is that revoking a
- * workspace's credential leaves a personal brain untouched, and vice versa.
+ * workspace's credential leaves the creator's own untouched, and vice versa.
  *
  * ## Dropbox leaves the flow, and says so
  *
@@ -36,18 +39,81 @@ import type { CreateWorkspaceController } from "../useCreateWorkspace";
  * layout step would be worse than not resuming at all. The note below says
  * where the two skipped steps live instead, before it is pressed rather than
  * after.
+ *
+ * ## Storage we run leaves the flow for the same reason
+ *
+ * The managed card is drawn here exactly as it is in first run — a workspace
+ * is the billable unit, so there was never a reason for this step to be the
+ * one place it could not be chosen. What differs is where paying lands:
+ * `useCreateWorkspace` starts the checkout with `origin: "settings"`, so
+ * Stripe returns to the workspace's own Premium section rather than to a flow
+ * that lives in component state. `WORKSPACE_AFTER_PAY` is that sentence, on
+ * the confirmation screen, before the press.
  */
 export function WorkspaceStorageStep({
   controller,
 }: {
   controller: CreateWorkspaceController;
 }) {
+  return (
+    <WorkspaceStorageStepBody
+      connectState={controller.connectState}
+      workspaceId={controller.created?.workspaceId ?? null}
+      slug={controller.created?.slug ?? "the workspace"}
+      connect={controller.connect}
+      managed={controller.managed}
+      onSkip={controller.skipStorage}
+      onContinuePast={controller.continuePastStorage}
+    />
+  );
+}
+
+/**
+ * The step with its data already resolved — what the suite drives, exactly as
+ * `StorageStepBody` is.
+ */
+export function WorkspaceStorageStepBody({
+  connectState,
+  workspaceId,
+  slug,
+  connect,
+  managed,
+  onSkip,
+  onContinuePast,
+}: {
+  connectState: ConnectState;
+  workspaceId: string | null;
+  /** The claimed handle, or a stand-in before the claim has come back. */
+  slug: string;
+  connect: (values: ConnectFormValues) => Promise<{ status: string }>;
+  /** Absent where this deployment cannot provide managed storage. */
+  managed: ManagedOffer | null;
+  onSkip: () => void;
+  onContinuePast: () => void;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const { connectState } = controller;
   const progress = connectProgressLabel(connectState);
   const busy = connectState.kind === "binding" || connectState.kind === "verifying";
-  const slug = controller.created?.slug ?? "the workspace";
+
+  /*
+    There is no settling screen in this flow, and that is not an omission: the
+    person is at Stripe or at the workspace's console by then, never here.
+  */
+  if (managed !== null && managed.mode === "confirm" && managed.status !== null) {
+    return (
+      <ManagedConfirm
+        status={managed.status}
+        contextName={`@${slug}`}
+        state={managed.session}
+        failure={managed.failure}
+        afterPay={WORKSPACE_AFTER_PAY}
+        onToggle={managed.toggle}
+        onContinue={managed.proceed}
+        onBack={managed.back}
+      />
+    );
+  }
 
   return (
     <View>
@@ -63,9 +129,14 @@ export function WorkspaceStorageStep({
         </Notice>
       ) : (
         <StorageChoice
-          workspaceId={controller.created?.workspaceId ?? null}
-          connect={controller.connect}
+          workspaceId={workspaceId}
+          connect={connect}
           dropboxNote="Connecting Dropbox leaves this page: you finish on Dropbox and come back to your console, so the layout and invitation steps here are skipped. Both live in the workspace's own settings afterwards. Connecting a bucket keeps you here."
+          managed={
+            managed === null || !managed.available
+              ? undefined
+              : { price: managed.price, onChoose: managed.choose }
+          }
         />
       )}
 
@@ -103,7 +174,7 @@ export function WorkspaceStorageStep({
           <Button
             label="Carry on anyway"
             accessibilityLabel="Continue without a verified bucket"
-            onPress={controller.continuePastStorage}
+            onPress={onContinuePast}
             testID="workspace-storage-continue"
           />
         ) : null}
@@ -112,7 +183,7 @@ export function WorkspaceStorageStep({
             label="I'll do this later"
             variant="ghost"
             disabled={busy}
-            onPress={controller.skipStorage}
+            onPress={onSkip}
             testID="workspace-storage-skip"
           />
         )}
@@ -121,7 +192,9 @@ export function WorkspaceStorageStep({
       {connectState.kind === "connected" ? null : (
         <Text variant="foot" style={styles.later}>
           Skipping is fine and nothing here expires — you can still invite people, and they
-          will find the workspace empty until a bucket is connected from its settings.
+          will find the workspace empty until a bucket is connected from its settings. The
+          name stays claimed for as long as the workspace does; deleting it from its own
+          settings gives the name back.
         </Text>
       )}
     </View>

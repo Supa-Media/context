@@ -1,83 +1,117 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
-import { useAuthActions } from "@convex-dev/auth/react";
+import { checkoutOutcomeFrom } from "@context/shared";
+import { SettingsOverlay } from "../../../features/console/settings/SettingsOverlay";
+import {
+  DEFAULT_ACCOUNT_SETTINGS_SECTION,
+  DEFAULT_SETTINGS_SECTION,
+} from "../../../features/console/settings/sections";
+import { StyleSheet, useWindowDimensions } from "react-native";
 import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
-import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii } from "../../../features/design/tokens";
 import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
+import { asideToggleFor } from "../../../features/app/frame";
+import { setReadMode, useReadMode } from "../../../features/console/files/readMode";
+import { useOptionalGlobalSearchParams, useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
 import { densityFor } from "../../../features/app/frame";
-import { BottomBar } from "../../../features/console/BottomBar";
-import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
+import { ConsoleBottomBar } from "../../../features/console/ConsoleBottomBar";
+import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
+import { AccountBlock, Avatar } from "../../../features/console/AccountBlock";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { ConsoleNavProvider, type ConsoleNav } from "../../../features/console/ConsoleNavContext";
+import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
+import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
+import { PluginSettingsPane } from "../../../features/console/plugins/PluginSettingsPane";
 import { EditorRegion } from "../../../features/console/EditorRegion";
-import { TierChip } from "../../../features/console/ConsoleShell";
+import { SaveChip, TierChip } from "../../../features/console/ConsoleShell";
 import {
   Explorer,
   ExplorerDialogs,
   type Dialog,
 } from "../../../features/console/files/Explorer";
+import { inviteHref } from "../../../features/auth/redirect";
 import { Confirm } from "../../../features/console/files/Dialogs";
-import { itemsFromListings } from "../../../features/console/files/palette";
+import { useSignOutFlow } from "../../../features/console/useSignOutFlow";
+import { itemsFromListings, itemsFromPaths } from "../../../features/console/files/palette";
 import { useContextSearch } from "../../../features/console/files/useContextSearch";
+import { useDeviceSearch, useMirrorPaths } from "../../../features/offline/useDeviceSearch";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
+import { TabStrip } from "../../../features/console/files/TabStrip";
 import { tabAt } from "../../../features/console/files/tabs";
 import {
+  arrived,
   canGoBack,
   canGoForward,
-  currentPath,
+  currentPlace,
   emptyHistory,
+  hasSomewhereToGo,
+  placeOf,
+  recentPaths,
+  samePlace,
   stepped,
-  visited,
   type HistoryState,
+  type Place,
 } from "../../../features/console/files/history";
 import { entryAt, targetFolder } from "../../../features/console/files/tree";
+import { canCreateAnything } from "../../../features/console/files/createSheet";
 import {
   applyRowIntent,
   intentForRowCommand,
 } from "../../../features/console/files/rowCommand";
-import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
-import { statusSegments } from "../../../features/console/files/status";
-import { closeIntent, dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
+import { RecentSheet } from "../../../features/console/files/RecentSheet";
+import { saveChip, statusSegments } from "../../../features/console/files/status";
+import { withMirrorSegment } from "../../../features/offline/mirrorCopy";
+import { SyncPill, SyncSheet } from "../../../features/console/files/SyncSheet";
+import { NO_PENDING } from "../../../features/console/files/pendingMarks";
+import { closeIntent, isTabDirty } from "../../../features/console/files/tabs";
 import { needsDecision } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
 import { ContextStrip, CurrentContextPill } from "../../../features/console/ContextStrip";
+import { ContextFootRow } from "../../../features/console/ContextFootRow";
 import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
+import { VoiceHostProvider, type VoiceHost } from "../../../features/voice/VoiceHost";
+import { useAgentEngine } from "../../../features/agent/useAgentEngine";
 import {
-  browseHref,
+  currentContextPress,
   hrefFor,
   resolveContextRoute,
   routeForPath,
   sameRoute,
   searchHref,
   settingsHref,
+  settingsFromQuery,
   type ConsoleRoute,
 } from "../../../features/console/nav";
-import { forgetLocalCopies, unsentOnDevice } from "../../../features/offline/forget";
-import { signOutWarning } from "../../../features/offline/copy";
 import { storagePillLabel } from "../../../features/console/storage/pill";
 import { describeIndexProgress } from "../../../features/console/search/fastSearch";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
 import {
-  SCOPE_ICON,
-  nextScope,
-  scopeActionLabel,
-  scopeOf,
 } from "../../../features/console/files/scope";
+import { removalHandler } from "../../../features/console/files/access";
+import { audienceContextOf } from "../../../features/console/privacy/audience";
+import { capabilitiesForRole } from "../../../features/console/capabilities";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { MEETINGS_ROUTE } from "../../../features/meetings/route";
+import { AsidePanel } from "../../../features/console/aside/AsidePanel";
+import { AgentPanel } from "../../../features/agent/AgentPanel";
+import { agentPage } from "../../../features/agent/page";
+import { useOpenNote } from "../../../features/agent/openNote";
+import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
+import { useCarriesMeeting } from "../../../features/meetings/carried";
+import { CreateButton } from "../../../features/console/CreateButton";
+import { ConsoleLiveMeeting } from "../../../features/console/ConsoleLiveMeeting";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
 
@@ -113,12 +147,42 @@ import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
  * for which context you are in — both unchanged.
  */
 export default function ConsoleLayout() {
-  const styles = useThemedStyles(makeStyles);
   const data = useLiveConsoleData();
   const { width } = useWindowDimensions();
   const router = useRouter();
   const pathname = usePathname();
   const route = routeForPath(pathname);
+  const quickParams = useOptionalLocalSearchParams<{ quickAction?: string | string[] }>();
+  /*
+    Settings rides in the query beside `?note=`, so Browse stays mounted under
+    the scrim and the note keeps its address. Global rather than local params:
+    this layout is above the `[slug]` route that owns them, and reading the
+    local ones here returns nothing.
+  */
+  const settingsParams = useOptionalGlobalSearchParams<{
+    settings?: string | string[];
+    checkout?: string | string[];
+  }>();
+  const openSettingsSection = settingsFromQuery(settingsParams.settings);
+  /*
+    Where Stripe put them. `?checkout=done` says the payment page handed the
+    browser back — which is a different fact from "the plan is active", because
+    the webhook that decides that may not have landed yet. Read here with every
+    other parameter this console acts on, and carried to the one panel that has
+    anything to say about the gap. Anything we did not write is nothing.
+  */
+  const rawCheckout = settingsParams.checkout;
+  const checkoutReturn = checkoutOutcomeFrom(
+    Array.isArray(rawCheckout) ? rawCheckout[0] : rawCheckout,
+  );
+  /*
+    Ending the session, asked for from either the rail's account block or the
+    settings overlay's Sign out row. One flow, because it decides whether
+    unsaved work is about to be discarded and two copies of that decision would
+    be two answers to it.
+  */
+  const { requestSignOut, dialog: signOutDialog } = useSignOutFlow(data);
+  const handledQuickNote = useRef(false);
 
   const resolution = resolveContextRoute({
     route,
@@ -130,6 +194,8 @@ export default function ConsoleLayout() {
     // person to the map before their invitation has arrived.
     invitations: data.invitations,
   });
+  const cleanQuickNoteHref =
+    resolution.action === "redirect" ? resolution.href : pathname;
 
   const { selectContext } = data;
   useEffect(() => {
@@ -147,12 +213,24 @@ export default function ConsoleLayout() {
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   /*
-    The phone's answer to the tab strip. Held here beside `tabs` for the same
-    reason the tab model is: the switcher acts on the model, and a piece of
-    state that lives one level down from the thing it opens is a ref waiting to
-    be written.
+    The phone's answer to the tab strip: a Recent sheet over `history`, where
+    the tab count and its switcher used to be. `RecentSheet.tsx` carries the
+    whole argument — the short version is that nothing on a phone could open a
+    second tab, so the count could only ever read `1` and its × was a no-op you
+    could watch.
+
+    Held here beside `history` for the reason the tab state is: the sheet acts
+    on that model, and a piece of state living one level down from the thing it
+    opens is a ref waiting to be written.
   */
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [recentOpen, setRecentOpen] = useState(false);
+  /*
+    The phone's sync sheet, behind the pill in its header. A phone has no
+    status strip, so this is where "which notes?" is answered there — see
+    `SyncSheet.tsx`.
+  */
+  const [syncOpen, setSyncOpen] = useState(false);
+  const closeSync = useCallback(() => setSyncOpen(false), []);
   /*
     The toolbar's `+` raises the explorer's own dialog. Held here rather than
     inside `Explorer` because the toolbar is a sibling of the explorer, not a
@@ -161,14 +239,38 @@ export default function ConsoleLayout() {
     either owning it".
   */
   const [barDialog, setBarDialog] = useState<Dialog>(null);
+  useEffect(() => {
+    if (
+      quickParams.quickAction !== "note" ||
+      handledQuickNote.current ||
+      data.loading ||
+      !data.files.canEdit
+    ) return;
+    handledQuickNote.current = true;
+    // Remove the command from this history entry before acting on it, so a
+    // remount or a trip back through history cannot replay it.
+    router.replace(cleanQuickNoteHref);
+    /*
+      Makes the note rather than raising a prompt for its name. The whole point
+      of a quick-note link is that it is one press from wherever somebody was,
+      and a modal asking what to call a note nobody has written yet is the
+      opposite of that. `untitled.ts` has the name it gets and how it loses it.
+    */
+    data.files.createUntitled("0-inbox", "note");
+  }, [
+    data.files,
+    data.loading,
+    cleanQuickNoteHref,
+    quickParams.quickAction,
+    router,
+  ]);
   /*
     The tab whose close is waiting on a confirm.
 
     `tabs.ts`'s `closed` case says a modal decision has no business inside a
     data structure and that "the UI confirms before dispatching". Nothing did:
-    the tab's ×, the switcher sheet and ⌘W all reached the reducer directly, so
-    a dirty tab closed silently and the draft was gone. One state, so all three
-    routes ask.
+    the tab's × and ⌘W both reached the reducer directly, so a dirty tab closed
+    silently and the draft was gone. One state, so both routes ask.
 
     What they ask about is now much narrower. A draft autosave can write is
     written on the way out instead of being asked about — see `closeTab` — so
@@ -213,50 +315,131 @@ export default function ConsoleLayout() {
   */
   const [history, setHistory] = useState<HistoryState>(emptyHistory);
   /*
-    Set while a back or forward press is moving the selection, so the effect
-    below does not record the move as a fresh visit — which would truncate the
-    forward tail on the first press of `‹` and make `›` dead.
+    THE PLACE A BACK OR FORWARD PRESS IS ON ITS WAY TO, or `null`.
+
+    So the effect below does not record the move as a fresh visit — which would
+    truncate the forward tail on the first press of `‹` and make `›` dead.
+
+    **A place rather than the boolean it was**, because a step can now change
+    two things. Reaching a note from Map is a `router.replace` *and* a
+    `select`, and if those land in two renders the intermediate one is a real
+    `here` — the old path under the new route — which a one-shot boolean
+    spends itself on, leaving the arrival to be recorded as a fresh visit and
+    the forward tail truncated by the very press that was meant to walk it.
+    Holding the destination instead means every state between the press and
+    the arrival is skipped, however many there are, and the flag clears on the
+    place it was waiting for rather than on the next render to come along.
   */
-  const navigating = useRef(false);
+  const navigatingTo = useRef<Place | null>(null);
   const selectedPath = data.files.selectedPath;
 
   useEffect(() => {
     setHistory(emptyHistory);
   }, [data.selectedContextId]);
 
+  /** The context a path place belongs to, for a step that has left it. */
+  const contextSlug = selectedContext(data)?.slug ?? null;
+  /*
+    WHERE YOU ARE, AS ONE PLACE, WHATEVER KIND OF PAGE IT IS.
+
+    This effect watched `selectedPath` alone, so Settings, Search, Map and
+    Connections were not somewhere you had been — they were nothing at all, and
+    `‹` walked past them to the note underneath. That was the reported defect:
+    open Settings, open a note from it, press back, and you land on the
+    previous *note*.
+
+    The console already knows which page it is on — the URL says so — so this
+    derives the place from the same three things the render does, in the order
+    the screen stacks them: the settings overlay is on top of everything when
+    it is open, an app pane is not inside a context at all, and otherwise you
+    are on the selected path. One expression, so the list cannot disagree with
+    what is drawn.
+  */
+  const here = useMemo<Place | null>(
+    () =>
+      placeOf({
+        settingsSection: openSettingsSection,
+        routeKind: route.kind,
+        appSection: route.kind === "app" ? route.section : null,
+        selectedPath,
+      }),
+    [openSettingsSection, route, selectedPath],
+  );
+
   useEffect(() => {
-    if (selectedPath === null) return;
-    if (navigating.current) {
-      navigating.current = false;
+    if (here === null) return;
+    if (navigatingTo.current !== null) {
+      if (samePlace(navigatingTo.current, here)) navigatingTo.current = null;
       return;
     }
-    setHistory((current) => visited(current, selectedPath));
-  }, [selectedPath]);
+    /*
+      `arrived`, not `visited`: on the web this effect is also where a press of
+      the **browser's own back button** lands — it changes `?note=`, the route
+      opens that note, and the selection moves. Recorded as a fresh visit that
+      would truncate the forward tail, so the browser could go back and `›`
+      could never go forward again. See `history.ts`.
+    */
+    setHistory((current) => arrived(current, here));
+  }, [here]);
 
   const step = useCallback(
     (delta: -1 | 1) => {
-      setHistory((current) => {
-        const next = stepped(current, delta);
-        const path = currentPath(next);
-        if (next === current || path === null) return current;
-        navigating.current = true;
+      setHistory((state) => {
+        const next = stepped(state, delta);
+        const place = currentPlace(next);
+        if (next === state || place === null) return state;
+        navigatingTo.current = place;
+
+        /*
+          Applying a place is the mirror of deriving one, and each kind has to
+          undo the others: arriving at a note with the settings overlay still
+          up would draw the note behind a panel nobody asked to keep, and
+          arriving at a settings section from Map has to be back inside the
+          context first.
+        */
+        if (place.kind === "settings") {
+          router.setParams({ settings: place.section });
+          return next;
+        }
+
+        if (place.kind === "app") {
+          router.setParams({ settings: undefined });
+          router.replace(hrefFor({ kind: "app", section: place.section }));
+          return next;
+        }
+
+        if (openSettingsSection !== null) router.setParams({ settings: undefined });
+        /*
+          Back into the context first, when the step is leaving an app pane:
+          Map is not inside one, and selecting a path while the route still
+          says `app` moves the selection under a screen that is not showing it.
+
+          `hrefFor` rather than `contextHrefFrom`, and for two reasons. It is
+          pure, so it is not a dependency declared 140 lines below this — and
+          `contextHrefFrom` resolves a context to the *last place you were in
+          it*, which is the opposite of what a back step wants: the place is
+          already decided, and `select` below is what applies it.
+        */
+        if (route.kind !== "context" && contextSlug !== null) {
+          router.replace(hrefFor({ kind: "context", slug: contextSlug, view: "browse" }));
+        }
         // The guard can still refuse — an unsaved draft. Then the selection
         // does not move, and neither should the cursor.
-        if (!data.files.select(path)) {
-          navigating.current = false;
-          return current;
+        if (!data.files.select(place.path)) {
+          navigatingTo.current = null;
+          return state;
         }
         return next;
       });
     },
-    [data.files],
+    [contextSlug, data.files, openSettingsSection, route, router],
   );
   const current = selectedContext(data);
   /*
-    Which half of `tabs.ts` is on screen. `TabStrip` is the pointer half and
-    `TabSwitcher` the thumb half — see either file's header for why they are two
-    components rather than one with a breakpoint. Read here rather than inside
-    them because it also decides whether the bottom toolbar carries a count.
+    Whether tabs are on screen at all. `TabStrip` is the pointer instrument and
+    there is no thumb half any more — a phone gets Recent instead, over the same
+    `history` its `‹ ›` already read. Read here rather than inside either,
+    because it also decides which of the two the bottom toolbar carries.
   */
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
@@ -267,7 +450,36 @@ export default function ConsoleLayout() {
     bucket to ask, so the palette falls back to filtering listings, which is
     what it did everywhere before this.
   */
-  const search = useContextSearch(insideContext ? data.files.search : null);
+  /*
+    …and the same search over the copy of this context on the device, which
+    answers when the device is offline or the bucket does not — see
+    `useContextSearch` for when, and `mirrorSearch.ts` for what it reads.
+  */
+  const deviceSearch = useDeviceSearch(insideContext ? (current?.id ?? null) : null, current?.role);
+  const reachability = data.files.sync?.reachability ?? "unknown";
+  const mirrorStatus = data.files.sync?.mirror;
+  const device = useMemo(
+    () =>
+      deviceSearch === null
+        ? null
+        : { reachability, status: mirrorStatus, search: deviceSearch },
+    [deviceSearch, reachability, mirrorStatus],
+  );
+  const search = useContextSearch(insideContext ? data.files.search : null, device);
+  /*
+    Quick open by name, offline, over every note the mirror holds rather than
+    only the folders that had been expanded before the signal went.
+  */
+  const mirrorPaths = useMirrorPaths(
+    insideContext ? (current?.id ?? null) : null,
+    current?.role,
+    paletteOpen && reachability === "offline",
+  );
+  const listings = data.files.listings;
+  const paletteItems = useMemo(
+    () => (paletteOpen ? itemsFromPaths(mirrorPaths, itemsFromListings(listings)) : []),
+    [paletteOpen, mirrorPaths, listings],
+  );
   /*
     A panel is not a preference — `frame.ts` states the rule for its own two,
     and this is a third one living outside it. The sheet can only be raised on
@@ -279,8 +491,37 @@ export default function ConsoleLayout() {
     makes it come back: the flag would still be true.
   */
   useEffect(() => {
-    if (!phone || !browsing) setSwitcherOpen(false);
+    if (!phone || !browsing) setRecentOpen(false);
   }, [phone, browsing]);
+
+  /**
+   * Whether the Recent sheet has anywhere to send you.
+   *
+   * The list itself is built where it is drawn, below: this runs on every
+   * render of the whole console and the sheet is closed for nearly all of them,
+   * so the cheap `.some()` is the one that belongs up here.
+   */
+  const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
+
+  /**
+   * The two verbs the panes below `<Slot/>` cannot reach on their own.
+   *
+   * `follow` is a link in the open note; `back`/`forward` are the breadcrumb's
+   * `‹ ›`, which until now existed only in the phone's bottom bar. Both live
+   * up here — `useTabs` and `history` are this component's state — and both
+   * are needed inside `BrowsePane`, which is a separate route. See
+   * `ConsoleNavContext`.
+   */
+  const nav = useMemo<ConsoleNav>(
+    () => ({
+      follow: tabs.follow,
+      back: () => step(-1),
+      forward: () => step(1),
+      canBack: canGoBack(history),
+      canForward: canGoForward(history),
+    }),
+    [tabs.follow, step, history],
+  );
 
   /**
    * Close a tab: write what is pending, and ask only about what cannot be.
@@ -354,35 +595,267 @@ export default function ConsoleLayout() {
       : null;
 
   /**
-   * Visibility, as the second action in the same group.
+   * Whether the eye is offered, which is a wider question than Share's.
    *
-   * Owner-only, like every visibility control — `canSetVisibility` is the
-   * server's rule and `FolderView`'s own comment records what offering it to
-   * an editor cost. `readOnly` is excluded because `privacy.md` *is* the
-   * access map: a control that offered to change its visibility would be
-   * offering to edit the file that decides everybody else's.
+   * Any open **note** can be read, including the ones `shareTarget` refuses:
+   * `privacy.md` and an encrypted envelope are exactly the notes somebody is
+   * reading rather than editing, and both are already `readOnly`, so the mode
+   * costs them nothing and the markup goes quiet for them too. A folder has no
+   * document to put into reading mode and gets no eye.
    */
-  const visibilityTarget =
-    browsing && data.files.canSetVisibility && selectedEntry !== null && !selectedEntry.readOnly
-      ? selectedEntry
-      : null;
+  const readable = browsing && selectedEntry !== null && selectedEntry.kind === "file";
+  const reading = useReadMode();
+
+  /**
+   * When something last asked for the panel's Meetings tab.
+   *
+   * The + menu's New meeting, and the title-bar pill that a folded panel
+   * leaves behind. A counter for `asked`'s reason — recording twice in a
+   * session is ordinary, and a boolean looks unchanged the second time.
+   */
+  const [meetingsAt, setMeetingsAt] = useState<number | null>(null);
+  /** When the + menu last asked for a fresh conversation. See `AsidePanel`. */
+  const [newChatAt, setNewChatAt] = useState<number | null>(null);
+  /**
+   * When a phone last asked for one, or `null` for "no card on screen".
+   *
+   * A timestamp rather than a boolean, for `asked`'s reason and `meetingsAt`'s:
+   * asking twice in a session is ordinary, and it is also the `key` that gives
+   * the card a fresh conversation each time rather than the last one reopened.
+   */
+  const [phoneChatAt, setPhoneChatAt] = useState<number | null>(null);
+  /*
+    Whether this console has a right panel at all. `regionsFor` answers
+    `hidden` at compact, and `asideToggleFor` is the question asked in the one
+    place that decides it — a phone's meeting goes to its own screen instead,
+    which is what `useMeetingFlow` does with no `onStarted`.
+  */
+  const hasAside = !phone;
+  /*
+    Open the panel on Meetings. Two counters because they are two facts — the
+    panel has to be open (`OpenAsideOn`, which is inside the frame) and the tab
+    has to be Meetings (`AsidePanel`, which is below it) — and nothing above
+    `AppFrame` can call either directly.
+  */
+  const showMeetings = useCallback(() => {
+    const at = Date.now();
+    setOpenAsideAt(at);
+    setMeetingsAt(at);
+  }, []);
+
+  /*
+    This console is showing the running meeting, so the floating `RecordingBar`
+    stands down. It is the *console* that claims it rather than the panel,
+    because a folded panel still carries it — in the title bar. See
+    `features/meetings/carried.ts`.
+  */
+  useCarriesMeeting(hasAside);
 
   const places = useContextPlaces();
   const contextHrefFrom = useContextHref(data.contexts);
+  /**
+   * Starting a meeting, and where it lands on this screen.
+   *
+   * **No `page`**, and that is the destination decision rather than a
+   * simplification: a meeting is written into the person's own inbox wherever
+   * they are standing (`automaticDestination`), which is the privacy rule the
+   * destination sheet used to hold with a row and an audience line. The sheet
+   * is gone; the rule is not.
+   *
+   * `onStarted` is what makes a meeting stop being a page. It opens the right
+   * panel and puts it on Meetings, so the note somebody was reading stays open
+   * behind the recording — `router.push(meetingHref(id))` is what this
+   * replaced, and the owner's words for that page were "the big ugly page".
+   */
   const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
     contexts: data.contexts,
-    page: insideContext && current
-      ? {
-          contextSlug: current.slug,
-          // The note when one is open, else the folder standing in for it —
-          // the same `targetFolder` rule the `+` key uses, so "this page" and
-          // "new note here" can never mean two different folders.
-          path: data.files.selectedPath ?? "",
-          isNote: selectedEntry?.kind === "file",
-        }
-      : null,
     onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
+    onStarted: hasAside ? showMeetings : undefined,
   });
+
+  /**
+   * A FRESH CONVERSATION, OR `null` WHERE THERE IS NOWHERE FOR ONE TO GO.
+   *
+   * Defined once because two surfaces offer it now — the corner's menu and the
+   * phone's `+` sheet — and two copies of a gate is one copy that eventually
+   * disagrees with the other about when it is open.
+   *
+   * Three conditions, and the third is the owner's: a panel to answer in (so not
+   * a phone), an engine behind it (so not the demo console), and **a model key
+   * on this context** — *"new chat should be off if no LLM api key configured"*.
+   * `=== true` rather than truthiness, because `modelConnected` is `undefined`
+   * until the subscription answers and the row is better absent for that moment
+   * than offered and withdrawn.
+   */
+  const startNewChat = useMemo(
+    () =>
+      !data.demo && data.modelConnected === true
+        ? () => {
+            const at = Date.now();
+            /*
+              TWO SURFACES, ONE OFFER.
+
+              A pointer layout opens the panel beside the note. **A phone opens
+              `AgentPanel` over it**, which is what closed the gap this used to
+              have: `hasAside` was part of the condition above, so the Chat row
+              was simply absent from the phone's `+` while the corner's menu
+              offered it. That was never a decision — it was a fact about the
+              code, because the only thing that raised `AgentPanel` was the
+              floating microphone `NoteEditor` mounts, so the way to the agent on
+              a phone was to open a note, put the keyboard up until the bottom
+              row hid, and press the microphone that came back.
+
+              `AgentPanel` is a `Modal` and says in its own header that it is one
+              so it can "appear identically on a surface that has no console
+              around it at all". So this layout raises it, and neither density
+              has to be told about the other's furniture.
+            */
+            if (!hasAside) return setPhoneChatAt(at);
+            setOpenAsideAt(at);
+            setAsked(null);
+            setNewChatAt(at);
+          }
+        : null,
+    [data.demo, data.modelConnected, hasAside],
+  );
+  /** Recording, or `null` on a console with no controller behind one. */
+  const startMeeting = data.demo ? null : startMeetingFlow;
+  /*
+    Whether the phone's `+` has anything to offer — asked through the same
+    function that decides which rows its sheet draws, so the key and its contents
+    cannot disagree. See `files/createSheet.ts`.
+  */
+  const canCreate = canCreateAnything({
+    canEdit: data.files.canEdit,
+    chat: startNewChat !== null,
+    meeting: startMeeting !== null,
+  });
+
+  /**
+   * What the microphone over the note needs, which is only what this layout
+   * already knows.
+   *
+   * `context` is the whole `ConsoleContext` rather than its slug: the dictation
+   * sheet has to say who can read the open note before the microphone opens,
+   * and that is a question about `kind` and `role` — see
+   * `features/voice/audience.ts` for why an unrecognised `kind` is never
+   * answered "only you".
+   *
+   * `writable` is the entry's own answer, not the membership's. `privacy.md`
+   * and an encrypted envelope are read-only inside a context you own outright,
+   * and `NoteEditor` narrows this again with its own `editable` — reading mode
+   * and a conflict both close the note to typing without changing either of
+   * these.
+   */
+  /*
+    The agent's own engine, built here and not in the editor.
+
+    It mints this app's gateway grant on demand — an ordinary, revocable OAuth
+    grant clamped to this person's role — and holds it in memory for the hour
+    it lives. `features/agent/useAgentEngine.ts` has the argument for why it is
+    never written to the device.
+  */
+  /*
+    Whether something is recording, for the panel's ambient place. Read here
+    rather than inside `AsidePanel` so that what the agent is told about the
+    room is assembled in one place — `agentPage` is that place's only builder,
+    and a second caller filling one field from a different source is how two
+    surfaces end up describing different rooms.
+  */
+  const liveMeeting = useMeetingsSnapshot().live;
+  const openNote = useOpenNote();
+  /**
+   * WHERE THE PERSON IS, FOR THE AGENT — BUILT ONCE.
+   *
+   * Two surfaces answer a question now: the panel beside the note, and the card
+   * a phone raises over it. `agentPage`'s own comment asks for exactly this —
+   * *"the room is assembled in one place, and `agentPage` is that place's only
+   * builder"* — because the object is a set of **references** and a second copy
+   * is a second chance to put a note body in one.
+   *
+   * `meetingLive` is read from the store rather than passed `false` the way
+   * `NoteEditor` passes it, and that is not a disagreement: the editor's own
+   * control returns `null` for the whole of a meeting, so its conversation
+   * cannot be on screen while one runs, and these two can.
+   */
+  const agentPlace = agentPage({
+    context: insideContext ? current : null,
+    /*
+      What the editor published, rather than a reference rebuilt from
+      `selectedEntry`. A tree row carries a path and a visibility and knows
+      nothing about the etag, the encryption or the draft — so three of the five
+      fields would be claims, and `unsaved: false` on a note somebody is typing
+      into is the opposite of the honesty that field exists for.
+    */
+    editor: { reference: openNote },
+    route: pathname,
+    meetingLive: liveMeeting !== null,
+    query: null,
+  });
+  /**
+   * A question handed over from ⌘K, if one has been.
+   *
+   * The counter is the event rather than the text — see `AsidePanel`, which
+   * explains it where it is read. Held here rather than inside the panel
+   * because the palette is a sibling of it: both are children of the frame,
+   * and this layout is the one thing above both.
+   */
+  const [asked, setAsked] = useState<{ text: string; at: number } | null>(null);
+  /**
+   * When something last asked for the panel to be opened, without a question.
+   *
+   * The note's right-click menu is the caller. A counter rather than a
+   * boolean, for the reason `asked` carries one: asking twice is ordinary, and
+   * the second ask must not look like a re-render. `null` is "nobody has".
+   */
+  const [openAsideAt, setOpenAsideAt] = useState<number | null>(null);
+
+  const agentEngine = useAgentEngine({
+    workspaceId: data.selectedContextId,
+    endpoint: data.endpoint,
+  });
+
+  const voiceHost = useMemo<VoiceHost>(
+    () => ({
+      page: {
+        context: insideContext ? current : null,
+        notePath: selectedEntry?.kind === "file" ? selectedEntry.path : null,
+        writable: selectedEntry !== null && !selectedEntry.readOnly,
+        /*
+          The entry's own answer to who can read it, which is the question the
+          sheet asks and the one `kind` cannot answer: a personal workspace
+          takes members, so `team` on a note inside one means real people. Left
+          absent when a folder is on screen, and `audience.ts` treats absent as
+          "not established" rather than as private.
+        */
+        noteVisibility: selectedEntry?.kind === "file" ? selectedEntry.visibility : undefined,
+      },
+      onRecordMeeting: startMeetingFlow,
+      /*
+        The note's right-click menu, reaching the right panel. Absent on the
+        demo console — there is no engine behind it — and the row is then gone
+        rather than pressable and inert. Whether the *density* has a panel is
+        `OpenAsideOn`'s to answer, because that is a frame question and this is
+        above the frame.
+      */
+      onAskAgent: data.demo ? undefined : () => setOpenAsideAt(Date.now()),
+      /*
+        The one place holding both halves the engine needs: the workspace the
+        grant is minted for, and the endpoint its `/agent` route is derived
+        from. `NoteEditor` has never seen either, and the surfaces that render
+        `BrowsePane` without this provider get the stub instead.
+      */
+      agent: agentEngine,
+      /*
+        The corner is the `+` at every pointer density, so the editor draws no
+        resting microphone there. Published rather than derived, because the
+        fixture and the demo console are desktop-width consoles with no `+` —
+        see `VoiceHost.createButton`.
+      */
+      createButton: !phone,
+    }),
+    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo, phone],
+  );
 
   /**
    * Where the control is and where a press takes it.
@@ -396,60 +869,84 @@ export default function ConsoleLayout() {
    * A folder has two positions, not three: `createLinkShare` is note-only, so
    * offering a third would be a press that always fails. `scope.ts` states it.
    */
-  const visibilityScope = scopeOf(
-    visibilityTarget?.visibility ?? "private",
-    visibilityTarget !== null && data.files.openLinkPaths.has(visibilityTarget.path),
-  );
-  const visibilityNext = nextScope(visibilityScope, visibilityTarget?.kind === "file");
+
+  /*
+    One set of handlers, two triggers.
+
+    The title bar's chip opens this menu and so does the chevron at the end of
+    `ContextFootRow`, and they have to open the *same* list: every row in it is
+    conditional on something — the claim offer, "New workspace", Leave on a
+    context you do not own — and a second element built at the other call site is
+    how one of those conditions quietly goes missing from one of them. See
+    `SwitcherMenu`'s `trigger` prop.
+  */
+  const switcherProps = {
+    data,
+    label: insideContext ? contextLabel : "Your context",
+    tone: insideContext ? (current?.status ?? "warn") : "neutral",
+    onOpenContext: (slug: string) => {
+      const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
+      if (!sameRoute(next, route)) router.replace(hrefFor(next));
+    },
+    onOpenMeetings: data.demo ? undefined : () => router.push(MEETINGS_ROUTE),
+    onClaimContext: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
+    onNewWorkspace: data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE),
+    onOpenSettings: () => {
+      router.setParams({
+        settings:
+          route.kind === "context" ? DEFAULT_SETTINGS_SECTION : DEFAULT_ACCOUNT_SETTINGS_SECTION,
+      });
+    },
+    /*
+      Leave, on the context you are standing in and only where the server would
+      allow it: `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`), so a
+      row offered on your own workspace would be a press whose only outcome is
+      an error. Fire-and-watch, exactly as the rail's row was — the membership
+      row deleting is what takes the context out of the list, through the
+      subscription — and then land on `/console` so nobody is left standing in a
+      context they just left.
+    */
+    onLeaveContext:
+      current === null || current.role === "owner" || data.leaveContext === undefined
+        ? undefined
+        : () => {
+            void data.leaveContext?.(current.id);
+            router.replace("/console");
+          },
+    onSignOut: requestSignOut,
+  } as const;
 
   return (
     <ConsoleDataProvider value={data}>
+      <ConsoleNavProvider value={nav}>
+      <VoiceHostProvider value={voiceHost}>
+      {data.pluginRuntime?.host}
+      {/*
+        Beside the host and at console scope for the same reason: a plugin can
+        ask for its dialog from a command pressed on any pane, so the surface
+        that draws it cannot belong to one of them. It renders nothing until a
+        plugin actually asks.
+      */}
+      <PluginSuggestDialog runtime={data.pluginRuntime} />
+      <PluginTextDialog runtime={data.pluginRuntime} />
+      <PluginSettingsPane runtime={data.pluginRuntime} />
       <AppFrame
-        switcher={
-          insideContext ? (
-            /*
-              A pointer layout's control, and only a pointer layout's.
+        /*
+          The switcher is the rail now.
 
-              `AppFrame` renders this slot in the `!compact` arm — a phone's top
-              row is the pinned account mark and the context strip — so nothing
-              here is ever on a phone. It used to carry a `phone &&
-              styles.switcherCompact` that took the chip's border and fill away,
-              justified by `AppFrame`'s `navToggleCompact` "already drawing a
-              shadowed white capsule around it". That capsule went with the
-              phone's rail toggle; the style it named had no call sites left,
-              and this override had no render to reach. Both are gone.
-            */
-            <View style={styles.switcher}>
-              <Dot tone={current?.status ?? "warn"} />
-              <Text variant="wsSwitch" numberOfLines={1}>
-                {contextLabel}
-              </Text>
-              <Text variant="wsSwitch" style={styles.switcherKind}>
-                {current?.kind ?? ""}
-              </Text>
-            </View>
-          ) : (
-            // Map and Connections are not inside anything, and a context chip
-            // above them would be naming a scope the pane is not in. "Your
-            // context" is the aggregate — everything this person can reach —
-            // which is exactly what these panes span (see CLAUDE.md,
-            // "Vocabulary").
-            <View style={styles.switcher}>
-              <Text variant="wsSwitch">Your context</Text>
-              {/*
-                No number until the list has arrived. `contexts` is empty on a
-                cold launch because nothing has been fetched, and "0 reachable"
-                over somebody's own console is the same accusation the storage
-                banner used to make — see `ConsoleData.storage`.
-              */}
-              {data.loading ? null : (
-                <Text variant="wsSwitch" style={styles.switcherKind}>
-                  {`${data.contexts.length} reachable`}
-                </Text>
-              )}
-            </View>
-          )
-        }
+          It was a static chip naming the open context, beside a 216pt column.
+          `regionsFor` answers `rail: "hidden"` at every pointer density (see
+          `features/app/frame.ts`), so the column is gone and everything it
+          offered is under the name you already look at to know whose notes are
+          open. `SwitcherMenu` carries `railGroup`'s list unchanged, with the
+          same two offers behind the same conditions.
+
+          Each callback keeps the navigation the rail entry had, including
+          which of `push` and `replace` it used and why — a claim, a new
+          workspace and Meetings all leave the console, so Back has to be the
+          way home.
+        */
+        switcher={<SwitcherMenu {...switcherProps} />}
         /*
           No `switcherLabel`.
 
@@ -459,6 +956,27 @@ export default function ConsoleLayout() {
           such control now: at compact the panels are gone and the chip is a
           label again, which reads its own text. The prop went with the reader.
         */
+        /*
+          The open notes, in the title bar — see `AppFrame`'s `tabs` prop.
+
+          `browsing && !phone` is exactly the condition `EditorRegion` applied
+          when it drew the strip itself: tabs are Browse's, and they are a
+          pointer instrument. The emptiness check moved here with them, so a
+          route with nothing open passes `undefined` and the frame draws no
+          slot rather than an empty one.
+        */
+        tabs={
+          browsing && !phone && tabs.state.tabs.length > 0 ? (
+            <TabStrip
+              state={tabs.state}
+              onActivate={tabs.activate}
+              onClose={closeTab}
+              onCloseOthers={tabs.closeOthers}
+              onCloseToRight={tabs.closeToRight}
+              onReopen={tabs.reopen}
+            />
+          ) : undefined
+        }
         /*
           Absent on a phone, where both chips have moved to the foot of the
           context's own page — `features/console/files/contextFoot.ts` composes
@@ -497,40 +1015,54 @@ export default function ConsoleLayout() {
               `ShareDialog` mounted here would be a second contract for one
               offer.
             */
-            shareTarget === null && visibilityTarget === null ? undefined : (
-              <>
-                {visibilityTarget === null ? null : (
-                  <FrameIconButton
-                    /*
-                      The label is the *destination*, because that is what a
-                      screen reader has to announce about a button, while the
-                      icon is the current state — see `ICON_NAMES`. The two
-                      disagreeing is the point rather than a slip: one is read
-                      aloud before the press and the other is looked at.
+            /*
+              One control, not two.
 
-                      Three positions rather than two now, and every decision
-                      about which is which is in `files/scope.ts` — a pure
-                      module, for the reason `shareViewer.test.ts` records: in a
-                      sabotage sweep of this codebase, every guard written as a
-                      pure module held and every guard written inside a
-                      component did not. This one composes the privacy manifest
-                      with a share row, which is exactly the sort of thing that
-                      rots into "is it team? then it must be public".
-                    */
-                    label={scopeActionLabel(visibilityNext)}
-                    icon={SCOPE_ICON[visibilityScope]}
+              This group used to carry a padlock beside the share icon. They
+              were two controls for one question — and worse, they overlapped
+              on the dangerous state: the padlock cycled private → team →
+              *link anyone can open*, minting exactly the share row the sheet's
+              own "Create link" minted. Most notes sit at `team` already by
+              folder inheritance, so a note was one tap on an unlabelled 20pt
+              icon away from a link that needs no account.
+
+              Audience lives inside the sheet now, as named positions with the
+              public step confirmed in words — `ShareDialog`'s `onSetScope`
+              carries the full argument. `scope.ts` is untouched: it is still
+              the pure model of what the positions are and how to move between
+              them, and `setScope` is still the single point every surface goes
+              through. Only the control that drove it changed.
+            */
+            !readable && shareTarget === null ? undefined : (
+              <>
+                {/*
+                  Reading mode, leading the group.
+
+                  Before Share rather than after it, because the two are not
+                  peers: this changes how the note in front of you is drawn and
+                  is undone by pressing it again, and Share opens a sheet that
+                  grants somebody access. The reversible one is the safer
+                  neighbour for a thumb, and the group is read left to right.
+
+                  **The glyph is the act, and there is no `selected` fill.**
+                  This used to be one eye lit by `selected`, on the argument
+                  that one mark cannot draw "will hide the markup" and "will
+                  bring it back" — so the state went in the fill and the label
+                  carried the act. Two marks can draw it, and once they do the
+                  fill is not merely redundant but wrong: it would light the
+                  *pencil*, and a lit control says "this mode is on" while the
+                  pencil means "press to start editing". Icon and label now say
+                  the same thing, which is what an unlabelled 20pt target needs.
+                */}
+                {readable ? (
+                  <FrameIconButton
+                    label={reading ? "Edit this note" : "Read this note"}
+                    icon={reading ? "pencil" : "eye"}
                     grouped
-                    onPress={() =>
-                      data.files.setScope(
-                        visibilityTarget.path,
-                        visibilityTarget.kind,
-                        visibilityScope,
-                        visibilityNext,
-                      )
-                    }
-                    testID="note-visibility"
+                    onPress={() => setReadMode(!reading)}
+                    testID="note-read"
                   />
-                )}
+                ) : null}
                 {shareTarget === null ? null : (
                   <FrameIconButton
                     label="Share this"
@@ -545,7 +1077,22 @@ export default function ConsoleLayout() {
           ) : (
             <>
               {/*
-                Gated on `insideContext`, and `StorageChip` beside it is not.
+                A meeting that is running while the panel it lives in is folded
+                away. It draws nothing when the panel is open — the card is
+                right there — and nothing when nothing is recording, which is
+                almost always. See `ConsoleLiveMeeting`.
+              */}
+              <ConsoleLiveMeeting onOpen={showMeetings} />
+              {/*
+                Whether the last keystroke is in the bucket, leading the group —
+                see `SaveChip` for why this is a chip here rather than a Save
+                button over the note. Not gated on `insideContext` either: it is
+                a claim about the note that is open, and a note stays open
+                behind Map, Connections and the settings overlay.
+              */}
+              <SaveChip editor={data.files.editor} />
+              {/*
+                Gated on `insideContext`, and the two chips beside it are not.
                 That is deliberate rather than an oversight to tidy: a bucket is
                 one fact about the selected context, but a tier is a claim about
                 what *you* can see, and on an all-contexts route you may be
@@ -559,13 +1106,44 @@ export default function ConsoleLayout() {
                 onOpenSettings={
                   current === null
                     ? undefined
-                    : () => router.push(settingsHref(current.slug))
+                    : /*
+                        `setParams` inside a context, a push out of one.
+
+                        Both open the overlay now — it draws on every console
+                        route — but only a context route carries the note in
+                        its URL, and `setParams` is what keeps it there while
+                        settings is over the top of it. From Map or Connections
+                        there is no note to keep, and the push names the
+                        context whose binding this chip is stating.
+                      */
+                      insideContext
+                      ? () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
+                      : () => router.push(settingsHref(current.slug))
                 }
               />
             </>
           )
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
+        /*
+          The phone's half of the status strip — Offline, the queue, and the
+          open note's own `Queued` / `Cached copy` — as a pill in the header
+          that opens a sheet naming the notes. `SyncPill` renders nothing when
+          there is nothing to say, which is almost always.
+
+          `browsing`, as the Recent sheet is: the sheet's rows open notes, and
+          Browse is where a note is opened. `AppFrame` refuses the slot at a
+          pointer density on its own, where the strip and `SaveChip` say it.
+        */
+        syncSlot={
+          phone && browsing ? (
+            <SyncPill
+              sync={data.files.sync}
+              save={saveChip({ editor: data.files.editor, now: Date.now() })}
+              onPress={() => setSyncOpen(true)}
+            />
+          ) : undefined
+        }
         /*
           A phone's top row, and the one thing left pinned in it.
 
@@ -577,23 +1155,87 @@ export default function ConsoleLayout() {
           trailing capsule is untouched, because the scope and Share act on what
           is on screen and were never navigation.
         */
-        accountSlot={<Account data={data} compact touch />}
-        rail={(mode) => <Rail data={data} route={route} mode={mode} />}
+        accountSlot={
+          <Account
+            data={data}
+            compact
+            touch
+            onSignOut={requestSignOut}
+            /*
+              The phone's only way to the meetings it has already recorded.
+
+              Its key records now — the sheet that used to carry a "Past
+              meetings" row is gone — and at every pointer density this row is
+              on the switcher instead, so there is exactly one of it per
+              surface. `data.demo` has no meetings behind it.
+            */
+            onOpenMeetings={data.demo ? undefined : () => router.push(MEETINGS_ROUTE)}
+            /*
+              Present with no context too. The account scope is about the
+              person, so "nothing selected" is a reason to open on an account
+              section rather than a reason to withhold the only settings
+              control a phone has.
+            */
+            onOpenSettings={() =>
+              router.setParams({
+                settings:
+                  current === null
+                    ? DEFAULT_ACCOUNT_SETTINGS_SECTION
+                    : DEFAULT_SETTINGS_SECTION,
+              })
+            }
+          />
+        }
         /*
           `browsing`, not `insideContext`.
 
           Settings is inside a context, so gating on that shipped Browse's
           whole toolbar to a screen with no notes on it: a file tree, a `+`
           that wrote a note you could not see, a Save with nothing to save, and
-          a tab count whose sheet activated notes behind the settings pane.
+          a Recent key whose sheet selected notes behind the settings pane.
           Tapping a note in that drawer selected it and closed the drawer with
           no visible change at all.
         */
+        /*
+          The right panel's contents. Supplied here rather than by the pane for
+          `explorer`'s reason: it is a region of the frame, so the frame owns
+          whether it is a column or an overlay, and this owns what is in it.
+
+          **No `browsing` guard, deliberately**, where `explorer` has one. The
+          tree is about a route — Map and Connections have none — and the panel
+          is about the context, so a question asked from the Map is a question
+          about the same notes. `regionsFor` says the same thing by taking no
+          `hasExplorer` term for it.
+        */
+        aside={
+          data.demo ? undefined : (
+            <AsidePanel
+              engine={agentEngine}
+              place={agentPlace}
+              asked={asked}
+              started={meetingsAt}
+              newChat={newChatAt}
+              /*
+                A finished meeting's note, opened in the editor behind the
+                panel. `noteEditorHref` builds a console address out of the
+                record's own two halves, so this is the ordinary "open a note"
+                the console already does rather than a route of this feature's.
+              */
+              onOpenNote={data.demo ? null : (href) => router.push(href)}
+            />
+          )
+        }
         explorer={
           browsing ? (
             <Explorer
               files={data.files}
               contextLabel={contextLabel}
+              /*
+                The foot line and the tree's dots. Absent on the demo console,
+                which has no control plane — the column then ends at the counts
+                line, exactly as it did before this existed.
+              */
+              activity={data.activity}
               /*
                 **No `vault` and no `vaultDetail` any more, and the line they
                 composed has not been deleted — it has moved.**
@@ -619,21 +1261,47 @@ export default function ConsoleLayout() {
                 tabs.pin(path);
               }}
               onOverlayChange={setTreeOverlay}
+              /*
+                The workspaces, at the foot of the column. `foot.ts` decides what
+                fits in the width the panel has been dragged to; this supplies
+                the three things it cannot reach on its own — the list, the
+                recently-visited log and the router.
+
+                `phone` is not a condition here. A phone has no file tree at all
+                (`features/app/frame.ts`), so this slot has no supplier at that
+                density and `NavBand`'s strip goes on being its answer.
+              */
+              workspaces={
+                <ContextFootRow
+                  contexts={data.contexts}
+                  currentSlug={current?.slug ?? null}
+                  recent={places}
+                  /*
+                    Resolved at press time, never when the row rendered — the log
+                    moves on every navigation. Same rule, same reason and the
+                    same call as the phone's strip: a switch lands on the note
+                    you had open in that context rather than at its root.
+                  */
+                  onOpen={(slug) => router.replace(contextHrefFrom(slug))}
+                  menu={<SwitcherMenu {...switcherProps} trigger="chevron" />}
+                />
+              }
             />
           ) : undefined
         }
-        status={<Status data={data} />}
+        status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={
           browsing ? (
             <ConsoleBottomBar
               data={data}
-              tabs={tabs}
               history={history}
+              hasRecent={somewhereToGo}
               onStep={step}
               onSearch={() => setPaletteOpen(true)}
-              onOpenTabs={() => setSwitcherOpen(true)}
-              onNewNote={(folder) => setBarDialog({ kind: "create", folder })}
-              onStartMeeting={startMeetingFlow}
+              onOpenRecent={() => setRecentOpen(true)}
+              onCreate={
+                canCreate ? (folder) => setBarDialog({ kind: "create", folder }) : null
+              }
             />
           ) : undefined
         }
@@ -641,10 +1309,13 @@ export default function ConsoleLayout() {
         <Shortcuts
           files={data.files}
           tabs={tabs}
+          nav={nav}
           onCloseTab={closeTab}
           onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
-          paletteOpen={paletteOpen || treeOverlay || switcherOpen}
+          paletteOpen={
+            paletteOpen || treeOverlay || recentOpen || syncOpen || openSettingsSection !== null
+          }
         />
         {/*
           The contexts, built here and drawn inside whatever scroller the
@@ -671,13 +1342,59 @@ export default function ConsoleLayout() {
                 <CurrentContextPill
                   context={current}
                   /*
-                    The root, and never `contextHrefFrom`. That resolves to the
-                    place this device last had open in the context — which, for
-                    the context you are standing in, is where you already are.
-                    This is the press that takes somebody up from a top-level
-                    folder, so it is the root by construction.
+                    `deselect()`, not `router.replace(browseHref(slug))`. That
+                    was the shipped fix's own words for "open the root", and it
+                    is exactly right about *where* the root is and exactly
+                    wrong about how to get there while already standing in it:
+                    `router.replace` is a `REPLACE` action, `StackRouter`
+                    mints a fresh route key for every one regardless of
+                    whether the params actually changed, and a fresh key
+                    remounts `ContextBrowseRoute` — while `ConsoleDataProvider`
+                    and `FileBrowser` stay mounted here in `_layout` and do
+                    not. `useNoteAddress`'s `seen` ref lives on the remounted
+                    side, so it resets to `null` on every press, and the note
+                    it should have closed comes right back — see
+                    `docs/decisions/app-and-console.md`, "the first fix did
+                    not hold".
+
+                    There is nothing to navigate *to*: deselecting is the
+                    entire effect a round trip to the same route with no
+                    `?note=` was standing in for. `useNoteAddress` sees the
+                    selection change under an unchanged URL and mirrors it —
+                    the same "address" step a tapped-closed tab already takes
+                    — so the URL still ends up at the bare context, one commit
+                    later, with no remount and no `seen` reset anywhere. It
+                    also covers standing in a top-level *folder*:
+                    `selectedPath` names the folder, and `deselect` clears
+                    that exactly as it clears a note. `E2EFixtureScreen.tsx`
+                    already does this for the same reason — it is what the
+                    navigation *does* to this browser's state, and there is no
+                    router in that fixture to stand in for it.
                   */
-                  onOpenRoot={() => router.replace(browseHref(current.slug))}
+                  onOpenRoot={() => {
+                    /*
+                      **And on an app-level pane it is a navigation after all.**
+
+                      Everything above is about pressing this while standing
+                      *in* the context: there is nowhere to go, and deselecting
+                      is the whole of the effect. On Search, Map or Connections
+                      there is somewhere to go and deselecting did nothing you
+                      could see — which, on a phone, left those three panes with
+                      no way out at all: `regionsFor` draws no rail there and the
+                      console passes no bottom toolbar off Browse, so the strip
+                      is the only navigation on the glass and its own pill was
+                      the one dead pill in it.
+
+                      `replace`, and through the remembered place, so leaving a
+                      pane puts somebody back on the note they had open rather
+                      than at the root of a context they never left.
+                    */
+                    if (currentContextPress(route) === "navigate") {
+                      router.replace(contextHrefFrom(current.slug));
+                      return;
+                    }
+                    data.files.deselect();
+                  }}
                   onSelect={(next) => {
                     if (!sameRoute(next, route)) router.replace(hrefFor(next));
                   }}
@@ -710,6 +1427,23 @@ export default function ConsoleLayout() {
                 */
                 onOpen={(slug) => router.replace(contextHrefFrom(slug))}
                 onSelect={(next) => {
+                  /*
+                    Settings on the context you are already in is a parameter,
+                    not a navigation: `hrefFor` emits the legacy path for a
+                    settings route, and replacing with it drops the `?note=`
+                    beside it — closing somebody's note as a side effect of
+                    opening settings, which is the whole defect the overlay
+                    exists to fix.
+                  */
+                  if (
+                    next.kind === "context" &&
+                    next.view === "settings" &&
+                    route.kind === "context" &&
+                    next.slug === route.slug
+                  ) {
+                    router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
+                    return;
+                  }
                   if (!sameRoute(next, route)) router.replace(hrefFor(next));
                 }}
                 onLeaveContext={(id) => {
@@ -724,34 +1458,107 @@ export default function ConsoleLayout() {
             ) : null,
           }}
         >
-          <EditorRegion
-            browse={browsing}
-            failure={data.failure}
-            tabs={browsing && !phone ? tabs : null}
-            onCloseTab={closeTab}
-            phone={phone}
-          >
+          <EditorRegion browse={browsing} failure={data.failure} phone={phone}>
             <Slot />
           </EditorRegion>
         </NavBandProvider>
 
         {/*
-          The tab sheet, mounted only where there is a control that opens it.
-          `TabSwitcher` closes itself when the last tab goes (see its effect),
-          and the guard on `tabs.length` is what stops it re-opening empty if
-          something else empties the strip while it is up.
+          The Recent sheet, mounted only where there is a control that opens it.
+          It closes itself when the list empties (see its effect), and the guard
+          on `somewhereToGo` is what stops it re-opening onto a single row
+          pointing at the note already on screen — a context switch clears the
+          history from under it, and this component sits above the route that
+          does that.
+
+          `select` rather than `router`: the note is a selection this browser
+          holds, the URL follows it through `useNoteAddress`, and asking the
+          router to navigate instead remounts the route under the press. See
+          `docs/decisions/app-and-console.md` on the breadcrumb root, which is
+          the same press taking the same shortcut for the same reason.
         */}
-        {switcherOpen && phone && tabs.state.tabs.length > 0 ? (
-          <TabSwitcher
-            state={tabs.state}
-            onActivate={(path) => {
-              tabs.activate(path);
-              setSwitcherOpen(false);
+        {recentOpen && phone && somewhereToGo ? (
+          <RecentSheet
+            paths={recentPaths(history)}
+            currentPath={data.files.selectedPath}
+            pendingStateFor={data.files.pending?.stateFor}
+            onOpen={(path) => {
+              data.files.select(path);
+              setRecentOpen(false);
             }}
-            onClose={closeTab}
-            onDismiss={() => setSwitcherOpen(false)}
+            onDismiss={() => setRecentOpen(false)}
           />
         ) : null}
+
+        {/*
+          The phone's sync sheet. `select` for the reason the Recent sheet
+          above uses it — and opening a note is the whole answer the sheet
+          offers: a waiting write is checked by looking at it, and a parked one
+          is restored as a conflict the moment its note opens (`open` in
+          `useFileBrowser`), which is where its three answers are.
+        */}
+        {/*
+          Every layout, not only the phone's: on a pointer layout the strip's
+          sync segments open it (`Status`), because a parked rename or delete
+          is answered on this sheet's rows and nowhere else — marked and
+          counted but unanswerable is a change stranded with no way to act on
+          it.
+        */}
+        {syncOpen && browsing ? (
+          <SyncSheet
+            sync={data.files.sync}
+            save={saveChip({ editor: data.files.editor, now: Date.now() })}
+            pending={data.files.pending ?? NO_PENDING}
+            onOpen={(path) => {
+              data.files.select(path);
+              setSyncOpen(false);
+            }}
+            onAnswer={data.files.answerOp}
+            onDismiss={closeSync}
+          />
+        ) : null}
+
+        {/*
+          Settings, over whatever is behind it rather than instead of it.
+          Closing drops one query parameter, which is why there is no
+          reconstruction of where somebody came from here: the note they had
+          open is still in the URL and still on screen.
+        */}
+        {/*
+          Drawn on every console route, not only a context's. The account
+          sections are about the person and reachable from anywhere, and the
+          list itself now switches contexts — so gating this on `route.kind`
+          left `?settings=apps` on `/console/map` as a URL that changed nothing
+          and drew nothing, and left the gear absent on exactly the routes with
+          no other way in.
+        */}
+        {openSettingsSection === null ? null : (
+          <SettingsOverlay
+            data={data}
+            section={openSettingsSection}
+            /*
+              What Stripe's return URL said, read here because this is where
+              every other query parameter this console acts on is read. It is a
+              different fact from "the plan is active" — the webhook that
+              decides that may not have landed yet — and Premium is the only
+              panel that has anything to say about the gap.
+            */
+            returned={checkoutReturn}
+            onSelect={(next) => router.setParams({ settings: next })}
+            /*
+              A context switch inside settings is a navigation, because the
+              context a console is showing is a route rather than component
+              state — the same `settingsHref` the storage chip pushes, carrying
+              the open section so switching does not also change the subject.
+            */
+            onSwitchContext={(slug) => router.push(settingsHref(slug, openSettingsSection))}
+            onSignOut={requestSignOut}
+            onOpenInvitation={(token) => router.push(inviteHref(token))}
+            onDismiss={() => router.setParams({ settings: undefined })}
+          />
+        )}
+
+        {signOutDialog}
 
         {closingTab === null ? null : (
           <Confirm
@@ -771,6 +1578,73 @@ export default function ConsoleLayout() {
           files={data.files}
           dialog={barDialog}
           onClose={() => setBarDialog(null)}
+          /*
+            The two rows of the phone's create sheet that are not files. The same
+            handlers the corner's menu gets, so the two `+`s offer the same
+            things — see `CreatePrompt`.
+          */
+          create={{ onNewMeeting: startMeeting, onNewChat: startNewChat }}
+          /*
+            The share dialog raised from the toolbar is the one a phone
+            reaches, and it was drawing without the people or the groups —
+            which is how it came to be three paragraphs and a keyboard. Read
+            off the console's own single subscriptions; `groups.actions` is
+            absent for anybody who is not an owner, so the field offers no
+            group rows rather than a pick the server would refuse.
+          */
+          access={{
+            members: data.members?.members ?? [],
+            groups:
+              data.groups?.actions === undefined
+                ? undefined
+                : data.groups.groups.map((group) => ({
+                    name: group.name,
+                    label: group.label,
+                    liveCount: group.members.filter((member) => member.live).length,
+                  })),
+            onShareWithGroup:
+              data.groups?.actions === undefined
+                ? undefined
+                : (path, kind, group) => data.files.shareWithGroup(path, kind, group),
+            /*
+              The same three halves the pane passes, each present only where
+              this caller holds it. Built per path rather than once, because
+              narrowing a note names the note — see `removalHandler`.
+            */
+            groupSlug: current?.slug,
+            /*
+              Named audiences, from the one derivation every surface uses. The
+              share sheet says "Everyone in @supa" rather than "Workspace",
+              which is a set the reader can check. See `privacy/audience.ts`.
+            */
+            audience: audienceContextOf(
+              current?.slug,
+              current?.kind,
+              capabilitiesForRole(current?.role).isOwner,
+            ),
+            onCreateGroup:
+              data.groups?.actions === undefined
+                ? undefined
+                : (path, kind, label, userIds) =>
+                    data
+                      .groups!.actions!.createWith(label, userIds)
+                      .then((name) => data.files.shareWithGroup(path, kind, name)),
+            removalRouteFor: (path, kind) =>
+              removalHandler({
+                path,
+                kind,
+                setPrivate: (target, targetKind) =>
+                  data.files.setVisibility(target, targetKind, "private"),
+                removeMember: data.members?.actions?.remove,
+                openGroups:
+                  data.groups?.actions === undefined || !insideContext
+                    ? undefined
+                    : () => {
+                        setBarDialog(null);
+                        router.setParams({ settings: "groups" });
+                      },
+              }),
+          }}
         />
 
         {/*
@@ -790,9 +1664,111 @@ export default function ConsoleLayout() {
           onDismiss={data.files.dismissToast}
         />
 
+        {/*
+          THE +, AND WHY IT IS MOUNTED HERE.
+
+          It is inside `AppFrame`'s editor region — the same corner the
+          microphone floated in — but it is passed by the *layout*, which is on
+          screen for every route under `/console`. That is the whole of the
+          owner's second complaint: the microphone was drawn by `NoteEditor`,
+          so it vanished on a folder page, on the map and on search. Nothing
+          here asks what is open.
+
+          `null` at compact from inside the component, where the phone's
+          seven-key row is the reason — see `CreateButton`. Absent altogether on
+          the demo console, which has no controller behind a recording and a
+          `createNote` that is a no-op: a menu of three things that do nothing
+          is worse than no menu.
+        */}
+        {data.demo ? null : (
+        <CreateButton
+          compact={phone}
+          onNewMeeting={startMeetingFlow}
+          /*
+            The same `targetFolder` rule the tree's own `+` and the phone's
+            bottom row both use: a selected folder is the destination, anything
+            else means its parent.
+
+            **It writes the file rather than raising a dialog.** The prompt asked
+            for the one thing nobody has before they have written anything; the
+            note arrives called `untitled-<date>` and renames itself to the first
+            heading typed into it. See `files/untitled.ts`.
+          */
+          onNewNote={() =>
+            data.files.createUntitled(
+              targetFolder(data.files.listings, data.files.selectedPath),
+              "note",
+            )
+          }
+          /*
+            The other two things that land in that same folder. A drawing is made
+            on the press like the note — `untitled-<date>.excalidraw.md`, which is
+            `createUntitled`'s rule and not this control's. **The folder is the
+            one that still asks**, through the dialog the tree's own `+` raises
+            (`ExplorerDialogs` is already mounted below for the toolbar's, and
+            this is that rather than a second one): the reason a note needs no
+            prompt is that it has a title field inside it, and a folder has no
+            inside to type in.
+          */
+          onNewDrawing={() =>
+            data.files.createUntitled(
+              targetFolder(data.files.listings, data.files.selectedPath),
+              "drawing",
+            )
+          }
+          onNewFolder={() =>
+            setBarDialog({
+              kind: "newFolder",
+              folder: targetFolder(data.files.listings, data.files.selectedPath),
+            })
+          }
+          /*
+            A fresh conversation in the right panel — `startNewChat` above, which
+            the phone's `+` sheet also gets, with the three conditions and the
+            owner's reason for the third stated there once.
+          */
+          onNewChat={startNewChat}
+        />
+        )}
+
+        {/*
+          The panel, opened by anything above the frame that cannot reach
+          `useFrame` — today the note's right-click menu. It renders nothing;
+          it exists to be *inside* `AppFrame`, which is where the command is.
+        */}
+        <OpenAsideOn at={openAsideAt} />
+
+        {/*
+          THE PHONE'S CONVERSATION.
+
+          A phone has no right panel (`hasAside`), so the Chat row in its `+`
+          raises this instead — the same `AgentPanel` the note's own microphone
+          raises, from the same engine and the same `agentPlace`, mounted by the
+          layout so it is reachable on every route rather than only over an open
+          note. See `startNewChat`.
+
+          `key` is the timestamp, so each press starts a fresh conversation
+          rather than reopening the last one — which is what "New chat" says.
+          `compact` is `phone` rather than `true`: the value is only ever read
+          here when `phone` holds, and passing the literal would be a second
+          opinion about the density this component asks for.
+        */}
+        {phoneChatAt === null ? null : (
+          <AgentPanel
+            key={phoneChatAt}
+            engine={agentEngine}
+            place={agentPlace}
+            compact={phone}
+            onClose={() => setPhoneChatAt(null)}
+          />
+        )}
+
         {paletteOpen ? (
+          <PaletteWithAsk
+            onAsked={(query) => setAsked({ text: query, at: Date.now() })}
+            render={(onAskAgent, askable) => (
           <Palette
-            items={itemsFromListings(data.files.listings)}
+            items={paletteItems}
             placeholder="Search this context"
             /*
               Reached only when the whole-context search is idle too — under
@@ -823,11 +1799,32 @@ export default function ConsoleLayout() {
               setPaletteOpen(false);
               router.push(searchHref(query));
             }}
+            /*
+              The other handoff: hand the words to the agent instead of to
+              search, and open the panel they are answered in.
+
+              Offered only where there is a panel to answer in — a phone has
+              none (`asideToggleFor`), and the demo console has no engine — so
+              the row is absent there rather than pressable and inert. `at` is
+              a timestamp because it only has to be *different* each time; the
+              panel keys its send on the change, so asking the same thing
+              twice is two turns.
+            */
+            onAsk={
+              askable
+                ? (query) => {
+                    setPaletteOpen(false);
+                    onAskAgent(query);
+                  }
+                : undefined
+            }
             onChoose={(item) => {
               setPaletteOpen(false);
               data.files.select(item.id);
             }}
             onDismiss={() => setPaletteOpen(false)}
+          />
+            )}
           />
         ) : null}
         {/*
@@ -838,6 +1835,8 @@ export default function ConsoleLayout() {
         */}
         {meetingSheet}
       </AppFrame>
+      </VoiceHostProvider>
+      </ConsoleNavProvider>
     </ConsoleDataProvider>
   );
 }
@@ -865,9 +1864,75 @@ export default function ConsoleLayout() {
  * leaves the browser's own behaviour alone — that is why `preventDefault` is
  * conditional on a `true` in the first place.
  */
+/**
+ * Open the right panel when somebody above the frame asks.
+ *
+ * A component with no output, for `PaletteWithAsk`'s reason: `useFrame` only
+ * answers inside `AppFrame`, and the console layout is above it. The counter
+ * is the event — see where it is held — and `toggleAside` is a no-op at a
+ * density with no panel, so a phone's menu row being absent and this doing
+ * nothing are the same guard read from two sides.
+ */
+function OpenAsideOn({ at }: { at: number | null }) {
+  const frame = useFrame();
+  const open = frame.state.asideOpen;
+  const toggle = frame.toggleAside;
+  useEffect(() => {
+    if (at === null || open) return;
+    toggle();
+    // `open` is deliberately absent: it changes as a *result* of this, and
+    // listing it would make the effect re-run on its own outcome.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [at, toggle]);
+  return null;
+}
+
+/**
+ * The palette, with a way to reach the right panel.
+ *
+ * A component and not three lines in the layout, because opening the panel is
+ * the frame's command and `useFrame` only answers *inside* `AppFrame` — and
+ * the layout is above it. `Shortcuts` below exists for the same reason.
+ *
+ * `render` takes what the palette needs rather than this rendering it, so the
+ * palette's own long prop list stays where a reader of the layout can see it.
+ * `askable` is false where there is no panel for an answer to land in, and the
+ * row is then absent rather than inert: `onAsk` being undefined is what
+ * `askItem` reads.
+ */
+function PaletteWithAsk({
+  onAsked,
+  render,
+}: {
+  onAsked: (query: string) => void;
+  render: (onAskAgent: (query: string) => void, askable: boolean) => ReactNode;
+}) {
+  const frame = useFrame();
+  /*
+    Whether there is a panel to answer in. `Regions.aside` is `hidden` at every
+    compact state, and `asideToggleFor` is what decides that — asked here
+    rather than re-derived from a width, for the reason that function exists.
+  */
+  const askable = asideToggleFor(frame.density) !== null;
+
+  const onAskAgent = useCallback(
+    (query: string) => {
+      // Opened before the question is handed over, so the panel is mounted to
+      // receive it. A no-op where `askable` is false, which is the same guard
+      // from the other side.
+      if (!frame.state.asideOpen) frame.toggleAside();
+      onAsked(query);
+    },
+    [frame, onAsked],
+  );
+
+  return <>{render(onAskAgent, askable)}</>;
+}
+
 function Shortcuts({
   files,
   tabs,
+  nav,
   onCloseTab,
   onDialog,
   onSearch,
@@ -875,6 +1940,8 @@ function Shortcuts({
 }: {
   files: FileBrowser;
   tabs: ReturnType<typeof useTabs>;
+  /** ⌘[ and ⌘], over the same history the note's own `‹ ›` walk. */
+  nav: ConsoleNav;
   /** ⌘W. Asks before discarding a draft, exactly as the × does. */
   onCloseTab: (path: string) => void;
   /** Raise one of the tree's dialogs — the same set the toolbar's `+` uses. */
@@ -897,8 +1964,8 @@ function Shortcuts({
           case "toggleExplorer":
             frame.toggleExplorer();
             return true;
-          case "toggleRail":
-            frame.toggleRail();
+          case "toggleFocus":
+            frame.toggleFocus();
             return true;
           case "dismiss":
             // `keymap.ts` says Escape "closes whatever is open, wherever you
@@ -939,6 +2006,22 @@ function Shortcuts({
             if (tabs.state.closed.length === 0) return false;
             tabs.reopen();
             return true;
+          /* ---- where you have been -------------------------------------- */
+          case "goBack":
+          case "goForward": {
+            /*
+              `false` at the ends of the history, which is what lets the press
+              reach the browser — on the web ⌘[ is its back chord too, and a
+              console with nowhere of its own to go should not swallow it.
+              The same answer the dimmed `‹ ›` give, through the same state.
+            */
+            const available = command === "goBack" ? nav.canBack : nav.canForward;
+            if (!available) return false;
+            if (command === "goBack") nav.back();
+            else nav.forward();
+            return true;
+          }
+
           case "nextTab":
           case "prevTab": {
             const { tabs: open, activePath } = tabs.state;
@@ -1004,7 +2087,13 @@ function Shortcuts({
           }
         }
       },
-      [files, tabs, onCloseTab, onDialog, frame, onSearch],
+      /*
+        `nav` belongs here rather than being left out as "stable enough": it is
+        memoized on the history state, so it is the one dependency in this list
+        that changes on every navigation — and a stale copy would answer ⌘[
+        with the `canBack` of wherever somebody was two notes ago.
+      */
+      [files, tabs, nav, onCloseTab, onDialog, frame, onSearch],
     ),
   });
 
@@ -1017,111 +2106,6 @@ const NUMBERED_TABS = [
 ] as const;
 
 /**
- * The rail, wired to the router — and, on a phone, to the sheet it is inside.
- *
- * A component rather than an inline node in the slot, because it needs
- * `useFrame`, and the slot is rendered *inside* `AppFrame`'s provider while the
- * layout that passes it is above it.
- *
- * Choosing a destination dismisses the sheet, for the same reason choosing a
- * note dismisses the tree drawer: on a phone the panel is covering the thing
- * you just asked for. It dismisses even when the destination is the route you
- * are already on — you asked for that pane, and a sheet that stays put because
- * the router had nothing to do reads as a dead press.
- *
- * `onClaimContext` leaves the console entirely, which is why it is a callback
- * rather than a `ConsoleRoute`: `/welcome` is not under `/console`, and the
- * rail renders the entry only for somebody who owns nothing. See
- * `offerOwnContext`.
- */
-function Rail({
-  data,
-  route,
-  mode,
-}: {
-  data: ConsoleData;
-  route: ConsoleRoute;
-  mode: "full" | "icons" | "sheet";
-}) {
-  const frame = useFrame();
-  const router = useRouter();
-
-  return (
-    <ConsoleRail
-      data={data}
-      route={route}
-      mode={mode}
-      onNavigate={(next) => {
-        frame.closeNav();
-        // Pressing the rail entry you are already on should do nothing, not
-        // re-enter the route — which on a context would reset the file browser
-        // out from under an open note.
-        if (!sameRoute(next, route)) router.replace(hrefFor(next));
-      }}
-      account={<Account data={data} compact={mode === "icons"} touch={mode === "sheet"} />}
-      onClaimContext={() => {
-        frame.closeNav();
-        // `push`, not `replace`: somebody who opens this out of curiosity from
-        // inside a context they were given must be able to come back with the
-        // browser's own Back button. Onboarding has no Back of its own — step 1
-        // claims a name out of a global namespace with no release path — so the
-        // one before it is the only one there can be.
-        router.push(WELCOME_ROUTE);
-      }}
-      /*
-        Offered to everybody, and only in the live console.
-
-        `data.demo` is the condition rather than a role or a count: the landing
-        page renders this same rail as a picture, and an entry there would open
-        a flow that immediately refuses for want of a session. How many
-        workspaces one account may own is the control plane's rule, enforced in
-        `createWorkspace`'s transaction, and it is not restated here — see
-        `onCreateWorkspace` on `ConsoleRail`.
-      */
-      onCreateWorkspace={
-        data.demo
-          ? undefined
-          : () => {
-              frame.closeNav();
-              // `push` for `onClaimContext`'s reason, and one more: this flow
-              // is genuinely abandonable up to the moment the name is claimed,
-              // so Back has somewhere real to return to.
-              router.push(NEW_WORKSPACE_ROUTE);
-            }
-      }
-      /*
-        Meeting capture, which until now had no way in from anywhere in the app.
-
-        `push`, not `replace`, for `onClaimContext`'s reason and one more: the
-        meetings screens sit outside the console entirely, so the browser's Back
-        — and the phone's — is the way back to the note somebody left. A
-        `replace` would take that away and leave `/meetings` with no route out
-        of it at all.
-
-        Offered in the live console only, like `onCreateWorkspace`: the landing
-        page mounts the rail as a picture and has nowhere to send anybody.
-      */
-      onOpenMeetings={
-        data.demo
-          ? undefined
-          : () => {
-              frame.closeNav();
-              router.push(MEETINGS_ROUTE);
-            }
-      }
-      onLeaveContext={(id) => {
-        frame.closeNav();
-        // Fire-and-watch: the membership row deleting is what removes the
-        // context from the rail, via the subscription. Land on the Map so the
-        // person is not left standing in a context they just left.
-        void data.leaveContext?.(id);
-        router.replace("/console");
-      }}
-    />
-  );
-}
-
-/**
  * The thumb's half of the console.
  *
  * Only the verbs that have nowhere else to go on a phone. Creating and
@@ -1130,188 +2114,6 @@ function Rail({
  * exists. The tree toggle is here as well as in the top bar because this is
  * where a thumb is, and the top bar is a stretch on a tall phone.
  */
-function ConsoleBottomBar({
-  data,
-  tabs,
-  history,
-  onStep,
-  onSearch,
-  onOpenTabs,
-  onNewNote,
-  onStartMeeting,
-}: {
-  data: ConsoleData;
-  tabs: ReturnType<typeof useTabs>;
-  /** Where you have been, for `‹` and `›`. */
-  history: HistoryState;
-  onStep: (delta: -1 | 1) => void;
-  onSearch: () => void;
-  onOpenTabs: () => void;
-  /** Raises the naming dialog for a destination — see the `new` action. */
-  onNewNote: (folder: string) => void;
-  /** Opens the meeting destination sheet. It does not start recording. */
-  onStartMeeting: () => void;
-}) {
-  const files = data.files;
-  // The same rule the explorer's own `+` uses, from the same function: a
-  // selected *folder* is the destination, anything else means its parent.
-  const folder = targetFolder(files.listings, files.selectedPath);
-
-  return (
-    <BottomBar
-      actions={[
-        /*
-          No drawer toggle here.
-
-          There were two — this one and `AppFrame`'s top-bar button — with the
-          same icon, calling the same function, on one 390pt screen. The
-          defence written here was thumb reach: "the tree toggle is here as
-          well as in the top bar because this is where a thumb is, and the top
-          bar is a stretch on a tall phone."
-
-          That was never a fallback for any layout. `regionsFor` turns
-          `drawerToggle` on only at `compact`, which is the one density where
-          `bottomBar` is unconditionally true — so the two existed together or
-          not at all, and neither was ever the only way in.
-
-          The owner chose the top-left one (2026-08). It is where Obsidian
-          puts the sidebar toggle and where the panel it opens comes from, so
-          the button and its result are on the same side. The thumb-reach half
-          of the old argument is answered by the edge-swipe, not by a second
-          button in the other corner.
-        */
-        /*
-          `‹` and `›` lead the bar, which is where Obsidian puts them and where
-          every browser puts them. A phone shows one note at a time, so "the one
-          I was just looking at" is a destination somebody reaches constantly
-          and cannot see — and before this the only route to it was to open the
-          drawer and find it in the tree again.
-
-          Dimmed in place rather than removed at the ends of the history, which
-          is `BottomBar`'s own rule for Save and is doubly right here: these two
-          spend most of a session with at least one of them unavailable, and a
-          bar whose first two positions come and go moves every other target.
-        */
-        {
-          id: "back",
-          label: "Go back",
-          icon: "chevronLeft" as const,
-          disabled: !canGoBack(history),
-          onPress: () => onStep(-1),
-        },
-        {
-          id: "forward",
-          label: "Go forward",
-          icon: "chevronRight" as const,
-          disabled: !canGoForward(history),
-          onPress: () => onStep(1),
-        },
-        { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
-        /*
-          Absent, not dimmed. `BottomBar` argues that a fixed strip must not
-          move items out from under a thumb, and that is right for Save, which
-          is unavailable for a moment. `canEdit` is not a moment — it is the
-          whole console, for the whole session — and `menu.ts` states the rule
-          for exactly this case: read-only means the control is **gone**, not
-          present and refusing.
-        */
-        /*
-          The same dialog the explorer's own `+` raises, not a second contract.
-
-          This used to call `createNote(folder, "Untitled")` directly, which
-          made one icon mean two different things on one screen: the drawer's
-          `+` asked for a name and said where it was going, this one wrote
-          immediately and said neither. Worse, `folder` is derived from a
-          selection that lives *in the drawer* — normally shut when this button
-          is pressed — so the destination was invisible, defaulted to the
-          bucket root, and a second press failed on the name collision rather
-          than making a second note.
-
-          `ExplorerDialogs` already renders `NamePrompt` with the sentence that
-          answers all of that: "It will be created in 1-projects as markdown."
-
-          **And it asks which of the two this is.** The explorer's toolbar has
-          a button each for a note and a folder; this bar has room for one key,
-          and that key used to mean *note* — which left no way to make a folder
-          on a phone at all, in the bar or anywhere else. It now raises the
-          chooser, which is the honest reading of a `+`. See `CreatePrompt`.
-        */
-        ...(files.canEdit
-          ? [
-              {
-                id: "new",
-                label: "New note or folder",
-                icon: "plus" as const,
-                onPress: () => onNewNote(folder),
-              },
-            ]
-          : []),
-        /*
-          The tab count, in the position Obsidian, Safari and Chrome all put it:
-          a number in the toolbar rather than a strip above the note. The strip
-          is not drawn at this density at all — see `EditorRegion` — so this is
-          the only way to a note that is open but not in front of you.
-
-          Absent with nothing open, rather than a `0`. There is no sheet to
-          raise, and a control that opens an empty sheet is worse than one that
-          is not there. It is the last item on the bar for that reason too:
-          appearing and disappearing must not move a target somebody is already
-          reaching for, which is `BottomBar`'s rule, and the end of the row is
-          the one place where it cannot.
-        */
-        ...(tabs.state.tabs.length > 0
-          ? [
-              {
-                id: "tabs",
-                // One phrasing, from the file that owns the counting.
-                label: tabCountLabel(tabs.state),
-                icon: "file" as const,
-                // The number *is* the control — see `count` in `BottomBar`.
-                // The accent badge it replaces read as a notification about
-                // something that had happened, rather than a count of what is
-                // already open.
-                count: tabs.state.tabs.length,
-                marker: dirtyCount(tabs.state) > 0,
-                onPress: onOpenTabs,
-              },
-            ]
-          : []),
-        {
-          id: "save",
-          label: "Save this note",
-          icon: "check" as const,
-          // Absent rather than dead would move every other button mid-reach,
-          // so it dims in place — see `BottomBar`. Live for `error` too: that
-          // is the one state autosave will not retry from, so the thumb has to
-          // be able to. Same set as ⌘S; see `Shortcuts`.
-          disabled: files.editor.status !== "dirty" && files.editor.status !== "error",
-          marker: files.editor.status === "dirty" || files.editor.status === "error",
-          onPress: files.save,
-        },
-        /*
-          The seventh key, and the only one here that is not about the note.
-
-          `BottomBar`'s rule was "navigation is not its job", written when the
-          rail was where destinations lived. The rail is gone from a phone, and
-          this row is the one surface a thumb is always on — so exactly one
-          destination sits here, last, behind a separator that says the six
-          before it are a group and this is not.
-
-          It asks before it records. `startMeetingFlow` opens the sheet that
-          names where the notes will land and what happens to the audio; the
-          microphone opens only when somebody confirms there.
-        */
-        {
-          id: "meeting",
-          label: "Record a meeting",
-          icon: "mic" as const,
-          separated: true,
-          onPress: onStartMeeting,
-        },
-      ]}
-    />
-  );
-}
 
 /**
  * The bucket this context is bound to, in the top bar.
@@ -1371,130 +2173,45 @@ function StorageChip({
   );
 }
 
-/** No context selected, or a browser with no offline layer under it. */
-const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
-
 /**
- * Who you are signed in as, and the way out — which is also the moment this
- * device stops holding somebody's notes.
+ * Who you are signed in as, and the way out.
  *
- * Sign-out used to be `signOut().then(replace("/"))` and nothing else, while
- * `features/offline/cache.ts` carried a `forgetEverything` whose own comment
- * said it was "called on sign-out". Nothing called it. On a shared machine that
- * left cached note bodies — including ones an owner read at **private** tier —
- * keyed by workspace and by nothing about *who* read them, so the next person
- * to sign in who is a `team` member of the same context read them; and it left
- * the outbox, which `useOfflineNotes` drains the moment a queue and a
- * connection exist, sending the previous person's typing to the bucket under
- * the new person's session.
- *
- * Four properties, and each is a different failure if dropped:
- *
- *  - **The clear is awaited before `signOut`.** Not fire-and-forget: a clear
- *    that merely started leaves a window the next sign-in can race.
- *  - **The clear is also a barrier, not only a moment.** Awaiting it is not
- *    enough on its own: a read still in flight lands after it and writes a
- *    note body back. `forgetLocalCopies` ends the session epoch before it
- *    removes anything, and every writer in `useOfflineNotes` drops a write
- *    from a session that has ended.
- *  - **It cannot block.** Being unable to end a session is worse than a cache
- *    that outlives one, so the verdict is reported and never enforced — and
- *    the await itself is bounded, because a wedged native bridge never settles
- *    and a `catch` has nothing to catch. See `features/offline/forget.ts` for
- *    the whole stance.
- *  - **The person is asked first when the queue is not empty.** Discarding it
- *    is deliberate, so this is the last moment anybody can be told — and the
- *    count covers every context on the device, not just the one on screen,
- *    because that is what is about to go.
- *
- * The confirm is the console's own `Confirm`, the same primitive a dirty tab
- * close uses. A second dialog shape for the same question ("this throws away
- * work — still?") is how two answers to it start drifting apart.
+ * Presentational now. Ending a session is `useSignOutFlow`, which the console
+ * layout owns and hands to both this block and the settings overlay's Sign out
+ * row — see that hook for what sign-out actually does to the device's cache
+ * and its unsent writes, and why the person is asked first.
  */
 function Account({
   data,
   compact,
   touch = false,
+  onOpenSettings,
+  onOpenMeetings,
+  onSignOut,
 }: {
   data: ConsoleData;
   compact: boolean;
   touch?: boolean;
+  onOpenSettings?: () => void;
+  onOpenMeetings?: () => void;
+  onSignOut: () => void;
 }) {
-  const router = useRouter();
-  const { signOut } = useAuthActions();
-  const [discarding, setDiscarding] = useState<string | null>(null);
-
-  const signOutNow = useCallback(() => {
-    void (async () => {
-      // Awaited, and first — and bounded inside `forget.ts`, so a store that
-      // stops answering cannot hold somebody on this button. The result is
-      // deliberately not acted on here: `forget.ts` reports it, and there is
-      // no surface left to show it on.
-      await forgetLocalCopies();
-      await signOut();
-      router.replace("/");
-    })();
-  }, [router, signOut]);
-
   return (
-    <>
-      <AccountBlock
-        // The viewer, resolved once in `identity.ts` — never the viewed context.
-        // This block used to take the first `kind === "personal"` context (which
-        // is somebody else's the moment one is shared with you) and the selected
-        // context's capture address, so opening a shared context renamed the
-        // signed-in person after it.
-        name={data.viewer.name}
-        detail={data.viewer.detail}
-        initial={data.viewer.initial}
-        compact={compact}
-        touch={touch}
-        onSignOut={() => {
-          void (async () => {
-            /*
-              The open context's queue is normally excluded from the device
-              count and supplied by the live hook instead, because the hook's
-              copy is newer than the persisted one — see `waitingOnDevice`.
-
-              That swap only holds once the hook has actually read the queue
-              back. Before `ready` its counts are an *empty* queue rather than
-              this device's, so excluding the persisted copy at the same time
-              warns about nothing and then discards it — and sign-out pressed
-              during a cold load is not a corner, it is somebody who opened the
-              console to leave. Unready, nothing is excluded; the live counts
-              are zero, so there is nothing to double.
-            */
-            const live = data.files.sync;
-            const elsewhere = await unsentOnDevice(
-              live?.ready === true ? data.selectedContextId : null,
-            );
-            const here = live?.counts ?? NO_QUEUE;
-            const warning = signOutWarning({
-              pending: here.pending + elsewhere.pending,
-              conflicted: here.conflicted + elsewhere.conflicted,
-              rejected: here.rejected + elsewhere.rejected,
-            });
-            if (warning === null) {
-              signOutNow();
-              return;
-            }
-            setDiscarding(warning);
-          })();
-        }}
-      />
-      {discarding === null ? null : (
-        <Confirm
-          title="Sign out with edits still waiting?"
-          body={`${discarding} Nothing else is lost — your bucket is untouched.`}
-          confirmLabel="Sign out and discard"
-          onCancel={() => setDiscarding(null)}
-          onConfirm={() => {
-            setDiscarding(null);
-            signOutNow();
-          }}
-        />
-      )}
-    </>
+    <AccountBlock
+      // The viewer, resolved once in `identity.ts` — never the viewed context.
+      // This block used to take the first `kind === "personal"` context (which
+      // is somebody else's the moment one is shared with you) and the selected
+      // context's capture address, so opening a shared context renamed the
+      // signed-in person after it.
+      name={data.viewer.name}
+      detail={data.viewer.detail}
+      initial={data.viewer.initial}
+      compact={compact}
+      touch={touch}
+      onOpenSettings={onOpenSettings}
+      onOpenMeetings={onOpenMeetings}
+      onSignOut={onSignOut}
+    />
   );
 }
 
@@ -1507,7 +2224,19 @@ function Account({
  * save there is checked by re-reading first, and "degrade honestly" (see
  * CLAUDE.md) means somebody has to be able to see which one they got.
  */
-function Status({ data }: { data: ConsoleData }) {
+function Status({
+  data,
+  onOpenSync,
+}: {
+  data: ConsoleData;
+  /**
+   * Opens the sync sheet — the phone's, reused, so the rows and the answers on
+   * them are one implementation. Given only where the sheet can open (Browse),
+   * and attached only to the two sync segments.
+   */
+  onOpenSync?: () => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
   const segments = statusSegments({
     editor: data.files.editor,
     conflictCheck: data.files.editor.conflictCheck,
@@ -1528,12 +2257,36 @@ function Status({ data }: { data: ConsoleData }) {
     sync: data.files.sync,
   });
 
-  return <StatusBar segments={segments} testID="console-status" />;
+  /*
+    Transparent and unpadded, because the frame's own status row already draws
+    the surface, the height, the top rule and the gutter — and puts the tree's
+    toggle inside it. Two copies of that chrome is a second rule under the
+    first and the leading segment indented twice.
+  */
+  /*
+    How much of this context is on the device, from the offline mirror — at
+    the front beside "Offline" when part of it is missing and the device is
+    offline, and quietly at the end of the leading group otherwise.
+  */
+  const withMirror = withMirrorSegment(segments, data.files.sync, Date.now()).map((segment) =>
+    onOpenSync !== undefined && (segment.id === "queue" || segment.id === "connection")
+      ? { ...segment, onPress: onOpenSync }
+      : segment,
+  );
+  return <StatusBar segments={withMirror} style={styles.statusBar} testID="console-status" />;
 }
 
 export { Avatar };
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  statusBar: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 0,
+    borderTopWidth: 0,
+    backgroundColor: "transparent",
+  },
+
   switcher: {
     flexDirection: "row",
     alignItems: "center",

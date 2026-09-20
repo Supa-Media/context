@@ -343,29 +343,29 @@ describe("grant visibility follows role", () => {
   /**
    * The case this rule was narrowed for.
    *
-   * A person invited into somebody's personal brain opened Settings and found
+   * A person invited into somebody's personal workspace opened Settings and found
    * the owner's connected clients listed there — every AI tool that person
    * uses, its reach, and when it last ran. Nothing about a personal context
    * makes an invitee responsible for the owner's tooling, and there was never
    * a lever here for them to pull: `revokeGrant` has always been owner-or-self.
    */
-  test("an invitee to a personal brain cannot enumerate the owner's clients", async () => {
+  test("an invitee to a personal workspace cannot enumerate the owner's clients", async () => {
     const t = setupTest();
     const seyi = await createUser(t, "seyi@example.invalid");
     const guest = await createUser(t, "guest@example.invalid");
-    const brain = await createWorkspace(t, seyi, "seyi", {
+    const workspace = await createWorkspace(t, seyi, "seyi", {
       kind: "personal",
       displayName: "seyi",
     });
-    await addMember(t, brain, guest, "editor", seyi);
+    await addMember(t, workspace, guest, "editor", seyi);
 
-    await seedGrant(t, brain, seyi, "claude", "hash-seyi-claude");
-    await seedGrant(t, brain, seyi, "chatgpt", "hash-seyi-chatgpt");
-    const guestsOwn = await seedGrant(t, brain, guest, "codex", "hash-guest-codex");
+    await seedGrant(t, workspace, seyi, "claude", "hash-seyi-claude");
+    await seedGrant(t, workspace, seyi, "chatgpt", "hash-seyi-chatgpt");
+    const guestsOwn = await seedGrant(t, workspace, guest, "codex", "hash-guest-codex");
 
     const visible = await asUser(t, guest).query(
       api.functions.grants.listGrants,
-      { workspaceId: brain },
+      { workspaceId: workspace },
     );
     expect(visible.map((g) => g.grantId)).toEqual([guestsOwn]);
     expect(JSON.stringify(visible)).not.toContain("claude");

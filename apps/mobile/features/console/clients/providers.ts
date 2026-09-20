@@ -83,9 +83,10 @@ export const SERVER_DESCRIPTION =
  *    what it probably does.
  *  - Stays one line. This is meant to be read once and then obeyed silently on
  *    every turn after — a paragraph earns a skim, a line earns compliance.
- *  - Never says "brain" or "workspace". The field a person pastes this into
- *    has no idea which kind of context is on the other end of the endpoint,
- *    and does not need to: both answer to the same two tool names.
+ *  - Never says "workspace" — nor "brain", the word that one was called
+ *    before it was retired. The field a person pastes this into has no idea
+ *    which kind of context is on the other end of the endpoint, and does not
+ *    need to: both answer to the same two tool names.
  */
 export const CUSTOMIZATION_INSTRUCTION =
   `Always orient using the ${SERVER_NAME} MCP (call \`orient\`) before answering anything ` +

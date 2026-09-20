@@ -27,6 +27,8 @@ const { memoryStore } =
 const { openStore } =
   require("../features/offline/store.web") as typeof import("../features/offline/store.web");
 const keys = require("../features/offline/keys") as typeof import("../features/offline/keys");
+const { forgetLocalCopies } =
+  require("../features/offline/forget") as typeof import("../features/offline/forget");
 const cache = require("../features/offline/cache") as typeof import("../features/offline/cache");
 const {
   emptyOutbox,
@@ -270,6 +272,44 @@ describe("keys", () => {
     const held = [mine, theirs, V0_KEY, V1_NOTE_KEY, "some.other.feature key"];
 
     expect(keys.keysForWorkspace(held, "ws1")).toEqual([mine, V0_KEY, V1_NOTE_KEY]);
+  });
+
+  test("a context that is no longer in the list loses its bucket copies only", () => {
+    /*
+      The selector behind the departed-context purge, on its own. The set it takes is
+      narrower than `keysForWorkspace` in both directions, and each narrowing is
+      a different promise:
+
+       - **Never somebody's typing.** A `draft` and an `outbox` record exist
+         nowhere but this device, so a purge driven by a list that can arrive
+         late must not be able to touch them. This is the assertion to delete if
+         you want to see "being wrong in the unsafe direction costs somebody's
+         unsent work" stop being a sentence anything checks.
+       - **Never a key this version cannot parse.** `keysForWorkspace` takes the
+         stale set *because* it cannot be attributed to a workspace; here that
+         same fact makes "is it in the list" unanswerable, and guessing would
+         delete an unreadable draft.
+    */
+    const mine = keys.scopedKeyFor("note", "private", "ws1", "a.md");
+    const theirs = keys.scopedKeyFor("note", "private", "ws2", "a.md");
+    const theirListing = keys.scopedKeyFor("listing", "team", "ws2", "1-projects");
+    const theirDraft = keys.keyFor("draft", "ws2", "a.md");
+    const theirOutbox = keys.keyFor("outbox", "ws2");
+    const held = [mine, theirs, theirListing, theirDraft, theirOutbox, V0_KEY, V1_NOTE_KEY];
+
+    expect(keys.keysForDepartedContexts(held, ["ws1"])).toEqual([theirs, theirListing]);
+  });
+
+  test("and a list nobody has filled in yet takes nothing at all", () => {
+    /*
+      The second half of the same guard, stated where it cannot be masked.
+      `forgetDepartedContexts` refuses an empty list before it opens a store, so
+      this line is the only thing standing between "the subscription has not
+      answered" and "purge every context on the device" if that caller is ever
+      changed or another one is added.
+    */
+    const mine = keys.scopedKeyFor("note", "private", "ws1", "a.md");
+    expect(keys.keysForDepartedContexts([mine], [])).toEqual([]);
   });
 });
 
@@ -539,5 +579,91 @@ describe("the cache", () => {
   test("an emptied queue leaves no record behind", async () => {
     await cache.putOutbox(store, emptyOutbox("ws1"));
     expect(await store.keys()).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A listing that failed is not an empty device.
+ *
+ * `get`, `set` and `remove` each have an argued failure stance in
+ * `store.web.ts` and `store.ts`, and `keys()` was given the **read** stance:
+ * swallow, answer nothing, let the caller's "nothing cached" branch be the
+ * honest one. That is right for `get`, whose callers are reads and whose
+ * "nothing" means a cache miss.
+ *
+ * **`keys()` has no read callers.** Every one of them is a *clear* —
+ * `forgetEverything`, `forgetWorkspace`, `forgetDepartedContexts`, `sweep`,
+ * `forgetPlace`, `forgetAllMeetings` — plus the verification `forget.ts`
+ * performs afterwards, and to all of those "no keys" does not mean "nothing
+ * cached", it means **done**. So a swallowed listing failure turned a sign-out
+ * that removed nothing into a sign-out that reported `cleared`, silently, in
+ * the one module whose stated stance is *never silently*.
+ *
+ * The contract is therefore the opposite of `get`'s, and these two tests are
+ * the whole of it: **a listing that cannot be produced rejects.** Every caller
+ * above already has a `catch` that says something honest; none of them could
+ * reach it while this method answered `[]`.
+ */
+describe("a store that cannot list what it holds", () => {
+  test("listing rejects rather than answering an empty device", async () => {
+    const store = openStore();
+    window.localStorage.setItem("context.lc.offlinev2noteprivatews1a.md", "{}");
+
+    const real = Storage.prototype.key;
+    Storage.prototype.key = () => {
+      throw new Error("site data blocked mid-session");
+    };
+    try {
+      await expect(store.keys()).rejects.toThrow();
+    } finally {
+      Storage.prototype.key = real;
+    }
+
+    // Anti-vacuity: the same call on a working store answers, so "rejects" is
+    // about the failure and not about this method being broken outright.
+    expect((await store.keys()).length).toBe(1);
+  });
+
+  test("so signing out says unmeasured, out loud, over a note still on the device", async () => {
+    /*
+      The composition, through the REAL store rather than a fake — which is the
+      only way to see it. `offlineForget.test.ts` injects stores that throw and
+      proves `forget.ts` answers `unmeasured` when one does; what it could not
+      show is that **neither real store ever threw**, so that branch was
+      unreachable in a browser and on a phone, and the branch that ran instead
+      claimed the device was clear.
+
+      Measured before the fix: verdict `cleared`, no warning, and the note body
+      still readable in `localStorage` afterwards.
+    */
+    const key = keys.scopedKeyFor("note", "private", "ws1", "1-projects/pay.md");
+    window.localStorage.setItem(key, JSON.stringify({ value: note("1-projects/pay.md"), cachedAt: Date.now() }));
+
+    const warnings: string[] = [];
+    const realWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.join(" "));
+    };
+    const realKey = Storage.prototype.key;
+    Storage.prototype.key = () => {
+      throw new Error("site data blocked mid-session");
+    };
+    let verdict: { verdict: string };
+    try {
+      verdict = await forgetLocalCopies();
+    } finally {
+      Storage.prototype.key = realKey;
+      console.warn = realWarn;
+    }
+
+    expect(verdict).toEqual({ verdict: "unmeasured" });
+    expect(warnings).toEqual([
+      "[offline] sign-out: this device's store could not be read or written",
+    ]);
+    // Said plainly: the bytes are still there. The point of the verdict is that
+    // nothing claims otherwise.
+    expect(window.localStorage.getItem(key)).not.toBeNull();
   });
 });

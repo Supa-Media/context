@@ -30,14 +30,25 @@ import { useTabs } from "../features/console/files/useTabs";
  * its rule is "a folder that IS loaded and does not hold this note", and a
  * subfolder of the context you left is never loaded in the one you arrive at.
  * So a tab at `1-projects/deals/acquisition.md` survived indefinitely, and the
- * strip showed a note name from the person's own brain while they were inside
+ * strip showed a note name from the person's own workspace while they were inside
  * somebody else's shared workspace.
  */
 
 const roots: (() => void)[] = [];
+
+/** Every `deselect` the hook asked the browser for, in order. */
+let deselects = 0;
+/** Every `select` it asked for, so a test can see which ones it made. */
+let selects: string[] = [];
+/** What the unsaved-changes guard answers. `false` refuses the navigation. */
+let allowSelect = true;
+
 afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
+  deselects = 0;
+  selects = [];
+  allowSelect = true;
 });
 
 const noop = () => {};
@@ -66,6 +77,10 @@ function browser(
 ): FileBrowser {
   return {
     canEdit: true,
+    submitForm: async () => ({ ok: true, message: "Sent." }),
+    loadImage: async () => null,
+    say: () => {},
+    storeImage: async () => ({ error: "no" }),
     contextId: "w1",
     loading: false,
     busy: false,
@@ -75,10 +90,17 @@ function browser(
     collapseAll: noop,
     selectedPath: null,
   opening: null,
-    // `select` answers whether the unsaved-changes guard let go; these
-    // fixtures have no draft, so it always does.
-    select: () => true,
-    deselect: () => true,
+    // `select` answers whether the unsaved-changes guard let go. These
+    // fixtures have no draft, so it does unless a test says otherwise.
+    select: (path: string) => {
+      selects.push(path);
+      return allowSelect;
+    },
+    navigations: 0,
+    deselect: () => {
+      deselects += 1;
+      return true;
+    },
     search: async () => ({
       hits: [],
       indexMissing: false,
@@ -92,7 +114,11 @@ function browser(
     editor: openPath === null ? emptyEditor : { ...emptyEditor, status: "clean", path: openPath },
     setDraft: noop,
     save: noop,
+    onExternalWrite: noop,
+    onSaved: () => () => {},
     flushAutosave: () => false,
+    discardLocalCopies: noop,
+    encryptedElsewhere: noop,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,
@@ -108,13 +134,22 @@ function browser(
     paste: noop,
     copyTo: noop,
     createNote: noop,
+    createDrawing: noop,
     createFolder: noop,
+    createUntitled: noop,
     rename: noop,
     move: noop,
+    moveDestinations: [],
+    destinationFolders: async () => ({ folders: [], truncated: false }),
+    moveToContext: noop,
+    contextMoves: [],
+    resumeContextMove: noop,
+    dismissContextMove: noop,
     duplicate: noop,
     archive: noop,
     destroy: noop,
     setVisibility: noop,
+    shareWithGroup: () => {},
     setScope: noop,
     openLinkPaths: new Set<string>(),
     linkPaths: [],
@@ -125,6 +160,8 @@ function browser(
     shares: undefined,
     share: () => {},
     revokeShare: () => {},
+    setShareSlug: async () => true,
+    setShareCollecting: async () => true,
     copyShareLink: async () => ({ ok: false, message: null }),
     setSharePreviewTitle: () => {},
     ensureListing: noop,
@@ -140,6 +177,8 @@ function mountTabs(): {
     openPath?: string | null,
   ) => void;
   open: (path: string) => void;
+  follow: (path: string, mode?: "foreground" | "background") => void;
+  activePath: () => string | null;
   close: (path: string) => void;
   reopen: () => void;
   openPaths: () => string[];
@@ -175,6 +214,12 @@ function mountTabs(): {
       act(() => {
         live?.pin(path);
       }),
+    /** Follow a link in the open note, as the editor does. */
+    follow: (path: string, mode: "foreground" | "background" = "foreground") =>
+      act(() => {
+        live?.follow(path, mode);
+      }),
+    activePath: () => live?.state.activePath ?? null,
     close: (path: string) =>
       act(() => {
         live?.close(path);
@@ -228,6 +273,73 @@ describe("tabs do not survive a context switch", () => {
   });
 });
 
+
+describe("following a link, through the hook the editor calls", () => {
+  /**
+   * The reducer's half is `fileTabs.test.ts`; this is the half that decides
+   * whether anything ever *sends* those actions — which is where this file's
+   * own header says the console's guards go unheld.
+   *
+   * The editor used to follow a link with `files.select`, which opens a
+   * preview tab: following A → B → C left one tab and nothing to come back
+   * to. `follow` is what makes a followed link a destination.
+   */
+  test("a link opens a pinned tab beside the one it came from, and goes there", () => {
+    const listings = { "": listing("", ["a.md", "b.md", "link.md"]) };
+    const probe = mountTabs();
+    probe.render("workspace-a", listings);
+    probe.open("a.md");
+    probe.open("b.md");
+    probe.render("workspace-a", listings, "a.md");
+
+    probe.follow("link.md");
+    expect(probe.openPaths()).toEqual(["a.md", "link.md", "b.md"]);
+    expect(probe.activePath()).toBe("link.md");
+    // It moved the editor too, which is what stops the strip pointing at one
+    // note while the pane holds another.
+    expect(selects.at(-1)).toBe("link.md");
+  });
+
+  test("a ⌘-click opens the tab and does NOT move the editor", () => {
+    /*
+      "Open behind" means the note under the pointer keeps the caret, the
+      scroll and the selection. A `select` here is the whole failure: it would
+      navigate somebody who explicitly asked not to be navigated.
+    */
+    const listings = { "": listing("", ["a.md", "behind.md"]) };
+    const probe = mountTabs();
+    probe.render("workspace-a", listings);
+    probe.open("a.md");
+    probe.render("workspace-a", listings, "a.md");
+    selects.length = 0;
+
+    probe.follow("behind.md", "background");
+    expect(probe.openPaths()).toEqual(["a.md", "behind.md"]);
+    expect(probe.activePath()).toBe("a.md");
+    expect(selects).toEqual([]);
+  });
+
+  test("a refused navigation leaves no tab behind", () => {
+    /*
+      The unsaved-changes guard answers `false` and the editor does not move.
+      A tab opened anyway would be a strip naming a note the editor never
+      opened — the exact desync this hook's one-direction rule exists to
+      prevent, arriving through the one call that skipped it.
+
+      SABOTAGE: dispatch before checking `select`'s answer. Fails here.
+    */
+    const listings = { "": listing("", ["a.md", "link.md"]) };
+    const probe = mountTabs();
+    probe.render("workspace-a", listings);
+    probe.open("a.md");
+    probe.render("workspace-a", listings, "a.md");
+
+    allowSelect = false;
+    probe.follow("link.md");
+    expect(probe.openPaths()).toEqual(["a.md"]);
+    expect(probe.activePath()).toBe("a.md");
+  });
+});
 
 describe("the guards inside the switch", () => {
   /**
@@ -382,5 +494,77 @@ describe("the console frame keys its tabs on the open context", () => {
       expect(arg).toMatch(/^[A-Za-z_$][\w$]*$/);
       expect(code).toMatch(new RegExp(`\\b${arg}\\s*=\\s*data\\.selectedContextId\\b`));
     }
+  });
+});
+
+/**
+ * **Closing the last tab has to move the editor too, and did not.**
+ *
+ * `without` leaves `activePath` null when nothing is left, and the effect that
+ * follows the active tab only follows a non-null one — so ⌘W on the last tab,
+ * and the × on the last row of the mobile switcher that used to exist, emptied
+ * the strip and left the note sitting in the editor. The control ran, the
+ * chrome updated, and the thing it claimed to close was still on screen. That
+ * is the "how do you even close a note here" this change came from.
+ *
+ * Mounted rather than reduced, for `#102`'s reason and this file's: the reducer
+ * is already right — `emptyTabs` is what it returns — and nothing about that
+ * says a `deselect` is ever sent. Only reaching the hook does.
+ */
+describe("the last tab closing takes the note with it", () => {
+  const NOTE = "1-projects/plan.md";
+  const OTHER = "1-projects/notes.md";
+  const LISTINGS = { "1-projects": listing("1-projects", ["plan.md", "notes.md"]) };
+
+  test("closing the last one deselects; closing one of two does not", () => {
+    const probe = mountTabs();
+
+    probe.render("w1", LISTINGS, NOTE);
+    probe.open(OTHER);
+    expect(probe.openPaths()).toEqual([NOTE, OTHER]);
+
+    probe.close(OTHER);
+    // A tab is left, so the effect that follows `activePath` has somewhere to
+    // go and the editor is never asked to empty.
+    expect(probe.openPaths()).toEqual([NOTE]);
+    expect(deselects).toBe(0);
+
+    probe.close(NOTE);
+    expect(probe.openPaths()).toEqual([]);
+    expect(deselects).toBe(1);
+  });
+
+  test("a cold load with a note open does not deselect it", () => {
+    /*
+      The guard, and the reason it is a transition rather than `length === 0`:
+      that is also true at mount and on every render before anything opens. A
+      reload on a `?note=` URL puts the note in the editor before the strip has
+      caught up, and an ungated deselect would throw it away — this fix wearing
+      its own bug's clothes.
+    */
+    const probe = mountTabs();
+    probe.render("w1", LISTINGS, NOTE);
+    expect(probe.openPaths()).toEqual([NOTE]);
+    expect(deselects).toBe(0);
+  });
+
+  test("a console that has opened nothing at all never deselects", () => {
+    const probe = mountTabs();
+    probe.render("w1", LISTINGS, null);
+    expect(probe.openPaths()).toEqual([]);
+    expect(deselects).toBe(0);
+  });
+
+  test("the bucket root is not a note, so it opens no tab to close", () => {
+    /*
+      `""` is the root folder, and `emptyEditor` uses `null` — but a tab opened
+      for an empty path is a nameless row that the prune deletes a commit later,
+      and with the rule above in place that flicker is a *deselect* nobody
+      asked for. Guarded at the source, in the `opened` effect.
+    */
+    const probe = mountTabs();
+    probe.render("w1", { "": listing("", ["index.md"]) }, "");
+    expect(probe.openPaths()).toEqual([]);
+    expect(deselects).toBe(0);
   });
 });

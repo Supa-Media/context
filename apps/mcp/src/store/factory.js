@@ -130,7 +130,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -148,7 +148,13 @@ export function storeForBinding(binding, env, options = {}) {
   if (!entry) throw new StorageUnavailable("unknown provider");
 
   assertNoForeignCredential(binding, entry.kind);
-  return withProbedCapabilities(entry.build(binding, env, options), binding);
+  const store = entry.build(binding, env, options);
+  // Verification must observe what the provider actually enforces. Applying
+  // yesterday's persisted result first would make a false capability
+  // impossible to discover as true on reconnect.
+  return options.probeCapabilities === true
+    ? store
+    : withProbedCapabilities(store, binding);
 }
 
 /**
@@ -178,9 +184,29 @@ export function storeForBinding(binding, env, options = {}) {
  * silently lost write.
  */
 function withProbedCapabilities(store, binding) {
-  const declared = store?.capabilities?.conditionalWrite === true;
-  const probed = binding.capabilities?.conditionalWrite === true;
-  store.capabilities = { ...store.capabilities, conditionalWrite: declared && probed };
+  const declaredWrite = store?.capabilities?.conditionalWrite === true;
+  const probedWrite = binding.capabilities?.conditionalWrite === true;
+  const declaredCreate = store?.capabilities?.conditionalCreate === true;
+  const probedCreate = binding.capabilities?.conditionalCreate === true;
+  const declaredDelete = store?.capabilities?.conditionalDelete === true;
+  const probedDelete = binding.capabilities?.conditionalDelete === true;
+  const declaredCopy = store?.capabilities?.serverSideCopy === "same-store";
+  // `"same-store"` is the *probe's* vocabulary; the control plane stores a
+  // boolean (`capabilities.serverSideCopy`), because nothing yet distinguishes
+  // a second kind of copy. Accept both, or a row written by a control plane
+  // that speaks either one silently loses the capability — which is how this
+  // was found: the field was probed, never persisted, and read back as
+  // `undefined` for every binding on every provider since #374.
+  const probedCopy =
+    binding.capabilities?.serverSideCopy === "same-store" ||
+    binding.capabilities?.serverSideCopy === true;
+  store.capabilities = {
+    ...store.capabilities,
+    conditionalWrite: declaredWrite && probedWrite,
+    conditionalCreate: declaredCreate && probedCreate,
+    conditionalDelete: declaredDelete && probedDelete,
+    serverSideCopy: declaredCopy && probedCopy && probedCreate ? "same-store" : false,
+  };
   return store;
 }
 

@@ -46,12 +46,16 @@
  * sessions) deletes as cleanly as a fully onboarded one.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
 import type { Id, TableNames } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
+import { isProductionTestAccount } from "./lib/testAccount";
+import { managedBucketName } from "./lib/managedStorage";
+import { normalizeName } from "./lib/names";
+import { requireWorkspaceRole } from "./lib/workspaceAuth";
 
 /**
  * The minimal shape `deleteWorkspaceCascade` needs from a query over a table
@@ -83,6 +87,171 @@ const INVITATION_STATUSES = [
   "declined",
   "revoked",
 ] as const;
+
+/**
+ * Delete one disposable workspace owned by the production CUJ account.
+ *
+ * This is intentionally narrower than a general workspace-delete feature: the
+ * caller must be the exact verified test identity, must have created the
+ * workspace, and must be its only member. That gives the CUJ a safe teardown
+ * path without making an existing shared context—or any customer's storage—a
+ * valid target.
+ */
+export const deleteTestWorkspace = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const user = await ctx.db.get(userId);
+    const workspace = await ctx.db.get(args.workspaceId);
+    const memberships = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const ownsWorkspace = memberships.some(
+      (membership) =>
+        membership.userId === userId && membership.role === "owner",
+    );
+
+    if (
+      !isProductionTestAccount(user) ||
+      workspace === null ||
+      workspace.createdBy !== userId ||
+      !ownsWorkspace ||
+      memberships.some((membership) => membership.userId !== userId)
+    ) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message:
+          "Only an unshared workspace created by the production test account can use this cleanup.",
+      });
+    }
+
+    await deleteWorkspaceCascade(ctx, args.workspaceId);
+    return { deleted: true };
+  },
+});
+
+/**
+ * Delete a **workspace** you own, and give its name back.
+ *
+ * ## The hole this fills
+ *
+ * A workspace claims its slug at step 1 of its creation flow, out of the same
+ * global namespace usernames come from, and `createWorkspace` counts it
+ * against `MAX_WORKSPACES_PER_USER` the moment it commits. Until this existed
+ * the only thing that released either was deleting the whole account, so a
+ * workspace somebody named, skipped the bucket on and never came back to held
+ * that name forever and one of their ten slots with it — a reservation nobody
+ * could cancel, the person who made it included. The flow told them
+ * "nothing here expires", which was true and was not the reassurance it
+ * sounded like.
+ *
+ * ## What this deletes, and what it cannot
+ *
+ * The cascade is `deleteAccount`'s, unchanged: our metadata about the
+ * workspace, credential envelopes included. **The customer's bucket is not
+ * touched** — the same "revoke the key and we're gone" promise
+ * `disconnectStorage` makes, which is exactly why this is safe to offer for a
+ * workspace on storage the customer owns. Their notes are still theirs, still
+ * where they put them, still openable in Obsidian.
+ *
+ * That promise is what the four guards protect:
+ *
+ *  - **Owner only.** An editor tearing down somebody else's workspace is the
+ *    worst thing this mutation could be made to do. `requireWorkspaceRole`
+ *    tells a stranger nothing beyond "not found".
+ *  - **The slug, typed.** The account card is guarded by two presses; a
+ *    workspace is addressed by name, so its confirmation is the name, and the
+ *    check is here rather than in the panel — a client that skipped the field
+ *    cannot skip the check. Normalized first, because somebody looking at
+ *    `@acme-eng` on screen types the `@`.
+ *  - **Shared only.** A personal workspace is the one context a person has
+ *    exactly one of, its slug is their username, and its capture address is
+ *    live on the apex
+ *    (`lib/ingestionStore.ts`). Releasing that is account deletion's business,
+ *    and a settings panel is not where somebody should be able to do it by
+ *    accident.
+ *  - **Not while we hold the only key.** On managed storage the notes live in
+ *    a bucket we created and the customer has no credential for, and the free
+ *    hand-off path is still unbuilt (`docs/decisions/billing.md`, "What is
+ *    deliberately not built"). Deleting the row would either strand their
+ *    notes in our infrastructure with nothing pointing at them or, if it went
+ *    on to empty the bucket, destroy the only copy. Non-negotiable #1 does not
+ *    allow either, so this refuses and says which one it is; the export and
+ *    hand-off work is what lifts it.
+ */
+export const deleteWorkspace = mutation({
+  args: { workspaceId: v.id("workspaces"), confirmSlug: v.string() },
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const { workspace } = await requireWorkspaceRole(
+      ctx,
+      args.workspaceId,
+      userId,
+      "owner",
+    );
+
+    if (workspace.kind !== "shared") {
+      throw new ConvexError({
+        code: "PERSONAL_CONTEXT",
+        message:
+          "A personal workspace is deleted with the account it belongs to, not from here.",
+      });
+    }
+
+    /*
+      The `@` is stripped here rather than in `normalizeName`, which is
+      deliberately a trim and a lowercase and nothing else: a normalizer that
+      silently dropped a character would be rewriting names on the claim path
+      too. Here it is a courtesy to somebody copying what the screen shows
+      them, and it widens nothing — `@` is not a legal character in a name, so
+      no other workspace can be reached by adding one.
+    */
+    if (normalizeName(args.confirmSlug).replace(/^@/, "") !== workspace.slug) {
+      throw new ConvexError({
+        code: "CONFIRMATION_MISMATCH",
+        message: "That is not this workspace's name, so nothing was deleted.",
+      });
+    }
+
+    /*
+      A move *into* managed storage that has started is the same refusal one
+      step earlier: the managed bucket already exists, already holds a partial
+      copy, and its scoped token is live. The cascade would delete the row that
+      names both and leave us paying for a bucket nobody can reach — so a
+      migration in flight, or one parked `failed` with its cursor kept for a
+      retry, blocks deletion until it is finished or abandoned.
+    */
+    const migration = await ctx.db
+      .query("managedStorageMigrations")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (migration !== null) {
+      throw new ConvexError({
+        code: "MANAGED_MIGRATION",
+        message:
+          "A move into storage we run is under way for this workspace. Let it finish or cancel it first.",
+      });
+    }
+
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding !== null && binding.bucket === managedBucketName(args.workspaceId)) {
+      throw new ConvexError({
+        code: "MANAGED_STORAGE",
+        message:
+          "This workspace's notes are in storage we run, and moving them out is not built yet. Connect a bucket you own first, or delete it once hand-off ships.",
+      });
+    }
+
+    await deleteWorkspaceCascade(ctx, args.workspaceId);
+    return { deleted: true };
+  },
+});
 
 /**
  * Delete the calling user's account, entirely.
@@ -252,6 +421,8 @@ export const deleteAccount = mutation({
  * alongside it, and what happens to each:
  *
  *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first.
+ *  - **`managedStorageMigrations`** — swept before its source binding; it can
+ *    carry a second encrypted per-bucket credential while a copy is running.
  *  - **`searchIndexes`** — RELEASED below rather than deleted: marked
  *    `releasing` with `fastSearchProvision.releaseIndex` scheduled, which is
  *    the only path that deletes the remote D1 database holding this context's
@@ -263,7 +434,7 @@ export const deleteAccount = mutation({
  *    `CONNECT_ATTEMPT_TABLES` (`functions/lib/connectAttempts.ts`), which is
  *    how `dropboxConnectAttempts` and `googleConnectAttempts` are both
  *    covered by one loop instead of one hand-maintained call per provider.
- *  - **`ingestionSettings`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
+ *  - **`ingestionSettings`**, **`vaultImportJobs`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
  *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
  *    **`oauthGrants`**, **`noteShares`** (every status), **`auditEvents`**,
  *    **`workspaceMembers`**, **`names`** — swept below, each with its own
@@ -310,6 +481,18 @@ async function deleteWorkspaceCascade(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  const workspace = await ctx.db.get(workspaceId);
+  const creator =
+    workspace === null ? null : await ctx.db.get(workspace.createdBy);
+  const deleteManagedTestResources = isProductionTestAccount(creator);
+  // A managed-storage copy parks a second encrypted bucket credential. Remove
+  // it before its source binding so no orphan can survive account deletion.
+  const managedMigration = await ctx.db
+    .query("managedStorageMigrations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (managedMigration !== null) await ctx.db.delete(managedMigration._id);
+
   // The storage binding, with the same Dropbox care `disconnectStorage`
   // takes: schedule the revocation first, envelope in the args, because the
   // row it lives on is deleted on the next line. Scheduled, not called — this
@@ -319,6 +502,17 @@ async function deleteWorkspaceCascade(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
   if (binding !== null) {
+    if (
+      deleteManagedTestResources &&
+      binding.bucket === managedBucketName(workspaceId) &&
+      binding.accessKeyId !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.managedProvisioning.deleteManagedTestResources,
+        { workspaceId, bucket: binding.bucket, tokenId: binding.accessKeyId },
+      );
+    }
     if (
       binding.provider === "dropbox" &&
       binding.encryptedRefreshToken !== undefined
@@ -387,6 +581,20 @@ async function deleteWorkspaceCascade(
     }
   }
 
+  // The model account the agent spends. An envelope holding somebody's own
+  // Anthropic or OpenAI key, so it dies with the workspace for the same reason
+  // the storage secret does: a credential outliving the thing it was scoped to
+  // is a credential nobody is watching. Nothing is revoked on the way out —
+  // the key belongs to the customer's provider account and is theirs to
+  // rotate; deleting our copy is the whole of what we can do.
+  const providerCredentials = await ctx.db
+    .query("providerCredentials")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const credential of providerCredentials) {
+    await ctx.db.delete(credential._id);
+  }
+
   // The ingestion policy. `unique()` would also work — one row per personal
   // context — but a shared context has none, and collect-then-delete treats
   // "no row" as the ordinary case it is.
@@ -396,6 +604,18 @@ async function deleteWorkspaceCascade(
     .collect();
   for (const settings of ingestionSettings) {
     await ctx.db.delete(settings._id);
+  }
+
+  // Local vault bytes never enter Convex, but their resumable counters belong
+  // to this workspace and must not survive it. Several rows can exist because
+  // selecting a different vault pauses the earlier job rather than erasing its
+  // honest progress.
+  const vaultImportJobs = await ctx.db
+    .query("vaultImportJobs")
+    .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const job of vaultImportJobs) {
+    await ctx.db.delete(job._id);
   }
 
   // Outstanding ingestion tickets. Same shape as the connect attempts: keyed
@@ -418,6 +638,42 @@ async function deleteWorkspaceCascade(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of provisioningRows) {
+    await ctx.db.delete(row._id);
+  }
+
+  // What this context pays for, and any checkout attempt open on it.
+  //
+  // THE SUBSCRIPTION IS CANCELLED FIRST, and the same care the Dropbox
+  // revocation above takes and for the same reason: the id rides in the args
+  // because the row carrying it is deleted on the next line. Scheduled, not
+  // called — this public mutation must not reach the payment key.
+  //
+  // Without it, deleting a context bills the customer every month with no route
+  // in the product to stop it: `startPortal` is the only cancellation path and
+  // it is reached from *this* context's Premium section. That is a chargeback
+  // rather than a loose end, which is why it is here rather than on a list.
+  //
+  // A cancellation Stripe refuses is logged and lost — there is no row left to
+  // record it on. `docs/decisions/billing.md` names that residual.
+  const planRows = await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const plan of planRows) {
+    if (plan.stripeSubscriptionId !== undefined) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.billingStripe.cancelSubscription,
+        { subscriptionId: plan.stripeSubscriptionId },
+      );
+    }
+    await ctx.db.delete(plan._id);
+  }
+  const billingSessionRows = await ctx.db
+    .query("billingSessions")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of billingSessionRows) {
     await ctx.db.delete(row._id);
   }
 
@@ -506,6 +762,61 @@ async function deleteWorkspaceCascade(
       await ctx.db.delete(invitation._id);
     }
   }
+
+  /*
+    EVERYTHING THE OBSIDIAN PLUGIN SUBSYSTEM RECORDED ABOUT THIS CONTEXT.
+
+    None of it is sealed credential material, so `cascadeCoverage.test.ts`
+    does not cover it — that guard derives an `encrypted…` field and names, in
+    its own header, the shapes that escape it. These are one of them, and the
+    reason they still belong here is that this cascade's contract has never
+    been "sweep the credentials": it sweeps `ingestionSettings`,
+    `vaultImportJobs`, `workspaceInvitations` and `auditEvents` too, none of
+    which hold one. What it sweeps is everything that is only true because
+    this workspace exists.
+
+    A grant is authority over one reviewed bundle, and `listPluginGrants`
+    calls the set of them "private workspace metadata" in its own docstring —
+    which software somebody ran and which hosts it was allowed to reach. A
+    session is a hashed bearer binding; it is already fail-closed once the
+    memberships above are gone, because `executePluginRequest` re-authorizes
+    at `minimum: "owner"` on every call, but the cascade's own rule about a
+    parked ticket applies whether or not the door it opens still exists. A
+    runtime state carries free text somebody reported about their own plugin's
+    failures, which can name their own note paths.
+
+    `obsidianPluginRuntimeRequests` is the one with no `workspaceId` at all —
+    it is keyed by `tokenHash` — so it is reachable only through the session
+    that owns it, and it is swept inside that loop rather than after it.
+    Sweeping the four indexed tables and stopping would leave it behind.
+  */
+  const pluginSessions = await ctx.db
+    .query("obsidianPluginRuntimeSessions")
+    .withIndex("by_workspace_plugin", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const session of pluginSessions) {
+    const claims = await ctx.db
+      .query("obsidianPluginRuntimeRequests")
+      .withIndex("by_session_request", (q) => q.eq("tokenHash", session.tokenHash))
+      .collect();
+    for (const claim of claims) await ctx.db.delete(claim._id);
+    await ctx.db.delete(session._id);
+  }
+  const pluginGrants = await ctx.db
+    .query("obsidianPluginGrants")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const grant of pluginGrants) await ctx.db.delete(grant._id);
+  const pluginLifecycles = await ctx.db
+    .query("obsidianPluginLifecycles")
+    .withIndex("by_workspace_plugin", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const lifecycle of pluginLifecycles) await ctx.db.delete(lifecycle._id);
+  const pluginRuntimeStates = await ctx.db
+    .query("obsidianPluginRuntimeStates")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const state of pluginRuntimeStates) await ctx.db.delete(state._id);
 
   // Every AI-client grant on this context, whoever holds it. A grant is
   // authority over a workspace; the workspace is ceasing to exist, so an
@@ -608,10 +919,15 @@ async function deleteWorkspaceCascade(
  * re-check half, and it is not redundant — it is what makes the next table
  * somebody forgets to add here inert instead of exploitable.
  */
-async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Promise<void> {
+async function voidCapabilitiesAddressedTo(
+  ctx: MutationCtx,
+  name: string,
+): Promise<void> {
   const pending = await ctx.db
     .query("workspaceInvitations")
-    .withIndex("by_invitee", (q) => q.eq("inviteeKind", "name").eq("invitee", name))
+    .withIndex("by_invitee", (q) =>
+      q.eq("inviteeKind", "name").eq("invitee", name),
+    )
     .filter((q) => q.eq(q.field("status"), "pending"))
     .collect();
   for (const invitation of pending) {

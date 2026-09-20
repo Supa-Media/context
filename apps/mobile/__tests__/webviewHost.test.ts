@@ -124,7 +124,15 @@ describe("the ready handshake", () => {
     // `links` before `doc` for a sharper reason: the guest decorates links
     // when the document changes, so a note that arrived before its own path
     // would paint once with every relative link in it as plain text.
-    expect(types).toEqual(["editable", "theme", "inset", "links", "doc"]);
+    //
+    // `suggest` is in the list at all because a reloaded `WebView` is a guest
+    // that has forgotten whether a plugin can answer it, and the one it
+    // forgets to is the one that asks nothing — a plugin that stops
+    // suggesting after a memory warning, silently, until the note is
+    // reopened. Its position is the only one here that does not matter: it
+    // configures a completion source rather than anything the first paint
+    // reads.
+    expect(types).toEqual(["editable", "theme", "inset", "links", "suggest", "doc"]);
     expect(JSON.parse(sent[types.indexOf("doc")]).text).toBe("# note\n");
   });
 
@@ -194,6 +202,127 @@ describe("the ready handshake", () => {
     bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
 
     expect(bridge.known()).toBe("typed");
+  });
+});
+
+describe("form response messages", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("reads a declared response note and returns its text", async () => {
+    const sent: string[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onReadFormResponses: async (path) => ({ ok: true, text: `read ${path}`, message: "" }),
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-responses",
+        token: "r1",
+        responsesPath: "bugs-responses.md",
+      }),
+    );
+    await settle();
+
+    expect(JSON.parse(sent[0]!)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "form-responses-result",
+      token: "r1",
+      ok: true,
+      text: "read bugs-responses.md",
+      message: "",
+    });
+  });
+
+  test("routes a named vote through the form action", async () => {
+    const sent: string[] = [];
+    const votes: unknown[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onVoteForm: async (vote) => {
+        votes.push(vote);
+        return { ok: true, message: "Vote added." };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-vote",
+        token: "v1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        vote: "up",
+      }),
+    );
+    await settle();
+
+    expect(votes).toEqual([{ formId: "bugs", responseId: "r-1234abcd", vote: "up" }]);
+    expect(JSON.parse(sent[0]!)).toMatchObject({
+      type: "form-result",
+      token: "v1",
+      ok: true,
+    });
+  });
+
+  test("routes response updates and retractions through their form actions", async () => {
+    const sent: string[] = [];
+    const changes: unknown[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onUpdateFormResponse: async (change) => {
+        changes.push(change);
+        return { ok: true, message: "Updated." };
+      },
+      onRetractFormResponse: async (change) => {
+        changes.push(change);
+        return { ok: true, message: "Deleted." };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-update",
+        token: "u1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        values: [{ field: "summary", value: "Fixed" }],
+      }),
+    );
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-retract",
+        token: "d1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+      }),
+    );
+    await settle();
+
+    expect(changes).toEqual([
+      {
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        values: [{ field: "summary", value: "Fixed" }],
+      },
+      { formId: "bugs", responseId: "r-1234abcd" },
+    ]);
+    expect(sent.map((raw) => JSON.parse(raw))).toEqual([
+      expect.objectContaining({ type: "form-result", token: "u1", ok: true }),
+      expect.objectContaining({ type: "form-result", token: "d1", ok: true }),
+    ]);
   });
 });
 
@@ -519,5 +648,198 @@ describe("a URL that appears inside the note", () => {
       readFileSync(join(resolve(__dirname, ".."), "package.json"), "utf8"),
     );
     expect(manifest.dependencies["react-native-webview"]).toBe("13.15.0");
+  });
+});
+
+/**
+ * IMAGES ACROSS THE BRIDGE.
+ *
+ * The guest is a document with no credentials, so it cannot read the bucket and
+ * must not be handed a URL it could fetch — a URL a note could name is a request
+ * a stranger's note could make. So bytes cross as a `data:` URL the host built,
+ * and a paste crosses as base64 the host decodes.
+ *
+ * Three properties, and the first is the one that keeps a paste from vanishing:
+ *
+ *  1. **Every branch replies.** A missing capability, a read-only note and a
+ *     throw all send a message back, because the widget is waiting on one.
+ *  2. **A read-only note refuses in words**, before the sink is reached — the
+ *     server would refuse it anyway, and the point of refusing here is that
+ *     somebody hears a sentence rather than watching a paste disappear.
+ *  3. **The bytes survive the encoding.** Every byte value round-trips through
+ *     base64, which is the failure a `JSON.stringify` of a `Uint8Array` would
+ *     have produced silently.
+ */
+describe("images across the bridge", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("the host answers a load with the src it was given", async () => {
+    const sent: string[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onLoadImage: async (target) => `data:image/png;base64,${target}`,
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "image-load",
+        token: "i1",
+        target: "attachments/2026/09/paste-abcd1234.png",
+      }),
+    );
+    await settle();
+
+    expect(JSON.parse(sent[0]!)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "image-loaded",
+      token: "i1",
+      src: "data:image/png;base64,attachments/2026/09/paste-abcd1234.png",
+    });
+  });
+
+  test("a surface with no bucket answers null rather than nothing", async () => {
+    const sent: string[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({ v: PROTOCOL_VERSION, type: "image-load", token: "i2", target: "a.png" }),
+    );
+    await settle();
+
+    expect(JSON.parse(sent[0]!)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "image-loaded",
+      token: "i2",
+      src: null,
+    });
+  });
+
+  test("a load that throws is an absence, not a hung widget", async () => {
+    const sent: string[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onLoadImage: async () => {
+        throw new Error("the bucket said no");
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({ v: PROTOCOL_VERSION, type: "image-load", token: "i3", target: "a.png" }),
+    );
+    await settle();
+
+    expect(JSON.parse(sent[0]!).src).toBeNull();
+  });
+
+  test("a paste crosses as base64 and reaches the sink byte for byte", async () => {
+    const sent: string[] = [];
+    const stored: ArrayBuffer[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onStoreImage: async (image) => {
+        stored.push(image.bytes);
+        return { target: "attachments/2026/09/paste-00ff.png" };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    bridge.setEditable(true);
+    sent.length = 0;
+
+    const bytes = new Uint8Array(256);
+    for (let index = 0; index < 256; index += 1) bytes[index] = index;
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "image-store",
+        token: "s1",
+        bytes: Buffer.from(bytes).toString("base64"),
+        contentType: "image/png",
+      }),
+    );
+    await settle();
+
+    expect(new Uint8Array(stored[0]!)).toEqual(bytes);
+    expect(JSON.parse(sent[0]!)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "image-stored",
+      token: "s1",
+      target: "attachments/2026/09/paste-00ff.png",
+    });
+  });
+
+  test("a note this viewer may not write refuses before the sink is reached", async () => {
+    const sent: string[] = [];
+    let asked = false;
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onStoreImage: async () => {
+        asked = true;
+        return { target: "nope.png" };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    bridge.setEditable(false);
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "image-store",
+        token: "s2",
+        bytes: "AAAA",
+        contentType: "image/png",
+      }),
+    );
+    await settle();
+
+    expect(asked).toBe(false);
+    const reply = JSON.parse(sent[0]!);
+    expect(reply.type).toBe("image-stored");
+    expect(reply.target).toBeUndefined();
+    expect(typeof reply.error).toBe("string");
+  });
+
+  test("bytes that are not base64 are refused rather than stored truncated", async () => {
+    const sent: string[] = [];
+    let asked = false;
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onStoreImage: async () => {
+        asked = true;
+        return { target: "nope.png" };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    bridge.setEditable(true);
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "image-store",
+        token: "s3",
+        bytes: "not base64 at all!!",
+        contentType: "image/png",
+      }),
+    );
+    await settle();
+
+    expect(asked).toBe(false);
+    expect(JSON.parse(sent[0]!).error).toContain("intact");
   });
 });

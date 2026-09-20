@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon, type IconName } from "../../design/components/Icon";
@@ -6,29 +6,42 @@ import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
 import { isApplePlatform } from "../../design/applePlatform";
-import { radii, space } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { pointerType as t, radii, space } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { loadedCounts } from "./contextFoot";
+import { ActivityList } from "../activity/ActivityList";
+import {
+  ACTIVITY_PATH,
+  emptyLine,
+  footLabel,
+  markedRows,
+  type ActivityView,
+} from "../activity/activity";
 import {
   Confirm,
   CreatePrompt,
-  DeleteForever,
   MovePicker,
   NamePrompt,
   NEW_FOLDER_HINT,
-  newNoteHint,
 } from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
+import type { AudienceContext } from "../privacy/audience";
 import { consoleOrigin } from "./shareOrigin";
 import { sharesBreakingWarning } from "./shares";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
-import { itemsFor, type MenuActionId } from "./menu";
-import { baseName, parentPath, restoreTargetFor } from "./paths";
+import { setListingOrder, useListingOrder } from "./listingOrder";
+import { itemsFor, type MenuActionId, type MenuTarget } from "./menu";
+import { runMenuAction, type ActionContext, type Dialog } from "./actions";
+import { useRightClick } from "./rightClick";
+import { baseName, parentPath, withoutSortPrefix } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
+import type { AccessMember, AccessRow, RemovalRoute } from "./access";
+import type { RecipientGroup } from "./recipients";
+import { isGroupVisibility } from "./types";
 import type { Visibility } from "./types";
 
 /**
@@ -91,8 +104,62 @@ export function Explorer({
   contextLabel,
   onOpenPinned,
   onOverlayChange,
+  access,
+  workspaces,
+  activity,
 }: {
   files: FileBrowser;
+  /**
+   * The workspace row that ends the column — `ContextFootRow`.
+   *
+   * A slot rather than something this component builds, for the same reason the
+   * `vault` slot that used to sit here was one: the row needs the context list,
+   * the recently-visited log and the router, none of which this component has
+   * or should acquire. `undefined` where there is nowhere to switch to, and the
+   * column then ends at the counts line exactly as it did before.
+   */
+  workspaces?: ReactNode;
+  /** Handed straight to the share dialog. See `ExplorerDialogs`. */
+  access?: {
+    members: readonly AccessMember[];
+    groups?: readonly RecipientGroup[];
+    /**
+     * `kind` travels with the path because a folder and a note go to different
+     * actions — the note one refuses anything that is not `.md`, which is the
+     * refusal an owner met when this dropped it.
+     */
+    onShareWithGroup?: (path: string, kind: "file" | "folder", group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /** Whose context this is, so every audience can be named. */
+    audience?: AudienceContext;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      /** Same reason `onShareWithGroup` carries one: it ends in the same call. */
+      kind: "file" | "folder",
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
+  };
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
   /**
@@ -107,6 +174,15 @@ export function Explorer({
    * open context menu.
    */
   onOverlayChange?: (open: boolean) => void;
+  /**
+   * What has changed in this context, and how much of it this person has seen.
+   *
+   * Absent on the demo console and on any console with no control plane behind
+   * it, and the column then ends at the counts line exactly as it did before —
+   * which is the whole shape of this feature: it rewrites one line that is
+   * already there and adds a dot to rows that are already drawn.
+   */
+  activity?: ActivityView;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -117,13 +193,26 @@ export function Explorer({
     to sort on is the name — `FolderListing` has no sizes for a folder and the
     dates it does carry are the bucket's, not the note's.
   */
-  const [descending, setDescending] = useState(false);
+  /*
+    Shared with the folder page rather than held here — see `listingOrder.ts`.
+    It used to be this component's own `useState`, which meant the sort reached
+    the tree and not the listing of the very same folder drawn beside it.
+  */
+  const descending = useListingOrder();
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [menu, setMenu] = useState<MenuState>(null);
   const [drag, setDrag] = useState<DragSource | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  /**
+   * Whether the activity list is up, and the moment it was opened.
+   *
+   * The moment is state rather than a fresh `Date.now()` per render: every
+   * relative time in the list has to agree with the line that opened it, and a
+   * clock read during render makes "4 min" tick over mid-scroll.
+   */
+  const [activityOpen, setActivityOpen] = useState<number | null>(null);
 
   /*
     Tell the frame while this region owns something modal, so the keyboard goes
@@ -205,12 +294,16 @@ export function Explorer({
   /**
    * Choosing a note, and putting the tree away if the tree is over the note.
    *
-   * `closesOnSelect` is `false` at every density today — there is no drawer
-   * anywhere (`features/app/frame.ts`) — so the second line does nothing. It is
-   * kept rather than inlined to `files.select` because that file's header names
-   * this call site: `closesOnSelect` and `closeDrawer` are `AppFrame`'s API,
-   * the meaning lives in one function, and the day a density puts the tree over
-   * the document again it is `closesOnSelect` that changes and not this.
+   * `closesOnSelect` is true exactly when this tree is drawn *over* the editor
+   * rather than beside it, which on a pointer layout means the peek — the tree
+   * brought back over the note while the pointer rests on its folded seam. It
+   * is covering the thing you just asked to read, so leaving it up opens every
+   * note behind a panel.
+   *
+   * **`closeOverlays` rather than `closeDrawer`**, which is the change the peek
+   * forced and the right one anyway: this call site wants "put away whatever is
+   * over the editor", and `closeDrawer` names one particular panel. It was
+   * correct while the drawer was the only one; it would silently do nothing now.
    *
    * `useCallback` because `runAction` depends on it: a plain arrow is a new
    * identity every render, which would rebuild that callback on every keystroke
@@ -219,7 +312,7 @@ export function Explorer({
   const select = useCallback(
     (path: string) => {
       files.select(path);
-      if (frame.closesOnSelect) frame.closeDrawer();
+      if (frame.closesOnSelect) frame.closeOverlays();
     },
     [files, frame],
   );
@@ -241,10 +334,10 @@ export function Explorer({
    */
   const platform = "web" as const;
 
-  const openMenu = useCallback(
-    (row: TreeRow, anchor: { x: number; y: number }) => {
+  const openTarget = useCallback(
+    (target: MenuTarget, title: string, anchor: { x: number; y: number }) => {
       const items = itemsFor({
-        target: { kind: "row", row },
+        target,
         canEdit: files.canEdit,
         canSetVisibility: files.canSetVisibility,
         canShare: files.canShare,
@@ -253,115 +346,95 @@ export function Explorer({
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
         // `⌘⇧M` on Windows beside a row whose chord is actually `Ctrl+Shift+M`.
         apple: isApplePlatform(),
+        // What the row would be visible to with no setting of its own, so the
+        // visibility submenu can say what "use the folder's setting" means
+        // rather than leaving it as a verb with an invisible outcome.
+        ...(target.kind === "row"
+          ? { inherited: inheritedOf(files, target.row.path) }
+          : {}),
       });
       // An empty menu is not an empty menu — it is no menu. Opening a bordered
       // rectangle with nothing in it reads as a bug.
-      if (items.length === 0) return;
-      setMenu({ row, anchor, items });
+      if (items.length === 0) return false;
+      setMenu({ target, title, anchor, items });
+      return true;
     },
-    // `files.canSetVisibility` is read above and belongs here. It is
-    // `canEdit && isOwner`, so it moves independently of the other three — and
-    // `<Explorer>` is mounted without a `key` in a layout that survives a
-    // context switch, so owning one context and editing the next keeps
-    // `canEdit` true while ownership goes away. Left out, this callback kept
-    // the first context's ownership and offered the owner-only submenu to
-    // somebody the server refuses. eslint reported it as a warning throughout;
-    // `lint` exits 0 on warnings.
-    // `files.canShare` belongs here for exactly the reason `canSetVisibility`
-    // does, one paragraph up: it is `canEdit && isOwner`, so it moves
-    // independently of `canEdit`, and a stale copy offers an owner-only control
-    // to somebody the server refuses. `explorerMenuStaleGate.test.ts` is what
-    // holds both.
-    [files.canEdit, files.canSetVisibility, files.canShare, files.clipboard, platform],
+    /*
+      `files` whole, rather than the four fields off it this reads.
+
+      It used to name them — `canEdit`, `canSetVisibility`, `canShare`,
+      `clipboard` — and the reason that list existed is still the reason this
+      array matters, so it is worth keeping: `canSetVisibility` and `canShare`
+      are each `canEdit && isOwner`, so they move *independently* of `canEdit`,
+      and `<Explorer>` is mounted without a `key` in a layout that survives a
+      context switch. Owning one context and merely editing the next therefore
+      keeps `canEdit` true while ownership goes away, and a callback holding a
+      stale copy went on offering the owner-only submenu to somebody the server
+      refuses.
+
+      Depending on the object closes that by construction instead of by
+      enumeration. `files` is memoized over every field it carries, so it
+      changes whenever any of the four does — this can no longer be stale, and
+      it can no longer be made stale by a fifth field being read here and not
+      added to a list. `explorerMenuStaleGate.test.ts` still holds it either
+      way, which is what makes the swap checkable rather than asserted.
+    */
+    [files, platform],
+  );
+
+  /** What `FileTree` hands up: a row and where the pointer was. */
+  const openMenu = useCallback(
+    // Named without its sort number, the way the row it came out of is: a menu
+    // headed `1-projects` over a row reading `projects` is a menu the reader
+    // has to match up to the thing they just pressed.
+    (row: TreeRow, anchor: { x: number; y: number }) =>
+      openTarget({ kind: "row", row }, withoutSortPrefix(baseName(row.path)), anchor),
+    [openTarget],
+  );
+
+  /**
+   * The tree's own empty space, below the last row.
+   *
+   * It is the context root that a creation lands in, because that is the folder
+   * this column is a listing of. `menu.ts` returns nothing at all for a
+   * read-only console, and `openTarget` declines to open an empty popover, so
+   * the gesture falls through to the browser there — which is the right answer
+   * when the application has nothing to offer.
+   */
+  const openRightClick = useCallback(
+    (anchor: { x: number; y: number }) =>
+      openTarget({ kind: "background", folder: "" }, contextLabel, anchor),
+    [openTarget, contextLabel],
+  );
+
+  const background = useRightClick(files.canEdit ? openRightClick : undefined);
+
+  /**
+   * The dispatcher's world, assembled once.
+   *
+   * Every arm of `runMenuAction` is a `FileBrowser` call, a dialog or one of
+   * these callbacks, and this region supplies the three it can: opening a path,
+   * raising a dialog, and pinning a tab. It supplies no `reveal` and no
+   * `closeTabs` — the tree *is* what reveal reveals into, and the tab strip is
+   * a different region — which is why `menu.ts` offers neither item on a tree
+   * row.
+   */
+  const menuActions = useMemo<ActionContext>(
+    () => ({
+      files,
+      contextLabel,
+      select,
+      setDialog,
+      writeClipboard: (text) => void writeClipboard(text),
+      ...(onOpenPinned === undefined ? {} : { openPinned: onOpenPinned }),
+      inheritedOf: (path) => inheritedOf(files, path),
+    }),
+    [files, contextLabel, select, onOpenPinned],
   );
 
   const runAction = useCallback(
-    (id: MenuActionId, row: TreeRow) => {
-      const path = row.path;
-      const folder = row.kind === "folder" ? path : parentPath(path);
-      const kind = row.kind === "folder" ? ("folder" as const) : ("file" as const);
-
-      switch (id) {
-        case "open":
-          select(path);
-          return;
-        case "openInNewTab":
-          // A plain open leaves a preview tab that the next click replaces;
-          // this is the one that keeps it. Falls back to a plain open where
-          // there are no tabs rather than doing nothing.
-          if (onOpenPinned !== undefined) onOpenPinned(path);
-          else select(path);
-          return;
-        case "newNote":
-          setDialog({ kind: "newNote", folder });
-          return;
-        case "newFolder":
-          setDialog({ kind: "newFolder", folder });
-          return;
-        case "rename":
-          setDialog({ kind: "rename", path });
-          return;
-        case "moveTo":
-          setDialog({ kind: "move", path });
-          return;
-        case "archive":
-          setDialog({ kind: "archive", path });
-          return;
-        case "delete":
-          setDialog({ kind: "delete", path, isFolder: row.kind === "folder" });
-          return;
-        case "share":
-          setDialog({ kind: "share", path });
-          return;
-        case "duplicate":
-          files.duplicate(path);
-          return;
-        case "copy":
-          files.copy(path);
-          return;
-        case "cut":
-          files.cut(path);
-          return;
-        case "paste":
-          files.paste(folder);
-          return;
-        case "restore": {
-          // `paths.ts` owns the archive-path arithmetic; `menu.ts` uses the
-          // same function to decide whether to offer this at all, so the two
-          // cannot disagree about what is restorable.
-          const original = restoreTargetFor(path);
-          if (original !== null) files.move(path, parentPath(original));
-          return;
-        }
-        case "copyPath":
-          void writeClipboard(path);
-          return;
-        case "copyAtPath":
-          // The product's addressable form. Dragging a note out of the app
-          // produces the same string, so the two ways of taking a reference
-          // agree.
-          void writeClipboard(`${contextLabel}/${path}`);
-          return;
-        case "visibilityPrivate":
-          files.setVisibility(path, kind, "private");
-          return;
-        case "visibilityTeam":
-          files.setVisibility(path, kind, "team");
-          return;
-        case "visibilityFollow":
-          // Setting a note to its folder's default *removes* the exception
-          // rather than writing a redundant line — see `setVisibility` in
-          // `functions/lib/fileOps.ts`. So "follow folder" is expressible with
-          // the interface as it stands, and there is nothing to add.
-          files.setVisibility(path, kind, inheritedOf(files, path));
-          return;
-        case "visibility":
-          // The submenu's parent. It opens a submenu and dispatches nothing;
-          // firing an id here would set a visibility nobody asked for.
-          return;
-      }
-    },
-    [files, contextLabel, select, onOpenPinned],
+    (id: MenuActionId, target: MenuTarget) => runMenuAction(id, target, menuActions),
+    [menuActions],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -416,6 +489,29 @@ export function Explorer({
   }, [files, drag]);
 
   const counts = loadedCounts(files.listings);
+  /*
+    The foot line's words and the tree's dots, from one view of one file.
+
+    `now` is the moment the list was opened where there is one, and the
+    component's own clock otherwise: the line and the rows it opens must agree
+    about "4 min", and two `Date.now()` calls in one render do not.
+  */
+  const activityLabel =
+    activity === undefined
+      ? counts
+      : footLabel({
+          unseen: activity.unseen,
+          since: activity.seenAt,
+          counts,
+          now: activityOpen ?? Date.now(),
+        });
+  const markedPaths = useMemo(
+    () =>
+      activity === undefined
+        ? undefined
+        : markedRows(activity.unseenPaths, files.expanded),
+    [activity, files.expanded],
+  );
 
   /**
    * Putting the filter away, which must also clear it.
@@ -427,48 +523,83 @@ export function Explorer({
    * close, so the two cannot come to disagree about whether closing clears.
    */
   const closeFilter = useCallback(() => setQuery(""), []);
+  const [toolsShown, setToolsShown] = useState(false);
+  const [filterFocused, setFilterFocused] = useState(false);
 
   /**
-   * The four controls, across the top of the column.
+   * The controls across the top of the column.
    *
    * Sort and collapse are about the *panel* rather than about the context, so
    * neither is gated on `canEdit`: a member reading somebody else's notes has
    * as much use for a folded tree as its owner does.
    *
    * There is no fifth. A "Close the file tree" button used to be drawn under
-   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘⇧E
+   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘B
    * and the top bar's toggle already do, on the one density where there is
    * nothing covering the note to dismiss.
+   *
+   * There was briefly a sixth: a gear that started the one-time storage-layout
+   * update. It is gone from here rather than reordered — a maintenance
+   * operation somebody runs once, or never, does not earn permanent room
+   * beside the four controls they use every day. It lives in Settings →
+   * Storage and in a dismissible notice now; see
+   * `../storage/StorageMigration.tsx`, which holds the argument and the copy.
    */
-  const actions = (
+  /*
+    THE HEADER'S TOOLS, IN TWO GROUPS, AND THE SPLIT IS THE CANVAS'S.
+
+    All four used to arrive together on approach, on the argument that four
+    lit buttons over a list of names is the loudest thing in the quietest
+    region. That argument was right about *four* and wrong about zero: the
+    canvas draws two of them at rest — new note and collapse-all — and a
+    header with a name and nothing else reads as a caption rather than as the
+    top of a panel you can do things to.
+
+    Which two is not arbitrary. These are the pair with no other route: ⌘N has
+    no equivalent for "collapse everything", and both act on the column rather
+    than on a row, so neither is in a row's context menu. The pair that fades
+    — new folder, and the sort direction — are both reachable from a folder's
+    own menu, and sorting is something you set once.
+  */
+  const restingActions = (
     <>
       {files.canEdit ? (
-        <>
-          <IconButton
-            label="New note"
-            icon="plus"
-            onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
-            testID="explorer-new-note"
-          />
-          <IconButton
-            label="New folder"
-            icon="folder"
-            onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
-            testID="explorer-new-folder"
-          />
-        </>
+        <IconButton
+          label="New note"
+          icon="plus"
+          /*
+            Makes it, rather than asking what to call it. See `untitled.ts`: the
+            note arrives as `untitled-<date>` and takes the first heading typed
+            into it.
+          */
+          onPress={() => files.createUntitled(selectedFolder, "note")}
+          testID="explorer-new-note"
+        />
       ) : null}
-      <IconButton
-        label={descending ? "Sort A to Z" : "Sort Z to A"}
-        icon="sort"
-        onPress={() => setDescending((current) => !current)}
-        testID="explorer-sort"
-      />
       <IconButton
         label="Collapse every folder"
         icon="collapse"
         onPress={files.collapseAll}
         testID="explorer-collapse"
+      />
+    </>
+  );
+
+  const approachActions = (
+    <>
+      {files.canEdit ? (
+        <IconButton
+          label="New folder"
+          icon="folder"
+          onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
+          testID="explorer-new-folder"
+        />
+      ) : null}
+      <IconButton
+        label={descending ? "Sort A to Z" : "Sort Z to A"}
+        icon="sort"
+        onPress={() => setListingOrder(!descending)}
+        testID="explorer-sort"
       />
     </>
   );
@@ -480,14 +611,40 @@ export function Explorer({
    * field that takes the caret on mount steals it from whatever somebody was
    * doing. It was autofocused under `touch`, where it was a field that had just
    * been *revealed* by a press, and that arm is gone with the density.
+   *
+   * ## Its box is chrome, so its box arrives on approach
+   *
+   * The *field* is permanent and stays permanent — it is a real input with a
+   * real caret at every moment, and nothing about reaching it changed. What
+   * was permanent and should not have been is the 28pt bordered well it was
+   * drawn in: at rest it was an empty box at the top of a column whose whole
+   * job is to be a quiet list of names, and it was the loudest thing in it —
+   * exactly what the four icon buttons beside it were faded for.
+   *
+   * So at rest it is the word `Filter` in muted type, which reads as the
+   * column's label; the border and the fill come in with the buttons. Kept
+   * while the query is non-empty, because a field somebody has typed into is
+   * not chrome — and while it has focus, so tabbing to it does not land the
+   * caret in something that looks like a heading.
    */
   const filterField = (
     <TextInput
       value={query}
       onChangeText={setQuery}
-      placeholder="Filter"
+      /*
+        Blank until the header is lit, because `Notes` is drawn over the field
+        at rest and two words in one box is what a placeholder underneath a
+        label looks like. The accessible name is unconditional and on the line
+        below, so nothing about reaching this field depends on the word.
+      */
+      placeholder={toolsShown || filterFocused ? "Filter" : ""}
       placeholderTextColor={colors.muted}
-      style={styles.filter}
+      onFocus={() => setFilterFocused(true)}
+      onBlur={() => setFilterFocused(false)}
+      style={[
+        styles.filter,
+        (toolsShown || filterFocused || query !== "") && styles.filterBoxed,
+      ]}
       accessibilityLabel="Filter notes and folders"
       autoCapitalize="none"
       autoCorrect={false}
@@ -497,8 +654,55 @@ export function Explorer({
   );
 
   return (
-    <View style={styles.explorer}>
+    <View
+      style={styles.explorer}
+      /*
+        Chrome on approach.
+
+        Four icon buttons sat lit above the tree at all times. None of them is
+        pressed often enough to earn a resting pixel, and together they were
+        the loudest thing in a column whose job is to be a quiet list of
+        names. They fade in when the pointer enters the column and fade out
+        when it leaves.
+
+        Opacity rather than mounting: the buttons keep their box, so the
+        toolbar does not reflow under the pointer, keyboard focus still
+        reaches them, and the e2e cases that press them by testID still find
+        them where they were. `focusable` chrome that vanishes from the tree
+        is chrome you cannot tab to.
+      */
+      onPointerEnter={() => setToolsShown(true)}
+      onPointerLeave={() => setToolsShown(false)}
+      testID="explorer"
+    >
       <View style={styles.toolbar}>
+        {/*
+          THE COLUMN'S NAME, AT REST, OVER THE FIELD RATHER THAN BESIDE IT.
+
+          The design's tree opens on the word `Notes` — an eyebrow, the way
+          every panel in this product labels itself — and the header's controls
+          arrive with the pointer. What was here instead was the filter's
+          placeholder, which is a different word for a different thing: `Filter`
+          answers "what does this box do" and says nothing about what the
+          column below it is.
+
+          Drawn *over* the field, absolutely, and faded out as the tools fade
+          in — so the field is mounted at every moment, keeps its caret, keeps
+          its place in the tab order, and nothing about the row's geometry
+          depends on which of the two is visible. `pointerEvents="none"` so the
+          label cannot take the press that focuses the field underneath it.
+
+          It goes when the filter has something in it as well as on approach:
+          a column showing eight of its forty rows must say why, and `Notes`
+          over a filtered tree is a label telling a small lie.
+        */}
+        <View
+          style={[styles.eyebrow, (toolsShown || filterFocused || query !== "") && styles.eyebrowGone]}
+          pointerEvents="none"
+          aria-hidden
+        >
+          <Text variant="eyebrow">Notes</Text>
+        </View>
         {filterField}
         {query !== "" ? (
           <IconButton
@@ -509,7 +713,13 @@ export function Explorer({
           />
         ) : null}
         <View style={styles.toolbarSpacer} />
-        {actions}
+        <View style={[styles.tools, toolsShown && styles.toolsShown]}>{approachActions}</View>
+        {/*
+          Never faded. See `restingActions` — the canvas's header has these two
+          at rest, and the fade is now about the pair beside them rather than
+          about the whole toolbar.
+        */}
+        <View style={styles.toolsResting}>{restingActions}</View>
       </View>
 
       <ScrollView
@@ -565,8 +775,28 @@ export function Explorer({
             onMenu={openMenu}
             drag={dragHandlers}
             dropTarget={dropTarget}
+            pendingStateFor={files.pending?.stateFor}
+            markedPaths={markedPaths}
           />
         )}
+
+        {/*
+          The empty space under the last row, as a target rather than as dead
+          pixels.
+
+          It is the largest area of this column on any context that does not
+          fill the window, and right-clicking it had no answer at all — so the
+          browser's menu opened over the file tree, offering Save As and
+          Translate to Page on a listing of somebody's notes.
+
+          It is a filler rather than a listener on the scroll view because the
+          rows must keep their own gesture: this sits *behind* them and a row's
+          handler stops propagation before it ever reaches here. `flexGrow` is
+          what makes it the rest of the column rather than a strip; there is no
+          minimum, because on a tree that already fills the height there is
+          genuinely no background to click.
+        */}
+        <View style={styles.background} ref={background.ref} collapsable={false} />
       </ScrollView>
 
       {/*
@@ -591,11 +821,74 @@ export function Explorer({
         `loadedCounts` is shared with that page rather than computed here, so
         "how much of this context have I got" has one answer.
       */}
-      <View style={styles.foot}>
-        <Text variant="treeMeta" numberOfLines={1} testID="explorer-counts">
-          {counts}
-        </Text>
-      </View>
+      {/*
+        ONE LINE, TWO THINGS TO SAY, AND NEVER BOTH.
+
+        The counts line — "12 notes, 8 folders" — is what this row has always
+        said. When something has changed since this person last looked it says
+        that instead, and pressing it opens the list.
+
+        Instead, rather than beside: the meeting that asked for this asked for
+        "a number of updates at the bottom … in a nice sleek way, it doesn't
+        have to be in your face", and a second row at the foot of a column
+        whose rail was folded away to give its width to the note is exactly the
+        furniture that request was refusing. The counts come back the moment
+        the list is read, which is also what makes "caught up" visible without
+        a word for it.
+      */}
+      {activity !== undefined && activity.unseen > 0 ? (
+        <PressRow
+          accessibilityLabel={`${activityLabel}. Show what changed`}
+          onPress={() => {
+            const opening = activityOpen === null;
+            setActivityOpen(opening ? Date.now() : null);
+            // Re-read on the way in. The entries arrived when this console
+            // did, and everything that has happened since — including this
+            // person's own last hour of work — is in the file rather than in
+            // state. One small read, on a press, is the cheapest honest
+            // answer; the alternative is a subscription over a file.
+            if (opening) activity.refresh();
+            // Marked on close rather than on open: a list that clears its own
+            // marker the instant it appears is one you cannot look away from
+            // and come back to.
+            else activity.markSeen();
+          }}
+          ariaExpanded={activityOpen !== null}
+          ariaHasPopup="menu"
+          radius={radii.sm}
+          style={StyleSheet.flatten([styles.foot, styles.footPress])}
+          hoverStyle={styles.matchHover}
+          testID="explorer-activity"
+        >
+          <View style={styles.activityDot} aria-hidden />
+          <Text variant="treeMeta" numberOfLines={1} style={styles.footGrow}>
+            {activityLabel}
+          </Text>
+          <Icon
+            name={activityOpen === null ? "chevronUp" : "chevronDown"}
+            size={11}
+            color={colors.chromeMuted}
+          />
+        </PressRow>
+      ) : (
+        <View style={styles.foot}>
+          <Text variant="treeMeta" numberOfLines={1} testID="explorer-counts">
+            {counts}
+          </Text>
+        </View>
+      )}
+
+      {/*
+        Under the counts rather than over them, and that is the order of the two
+        scopes rather than a preference. The counts line is about *this tree*:
+        how much of the context you are in has been read. The row below it is
+        about which context that is and which others you can reach — a wider
+        fact, and the widest fact in a column reads as its footer. Reversed, the
+        counts line would sit between two pieces of navigation and read as a
+        caption on the workspace above it, which is a sentence about the wrong
+        thing.
+      */}
+      {workspaces}
 
       {refusal !== null ? (
         <View style={styles.refusal}>
@@ -614,64 +907,178 @@ export function Explorer({
         </View>
       ) : null}
 
+      {/*
+        The list, over the tree rather than beside it.
+
+        A popover anchored to the line that opened it, inside this column,
+        because what it lists is what happened in the tree behind it — and
+        because the alternatives are a pane (a navigation destination for a
+        glance) or a panel (the right-hand one, which holds the two things that
+        happen beside a *note*). Pressing a row opens that note in the editor
+        this column already drives, and closes.
+      */}
+      {activity !== undefined && activityOpen !== null ? (
+        <View style={styles.activitySheet} testID="explorer-activity-list">
+          <ScrollView style={styles.activityScroll}>
+            <ActivityList
+              entries={activity.entries}
+              seenAt={activity.seenAt}
+              now={activityOpen}
+              empty={emptyLine(access !== undefined)}
+              onOpen={(path) => {
+                setActivityOpen(null);
+                activity.markSeen();
+                files.select(path);
+              }}
+            />
+          </ScrollView>
+          <PressRow
+            accessibilityLabel="Open the whole history as a note"
+            onPress={() => {
+              setActivityOpen(null);
+              activity.markSeen();
+              files.select(ACTIVITY_PATH);
+            }}
+            radius={radii.sm}
+            style={styles.activityFoot}
+            hoverStyle={styles.matchHover}
+          >
+            <Text variant="treeMeta" style={styles.footGrow}>
+              Open the whole history
+            </Text>
+            <Icon name="chevronRight" size={11} color={colors.chromeMuted} />
+          </PressRow>
+        </View>
+      ) : null}
+
       {menu !== null ? (
         <Menu
           items={menu.items}
           anchor={menu.anchor}
-          title={baseName(menu.row.path)}
+          title={menu.title}
           onSelect={(id) => {
-            const row = menu.row;
+            const target = menu.target;
             setMenu(null);
-            runAction(id, row);
+            runAction(id, target);
           }}
           onDismiss={() => setMenu(null)}
         />
       ) : null}
 
-      <ExplorerDialogs files={files} dialog={dialog} onClose={() => setDialog(null)} />
+      <ExplorerDialogs
+        files={files}
+        dialog={dialog}
+        onClose={() => setDialog(null)}
+        access={access}
+      />
     </View>
   );
 }
 
 interface MenuOpen {
-  row: TreeRow;
+  /**
+   * What the menu was opened on, kept whole.
+   *
+   * It used to be the `TreeRow` alone, which was enough while a row was the
+   * only thing in the console that had a menu. The dispatcher now takes a
+   * `MenuTarget`, and storing the target rather than re-deriving one on
+   * selection is what keeps "what was offered" and "what runs" the same
+   * object — a menu built for the background and dispatched against a row is
+   * a paste into the wrong folder.
+   */
+  target: MenuTarget;
+  /** For the popover's title. Absent where the target has no single name. */
+  title: string;
   anchor: { x: number; y: number };
   items: ReturnType<typeof itemsFor>;
 }
 type MenuState = MenuOpen | null;
 
-export type Dialog =
-  /**
-   * "Something goes in this folder" — which of the two it is has not been asked
-   * yet. Raised by the phone's `+`, which is one key for both; see
-   * `CreatePrompt`. The explorer's own toolbar has room for a button each and
-   * raises the two below directly.
-   */
-  | { kind: "create"; folder: string }
-  | { kind: "newNote"; folder: string }
-  | { kind: "newFolder"; folder: string }
-  | { kind: "rename"; path: string }
-  | { kind: "move"; path: string }
-  | { kind: "archive"; path: string }
-  | { kind: "delete"; path: string; isFolder: boolean }
-  | { kind: "share"; path: string }
-  | null;
+/**
+ * Re-exported, not declared. The union moved to `actions.ts`, beside the
+ * dispatcher whose output it is; every existing importer of
+ * `files/Explorer` keeps working unchanged.
+ */
+export type { Dialog } from "./actions";
 
 /**
  * The dialogs the tree can raise.
  *
  * Separated so the tree and the editor can drive the same set without either
- * owning it — and so the one dialog that must never become a boolean on
- * another, `DeleteForever`, stays visibly its own thing.
+ * owning it.
  */
 export function ExplorerDialogs({
   files,
   dialog,
   onClose,
+  access,
+  create,
 }: {
   files: FileBrowser;
   dialog: Dialog;
   onClose: () => void;
+  /**
+   * The two rows of the `create` sheet that are not files.
+   *
+   * Passed in because neither belongs to the file browser: a meeting is the
+   * meetings flow's and a conversation is the aside panel's, and this component
+   * is mounted by surfaces that have one, both or neither. Absent means the row
+   * is not drawn — see `CreatePrompt`.
+   */
+  create?: {
+    onNewMeeting?: (() => void) | null;
+    onNewChat?: (() => void) | null;
+  };
+  /**
+   * What the share dialog needs to list who can read a note, and to offer
+   * groups as you type.
+   *
+   * Passed in rather than subscribed here: the console holds one membership
+   * and one groups subscription, and a second of either in this component
+   * would make every Explorer render test reach for a Convex provider it does
+   * not have. Optional, so a caller that has neither draws the dialog without
+   * them — which is what it did before this existed.
+   */
+  access?: {
+    members: readonly AccessMember[];
+    groups?: readonly RecipientGroup[];
+    /**
+     * `kind` travels with the path because a folder and a note go to different
+     * actions — the note one refuses anything that is not `.md`, which is the
+     * refusal an owner met when this dropped it.
+     */
+    onShareWithGroup?: (path: string, kind: "file" | "folder", group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /** Whose context this is, so every audience can be named. */
+    audience?: AudienceContext;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      /** Same reason `onShareWithGroup` carries one: it ends in the same call. */
+      kind: "file" | "folder",
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
+  };
 }) {
   if (dialog === null) return null;
 
@@ -680,28 +1087,23 @@ export function ExplorerDialogs({
       return (
         <CreatePrompt
           folder={dialog.folder}
+          canEdit={files.canEdit}
           onCancel={onClose}
-          onCreateNote={(name) => {
-            onClose();
-            files.createNote(dialog.folder, name);
-          }}
+          /*
+            Neither of these is named. The file is made now, called
+            `untitled-<date>`, and takes the first heading typed into it —
+            `untitled.ts` has the argument. `CreatePrompt` calls `onCancel`
+            before either, so the sheet is gone by the time the editor opens on
+            the new note.
+          */
+          onCreateNote={() => files.createUntitled(dialog.folder, "note")}
+          onCreateDrawing={() => files.createUntitled(dialog.folder, "drawing")}
           onCreateFolder={(name) => {
             onClose();
             files.createFolder(dialog.folder, name);
           }}
-        />
-      );
-    case "newNote":
-      return (
-        <NamePrompt
-          title="New note"
-          description={newNoteHint(dialog.folder)}
-          confirmLabel="Create"
-          onCancel={onClose}
-          onConfirm={(name) => {
-            onClose();
-            files.createNote(dialog.folder, name);
-          }}
+          onNewMeeting={create?.onNewMeeting ?? null}
+          onNewChat={create?.onNewChat ?? null}
         />
       );
     case "newFolder":
@@ -734,16 +1136,31 @@ export function ExplorerDialogs({
     case "move":
       return (
         <MovePicker
-          title={`Move ${baseName(dialog.path)}`}
+          title={`Move ${withoutSortPrefix(baseName(dialog.path))}`}
           description={sharesBreakingWarning(files.shares, dialog.path, "Moving") ?? undefined}
           folders={loadedFolders(files.listings).filter(
             (folder) => dialog.path !== folder && !folder.startsWith(`${dialog.path}/`),
           )}
           currentFolder={parentPath(dialog.path)}
+          /*
+            Only offered where the browser says so, which is: this person owns
+            the context the thing is leaving, and the far end is one they can
+            write. Both halves are the server's rule — see
+            `functions/contextMoves.ts` — and re-deciding either of them here
+            would be a second answer that can drift from the one that is
+            actually enforced.
+
+            A folder is not filtered out of the far context's list the way it
+            is out of this one, because it cannot be its own ancestor there:
+            the two paths are in different buckets.
+          */
+          destinations={files.moveDestinations}
+          loadDestinationFolders={files.destinationFolders}
           onCancel={onClose}
-          onConfirm={(folder) => {
+          onConfirm={(folder, contextId) => {
             onClose();
-            files.move(dialog.path, folder);
+            if (contextId === null) files.move(dialog.path, folder);
+            else files.moveToContext(dialog.path, contextId, folder);
           }}
         />
       );
@@ -757,6 +1174,19 @@ export function ExplorerDialogs({
         breach, not the refusal.
       */
       if (!files.canShare) return null;
+      // Braced so the binding below has a block of its own: a `const` bare in
+      // a `case` leaks into every sibling arm, which is what
+      // `no-case-declarations` is about.
+      {
+      /*
+        Looked up ONCE and used by all four controls below. It was resolved
+        inline four times, and one of those four then threw it away on its way
+        into `onShareWithGroup` — which is how sharing a folder with a group
+        reached the note action and came back "Only markdown notes can have
+        their own visibility". One binding is not tidiness here: it is the
+        thing that makes dropping it visible.
+      */
+      const entryKind = findEntry(files.listings, dialog.path)?.kind ?? "file";
       return (
         <ShareDialog
           path={dialog.path}
@@ -765,6 +1195,8 @@ export function ExplorerDialogs({
           onShare={(recipient) => files.share(dialog.path, recipient)}
           onCopyLink={files.copyShareLink}
           onRevoke={(shareId) => files.revokeShare(shareId)}
+          onSetSlug={(shareId, slug) => files.setShareSlug(shareId, slug)}
+          onSetCollecting={(shareId, on) => files.setShareCollecting(shareId, on)}
           onSetPreviewTitle={(share, on) =>
             files.setSharePreviewTitle(dialog.path, share, on)
           }
@@ -773,8 +1205,52 @@ export function ExplorerDialogs({
           // the first one makes them reopen it to check it worked — which is
           // also the moment they share it twice.
           onClose={onClose}
+          /*
+            The same two things Browse passes. The entry is looked up here
+            rather than threaded through `Dialog`, because the listing is the
+            authority on what this note currently reads as and the dialog is
+            opened from several places.
+          */
+          access={
+            access === undefined
+              ? undefined
+              : {
+                  visibility: findEntry(files.listings, dialog.path)?.visibility ?? "private",
+                  exception: findEntry(files.listings, dialog.path)?.exception ?? false,
+                  members: access.members,
+                }
+          }
+          groups={access?.groups}
+          /*
+            The audience control, wired straight from the browser rather than
+            threaded through `access`: `setScope` is already the single point
+            every surface goes through — its group guard lives there — and this
+            component holds `files` anyway. Owner-only, absent otherwise.
+          */
+          entryKind={entryKind}
+          onSetScope={
+            files.canSetVisibility
+              ? (from, to) =>
+                  files.setScope(dialog.path, entryKind, from, to)
+              : undefined
+          }
+          onRemovalRoute={access?.removalRouteFor?.(dialog.path, entryKind)}
+          groupSlug={access?.groupSlug}
+          context={access?.audience}
+          onCreateGroup={
+            access?.onCreateGroup === undefined
+              ? undefined
+              : (label, userIds) =>
+                  access.onCreateGroup!(dialog.path, entryKind, label, userIds)
+          }
+          onShareWithGroup={
+            access?.onShareWithGroup === undefined
+              ? undefined
+              : (group) => access.onShareWithGroup!(dialog.path, entryKind, group)
+          }
         />
       );
+      }
     case "archive":
       return (
         /*
@@ -797,18 +1273,6 @@ export function ExplorerDialogs({
           onConfirm={() => {
             onClose();
             files.archive(dialog.path);
-          }}
-        />
-      );
-    case "delete":
-      return (
-        <DeleteForever
-          path={dialog.path}
-          isFolder={dialog.isFolder}
-          onCancel={onClose}
-          onConfirm={() => {
-            onClose();
-            files.destroy(dialog.path);
           }}
         />
       );
@@ -846,6 +1310,11 @@ function IconButton({
 function cycleVisibility(files: FileBrowser, row: TreeRow): void {
   if (row.readOnly) return;
   const current = row.marker ?? inheritedOf(files, row.path);
+  // There is no next position to cycle to from a group rule, and the one this
+  // would have picked is `team` — the single press that publishes it.
+  // `setVisibility` refuses this too; returning here keeps the control from
+  // producing a notice for a press that could never have been meaningful.
+  if (isGroupVisibility(current)) return;
   files.setVisibility(
     row.path,
     row.kind === "folder" ? "folder" : "file",
@@ -862,7 +1331,7 @@ function inheritedOf(files: FileBrowser, path: string): Visibility {
   return "private";
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
+const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   explorer: { flex: 1, minHeight: 0 },
 
   toolbar: {
@@ -871,8 +1340,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 6,
     paddingHorizontal: space.x2,
     paddingVertical: space.x2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
   },
   /**
    * Holds the create buttons at the trailing edge while the filter is away.
@@ -883,6 +1350,40 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * beside it is revealed.
    */
   toolbarSpacer: { flexGrow: 1, flexShrink: 1 },
+  /* See the column's `onPointerEnter`: present, laid out, and unlit at rest. */
+  tools: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    opacity: 0,
+  },
+  toolsShown: { opacity: 1 },
+  /** The pair the canvas draws at rest. Same row, no fade. */
+  toolsResting: { flexDirection: "row", alignItems: "center" },
+  /**
+   * The resting label, in the field's own box.
+   *
+   * Absolute and inset to the field's horizontal padding, so the word starts
+   * at exactly the character the placeholder would have — the two swap without
+   * anything moving. `justifyContent: "center"` because the box is 28pt and
+   * the label is one line of 11pt type.
+   */
+  eyebrow: {
+    position: "absolute",
+    left: space.x2 + space.x2,
+    top: space.x2,
+    height: 28,
+    justifyContent: "center",
+  },
+  eyebrowGone: { opacity: 0 },
+  /**
+   * At rest: type, in the header's own gutter, with no box at all.
+   *
+   * The border is `transparent` rather than absent so the field does not
+   * change size when it gains one — a header that grew 2pt as the pointer
+   * crossed the column would be a layout jumping under the hand reaching for
+   * it, which is the failure `tools` fades opacity to avoid.
+   */
   filter: {
     flex: 1,
     minWidth: 0,
@@ -890,11 +1391,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x2,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
+    borderColor: "transparent",
     color: colors.text,
-    fontSize: 12,
+    fontSize: t.meta,
   },
+  /** On approach, on focus, or once somebody has typed. */
+  filterBoxed: { borderColor: colors.line, backgroundColor: colors.well },
   iconButton: {
     width: 28,
     height: 28,
@@ -908,7 +1410,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   iconButtonHover: { borderColor: colors.lineStrong },
 
   scroll: { flex: 1, minHeight: 0 },
-  scrollContent: { paddingVertical: space.x2, paddingHorizontal: 6 },
+  /**
+   * `flexGrow` so the background filler below the rows can take the rest of
+   * the column. Without it the content container is exactly as tall as its
+   * rows and the filler is zero-height — which is a right-click target that
+   * exists in the tree and not on the screen.
+   */
+  scrollContent: { paddingVertical: space.x2, paddingHorizontal: 6, flexGrow: 1 },
+  /** See the filler's own comment in the render. */
+  background: { flexGrow: 1 },
   status: { paddingHorizontal: space.x2, paddingVertical: space.x2 },
 
   match: {
@@ -947,5 +1457,46 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x3,
     paddingVertical: 5,
     gap: space.x2,
+  },
+  /** The same box, as a control: a row rather than a stack of one. */
+  footPress: { flexDirection: "row", alignItems: "center" },
+  footGrow: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  /** The one spot of petrol in the column, and only while something is new. */
+  activityDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+  },
+  /**
+   * The list, floating over the tree and anchored to the line that opened it.
+   *
+   * Inset from the column's edges and shadowed rather than bordered, the way
+   * every other floating surface in this product is drawn
+   * (`4-resources/design/floating-chrome.md`). Capped at 60% of the column so
+   * it never becomes the column: what is under it is the thing it is about.
+   */
+  activitySheet: {
+    position: "absolute",
+    left: space.x2,
+    right: space.x2,
+    bottom: 76,
+    maxHeight: "60%",
+    borderRadius: radii.panel,
+    backgroundColor: colors.surface3,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    overflow: "hidden",
+    boxShadow: shadows.floating,
+  },
+  activityScroll: { flexGrow: 0, flexShrink: 1 },
+  activityFoot: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
   },
 });

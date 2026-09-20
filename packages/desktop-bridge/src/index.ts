@@ -39,6 +39,9 @@ export type {
   DesktopShell,
   DetectionView,
   ImessageStatus,
+  LocalAgentAsk,
+  LocalAgentReply,
+  LocalAgentStatus,
   MachineApprovalResult,
   MeetingWrite,
   MeetingWriteAck,
@@ -60,5 +63,9 @@ export {
 
 export type { BridgeRefusal, BridgeScope } from "./bridge.ts";
 
-export { SHELL_TITLE_BAND_PX, SHELL_TRAFFIC_LIGHTS } from "./layout.ts";
+export {
+  SHELL_TITLE_BAND_LEAD_PX,
+  SHELL_TITLE_BAND_PX,
+  SHELL_TRAFFIC_LIGHTS,
+} from "./layout.ts";
 export type { ShellTrafficLightsPosition } from "./layout.ts";

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { FileBrowser } from "./browser";
+import type { NoteLinkOpen } from "./noteLinks";
 import { emptyTabs, tabsReducer, tabsToClose, type TabsState } from "./tabs";
 
 /**
@@ -46,7 +47,7 @@ export function useTabs(
    * it — the rule is "a folder that is loaded and does not hold this note", and
    * a *subfolder* of the previous context is never loaded in the next one, so
    * those tabs survived indefinitely. The strip then showed note names from the
-   * person's own brain while they were inside somebody else's workspace, which
+   * person's own workspace while they were inside somebody else's, which
    * is precisely what `useFileBrowser`'s reset effect exists to prevent for the
    * tree, the selection and the editor.
    *
@@ -59,8 +60,18 @@ export function useTabs(
   activate: (path: string) => void;
   /** Keep this tab: what "Open in new tab" means when the default is a preview. */
   pin: (path: string) => void;
+  /**
+   * A link in the open note was followed.
+   *
+   * Pinned rather than preview, and placed right of the tab it came from —
+   * see `tabs.ts`. `"background"` is a ⌘-click and does not move the
+   * selection at all.
+   */
+  follow: (path: string, mode: NoteLinkOpen) => void;
   close: (path: string) => void;
   closeOthers: (path: string) => void;
+  /** Close everything after this tab, keeping it and everything before it. */
+  closeToRight: (path: string) => void;
   reopen: () => void;
 } {
   const [state, dispatch] = useReducer(tabsReducer, emptyTabs);
@@ -76,7 +87,13 @@ export function useTabs(
   const status = files.editor.status;
 
   useEffect(() => {
-    if (openPath === null) return;
+    // `""` as well as `null`. The empty path is the bucket root, which is a
+    // folder and can never be a note — `emptyEditor` uses `null` and nothing in
+    // `useFileBrowser` writes `""`, but a tab opened for it is a nameless row
+    // that the prune below deletes a commit later, and the flicker is the least
+    // of it: with the last-tab rule added at the foot of this file, a phantom
+    // tab appearing and vanishing is a *deselect* nobody asked for.
+    if (openPath === null || openPath === "") return;
     dispatch({ type: "opened", path: openPath, mode: "preview" });
   }, [openPath]);
 
@@ -171,6 +188,10 @@ export function useTabs(
     dispatch({ type: "closedOthers", path });
   }, []);
 
+  const closeToRight = useCallback((path: string) => {
+    dispatch({ type: "closedToRight", path });
+  }, []);
+
   const reopen = useCallback(() => dispatch({ type: "reopened" }), []);
 
   /**
@@ -188,6 +209,35 @@ export function useTabs(
   }, []);
 
   /**
+   * Following a link, which is the one open that is neither a preview nor an
+   * append.
+   *
+   * **Pinned**, because a followed link is a destination rather than a glance:
+   * a preview tab would be replaced by the next thing opened, so walking three
+   * links deep and pressing back twice would find the tabs gone. **Right of
+   * the source tab**, because the note you were reading and the note it sent
+   * you to are one train of thought.
+   *
+   * The dispatch happens while `state.activePath` is still the *source* note,
+   * which is what makes `"afterActive"` mean what it says. `select` runs first
+   * and its answer is honoured: the unsaved-draft guard can refuse, and a
+   * refusal must not leave a tab in the strip for a note the editor never
+   * opened. A background open never asks, because it never leaves the note
+   * the guard is protecting.
+   */
+  const follow = useCallback(
+    (path: string, mode: NoteLinkOpen) => {
+      if (mode === "background") {
+        dispatch({ type: "opened", path, mode: "pinned", at: "afterActive", activate: false });
+        return;
+      }
+      if (!files.select(path)) return;
+      dispatch({ type: "opened", path, mode: "pinned", at: "afterActive" });
+    },
+    [files],
+  );
+
+  /**
    * Closing the active tab has to move the editor, not just the strip.
    *
    * The reducer already picks the neighbour; this follows it. Without it the
@@ -202,5 +252,34 @@ export function useTabs(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  return { state, activate, pin, close, closeOthers, reopen };
+  /**
+   * Closing the **last** tab has to move the editor too, and did not.
+   *
+   * `without` leaves `activePath` null when nothing is left, and the effect
+   * above only follows a non-null one — so ⌘W on the last tab, or the × on the
+   * last row of the mobile switcher this predates, emptied the strip and left
+   * the note sitting in the editor. The control ran, the chrome updated, and
+   * the thing it claimed to close was still on screen. "How do you close a note
+   * here" was the honest question.
+   *
+   * Guarded on the *transition* rather than on `length === 0`, which is also
+   * true at mount and on every render before anything opens. A cold load with
+   * `?note=` in the URL puts a note in the editor before the strip has caught
+   * up (`useNoteAddress`), and an ungated deselect would throw that away — the
+   * bug wearing its own fix's clothes.
+   *
+   * A context switch reaches this too, through `reset`, and `deselect` there is
+   * a no-op that costs nothing: `useFileBrowser` clears the selection on the
+   * same key, in the same commit.
+   */
+  const hadTabs = useRef(false);
+  useEffect(() => {
+    const has = state.tabs.length > 0;
+    if (!has && hadTabs.current) files.deselect();
+    hadTabs.current = has;
+    // Same reason as above: keyed on the count, not on the browser's identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.tabs.length]);
+
+  return { state, activate, pin, follow, close, closeOthers, closeToRight, reopen };
 }

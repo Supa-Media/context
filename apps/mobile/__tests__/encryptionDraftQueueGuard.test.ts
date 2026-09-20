@@ -1,5 +1,5 @@
 /**
- * THE OFFLINE DRAFT QUEUE NEVER HOLDS AN UNLOCKED NOTE'S PLAINTEXT.
+ * THE OFFLINE STORE NEVER HOLDS AN UNLOCKED NOTE'S PLAINTEXT.
  *
  * `useNoteEncryption.ts`'s own header states the rule and the cost it pays:
  * editing a passphrase-unlocked note has no autosave and no offline queue, on
@@ -21,9 +21,23 @@
  * anticipate every path that could reach it rather than refusing the
  * capability outright.
  *
+ * ## Why the *cache* writers are on the list too
+ *
+ * The list started as the draft-and-queue writers, because a draft is the
+ * person's own typing and is the obvious durable copy. It is not the only one:
+ * `features/offline` also caches **note bodies** — what the bucket answered —
+ * under their own key kind, and a body cached before a lock is the same
+ * plaintext by another name. The adversarial review of #360 found that copy
+ * outliving a lock through the caller rather than through this directory, and
+ * `discardLocalCopies` now takes it; naming `rememberNote`, `rememberBody`
+ * and `putNote` here is the other half — the shorter path into the same store
+ * is closed by the same rule that closes `AsyncStorage`, rather than being
+ * left to the fact that nobody has taken it yet.
+ *
  * **Sabotage record** (temporary local edits, reverted): adding a call to
  * `rememberDraft` inside `useNoteEncryption.ts`'s `save` — 1 failure, naming
- * the file and the identifier.
+ * the file and the identifier. Adding a call to `rememberNote` in the same
+ * place — 1 failure, likewise.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -34,7 +48,8 @@ const ENCRYPTION_DIR = join(__dirname, "..", "features", "console", "encryption"
 
 /**
  * Every identifier that would let this session's own plaintext reach the
- * offline draft queue or its backing store, directly or through a wrapper.
+ * offline store — its draft queue or its note cache — or its backing store,
+ * directly or through a wrapper.
  *
  * `AsyncStorage` and `localStorage`/`sessionStorage` are named on their own,
  * not only through `features/offline`'s exports — a future file in this
@@ -46,6 +61,9 @@ const FORBIDDEN_IDENTIFIERS: readonly string[] = [
   "rememberDraft",
   "queueSave",
   "putDraft",
+  "rememberNote",
+  "rememberBody",
+  "putNote",
   "AsyncStorage",
   "localStorage",
   "sessionStorage",

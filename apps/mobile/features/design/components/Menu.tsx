@@ -55,13 +55,19 @@ import { Text } from "./Text";
  *    discoverable, and on a sheet whose last item is destructive the visible
  *    way out matters.
  */
-export interface MenuProps {
-  items: MenuItem[];
+export interface MenuProps<Id extends string = MenuActionId> {
+  items: MenuItem<Id>[];
   /** Where the pointer was. Web anchors a popover here; touch ignores it. */
   anchor?: { x: number; y: number };
   /** Sheet heading on touch — the file name. Web shows no heading. */
   title?: string;
-  onSelect: (id: MenuActionId) => void;
+  /**
+   * A second line under `title` — the account menu's email under the
+   * signed-in name. Absent from every file menu, which has nothing to put
+   * there; `title` alone is unchanged for them.
+   */
+  titleDetail?: string;
+  onSelect: (id: Id) => void;
   onDismiss: () => void;
 }
 
@@ -77,10 +83,13 @@ function SheetRow({
   detail,
   accessibilityLabel,
   danger = false,
+  checked,
+  disabled = false,
   leading,
   trailing,
   align = "left",
   onPress,
+  testID,
 }: {
   id: string;
   label: string;
@@ -95,25 +104,59 @@ function SheetRow({
    */
   accessibilityLabel?: string;
   danger?: boolean;
+  /**
+   * The setting in force, where "in force" is a question with an answer.
+   *
+   * The sheet carries it for the same reason the popover does and it is not
+   * optional parity: this is the *only* presentation on a phone, so leaving it
+   * out would make "which visibility is this note actually on" a question the
+   * pointer layout answers and the phone does not. `false` reserves the
+   * gutter, `undefined` draws none. See `MenuItem.checked`.
+   */
+  checked?: boolean;
+  /**
+   * Present, drawn dimmed, and does not fire. See `MenuItem.disabled` for why
+   * this exists at all when the file menu's rule is absence.
+   */
+  disabled?: boolean;
   /** A mark before the label. Decorative — the accessible name is `label`. */
   leading?: ReactNode;
   trailing?: ReactNode;
   align?: "left" | "center";
   onPress: () => void;
+  /** `MenuItem.testID`, or the `menu-item-<id>` default. */
+  testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   return (
     <PressRow
       accessibilityLabel={accessibilityLabel ?? label}
-      onPress={onPress}
+      // The state, in the accessible tree as well as on the glass. See
+      // `roleFor` in `Menu.web.tsx` for why this is not decoration.
+      ariaChecked={checked}
+      onPress={disabled ? undefined : onPress}
       radius={radii.md}
-      testID={`menu-item-${id}`}
+      testID={testID ?? `menu-item-${id}`}
       // `PressRow` takes one style object rather than an array, so the two
       // shapes are merged here rather than layered.
-      style={StyleSheet.flatten([styles.row, align === "center" && styles.rowCentered])}
+      style={StyleSheet.flatten([
+        styles.row,
+        align === "center" && styles.rowCentered,
+        disabled && styles.rowOff,
+      ])}
       hoverStyle={styles.rowHover}
     >
       {leading}
+      {/*
+        The radio gutter, at the sheet's own scale. Reserved on every row of a
+        group that has one so the labels line up under each other.
+      */}
+      {checked === undefined ? null : (
+        <View style={styles.checkGutter} testID={`menu-check-${id}`}>
+          {checked ? <Icon name="check" size={15} color={colors.text} /> : null}
+        </View>
+      )}
       {/*
         The label and its detail are one column so the row stays a row: a
         second `Text` beside the first would sit next to it and push the
@@ -147,7 +190,13 @@ function Separator() {
   return <View aria-hidden style={styles.separator} />;
 }
 
-export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
+export function Menu<Id extends string = MenuActionId>({
+  items,
+  title,
+  titleDetail,
+  onSelect,
+  onDismiss,
+}: MenuProps<Id>) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   /**
@@ -158,7 +207,7 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
    * copy of a page on screen: the parent is looked up again every render, and
    * an id that no longer exists collapses back to the first page.
    */
-  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const [openId, setOpenId] = useState<Id | null>(null);
   const insets = useSafeAreaInsets();
 
   const parent = items.find((item) => item.id === openId && item.items !== undefined) ?? null;
@@ -185,16 +234,28 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
 
           {parent === null ? (
             title === undefined ? null : (
-              <Text
-                variant="rowSub"
-                numberOfLines={1}
-                role="heading"
-                aria-level={2}
-                testID="menu-title"
-                style={styles.title}
-              >
-                {title}
-              </Text>
+              <View style={styles.titleBlock}>
+                <Text
+                  variant="rowSub"
+                  numberOfLines={1}
+                  role="heading"
+                  aria-level={2}
+                  testID="menu-title"
+                  style={styles.title}
+                >
+                  {title}
+                </Text>
+                {titleDetail === undefined ? null : (
+                  <Text
+                    variant="treeMeta"
+                    numberOfLines={1}
+                    testID="menu-title-detail"
+                    style={styles.titleDetail}
+                  >
+                    {titleDetail}
+                  </Text>
+                )}
+              </View>
             )
           ) : (
             /**
@@ -235,6 +296,9 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
                   label={item.label}
                   detail={item.detail}
                   danger={item.danger === true}
+                  checked={item.checked}
+                  disabled={item.disabled === true}
+                  testID={item.testID}
                   trailing={
                     item.items === undefined ? null : (
                       <Icon name="chevronRight" size={16} color={colors.muted} />
@@ -294,13 +358,19 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: colors.lineStrong,
     marginBottom: space.x2,
   },
-  title: {
+  titleBlock: {
     paddingHorizontal: space.x5,
     paddingBottom: space.x2,
-    color: colors.muted,
+    gap: 2,
   },
+  title: { color: colors.muted },
+  titleDetail: { color: colors.muted },
   list: { flexGrow: 0 },
   listContent: { paddingVertical: space.x1 },
+  /** The radio gutter, at the sheet's 44pt scale. */
+  checkGutter: { width: 16, alignItems: "center", justifyContent: "center" },
+  /** Present but unavailable. See `MenuItem.disabled`. */
+  rowOff: { opacity: 0.4 },
   row: {
     flexDirection: "row",
     alignItems: "center",

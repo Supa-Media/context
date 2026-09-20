@@ -29,6 +29,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -85,14 +86,14 @@ async function bucket(): Promise<MemoryStore & FileStore> {
   await setFolderVisibility(store, {
     path: "1-projects",
     visibility: "team",
-    scope: "private",
+    clearance: clearanceOf("private"),
   });
   return store;
 }
 
 /** What a folder link over `path` would carry, taken the way the product takes it. */
 async function childrenOf(store: FileStore, path: string): Promise<string[]> {
-  const listing = await listFolder(store, { path, scope: "team" });
+  const listing = await listFolder(store, { path, clearance: clearanceOf("team") });
   return previewChildrenFrom(listing.entries);
 }
 
@@ -119,7 +120,7 @@ describe("only what a team reader may see", () => {
     await setVisibility(store, {
       path: "1-projects/transition/salaries.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const children = await childrenOf(store, "1-projects/transition");
@@ -132,7 +133,7 @@ describe("only what a team reader may see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const children = await childrenOf(store, "1-projects/transition");
@@ -159,12 +160,12 @@ describe("only what a team reader may see", () => {
       "1-projects/transition/timeline.md",
       "1-projects/transition/salaries.md",
     ]) {
-      await setVisibility(store, { path, visibility: "private", scope: "private" });
+      await setVisibility(store, { path, visibility: "private", clearance: clearanceOf("private") });
     }
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     expect(await childrenOf(store, "1-projects/transition")).toEqual([]);
@@ -239,7 +240,7 @@ describe("deterministic, because it is a cache key", () => {
     expect(
       previewChildrenFrom([
         { kind: "file", name: "b.md" },
-        { kind: "folder", name: "zed" },
+        { kind: "folder", name: "zed", visibility: "team" },
         { kind: "file", name: "a.md" },
       ]),
     ).toEqual(["zed/", "a.md", "b.md"]);
@@ -248,7 +249,7 @@ describe("deterministic, because it is a cache key", () => {
   test("the same folder in a different listing order is the same list", () => {
     const entries = [
       { kind: "file" as const, name: "b.md" },
-      { kind: "folder" as const, name: "zed" },
+      { kind: "folder" as const, name: "zed", visibility: "team" as const },
       { kind: "file" as const, name: "a.md" },
     ];
     expect(previewChildrenFrom(entries)).toEqual(
@@ -263,9 +264,13 @@ describe("deterministic, because it is a cache key", () => {
    * follows on the same table.
    */
   test("a folder child is marked by its own name, not by a second field", () => {
-    expect(previewChildrenFrom([{ kind: "folder", name: "interviews" }])).toEqual([
-      "interviews/",
-    ]);
+    expect(
+      previewChildrenFrom([
+        // `team` in its own right, because that is now the only thing a folder
+        // entry can be for it to be named at all — see the filter's comment.
+        { kind: "folder", name: "interviews", visibility: "team" },
+      ]),
+    ).toEqual(["interviews/"]);
     expect(previewChildrenFrom([{ kind: "file", name: "interviews" }])).toEqual([
       "interviews",
     ]);
@@ -298,7 +303,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
   async function fixture() {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "owner-brain");
+    const workspaceId = await createWorkspace(t, owner, "owner-workspace");
 
     const backend = memoryS3(FAKE_STORAGE.bucket);
     backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
@@ -372,7 +377,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, {
-        slug: "owner-brain",
+        slug: "owner-workspace",
         path: FOLDER,
       }),
     ).toEqual({
@@ -398,7 +403,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     await linkAndRender(t, owner, workspaceId, FOLDER);
 
     const answer = await t.query(api.functions.shares.previewForNote, {
-      slug: "owner-brain",
+      slug: "owner-workspace",
       path: FOLDER,
     });
     expect(answer.children).not.toContain("salaries.md");
@@ -418,7 +423,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     expect(
       (
         await t.query(api.functions.shares.previewForNote, {
-          slug: "owner-brain",
+          slug: "owner-workspace",
           path: FOLDER,
         })
       ).children,
@@ -445,7 +450,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, {
-        slug: "owner-brain",
+        slug: "owner-workspace",
         path: FOLDER,
       }),
     ).toEqual({ title: null, cardToken: null, children: [] });
@@ -453,7 +458,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
   /**
    * **The half of the rule that did not move.** `3-resources` is a name this
-   * product wrote into every brain it scaffolds, so it is a handful of guesses
+   * product wrote into every workspace it scaffolds, so it is a handful of guesses
    * per handle rather than a name its owner chose — and naming what is inside
    * it would turn that handful of guesses into a listing of somebody's notes.
    * `isProductMandatedPath` refuses it before any of this runs, contents and
@@ -468,7 +473,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
       expect(
         await t.query(api.functions.shares.previewForNote, {
-          slug: "owner-brain",
+          slug: "owner-workspace",
           path: folder,
         }),
       ).toEqual({ title: null, cardToken: null, children: [] });
@@ -551,7 +556,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     );
 
     const { children } = await t.query(api.functions.shares.previewForNote, {
-      slug: "owner-brain",
+      slug: "owner-workspace",
       path: FOLDER,
     });
     expect(children).toEqual(["a.md", "b.md", "c.md"]);
@@ -615,19 +620,19 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setVisibility(store, {
       path: "1-projects/transition/interviews/first.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     // The positive control: the shared note really is reachable by a member,
     // which is the behaviour `folderVisibleAtScope` exists to preserve.
     const listing = await listFolder(store, {
       path: "1-projects/transition/interviews",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
 
@@ -640,9 +645,69 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(await childrenOf(store, "1-projects/transition")).toContain("interviews/");
+  });
+
+  /**
+   * A GROUP IS NARROWER THAN TEAM, SO IT IS NOT A TEAM READER'S TO PUBLISH
+   * EITHER.
+   *
+   * `previewChildrenFrom`'s filter has always been spelled
+   * `entry.visibility !== "private"`, and while `Visibility` was two-valued
+   * that was the same predicate as its own comment: "team-visible in its own
+   * right". A rule naming a group is a third value strictly between the two,
+   * and `!== "private"` admits it — so the folder the owner held back to
+   * `@supa-leads` is named on a card an anonymous crawler reads at an address
+   * anybody can type, and that cannot be retracted once unfurled.
+   *
+   * Nothing in the product writes a group rule yet: both setters stay
+   * two-valued. A hand-edited manifest is how one arrives, and it is the
+   * ordinary way — the same bucket is synced to Obsidian, and `privacy.md` is
+   * a supported file a customer edits. So the manifest here is written the way
+   * a customer would write it, not through a setter that cannot express it.
+   */
+  test("a group subfolder holding one team note is not published", async () => {
+    const store = await bucket();
+    // Neither setter can express this: both stay two-valued, on purpose. A
+    // hand-edited manifest is how a group rule arrives, and it is the ordinary
+    // way — the same bucket is synced to Obsidian and `privacy.md` is a
+    // supported file a customer edits.
+    const manifest = store.snapshot()[PRIVACY_KEY];
+    store.seed(
+      PRIVACY_KEY,
+      manifest
+        .replace(
+          "folder_defaults:\n",
+          "folder_defaults:\n  1-projects/transition/interviews: @supa-leads\n",
+        )
+        .replace(
+          "note_overrides:\n",
+          "note_overrides:\n  1-projects/transition/interviews/first.md: team\n",
+        ),
+    );
+
+    // Non-vacuity, twice over: the rule really parsed as the folder's own
+    // visibility, and `folderVisibleAtScope` really still admits the folder on
+    // the strength of the one note inside it — so what follows is the card's
+    // filter refusing, not a manifest that parsed to nothing or a folder that
+    // was already gone.
+    const listing = await listFolder(store, {
+      path: "1-projects/transition/interviews",
+      clearance: clearanceOf("team"),
+    });
+    expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
+    const parent = await listFolder(store, {
+      path: "1-projects/transition",
+      clearance: clearanceOf("team"),
+    });
+    expect(parent.entries.find((entry) => entry.name === "interviews")?.visibility).toBe(
+      "@supa-leads",
+    );
+
+    // …and the group folder's own name is still not on the card.
+    expect(await childrenOf(store, "1-projects/transition")).not.toContain("interviews/");
   });
 });
 

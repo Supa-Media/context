@@ -11,5 +11,5 @@ export {
   estimateChatBackfillWindows,
 } from "./backfill.js";
 export { CHAT_SCOPES, DAY_MS, DEFAULT_BACKFILL_DAYS, REGEN_LOOKBACK_DAYS, SPACE_STATES } from "./protocol.js";
-export { dayNonce, syncGoogleChat } from "./sync.js";
+export { ChatPaginationError, dayNonce, syncGoogleChat } from "./sync.js";
 export { chatMessageToEvent, chatSpaceType, fallbackSpaceLabel, isHistoryOn, spaceDisplayName } from "./transform.js";

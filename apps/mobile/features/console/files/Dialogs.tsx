@@ -2,18 +2,17 @@ import { useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, radii } from "../../design/tokens";
+import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { describeDeleteForever, describeNameProblem } from "./paths";
+import type { MoveDestination } from "./browser";
+import { describeNameProblem } from "./paths";
+import { createRows, type CreateRow } from "./createSheet";
 
 /**
  * The console's dialogs.
  *
  * Three shapes, in the mockup's language: a shell, a name prompt, and a
- * destination picker. The fourth — permanent deletion — is deliberately its
- * own component rather than a `<Confirm danger>`, because it is the one action
- * in this product that cannot be undone and it should not be one boolean away
- * from every other confirmation.
+ * destination picker.
  */
 
 function Shell({
@@ -46,65 +45,83 @@ function Shell({
 }
 
 /**
- * What `New note` and `New folder` say about where the thing is going, in one
- * place because two surfaces now raise them: the explorer's own pair of
- * buttons, and the chooser below that a phone's `+` opens.
+ * Said out loud because the file is real and they will meet it somewhere else.
+ *
+ * The console does not list the placeholder (`isFolderPlaceholder`), so this
+ * sentence is the only place it is mentioned before Obsidian shows it — and a
+ * README appearing in their vault that the app never mentioned is worse than
+ * one line at the moment they make the folder.
  */
-export function newNoteHint(folder: string): string {
-  return `It will be created in ${folder || "the root of your context"} as markdown.`;
-}
 export const NEW_FOLDER_HINT =
-  "A bucket has no empty folders, so this also writes a README.md inside it — visible in Obsidian and to every other tool that reads your bucket.";
+  "A bucket has no empty folders, so this also writes a README.md placeholder inside it. Context does not list it; Obsidian and anything else that reads your bucket will.";
 
 /**
  * `+`, on a surface with room for exactly one of it.
  *
  * ## Why this exists
  *
- * The explorer's toolbar carries a New note button and a New folder button
- * side by side. A phone has no explorer — the tree is gone at that density —
- * so its bottom bar carries a single `+`, and that `+` meant *note*. Which
- * left **no way to make a folder on a phone at all**: not in the bar, not in
- * the folder view, not behind a long press. The owner found it by needing one.
+ * A phone has no explorer — the tree is gone at that density — so everything
+ * somebody *starts* from the console has to fit on the bottom row, and the row
+ * has no width for a seventh key (`bottomRowWidth.test.ts`). This is the sheet
+ * the one `+` raises, and it is the phone's copy of `CreateButton`'s menu: the
+ * same rows, in the same order, from the same function (`createSheet.ts`).
  *
- * ## Why a chooser rather than a second button
+ * ## Nothing here asks for a name except the folder
  *
- * `BottomBar`'s own rule is that a fixed strip must not move items out from
- * under a thumb, and it is already seven keys wide at 390pt. An eighth for the
- * rarer of the two operations would cost every other key its width. So the one
- * key asks, which is also the honest reading of `+`: it never said "note".
+ * A note and a drawing are made the moment the row is pressed, called
+ * `untitled-<date>`, and take their name from the first heading typed into
+ * them — *"for new note, new drawing etc should not ask you to title it"*. See
+ * `untitled.ts` for the argument and the rename.
  *
- * The two rows are the whole dialog — picking one swaps this for the same
- * `NamePrompt` the explorer raises, with the same sentence about where the
- * thing is going, because a phone and a desktop disagreeing about that is how
- * two dialogs with one name start to drift.
+ * The folder still goes on to `NamePrompt`, and that is the honest exception
+ * rather than an oversight: the reason a note needs no prompt is that it has a
+ * title field inside it, and a folder has no inside to type in. An
+ * `untitled-2026-09-19/` in somebody's bucket, renameable only from a row menu
+ * they have to find, costs more than one text field.
+ *
+ * ## The meeting is here because the seventh key is gone
+ *
+ * The bottom row used to carry a microphone of its own, last, behind a
+ * separator — *"we no longer need a dedicated mic button on the bottom row,
+ * just a plus button that opens different options"*. Recording is one of the
+ * things you start, so it is a row here like the rest, and the row that key
+ * occupied went back to the six keys either side of it.
  */
 export function CreatePrompt({
   folder,
+  canEdit,
   onCancel,
   onCreateNote,
+  onCreateDrawing,
   onCreateFolder,
+  onNewMeeting,
+  onNewChat,
 }: {
   folder: string;
+  /**
+   * Whether this person may write here. A read-only context keeps the `+` — a
+   * meeting is still something they can start — and loses the three rows that
+   * make a file. See `createSheet.ts`.
+   */
+  canEdit: boolean;
   onCancel: () => void;
-  onCreateNote: (name: string) => void;
+  /** Both of these make the thing immediately. Nothing is named here. */
+  onCreateNote: () => void;
+  onCreateDrawing: () => void;
   onCreateFolder: (name: string) => void;
+  /**
+   * `null` on a surface with no meeting flow behind it — the fixtures and the
+   * landing page's demo console. Absent rather than pressable and inert, which
+   * is the contract `onNewChat` keeps below and `CreateButton` keeps for both.
+   */
+  onNewMeeting: (() => void) | null;
+  /** `null` with no engine behind it, or no model key connected. */
+  onNewChat: (() => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const [kind, setKind] = useState<"note" | "folder" | null>(null);
+  const [naming, setNaming] = useState(false);
 
-  if (kind === "note") {
-    return (
-      <NamePrompt
-        title="New note"
-        description={newNoteHint(folder)}
-        confirmLabel="Create"
-        onCancel={onCancel}
-        onConfirm={onCreateNote}
-      />
-    );
-  }
-  if (kind === "folder") {
+  if (naming) {
     return (
       <NamePrompt
         title="New folder"
@@ -122,31 +139,74 @@ export function CreatePrompt({
         {`In ${folder || "the root of your context"}.`}
       </Text>
       <View style={styles.choices}>
-        <PressRow
-          accessibilityLabel="New note"
-          onPress={() => setKind("note")}
-          style={styles.choiceRow}
-          hoverStyle={styles.listRowHover}
-        >
-          <Text variant="body">Note</Text>
-          <Text variant="paneSub">A markdown file you can write in.</Text>
-        </PressRow>
-        <PressRow
-          accessibilityLabel="New folder"
-          onPress={() => setKind("folder")}
-          style={styles.choiceRow}
-          hoverStyle={styles.listRowHover}
-        >
-          <Text variant="body">Folder</Text>
-          <Text variant="paneSub">A place to file notes. Starts with a README.md.</Text>
-        </PressRow>
+        {createRows({
+          canEdit,
+          chat: onNewChat !== null,
+          meeting: onNewMeeting !== null,
+        }).map((row) => (
+          <PressRow
+            key={row}
+            accessibilityLabel={ROW_LABELS[row]}
+            onPress={() => {
+              /*
+                The folder is the one row that stays in the dialog: it swaps this
+                sheet for `NamePrompt`, so closing first would take the prompt
+                with it. Every other row closes and then acts, because the two
+                that write a file open the editor on it — and a modal still on
+                screen over a note somebody is now being shown is the one order
+                that looks like a bug.
+              */
+              if (row === "new-folder") return setNaming(true);
+              onCancel();
+              if (row === "new-note") onCreateNote();
+              if (row === "new-drawing") onCreateDrawing();
+              if (row === "new-chat") onNewChat?.();
+              if (row === "new-meeting") onNewMeeting?.();
+            }}
+            style={styles.choiceRow}
+            hoverStyle={styles.listRowHover}
+          >
+            <Text variant="body">{ROW_TITLES[row]}</Text>
+            <Text variant="paneSub">{ROW_SUBS[row]}</Text>
+          </PressRow>
+        ))}
       </View>
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
       </View>
     </Shell>
   );
 }
+
+/**
+ * The accessible name of each row — the same words `CreateButton`'s menu uses,
+ * because a phone and a desktop calling the same thing two names is how one of
+ * them ends up meaning something else.
+ */
+const ROW_LABELS: Record<CreateRow, string> = {
+  "new-meeting": "New meeting",
+  "new-note": "New note",
+  "new-drawing": "New drawing",
+  "new-folder": "New folder",
+  "new-chat": "New chat",
+};
+
+/** The word on the row. Shorter than the label: the sheet has a title. */
+const ROW_TITLES: Record<CreateRow, string> = {
+  "new-meeting": "Meeting",
+  "new-note": "Note",
+  "new-drawing": "Drawing",
+  "new-folder": "Folder",
+  "new-chat": "Chat",
+};
+
+const ROW_SUBS: Record<CreateRow, string> = {
+  "new-meeting": "Records into your inbox. It asks before it listens.",
+  "new-note": "A markdown file you can write in.",
+  "new-drawing": "An Excalidraw canvas. Opens in Obsidian too.",
+  "new-folder": "A place to file notes. Nest them as deep as you like.",
+  "new-chat": "Ask about this note, or your whole context.",
+};
 
 /** Ask for a name. Validated as you type, with the reason next to the field. */
 export function NamePrompt({
@@ -187,10 +247,10 @@ export function NamePrompt({
       />
       {problem ? <Text variant="error">{problem}</Text> : null}
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
         <Button
           label={confirmLabel}
-          variant="white"
+          variant="dialogPrimary"
           disabled={!ready}
           onPress={() => onConfirm(value.trim())}
         />
@@ -208,11 +268,26 @@ export function NamePrompt({
  * interaction that is worse on a phone anyway. A list is also the only version
  * that works with a keyboard.
  */
+/**
+ * A narrowing `typeof x === "object"` cannot do on its own.
+ *
+ * `typeof null` is `"object"`, so the obvious check reads `null` — this
+ * context, the case with no remote list at all — as a loaded one and asks it
+ * for `.folders`.
+ */
+function isFolderList(
+  value: { folders: readonly string[]; truncated: boolean } | "loading" | "failed" | null,
+): value is { folders: readonly string[]; truncated: boolean } {
+  return value !== null && typeof value === "object";
+}
+
 export function MovePicker({
   title,
   description,
   folders,
   currentFolder,
+  destinations = [],
+  loadDestinationFolders,
   onCancel,
   onConfirm,
 }: {
@@ -221,19 +296,105 @@ export function MovePicker({
   description?: string;
   folders: readonly string[];
   currentFolder: string;
+  /**
+   * Other contexts this can go to. Empty is the ordinary case — one context,
+   * or somebody who does not own this one — and the row of context buttons is
+   * then absent rather than a single disabled option.
+   */
+  destinations?: readonly MoveDestination[];
+  /** Fetches a destination's folders, once, when it is first chosen. */
+  loadDestinationFolders?: (contextId: string) => Promise<{
+    folders: readonly string[];
+    truncated: boolean;
+  }>;
   onCancel: () => void;
-  onConfirm: (folder: string) => void;
+  /** `contextId` is `null` for this context, which is the unchanged path. */
+  onConfirm: (folder: string, contextId: string | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<string | null>(null);
+  const [context, setContext] = useState<string | null>(null);
+  /**
+   * Folders per destination, kept after the first fetch.
+   *
+   * A walk of somebody else's bucket per press would make flipping between two
+   * contexts to compare them cost a credential open each way. The dialog is
+   * short-lived, so "until it closes" is the right lifetime and there is
+   * nothing to invalidate.
+   */
+  const [remote, setRemote] = useState<
+    Record<string, { folders: readonly string[]; truncated: boolean } | "loading" | "failed">
+  >({});
+
+  const pick = (contextId: string | null) => {
+    setContext(contextId);
+    // The chosen folder belongs to the context it was chosen in. Keeping it
+    // across a switch would arm "Move here" with a path the other context may
+    // not even have.
+    setChosen(null);
+    if (contextId === null || remote[contextId] !== undefined) return;
+    setRemote((current) => ({ ...current, [contextId]: "loading" }));
+    void loadDestinationFolders?.(contextId)
+      .then((answer) => setRemote((current) => ({ ...current, [contextId]: answer })))
+      .catch(() => setRemote((current) => ({ ...current, [contextId]: "failed" })));
+  };
+
+  // `null` for this context, `undefined` for one nothing has been asked about
+  // yet, and the three loaded states otherwise. Kept apart because "not asked"
+  // and "asked and empty" draw differently.
+  const loaded: { folders: readonly string[]; truncated: boolean } | "loading" | "failed" | null =
+    context === null ? null : (remote[context] ?? "loading");
+  const available =
+    context === null ? folders : isFolderList(loaded) ? loaded.folders : [];
+  const elsewhere = destinations.find((one) => one.id === context) ?? null;
 
   return (
     <Shell title={title} onClose={onCancel}>
       {description ? <Text variant="paneSub">{description}</Text> : null}
-      <Text variant="paneSub">Pick where it should live. Nothing is overwritten.</Text>
+      {destinations.length > 0 ? (
+        <View style={styles.pills}>
+          <Button
+            label="This context"
+            variant={context === null ? "dialogPrimary" : "dialog"}
+            onPress={() => pick(null)}
+          />
+          {destinations.map((destination) => (
+            <Button
+              key={destination.id}
+              label={destination.label}
+              variant={context === destination.id ? "dialogPrimary" : "dialog"}
+              onPress={() => pick(destination.id)}
+            />
+          ))}
+        </View>
+      ) : null}
+      <Text variant="paneSub">
+        {elsewhere === null
+          ? "Pick where it should live. Nothing is overwritten."
+          : /*
+              Three things a person cannot see from the folder list, said before
+              they press rather than discovered afterwards. Each is a real
+              property of a move across a tenancy boundary and none of them is
+              a defect: links live in the bucket they were written in, the
+              privacy manifest they land under is the other context's, and the
+              bytes cross a batch at a time.
+            */
+            `Moving into ${elsewhere.label}. Links to it are not rewritten, and nothing ` +
+            "becomes visible to anybody it was not already visible to — private stays " +
+            "private there. A large folder keeps going in the background."}
+      </Text>
+      {loaded === "loading" ? <Text variant="paneSub">Reading its folders…</Text> : null}
+      {loaded === "failed" ? (
+        <Text variant="error">That context&apos;s folders could not be read.</Text>
+      ) : null}
+      {isFolderList(loaded) && loaded.truncated ? (
+        <Text variant="paneSub">
+          Showing the first {loaded.folders.length} folders of that context.
+        </Text>
+      ) : null}
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-        {folders.map((folder) => {
-          const here = folder === currentFolder;
+        {available.map((folder) => {
+          const here = context === null && folder === currentFolder;
           return (
             <PressRow
               key={folder || "/"}
@@ -258,12 +419,14 @@ export function MovePicker({
         })}
       </ScrollView>
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
         <Button
-          label="Move here"
-          variant="white"
-          disabled={chosen === null || chosen === currentFolder}
-          onPress={() => onConfirm(chosen!)}
+          label={elsewhere === null ? "Move here" : `Move to ${elsewhere.label}`}
+          variant="dialogPrimary"
+          // Only "the folder it is already in" is refused, and only in this
+          // context: the same path in another one is a different place.
+          disabled={chosen === null || (context === null && chosen === currentFolder)}
+          onPress={() => onConfirm(chosen!, context)}
         />
       </View>
     </Shell>
@@ -289,81 +452,8 @@ export function Confirm({
     <Shell title={title} onClose={onCancel}>
       <Text variant="paneSub">{body}</Text>
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
-        <Button label={confirmLabel} variant="white" onPress={onConfirm} />
-      </View>
-    </Shell>
-  );
-}
-
-/**
- * Permanent deletion.
- *
- * Its own component, and it asks you to type the name.
- *
- * That is not friction for its own sake. Archive is reversible — it puts a note
- * in `4-archive/` with its original path intact. This one is not, by design:
- * leaving a hidden copy behind would make the sentence below a lie, in the one
- * product whose entire claim is that you know where your data is. So the
- * sentence is plain, the button is not the default, and you have to spell the
- * name out.
- *
- * The sentence itself lives in `paths.ts` as `describeDeleteForever`, next to
- * the note explaining what it may and may not claim. It has now been wrong in
- * both directions: it claimed "there is no copy kept anywhere" while `.history/`
- * snapshots meant there was, and later claimed deletion "cannot be undone" after
- * this product started telling people to enable versioning at their provider —
- * which is the one setting that makes the noncurrent version outlive the delete.
- * We cannot see that setting, so the sentence names the condition instead of
- * guessing which side of it somebody is on.
- */
-export function DeleteForever({
-  path,
-  isFolder,
-  onCancel,
-  onConfirm,
-}: {
-  path: string;
-  isFolder: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const [typed, setTyped] = useState("");
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const ready = typed.trim() === name;
-
-  return (
-    <Shell title="Delete permanently" onClose={onCancel}>
-      <Text variant="paneSub">{describeDeleteForever(path, isFolder)}</Text>
-      <View style={styles.hint}>
-        <Text variant="hint">
-          If you might want it back, archive it instead. Archiving moves it to{" "}
-          <Text variant="hint" style={styles.hintStrong}>
-            4-archive/
-          </Text>{" "}
-          and you can move it straight back.
-        </Text>
-      </View>
-      <Text variant="eyebrow">Type {name} to confirm</Text>
-      <TextInput
-        value={typed}
-        onChangeText={setTyped}
-        autoFocus
-        style={styles.input}
-        placeholder={name}
-        placeholderTextColor={colors.muted}
-        accessibilityLabel={`Type ${name} to confirm permanent deletion`}
-      />
-      <View style={styles.actions}>
-        <Button label="Cancel" variant="white" onPress={onCancel} />
-        <Button
-          label="Delete permanently"
-          variant="danger"
-          disabled={!ready}
-          onPress={onConfirm}
-        />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
+        <Button label={confirmLabel} variant="dialogPrimary" onPress={onConfirm} />
       </View>
     </Shell>
   );
@@ -391,7 +481,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   body: { marginTop: 12, gap: 12 },
   input: {
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: t.ui,
     color: colors.text,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -400,7 +490,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.lg,
     backgroundColor: colors.well,
   },
+  /**
+   * The action row, and the one rule about what goes in it: `dialog` for the
+   * quiet half, `dialogPrimary` for the default action, and nothing else.
+   *
+   * Every row here used to be `mini` beside `white` — the landing page's hero
+   * CTA — so the confirm was drawn with over twice Cancel's padding in both
+   * axes. `dialogActionSize.test.ts` measures all three dialogs rather than
+   * the one that got noticed.
+   */
   actions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  /**
+   * The row of contexts a move can go to.
+   *
+   * Wraps rather than scrolls: somebody with six contexts should see all six
+   * at once — a destination you have to scroll to find is one you pick the
+   * wrong one of.
+   */
+  pills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   /**
    * The two rows of the create chooser.
    *

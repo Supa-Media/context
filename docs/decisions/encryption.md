@@ -124,6 +124,10 @@ So the words are fixed here and are a decision, not copy:
 - The second list becomes available exactly when the passphrase recipient ships
   and the note carries **only** a passphrase recipient — not before, and per
   note, not per product.
+- The console shows a rough offline crack-time estimate beside the passphrase
+  field, using an explicit Argon2id guess-rate assumption, and warns that
+  common or patterned phrases may be much faster. It is an order-of-magnitude
+  guide, not a promise.
 
 **That has now happened, for one of the two modes.** A note locked with a
 passphrase carries no workspace recipient, so for *that note* every sentence in
@@ -286,7 +290,7 @@ considered and each breaks something the product promises:
 - A **suffix** changes the key, which breaks every wikilink pointing at the
   note, every exact-note override in `privacy.md`, every link somebody has in a
   message, and the Obsidian vault the customer syncs. Non-negotiable 2 says a
-  brain connects and works unchanged; renaming a file on encryption is a
+  workspace connects and works unchanged; renaming a file on encryption is a
   migration.
 - A **sidecar** (`foo.md` plus `.keys/foo.json`) splits one note into two
   objects that can be moved, copied, restored, or version-rolled apart, and the
@@ -695,7 +699,7 @@ which is which is a decision.**
 
   **The per-call budget counts object reads, not notes re-wrapped.** Counting
   what a call *moves* lets it read whatever it passes over for free, and a
-  bucket whose notes are mostly not encrypted — a brain with encryption on for
+  bucket whose notes are mostly not encrypted — a workspace with encryption on for
   one folder, which is the ordinary shape, not a corner case — is exactly that
   bucket. Measured on the first version of this change: 4,002 reads in a
   single call over a 4,000-note bucket with 200 encrypted notes, and 10,002
@@ -1108,13 +1112,22 @@ Five consequences, each a decision:
 - **It is offered when encryption is first turned on, not only at the exit.**
   A customer who revokes our credential having never exported has ciphertext
   they cannot open. The same reasoning puts the bucket-versioning advice in the
-  setup guide rather than in the delete dialog. **Not yet wired into the
-  console's own settings screen** — `exportEncryptionKeys` in
-  `apps/convex/functions/encryptionKeys.ts` is built, tested, and owner-gated,
-  but the button that calls it from `SettingsPane.tsx` is deliberately left for
-  a follow-up pass: the console's action-wiring (`ConsoleData` /
-  `StorageActions`) reaches further than this change's tested surface, and a
-  rushed UI change to it is a worse trade than a documented gap.
+  setup guide rather than in the delete dialog. **Wired into the console's own
+  settings screen, in Advanced.** `exportEncryptionKeys` in
+  `apps/convex/functions/encryptionKeys.ts` is called from
+  `apps/mobile/features/console/advanced/useAdvanced.ts`, which builds the
+  versioned document above (`buildKeyExportDocument` in `advanced.ts`, kept in
+  lockstep with `renderKeyExport` by the same field names and the same
+  `apps/mcp/src/encryption.js` shape) and hands it to
+  `settings/panels/AdvancedPanel.tsx`. The console's version of the two-surface
+  argument below: owner-only, two presses before anything leaves the screen
+  (`useArming`, the same control `Disconnect` uses), and a Copy button rather
+  than a file download — React Native has no cross-platform "save a file"
+  primitive, and the JSON is short enough that a clipboard round-trip loses
+  nothing a download would have kept. `ConsoleData.advanced.keyExport` is the
+  whole property, absent — not disabled — for anyone who is not this context's
+  owner and in the read-only landing-page demo, the same rule `StorageActions`
+  states throughout the console.
 
 **The console's export reaches the same barrier the gateway's does, and
 neither is a second cryptosystem.** `exportWorkspaceDataKeys` — a
@@ -1291,9 +1304,12 @@ iOS and Android, which is Hermes.
 - **Hermes has no Web Crypto at all.** Not AES-GCM, not PBKDF2, not
   `getRandomValues` without a polyfill. `expo-crypto` — which this app already
   depends on — provides digests and random bytes, and no cipher and no KDF.
-  `react-native-quick-crypto` would provide both and is a **native module**: it
-  cannot arrive in an over-the-air update, which is how this app ships, so
-  adding it changes the release model rather than a dependency list.
+  iOS builds made after this decision include a small local Expo module:
+  CryptoKit supplies AES-256-GCM and secure random bytes, while the pinned
+  Argon2 reference C implementation supplies Argon2id. The capability cannot
+  arrive in an over-the-air update, so the JavaScript uses an optional native
+  lookup and old binaries continue to refuse honestly rather than crash or
+  silently choose different cryptography.
 - **WebAssembly is available in the browser and in Electron, and not in
   Hermes.** So a WASM Argon2id is a two-platform answer wearing a three-platform
   coat.
@@ -1317,10 +1333,22 @@ be slower still.
 1. **Web and the desktop shell: Argon2id, in plain JavaScript, at 19 MiB, t=2,
    p=1.** OWASP's minimum for Argon2id, about a second per unlock, no new
    dependency anywhere.
-2. **iOS and Android: unlocking is refused, by name, with somewhere to go.**
-   "Locked notes open on a computer." Never a quieter, weaker KDF: a note that
-   silently became a PBKDF2 note on a phone would be weaker than the note the
-   person was shown, and they would have no way to find out.
+2. **iOS: the same protocol through native primitives; Android and old iOS
+   binaries: refused by name, with somewhere to go.** The iOS module vendors
+   `P-H-C/phc-winner-argon2` release `20190702` (commit
+   `62358ba2123abd17fccf2a108a301d4b52c01a7c`, CC0/Apache-2.0) and uses Apple
+   CryptoKit for AES-256-GCM. It consumes the recipient's existing KDF
+   descriptor (`v`, `m`, `t`, `p`, `salt`), NFC-normalises the passphrase, and
+   returns the same 32 bytes as the browser and standalone decryptor. It
+   changes no envelope byte and requests no permission. Mutable native and
+   JavaScript byte buffers are cleared on both
+   success and failure paths once ownership ends, but that is lifetime hygiene,
+   not a zeroization guarantee: JavaScript and Swift strings are immutable,
+   bridge serialization creates copies the app cannot erase, and CryptoKit may
+   keep internal copies for an operation. The implementation does not
+   intentionally persist or log those values. Never a quieter, weaker KDF:
+   where the module is absent, the UI says this build
+   cannot open the note and points to an update or a computer.
 3. **The recipient carries `{id, v, m, t, p, salt}`**, so every one of these
    numbers is a parameter rather than a build constant, and a decryptor five
    years from now derives the same key without knowing what this build's
@@ -1379,8 +1407,13 @@ the two inputs this product never uses; RFC 7693's vectors for the BLAKE2b
 underneath; a pinned passphrase deriving a pinned key that opens a pinned note,
 with the two halves asserted in the two suites that run them; a KDF id or an
 argon2 version this build does not implement refused rather than substituted;
-and `kdfSupport` refusing on a runtime without Web Crypto rather than answering
-with a weaker lock.
+the vendored iOS C source independently deriving that same pinned key; a Swift
+executable calling the exact CryptoKit/Argon2 core behind the Expo bridge and
+pinning NFC normalization, fixed AES key/nonce/AAD/plaintext bytes,
+`ciphertext || tag`, decryption, tamper rejection and wrong-key rejection; a
+SHA-256 manifest covering every vendored source file; `kdfSupport` accepting
+Hermes only when the optional module is present; and an old binary refusing
+rather than answering with a weaker lock.
 
 ---
 
@@ -1398,6 +1431,13 @@ the console, with the same numbers: 8 KiB to 2 GiB of memory, 1 to 16 passes, 1
 to 16 lanes, an 8- to 64-byte salt, and Argon2's own floor of 8 KiB per lane.
 The ceilings are far above anything shipped so that raising the parameters later
 is a parameter change and not a format change.
+
+The iOS bridge applies a second, device-local ceiling of **64 MiB** before the
+native call, and the Swift core repeats it defensively. This is not an envelope
+format limit: a larger valid descriptor remains openable by desktop and the
+standalone decryptor. It is an honest mobile resource refusal that prevents an
+untrusted bucket object from asking iOS to reserve anything near the format's
+2 GiB interoperability ceiling.
 
 **A note whose envelope fails these bounds stays an encrypted note.** It is
 refused at parse, it is still recognised by the marker, nothing indexes it, and
@@ -1457,16 +1497,18 @@ Convex function has been allowed to hand a credential's plaintext back to its
 own caller on purpose, because this is the one case in the whole system where
 that is the point rather than a bug.
 
-**Does not build:** the console button that calls `exportEncryptionKeys` —
-the action is built, owner-gated, rate-limited and audited, but nothing in
-`apps/mobile` references it, so **the console cannot export a key at all**;
-and any operator tool to purge a retired generation, which is deliberately a
-manual, documented decision rather than code, at least until an owner using
-this in anger asks for one.
+**Does not build:** any operator tool to purge a retired generation, which is
+deliberately a manual, documented decision rather than code, at least until an
+owner using this in anger asks for one. The console button that calls
+`exportEncryptionKeys` **was** on this list — the action shipped built,
+owner-gated, rate-limited and audited, with nothing in `apps/mobile`
+referencing it — until `apps/mobile/features/console/advanced/` wired it into
+the Advanced settings section; see "Revocation and export" above for what that
+wiring is.
 
 **A persisted rotation-walk cursor was added after this shipped, once a
 measured ceiling made the trade this section originally accepted the wrong
-one for a workspace larger than a personal brain.** The walk's own progress —
+one for a workspace larger than one person's own.** The walk's own progress —
 a cursor, a small stuck-note list, nothing that opens a note — now lives at
 `.context/rotation-progress.json` in the customer's own bucket, bounding
 every call, including the one that completes the rotation, to about the batch
@@ -1475,11 +1517,13 @@ design and its measured before/after table; `startWorkspaceKeyRotation` and
 `completeWorkspaceKeyRotation` are unchanged — the control plane still tracks
 only whether a walk may *start*, never how far it has gotten.
 
-**So what can somebody actually reach on the day this merges?** The two MCP
+**So what could somebody actually reach on the day this merged?** The two MCP
 tools, on an owner-tier personal connection, from any client they have
-connected — that is the whole of it, and it is enough for the non-negotiable:
-an owner can ask their assistant to export their keys and get the bundle back
-in the response. The console is not a second door yet, it is no door.
+connected — that was the whole of it, and it was enough for the
+non-negotiable: an owner could ask their assistant to export their keys and
+get the bundle back in the response. The console was not a second door yet, it
+was no door — until `apps/mobile/features/console/advanced/` opened one; see
+"Revocation and export" above.
 
 **And the decryptor is reachable by `git clone`, not by `npx`, until somebody
 dispatches `publish-decryptor.yml`.** The package's README used to open with
@@ -1498,3 +1542,12 @@ Supa Media, and therefore invisible to every AI client the customer has
 connected?** That is the difference between "encrypted at rest" and what the
 product note asked for, it is the whole of Phase 2's scope, and it is a product
 call about which failure mode the customer prefers, not an engineering one.
+
+### Additional owner decisions (2026-09-08)
+
+- There are no legacy workspace-key notes requiring migration. Do not invent a
+  migration or deletion exception for that nonexistent format.
+- Passphrase-protected notes are treated the same as other notes in exports;
+  their ciphertext is exported without a special case.
+- Export remains owner-only. Sharing a note or its passphrase does not grant
+  export authority.

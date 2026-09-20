@@ -1,7 +1,9 @@
 import { useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SearchPane } from "../../../features/console/search/SearchPane";
-import { searchFromQuery, searchHref } from "../../../features/console/nav";
+import { CONSOLE_ROOT, searchFromQuery, searchHref } from "../../../features/console/nav";
+import { useConsoleData } from "../../../features/console/ConsoleDataContext";
+import { useBlendedDeviceSearch } from "../../../features/offline/useDeviceSearch";
 
 /**
  * `/console/search?q=review%20cycle&in=seyi,lk` — one search, every context.
@@ -34,6 +36,16 @@ export default function SearchRoute() {
     [router, query],
   );
   const onOpen = useCallback((href: string) => router.push(href), [router]);
+  // The way out, and deliberately not `router.back()` — see `SearchPane`'s
+  // `onClose` for why, and for why the page needs one drawn at all.
+  const onClose = useCallback(() => router.replace(CONSOLE_ROOT), [router]);
+  // The copies on this device, for a search with no connection. The console's
+  // own context list, because the page's subscription is empty offline.
+  const data = useConsoleData();
+  const device = useBlendedDeviceSearch(
+    data.contexts,
+    data.files.sync?.reachability ?? "unknown",
+  );
 
   return (
     <SearchPane
@@ -42,6 +54,8 @@ export default function SearchRoute() {
       onQuery={onQuery}
       onScope={onScope}
       onOpen={onOpen}
+      onClose={onClose}
+      device={device}
     />
   );
 }

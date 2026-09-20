@@ -7,8 +7,6 @@ import { useThemedStyles } from "../design/theme";
 import { ScreenScroll } from "../app/Screen";
 import { canReload, reloadApp } from "../app/reload";
 import { NavBand } from "./NavBand";
-import { TabStrip } from "./files/TabStrip";
-import type { useTabs } from "./files/useTabs";
 import type { ConsoleData } from "./types";
 
 /**
@@ -27,17 +25,11 @@ import type { ConsoleData } from "./types";
 export function EditorRegion({
   browse,
   failure,
-  tabs,
-  onCloseTab,
   phone,
   children,
 }: {
   browse: boolean;
   failure: ConsoleData["failure"];
-  /** Absent on a route with no notes open, and on every non-Browse pane. */
-  tabs: ReturnType<typeof useTabs> | null;
-  /** Closes a tab, asking first when it holds an unsaved draft. */
-  onCloseTab: (path: string) => void;
   /** Compact. Decides the document panes' measure, not which regions exist. */
   phone: boolean;
   children: ReactNode;
@@ -69,19 +61,18 @@ export function EditorRegion({
     return (
       <View style={styles.browseRegion}>
         {/*
-          At the very top edge of the region, not inside the document's
-          padding: an inset tab strip reads as a control belonging to the note
-          rather than to the frame.
+          **The tab strip is not here any more.** It was at the very top edge
+          of this region, on the argument that an inset strip reads as a
+          control belonging to the note rather than to the frame — and the
+          strip was never inset, so what it actually read as was a third
+          horizontal band between the title bar and the note.
+
+          It is `AppFrame`'s `tabs` slot now, hanging from the foot of the
+          title bar, where the active tab is filled in the page's own surface
+          and meets the page across the boundary between two surfaces. That
+          effect is the reason it had to move: a strip drawn *on* the page has
+          no boundary to meet. See the prop.
         */}
-        {tabs !== null && tabs.state.tabs.length > 0 ? (
-          <TabStrip
-            state={tabs.state}
-            onActivate={tabs.activate}
-            onClose={onCloseTab}
-            onCloseOthers={tabs.closeOthers}
-            onReopen={tabs.reopen}
-          />
-        ) : null}
         {banner === null ? null : <View style={styles.bannerInset}>{banner}</View>}
         {children}
       </View>

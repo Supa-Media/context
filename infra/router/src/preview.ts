@@ -181,10 +181,22 @@ export function previewFor(pathname: string): PreviewMeta {
 /**
  * Escape text for interpolation into an HTML attribute or text node.
  *
- * Every string this file feeds the template is already a literal from the
- * table above, so there is nothing here for an attacker to reach. It is
- * applied anyway, and tested, because "the inputs are all constants" is a
- * property of today's code that a future edit could quietly drop.
+ * **This is a first line of defence, not a second.** The comment here used to
+ * say every string reaching the template was a literal from the frozen table
+ * above — true when it was written, and not true since share cards started
+ * carrying titles. `previewForNote` and `previewForShare` take a note title,
+ * and `previewFromProfile` takes a display name: customer-authored text,
+ * bounded by `boundTitle` for length and *cleaned of format characters*, but
+ * never cleaned of markup. Every one of them lands in a double-quoted
+ * `content="…"`, so the `&quot;` below is the whole of what keeps a title from
+ * closing the attribute and opening a tag.
+ *
+ * `boundTitle` states the rule this belongs to, one screen down: "an edge that
+ * trusts its upstream to have been careful is an edge with no bound at all."
+ * Escaping is the same rule applied to shape rather than to length.
+ *
+ * `&` is replaced first on purpose; doing it last would double-escape the
+ * entities the other four produce.
  */
 export function escapeHtml(value: string): string {
   return value
@@ -386,12 +398,12 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // only ever a proxy for it: a folder was refused because `/@name/1-projects`
   // is five guesses per handle, not because it is a folder.
   //
-  // So the names the PRODUCT picks are named. That is more than a fresh brain's
+  // So the names the PRODUCT picks are named. That is more than a fresh workspace's
   // scaffold: `scaffoldFiles` lays down `index.md`, `privacy.md` and a
   // `README.md` per PARA folder and the house rules add a root `todo.md`, but
   // the gateway also creates folders AFTER creation — where `save_context`
   // files a session, and where `writeInboxCapture` files a capture under the
-  // sender's own slug, three of which are ours. Everything else in a brain is a
+  // sender's own slug, three of which are ours. Everything else in a workspace is a
   // name its owner chose, and `1-projects/chapter-transition` is exactly as
   // unguessable as `1-projects/chapter-transition/overview.md`.
   //
@@ -408,7 +420,7 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
 }
 
 /**
- * Every note path this product writes into a brain before its owner does.
+ * Every note path this product writes into a workspace before its owner does.
  *
  * `apps/convex/functions/lib/scaffold.ts` is the source of truth, and exports
  * the list itself as `PRODUCT_MANDATED_PATHS` — `INDEX_KEY`, `PRIVACY_KEY`,
@@ -428,10 +440,13 @@ const PRODUCT_MANDATED_PATHS = new Set([
   "privacy.md",
   "todo.md",
   // Where `save_context` files a session. `defaultSessionFolder` in the gateway
-  // picks `4-archive/chat-history` when the manifest declares a `4-archive`
-  // rule and `0-inbox/sessions` otherwise, so a brain whose owner has run the
-  // hook once has one of them — two guesses per handle on names nobody chose.
+  // picks `<archive>/chat-history` when the manifest declares an archive folder
+  // and `0-inbox/sessions` otherwise, so a workspace whose owner has run the
+  // hook once has one of them — a guess per handle on names nobody chose.
+  // One entry per archive root THIS PRODUCT ships: the PARA scaffold's and the
+  // presets'. An archive a customer named is theirs and is not on this list.
   "4-archive/chat-history",
+  "5-archive/chat-history",
   "0-inbox/sessions",
   // Capture folders the gateway derives from a capture's `source`.
   // `writeInboxCapture` files an `external_id` capture under
@@ -503,6 +518,77 @@ function boundTitle(title: string | null | undefined): string | null {
   if (typeof title !== "string") return null;
   const clean = title.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
   return clean === "" ? null : clean.slice(0, 60);
+}
+
+/**
+ * A short link: `/@seyi/intake`.
+ *
+ * Returns the handle and the name, or `null` when the URL is not one.
+ * Shape-checked here, before anything is fetched, exactly as `shareTokenFrom`
+ * and `consoleNoteFrom` are: a segment that could never have been claimed
+ * never becomes an upstream request, so hammering `/@name/<junk>` costs a
+ * regex rather than a round trip.
+ *
+ * ## Why this may unfurl, when `/@seyi` may not
+ *
+ * The hinge `consoleNoteFrom` turns on, applied to a second address: the probe
+ * space is names the **owner** chose. There is no list of likely slugs,
+ * because a slug exists only where somebody typed one, and the control plane
+ * refuses every name this product writes — so the guessable ones cannot be
+ * claimed at all. `/@seyi` itself is unchanged and still gets the frozen card:
+ * a handle is guessable *and* unbounded, which is the combination the byte-
+ * identity rule exists for.
+ *
+ * ## The shape is the control plane's, restated
+ *
+ * Lowercase Latin alphanumerics and hyphens, 1–48, no leading or trailing
+ * hyphen. Duplicated because this package cannot import from `apps/convex`,
+ * and held to it the way `shareSegment` is held: both run
+ * `shortLinkSlug.fixtures.json`, so the two copies are compared against the
+ * same corpus rather than against a comment saying they agree.
+ *
+ * Reserved words parse here and resolve to nothing upstream, deliberately: a
+ * second list in this file would be a second place for the two to disagree.
+ */
+export function shortLinkFrom(url: URL): { handle: string; slug: string } | null {
+  const segments = normalisePath(url.pathname).split("/").filter(Boolean);
+  if (segments.length !== 2) return null;
+
+  const first = decodeSafely(segments[0]);
+  if (!first.startsWith("@")) return null;
+  const handle = first.slice(1);
+  // The same shape a name claim can have. Anything else never existed.
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(handle)) return null;
+
+  const slug = decodeSafely(segments[1]);
+  if (!SHORT_LINK_SLUG.test(slug)) return null;
+
+  return { handle, slug };
+}
+
+/** The control plane's `SHORT_LINK_SLUG_RE`, restated. See `shortLinkFrom`. */
+const SHORT_LINK_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
+
+/**
+ * The card a short link unfurls with.
+ *
+ * The note's own name and nothing else. **No image**, and that absence is the
+ * design rather than an omission: the card image is addressed by share token,
+ * and a short link may sit over an `anyone` share where the token *is* the
+ * authorization — so a per-share card here would mean handing the capability
+ * to whoever guessed the name. The product's own image is what a short link
+ * gets, and `/share/short` upstream returns no token to make any other choice
+ * possible from here.
+ */
+export function previewForShortLink(title: string | null | undefined): PreviewMeta {
+  const bounded = boundTitle(title);
+  if (bounded === null) return GENERIC_PREVIEW;
+  return {
+    ...GENERIC_PREVIEW,
+    title: `${bounded} — Context`,
+    description:
+      "Shared with you on Context — plain markdown in a bucket its owner controls.",
+  };
 }
 
 /**

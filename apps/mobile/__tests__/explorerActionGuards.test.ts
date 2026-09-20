@@ -290,7 +290,21 @@ interface Calls {
  * and the security regression test it backed would have passed for the wrong
  * reason.
  */
-function browser(canEdit: boolean, calls: Calls): FileBrowser {
+function browser(
+  canEdit: boolean,
+  calls: Calls,
+  /**
+   * What the browser says about moving into another context.
+   *
+   * Absent is the ordinary console: one context, or somebody who does not own
+   * this one — `useFileBrowser` empties the list in both cases, which is what
+   * the dialog reads to decide whether the row of contexts exists at all.
+   */
+  elsewhere: {
+    moveDestinations?: FileBrowser["moveDestinations"];
+    destinationFolders?: FileBrowser["destinationFolders"];
+  } = {},
+): FileBrowser {
   const record =
     (name: string) =>
     (...args: unknown[]) => {
@@ -298,6 +312,10 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     };
   return {
     canEdit,
+    submitForm: async () => ({ ok: true, message: "Sent." }),
+    loadImage: async () => null,
+    say: () => {},
+    storeImage: async () => ({ error: "no" }),
     contextId: "w1",
     loading: false,
     busy: false,
@@ -310,6 +328,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.
     select: () => true,
+    navigations: 0,
     deselect: () => true,
     search: async () => ({
       hits: [],
@@ -321,7 +340,11 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
+    onExternalWrite: noop,
+    onSaved: () => () => {},
     flushAutosave: () => false,
+    discardLocalCopies: record("discardLocalCopies"),
+    encryptedElsewhere: record("encryptedElsewhere"),
     useTheirs: noop,
     keepMine: noop,
     conflict: null,
@@ -337,13 +360,23 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     paste: record("paste"),
     copyTo: record("copyTo"),
     createNote: record("createNote"),
+    createDrawing: record("createDrawing"),
     createFolder: record("createFolder"),
+    createUntitled: record("createUntitled"),
     rename: record("rename"),
     move: record("move"),
+    moveDestinations: elsewhere.moveDestinations ?? [],
+    destinationFolders:
+      elsewhere.destinationFolders ?? (async () => ({ folders: [], truncated: false })),
+    moveToContext: record("moveToContext"),
+    contextMoves: [],
+    resumeContextMove: noop,
+    dismissContextMove: noop,
     duplicate: record("duplicate"),
     archive: record("archive"),
     destroy: record("destroy"),
     setVisibility: record("setVisibility"),
+    shareWithGroup: () => {},
     setScope: record("setScope"),
     openLinkPaths: new Set<string>(),
     linkPaths: [],
@@ -362,6 +395,8 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     // assertion unable to observe the very call it names.
     share: record("share"),
     revokeShare: record("revokeShare"),
+    setShareSlug: async () => true,
+    setShareCollecting: async () => true,
     setSharePreviewTitle: record("setSharePreviewTitle"),
     // `#137`'s addition. Recorded like its neighbours rather than left a
     // no-op, and it has to keep returning a promise to satisfy the contract.
@@ -582,6 +617,15 @@ describe("a console that cannot edit cannot start the gestures that write", () =
     expect(newNote(reader.container)).toBeNull();
     expect(newFolder(reader.container)).toBeNull();
   });
+
+  test("Move to trash acts immediately without opening a confirmation dialog", () => {
+    const editor = mount(true);
+    openRowMenu(editor.container, "note.md");
+    pressMenuItem("Move to trash");
+
+    expect(editor.calls.entries).toContainEqual({ name: "destroy", args: ["note.md"] });
+    expect(document.body.textContent).not.toContain("Type note.md to confirm");
+  });
 });
 
 /**
@@ -728,6 +772,44 @@ describe("what may be dragged, and what may be dropped on", () => {
 });
 
 /**
+ * The storage-layout update is **not** one of this toolbar's controls.
+ *
+ * It was, and the owner flagged it: a gear beside New note, New folder, Sort
+ * A-Z and Collapse every folder, for an operation that reorganizes Context's
+ * own hidden objects under `.context/` once, ever, and changes not one note.
+ * Permanent top-level chrome for one-time internal maintenance.
+ *
+ * Its guard did not go with it. `storageMigrationEntry.test.ts` holds the two
+ * surfaces that do offer it — Settings → Storage, and a dismissible notice in
+ * the console — in both states of the same owner-only `updateStorageLayout`.
+ * What is left here is the half that belongs to this component: an owner with
+ * the capability is offered it *nowhere in this toolbar*, so it cannot creep
+ * back by being handed an icon again.
+ */
+describe("the storage migration control is not toolbar chrome", () => {
+  test("an owner who may run it is offered no toolbar button for it", () => {
+    const explorer = mountSwitchable();
+    explorer.render("@owner", explorer.calls, {
+      updateStorageLayout: () =>
+        explorer.calls.entries.push({ name: "updateStorageLayout", args: [] }),
+    });
+
+    expect(
+      explorer.container.querySelector('[data-testid="explorer-storage-migration"]'),
+    ).toBeNull();
+    // The positive control, in the same assertion: this *is* an owner's
+    // toolbar, drawn, with the four controls that belong in it. Without this
+    // the test above passes on an explorer that rendered nothing at all.
+    for (const control of ["new-note", "new-folder", "sort", "collapse"]) {
+      expect(
+        explorer.container.querySelector(`[data-testid="explorer-${control}"]`),
+      ).not.toBeNull();
+    }
+    expect(explorer.calls.entries).toEqual([]);
+  });
+});
+
+/**
  * `ExplorerDialogs` mounted on its own.
  *
  * It is exported from the same module and takes no frame context, so it needs
@@ -735,7 +817,13 @@ describe("what may be dragged, and what may be dropped on", () => {
  * safe-area insets on the web build, so it needs `METRICS` for the reason given
  * there.
  */
-function mountMoveDialog(path: string): { container: HTMLElement; calls: Calls } {
+function mountMoveDialog(
+  path: string,
+  elsewhere: {
+    moveDestinations?: FileBrowser["moveDestinations"];
+    destinationFolders?: FileBrowser["destinationFolders"];
+  } = {},
+): { container: HTMLElement; calls: Calls } {
   const calls: Calls = { entries: [], props: [] };
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -750,7 +838,7 @@ function mountMoveDialog(path: string): { container: HTMLElement; calls: Calls }
         SafeAreaProvider,
         { initialMetrics: METRICS },
         createElement(ExplorerDialogs, {
-          files: browser(true, calls),
+          files: browser(true, calls, elsewhere),
           dialog: { kind: "move", path },
           onClose: noop,
         }),
@@ -771,7 +859,7 @@ const ROOT_LABEL = "the root of your context";
  * is drawn from — which makes the filter below complete by construction. The
  * first version matched `/^[0-9]-/` instead and would have silently dropped a
  * leaked `Journal/` or `Clients/`, the folder names `CLAUDE.md`'s
- * `resetPrivacyManifest` decision exists because real brains actually have.
+ * `resetPrivacyManifest` decision exists because real workspaces actually have.
  */
 const EVERY_FOLDER = new Set(
   [ROOT_LISTING, PROJECTS_LISTING].flatMap((listing) =>
@@ -786,10 +874,15 @@ function offeredFolders(): string[] {
     .filter((label) => label === ROOT_LABEL || EVERY_FOLDER.has(label));
 }
 
-function press(label: string): void {
-  const node = [...document.body.querySelectorAll("[aria-label]")].find(
+/** The one node carrying this accessibility label, or `undefined`. */
+function labelled(label: string): Element | undefined {
+  return [...document.body.querySelectorAll("[aria-label]")].find(
     (candidate) => candidate.getAttribute("aria-label") === label,
   );
+}
+
+function press(label: string): void {
+  const node = labelled(label);
   expect(node).toBeDefined();
   act(() => {
     for (const type of ["mousedown", "mouseup", "click"]) {
@@ -797,6 +890,113 @@ function press(label: string): void {
     }
   });
 }
+
+/**
+ * MOVING INTO ANOTHER CONTEXT, FROM THE SAME DIALOG.
+ *
+ * One dialog rather than two, because it is one question — "where should this
+ * live?" — and the only new part of the answer is which context. What has to
+ * be true of it:
+ *
+ *  - **The row of contexts exists only where the browser offers one.** That
+ *    list is already gated on owning the context this is leaving (the server's
+ *    own rule, in `functions/contextMoves.ts`), and a dialog that drew the row
+ *    from anything else would be offering a destination every press of which
+ *    is refused.
+ *  - **`moveToContext`, never `move`.** They are different server actions with
+ *    different guarantees — one rewrites links and one cannot — and the dialog
+ *    is the thing that decides which. Confusing them would send a
+ *    cross-context move through an action that cannot cross.
+ *  - **A folder chosen in one context does not survive a switch to another.**
+ *    Two contexts can both have `work/`, so a stale selection is not an
+ *    invalid press that fails — it is a valid press that lands somewhere
+ *    nobody chose.
+ */
+describe("the move dialog's other contexts", () => {
+  const WORK = { id: "w-work", label: "@work", displayName: "Work" };
+
+  /** Flush the promise `destinationFolders` resolves with. */
+  async function settle(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  test("no contexts to move into means no row of contexts", () => {
+    mountMoveDialog("note.md");
+    expect(labelled("This context")).toBeUndefined();
+    expect(labelled("@work")).toBeUndefined();
+  });
+
+  test("choosing one lists its folders and moves into it", async () => {
+    const dialog = mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => ({ folders: ["archive", "clients"], truncated: false }),
+    });
+
+    press("@work");
+    await settle();
+
+    // Its folders, not this context's: `1-projects` and `2-areas` are here and
+    // must not be offered as somewhere in @work.
+    expect(labelled("clients")).toBeDefined();
+    expect(labelled("1-projects")).toBeUndefined();
+
+    press("clients");
+    press("Move to @work");
+    expect(dialog.calls.entries).toEqual([
+      { name: "moveToContext", args: ["note.md", "w-work", "clients"] },
+    ]);
+  });
+
+  test("switching back drops the folder that was chosen over there", async () => {
+    const dialog = mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => ({ folders: ["clients"], truncated: false }),
+    });
+
+    press("@work");
+    await settle();
+    press("clients");
+    press("This context");
+
+    // Nothing is armed: the button that would confirm is the local one again,
+    // and it has nothing selected to confirm.
+    press("Move here");
+    expect(dialog.calls.entries).toEqual([]);
+  });
+
+  test("a truncated list says so rather than reading as the whole context", async () => {
+    mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => ({ folders: ["clients"], truncated: true }),
+    });
+
+    press("@work");
+    await settle();
+
+    expect(document.body.textContent).toContain("Showing the first 1 folders");
+  });
+
+  test("a context whose folders cannot be read says so and offers nothing", async () => {
+    const dialog = mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => {
+        throw new Error("nope");
+      },
+    });
+
+    press("@work");
+    await settle();
+
+    expect(document.body.textContent).toContain("could not be read");
+    // And no destination is offered, so there is nothing to press through to a
+    // move that would have been refused anyway.
+    expect(labelled("clients")).toBeUndefined();
+    expect(dialog.calls.entries).toEqual([]);
+  });
+});
 
 describe("the move dialog does not offer a folder itself or its own descendants", () => {
   test("a folder is offered every destination but itself and below it", () => {

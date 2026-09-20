@@ -505,7 +505,7 @@ export function renderChannelDayNote(day) {
  *
  * @param {{channel: string, account?: string, address?: string, date: string,
  *          events: object[], nonce: string, now?: string, origin?: string}} day
- * @param {{root?: string, threshold?: number}} [options]
+ * @param {{root?: string, folder?: string, threshold?: number}} [options]
  * @returns {import("./protocol.js").ChannelDayPart[]}
  */
 export function planChannelDay(day, options = {}) {

@@ -6,6 +6,7 @@
 import {
   applyIncremental,
   horizonDates,
+  mergeEventCaches,
   planSyncRequest,
   projectDay,
   pruneCacheToWindow,
@@ -145,6 +146,42 @@ export function runCalendarSyncChecks(check) {
   check(
     "...and the first workspace's own update landed only in the cache it returned",
     projectDay(workspaceAAfter, "2026-09-07")[0]?.title === "Renamed" && projectDay(workspaceACache, "2026-09-07")[0]?.title === "Standup"
+  );
+
+  // -- shared daily notes: aggregate active account contributions ----------
+  const accountACache = rebuildCache([event({ account: "a@example.com", eventId: "a-1", title: "A standup" })], "UTC");
+  const accountBCache = rebuildCache([event({ account: "b@example.com", eventId: "b-1", title: "B review" })], "UTC");
+  const combined = mergeEventCaches([accountACache, accountBCache]);
+  check(
+    "two account caches contribute to the same shared calendar day",
+    projectDay(combined, "2026-09-07").map(({ title }) => title).sort().join("|") === "A standup|B review"
+  );
+
+  const { cache: updatedAccountA } = applyIncremental(
+    accountACache,
+    [event({ account: "a@example.com", eventId: "a-1", title: "A standup (updated)" })],
+    "UTC"
+  );
+  const combinedAfterAUpdate = mergeEventCaches([updatedAccountA, accountBCache]);
+  check(
+    "updating one account contribution cannot erase another account's event",
+    projectDay(combinedAfterAUpdate, "2026-09-07").map(({ title }) => title).sort().join("|") === "A standup (updated)|B review"
+  );
+  check(
+    "removing an inactive account contribution removes only that account's events",
+    projectDay(mergeEventCaches([accountBCache]), "2026-09-07").map(({ title }) => title).join("|") === "B review"
+  );
+  check("merging never mutates an account-owned cache", accountACache.size === 1 && accountBCache.size === 1);
+  check(
+    "a duplicate account contribution is rejected instead of silently choosing a winner",
+    (() => {
+      try {
+        mergeEventCaches([accountACache, accountACache]);
+        return false;
+      } catch (error) {
+        return error instanceof TypeError && /duplicate calendar cache key/.test(error.message);
+      }
+    })()
   );
 
   // -- sabotage record — measured, not assumed --------------------------

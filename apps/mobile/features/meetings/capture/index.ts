@@ -56,8 +56,9 @@ import { audioRecorder, resolveRecorder } from "./audio";
  *    imported because it is in `native-deps.json` `core`; the audio session
  *    (including the `mixWithOthers` line that keeps a Zoom call's microphone,
  *    on iOS and Android alike), rotation, the interruption handling, and the
- *    one field (`allowsBackgroundRecording`) that is Android's own switch for
- *    the foreground service `expo-audio`'s native module already bundles.
+ *    shared `allowsBackgroundRecording` switch that keeps iOS capture alive in
+ *    the background and starts the foreground service bundled by `expo-audio`
+ *    on Android.
  *  - `./audio.web.ts` — the browser. Metro resolves it for the web build, which
  *    is why nothing above this file branches on a platform.
  *  - `./segments.ts` — the wall clock and the chunk-id scheme both halves share.
@@ -94,20 +95,41 @@ export interface RecorderCapability {
    * Whether this build can hear the **machine's own** audio — the far side of
    * a call on headphones — as well as the microphone.
    *
-   * False everywhere except inside the desktop shell, and false there too on a
-   * build macOS has not verified: a loopback tap is ScreenCaptureKit and an
-   * unsigned app is refused one. So it is asked of the shell at runtime rather
-   * than inferred from the fact that a shell is present, which is
-   * `docs/decisions/desktop.md`'s rule — *`version` gates the shape;
-   * `capabilities()` gates the feature.*
+   * True in two places and false everywhere else, and the two are not the same
+   * thing underneath. Inside the desktop shell it is a **loopback tap** — and
+   * false there too on a build macOS has not verified, because a tap is
+   * ScreenCaptureKit and an unsigned app is refused one, so it is asked of the
+   * shell at runtime rather than inferred from the fact that a shell is
+   * present: `docs/decisions/desktop.md`'s rule — *`version` gates the shape;
+   * `capabilities()` gates the feature.* In a browser it is a **source the
+   * person hands over**, through `getDisplayMedia`, mixed into the recording —
+   * see `systemAudioNeedsPicker` below, which is what keeps the two from being
+   * offered in the same words.
    *
-   * It is on this interface rather than only inside the desktop recorder
-   * because the **sheet** has to know: a switch offering something this machine
-   * cannot do is exactly what `docs/decisions/meetings.md` forbids, and a
-   * browser must go on saying plainly that the far side of a call is not in the
-   * recording.
+   * It is on this interface rather than only inside the recorders because the
+   * **sheet** has to know: a switch offering something this machine cannot do
+   * is exactly what `docs/decisions/meetings.md` forbids, and a phone — which
+   * can do neither — must go on saying plainly that the far side of a call is
+   * not in the recording.
    */
   systemAudio: boolean;
+  /**
+   * Whether turning `systemAudio` on costs the person a source picker.
+   *
+   * The desktop shell's loopback tap is silent: the switch is on, the machine's
+   * output is in the recording, and nothing is asked again. A browser cannot do
+   * that — it has to ask for a tab or a screen, every meeting, and the person
+   * has to tick the option that shares that source's audio. Same capability by
+   * the name on this interface and a genuinely different thing to agree to, so
+   * the **sheet** has to be able to tell them apart: `false` offers the switch
+   * as the shell's, `true` says a picker is coming and what to pick.
+   *
+   * It is a second field rather than a third value of `systemAudio` because
+   * every caller that only asks *"is this on offer"* — the controller, the
+   * recorders themselves — reads a boolean and is right, and only the one
+   * surface that writes a sentence about it reads this.
+   */
+  systemAudioNeedsPicker: boolean;
   transcribesAt: TranscribesAt;
   /**
    * Why not, in words somebody can read, when `audio` is false. `null` when it
@@ -143,8 +165,28 @@ export interface MeetingRecorder {
   start(options?: CaptureOptions): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
-  /** Stop and release the device. Safe to call twice. */
+  /**
+   * Stop capturing and release the device. Safe to call twice.
+   *
+   * **It does not wait for anything to be transcribed**, and that is the
+   * contract rather than an implementation detail: it resolves when the
+   * microphone is back and the audio is off the device, so a caller can end the
+   * meeting — fold the `end`, leave the recording screen, stop the clock — at
+   * the moment the person pressed End. `drain` is the other half.
+   */
   stop(): Promise<void>;
+  /**
+   * Wait until everything captured has been transcribed and emitted.
+   *
+   * Called after `stop`, by a caller that has already ended the meeting. What
+   * it buys is the end of the meeting reaching the note before the finalize
+   * composes it, instead of arriving after the first sync — which is worth a
+   * wait, but not a wait spent in front of a screen still claiming to record.
+   *
+   * Optional, because it is only meaningful to a recorder that sends audio
+   * somewhere. `notesOnly` has nothing in flight, ever.
+   */
+  drain?(): Promise<void>;
   /** Segments as they are produced. Returns an unsubscribe. */
   onSegment(listener: (segment: TranscriptSegment) => void): () => void;
   /**
@@ -194,6 +236,8 @@ export interface RecorderError {
   /** Whether capture can continue. `false` means the session is notes-only from here. */
   recoverable: boolean;
   message: string;
+  /** A durable limitation of this session, separate from transient capture errors. */
+  kind?: "background-unavailable";
 }
 
 /**
@@ -282,3 +326,20 @@ export {
   type ChunkTranscriber,
   type TranscribeChunkArgs,
 } from "./transcriber";
+/*
+  The spool, as far as anything above `capture/` may see it: how much is
+  waiting, a drain that hands back *words*, and the two ways a person can make
+  it go away. The spool itself — which can read a chunk's bytes — stays behind
+  this door with `setTranscriber`, for the same reason. `spool.ts` has the rest.
+*/
+export { setCaptureOffline } from "./connectivity";
+export { onSpoolChange as onSpooledAudioChange } from "./spoolShared";
+export {
+  drainSpooledAudio,
+  forgetMeetingAudio,
+  forgetSpooledAudio,
+  spooledAudioCounts,
+  type SpoolDrainDeps,
+  type SpoolDrainReport,
+  type SpooledAudioCounts,
+} from "./spoolDrain";

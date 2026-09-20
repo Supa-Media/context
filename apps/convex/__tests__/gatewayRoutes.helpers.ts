@@ -23,6 +23,15 @@
  * the same reason it gives: `session.js`'s declaration is module-private, and
  * exporting it would mean editing `apps/mcp` to satisfy a test.
  *
+ * ## What is left here, and what moved
+ *
+ * The *reading* is this file's job — a Vite `?raw` glob is how this package
+ * reaches another one's source. The *parsing* is not: the console keeps a
+ * third copy of the same declaration and now checks it the same way, from a
+ * suite Vite does not run, and two parsers for one declaration is precisely
+ * the drift these guards exist to catch. It lives in
+ * `@context/shared/src/gatewayRouteSegments` and both callers use it.
+ *
  * ## What it does when it cannot read the list
  *
  * It returns an empty set, and the caller asserts a floor on the size. A
@@ -30,6 +39,8 @@
  * passes because it checked nothing — which is the failure the whole exercise
  * is about.
  */
+
+import { parseGatewayRouteSegments } from "@context/shared/src/gatewayRouteSegments";
 
 /**
  * Globbed rather than imported as `"…/session.js?raw"`, matching
@@ -45,29 +56,12 @@ const SESSION_SOURCES = import.meta.glob("../../mcp/src/session.js", {
 /**
  * Every first path segment the gateway refuses to read as a context slug.
  *
- * Parsed out of the literal rather than evaluated: `session.js` is an ES module
- * with imports, and evaluating it to read one constant would couple this to
- * everything else in it. The shape it matches is the declaration as written —
- * a `new Set([...])` of string literals — and a rewrite into any other shape
- * yields an empty set, which the caller's floor turns into a failure rather
- * than a silent pass.
+ * The glob above is the only part that has to live in this package; the shape
+ * it is read with is shared, so the control plane and the console cannot come
+ * to different conclusions about the same declaration.
  */
 export function gatewayReservedFirstSegments(): ReadonlySet<string> {
   const source = Object.values(SESSION_SOURCES)[0];
   if (typeof source !== "string") return new Set();
-
-  const declaration = /const RESERVED_FIRST_SEGMENTS = new Set\(\[([\s\S]*?)\]\)/.exec(
-    source,
-  );
-  if (declaration === null) return new Set();
-
-  // Comments first. Every quoted string in the block was being read as an
-  // entry, so an ordinary `// see "seyi" in the docs` inside the declaration
-  // reported `seyi` as an unreserved gateway route — a wrong diagnosis from a
-  // guard whose whole job is to fail informatively.
-  const body = declaration[1]!.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-  const segments = [...body.matchAll(/"([^"]*)"|'([^']*)'/g)].map(
-    (match) => match[1] ?? match[2]!,
-  );
-  return new Set(segments);
+  return parseGatewayRouteSegments(source);
 }

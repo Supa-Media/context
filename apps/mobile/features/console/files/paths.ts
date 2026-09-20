@@ -44,6 +44,96 @@ export function isMarkdown(name: string): boolean {
 }
 
 /**
+ * The digits a name carries so that something will sort it — `1-`, `04-`.
+ *
+ * PARA only works in order: `1-projects` has to come before `2-areas`, and a
+ * bucket listing, Obsidian's sidebar, the Files app and `ls` all sort one way,
+ * alphabetically. So the order has to be *in the name*, and every tool that
+ * reads the bucket then draws the number back at you on every row, in the one
+ * product whose whole claim is that the files stay pleasant to live in.
+ *
+ * The number is filing, the way `.md` is filing. It is kept on disk, where it
+ * does its job, and dropped from the label — which is also why this is
+ * backwards compatible in both directions: an existing bucket needs no
+ * migration to look better, and a context whose folders are drawn without
+ * numbers is still, byte for byte, a context any other tool opens in order.
+ *
+ * ## What counts as one
+ *
+ * One or two digits, a hyphen, and something left over that does not start
+ * with another digit. Each clause is load-bearing, and each one exists to
+ * refuse a name rather than to accept one:
+ *
+ *  - **One or two digits**, so `2026-09-18.md` — a daily note, which is how a
+ *    great many people name a great many notes — keeps its year. Four digits
+ *    is a date; one or two is somebody counting folders.
+ *  - **Nothing left over, nothing stripped.** `1-` is a name, not a prefix
+ *    with a name after it, and a row with no text on it is worse than a row
+ *    with a number on it.
+ *  - **Not another digit**, so `12-25-christmas.md` is left alone rather than
+ *    drawn as `25-christmas`, which reads as a bug. A second number after the
+ *    hyphen means the first one is probably a month, not an ordinal.
+ *  - **Not a dot**, because `1-.hidden` would be drawn as a name this product
+ *    reserves (see `describeNameProblem`) for a file it is not.
+ *
+ * The bias in all four is the same and it is deliberate: **when in doubt, draw
+ * what is on disk.** Showing a number nobody wanted is untidy; hiding half of
+ * a date is a lie about the customer's own file.
+ *
+ * Only a hyphen separates. `1 projects`, `1.projects` and `1_projects` are
+ * names, not prefixes — a rule that guesses at every punctuation mark somebody
+ * might have typed is a rule that eventually eats a name somebody meant.
+ *
+ * All four clauses are narrower than `titleFromPath`'s
+ * `/^\d+[-_.\s]+/` in `functions/lib/shareTitle.ts`, which has dropped the same
+ * prefix since share cards existed — deliberately, because the two are doing
+ * different jobs. That one *invents a title* and is allowed to refuse ("a card
+ * with no title is honest"); this one *draws the customer's own file back at
+ * them*, beside the Rename that spells it out, so being wrong is not a missing
+ * card but a row naming a file that is not the one on disk.
+ *
+ * ## What it deliberately does not do
+ *
+ * **It does not look at the siblings.** `1-plan` and `2-plan` in one folder
+ * both draw as `plan`, and that is the accepted cost of a rule a single name
+ * can be evaluated against — the alternative is a label that depends on what
+ * else happens to be loaded, so the same folder reads differently in the tree,
+ * the tab strip and the breadcrumb. Two folders deliberately given the same
+ * word are a naming problem the person can see and fix; Rename, Move and the
+ * palette all still spell the number out.
+ */
+const SORT_PREFIX = /^\d{1,2}-(?![\d.])(?=.)/;
+
+/**
+ * `1-projects` → `projects`. **Display only** — see `SORT_PREFIX` above, and
+ * the warning on `displayName`, which this half is subject to just as much.
+ *
+ * Nothing but a prefix is ever removed, which is the property worth holding it
+ * to from the outside: the result is always a suffix of what went in, and what
+ * came off is always a sort number or nothing.
+ */
+export function withoutSortPrefix(name: string): string {
+  return name.replace(SORT_PREFIX, "");
+}
+
+/**
+ * A whole path, with every segment's sort number dropped —
+ * `1-projects/2-planning` → `projects/planning`.
+ *
+ * For the lines that name a *place* to a reader rather than to the bucket: the
+ * subtitle under a recents row, the folder in "Moved to …". The same rule
+ * `crumbsFor` applies segment by segment, in the one other shape a path gets
+ * drawn in.
+ *
+ * **Not for a picker.** Where somebody is choosing a destination — the move
+ * dialog's list, the palette — the real key is the point, and a trimmed one
+ * would offer a folder that is not there.
+ */
+export function displayPath(path: string): string {
+  return path.split("/").map(withoutSortPrefix).join("/");
+}
+
+/**
  * What a file is *called*, as against what it is *named*.
  *
  * `README.md` is drawn as `README`, the way Obsidian draws it and the way the
@@ -53,13 +143,20 @@ export function isMarkdown(name: string): boolean {
  * of noise repeated down the whole tree, and on a phone they are four
  * characters taken from the name when the row ellipsises.
  *
+ * `1-projects` is drawn as `projects` for the same reason and by the same
+ * argument: the number is there so a listing sorts, not so a person reads it.
+ * `SORT_PREFIX` above is where that rule is stated and bounded.
+ *
  * **This is display only, and the distinction is load-bearing.** The name on
  * disk never changes: `TreeRow.name` and `TreeRow.path` still carry the real
  * one, every operation addresses the file by `path`, and Rename prefills from
  * `baseName` rather than from this. A stripper that leaked into a write would
  * rename `foo.md` to `foo` in somebody's bucket, and `privacy.md`'s exact-note
  * rules only address `.md` paths — so the note would silently lose its own
- * visibility on the way past.
+ * visibility on the way past. The number is worse still: dropping `1-` from a
+ * write renames `1-projects` to `projects`, which moves every note inside it,
+ * breaks every `[[1-projects/…]]` link pointing at them, and re-sorts the
+ * context — a folder, its subtree and its share links, for a cosmetic rule.
  *
  * Only `.md` is stripped, and only when something is left. An attachment keeps
  * its extension — `.png` on a row is information, because it is the one thing
@@ -67,9 +164,55 @@ export function isMarkdown(name: string): boolean {
  * `.md` keeps its name rather than becoming a blank row.
  */
 export function displayName(name: string): string {
-  if (!isMarkdown(name)) return name;
-  const stem = name.slice(0, -3);
-  return stem === "" ? name : stem;
+  const called = withoutSortPrefix(name);
+  if (!isMarkdown(called)) return called;
+  const stem = called.slice(0, -3);
+  return stem === "" ? called : stem;
+}
+
+/**
+ * The name of the file that makes a folder exist.
+ *
+ * Object storage has no folders, only keys with slashes in them, so `createFolder`
+ * writes one key to give the prefix something to be. `README.md` is the name
+ * because it is the one every other tool that reads the bucket already
+ * understands — Obsidian draws it as a note, GitHub renders it, `ls` shows it.
+ */
+export const FOLDER_PLACEHOLDER = "README.md";
+
+/**
+ * Is this the key that exists so its folder does?
+ *
+ * **The console does not list this file**, and that is the whole of what this
+ * predicate decides — see `listedEntries`. The file is real, stays in the
+ * bucket, and is exactly what a folder looks like from Obsidian; what it is not
+ * is a note somebody wrote, and printing it on the first row of every folder
+ * meant the one place with the least to say got the most prominent line.
+ *
+ * Two boundaries, both deliberate:
+ *
+ *  - **Never at the root.** The root prefix needs no key to exist, so a
+ *    `README.md` beside `index.md` is a file its owner put there — very
+ *    probably the readme of a self-hosted bucket — and hiding it would be
+ *    hiding content rather than plumbing.
+ *  - **Case-insensitively.** We write `README.md`; a person typing in Obsidian
+ *    writes `readme.md` about as often, and they mean the same file. Bucket
+ *    keys are case-sensitive and nothing here writes one, so a loose match
+ *    costs a row that is drawn and never a key that is touched.
+ *
+ * What it deliberately does **not** do is look at the contents. A folder
+ * overview somebody actually wrote is hidden by the same rule, which is the
+ * honest cost of a rule a listing can evaluate: a listing carries names, not
+ * bodies, and asking the bucket for every README on every expand would be a
+ * request per folder to decide a row. Nothing becomes unreachable — search
+ * finds it, a `[[link]]` opens it, the tree keeps drawing it while it is the
+ * open note, and Obsidian never hid it in the first place. See
+ * "A folder's placeholder is not a row" in `docs/decisions/app-and-console.md`.
+ */
+export function isFolderPlaceholder(path: string): boolean {
+  const slash = path.lastIndexOf("/");
+  if (slash < 0) return false;
+  return path.slice(slash + 1).toLowerCase() === FOLDER_PLACEHOLDER.toLowerCase();
 }
 
 /**

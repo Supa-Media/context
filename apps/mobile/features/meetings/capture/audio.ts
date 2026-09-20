@@ -7,10 +7,35 @@ import {
 } from "expo-audio";
 import type { AudioMode, AudioRecorder, RecordingStatus } from "expo-audio";
 import { Directory, File, Paths } from "expo-file-system";
+import { currentEpoch } from "../../offline/epoch";
 import type { TranscriptSegment } from "../protocol";
 import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
+import { captureOffline } from "./connectivity";
+import {
+  audioSpool,
+  claimChunk,
+  releaseChunk,
+  spoolChanged,
+  type SpoolSource,
+  type SpooledChunk,
+} from "./spool";
+import { meterLevel, publishRecorderLevel } from "./level";
+import {
+  PCM_BIT_DEPTH,
+  PCM_CHANNELS,
+  PCM_SAMPLE_RATE,
+  WAV_HEADER_SCAN_BYTES,
+  WAV_MIME,
+  alignToFrame,
+  encodeBase64,
+  parseWavHeader,
+  pcmBytesForMs,
+  pcmDurationMs,
+  wavFile,
+  type PcmFormat,
+} from "./wav";
 
 /**
  * Capture on a phone: `expo-audio` in, `TranscriptSegment`s out.
@@ -32,24 +57,21 @@ import { resolveTranscriber } from "./transcriber";
  * exactly as `features/offline/store.ts` imports async-storage. `gated` is for
  * dependencies added *after* the first binary; these were in it. Adding any
  * *other* native module — an on-device speech engine, a Live Activity target —
- * is the opposite case and must go through the gate: dynamic import, runtime
- * check, honest fallback.
+ * is the opposite case and remains notes-only by design.
  *
  * ────────────────────────────────────────────────────────────────────────────
  * 2. FOREGROUND CAPTURE ALREADY WORKS ON THE SHIPPED BINARY.
  * ────────────────────────────────────────────────────────────────────────────
  *
- * The `expo-audio` config plugin's `microphonePermission` was in the build that
- * shipped, so `NSMicrophoneUsageDescription` is in the installed app and asking
- * for the microphone does not terminate it. `UIBackgroundModes: ["audio"]` is
- * new in `app.config.js`, and it governs exactly one thing: whether capture
- * survives the app leaving the foreground. An OTA update therefore turns on a
- * recorder that works while somebody is looking at it, on binaries built before
- * that key existed — which is the case this feature is for.
+ * The shipped native baseline already includes the microphone permission and
+ * `UIBackgroundModes: ["audio"]`. The latter governs whether capture survives
+ * the app leaving the foreground; the per-session `allowsBackgroundRecording`
+ * setting below is therefore safe to deliver in an OTA update.
  *
  * **So background capability is a runtime check, never a version number.**
- * `configureAudioSession` asks for the background-capable session and falls
- * back to a foreground-only one if this binary's audio session refuses it.
+ * `configureAudioSession` asks for the background-capable session first; an
+ * affected iOS runtime falls back to proven foreground capture and says so,
+ * while Android still fails closed because its foreground service is required.
  * Comparing `Constants.expoConfig` against a version would be the wrong test
  * twice over: that manifest describes the *bundle*, which is the half that
  * updated, and the question is about the *binary*, which is the half that did
@@ -82,9 +104,9 @@ import { resolveTranscriber } from "./transcriber";
  * transcript is a list of `TranscriptSegment`s with stable client-generated ids
  * precisely so a phone that lost signal mid-meeting can re-send, so capture
  * rotates on a fixed wall clock (`SEGMENT_MS`): every rotation closes a
- * complete, self-contained audio file, reads it, **deletes it**, and hands the
- * bytes to the transcriber with an `offsetMs` that is the sum of the durations
- * before it rather than a clock reading at send time.
+ * complete, self-contained audio file, keeps it in the spool (point 5), and
+ * hands it to the transcriber with an `offsetMs` that is the sum of the
+ * durations before it rather than a clock reading at send time.
  *
  * **The send is not in that chain.** A rotation closes the file and reopens the
  * microphone at once; the bytes go out separately and the segments arrive
@@ -126,16 +148,30 @@ import { resolveTranscriber } from "./transcriber";
  * more truthful answer to that question than a timestamp ever was.
  *
  * ────────────────────────────────────────────────────────────────────────────
- * 5. THE AUDIO NEVER LEAVES THIS FILE.
+ * 5. THE AUDIO NEVER LEAVES capture/, AND IT IS KEPT UNTIL IT HAS BEEN HEARD.
  * ────────────────────────────────────────────────────────────────────────────
  *
  * `MeetingRecorder` has no method that hands audio out, and this implementation
- * adds none: the uri and the base64 live in a closure for the length of one
- * request, and the file on disk is deleted *before* that request is even made.
- * There is no module-level buffer, nothing exported that holds bytes, and
- * nothing above `capture/` that could ask. That is what makes "audio is
- * transient and is never written to the bucket" a property of the code rather
- * than a promise in a document.
+ * adds none. Nothing exported above `capture/` holds bytes or can ask for them.
+ *
+ * **What changed (2026-09-18): a chunk is kept on the device until the
+ * transcriber has answered for it.** This paragraph used to say the file was
+ * deleted *before* the request that carried it, which made "audio is
+ * transient" a property of the code — and made every chunk sent without signal
+ * a hole in the transcript for good, with the backlog past
+ * `MAX_INFLIGHT_CHUNKS` dropped on the floor. The owner's call reversed it:
+ * offline audio is spooled, never dropped. Every chunk is now written into the
+ * spool (`spool.ts`, under the app's documents directory) *before* it is sent,
+ * sent only when there is a connection and room, and deleted only once its
+ * words have been handed to the meeting. What is not sent now is sent later by
+ * `spoolDrain.ts`, through the same `transcribeChunk`, with the same chunk id.
+ * `docs/decisions/meetings.md`, "Audio nobody has transcribed yet is kept on
+ * the device", records the reversal and what it costs.
+ *
+ * If the spool cannot take a chunk — a full disk — the old path is still here
+ * and is the fallback: send it once from memory, and a failure is a gap with a
+ * sentence. That is the one case left in which audio is not kept, and it is a
+ * device that has no room to keep it.
  *
  * Two paths were leaving files behind, and both are closed. A device that threw
  * out of `stop()` used to take its half-written file with it — `uri` was never
@@ -163,13 +199,11 @@ import { resolveTranscriber } from "./transcriber";
  * for it), creates its own notification channel the first time a recording
  * starts, and calls `startForeground` with the `microphone` service type
  * itself. So `audioRecorder("android")` now answers a *real* `expoAudioRecorder`
- * the same as iOS, with one difference threaded through: `allowsBackgroundRecording:
- * true` in the `AudioMode` handed to `setAudioModeAsync`, which is what tells
+ * the same as iOS: the shared `MEETING_AUDIO_MODE` includes
+ * `allowsBackgroundRecording: true` in the `AudioMode` handed to `setAudioModeAsync`, which tells
  * that native module to actually start the service (`AudioRecorder.kt`'s
  * `useForegroundService` field, set from `AudioMode.allowsBackgroundRecording`
- * — see `AudioModule.kt`). iOS's own `MEETING_AUDIO_MODE` is untouched: that
- * field is Android's own switch, not a shared one, and mixing it into the
- * object iOS reads would be a behaviour change nobody asked for.
+ * — see `AudioModule.kt`). Both platforms consume this shared session setting.
  *
  * **`interruptionMode: "mixWithOthers"` already does the right thing on
  * Android too, unchanged.** The worry going in was that "mixing" needed its
@@ -222,40 +256,186 @@ export const RESUME_RETRY_MS = 2_000;
  */
 export const MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
   allowsRecording: true,
+  allowsBackgroundRecording: true,
   playsInSilentMode: true,
   shouldPlayInBackground: true,
   interruptionMode: "mixWithOthers",
 });
 
-/** The same session, minus the part an older binary has no entitlement for. */
-export const FOREGROUND_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
-  ...MEETING_AUDIO_MODE,
+/** The last-known-good iOS session when its native module rejects the new flag. */
+const IOS_FOREGROUND_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
+  allowsRecording: true,
+  playsInSilentMode: true,
   shouldPlayInBackground: false,
-});
-
-/**
- * The same session, plus the one field that is Android's own switch.
- *
- * Not exported, and not merged into `MEETING_AUDIO_MODE` itself: that object
- * is what `meetingsCapture.test.ts` pins byte-for-byte against what iOS reads,
- * and `allowsBackgroundRecording` is documented `@platform android` in
- * `expo-audio`'s own types for a reason — on iOS it gates whether a recorder
- * pauses when the app backgrounds, a decision this file has never touched and
- * is not touching now. On Android it is what tells `expo-audio`'s native
- * module to start its own bundled foreground service — see point 6 in the
- * header comment.
- */
-const ANDROID_MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
-  ...MEETING_AUDIO_MODE,
-  allowsBackgroundRecording: true,
+  interruptionMode: "mixWithOthers",
 });
 
 /**
  * AAC in an MPEG-4 container — `RecordingPresets.HIGH_QUALITY` writes `.m4a` on
  * iOS. `audio/mp4` is that file's real media type; it is passed through to the
  * transcriber so the service names the upload correctly rather than sniffing.
+ *
+ * **iOS no longer uses it.** See `PCM_RECORDING_OPTIONS`: a `.m4a` that is
+ * still being written cannot be read, and reading one while it is written is
+ * the whole of the fix for meetings that ended at the lock screen. It stays for
+ * Android, which has no linear-PCM recorder to switch to.
  */
 export const CHUNK_MIME = "audio/mp4";
+
+/**
+ * WHAT iOS RECORDS INTO NOW, AND WHY IT IS UNCOMPRESSED.
+ *
+ * `RecordingPresets.HIGH_QUALITY` writes AAC into an MPEG-4 container, which is
+ * the right choice for a file somebody keeps and the wrong one for a file
+ * somebody reads while it is being written: an `.m4a` is not valid until
+ * `stop()` writes its `moov` atom, so a prefix of one is not a shorter
+ * recording, it is not a recording.
+ *
+ * That mattered the moment the rotation had to go. iOS refuses to *start* a
+ * recording from the background — `AVAudioSessionErrorCodeCannotStartRecording`
+ * — while letting one that is already running continue, so a recorder that
+ * stops and restarts every twenty seconds hands back the one thing it is
+ * allowed to keep and is refused it. Locking the phone ended the meeting on the
+ * next tick. `wav.ts` carries the full argument and the citation.
+ *
+ * So the recorder is started once and the chunks are cut out of the file it
+ * goes on writing, which needs a format whose bytes on disk are the audio so
+ * far. Linear PCM in a WAVE container is that format.
+ *
+ * **16 kHz mono, which is smaller than it sounds and better than it looks.**
+ * Uncompressed costs about 115 MB an hour against roughly 8 MB for AAC, in a
+ * cache directory, for the length of one meeting. What it buys back: 16 kHz
+ * mono is the transcription model's own input, so nothing resamples later, and
+ * a meeting recorder that survives a lock screen is the feature.
+ *
+ * Nothing downstream is asked to trust these numbers — `parseWavHeader` reads
+ * the format out of the file the device actually produced, because a device may
+ * substitute a rate and a slice labelled with the wrong one transcribes as
+ * nonsense.
+ */
+/**
+ * **FLAT, AND THAT IS NOT A STYLE CHOICE.**
+ *
+ * `RecordingPresets` are nested — common fields at the top, then `ios`,
+ * `android` and `web` sub-objects — and `expo-audio`'s own `useAudioRecorder`
+ * flattens the right one into the common fields before constructing a
+ * recorder (`createRecordingOptions` in its `utils/options`). That helper is
+ * not exported, and this module has never used the hook: it constructs
+ * `AudioModule.AudioRecorder` directly, because a recording has to outlive the
+ * screen that started it.
+ *
+ * The native side decodes **one flat record** — `extension`, `sampleRate`,
+ * `numberOfChannels`, `bitRate`, `outputFormat`, `audioQuality`, the
+ * `linearPCM*` trio — and ignores keys it does not know. So a nested preset
+ * handed straight to the constructor delivers the four common fields and
+ * silently drops everything under `ios`.
+ *
+ * That has been true of `RecordingPresets.HIGH_QUALITY` here since this file
+ * was written and cost nothing, because `.m4a` plus CoreAudio's defaults is
+ * AAC anyway — which is exactly why nobody noticed. It would not be free here:
+ * `outputFormat` is the field that selects linear PCM, and dropping it would
+ * produce a `.wav` extension over an AAC payload, whose growing bytes are
+ * unreadable in precisely the way this whole change exists to stop. The
+ * recording would look right in every log and transcribe as nothing.
+ *
+ * So this object is written the way the native record is read.
+ */
+const PCM_RECORDING_OPTIONS = Object.freeze({
+  extension: ".wav",
+  sampleRate: PCM_SAMPLE_RATE,
+  numberOfChannels: PCM_CHANNELS,
+  /*
+    Meaningless for linear PCM — there is no encoder to give a budget to — and
+    sent because the native record requires the field. The real size is the
+    rate times the channels times the depth, which is 32 KB a second.
+  */
+  bitRate: PCM_SAMPLE_RATE * PCM_CHANNELS * PCM_BIT_DEPTH,
+  /*
+    `IOSOutputFormat.LINEARPCM`, spelled as the four-character code the native
+    side turns it into rather than imported as an enum for one value that has
+    been `"lpcm"` for as long as CoreAudio has existed.
+  */
+  outputFormat: "lpcm",
+  /** `AudioQuality.MAX`, and equally decorative for an uncompressed format. */
+  audioQuality: 127,
+  linearPCMBitDepth: PCM_BIT_DEPTH,
+  linearPCMIsBigEndian: false,
+  linearPCMIsFloat: false,
+  /*
+    The meter. `AVAudioRecorder.averagePower` is only updated for a recorder
+    that was asked for it, and nothing asked — so `useAudioLevel` answered
+    `null` on every phone and the mark beside the clock drew its static
+    silhouette for the length of every meeting. See `LEVEL_INTERVAL_MS`.
+  */
+  isMeteringEnabled: true,
+});
+
+/**
+ * Android's preset, plus the one flat key that turns its meter on.
+ *
+ * `isMeteringEnabled` at the top level, which is where the native record reads
+ * every field from — the flattening trap `PCM_RECORDING_OPTIONS` documents,
+ * used deliberately this time. Nothing else about the recording changes: the
+ * format fields under `android:` are ignored exactly as they always have been,
+ * so this adds a meter without touching what Android records.
+ */
+const ANDROID_RECORDING_OPTIONS = Object.freeze({
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+});
+
+/**
+ * How often the phone's own meter is read, in milliseconds.
+ *
+ * Ten times a second, which is what the desktop shell's bridge pushes and what
+ * a meter needs to look like it is responding to a voice rather than sampling
+ * one. `getStatus()` is a cheap native read and the reading goes to a module
+ * channel rather than through the controller, so it re-renders `LiveWaveform`
+ * and nothing else — `capture/level.ts` carries that argument, and it is the
+ * reason this is a poll here rather than an event on `MeetingRecorder`.
+ */
+const LEVEL_INTERVAL_MS = 100;
+
+/**
+ * How much audio one slice may carry, as a multiple of the tick.
+ *
+ * A slice is sent every `SEGMENT_MS`, so one tick's worth is the normal case
+ * and the headroom is for catching up: a tick that ran late, or a device that
+ * flushed its buffer in a burst, leaves more than one interval of audio on
+ * disk. **The file is the buffer** — bytes not taken this tick are still there
+ * on the next one, which is the property the rotating recorder never had — so
+ * this is a ceiling on one request rather than a limit on what survives.
+ *
+ * The ceiling exists because the gateway bounds a transcribe body at
+ * `LIMITS.transcribeBodyChars` (1,404,096 characters of base64). Thirty seconds
+ * of 16 kHz mono 16-bit is 960,000 bytes, which is 1,280,000 characters
+ * encoded: inside the limit with room for the envelope around it.
+ */
+const MAX_SLICE_MS = SEGMENT_MS * 1.5;
+
+/**
+ * What a send carries, which is one of two things with one difference.
+ *
+ * A **rotated chunk** is a file: the recorder finished it, the send reads it
+ * and deletes it, and until it does `inFlightUris` keeps `releaseDevice` from
+ * deleting it first. A **continuous slice** is bytes already in memory, cut out
+ * of a recording that is still going and that this send does not own.
+ *
+ * Kept as one union rather than two send paths because the difference is
+ * ownership and nothing else — the request, the retry, the reporting and the
+ * backlog rule are identical — and a second copy of those is how the two
+ * platforms would drift.
+ */
+type Payload =
+  | File
+  | { base64: string; mimeType: string }
+  /**
+   * A chunk already in the spool. It owns no file the device knows about — the
+   * spool does — and the send confirms it only once its words are delivered.
+   * `base64` is carried when the bytes are already in memory, so a slice that
+   * was just written is not read straight back off the disk.
+   */
+  | { spooled: SpooledChunk; base64: string | null };
 
 const MIC_DENIED =
   "Context needs microphone access to hear this meeting. This one is a typed session; your notes still land in your bucket.";
@@ -283,6 +463,17 @@ const NO_SESSION_ID =
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
 
+/**
+ * A send failed and its chunk is still in the spool.
+ *
+ * Its own sentence rather than `CHUNK_FAILED`, because the two are different
+ * facts: that one is a gap in the transcript, and this one is a delay. Telling
+ * somebody audio was lost when it is sitting on their phone waiting to be sent
+ * is the crying-wolf half of honesty, and it teaches them to stop reading chips.
+ */
+const CHUNK_KEPT =
+  "A few seconds of audio could not be transcribed yet. They are saved on this phone and will be sent again.";
+
 const SEND_BACKLOG =
   "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
 
@@ -303,6 +494,9 @@ const SEND_BACKLOG =
 */
 const NO_SPEECH =
   "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.";
+
+const IOS_BACKGROUND_UNAVAILABLE =
+  "Recording works while Context stays open, but locking your phone will stop the audio.";
 
 /**
  * Everything a `RecorderError` from this module may say, and the whole of it.
@@ -325,9 +519,11 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   INTERRUPTED,
   NO_TRANSCRIBER,
   CHUNK_FAILED,
+  CHUNK_KEPT,
   SEND_BACKLOG,
   NO_SPEECH,
   NO_SESSION_ID,
+  IOS_BACKGROUND_UNAVAILABLE,
 ]);
 
 /** Where `expo-audio` writes: `<caches>/ExpoAudio/recording-<uuid>.m4a`. */
@@ -407,18 +603,65 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
   let statusSubscription: { remove(): void } | null = null;
   let rotationTimer: ReturnType<typeof setInterval> | null = null;
   let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Reads the device's meter while it is open. See `LEVEL_INTERVAL_MS`. */
+  let levelTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Identity of this capture session. Read once, at `start`, and never again. */
   let sessionKey = "";
+  /**
+   * The meeting whose words a send may hand to the listeners.
+   *
+   * Set **synchronously** at the top of `start()`, before its first await, and
+   * that timing is the point: the controller detaches the last meeting's
+   * listener and calls `start()` in the same synchronous stretch, so no send can
+   * settle between the two. A send for any other meeting — the last one's, still
+   * in flight when the next began — leaves its chunk in the spool, where the
+   * drain delivers it by the meeting id it names. Before the spool, those words
+   * were folded into nobody.
+   */
+  let owner = "";
+  /** The session this recording belongs to. Every spool write carries it. */
+  let epoch = 0;
   let chunkIndex = 0;
   /** Milliseconds of captured audio before the chunk currently open. */
   let chunkStartOffsetMs = 0;
   /** Wall clock when the open chunk began, for the partial one at the end. */
   let chunkStartedAtMs = 0;
+  /**
+   * Whether this build cuts slices out of one continuous file, or rotates.
+   *
+   * **iOS is continuous and Android is not**, and the split is a platform fact
+   * rather than a preference. The defect is iOS's refusal to start a recording
+   * from the background, and the cure needs a format whose bytes on disk are
+   * readable while they are written — linear PCM. Android's `MediaRecorder`
+   * has no linear-PCM output at all, and does not have the disease either: its
+   * foreground service (`AudioRecordingService.kt`, started by
+   * `allowsBackgroundRecording`) keeps the process scheduled, so the rotation
+   * that dies on a locked iPhone goes on working there.
+   *
+   * Rotating is therefore kept rather than ported, and it is the path the two
+   * existing recorders and every test already exercise.
+   */
+  const continuous = platform === "ios";
+
+  /**
+   * The format of the file being recorded, read out of its own header.
+   *
+   * `null` until the recorder has flushed one — which is a real state on the
+   * first tick of a meeting and not a race to paper over, so the slicer simply
+   * comes back next tick. Reset with the device, because a new device is a new
+   * file.
+   */
+  let pcmFormat: PcmFormat | null = null;
+  /** Byte offset in that file up to which audio has been sent. */
+  let pcmRead = 0;
+
   /** Something else holds the input and we are waiting for it back. */
   let interrupted = false;
   /** When it took the input, so the seconds it cost land in the offset. */
   let interruptedAtMs = 0;
+  /** Replayed to a controller that subscribes after `start()` resolves. */
+  let sessionWarning: RecorderError | null = null;
 
   /*
     Everything that touches the device is serialised through this chain. The
@@ -477,8 +720,21 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
 
   function startRotation(): void {
     stopRotation();
+    startLevelPolling();
     rotationTimer = setInterval(() => {
       void queue(async () => {
+        /*
+          ON A CONTINUOUS RECORDER THIS TICK TOUCHES THE DEVICE NOT AT ALL.
+
+          It reads the file and leaves the microphone exactly as it found it,
+          which is the whole of the fix: the call iOS refuses from the
+          background is `record()`, and nothing on this path makes one.
+        */
+        if (continuous) {
+          if (await abandonIfNowhereToSend()) return;
+          sliceOnce(MAX_SLICE_MS);
+          return;
+        }
         /*
           `finally`, because a chunk that could not be closed used to cost the
           twenty seconds after it as well: the arrow rejected before
@@ -496,9 +752,64 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     }, SEGMENT_MS);
   }
 
+  /**
+   * PUBLISH WHAT THE MICROPHONE IS HEARING, TEN TIMES A SECOND.
+   *
+   * Straight to `capture/level.ts`'s channel and to nothing else. It does not
+   * touch the session, the controller, or any listener this module already
+   * has: a level is a decoration, *"no meeting, no note, no segment is
+   * affected by whether this hook ever fires"*, and routing it through the
+   * controller would rebuild the app's meetings snapshot six hundred times a
+   * minute for a number one leaf reads.
+   *
+   * A reading that is absent, not a number, or infinite is published as
+   * `null` rather than as zero. `Waveform` draws a different mark for "nothing
+   * can tell you" than for "listening, and the room is quiet", and collapsing
+   * the two is exactly the flat-bar-reads-as-dead-microphone defect the meter
+   * was rebuilt to fix.
+   */
+  function startLevelPolling(): void {
+    stopLevelPolling();
+    levelTimer = setInterval(() => {
+      const active = device;
+      if (active === null || state !== "recording") {
+        publishRecorderLevel(null);
+        return;
+      }
+      try {
+        publishRecorderLevel(meterLevel(active.getStatus().metering));
+      } catch {
+        /*
+          A status read can throw on a device that is going away underneath
+          this timer. It is not a capture failure and it is not worth a chip:
+          the meter says it has no reading and the next tick tries again.
+        */
+        publishRecorderLevel(null);
+      }
+    }, LEVEL_INTERVAL_MS);
+  }
+
+  function stopLevelPolling(): void {
+    if (levelTimer !== null) clearInterval(levelTimer);
+    levelTimer = null;
+    /*
+      Said rather than left. A meter that keeps its last reading after the
+      microphone has gone is the same lie as one that never moves, pointed the
+      other way — it would draw a loud room over a meeting that has ended.
+    */
+    publishRecorderLevel(null);
+  }
+
   function stopRotation(): void {
     if (rotationTimer !== null) clearInterval(rotationTimer);
     rotationTimer = null;
+    /*
+      The meter's life is the rotation's, because they are the same life: both
+      run exactly while this recorder is capturing, and every path that starts
+      or stops one wants the other. Tied here rather than at the six call
+      sites, which is how one of them would come to be missed.
+    */
+    stopLevelPolling();
   }
 
   function cancelResume(): void {
@@ -509,9 +820,42 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
   /** Fresh device, fresh status subscription. Also the recovery path. */
   async function openDevice(): Promise<void> {
     await releaseDevice();
-    const opened = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+    /*
+      `as never` on the flat object, for the reason its own comment gives: the
+      published `RecordingOptions` type describes the *nested* shape the hook
+      takes, and the constructor's runtime contract is the flat record the
+      native side decodes. The two disagree, the native one is what runs, and
+      lying to the type here is better than nesting an object that would be
+      silently ignored. Android keeps the preset it has always had.
+    */
+    const opened = new AudioModule.AudioRecorder(
+      continuous
+        ? (PCM_RECORDING_OPTIONS as never)
+        : ANDROID_RECORDING_OPTIONS,
+    );
     statusSubscription = opened.addListener("recordingStatusUpdate", onStatus);
     device = opened;
+    /*
+      A new device writes a new file, so what this module knows about the old
+      one is now wrong — and wrong in the direction that loses audio: a read
+      offset carried over from a recording that had grown past the new one's
+      header would start the new recording part-way in, silently dropping the
+      first words after every pause and every interruption. Cleared here rather
+      than at each call site, because `openDevice` is the one place a file is
+      replaced.
+
+      **The format is the one that carries it, and the offset is belt.**
+      Clearing `pcmFormat` is what makes `sliceOnce` re-read the header, and
+      re-reading the header is what sets `pcmRead` to the new file's own
+      `dataOffset` — so the second line below cannot be observed failing on its
+      own, and a check for it would be a check of nothing. Sabotage says so:
+      removing `pcmRead = 0` leaves `resuming does not re-send what it heard`
+      green, and removing `pcmFormat = null` does not. It is kept because the
+      two facts belong to the same file and separating them is how the next
+      person introduces the bug the paragraph above describes.
+    */
+    pcmFormat = null;
+    pcmRead = 0;
   }
 
   async function releaseDevice(): Promise<void> {
@@ -533,13 +877,278 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     open.release();
   }
 
-  /** Start writing a new file. The clock for the open chunk starts here. */
+  /**
+   * Begin recording. The clock for the open piece of audio starts here.
+   *
+   * **On a continuous recorder this runs once per device and not once per
+   * chunk**, which is the entire fix: `record()` is the call iOS refuses from
+   * the background, so the rotation calls it never and only `start`, `resume`
+   * and the interruption recovery — all of which are either in the foreground
+   * or already failing — ever reach it.
+   *
+   * It is still safe to call twice: `prepareToRecordAsync` on a recorder that
+   * is already going would restart the file, so a device that is recording is
+   * left alone.
+   */
   async function openChunk(): Promise<void> {
     const active = device;
     if (active === null) return;
-    await active.prepareToRecordAsync();
-    active.record();
+    if (!(continuous && active.isRecording)) {
+      await active.prepareToRecordAsync();
+      active.record();
+    }
     chunkStartedAtMs = Date.now();
+  }
+
+  /**
+   * TAKE WHATEVER THE RECORDER HAS WRITTEN SINCE LAST TIME, AND SEND IT.
+   *
+   * The continuous replacement for a rotation. Nothing here stops, restarts or
+   * touches the device: it reads the file the recorder is writing into, cuts
+   * the new bytes off at a sample boundary, wraps them in a WAVE header and
+   * hands them over. `record()` is never called, which is the property that
+   * makes a locked phone go on recording.
+   *
+   * ## It advances on what it actually took, not on what it hoped for
+   *
+   * The rotating path charges `SEGMENT_MS` to the offset because a rotation
+   * really is one interval of audio. Here the recorder's buffer decides how
+   * much exists at any moment, so the duration is computed from the bytes —
+   * `pcmDurationMs` — and the offset moves by exactly that. A tick that finds
+   * eighteen seconds on disk sends eighteen and the other two go next time,
+   * with every timestamp still landing where the sound did.
+   *
+   * ## Nothing is dropped when the sends are backed up, or when there are none
+   *
+   * Every slice goes into the spool before anything else is decided, so a tick
+   * with no connection, or three sends already out, still cuts its twenty
+   * seconds and keeps them. Only a spool that refuses the write brings back the
+   * older rule — **the file is the buffer**: do not advance, and let the next
+   * tick take the bytes.
+   *
+   * @param ceilingMs The most audio one slice may carry. See `MAX_SLICE_MS`.
+   * @returns Whether a slice was sent, so a drain can loop until it is not.
+   */
+  function sliceOnce(ceilingMs: number): boolean {
+    const active = device;
+    if (active === null) return false;
+    const uri = active.uri;
+    if (uri === null) return false;
+
+    let file: File;
+    try {
+      file = new File(uri);
+    } catch {
+      return false;
+    }
+    const size = file.size;
+    if (size <= 0) return false;
+
+    if (pcmFormat === null) {
+      /*
+        Read once and kept. A header that is not there yet — the recorder has
+        opened the file and not flushed — is the ordinary first tick of a
+        meeting, so it is a quiet `false` and not a report: telling somebody
+        their microphone failed because a buffer had not landed would be the
+        crying-wolf half of the honesty this module is otherwise built on.
+      */
+      const head = readRange(file, 0, Math.min(size, WAV_HEADER_SCAN_BYTES));
+      if (head === null) return false;
+      const parsed = parseWavHeader(head);
+      if (parsed === null) return false;
+      pcmFormat = parsed;
+      pcmRead = parsed.dataOffset;
+    }
+
+    const available = alignToFrame(size - pcmRead, pcmFormat);
+    if (available <= 0) return false;
+
+    const take = Math.min(available, pcmBytesForMs(ceilingMs, pcmFormat));
+    if (take <= 0) return false;
+
+    const pcm = readRange(file, pcmRead, take);
+    if (pcm === null) return false;
+
+    /*
+      INTO THE SPOOL FIRST, WHATEVER HAPPENS NEXT.
+
+      A slice that is kept can be cut whether or not it can be sent: offline,
+      or with the sends backed up, it simply waits on the device. Only when the
+      spool refuses it — a full disk — does the old rule come back: the file is
+      the buffer, so leave the bytes where they are rather than cut audio there
+      is nowhere to put.
+    */
+    const offsetMs = chunkStartOffsetMs;
+    const durationMs = pcmDurationMs(pcm.length, pcmFormat);
+    const wav = wavFile(pcm, pcmFormat);
+    const kept = keep(
+      { meetingId: sessionKey, index: chunkIndex, offsetMs, durationMs },
+      { kind: "bytes", bytes: wav, mimeType: WAV_MIME },
+    );
+    if (kept === null && !canSendNow()) return false;
+
+    /*
+      The offset moves before the send, exactly as `closeChunk`'s does and for
+      the same reason: these bytes have been taken, and a send that fails must
+      not make the rest of the meeting's timestamps early. A failed slice that
+      was kept is a delay; one that could not be kept is a gap — never a shift.
+    */
+    chunkStartOffsetMs += durationMs;
+    pcmRead += pcm.length;
+    chunkStartedAtMs = Date.now();
+
+    const chunkId = chunkIdFor(sessionKey, chunkIndex);
+    chunkIndex += 1;
+    if (kept === null) {
+      dispatch({ base64: encodeBase64(wav), mimeType: WAV_MIME }, chunkId, offsetMs, durationMs);
+      return true;
+    }
+    if (canSendNow()) {
+      dispatch({ spooled: kept, base64: encodeBase64(wav) }, chunkId, offsetMs, durationMs);
+    }
+    return true;
+  }
+
+  /**
+   * Whether a chunk may go out now, or should wait in the spool.
+   *
+   * Offline is `connectivity.ts`'s answer, pushed in from the reachability
+   * hook. The bound is `MAX_INFLIGHT_CHUNKS`, which is about *network
+   * concurrency* and nothing else now: a chunk past it is not dropped, it is
+   * kept, and the drain sends it when the recorder is not already three deep.
+   */
+  function canSendNow(): boolean {
+    return !captureOffline() && inFlight.size < MAX_INFLIGHT_CHUNKS;
+  }
+
+  /** Put a chunk in the spool, or answer `null` if this build or disk cannot. */
+  function keep(
+    placement: { meetingId: string; index: number; offsetMs: number; durationMs: number },
+    source: SpoolSource,
+  ): SpooledChunk | null {
+    const spool = audioSpool();
+    if (spool === null) return null;
+    try {
+      return spool.keep(placement, source, epoch);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Every slice still on disk, for the end of a meeting.
+   *
+   * With the spool working, `sliceOnce` never refuses for want of a send, so
+   * this cuts the rest of the recording into the spool and returns — and the
+   * chunks that did not go out now go through the drain. The wait below is for
+   * the case the spool could not take a slice: then `sliceOnce` refuses while
+   * the sends are backed up, and a single call at `stop()` could leave the last
+   * minute of a meeting in a file that is about to be deleted. So it waits the
+   * backlog out rather than dropping it: the audio exists, and `stop()`'s own
+   * comment already accepts that the wait costs a spinner rather than a
+   * microphone.
+   */
+  async function sliceAll(): Promise<void> {
+    if (await abandonIfNowhereToSend()) return;
+    for (;;) {
+      if (sliceOnce(MAX_SLICE_MS)) continue;
+      /*
+        NOTHING WENT OUT, AND THE TWO REASONS FOR THAT WANT OPPOSITE THINGS.
+
+        **The file is fully cut** — every byte is either sent or in flight — and
+        this is done. It returns *without* waiting for the answers, which is the
+        difference between "the audio is off the device" and "the meeting has
+        been transcribed". Only the first is this function's job, and confusing
+        them is what made ending a meeting take as long as Whisper did:
+        `stop()` did not return, so the controller could not fold the `end`,
+        so the live screen stayed up with its clock running while the person
+        waited on a network round trip. The wait still happens — `drain()` is
+        where — but it happens after the meeting has visibly ended.
+
+        **The queue is full**, and then waiting is exactly the point: the bytes
+        stay on the file and the next pass takes them. Bounded at
+        `MAX_INFLIGHT_CHUNKS` slices in memory at a time, which is what keeps a
+        long backlog from being cut into the heap all at once.
+
+        Told apart by re-reading the file rather than by the queue, because
+        "no slice went out" means both and only the file knows which.
+      */
+      if (!hasUncutAudio()) return;
+      if (inFlight.size === 0) return;
+      await drainSends();
+    }
+  }
+
+  /**
+   * Whether the recording still holds at least one whole sample frame nobody
+   * has taken.
+   *
+   * The terminator for `sliceAll`, and deliberately the same arithmetic
+   * `sliceOnce` uses to decide what it can take — a different rounding here
+   * would either spin on a half sample forever or return with audio still on a
+   * file that is about to be deleted.
+   */
+  function hasUncutAudio(): boolean {
+    const active = device;
+    if (active === null || pcmFormat === null) return false;
+    const uri = active.uri;
+    if (uri === null) return false;
+    try {
+      return alignToFrame(new File(uri).size - pcmRead, pcmFormat) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * WITH NOWHERE TO SEND, THE MICROPHONE GOES BACK — ON THIS PATH TOO.
+   *
+   * `closeChunk` has made this check since a meeting was found recording for
+   * nobody: no transcriber means nothing will ever read these bytes, so
+   * holding the input *"is the shape this feature exists to make impossible"*.
+   * Its own check sits below the continuous branch, which returns before
+   * reaching it — so a first version of this change quietly recorded an
+   * uncapped WAVE file, for the length of a meeting, behind a live indicator,
+   * transcribing none of it. Found by reading the diff rather than by a test,
+   * which is why the test below now exists.
+   *
+   * Asked once per tick rather than once per chunk, which is the same question
+   * at the same rate: the transcriber is installed for the life of a session
+   * and either resolves or does not.
+   *
+   * @returns Whether capture was given up, so the caller stops.
+   */
+  async function abandonIfNowhereToSend(): Promise<boolean> {
+    if (resolveTranscriber() !== null) return false;
+    await abandon(NO_TRANSCRIBER);
+    return true;
+  }
+
+  /**
+   * A window of a file, or `null` if it cannot be read right now.
+   *
+   * The handle is closed on every path. A recorder is writing into this file
+   * ten times a second, and a leaked descriptor per tick is a meeting that
+   * stops being able to open its own recording somewhere around the twentieth
+   * minute.
+   */
+  function readRange(file: File, at: number, length: number): Uint8Array | null {
+    let handle: { close(): void; readBytes(length: number): Uint8Array; offset: number | null } | null =
+      null;
+    try {
+      handle = file.open();
+      handle.offset = at;
+      const bytes = handle.readBytes(length);
+      return bytes.length === 0 ? null : bytes;
+    } catch {
+      return null;
+    } finally {
+      try {
+        handle?.close();
+      } catch {
+        // Nothing to do with it, and not worth a chip in somebody's meeting.
+      }
+    }
   }
 
   /**
@@ -559,6 +1168,52 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
   async function closeChunk(durationMs: number): Promise<void> {
     const active = device;
     if (active === null) return;
+
+    /*
+      A CONTINUOUS RECORDER HAS NO CHUNK TO CLOSE, ONLY AUDIO NOT YET TAKEN.
+
+      Every caller of this function means the same thing — *that is the end of a
+      piece of audio, send it* — and on this path that is `sliceAll`: take what
+      is on disk and leave the device alone. `durationMs` is ignored on purpose
+      rather than applied to the offset, because the slicer derives the real
+      duration from the bytes it took, and adding a caller's estimate on top
+      would double-count every pause and every interruption.
+
+      The device is not stopped here. `stop`, `pause` and the interruption path
+      each release or replace it themselves, and doing it here would put a
+      `record()` back on the rotation tick — the one call this whole change
+      exists to stop making.
+    */
+    if (continuous) {
+      /*
+        THE DEVICE IS STOPPED BEFORE A BYTE IS TAKEN, AND THAT ORDER IS THE FIX.
+
+        The first version of this branch sliced while the recorder went on
+        writing, and the comment on `stop()` below — *"the device is already
+        back, so waiting here costs a spinner rather than a microphone"* — was
+        left standing when it had stopped being true. On this path the device is
+        released *after* `closeChunk`, so every second the drain spent waiting
+        for a transcription was a second the microphone was still open, on a
+        meeting somebody had finished. The owner saw it: *"it keeps recording
+        while it's processing"*.
+
+        It was also a tail-chase. `sliceAll` cuts what is on the file, and a
+        recorder that is still running puts another 32 KB a second on it — so
+        each pass found the audio recorded during the previous pass's wait, and
+        the drain converged only because sending happens to be faster than
+        recording.
+
+        Stopping first closes both: the input is released at the moment the
+        person pressed End, and the file is a fixed size, so what is left to cut
+        is bounded by what the ticks had not taken.
+      */
+      await active.stop().catch(() => {
+        // A recorder that will not stop is not a reason to abandon the audio
+        // it has already written. `releaseDevice` tries again and reports.
+      });
+      await sliceAll();
+      return;
+    }
 
     const offsetMs = chunkStartOffsetMs;
     chunkStartOffsetMs += durationMs;
@@ -600,8 +1255,32 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       return;
     }
 
+    /*
+      KEPT, THEN SENT IF IT CAN BE.
+
+      The finished recording is moved into the spool, where it stays until its
+      words are delivered. Offline, or with `MAX_INFLIGHT_CHUNKS` already out,
+      that is all that happens now: it waits, and the drain sends it. This is
+      where a chunk used to be *dropped* — "a backlog is dropped rather than
+      kept" — and the reversal is the point of the spool.
+    */
+    const kept = keep(
+      { meetingId: sessionKey, index: chunkIndex, offsetMs, durationMs },
+      { kind: "file", uri: file.uri, mimeType: CHUNK_MIME },
+    );
+    if (kept !== null) {
+      const chunkId = chunkIdFor(sessionKey, chunkIndex);
+      chunkIndex += 1;
+      if (canSendNow()) dispatch({ spooled: kept, base64: null }, chunkId, offsetMs, durationMs);
+      return;
+    }
+
+    /*
+      The spool would not take it — a full disk. What is left is the rule that
+      predates the spool, because there is nowhere to keep the file: send it
+      once if there is room, and drop it with a sentence if there is not.
+    */
     if (inFlight.size >= MAX_INFLIGHT_CHUNKS) {
-      // Dropped rather than queued, and said out loud. See MAX_INFLIGHT_CHUNKS.
       discard(file.uri);
       report({ recoverable: true, message: SEND_BACKLOG });
       return;
@@ -619,15 +1298,46 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
    * been awaited. Out-of-order arrival is fine — a segment carries its own id
    * and `startMs` — and a failure is one chip rather than a gap in the audio.
    */
-  function dispatch(file: File, chunkId: string, offsetMs: number, durationMs: number): void {
-    inFlightUris.add(file.uri);
-    const run = send(file, chunkId, offsetMs, durationMs)
+  function dispatch(
+    audio: Payload,
+    chunkId: string,
+    offsetMs: number,
+    durationMs: number,
+  ): void {
+    /*
+      Only a rotated chunk owns a file. A slice out of a continuous recording
+      owns nothing — its bytes are already in memory and the file it came from
+      belongs to the meeting, not to this request — so there is no uri to guard
+      from `releaseDevice` and nothing for `send` to delete.
+    */
+    const owned = "uri" in audio ? audio.uri : null;
+    const spooled = "spooled" in audio ? audio.spooled : null;
+    /*
+      A spooled chunk the drain already holds is the drain's to send. It cannot
+      happen from the ticks — a chunk is dispatched in the same breath it is
+      kept — but it is the one guard between two senders and one budget.
+    */
+    if (spooled !== null && !claimChunk(spooled)) return;
+    if (owned !== null) inFlightUris.add(owned);
+    const run = send(audio, chunkId, offsetMs, durationMs)
       .catch(() => {
-        report({ recoverable: true, message: CHUNK_FAILED });
+        /*
+          A spooled chunk is still on the device, so this is a delay rather
+          than a loss — and offline it is not even news: the screen already
+          says the recording is being kept. Only a chunk that was never kept is
+          a gap, and only that one gets the sentence that says so.
+        */
+        if (spooled === null) report({ recoverable: true, message: CHUNK_FAILED });
+        else if (!captureOffline()) report({ recoverable: true, message: CHUNK_KEPT });
       })
       .finally(() => {
         inFlight.delete(run);
-        inFlightUris.delete(file.uri);
+        if (owned !== null) inFlightUris.delete(owned);
+        if (spooled !== null) {
+          releaseChunk(spooled);
+          // Confirmed or not, the drain may now want to look again.
+          spoolChanged();
+        }
       });
     inFlight.add(run);
   }
@@ -638,23 +1348,38 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
   }
 
   async function send(
-    file: File,
+    audio: Payload,
     chunkId: string,
     offsetMs: number,
     durationMs: number,
   ): Promise<void> {
+    if ("spooled" in audio) {
+      await sendSpooled(audio.spooled, audio.base64);
+      return;
+    }
     let audioBase64 = "";
-    try {
-      audioBase64 = await file.base64();
-    } finally {
-      /*
-        The file dies here — before the request that carries its contents, not
-        after it. Its bytes are already in a local that goes out of scope with
-        this call, so nothing is lost by deleting early, and a crash, a kill or
-        a failed request cannot leave a recording of somebody's meeting sitting
-        in the app's cache directory.
-      */
-      discard(file.uri);
+    if ("uri" in audio) {
+      try {
+        audioBase64 = await audio.base64();
+      } finally {
+        /*
+          THE FALLBACK ONLY: a chunk the spool could not take (point 5).
+
+          The file dies here — before the request that carries its contents, not
+          after it. Its bytes are already in a local that goes out of scope with
+          this call, so nothing is lost by deleting early, and a crash, a kill or
+          a failed request cannot leave a recording of somebody's meeting sitting
+          in the app's cache directory.
+
+          A continuous slice has no branch here and needs none: it never had a
+          file of its own, and the recording it was cut from is deleted by
+          `releaseDevice` when the meeting ends — which is the same promise one
+          layer out, kept once instead of once per twenty seconds.
+        */
+        discard(audio.uri);
+      }
+    } else {
+      audioBase64 = audio.base64;
     }
     if (audioBase64.length === 0) return;
 
@@ -663,7 +1388,7 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
 
     const { segments, refusedSegments } = await transcriber.transcribe({
       audioBase64,
-      mimeType: CHUNK_MIME,
+      mimeType: "uri" in audio ? CHUNK_MIME : audio.mimeType,
       chunkId,
       offsetMs,
       durationMs,
@@ -673,6 +1398,44 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       return;
     }
     for (const segment of segments) emit(segment);
+  }
+
+  /**
+   * One kept chunk, out and back. Its file is deleted only after its words
+   * have been handed to somebody listening for its meeting.
+   *
+   * "Somebody listening for its meeting" is the load-bearing condition, and it
+   * is two checks. The controller stops listening once a meeting has ended and
+   * its wait is over, and it starts listening for the *next* meeting before
+   * this recorder learns its id — so a send that outlived its meeting would
+   * otherwise emit into nothing, or into a meeting whose guard refuses foreign
+   * words, and then delete the only copy of them. Such a chunk is left in the
+   * spool instead, and `spoolDrain.ts` delivers it by the id it carries.
+   */
+  async function sendSpooled(chunk: SpooledChunk, inMemory: string | null): Promise<void> {
+    const spool = audioSpool();
+    if (spool === null) return;
+    const audioBase64 = inMemory ?? (await spool.read(chunk));
+    if (audioBase64.length === 0) return;
+
+    const transcriber = resolveTranscriber();
+    if (transcriber === null) return;
+
+    const { segments, refusedSegments } = await transcriber.transcribe({
+      audioBase64,
+      mimeType: chunk.mimeType,
+      chunkId: chunk.chunkId,
+      offsetMs: chunk.offsetMs,
+      durationMs: chunk.durationMs,
+    });
+    if (chunk.meetingId !== owner || segmentListeners.size === 0) return;
+    if (segments.length === 0 && refusedSegments > 0) {
+      spool.confirm(chunk);
+      report({ recoverable: true, message: NO_SPEECH });
+      return;
+    }
+    for (const segment of segments) emit(segment);
+    spool.confirm(chunk);
   }
 
   /**
@@ -788,6 +1551,7 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       // one: system audio is the desktop shell's job, and no copy anywhere
       // may imply otherwise.
       systemAudio: false,
+      systemAudioNeedsPicker: false,
       transcribesAt: "cloud",
       unavailableReason: null,
     },
@@ -798,8 +1562,12 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     async start(options?: CaptureOptions) {
       if (state === "recording") return;
       const meetingId = requireSessionId(options);
+      // Before the first await. See `owner`.
+      owner = meetingId;
+      epoch = currentEpoch();
       if (!(await ensurePermission())) throw new Error(MIC_DENIED);
-      await configureAudioSession(platform);
+      sessionWarning = null;
+      const backgroundEnabled = await configureAudioSession(platform);
 
       sessionKey = meetingId;
       chunkIndex = 0;
@@ -818,6 +1586,14 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
 
       state = "recording";
       startRotation();
+      if (!backgroundEnabled) {
+        sessionWarning = {
+          recoverable: true,
+          kind: "background-unavailable",
+          message: IOS_BACKGROUND_UNAVAILABLE,
+        };
+        report(sessionWarning);
+      }
     },
 
     async pause() {
@@ -825,7 +1601,21 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       cancelResume();
       const wasCapturing = state === "recording";
       if (wasCapturing) {
-        await queue(() => closeChunk(Math.max(0, Date.now() - chunkStartedAtMs)));
+        await queue(async () => {
+          await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
+          /*
+            AND THE MICROPHONE GOES BACK, WHICH IT DID NOT USED TO HAVE TO.
+
+            On the rotating path `closeChunk` stopped the device itself, so a
+            paused meeting held a stopped recorder and `resume`'s `openDevice`
+            tidied it away later. A continuous recorder is still running after
+            its slice — that is the point of it — so pausing without this would
+            leave the input open, the red indicator up, and the file growing
+            for the length of a pause, all of which `resume` would then throw
+            away. Released here, both paths mean the same thing by `paused`.
+          */
+          await releaseDevice();
+        });
       }
       /*
         `interrupted` is cleared here and in `resume` because `cancelResume`
@@ -891,12 +1681,35 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
           await releaseDevice();
         }
       });
-      /*
-        The device is already back, so waiting here costs a spinner rather than
-        a microphone. What it buys is the last few seconds of the meeting —
-        usually the decision — landing in the note before the controller
-        finalizes it, instead of arriving after the first sync.
-      */
+    },
+
+    /**
+     * WAIT FOR WHAT IS STILL BEING TRANSCRIBED. SEPARATE FROM `stop()`.
+     *
+     * This used to be the last line of `stop()`, with a comment saying the
+     * wait "costs a spinner rather than a microphone". Two things made that
+     * wrong once a meeting was one continuous recording.
+     *
+     * The microphone half was false on this path — the device is released
+     * *after* `closeChunk`, and `closeChunk` is where the waiting moved to, so
+     * the input stayed open for the length of the drain. That is fixed where it
+     * happened, by stopping the device before slicing.
+     *
+     * The spinner half was worse than it sounds. `controller.end()` cannot fold
+     * the `end` event until `stop()` resolves, so the session stayed
+     * `recording` for the whole of it: the live screen, the running clock, and
+     * the microphone chip, over a meeting the person had finished — for however
+     * long a transcription took. *"The post processing step was just really
+     * slow… the countdown doesn't stop."*
+     *
+     * What the wait buys is unchanged and still worth having: the end of the
+     * meeting reaches the note before the finalize composes it, rather than
+     * arriving after the first sync. So it is kept and moved. The controller
+     * ends the meeting, lands the person on the screen that says *"your context
+     * is writing this up"*, and waits here — which is the same wait in front of
+     * the right words.
+     */
+    async drain() {
       await drainSends();
     },
 
@@ -906,6 +1719,13 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     },
     onError(listener) {
       errorListeners.add(listener);
+      if (sessionWarning !== null) {
+        try {
+          listener(sessionWarning);
+        } catch {
+          // A screen cannot be allowed to break capture while subscribing.
+        }
+      }
       return () => errorListeners.delete(listener);
     },
   };
@@ -915,26 +1735,26 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
  * Ask for the session a meeting needs, and settle for less if this binary
  * cannot give it.
  *
- * The fallback is the runtime capability check point 2 is about: a build made
- * before `UIBackgroundModes: ["audio"]` existed has no entitlement for a
- * background-capable session, and the honest response is a foreground-only
- * recorder rather than a version comparison — the manifest that carries a
- * version is the half that updated over the air, and the binary is the half
- * that did not. That is an iOS-only history — there has never been a shipped
- * Android binary for an install to be older than — but the same fallback
- * shape costs nothing to keep for Android too, if `setAudioModeAsync` ever
- * throws there for a reason of its own.
- *
- * `platform` picks which mode is the first attempt: Android's carries
- * `allowsBackgroundRecording`, iOS's does not, and this is the one place that
- * difference is applied — see `ANDROID_MEETING_AUDIO_MODE`.
+ * Both platforms first use the same background-capable session. An affected
+ * iOS native module can reject that newer object before opening the microphone;
+ * retrying the old foreground mode restores recording without pretending the
+ * downgrade will survive a lock. Android has no safe equivalent because the
+ * same switch starts its required foreground service, so it still fails closed.
  */
-async function configureAudioSession(platform: "ios" | "android"): Promise<void> {
-  const mode = platform === "android" ? ANDROID_MEETING_AUDIO_MODE : MEETING_AUDIO_MODE;
+async function configureAudioSession(platform: "ios" | "android"): Promise<boolean> {
   try {
-    await setAudioModeAsync(mode);
+    await setAudioModeAsync(MEETING_AUDIO_MODE);
+    return true;
   } catch {
-    await setAudioModeAsync(FOREGROUND_AUDIO_MODE);
+    if (platform === "ios") {
+      try {
+        await setAudioModeAsync(IOS_FOREGROUND_AUDIO_MODE);
+        return false;
+      } catch {
+        // The stable foreground mode also failed; no recorder may be opened.
+      }
+    }
+    throw new Error("Background audio could not be enabled; recording cannot safely continue.");
   }
 }
 

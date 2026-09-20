@@ -22,6 +22,23 @@
  * missing would mark every total on a half-connected account as a floor
  * forever.
  *
+ * ## And a fourth thing, which is not a state but a date
+ *
+ * **Every count here is a measurement taken at a past instant.** `noteCount` is
+ * written by exactly one thing — the walk `verifyStorageBinding` runs — and
+ * nothing that writes notes updates it: not the gateway, not `write_note`, not
+ * email ingestion, not this console's own editor. A context verified while
+ * empty and then filled in by a connected AI client contributes `0` to this sum
+ * for ever.
+ *
+ * That is **not** a floor, which is why the `+` is the wrong answer to it:
+ * notes are deleted as well as written, so a stale count can be over as easily
+ * as under. The honest answer is the one Settings → Storage already gives for
+ * the same number — say when it was taken — and the total is dated by its
+ * *oldest* contributing walk, because a sum is only as fresh as its stalest
+ * part. One undated contributor undates the total: a date the sum cannot
+ * support is worse than none.
+ *
  * ## `null` and `undefined` mean different things here, and must
  *
  * `null` is "this context has no bucket" — a fact, worth zero. `undefined` is
@@ -32,16 +49,25 @@
  * later. An unknown makes the total a floor, which is what a floor is for.
  */
 
+import { relativeTime } from "./format";
+
 /** The fields of a storage binding this cares about. */
 export interface CountedBinding {
   noteCount?: number;
   noteCountTruncated?: boolean;
+  /** When the walk that produced `noteCount` ran. */
+  noteCountedAt?: number;
 }
 
 export interface NotesTotal {
   notes: number;
   /** The real number is this or higher. Render with a `+`. */
   partial: boolean;
+  /**
+   * The oldest contributing walk, or `undefined` when any contributor was
+   * undated. See the header: this is what stops the tile claiming to be now.
+   */
+  countedAt?: number;
 }
 
 /**
@@ -64,6 +90,9 @@ export function totalNotes(
   /** Contexts whose notes are real and are not in `notes`. */
   let missing = 0;
   let truncated = false;
+  /** The oldest contributing walk, once every contributor has carried one. */
+  let countedAt: number | undefined = undefined;
+  let undated = false;
 
   for (const binding of bindings) {
     // No bucket, so no notes. A real zero, and it must not make the sum a
@@ -87,13 +116,38 @@ export function totalNotes(
     counted += 1;
     notes += binding.noteCount;
     if (binding.noteCountTruncated === true) truncated = true;
+
+    // Oldest wins, and an undated contributor wins over every date: the sum
+    // cannot be dated more confidently than its least-dated part.
+    if (binding.noteCountedAt === undefined) undated = true;
+    else if (countedAt === undefined || binding.noteCountedAt < countedAt) {
+      countedAt = binding.noteCountedAt;
+    }
   }
 
   if (counted === 0) return null;
-  return { notes, partial: truncated || missing > 0 };
+  return {
+    notes,
+    partial: truncated || missing > 0,
+    ...(undated || countedAt === undefined ? {} : { countedAt }),
+  };
 }
 
 /** "1,284" — or "1,284+" when the total is a floor. */
 export function formatNotesTotal(total: NotesTotal): string {
   return `${total.notes.toLocaleString("en-US")}${total.partial ? "+" : ""}`;
+}
+
+/**
+ * The tile's caption, which is where the date goes.
+ *
+ * The value is a number and has no room for a clause; the label under it does.
+ * Without one the tile asserts a live figure it cannot support — see the
+ * header — and with one it says exactly what Settings → Storage says about the
+ * same walk. An undated total keeps the caption it has always had rather than
+ * guessing at a freshness nothing measured.
+ */
+export function notesTotalLabel(total: NotesTotal, now: number): string {
+  if (total.countedAt === undefined) return "notes across all";
+  return `notes counted ${relativeTime(total.countedAt, now)}`;
 }

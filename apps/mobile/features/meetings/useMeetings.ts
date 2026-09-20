@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { defaultContext } from "../console/nav";
 import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
-import { createRecorderFor, setTranscriptionClient } from "./capture";
+import { createRecorderFor, setCaptureOffline, setTranscriptionClient } from "./capture";
 import { createConvexGateway, writeNoteThrough } from "./convexGateway";
 import { meetingsWriterFor } from "./desktopGateway";
 import { meetingWorkspaceId, type RoutableContext } from "./destination";
@@ -126,7 +126,7 @@ export function useTranscriptionClient(): void {
  * filters on `role === "owner"` and nothing else, while the sheet's own "your
  * context" is `ownPersonalContext` — `kind === "personal"` **and**
  * `role === "owner"`. Two notions of the same phrase, and one of them is wrong
- * about a bucket: somebody who owns a shared workspace older than their brain
+ * about a bucket: somebody who owns a shared workspace older than their own
  * has a `defaultContext` that is shared, so a meeting filed by it lands in a
  * shared bucket at whatever visibility that folder carries, under a row that
  * said "Only you" — or, for somebody who owns nothing at all, in `contexts[0]`,
@@ -323,6 +323,34 @@ export function useMeetingsSetup(
     the controller is what turns that stream of requests into one drain every
     few seconds. See `SYNC_THROTTLE_MS`.
   */
+  /*
+    OFFLINE, MIRRORED INTO THE TWO PLACES THAT ACT ON IT.
+
+    The recorder reads it to decide whether a chunk goes out now or waits in
+    the spool (`capture/connectivity.ts` says why it must not simply send), and
+    the controller's snapshot is what the recording bar and the meeting screens
+    read to say that audio is being kept on this phone. Coming back online
+    starts a drain of whatever was kept — the same trigger the offline layer
+    uses for its own queues (`features/offline/useBackgroundDrain.ts`).
+  */
+  useEffect(() => {
+    const offline = reachability === "offline";
+    setCaptureOffline(offline);
+    meetings.setOffline(offline);
+  }, [reachability]);
+
+  /*
+    Back in the foreground is a drain too: a phone that reconnected while the
+    app was suspended fires no reachability change the app ever sees, and the
+    audio it kept is what somebody opened the app to find transcribed.
+  */
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") void meetings.drainAudio();
+    });
+    return () => subscription.remove();
+  }, []);
+
   useEffect(() => {
     if (reachability === "offline") return;
     if (snapshot.status !== "ready") return;

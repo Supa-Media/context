@@ -91,12 +91,37 @@ export type RouteDecision =
  * leave the app never survives being built, let alone followed. Passing
  * nothing still produces a bare `/login`, which is every caller that has no
  * particular place to return to.
+ *
+ * ## `rememberedSession`, and why waiting is not the safe answer offline
+ *
+ * `isLoading` is not "the token is being read off the device" — that part is
+ * local. It is "the socket has not come back yet", because `@convex-dev/auth`
+ * only calls a session authenticated once the server has said so. With no
+ * network that never happens, so `wait` never ends, and this gate renders
+ * `null` for as long as the app is open. A relaunch on a train is therefore an
+ * app that will not start, on a device holding a complete offline copy of the
+ * notes somebody wanted to read.
+ *
+ * `rememberedSession` is the caller's answer to "is there a session on this
+ * device that got far enough to write its context list down", and it is only
+ * ever consulted while the server has not answered **and** the device says it
+ * is offline. It cannot manufacture reach: sign-out clears that list with
+ * everything else in `features/offline`, so a signed-out device remembers
+ * nothing and this returns `wait` exactly as it does today.
+ *
+ * What it deliberately does *not* do is claim the session is authenticated.
+ * The decision is `render`, and `isAuthenticated` is still false — the layout
+ * keeps its subscriptions off the same boolean it always did, so nothing here
+ * subscribes on behalf of an identity the server has not confirmed. This gate
+ * decides whether a person sees their app, and the server decides what it may
+ * contain.
  */
 export function resolveProtectedRoute(
   state: AuthState,
   attempted?: string | null,
+  rememberedSession = false,
 ): RouteDecision {
-  if (state.isLoading) return { action: "wait" };
+  if (state.isLoading) return rememberedSession ? { action: "render" } : { action: "wait" };
   if (!state.isAuthenticated) return { action: "redirect", href: loginHref(attempted) };
   return { action: "render" };
 }
@@ -113,7 +138,7 @@ export function resolveProtectedRoute(
  * redirecting out from under somebody who deliberately navigated there.
  *
  * **On a phone it is nothing of the sort.** A native app that opens on "Create
- * your brain / Read the architecture / Also on your phone: iOS · Android" is
+ * your workspace / Read the architecture / Also on your phone: iOS · Android" is
  * pitching the app to somebody who has already installed it, and offering them
  * a download link for the thing they are looking at. There is no front door to
  * be at on a device you had to install this from a store to reach — so `/` is
@@ -123,10 +148,24 @@ export function resolveProtectedRoute(
  * `app/(app)/console/index.tsx` already owns "which context does this account
  * open on" and answers it from the rail's own order. Deciding it twice is how
  * the two answers come to disagree.
+ *
+ * `rememberedSession` is the same escape `resolveProtectedRoute` takes, and
+ * this gate needs it for the same reason: every native launch lands here
+ * first, so a bare `wait` in front of the console's own gate made that one
+ * unreachable from a cold start. Offline, `isLoading` never ends, and `/`
+ * rendered `null` — a blank ground — for as long as the app was open. The
+ * console's gate still decides what renders; this only stops standing in
+ * front of it.
  */
-export function resolveRootRoute(state: AuthState, web: boolean): RouteDecision {
+export function resolveRootRoute(
+  state: AuthState,
+  web: boolean,
+  rememberedSession = false,
+): RouteDecision {
   if (web) return { action: "render" };
-  if (state.isLoading) return { action: "wait" };
+  if (state.isLoading) {
+    return rememberedSession ? { action: "redirect", href: CONSOLE_ROUTE } : { action: "wait" };
+  }
   return { action: "redirect", href: state.isAuthenticated ? CONSOLE_ROUTE : LOGIN_ROUTE };
 }
 
@@ -146,7 +185,7 @@ export function landingCtaHref(state: AuthState): string {
 }
 
 export function landingCtaLabel(state: AuthState): string {
-  return state.isAuthenticated ? "Open your console" : "Create your brain";
+  return state.isAuthenticated ? "Open your console" : "Create your workspace";
 }
 
 /**

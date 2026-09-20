@@ -1,5 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  canEditActivity,
   canResetPrivacy,
   canSetVisibility,
   capabilitiesForRole,
@@ -63,5 +64,33 @@ describe("canResetPrivacy", () => {
     expect(canResetPrivacy(capabilitiesForRole("editor"), false)).toBe(false);
     expect(canResetPrivacy(capabilitiesForRole("member"), false)).toBe(false);
     expect(canResetPrivacy({ canEdit: false, isOwner: true }, false)).toBe(false);
+  });
+});
+
+describe("canEditActivity", () => {
+  test("only the owner reaches the record of who changed what", () => {
+    // Editing `activity.md` by hand is editing the context's own record, so it
+    // is the authority Share and visibility are rather than the "may write
+    // notes" an editor has. An editor adding to the record is ordinary; an
+    // editor rewriting it is not.
+    expect(canEditActivity(capabilitiesForRole("owner"))).toBe(true);
+    expect(canEditActivity(capabilitiesForRole("editor"))).toBe(false);
+    expect(canEditActivity(capabilitiesForRole("member"))).toBe(false);
+    expect(canEditActivity(capabilitiesForRole(undefined))).toBe(false);
+    expect(canEditActivity({ canEdit: false, isOwner: true })).toBe(false);
+  });
+
+  test("and it is the affordance, not the guard", () => {
+    // Worth stating where somebody will read it: the server refuses everybody
+    // else twice over. `activity.md` is stored private and re-asserted private
+    // on any write that finds it otherwise, so a member or an editor cannot
+    // read the file at all — they are served the filtered rendering through
+    // `readActivity`. What this stops is the console drawing a pencil that
+    // leads to a refusal, which is the console's job and not the server's.
+    //
+    // The refusal itself is held by the control plane suite, in
+    // `apps/convex/__tests__/activity.test.ts`:
+    //   `is refused to a member, and taken back if somebody publishes it`.
+    expect(canEditActivity(capabilitiesForRole("editor"))).toBe(false);
   });
 });

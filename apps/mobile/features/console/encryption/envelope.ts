@@ -28,6 +28,12 @@
  */
 
 import { fromBase64Url, toBase64Url, type KdfDescriptor } from "./kdf.ts";
+import {
+  hasNativeNoteCrypto,
+  nativeAesGcmDecrypt,
+  nativeAesGcmEncrypt,
+  nativeRandomBytes,
+} from "./nativeCrypto";
 
 export const ENVELOPE_VERSION = 1;
 export const CONTENT_ALG = "A256GCM";
@@ -230,7 +236,11 @@ async function aesKey(bytes: Uint8Array): Promise<CryptoKey> {
 function randomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
   const source = (globalThis as { crypto?: Crypto }).crypto;
-  if (!source?.getRandomValues) throw new NoteCryptoError("no cryptographic random source");
+  if (!source?.getRandomValues) {
+    const native = nativeRandomBytes(length);
+    if (native !== null) return native;
+    throw new NoteCryptoError("no cryptographic random source");
+  }
   source.getRandomValues(bytes);
   return bytes;
 }
@@ -256,6 +266,32 @@ const encode = (text: string): BufferSource => buf(new TextEncoder().encode(text
  */
 const buf = (bytes: Uint8Array): BufferSource => bytes as unknown as BufferSource;
 
+async function encryptBytes(key: Uint8Array, iv: Uint8Array, plaintext: Uint8Array, aad: string): Promise<Uint8Array> {
+  if (hasNativeNoteCrypto()) {
+    return await nativeAesGcmEncrypt({ key, iv, plaintext, aad: new TextEncoder().encode(aad) });
+  }
+  return new Uint8Array(
+    await subtle().encrypt(
+      { name: "AES-GCM", iv: buf(iv), additionalData: encode(aad) },
+      await aesKey(key),
+      buf(plaintext),
+    ),
+  );
+}
+
+async function decryptBytes(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array, aad: string): Promise<Uint8Array> {
+  if (hasNativeNoteCrypto()) {
+    return await nativeAesGcmDecrypt({ key, iv, ciphertext, aad: new TextEncoder().encode(aad) });
+  }
+  return new Uint8Array(
+    await subtle().decrypt(
+      { name: "AES-GCM", iv: buf(iv), additionalData: encode(aad) },
+      await aesKey(key),
+      buf(ciphertext),
+    ),
+  );
+}
+
 /** Encrypt a whole note so that only this passphrase-derived key opens it. */
 export async function encryptForPassphrase(
   plaintext: string,
@@ -264,23 +300,22 @@ export async function encryptForPassphrase(
   const aad = contentAad(options.workspaceId);
   const noteKey = randomBytes(KEY_BYTES);
   const iv = randomBytes(IV_BYTES);
-  const ct = new Uint8Array(
-    await subtle().encrypt(
-      { name: "AES-GCM", iv: buf(iv), additionalData: encode(aad) },
-      await aesKey(noteKey),
-      encode(plaintext),
-    ),
-  );
-  const recipient = await wrapNoteKey(noteKey, options);
-  noteKey.fill(0);
-  return renderEncryptedNote({
-    v: ENVELOPE_VERSION,
-    alg: CONTENT_ALG,
-    iv: toBase64Url(iv),
-    ct: toBase64Url(ct),
-    aad,
-    recipients: [recipient],
-  });
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  try {
+    const ct = await encryptBytes(noteKey, iv, plaintextBytes, aad);
+    const recipient = await wrapNoteKey(noteKey, options);
+    return renderEncryptedNote({
+      v: ENVELOPE_VERSION,
+      alg: CONTENT_ALG,
+      iv: toBase64Url(iv),
+      ct: toBase64Url(ct),
+      aad,
+      recipients: [recipient],
+    });
+  } finally {
+    noteKey.fill(0);
+    plaintextBytes.fill(0);
+  }
 }
 
 /** Wrap a note key for a passphrase-derived key, carrying the KDF that made it. */
@@ -290,13 +325,7 @@ export async function wrapNoteKey(
 ): Promise<Recipient> {
   const kdf = assertKdfDescriptor(options.kdf);
   const iv = randomBytes(IV_BYTES);
-  const wrapped = new Uint8Array(
-    await subtle().encrypt(
-      { name: "AES-GCM", iv: buf(iv), additionalData: encode(wrapAad(options.workspaceId)) },
-      await aesKey(options.kek),
-      buf(noteKey),
-    ),
-  );
+  const wrapped = await encryptBytes(options.kek, iv, noteKey, wrapAad(options.workspaceId));
   return {
     kind: RECIPIENT_PASSPHRASE,
     id: options.id ?? "p1",
@@ -322,22 +351,18 @@ export async function unwrapNoteKey(
 ): Promise<Uint8Array> {
   let noteKey: Uint8Array;
   try {
-    noteKey = new Uint8Array(
-      await subtle().decrypt(
-        {
-          name: "AES-GCM",
-          iv: buf(assertIv(fromBase64Url(recipient.iv))),
-          additionalData: encode(wrapAad(workspaceId)),
-        },
-        await aesKey(kek),
-        buf(fromBase64Url(recipient.wrapped)),
-      ),
+    noteKey = await decryptBytes(
+      kek,
+      assertIv(fromBase64Url(recipient.iv)),
+      fromBase64Url(recipient.wrapped),
+      wrapAad(workspaceId),
     );
   } catch (error) {
     if (error instanceof NoteCryptoError && error.message.includes("runtime")) throw error;
     throw new NoteCryptoError("that passphrase did not open this note");
   }
   if (noteKey.byteLength !== KEY_BYTES) {
+    noteKey.fill(0);
     throw new NoteCryptoError("that passphrase did not open this note");
   }
   return noteKey;
@@ -362,15 +387,13 @@ export async function decryptWithPassphrase(
     throw new NoteCryptoError("this note is not protected by a passphrase");
   }
   const noteKey = await unwrapNoteKey(recipient, options.kek, options.workspaceId);
+  let plaintext: Uint8Array | undefined;
   try {
-    const plaintext = await subtle().decrypt(
-      {
-        name: "AES-GCM",
-        iv: buf(assertIv(fromBase64Url(envelope.iv))),
-        additionalData: encode(envelope.aad),
-      },
-      await aesKey(noteKey),
-      buf(fromBase64Url(envelope.ct)),
+    plaintext = await decryptBytes(
+      noteKey,
+      assertIv(fromBase64Url(envelope.iv)),
+      fromBase64Url(envelope.ct),
+      envelope.aad,
     );
     return new TextDecoder().decode(plaintext);
   } catch (error) {
@@ -378,6 +401,7 @@ export async function decryptWithPassphrase(
     throw new NoteCryptoError("this note's contents could not be read");
   } finally {
     noteKey.fill(0);
+    plaintext?.fill(0);
   }
 }
 

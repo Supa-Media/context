@@ -38,9 +38,14 @@ export function guestStyles(): string {
     Defaults, so a bundle whose first theme message never arrives is a readable
     note rather than black text on a black ground. The host overwrites all of
     these on mount; these are the values only a broken bridge sees, and they are
-    deliberately neutral rather than either palette. (No backticks in any
-    comment below: this whole stylesheet is inside a template literal and one
-    would end the string.)
+    deliberately neutral rather than either palette — which the focus ring and
+    the selection were not: both were blue-600 at two alphas, left over from the
+    palette that was retired, in the two variables that paint what somebody has
+    selected in their own note. They are greys now, which is what "neutral"
+    said. The live values are the palette's and come over the bridge; see
+    LiveEditor.web.tsx and host.ts. (No backticks in any comment below: this
+    whole stylesheet is inside a template literal and one would end the
+    string.)
   */
   --lp-bg: #ffffff;
   --lp-content: #222222;
@@ -48,17 +53,32 @@ export function guestStyles(): string {
   --lp-muted: #666666;
   --lp-link: #2a5db0;
   --lp-code-bg: rgba(0,0,0,0.06);
+  --lp-line: rgba(0,0,0,0.09);
+  --lp-line-strong: rgba(0,0,0,0.18);
+  --lp-focus-ring: rgba(0,0,0,0.08);
+  --lp-danger: #B23A2B;
   --lp-caret: #222222;
-  --lp-selection: rgba(37,99,235,0.20);
+  --lp-selection: rgba(0,0,0,0.14);
   --lp-mono: ui-monospace, Menlo, monospace;
   --lp-body: -apple-system, system-ui, sans-serif;
 
-  /* The reading measure. See themeVars for the two sets of values. */
+  /* The type scale. See themeVars for the two sets of values. */
   --lp-size: 16px;
   --lp-leading: 1.5;
   --lp-pad-top: 8px;
   --lp-pad-x: 24px;
   --lp-pad-bottom: 32px;
+
+  /*
+    The reading measure — how long a line of prose may get, as a multiple of
+    the note's own font size, so it is the same sentence at both densities.
+    A bare number: the rule that uses it multiplies by 1em there, where the
+    note's type is, rather than here where this element's is. The value is
+    layout.readingMeasureEm, which carries the argument for the number and
+    reaches the real document through themeVars; this copy is the
+    broken-bridge fallback, like the colours above.
+  */
+  --lp-measure: 40;
 
   /* How much of the editor something else is covering. See the inset message. */
   --lp-inset-bottom: 0px;
@@ -125,6 +145,22 @@ html, body {
 #root .cm-content {
   color: var(--lp-content);
   caret-color: var(--lp-caret);
+  /*
+    The reading measure, inset with padding so the column is measured while
+    the element stays the full width of the pane — see the web half's copy of
+    this rule for both halves of that: why a table and a form have to share
+    the paragraph's left edge, and why a click in the margin still has to
+    reach the editor.
+
+    On a phone it never binds: 40em at 16px is 640pt of text and the widest
+    phone this runs on has under 400 inside its gutters, so the max() floor is
+    zero, --lp-pad-x is the only gutter, and this is the rule that does
+    nothing until somebody turns an iPad sideways.
+
+    1em is this element's own font size — var(--lp-size), the note's — which
+    is why the number arrives unitless and is multiplied here.
+  */
+  padding-inline: max(0px, calc((100% - var(--lp-measure) * 1em) / 2));
 }
 #root .cm-line { padding: 0; }
 #root .cm-cursor, #root .cm-dropCursor { border-left-color: var(--lp-caret); }

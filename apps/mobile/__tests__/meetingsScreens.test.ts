@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -76,7 +76,7 @@ const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
 const { meetingKey } =
   require("../features/meetings/keys") as typeof import("../features/meetings/keys");
-const { MEETING_RECORD_VERSION, emptyAck } =
+const { MEETING_RECORD_VERSION, emptyAck, pendingSteps } =
   require("../features/meetings/record") as typeof import("../features/meetings/record");
 const { FINALIZE_TIMEOUT_MS } =
   require("../features/meetings/recovery") as typeof import("../features/meetings/recovery");
@@ -123,6 +123,48 @@ function press(container: HTMLElement, testId: string): void {
 
 function has(container: HTMLElement, testId: string): boolean {
   return container.querySelector(`[data-testid="${testId}"]`) !== null;
+}
+
+/**
+ * Type into a field the way a browser does: set the value through the
+ * prototype's own setter, then fire `input`.
+ *
+ * The setter matters. React installs its own `value` descriptor on the element,
+ * so assigning `el.value` directly leaves React's tracker believing nothing
+ * changed and the `input` event is swallowed — the test then passes against a
+ * screen wired to nothing. `meetingsTyping.test.ts` carries the same helper for
+ * the notepad; this one takes either tag, because a title is an `<input>` and
+ * notes are a `<textarea>`.
+ */
+function typeInto(field: HTMLInputElement | HTMLTextAreaElement, text: string): void {
+  const prototype =
+    field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  act(() => {
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+/**
+ * A destination the way the sheet supplies one, so a record has the *context*
+ * half of a note's address.
+ *
+ * `controller.start` leaves it `null` when nobody was asked — the meetings
+ * list's one-tap record genuinely chose nothing — and a record with no context
+ * cannot be turned into a console URL without guessing which workspace. So a test
+ * about the link supplies one, and the test about the absence does not.
+ */
+const RECORDED_INTO = {
+  kind: "personalInbox",
+  contextSlug: "seyi",
+  folder: "0-inbox/meetings",
+} as const;
+
+/** The one control named `testId`, as the element it actually is. */
+function field<T extends HTMLElement>(container: HTMLElement, testId: string): T {
+  const found = container.querySelector(`[data-testid="${testId}"]`);
+  if (found === null) throw new Error(`no control named ${testId}`);
+  return found as T;
 }
 
 async function configure(
@@ -441,6 +483,47 @@ describe("the live screen is a notepad with a recorder attached", () => {
     mounted.unmount();
   });
 
+  test("the foreground-only warning stays fully visible through later capture notices", async () => {
+    const recorder = fakeRecorder();
+    const warning =
+      "Recording works while Context stays open, but locking your phone will stop the audio.";
+    const originalStart = recorder.start.bind(recorder);
+    recorder.start = async (options) => {
+      await originalStart(options);
+      // The controller subscribes before start so it cannot miss a synchronous
+      // runtime downgrade reported while the native recorder is opening.
+      recorder.fail({
+        recoverable: true,
+        kind: "background-unavailable",
+        message: warning,
+      });
+    };
+    await configure({ recorder });
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+
+    act(() => {
+      recorder.fail({
+        recoverable: true,
+        message:
+          "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.",
+      });
+    });
+
+    const notice = mounted.container.querySelector(
+      '[data-testid="meeting-background-warning"]',
+    );
+    expect(notice?.textContent).toBe(warning);
+    expect((notice?.querySelector("div") as HTMLElement | null)?.style.whiteSpace).not.toBe(
+      "nowrap",
+    );
+    expect(mounted.container.textContent).toContain("No speech was heard");
+    mounted.unmount();
+  });
+
   test("End does not navigate — the same route becomes the note", async () => {
     await configure();
     let id = "";
@@ -456,6 +539,226 @@ describe("the live screen is a notepad with a recorder attached", () => {
 
     expect(pushed).toEqual([]);
     expect(meetings.getSnapshot().live).toBeNull();
+    mounted.unmount();
+  });
+
+  test("End says it is ending, for the whole of the wait it used to spend silent", async () => {
+    /*
+      THE FIVE SECONDS NOBODY WAS TOLD ABOUT.
+
+      `end()` stops the recorder before anything about the session moves, and
+      stopping drains the last chunk so the end of the meeting lands in the
+      note — a deliberate trade `capture/audio.ts` calls "a spinner rather than
+      a microphone". The spinner was never drawn. The session stayed
+      `recording`, this screen went on ticking, and the owner pressed End and
+      watched nothing happen: *"it literally takes, like, five seconds with no
+      indicator of what's going on."*
+
+      So the test stands **inside** that wait — `holdStop` is what makes the
+      window real rather than a tick long — and asserts the three things a
+      person needs there: the control says what it is doing, it stops taking
+      presses, and the screen says what is being waited for. Then it lets go
+      and the meeting finishes, because an indicator that never clears is the
+      same defect wearing a different hat.
+    */
+    // Built here rather than taken from `configure`'s return, so it is typed as
+    // the fake — `holdStop` is the fake's own control and not a recorder's.
+    const recorder = fakeRecorder();
+    await configure({ recorder });
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Slow to stop" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+
+    const release = recorder.holdStop();
+    let ending: Promise<void> = Promise.resolve();
+    await act(async () => {
+      ending = meetings.end();
+      await Promise.resolve();
+    });
+
+    expect(mounted.container.textContent).toContain("Ending");
+    expect(has(mounted.container, "meeting-ending")).toBe(true);
+    expect(
+      field<HTMLElement>(mounted.container, "meeting-end").getAttribute("aria-disabled"),
+    ).toBe("true");
+    // Still recording as far as the contract is concerned, which is why the
+    // wait needs saying at all rather than being covered by the note screen.
+    expect(meetings.getSnapshot().live).not.toBeNull();
+
+    await act(async () => {
+      release();
+      await ending;
+    });
+    expect(meetings.getSnapshot().ending).toBeNull();
+    expect(meetings.getSnapshot().live).toBeNull();
+    mounted.unmount();
+  });
+
+  test("the clock stops when the microphone does, not when the transcript lands", async () => {
+    /*
+      *"The post processing step was just really slow… the countdown doesn't
+      stop."*
+
+      `recorder.stop()` used to wait for every outstanding transcription, and
+      `end()` cannot fold the `end` event until it resolves — so the session
+      stayed `recording` for the whole of it. The person got the live screen, a
+      running clock and a microphone chip over a meeting they had finished, for
+      as long as the network took.
+
+      The wait still exists and is still worth having: the finalize composes
+      the note from the transcript this session holds, so a segment arriving
+      after it is a note missing the end of the meeting. It happens *after* the
+      fold now, behind `MeetingNoteScreen` and the sentence that screen already
+      has for it.
+
+      Held open on purpose, because a drain that resolves on the next tick
+      cannot tell a fold-before from a fold-after.
+    */
+    const recorder = fakeRecorder();
+    await configure({ recorder });
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Slow to write up" });
+      // Something to file: a session that captured nothing folds to `empty`,
+      // which is terminal and never reaches a finalize at all.
+      meetings.setNotes(id, "the decision");
+    });
+
+    const release = recorder.holdDrain();
+    let ending: Promise<void> = Promise.resolve();
+    await act(async () => {
+      ending = meetings.end();
+      await Promise.resolve();
+    });
+
+    /*
+      Mid-drain: the meeting is over as far as every screen is concerned. The
+      session has left `recording`, so `[id].tsx` is drawing the note screen,
+      the clock is not running, and the bar is down.
+    */
+    expect(meetings.getSnapshot().live).toBeNull();
+    expect(meetings.getSnapshot().records[0]?.session.state).toBe("finalizing");
+    expect(meetings.getSnapshot().ending).toBeNull();
+
+    /*
+      And the screen says what is actually outstanding. Before this it had one
+      sentence for a meeting with no note — "waiting to reach your context" —
+      which describes a network problem the person does not have.
+    */
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("turning the last of the audio into words");
+    expect(mounted.container.textContent).not.toContain("Waiting to reach your context");
+    expect(has(mounted.container, "meeting-ending")).toBe(false);
+    mounted.unmount();
+
+    await act(async () => {
+      release();
+      await ending;
+    });
+    expect(meetings.getSnapshot().records[0]?.session.state).toBe("complete");
+  });
+
+  test("a recorder that will not stop still ends the meeting, and stops saying Ending", async () => {
+    /*
+      THE FAILURE MODE AN INDICATOR ADDS THAT SILENCE COULD NOT.
+
+      `ending` is published before an `await`, and the thing awaited is the one
+      call this feature deliberately swallows the failure of — "a recorder that
+      will not stop is not a reason to refuse to end a meeting". Left set by
+      that path it would be a meeting stuck saying it is ending, with End and
+      Pause both refused, for the life of the process: worse than the silence
+      it replaced, because the silence at least left the controls working.
+
+      **What this does not prove is the `finally` itself**, and the sabotage
+      says so: `stopAndFold` catches the recorder's rejection internally, so
+      the clear on the ordinary path is what runs here. Removing the `finally`
+      alone leaves this green; removing the clear altogether fails it. The
+      `finally` is belt and braces over the rest of that body, and it is kept
+      for the reason it is cheap and this flag is one a person is looking at.
+    */
+    const recorder = fakeRecorder();
+    await configure({ recorder });
+    await act(async () => {
+      await meetings.start({ title: "Will not stop" });
+    });
+    recorder.stop = async () => {
+      throw new Error("the device is gone");
+    };
+    await act(async () => {
+      await meetings.end();
+    });
+    expect(meetings.getSnapshot().ending).toBeNull();
+    expect(meetings.getSnapshot().records[0]?.session.state).not.toBe("recording");
+  });
+
+  test("the meeting can be named while it is being recorded", async () => {
+    /*
+      `controller.setTitle` shipped with no callers at all, so every meeting
+      this app has ever written is called "New meeting" — in the list, in the
+      note's `# ` heading, and in the key the note is filed under. The owner's
+      report: *"i can't even edit the meeting title."*
+
+      Typed rather than called: the point of the test is the wiring, and
+      `meetings.setTitle(id, …)` would pass against a screen that renders the
+      name as static text, which is exactly the version being replaced.
+    */
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "New meeting" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+
+    typeInto(field<HTMLInputElement>(mounted.container, "meeting-title"), "Pricing, round two");
+    expect(meetings.getSnapshot().records[0]?.session.title).toBe("Pricing, round two");
+
+    /*
+      And an empty field is not an empty title. `normalizeTitle` is the
+      contract's own fallback, and without it a note heading of `# ` and a
+      nameless row in the list are one backspace away.
+    */
+    typeInto(field<HTMLInputElement>(mounted.container, "meeting-title"), "   ");
+    expect(meetings.getSnapshot().records[0]?.session.title).toBe("Untitled meeting");
+    mounted.unmount();
+  });
+
+  test("the transport has one meter on it, and the pause button is not it", async () => {
+    /*
+      *"Why are there two different equalizers, and the one that's supposed to
+      it doesn't even move?"*
+
+      Because the pause button drew a `Waveform` — the same five-bar mark the
+      live meter beside it is drawn from — so the bar carried two equalizers and
+      only one of them was ever going to move. `Waveform`'s own header states
+      the rule this broke: "a meter that responds to sound is a capability
+      claim". A mark shaped like a meter makes that claim whether or not
+      anything behind it is measuring.
+
+      Counted rather than eyeballed, and counted on the thing that differs: a
+      waveform is five bars, the pause mark is two, and a play triangle is a
+      single leaf. Putting a `Waveform` back on the button is the regression
+      this fails on, and it is the only assertion available — both marks are
+      `View`s, both are the right colour, and a screenshot of either at rest
+      looks deliberate.
+    */
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Two equalizers" });
+    });
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+
+    expect(mounted.container.querySelectorAll('[data-testid="meeting-level"]')).toHaveLength(1);
+    expect(field<HTMLElement>(mounted.container, "meeting-pause-mark").children).toHaveLength(2);
+
+    // And paused it is a triangle: one box, no children at all.
+    await act(async () => {
+      await meetings.pause();
+    });
+    expect(field<HTMLElement>(mounted.container, "meeting-pause-mark").children).toHaveLength(0);
+    expect(mounted.container.querySelectorAll('[data-testid="meeting-level"]')).toHaveLength(1);
     mounted.unmount();
   });
 
@@ -592,8 +895,14 @@ describe("the persistent bar", () => {
     const mounted = mount(createElement(RecordingBar));
 
     press(mounted.container, "recording-bar-pause");
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(meetings.getSnapshot().live?.session.state).toBe("paused");
     press(mounted.container, "recording-bar-pause");
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(meetings.getSnapshot().live?.session.state).toBe("recording");
     mounted.unmount();
   });
@@ -763,10 +1072,9 @@ describe("`saved` is said only when there is a path to print", () => {
     /*
       THE THIRD LINE, WHICH NOTHING ELSE CHECKS.
 
-      A tick and a path are said the instant finalize lands, and the writes
-      that come *after* it — the transcript tail, typing somebody did while the
-      note was being written — can still be sitting in the queue. This screen
-      may not imply the file is finished while they are, which is
+      A tick and a path are said the instant finalize lands, and a write that
+      belongs to this meeting can still be sitting in the queue behind it. This
+      screen may not imply the file is finished while one is, which is
       `app-and-console.md`'s rule about never claiming a write nobody has seen
       land, applied one write later than usual.
 
@@ -776,38 +1084,135 @@ describe("`saved` is said only when there is a path to print", () => {
       changes the metadata fingerprint. So the negative half is asserted first,
       on a meeting that is genuinely finished, and it is the half that fails if
       `stillSending` ever stops filtering to content steps.
+
+      **The pending step here is a transcript batch, and it used to be typing.**
+      `pendingSteps` no longer offers a `notes` step for a `complete` session —
+      there is nothing left that would accept one — so typing after the note
+      lands is a different sentence now, and the test below is the one that
+      asserts it. The record is seeded rather than driven, because the
+      controller cannot produce this: it is a device coming back with a batch
+      whose acknowledgement never arrived, which is the case the line exists for.
     */
-    const { gateway } = await configure();
-    let id = "";
+    const store = memoryStore();
+    await store.set(
+      meetingKey("ws-tail", "mtg_tailtailtailtailx"),
+      JSON.stringify({
+        version: MEETING_RECORD_VERSION,
+        workspaceId: "ws-tail",
+        session: {
+          id: "mtg_tailtailtailtailx",
+          title: "Saved, with a tail",
+          state: "complete",
+          startedAt: "2026-09-11T10:00:00.000Z",
+          endedAt: "2026-09-11T10:30:00.000Z",
+          notes: "the decision",
+          transcript: [
+            {
+              id: "mtg_tailtailtailtailx:0",
+              startMs: 0,
+              endMs: 900,
+              text: "the last thing anybody said",
+              speaker: null,
+            },
+          ],
+          attendees: [],
+          recordedMs: 1_800_000,
+          source: { kind: "in-person" },
+          enhanced: null,
+          notePath: "0-inbox/meetings/2026-09-11-saved-with-a-tail-ailtailx.md",
+          failureReason: null,
+          flags: [],
+        },
+        // The note landed and the metadata was acknowledged with it; the batch
+        // was not. That is exactly one content step outstanding.
+        acked: { metadata: null, segmentIds: [], notes: "the decision", finalized: true },
+        destination: null,
+        runningSince: null,
+        updatedAt: 0,
+        attempts: 0,
+      }),
+    );
     await act(async () => {
-      id = await meetings.start({ title: "Saved, then typed into" });
-      meetings.setNotes(id, "the decision");
-      await meetings.end();
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "ws-tail",
+        store,
+        gateway: fakeGateway(),
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
     });
 
-    const settled = mount(createElement(MeetingNoteScreen, { meetingId: id }));
-    expect(settled.container.textContent).toContain("Saved to your bucket");
-    expect(settled.container.textContent).not.toContain("still being sent");
-    settled.unmount();
-
-    /*
-      Offline rather than refused: `unavailable` is retryable, so the step
-      stays queued and `record.rejection` stays absent — which is exactly the
-      state this line exists for, and is distinct from the refusal case above.
-    */
-    await act(async () => {
-      gateway.offlineFor(50);
-      meetings.setNotes(id, "the decision, expanded");
-      await meetings.sync();
-    });
-
-    const sending = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    const sending = mount(
+      createElement(MeetingNoteScreen, { meetingId: "mtg_tailtailtailtailx" }),
+    );
     expect(sending.container.textContent).toContain("Saved to your bucket");
     expect(sending.container.textContent).toContain(
       "The rest of this meeting is still being sent from this device",
     );
     expect(sending.container.textContent).not.toContain("This meeting has not left the device");
     sending.unmount();
+
+    // And the negative half, on a meeting with nothing outstanding at all.
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Saved and finished" });
+      meetings.setNotes(id, "the decision");
+      await meetings.end();
+    });
+    const settled = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(settled.container.textContent).toContain("Saved to your bucket");
+    expect(settled.container.textContent).not.toContain("still being sent");
+    settled.unmount();
+  });
+
+  test("typing after the note landed is said to be on this device, not sent and not dropped", async () => {
+    /*
+      THE SEAM THE POST-MEETING NOTEPAD OPENS, AND THE ONE ANSWER THAT IS TRUE.
+
+      `MeetingNoteScreen` takes notes while a meeting is `finalizing`, because
+      the note is composed from the session when the finalize runs. A keystroke
+      landing in the seconds *after* that has missed it: the gateway's notes
+      route refuses a complete session in its own words — "this session is
+      already complete; edit the note instead" — and `createConvexGateway` has
+      already done its one write, so it would acknowledge the text and write
+      nothing.
+
+      Three things could happen to those words and two of them are defects.
+      They could be silently dropped. They could be queued forever behind a
+      request that will always be refused, under a line claiming the meeting is
+      "still being sent" — the crying-wolf version, and what this screen did
+      before `pendingSteps` learned the guard. Or the person is told they are
+      on this device and shown where to put them. This asserts the third and
+      rules out the second by name.
+    */
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Typed into afterwards" });
+      meetings.setNotes(id, "what I managed during");
+      await meetings.end();
+    });
+    expect(meetings.getSnapshot().records[0]?.session.state).toBe("complete");
+
+    await act(async () => {
+      meetings.setNotes(id, "what I managed during\n\nand the bit I remembered after");
+      await meetings.sync();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    // Kept, and visible: the words are not thrown away to keep a queue tidy.
+    expect(mounted.container.textContent).toContain("the bit I remembered after");
+    expect(mounted.container.textContent).toContain("on this device only");
+    expect(mounted.container.textContent).not.toContain("still being sent");
+    mounted.unmount();
+
+    // And nothing is queued for a route that would refuse it.
+    const record = meetings.getSnapshot().records.find((r) => r.session.id === id);
+    expect(record).toBeDefined();
+    expect(pendingSteps(record!).some((step) => step.kind === "notes")).toBe(false);
   });
 
   test("a meeting with nothing in the bucket and a refusal still says it has not left", async () => {
@@ -994,6 +1399,108 @@ describe("`saved` is said only when there is a path to print", () => {
     const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
     expect(mounted.container.textContent).toContain("My notes, unchanged");
     expect(mounted.container.textContent).toContain("Phil 1:6 — he who began a good work");
+    mounted.unmount();
+  });
+
+  test("a meeting still being written up takes the notes you did not have time for", async () => {
+    /*
+      *"There's no way to add post meeting notes."* The card printed what was
+      typed and took nothing.
+
+      It takes them while the note has not been written yet, which is the
+      window in which they still reach the file: on this app's writer the note
+      is composed *from this session* when the finalize runs, and on the
+      gateway's the `notes` route accepts every state but `complete`. Driven
+      here through a `finalizing` session — the gateway is offline, so finalize
+      has not landed — and asserted on the session rather than on the DOM,
+      because the pad is uncontrolled and its own value proves nothing about
+      where the words went.
+    */
+    const { gateway } = await configure();
+    let id = "";
+    await act(async () => {
+      gateway.offlineFor(50);
+      id = await meetings.start({ title: "Still being written up" });
+      meetings.setNotes(id, "what I managed during");
+      await meetings.end();
+    });
+    expect(meetings.getSnapshot().records[0]?.session.state).toBe("finalizing");
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    typeInto(
+      field<HTMLTextAreaElement>(mounted.container, "meeting-own-notes-pad"),
+      "what I managed during\n\nand the three things I remembered after",
+    );
+    expect(meetings.getSnapshot().records[0]?.session.notes).toContain(
+      "the three things I remembered after",
+    );
+    mounted.unmount();
+  });
+
+  test("a meeting whose note landed offers the note instead of a pad", async () => {
+    /*
+      `complete` is terminal by the contract, and deliberately: *"once the note
+      is in the customer's bucket, the note is the meeting and it is edited as
+      a note."* That decision was missing its other half — the screen printed
+      the address and offered no door, so the title, the summary, the notes and
+      the transcript were all visibly there and all read-only.
+
+      Both halves are asserted together because each without the other is a
+      defect: a pad here would collect words nothing will ever write out, and
+      no door leaves somebody looking at a file they own and cannot open.
+    */
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Pricing, round two", destination: RECORDED_INTO });
+      meetings.setNotes(id, "the decision");
+      await meetings.end();
+    });
+    const record = meetings.getSnapshot().records[0];
+    expect(record?.session.state).toBe("complete");
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(has(mounted.container, "meeting-own-notes-pad")).toBe(false);
+    expect(has(mounted.container, "meeting-edit-note")).toBe(true);
+
+    press(mounted.container, "meeting-edit-note");
+    /*
+      The console's own file page, addressed by the context this meeting was
+      recorded into and the path the gateway answered with — a deep link, which
+      grants nothing, rather than a meetings-only editor with its own idea of
+      conflicts and its own audit trail.
+    */
+    expect(pushed).toEqual([
+      `/console/@${RECORDED_INTO.contextSlug}?note=${encodeURIComponent(record!.session.notePath!)}`,
+    ]);
+
+    // And the name, because pressing a thing's name is how people rename it.
+    pushed.length = 0;
+    press(mounted.container, "meeting-title");
+    expect(pushed).toHaveLength(1);
+    mounted.unmount();
+  });
+
+  test("a meeting with no note to open keeps its name as a heading", async () => {
+    /*
+      The link needs two facts and neither is guessed: the path is the
+      gateway's answer and the context is the destination the recording was
+      started with. A meeting that has not been written yet has no path, so
+      there is nothing to open — and a heading that is not a control is the
+      honest shape for that, rather than a button that goes nowhere.
+    */
+    const { gateway } = await configure();
+    let id = "";
+    await act(async () => {
+      gateway.offlineFor(50);
+      id = await meetings.start({ title: "Not filed yet" });
+      meetings.setNotes(id, "something");
+      await meetings.end();
+    });
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(has(mounted.container, "meeting-edit-note")).toBe(false);
+    press(mounted.container, "meeting-title");
+    expect(pushed).toEqual([]);
     mounted.unmount();
   });
 
@@ -1616,5 +2123,85 @@ describe("the recording bar knows when you are already there", () => {
     await act(async () => {
       await meetings.end();
     });
+  });
+});
+
+describe("audio kept on the phone is said, on every surface that shows the meeting", () => {
+  /*
+    The words are `keptAudio.ts`'s and tested there; what is checked here is
+    that each surface actually draws them from the real controller's snapshot
+    — a sentence nobody renders is not a sentence the person reads.
+  */
+  const { memorySpool, setAudioSpool } =
+    require("../features/meetings/capture/spool") as typeof import("../features/meetings/capture/spool");
+  const { setCaptureOffline } =
+    require("../features/meetings/capture/connectivity") as typeof import("../features/meetings/capture/connectivity");
+
+  function keepFor(spool: ReturnType<typeof memorySpool>, meetingId: string, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      spool.keep(
+        { meetingId, index, offsetMs: index * 20_000, durationMs: 20_000 },
+        { kind: "bytes", bytes: Uint8Array.from([index]), mimeType: "audio/wav" },
+        0,
+      );
+    }
+  }
+
+  async function offlineWithAudio(count: number): Promise<{ id: string; spool: ReturnType<typeof memorySpool> }> {
+    const spool = memorySpool();
+    setAudioSpool(spool);
+    setCaptureOffline(true);
+    await configure();
+    let id = "";
+    await act(async () => {
+      meetings.setOffline(true);
+      id = await meetings.start({ title: "Underground" });
+      keepFor(spool, id, count);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    });
+    return { id, spool };
+  }
+
+  afterEach(() => {
+    setAudioSpool(null);
+    setCaptureOffline(false);
+    act(() => meetings.setOffline(false));
+  });
+
+  test("the live screen says the recording is saved on this phone, and how much is waiting", async () => {
+    const { id } = await offlineWithAudio(3);
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+    const chip = field(mounted.container, "meeting-audio-kept");
+    expect(chip.textContent).toBe(
+      "Offline — recording is saved on this phone and will be transcribed when you're back online · 3 pieces waiting",
+    );
+    mounted.unmount();
+  });
+
+  test("the bar says it in two words, and in full to a screen reader", async () => {
+    await offlineWithAudio(2);
+    mockPathname = "/somewhere-else";
+    const mounted = mount(createElement(RecordingBar));
+    expect(field(mounted.container, "recording-bar-kept").textContent).toBe("On phone · 2");
+    expect(
+      field(mounted.container, "recording-bar-open").getAttribute("aria-label"),
+    ).toContain("recording is saved on this phone");
+    mounted.unmount();
+    mockPathname = "/";
+  });
+
+  test("an ended meeting says its note is waiting for the audio, and the transcript that it is incomplete", async () => {
+    const { id } = await offlineWithAudio(2);
+    await act(async () => {
+      await meetings.end();
+    });
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(field(mounted.container, "meeting-summary").textContent).toContain(
+      "2 pieces of this recording are saved on this phone and will be transcribed when you're back online",
+    );
+    // The record was not finalized while the audio waits.
+    const record = meetings.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("finalizing");
+    mounted.unmount();
   });
 });

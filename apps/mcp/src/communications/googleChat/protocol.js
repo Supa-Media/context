@@ -7,17 +7,11 @@
 // network: it is the contract the rest of `googleChat/` agrees with.
 
 /**
- * The default backfill window, in days, for a space with no cursor yet.
- *
- * Same number and the same argument as Gmail's:
- * `docs/decisions/communications.md`, "Default Gmail backfill window" —
- * the first sync is the first thing a person waits for and the first bill
- * they see, and 90 days is enough for the product to feel populated without
- * being a full-history fetch nobody asked for. All-time is a deliberate
- * second action (`estimateChatBackfillWindows` never offers it as a default),
- * never a number this constant grows into on its own.
+ * Chat is forward-only. A space with no cursor starts at the current sync
+ * moment rather than asking Google for old messages, because message backfills
+ * burn shared quota quickly and do not belong in workspace-style sync.
  */
-export const DEFAULT_BACKFILL_DAYS = 90;
+export const DEFAULT_BACKFILL_DAYS = 0;
 
 /**
  * How far behind the last-seen cursor a resync re-reads, in days.
