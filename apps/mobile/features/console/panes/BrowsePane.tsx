@@ -1436,7 +1436,7 @@ export function BrowsePane({
           pads the crumb alone rather than the row.
         */
         <View
-          style={[styles.noteHead, compact && styles.noteHeadCompact]}
+          style={styles.noteHead}
           onLayout={(event) => setHeadWidth(event.nativeEvent.layout.width)}
         >
           <View style={[styles.crumb, { paddingLeft: noteGutterFor(headWidth) }]}>
@@ -1983,6 +1983,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "center",
     gap: space.x2,
     minHeight: layout.minTouchTarget,
+    /*
+      Share does not sit on the edge of the window.
+
+      This padding used to be here as `noteHeadCompact`, applied by
+      `compact && styles.noteHeadCompact` — on a row whose only render site is
+      gated on `!compact`. So the one density that draws it got none, and
+      Share's 30pt target ended flush against the region's trailing edge with
+      the glyph's own 6pt inset the only air around it. The owner's report was
+      that it sits "a little too close to the edge", which is the condition the
+      dead style was written to prevent.
+
+      The row still keeps its actions at the trailing edge — that is the design,
+      and the header above says so — so this is a gutter rather than a move
+      inwards. `space.x2` and not `layout.readingMargin`: the crumb's reading
+      gutter is the note's left margin and pulling Share in by the same 25pt
+      would read as the actions having left the edge.
+    */
+    paddingRight: space.x2,
   },
   /**
    * The breadcrumb yields first.
@@ -1996,14 +2014,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * truncated into a different glyph, so that failure went with the words
    * rather than being guarded against.
    */
-  /**
-   * The trailing margin the breadcrumb carries and Share does not.
-   *
-   * `Breadcrumb.barCompact` pads itself to `layout.readingMargin` so the path
-   * lines up with the first character of the note. Share sits outside that
-   * `View`, so without this it hangs on the edge of the glass.
-   */
-  noteHeadCompact: { paddingRight: layout.readingMargin },
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
   /**

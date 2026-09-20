@@ -7171,32 +7171,73 @@ async function toolCreateForm(store, scope, rules, overrides, args) {
   );
   if (written.isError) return written;
 
-  // Where the answers land, and who can read them, said plainly and once. The
-  // visibility is read rather than claimed: the response file inherits its
-  // folder, and an agent that assumed "private because the form is private"
-  // would be telling somebody their client intake is confidential when the
-  // folder default says otherwise.
-  const answersVisibility = effectiveVisibility(responses, rules, overrides);
-  // Three cases, not two. A note held to a named group is neither `team` nor
-  // `private`, and "only this person can read the answers" said of one would
-  // be the control lying in the direction that matters.
-  const whoReads =
-    answersVisibility === "team"
-      ? "Everyone with team access to this context can read the answers. " +
-        "Call set_visibility to hold them back."
-      : answersVisibility === "private"
-        ? "Only this context's owner can read the answers. " +
-          "Call set_visibility to share them with the team."
-        : `The answers are held to ${answersVisibility}: only the people that rule names can read them.`;
+  /*
+   * Where the answers land, and who can read them, said plainly and once —
+   * **and only to a caller the manifest would have told anyway.**
+   *
+   * The sentence itself is load-bearing: the response file inherits its folder,
+   * and an agent that assumed "private because the form is private" would be
+   * telling somebody their client intake is confidential when the folder
+   * default says otherwise.
+   *
+   * But `responses` is a path the *caller* names, and this is a read of
+   * `privacy.md` — a file a team connection cannot open (`read_note` answers
+   * `not found`). Printed unconditionally it answered, one path per call, the
+   * question that file is closed to: is this folder private, is it team, or is
+   * it held to a group — and in the last case it read the group's own name
+   * back, which is membership structure and the sharpest thing a rule carries.
+   * No other surface at that tier discloses it; `scope_info`, `orient` and
+   * `list_notes` each name neither a rule nor a group.
+   *
+   * `mayCollectResponsesAt` is already the predicate for "may this connection
+   * collect here", and it is exactly the line: where it is true, a team caller
+   * is looking at a `team` destination it could have established by writing
+   * there, and an owner may read the manifest regardless. Where it is false
+   * the collection did not happen, and `write_note` has already said so in
+   * words that name no rule.
+   */
+  const mayCollect = mayCollectResponsesAt(scope, responses, rules, overrides);
+  const answersVisibility = mayCollect
+    ? effectiveVisibility(responses, rules, overrides)
+    : null;
   const body = written.content?.[0]?.text ?? "";
+  // Built only where it is going to be printed. Computing it regardless would
+  // leave `The answers are held to null` sitting in a variable one edit away
+  // from a caller, which is how a suppressed disclosure comes back.
+  const destination = mayCollect
+    ? `answers go to: ${responses} (${answersVisibility})\n${whoReads(answersVisibility)}`
+    : `answers go to: ${responses}`;
   return toolText(
-    `${body}\n\nanswers go to: ${responses} (${answersVisibility})\n` +
-      whoReads +
+    `${body}\n\n${destination}` +
       `\nsubmitting: ${parsed[0].config.submit} and above` +
       (parsed[0].config.layout === "table"
         ? "\nlayout: table — one row per answer, so keep paragraph fields few"
         : "\nlayout: sections — one heading per answer")
   );
+}
+
+/**
+ * Who can read the answers, in the caller's own words.
+ *
+ * Three cases, not two. A note held to a named group is neither `team` nor
+ * `private`, and "only this person can read the answers" said of one would be
+ * the control lying in the direction that matters. Only ever called for a
+ * destination the caller may collect into — see `toolCreateForm`.
+ */
+function whoReads(visibility) {
+  if (visibility === "team") {
+    return (
+      "Everyone with team access to this context can read the answers. " +
+      "Call set_visibility to hold them back."
+    );
+  }
+  if (visibility === "private") {
+    return (
+      "Only this context's owner can read the answers. " +
+      "Call set_visibility to share them with the team."
+    );
+  }
+  return `The answers are held to ${visibility}: only the people that rule names can read them.`;
 }
 
 /** A form id from the note's own filename, which is what an author would pick. */
