@@ -192,7 +192,12 @@ export class DropboxStore {
     this.sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     // Not a claim taken on faith anywhere: `probeStore()` still proves it at
     // connect time, exactly as it does for a backend that lies.
-    this.capabilities = { conditionalWrite: true };
+    this.capabilities = {
+      conditionalWrite: true,
+      conditionalCreate: true,
+      conditionalDelete: false,
+      serverSideCopy: false,
+    };
   }
 
   /** Caller key → Dropbox path. Dropbox wants a leading slash; "" is the root. */
@@ -293,13 +298,17 @@ export class DropboxStore {
     let conditional = false;
     if (options && "onlyIf" in options) {
       const expected = options.onlyIf?.etagMatches;
-      if (typeof expected !== "string" || !expected.trim()) {
+      if (options.onlyIf?.absent === true) {
+        mode = { ".tag": "add" };
+        conditional = true;
+      } else if (typeof expected !== "string" || !expected.trim()) {
         throw new Error(
           "onlyIf requires a non-empty etagMatches; refusing to downgrade a conditional write to an unconditional one",
         );
+      } else {
+        mode = { ".tag": "update", update: assertSafeEtag(normalizeEtag(expected)) };
+        conditional = true;
       }
-      mode = { ".tag": "update", update: assertSafeEtag(normalizeEtag(expected)) };
-      conditional = true;
     }
 
     // Dropbox has no content type on upload — `/files/upload` takes
@@ -363,6 +372,26 @@ export class DropboxStore {
     }
   }
 
+  async copy(sourceKey, destinationKey, options = {}) {
+    assertSafeKey(sourceKey);
+    assertSafeKey(destinationKey);
+    const response = await this._rpc("/files/copy_v2", {
+      from_path: this._path(sourceKey),
+      to_path: this._path(destinationKey),
+      autorename: false,
+      allow_ownership_transfer: false,
+    });
+    if (!response.ok) {
+      const tag = await errorTagPath(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) return null;
+      if (options?.onlyIf?.absent === true && tag.split("/").includes("conflict")) return null;
+      this._fail(response.status, "copy", tag);
+    }
+    const body = await response.json();
+    const metadata = body.metadata || body;
+    return { etag: normalizeEtag(metadata.rev || "") };
+  }
+
   /**
    * `list` maps onto `list_folder`, and the two shapes meet more neatly than
    * they do for S3.
@@ -371,6 +400,11 @@ export class DropboxStore {
    * delimiter means "everything below here", which is `recursive: true`. S3
    * has to synthesise folders out of a flat keyspace; Dropbox already has
    * them, so `delimitedPrefixes` is just the folder entries.
+   *
+   * `startAfter` is not supported and is ignored: `list_folder` has no
+   * position but its own cursor, and does not promise key order. The one
+   * caller that passes it — the control plane's sync manifest — checks the
+   * order it got back and reports a short manifest rather than trusting this.
    */
   async list(options = {}) {
     const { prefix, delimiter, cursor, limit } = options;
@@ -406,6 +440,9 @@ export class DropboxStore {
           key,
           size: entry.size,
           uploaded: new Date(entry.server_modified),
+          // The same version `get` reports, so a listing can say which notes
+          // changed without reading them — what the sync manifest is for.
+          ...(entry.rev ? { etag: normalizeEtag(entry.rev) } : {}),
         });
       }
     }

@@ -12,7 +12,7 @@ import {
   useOnboarding,
   type OnboardingController,
 } from "../features/onboarding/useOnboarding";
-import { afterStructure } from "../features/onboarding/flow";
+import { afterStorage, afterStructure } from "../features/onboarding/flow";
 
 // React only treats `act` as authoritative when this is set, and warns loudly on
 // every call when it is not. Setting it keeps the suite's output readable and
@@ -108,7 +108,10 @@ interface Harness {
   unmount: () => void;
 }
 
-function mountOnboarding(results: Record<string, unknown> = {}): Harness {
+function mountOnboarding(
+  results: Record<string, unknown> = {},
+  options: Parameters<typeof useOnboarding>[0] = {},
+): Harness {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const { client, calls } = fakeConvexClient(results);
@@ -119,7 +122,7 @@ function mountOnboarding(results: Record<string, unknown> = {}): Harness {
   function Probe() {
     renders++;
     if (renders > RUNAWAY) throw new Error(`runaway render: ${renders} renders`);
-    latest = useOnboarding();
+    latest = useOnboarding(options);
     // An effect loop never reaches React's own re-render limit, so it has to be
     // caught here. See `consoleRenderLoop.test.ts`.
     const seen = useRef(0);
@@ -330,6 +333,29 @@ describe("pressing “Create these”", () => {
   });
 });
 
+describe("the Obsidian fork", () => {
+  test("skipping a vault import leads to the layout question", async () => {
+    const harness = mountOnboarding(happyDeployment());
+    await claimSeyi(harness);
+
+    await harness.act(() => harness.current().skipVaultImport());
+    expect(harness.current().shape.vault).toBe("skipped");
+    expect(harness.current().step).toBe("structure");
+    harness.unmount();
+  });
+
+  test("a successful import skips the layout question", async () => {
+    const harness = mountOnboarding(happyDeployment());
+    await claimSeyi(harness);
+
+    await harness.act(() => harness.current().finishVaultImport("imported"));
+    expect(harness.current().shape.vault).toBe("imported");
+    expect(harness.current().step).toBe("agents");
+    expect(harness.current().seedPrompt).not.toMatch(/`1-projects\/`/);
+    harness.unmount();
+  });
+});
+
 describe("carrying on past a bucket we could not check", () => {
   test("is not recorded as a connected bucket", async () => {
     // The button only appears when the probe failed or timed out. Nobody has
@@ -353,6 +379,77 @@ describe("carrying on past a bucket we could not check", () => {
 
     expect(harness.current().shape.storage).toBe("skipped");
     expect(harness.current().step).toBe("done");
+    harness.unmount();
+  });
+});
+
+describe("coming back from Stripe with a managed bucket", () => {
+  /**
+   * A deployment where the payment landed and provisioning already finished.
+   *
+   * This is the state the person in the bug report was actually in: the bucket
+   * existed, the binding said `connected`, and a second tab showed the app
+   * using it — while `/welcome?checkout=done` sat on "Creating your storage".
+   */
+  function settledManagedDeployment(bindingStatus: string) {
+    return {
+      "functions/workspaces:listMyWorkspaces": [
+        { workspaceId: "w1", slug: "blessing", kind: "personal", role: "owner" },
+      ],
+      "functions/storage:getStorageBinding": {
+        status: bindingStatus,
+        scaffoldReason: "created",
+      },
+      "functions/billing:status": {
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        active: { managedStorage: true, fastSearch: false },
+        canManage: true,
+        configured: true,
+        priceCents: 500,
+        currency: "usd",
+        interval: "month",
+        ceilingBytes: 50 * 1024 * 1024 * 1024,
+        storageIsManaged: true,
+        managedStorageAvailable: true,
+        managedProvisioning: "ready",
+      },
+    };
+  }
+
+  test("the settling screen hands over once the bucket answers", () => {
+    /*
+      THE DEFECT THIS FILE EXISTS FOR, IN ITS SECOND FORM.
+
+      Managed storage is bound by the control plane while the person is at
+      Stripe, so the client that comes back has submitted nothing — it is a
+      fresh page load. `connectProgress` read that as `idle`, `storageReady`
+      was false forever, and the hand-off past the storage step never fired:
+      a paid-for, working bucket behind a spinner that could not stop.
+    */
+    const harness = mountOnboarding(settledManagedDeployment("connected"), {
+      resume: "storage",
+      checkout: "done",
+    });
+
+    expect(harness.current().claimed).toEqual({ workspaceId: "w1", slug: "blessing" });
+    expect(harness.current().connectState.kind).toBe("connected");
+    expect(harness.current().step).toBe(afterStorage("connected"));
+    expect(harness.current().step).not.toBe("storage");
+    harness.unmount();
+  });
+
+  test("and holds while the bucket is still being made", () => {
+    // The other half of the guard: `unverified` is the ordinary wait, and
+    // hurrying somebody past it lands them on a layout step for storage that
+    // has not proved it can be written to.
+    const harness = mountOnboarding(settledManagedDeployment("unverified"), {
+      resume: "storage",
+      checkout: "done",
+    });
+
+    expect(harness.current().connectState.kind).toBe("idle");
+    expect(harness.current().step).toBe("storage");
     harness.unmount();
   });
 });

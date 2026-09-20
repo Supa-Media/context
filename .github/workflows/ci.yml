@@ -217,6 +217,15 @@ jobs:
           node scripts/check-gateway-imports.mjs --self-test
           node scripts/check-gateway-imports.mjs apps/mcp/src
 
+      # The mirror of the check above: the gateway imports none of the desktop
+      # bridge, and the control plane imports plenty of the gateway — so its
+      # deploy has to notice when any of that changes. It stopped noticing, for
+      # six source trees, and nothing said so; see the script's header.
+      - name: A Convex deploy is triggered by everything it bundles
+        run: |
+          node scripts/check-convex-deploy-paths.mjs --self-test
+          node scripts/check-convex-deploy-paths.mjs
+
   # ── THE APP HAS TO START, NOT JUST TYPECHECK AND PACKAGE ─────────────────
   #
   # #329 merged with 24 green checks and a temporal dead zone in
@@ -444,10 +453,17 @@ jobs:
       # matching the npm package `pnpm install` just resolved, so the two
       # cannot drift, and bumping the browser is the same pull request as
       # bumping the dependency.
-      - name: Install Playwright's WebKit
+      #
+      # Chromium comes too, and only for `offlineShell.spec.ts` below: WebKit
+      # runs the suite, and that one case skips itself there because
+      # Playwright's WebKit driver errors on a reload taken while offline. The
+      # first attempt at this installed WebKit alone and the Chromium step died
+      # with "Executable doesn't exist" — a step that runs a browser has to ask
+      # for it, and nothing else in this job did.
+      - name: Install Playwright's WebKit (and Chromium, for the offline case)
         if: steps.changes.outputs.mobile == 'true'
         working-directory: apps/mobile
-        run: pnpm exec playwright install --with-deps webkit
+        run: pnpm exec playwright install --with-deps webkit chromium
 
       # `EXPO_PUBLIC_E2E_FIXTURE=1` is the only thing that makes `/e2e-fixture`
       # render anything — see that route's own header. Every other export in
@@ -463,7 +479,27 @@ jobs:
         env:
           EXPO_PUBLIC_E2E_FIXTURE: "1"
           EXPO_PUBLIC_CONVEX_URL: "https://e2e-fixture.invalid"
-        run: npx expo export --platform web --output-dir web-build --clear
+        # This also builds the standalone drawing editor into `public/` before
+        # Expo copies public assets into the export. Calling `expo export`
+        # directly leaves `/drawing-assets/editor/index.html` absent, and the
+        # static server serves the SPA fallback page at that URL instead.
+        run: pnpm build:e2e-web
+
+      # `pluginBundles.spec.ts` runs a real community-plugin release through the
+      # real shim, which is the only check that has ever caught a plugin failing
+      # to load at all — `SuggestModal`, then `Events`, then `Modal`, each a
+      # class nobody had listed and each taking a whole bundle down while every
+      # jsdom suite stayed green.
+      #
+      # The releases are not committed (megabytes of third-party minified code
+      # in a public repository) and the spec skips when they are absent, so a
+      # GitHub outage costs a skip rather than a red run. `continue-on-error`
+      # says that out loud rather than leaving it to a silent `|| true`.
+      - name: Fetch the community plugin releases the browser suite runs
+        if: steps.changes.outputs.mobile == 'true'
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: node e2e/webkit/fetch-bundles.mjs
 
       - name: Run the suite in WebKit
         if: steps.changes.outputs.mobile == 'true'
@@ -471,6 +507,32 @@ jobs:
         env:
           CI: "true"
         run: pnpm test:e2e:webkit
+
+      # ── THE OFFLINE CHECK, IN THE ENGINE THAT CAN BE TAKEN OFFLINE ──────
+      #
+      # `offlineShell.spec.ts` is the only thing in this repository that loads
+      # the app in a real browser with the network genuinely gone — the class
+      # of defect #690 escaped into, where a hand-written `CacheStorage` fake
+      # could not model `Response.url` and a private note path ended up in a
+      # cache that sign-out does not clear.
+      #
+      # It skips itself on WebKit, and the reason is measured rather than
+      # assumed: WebKit registers and controls the worker fine (85 cases passed
+      # beside it), but a reload taken while `setOffline(true)` is in force
+      # fails inside Playwright's WebKit driver — "WebKit encountered an
+      # internal error", before the navigation starts. The spec's own header
+      # carries the detail and says to re-check it when that support changes.
+      #
+      # So it runs here, in Chromium, as its own step. A step rather than
+      # folding the chromium project into the line above, because that project
+      # exists to validate *the tests* against the whole suite and would double
+      # every case's runtime for one file's worth of coverage.
+      - name: The app opens with the network off (Chromium)
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        run: pnpm test:e2e:offline
 
       # Playwright's own HTML report — screenshots, traces, and the exact
       # assertion that failed — rather than the raw `test-results/` directory,
@@ -486,3 +548,100 @@ jobs:
           path: apps/mobile/e2e/webkit/playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+
+  # ── THE MONITOR HAS TO BE ABLE TO GO RED ────────────────────────────────
+  #
+  # `gateway-health.yml` probes production on a schedule, so nothing about it
+  # runs on a pull request — which would leave the assertions it is made of
+  # unchecked until the next tick, and a probe whose assertions have quietly
+  # stopped matching anything reports a healthy service forever. That is this
+  # repository's most-repeated failure shape, and it is worse in a monitor than
+  # anywhere else: the thing that is supposed to tell you the endpoint is down
+  # is the last thing anybody looks at while it is green.
+  #
+  # So the self-test runs here, on every pull request, and asserts the opposite
+  # of what the monitor asserts: that fifteen sabotaged responses — an
+  # unreachable host, a 200 serving an error page, PKCE dropped from the
+  # metadata, an unauthenticated 200 from the MCP route — each still produce a
+  # problem. No network, no credential, nothing to install.
+  # ── THE BUNDLE THAT SHIPS TO A PHONE IS NOT THE ONE CI WAS BUILDING ─────
+  #
+  # Everything above resolves modules for node (jest) or for a browser (the
+  # web export, the WebKit suite). A phone is a third resolver: Metro picks the
+  # `react-native` export condition, and a dependency can have an entry point
+  # there that exists on npm and cannot be resolved in this tree.
+  #
+  # That is not hypothetical. Live co-editing put Yjs in the console, Yjs
+  # reaches Web Crypto through `lib0/webcrypto`, and lib0's `react-native`
+  # condition requires `isomorphic-webcrypto/src/react-native` — a package
+  # nothing here depends on. Every pull request was green. Every OTA deploy
+  # after the merge failed at `expo export`, for four merges, because the only
+  # thing that builds a native bundle ran *after* the merge button.
+  #
+  # So the deploy's own export runs here, before merging, for both platforms.
+  # It is the same command `deploy-mobile-update.yml` runs, minus the publish:
+  # no EAS credential, no Expo account, nothing sent anywhere. Roughly two
+  # minutes, and it is the only check in this repository that can see a native
+  # resolution failure at all.
+  #
+  # `--dump-assetmap` and `--source-maps` are deliberately left off: this job
+  # asks whether the bundle *builds*, and the deploy asks for the rest.
+  native-bundle:
+    name: The native bundle still builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # Inside the job as a step, never a `paths:` filter on the trigger —
+      # see `editor-webkit` above and `scripts/check-workflow-triggers.mjs`.
+      - name: Does this touch the app or what it bundles?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            mobile:
+              - "apps/mobile/**"
+              - "packages/**"
+              - "pnpm-lock.yaml"
+              - ".github/workflows/ci.yml"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.changes.outputs.mobile == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.changes.outputs.mobile == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.mobile == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # A syntactically valid, deliberately unreachable host, as `editor-webkit`
+      # uses: nothing in an export dials out, and a missing one would fail the
+      # build for a reason that is not the one this job is asking about.
+      - name: Export the iOS and Android bundles
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
+        run: pnpm exec expo export --platform ios --platform android --output-dir "$RUNNER_TEMP/native-bundle"
+
+  gateway-health-assertions:
+    name: The gateway monitor can still fail
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # Plain Node over `fetch`, no dependency to install — see mcp.yml for
+          # why the cache must be off in a job without pnpm.
+          package-manager-cache: false
+
+      - name: The probe catches what it claims to
+        run: node scripts/health-check-gateway.mjs --self-test

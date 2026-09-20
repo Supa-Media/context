@@ -33,7 +33,15 @@
 // are injected, which is what makes this file testable against a fixture
 // Gmail server and an in-memory store rather than the real internet.
 
-import { isCalendarDate, planChannelDay } from "../../../../packages/communications/src/index.js";
+import { placeDayParts } from "./dayPlacement.js";
+import {
+  channelDestinationFolder,
+  contactDraftsFromCommunication,
+  contactPathForDraft,
+  isCalendarDate,
+  mergeContactNote,
+  planChannelDay,
+} from "../../../../packages/communications/src/index.js";
 
 /** Where every Gmail REST call in this file goes. */
 export const GMAIL_API_ORIGIN = "https://gmail.googleapis.com";
@@ -235,7 +243,7 @@ export const GMAIL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
  *     characters are unsafe to a `ContextStore` key. They are unsafe here
  *     because the resulting path is later embedded, VERBATIM, as the target
  *     of `[[path|label]]` in `packages/communications`' rendering — a
- *     filename of `evil]] and [[.audit/x` would close that link early and
+ *     filename of `evil]] and [[.context/audit/x` would close that link early and
  *     open a second one the sender chose, in a note presented as the
  *     owner's own. Replacing them with `-` closes it at the source, so the
  *     rendering layer's `defangOutsideFence` (which protects the LABEL half)
@@ -287,12 +295,49 @@ export async function sha256Hex(bytes) {
  * two different senders' same-named `invoice.pdf`, and it is checked FIRST —
  * the same file arriving twice, byte for byte, is one key and one write.
  *
+ * `attachments/YYYY/MM/DD/` since 2026-09-18, for the reason the day notes
+ * beside it are nested: this is the one folder here that grows faster than one
+ * entry a day, so a busy mailbox's `attachments/` held thousands of date
+ * folders. The day survives as its own level — an attachment is reached from
+ * the note that carried it, and keeping the day means the sweep below can go
+ * on naming a day without reading a manifest.
+ *
+ * Forward-only. Files already written under `attachments/YYYY-MM-DD/` stay
+ * there, are still served, and are still swept — see `attachmentDateOf`.
+ *
  * @param {{mailboxSlug: string, date: string, contentHash: string, filename: string}} options
  */
 export function attachmentPath(options) {
   if (!isCalendarDate(options.date)) throw new TypeError(`not a calendar date: ${options.date}`);
   const safeName = sanitizeAttachmentFilename(options.filename);
-  return `0-inbox/email/${options.mailboxSlug}/attachments/${options.date}/${options.contentHash}-${safeName}`;
+  const folder = channelDestinationFolder("email", options.mailboxSlug, options.folder);
+  if (folder === null) throw new TypeError(`not an email destination folder: ${options.folder}`);
+  const [year, month, day] = options.date.split("-");
+  return `${folder}/attachments/${year}/${month}/${day}/${options.contentHash}-${safeName}`;
+}
+
+/**
+ * The day an attachment key says it belongs to, in either shape, or `null`.
+ *
+ * Both branches are load-bearing rather than defensive: the nested one is what
+ * this sync writes now, and the flat one is every file written before
+ * 2026-09-18 — which the retention sweep still has to be able to name a date
+ * for, or an expired attachment is deleted and the day that referenced it is
+ * never re-rendered.
+ *
+ * @param {string} path
+ * @returns {string|null}
+ */
+export function attachmentDateOf(path) {
+  if (typeof path !== "string") return null;
+  const nested = /\/attachments\/(\d{4})\/(\d{2})\/(\d{2})\//.exec(path);
+  if (nested) {
+    const date = `${nested[1]}-${nested[2]}-${nested[3]}`;
+    return isCalendarDate(date) ? date : null;
+  }
+  const flat = /\/attachments\/(\d{4}-\d{2}-\d{2})\//.exec(path);
+  if (flat && isCalendarDate(flat[1])) return flat[1];
+  return null;
 }
 
 /** One attachment's bytes, raw. `assertWritableContentType` in the store never sees Gmail's declared type — see that file's comment. */
@@ -328,15 +373,17 @@ export async function getAttachmentBytes({ fetchImpl, accessToken, messageId, at
  *    walks — never a folder listing — which is the "idempotent, and never a
  *    folder walk" property the owner asked for.
  */
-export function manifestPath(mailboxSlug) {
-  return `0-inbox/email/${mailboxSlug}/attachments/.manifest.json`;
+export function manifestPath(mailboxSlug, folder) {
+  const base = channelDestinationFolder("email", mailboxSlug, folder);
+  if (base === null) throw new TypeError(`not an email destination folder: ${folder}`);
+  return `${base}/attachments/.manifest.json`;
 }
 
 const EMPTY_MANIFEST = Object.freeze({ version: 1, resolved: {}, files: {} });
 
 /** Read the manifest, or an empty one — a missing manifest is a mailbox with nothing fetched yet, not an error. */
-export async function readManifest(store, mailboxSlug) {
-  const object = await store.get(manifestPath(mailboxSlug));
+export async function readManifest(store, mailboxSlug, folder) {
+  const object = await store.get(manifestPath(mailboxSlug, folder));
   if (!object) return { version: 1, resolved: {}, files: {} };
   try {
     const parsed = JSON.parse(await object.text());
@@ -353,8 +400,8 @@ export async function readManifest(store, mailboxSlug) {
   }
 }
 
-export async function writeManifest(store, mailboxSlug, manifest) {
-  await store.put(manifestPath(mailboxSlug), JSON.stringify(manifest));
+export async function writeManifest(store, mailboxSlug, manifest, folder) {
+  await store.put(manifestPath(mailboxSlug, folder), JSON.stringify(manifest));
 }
 
 /**
@@ -383,7 +430,8 @@ export async function writeManifest(store, mailboxSlug, manifest) {
  *  - **An attachment already in `resolved`, whose file is live**: `path` is
  *    reused verbatim, again with no fetch.
  *
- * @param {{store, fetchImpl, accessToken, mailboxSlug, date, events: object[],
+ * @param {{store, fetchImpl, accessToken, mailboxSlug, folder?: string,
+ *          date, events: object[],
  *          attachmentMode: "metadata-only"|"store", retentionDays: number|"forever",
  *          now: string, remainingQuotaBytes: number, manifest: object}} options
  * @returns {Promise<{bytesWritten: number, manifest: object, manifestChanged: boolean}>}
@@ -468,6 +516,7 @@ export async function resolveDayAttachments(options) {
       if (!file || file.expired) {
         const path = attachmentPath({
           mailboxSlug: options.mailboxSlug,
+          folder: options.folder,
           date: options.date,
           contentHash,
           filename: attachment.filename,
@@ -490,7 +539,7 @@ export async function resolveDayAttachments(options) {
       // A cross-message duplicate (the identical bytes, a different message
       // or attachmentId) reuses the existing file with no second write —
       // "the same file arriving twice is one object," the same rule the
-      // `.images/` store already keeps.
+      // `.context/assets/images/` store already keeps.
       manifest.resolved[key] = {
         contentHash,
         filename: attachment.filename,
@@ -521,7 +570,7 @@ export async function resolveDayAttachments(options) {
  * @returns {Promise<{expiredHashes: string[], affectedDates: string[]}>}
  */
 export async function sweepExpiredAttachments(options) {
-  const manifest = await readManifest(options.store, options.mailboxSlug);
+  const manifest = await readManifest(options.store, options.mailboxSlug, options.folder);
   const nowMs = Date.parse(options.now);
   const expiredHashes = [];
   const dates = new Set();
@@ -533,7 +582,9 @@ export async function sweepExpiredAttachments(options) {
   // this line, "deletes only files this sync wrote" is a property of the code
   // that writes the manifest; with it, it is a property of the code that acts
   // on it, and a manifest entry naming `privacy.md` deletes nothing.
-  const ownPrefix = `0-inbox/email/${options.mailboxSlug}/attachments/`;
+  const folder = channelDestinationFolder("email", options.mailboxSlug, options.folder);
+  if (folder === null) throw new TypeError(`not an email destination folder: ${options.folder}`);
+  const ownPrefix = `${folder}/attachments/`;
 
   for (const [hash, file] of Object.entries(manifest.files)) {
     if (file.expired) continue;
@@ -543,11 +594,11 @@ export async function sweepExpiredAttachments(options) {
     await options.store.delete(file.path);
     file.expired = true;
     expiredHashes.push(hash);
-    const dateMatch = /\/attachments\/(\d{4}-\d{2}-\d{2})\//.exec(file.path);
-    if (dateMatch) dates.add(dateMatch[1]);
+    const date = attachmentDateOf(file.path);
+    if (date !== null) dates.add(date);
   }
 
-  if (expiredHashes.length > 0) await writeManifest(options.store, options.mailboxSlug, manifest);
+  if (expiredHashes.length > 0) await writeManifest(options.store, options.mailboxSlug, manifest, options.folder);
   return { expiredHashes, affectedDates: [...dates] };
 }
 
@@ -586,10 +637,12 @@ export function buildDayQuery(options) {
 
 /** A Gmail API call that failed, classified just enough for the caller to react. */
 export class GmailApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, details = {}) {
     super(message);
     this.name = "GmailApiError";
     this.status = status;
+    this.reason = typeof details.reason === "string" ? details.reason : undefined;
+    this.googleStatus = typeof details.googleStatus === "string" ? details.googleStatus : undefined;
   }
 }
 
@@ -620,14 +673,34 @@ async function gmailFetch(fetchImpl, accessToken, path, params) {
     // sync or — if a caller reacted to the type the way the class name tells
     // it to — trigger a needless 90-day reconcile, once per deletion, forever.
     // Only `listHistoryPage` promotes a 404 now, at its own call site.
-    // Never includes the response body: it could echo the query string, and
-    // the query string never carries a secret, but the access token rides in
-    // the header of the *request* this failed response is answering — a
-    // provider error page that happened to reflect request context is not
-    // where any of it should end up in a log.
-    throw new GmailApiError(response.status, `Gmail answered ${path} with ${response.status}`);
+    throw new GmailApiError(
+      response.status,
+      `Gmail answered ${path} with ${response.status}`,
+      await safeGoogleErrorDetails(response),
+    );
   }
   return response.json();
+}
+
+async function safeGoogleErrorDetails(response) {
+  try {
+    const type = response.headers?.get?.("content-type") ?? "";
+    if (!type.toLowerCase().includes("application/json")) return {};
+    const body = await response.json();
+    const error = body && typeof body === "object" ? body.error : undefined;
+    if (!error || typeof error !== "object") return {};
+    const reasons = Array.isArray(error.errors)
+      ? error.errors
+          .map((entry) => entry?.reason)
+          .filter((reason) => typeof reason === "string" && reason.length > 0)
+      : [];
+    return {
+      reason: reasons[0],
+      googleStatus: typeof error.status === "string" ? error.status : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 /** One page of message ids matching `query`. */
@@ -719,27 +792,79 @@ export async function listHistoryPage({ fetchImpl, accessToken, startHistoryId, 
     throw error;
   }
   const ids = new Set();
+  let lastRecordId;
   for (const record of body.history ?? []) {
+    if (record?.id !== undefined) {
+      const id = String(record.id);
+      if (lastRecordId === undefined || historyIdIsAfter(id, lastRecordId)) lastRecordId = id;
+    }
     for (const added of record.messagesAdded ?? []) {
       if (added?.message?.id) ids.add(String(added.message.id));
     }
   }
-  return { messageIds: ids, nextPageToken: body.nextPageToken, historyId: body.historyId };
+  return {
+    messageIds: ids,
+    nextPageToken: body.nextPageToken,
+    historyId: body.historyId,
+    lastRecordId,
+  };
 }
 
-/** Every message id added since `startHistoryId`, and the historyId to resume from next time. */
+/**
+ * Is `a` a later history id than `b`?
+ *
+ * Compared as decimal digit strings — length first, then lexicographically —
+ * rather than through `Number`. A Gmail `historyId` is an unsigned 64-bit
+ * value delivered as a string, and the ones large enough to lose precision as
+ * a double are exactly the ones nobody would notice going wrong.
+ */
+function historyIdIsAfter(a, b) {
+  const left = String(a).replace(/^0+(?=\d)/, "");
+  const right = String(b).replace(/^0+(?=\d)/, "");
+  if (left.length !== right.length) return left.length > right.length;
+  return left > right;
+}
+
+/**
+ * Every message id added since `startHistoryId`, and where to resume.
+ *
+ * **`history.list` returns the MAILBOX'S CURRENT `historyId` on every page**,
+ * not a per-page cursor. A walk that stops at `maxPages` and reports that
+ * value tells its caller "you are caught up" while holding only the first N
+ * pages — and everything after them is then skipped forever, silently, with no
+ * gap signalled. That is the one failure mode in this whole path that loses
+ * somebody's mail without saying so, and a mailbox whose cursor is weeks old
+ * is precisely where it fires.
+ *
+ * So a truncated walk says `truncated: true` and carries `lastRecordId`: the
+ * id of the last history *record* it actually walked, which is a valid
+ * `startHistoryId` for the next call and covers exactly the records collected
+ * here. Resuming from it is what makes a truncated pass make progress rather
+ * than repeat itself. `historyId` still reports the mailbox head, because a
+ * caller that reached the end wants it — but a caller must consult
+ * `truncated` before believing it.
+ */
 export async function listAllHistory({ fetchImpl, accessToken, startHistoryId, maxPages = 50 }) {
   const messageIds = new Set();
   let pageToken;
   let historyId = startHistoryId;
+  let lastRecordId;
+  let truncated = false;
   for (let page = 0; page < maxPages; page += 1) {
     const result = await listHistoryPage({ fetchImpl, accessToken, startHistoryId, pageToken });
     for (const id of result.messageIds) messageIds.add(id);
     if (result.historyId) historyId = result.historyId;
+    if (
+      result.lastRecordId !== undefined &&
+      (lastRecordId === undefined || historyIdIsAfter(result.lastRecordId, lastRecordId))
+    ) {
+      lastRecordId = result.lastRecordId;
+    }
     if (!result.nextPageToken) break;
     pageToken = result.nextPageToken;
+    if (page + 1 >= maxPages) truncated = true;
   }
-  return { messageIds, historyId };
+  return { messageIds, historyId, truncated, lastRecordId };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -775,7 +900,8 @@ function latestSentAt(events) {
  * file at all, not an empty one.
  *
  * @param {{mailboxSlug: string, address: string, date: string,
- *          events: object[], nonce: string, now?: string, root?: string}} options
+ *          events: object[], nonce: string, now?: string, root?: string,
+ *          folder?: string}} options
  * @returns {import("../../../../packages/communications/src/protocol.js").ChannelDayPart[]}
  */
 export function renderDay(options) {
@@ -791,7 +917,7 @@ export function renderDay(options) {
       now: options.now ?? latestSentAt(options.events),
       origin: "gmail-sync",
     },
-    { root: options.root },
+    { root: options.root, folder: options.folder },
   );
 }
 
@@ -817,6 +943,21 @@ export function renderDay(options) {
 export async function writeDayPart(store, part, maxAttempts = 3) {
   const bytes = new TextEncoder().encode(part.text).length;
   if (!store.capabilities?.conditionalWrite) {
+    /*
+      NO CONDITIONAL WRITE STILL MEANS NO POINTLESS WRITE.
+      This branch used to `put` unconditionally, which made "re-syncing an
+      unchanged day writes nothing" true on R2 and S3 and false on exactly the
+      backends CLAUDE.md already flags — B2 and Wasabi — where a scheduled loop
+      would then rewrite every touched day on every pass forever, and count the
+      bytes again each time against the connection's quota. The read-compare is
+      the same one the conditional branch does; what this backend cannot give
+      is the *atomicity* that turns a race into a retry, and that is the
+      degradation, not "write blindly".
+    */
+    const current = await store.get(part.path);
+    if (current && (await current.text()) === part.text) {
+      return { path: part.path, bytes, wrote: false };
+    }
     await store.put(part.path, part.text);
     return { path: part.path, bytes, wrote: true };
   }
@@ -835,6 +976,40 @@ export async function writeDayPart(store, part, maxAttempts = 3) {
     // converging on the current etag is always possible.
   }
   throw new Error(`writeDayPart: gave up after ${maxAttempts} attempts on ${part.path}`);
+}
+
+/** Conflict-safe contact merge: every retry re-merges against the bytes that own the new etag. */
+export async function writeContactDraft(store, draft, options = {}, maxAttempts = 3) {
+  const build = async () => {
+    const path = contactPathForDraft(draft, { root: options.root });
+    if (path === null) return null;
+    const existing = await store.get(path);
+    const existingText = existing ? await existing.text() : "";
+    const update = mergeContactNote(existingText, draft, { root: options.root });
+    if (update === null) return null;
+    return { existing, existingText, update, bytes: new TextEncoder().encode(update.text).length };
+  };
+
+  if (!store.capabilities?.conditionalWrite) {
+    const next = await build();
+    if (next === null) return { wrote: false, bytes: 0, quotaExceeded: false };
+    if (next.bytes > options.remainingQuotaBytes) return { wrote: false, bytes: 0, quotaExceeded: true };
+    if (next.existing && next.existingText === next.update.text) return { wrote: false, bytes: 0, quotaExceeded: false };
+    await store.put(next.update.path, next.update.text);
+    return { wrote: true, bytes: next.bytes, quotaExceeded: false };
+  }
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const next = await build();
+    if (next === null) return { wrote: false, bytes: 0, quotaExceeded: false };
+    if (next.bytes > options.remainingQuotaBytes) return { wrote: false, bytes: 0, quotaExceeded: true };
+    if (next.existing && next.existingText === next.update.text) return { wrote: false, bytes: 0, quotaExceeded: false };
+    const result = next.existing
+      ? await store.put(next.update.path, next.update.text, { onlyIf: { etagMatches: next.existing.etag } })
+      : await store.put(next.update.path, next.update.text);
+    if (result) return { wrote: true, bytes: next.bytes, quotaExceeded: false };
+  }
+  throw new Error("writeContactDraft: contact did not settle after the bounded retry");
 }
 
 /**
@@ -856,7 +1031,7 @@ export async function writeDayPart(store, part, maxAttempts = 3) {
  *
  * @param {{store: import("../store/index.js").ContextStore, mailboxSlug: string,
  *          address: string, date: string, events: object[], nonce: string,
- *          now?: string, root?: string, remainingQuotaBytes: number,
+ *          now?: string, root?: string, folder?: string, remainingQuotaBytes: number,
  *          fetchImpl?: FetchLike, accessToken?: string,
  *          attachmentMode?: "metadata-only"|"store",
  *          attachmentRetentionDays?: number|"forever"}} options
@@ -875,12 +1050,13 @@ export async function syncOneDay(options) {
     // count from whatever `now` a caller happened to pass for rendering,
     // which for a backfill can be far in the past.
     const resolutionNow = new Date().toISOString();
-    const manifest = await readManifest(options.store, options.mailboxSlug);
+    const manifest = await readManifest(options.store, options.mailboxSlug, options.folder);
     const resolved = await resolveDayAttachments({
       store: options.store,
       fetchImpl: options.fetchImpl,
       accessToken: options.accessToken,
       mailboxSlug: options.mailboxSlug,
+      folder: options.folder,
       date: options.date,
       events: options.events,
       attachmentMode: options.attachmentMode ?? "metadata-only",
@@ -891,14 +1067,20 @@ export async function syncOneDay(options) {
     });
     bytesWritten += resolved.bytesWritten;
     remaining -= resolved.bytesWritten;
-    if (resolved.manifestChanged) await writeManifest(options.store, options.mailboxSlug, resolved.manifest);
+    if (resolved.manifestChanged) await writeManifest(options.store, options.mailboxSlug, resolved.manifest, options.folder);
   }
 
   // `options.now` travels through UNCHANGED — see `renderDay`'s own default
   // (the latest event's `sentAt`) for why this function must never invent a
   // wall-clock fallback here: doing so would override that determinism for
   // every caller that goes through `syncOneDay`, which is every caller.
-  const parts = renderDay(options);
+  /*
+    Rendered in the dated tree, then placed: a day this bucket already holds a
+    flat note for keeps it, parts and all. `dayPlacement.js` has the argument —
+    a regenerated day that changes folders under itself is one day in two
+    places, both of which parse as that day.
+  */
+  const parts = await placeDayParts(options.store, renderDay(options));
   let partsWritten = 0;
   for (const part of parts) {
     const bytes = new TextEncoder().encode(part.text).length;
@@ -916,7 +1098,28 @@ export async function syncOneDay(options) {
     }
     partsWritten += 1;
   }
-  return { bytesWritten, partsWritten, quotaExceeded: false };
+
+  let contactsWritten = 0;
+  const drafts = contactDraftsFromCommunication(options.events, {
+    root: options.root,
+    folder: options.folder,
+    selfAddresses: [options.address],
+  });
+  for (const draft of drafts) {
+    const result = await writeContactDraft(options.store, draft, {
+      root: options.root,
+      remainingQuotaBytes: remaining,
+    });
+    if (result.quotaExceeded) {
+      return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: true };
+    }
+    if (result.wrote) {
+      bytesWritten += result.bytes;
+      remaining -= result.bytes;
+      contactsWritten += 1;
+    }
+  }
+  return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: false };
 }
 
 /** How long a fetched attachment stays before `sweepExpiredAttachments` deletes it, absent a connection-level choice. */
@@ -963,7 +1166,7 @@ export async function syncDayFromGmail(options) {
     if (message === null) continue;
     events.push(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }));
   }
-  return syncOneDay({
+  const result = await syncOneDay({
     store: options.store,
     mailboxSlug: options.mailboxSlug,
     address: options.address,
@@ -972,12 +1175,14 @@ export async function syncDayFromGmail(options) {
     nonce: options.nonce,
     now: options.now,
     root: options.root,
+    folder: options.folder,
     remainingQuotaBytes: options.remainingQuotaBytes,
     fetchImpl: options.fetchImpl,
     accessToken: options.accessToken,
     attachmentMode: options.attachmentMode,
     attachmentRetentionDays: options.attachmentRetentionDays,
   });
+  return { ...result, messageCount: events.length };
 }
 
 /**
@@ -990,13 +1195,16 @@ export async function syncDayFromGmail(options) {
  *
  * @param {{store, fetchImpl, accessToken, mailboxSlug, address, folders,
  *          startDate: string, endDate: string, nonce: string, now?: string,
- *          root?: string, quotaBytes: number, bytesAlreadyUsed?: number}} options
- * @returns {Promise<{daysProcessed: number, daysWithMail: number, bytesWritten: number, quotaExceeded: boolean}>}
+ *          root?: string, folder?: string, quotaBytes: number, bytesAlreadyUsed?: number,
+ *          attachmentMode?: "metadata-only" | "store",
+ *          attachmentRetentionDays?: number | "forever"}} options
+ * @returns {Promise<{daysProcessed: number, daysWithMail: number, itemsFound: number, bytesWritten: number, quotaExceeded: boolean}>}
  */
 export async function runBackfill(options) {
   const dates = dateRange(options.startDate, options.endDate);
   let bytesWritten = 0;
   let daysWithMail = 0;
+  let itemsFound = 0;
   let daysProcessed = 0;
   let quotaExceeded = false;
   const used = options.bytesAlreadyUsed ?? 0;
@@ -1018,11 +1226,13 @@ export async function runBackfill(options) {
       nonce: options.nonce,
       now: options.now,
       root: options.root,
+      folder: options.folder,
       remainingQuotaBytes: remaining,
       attachmentMode: options.attachmentMode,
       attachmentRetentionDays: options.attachmentRetentionDays,
     });
     daysProcessed += 1;
+    itemsFound += result.messageCount;
     bytesWritten += result.bytesWritten;
     if (result.partsWritten > 0) daysWithMail += 1;
     if (result.quotaExceeded) {
@@ -1030,7 +1240,7 @@ export async function runBackfill(options) {
       break;
     }
   }
-  return { daysProcessed, daysWithMail, bytesWritten, quotaExceeded };
+  return { daysProcessed, daysWithMail, itemsFound, bytesWritten, quotaExceeded };
 }
 
 /**
@@ -1042,8 +1252,15 @@ export async function runBackfill(options) {
  * connection's window again, which regenerates every day from live state and
  * is therefore a correct reconcile regardless of what was missed.
  *
+ * `truncated` is the other half of the same honesty: the history walk ran out
+ * of pages before it ran out of history, so `historyId` here is the last
+ * record walked rather than the mailbox head, and the caller has more to do.
+ * A caller that ignores it and stores the cursor anyway is still correct about
+ * what it wrote; it is only wrong about being finished — which is why this is
+ * returned rather than thrown.
+ *
  * @returns {Promise<{gapDetected: boolean, daysTouched: string[], bytesWritten: number,
- *                     quotaExceeded: boolean, historyId?: string}>}
+ *                     quotaExceeded: boolean, historyId?: string, truncated: boolean}>}
  */
 export async function runIncrementalSync(options) {
   let history;
@@ -1052,16 +1269,30 @@ export async function runIncrementalSync(options) {
       fetchImpl: options.fetchImpl,
       accessToken: options.accessToken,
       startHistoryId: options.startHistoryId,
+      ...(options.maxHistoryPages === undefined ? {} : { maxPages: options.maxHistoryPages }),
     });
   } catch (error) {
     if (error instanceof GmailHistoryExpiredError) {
-      return { gapDetected: true, daysTouched: [], bytesWritten: 0, quotaExceeded: false };
+      return { gapDetected: true, daysTouched: [], bytesWritten: 0, quotaExceeded: false, truncated: false };
     }
     throw error;
   }
 
+  // Where the next pass should start. A complete walk ends at the mailbox
+  // head; a truncated one ends at the last record it actually read, and
+  // `undefined` (a truncated walk that saw no record ids at all) means "do not
+  // move the cursor", which the caller must honour.
+  const resumeFrom = history.truncated ? history.lastRecordId : history.historyId;
+
   if (history.messageIds.size === 0) {
-    return { gapDetected: false, daysTouched: [], bytesWritten: 0, quotaExceeded: false, historyId: history.historyId };
+    return {
+      gapDetected: false,
+      daysTouched: [],
+      bytesWritten: 0,
+      quotaExceeded: false,
+      historyId: resumeFrom,
+      truncated: history.truncated,
+    };
   }
 
   // Which days changed. Fetching each changed message once here — rather than
@@ -1105,6 +1336,7 @@ export async function runIncrementalSync(options) {
       nonce: options.nonce,
       now: options.now,
       root: options.root,
+      folder: options.folder,
       remainingQuotaBytes: remaining,
       attachmentMode: options.attachmentMode,
       attachmentRetentionDays: options.attachmentRetentionDays,
@@ -1116,5 +1348,12 @@ export async function runIncrementalSync(options) {
       break;
     }
   }
-  return { gapDetected: false, daysTouched, bytesWritten, quotaExceeded, historyId: history.historyId };
+  return {
+    gapDetected: false,
+    daysTouched,
+    bytesWritten,
+    quotaExceeded,
+    historyId: resumeFrom,
+    truncated: history.truncated,
+  };
 }

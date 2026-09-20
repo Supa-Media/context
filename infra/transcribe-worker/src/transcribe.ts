@@ -64,6 +64,12 @@
  *     first rule. Absent — the fallback model reports nothing of the kind — it
  *     has no opinion and says so by not firing.
  *
+ *     `TURBO_INPUT` below is what makes that evidence exist. `vad_filter` is
+ *     **off** by default on the turbo model, and with it off `duration_after_
+ *     vad` is just the duration — so this rule was armed, correct, and unable
+ *     to fire on any chunk, which is how the 166 words got through a guard
+ *     written to stop them.
+ *
  *  2. **`no_speech_prob` together with `avg_logprob`.** Whisper's own decoder
  *     treats a segment as silence when `no_speech_prob` is above its
  *     `no_speech_threshold` **and** `avg_logprob` is below its
@@ -202,6 +208,47 @@ export const TURBO_MODEL = "@cf/openai/whisper-large-v3-turbo";
  * downgrade to the worse one, because both of them answer.
  */
 export const FALLBACK_MODEL = "@cf/openai/whisper";
+
+/**
+ * ASK THE TURBO MODEL TO RUN ITS VOICE-ACTIVITY FRONT END.
+ *
+ * `vad_filter` defaults to **false** on `@cf/openai/whisper-large-v3-turbo`,
+ * which is a fact about the deployment rather than about the rule that reads
+ * its output — and it is the fact that left rule 1 above armed but unable to
+ * fire. With VAD off, `faster-whisper` sets `duration_after_vad = duration`,
+ * so `vadHeardNothing` read a positive number, had no opinion, and every quiet
+ * chunk went to the decoder to be hallucinated over. The refusal that was
+ * written to catch 166 words nobody said was reading a field the engine was
+ * never asked to compute.
+ *
+ * So this is not a new policy and no threshold of ours appears in it. It turns
+ * on the engine's own front end so that the engine's own evidence exists —
+ * exactly the deployment `docs/decisions/meetings.md` says rule 1 is *"armed
+ * for"*. Two things follow, and both are wanted:
+ *
+ *  - A chunk whose audio is entirely non-speech comes back with
+ *    `duration_after_vad: 0`, rule 1 fires, and the words the decoder would
+ *    otherwise have invented over it never reach anybody's bucket.
+ *  - A chunk that is *mostly* quiet has its silence cut before decoding, which
+ *    is where Whisper's hallucinations come from in the first place. That half
+ *    needs no rule at all; it is the engine not being handed the silence.
+ *
+ * **What this costs, stated.** Silero VAD decides what speech is, and speech it
+ * drops is speech nobody transcribes — the same trade rule 2 already takes,
+ * moved one step earlier and taken by the engine's own front end rather than by
+ * a number in this file. It is visible rather than silent: a wholly refused
+ * chunk puts one sentence on the recorder's screen while the meeting runs.
+ * **How a wrong call here would show up** is that sentence appearing during a
+ * meeting people are talking in, which is the first thing to look at if
+ * anybody reports a short transcript.
+ *
+ * Only the turbo model is asked. `FALLBACK_MODEL` is the original `@cf/openai/
+ * whisper`, whose published input is `audio` and nothing else; sending it a key
+ * it does not declare would risk turning the one path that exists for an
+ * account without the turbo model into a 502, to arm a rule that model reports
+ * nothing for anyway.
+ */
+export const TURBO_INPUT = Object.freeze({ vad_filter: true });
 
 /** One utterance, timed from the start of this chunk. */
 export interface TranscriptSegment {

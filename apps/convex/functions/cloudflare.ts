@@ -74,12 +74,14 @@ import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSecrets } from "./lib/verification";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 import { addressingIsAmbiguous } from "./storage";
+import { managedAccountId, refuseManagedAccountId } from "./lib/managedStorage";
 import {
   CloudflareApiError,
   type ProvisionErrorCode,
   type ProvisionStage,
   type R2Jurisdiction,
   R2_BUCKET_WRITE_PERMISSION_GROUP,
+  R2_CREDENTIAL_SETTLE_MS,
   R2_REGION,
   apiTokenTemplateUrl,
   bucketCreatedDuringAttempt,
@@ -276,6 +278,10 @@ export const provisionCloudflareR2 = action({
           "That does not look like a Cloudflare account id. It is 32 hexadecimal characters, shown on the right of any account's overview page.",
       });
     }
+    // The BYO path provisions into an account the customer owns. Ours is not
+    // one, and a bucket created there by this flow would be a customer bucket
+    // nobody could hand over. No-ops where no managed account is configured.
+    refuseManagedAccountId(accountId, managedAccountId());
     const bucket = args.bucket.trim().toLowerCase();
     const problem = bucketNameProblem(bucket);
     if (problem !== null) {
@@ -643,6 +649,7 @@ export const provisionCloudflareStorage = internalAction({
       // hardcoded id would be a guess about what a token is allowed to do.
       const permissionGroupId = await resolvePermissionGroupId({
         apiToken: setupCredential,
+        accountId: job.accountId,
         name: R2_BUCKET_WRITE_PERMISSION_GROUP,
       });
 
@@ -794,6 +801,15 @@ export const completeProvisioning = internalMutation({
       accessKeyId: args.accessKeyId,
       encryptedSecretAccessKey: args.encryptedSecretAccessKey,
       forcePathStyle: args.forcePathStyle,
+      /*
+        The key in this row was minted seconds ago, so the probe `applyBinding`
+        schedules is racing R2's IAM propagation and will lose some of the time.
+        Without this window it loses loudly: the connection is painted red, and
+        Re-verify — which changes nothing — fixes it. That is a race being shown
+        to somebody as a fault, and it is the same one `completeManagedProvisioning`
+        already waits out on the bucket we pay for.
+      */
+      verificationRetryUntil: Date.now() + R2_CREDENTIAL_SETTLE_MS,
     });
 
     // Distinct from `storage.bound`, which `applyBinding` records: this says a

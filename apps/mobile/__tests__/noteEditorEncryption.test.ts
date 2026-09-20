@@ -98,6 +98,7 @@ function fakeController(): NoteEncryptionController {
     isUnlocked: () => false,
     msUntilLock: () => null,
     lock: () => {},
+    close: () => {},
     touch: () => {},
     protect: async () => {
       throw new Error("not used in this test");

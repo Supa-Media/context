@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  cachedNoteCopies,
   clearDraft,
+  clearNote,
   getDraft,
   getListing,
   getNote,
@@ -9,32 +11,60 @@ import {
   putListing,
   putNote,
   putOutbox,
+  retireCopies,
   sweep,
   type Cached,
   type Draft,
 } from "./cache";
 import { openStore } from "./store";
 import { currentEpoch } from "./epoch";
+import {
+  adoptCachedNotes,
+  forgetMirroredNote,
+  mirroredAncestor,
+  mirroredListing,
+  mirroredNote,
+  moveMirroredBody,
+  putMirroredNotes,
+  rememberMirroredFolders,
+} from "./mirror";
+import { holdAncestors, neededEtags, releaseAncestors } from "./mirrorHolds";
+import { openMirrorStore } from "./mirrorStore";
 import type { KeyValueStore } from "./memory";
 import {
+  claimedPaths,
   counts,
   discard,
+  dropOp as dropOpFrom,
   emptyOutbox,
   enqueue,
   find,
+  findOp,
   forceMine,
+  isEmpty,
+  opsOf,
+  overrideOp as overrideOpIn,
+  queueFolder as queueFolderIn,
+  queueMove as queueMoveIn,
+  queueRemoval as queueRemovalIn,
   retry,
+  retryOp as retryOpIn,
+  localPathOf,
+  rebaseOp as rebaseOpIn,
+  routesThroughQueue,
+  serverPathOf,
   settle,
   type Outbox,
   type OutboxCounts,
+  type PendingOp,
   type PendingWrite,
 } from "./outbox";
-import { drainOutbox, type DrainReport, type WriteOutcome } from "./sync";
+import { drainOutbox, type DrainReport, type OpOutcome, type OpSent, type WriteOutcome } from "./sync";
 import { useReachability } from "./reachability";
 import type { CacheScope } from "./keys";
 import type { Reachability } from "./copy";
 import type { VisibilityTier } from "../console/visibility";
-import type { FolderListing, OpenNote } from "../console/files/types";
+import type { FolderListing, OpenNote, Visibility } from "../console/files/types";
 
 /**
  * The offline layer, as one object the file browser can hold.
@@ -91,7 +121,28 @@ import type { FolderListing, OpenNote } from "../console/files/types";
  * *copies* are gated on it: a draft and the queue are the person's own typing,
  * carry no clearance, and must keep working while the console is still finding
  * out what this person is.
+ *
+ * ## Where a copy comes from: the mirror, or the bounded cache
+ *
+ * On a device with a mirror (`mirrorStore.ts` — every native build, and every
+ * browser that lets IndexedDB open) a note and a folder listing are read from
+ * it and written to it, and the per-note cache in `cache.ts` is retired: its
+ * copies are handed to the mirror once, on mount, and removed. The mirror
+ * answers the same question for every note rather than for the ones somebody
+ * opened, and is re-derived from the server's own filter on every complete
+ * sync, which the bounded cache never was. On a browser with no mirror the
+ * bounded cache is still the answer, unchanged — so both halves stay, and each
+ * `remember*`/`cached*` below picks one per call rather than writing both.
+ *
+ * The draft and the queue are in `cache.ts` on every device, mirror or not.
+ * They are the person's typing, not copies, and nothing about the mirror
+ * touches them.
  */
+
+/** A local handle for an op. Never sent, so it only has to be unique on this device. */
+function newOpId(): string {
+  return `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 /** A second of typing is what a crash may cost. See the file comment. */
 export const PERSIST_DEBOUNCE_MS = 1_000;
@@ -119,6 +170,39 @@ export interface OfflineNotes {
   rememberListing: (listing: FolderListing) => void;
   cachedNote: (path: string) => Promise<Cached<OpenNote> | null>;
   cachedListing: (path: string) => Promise<Cached<FolderListing> | null>;
+  /**
+   * The body a three-way merge may use as the ancestor of a draft typed on
+   * `baseEtag` — see `mirroredAncestor`. Not `cachedNote`: that is the newest
+   * copy, for reading, and the newest copy is exactly what the ancestor is not
+   * once the bucket has moved on.
+   */
+  ancestorFor: (
+    path: string,
+    baseEtag: string | null,
+  ) => Promise<{ text: string; etag: string } | null>;
+  /**
+   * The mirror's copy of a note, for showing while the bucket is asked — and
+   * `null` on a device with no mirror. Deliberately not the bounded cache: a
+   * copy of what somebody happened to open is not what a whole-context mirror
+   * reconciled minutes ago is, and the online open that would show it did not
+   * do so before the mirror existed.
+   */
+  instantCopy: (path: string) => Promise<Cached<OpenNote> | null>;
+  /**
+   * Drop the cached copy of one note.
+   *
+   * The only *removal* on the copy side of this interface, and it exists for
+   * the one case where a cached body is not a disposable derivative but a
+   * plaintext this device has been asked to stop holding: a note that has just
+   * become ciphertext. Every other reduction of the cache is `sweep`'s bounds
+   * or `forgetWorkspace`, both of which act on a whole store rather than on a
+   * note somebody named.
+   *
+   * Unlike `cachedNote`, this is **not** gated on the session's clearance: it
+   * clears every clearance's copy (`clearNote`), because the copy this has to
+   * take may have been filed under one this session cannot even read.
+   */
+  forgetNote: (path: string) => void;
 
   /** The unsaved, un-queued draft for a note, if there is one. */
   savedDraft: (path: string) => Promise<Draft | null>;
@@ -135,10 +219,69 @@ export interface OfflineNotes {
   /** Put a parked refusal back in the queue, unchanged. */
   retryQueued: (path: string) => void;
 
+  /*
+    Renames, moves, archives, deletes and new folders — `PendingOp`. Every one
+    of these takes the path *as the console shows it*; where that is a note
+    this device has renamed, the queue knows the bucket's name for it
+    (`serverPathOf`) and the callers never have to.
+  */
+  /** The bucket's name for a note this device may have renamed. */
+  serverPathOf: (path: string) => string;
+  /** Where the console shows a bucket path this device may have renamed. */
+  localPathOf: (path: string) => string;
+  /**
+   * A save of this note reached the bucket directly: its queued edit is done,
+   * and whatever was queued to happen to the note next follows the version the
+   * save produced. Not `dropQueued` — that lets a create go, and with it
+   * everything waiting on the create.
+   */
+  landedQueued: (path: string, etag: string) => void;
+  /** Whether an action on this path has to go through the queue, even online. */
+  routesThroughQueue: (path: string) => boolean;
+  /** Whether the queue is holding this name — see `claimedPaths`. */
+  claims: (path: string) => boolean;
+  /** The create waiting for this path, if the note exists only on this device. */
+  pendingCreate: (path: string) => PendingWrite | undefined;
+  /**
+   * Queue a rename or move. `etag` is the note's version as the device has it;
+   * `false` when the queue would not take it — see `queueMove`.
+   */
+  queueMove: (move: { from: string; to: string; etag: string | null }) => QueuedOp;
+  /**
+   * Queue a delete or archive. `dropped` is a create that was never sent and is
+   * now gone — the caller offers it back with `restoreCreate`.
+   */
+  queueRemoval: (removal: {
+    kind: "trash" | "archive";
+    path: string;
+    etag: string | null;
+  }) => QueuedOp & { dropped?: PendingWrite };
+  queueFolder: (path: string) => QueuedOp;
+  /** Take an op back, or discard a parked one. */
+  dropOp: (id: string) => void;
+  /** A refused op, back in the queue because a person asked. */
+  retryOp: (id: string) => void;
+  /** "Do it anyway" — against the version the conflict reported. */
+  overrideOp: (id: string) => void;
+  /** The undo of a delete that dropped an unsent create. */
+  restoreCreate: (write: PendingWrite) => void;
+  /** The id of the op this queue holds on a bucket path, for an undo. */
+
   /** Try to empty the queue now. A no-op while one is already running. */
   drain: () => void;
   /** What the last drain did, for the console to report. `null` until one runs. */
   lastDrain: DrainReport | null;
+}
+
+/**
+ * What queueing an op answered. `undo` puts the queue back exactly as it was
+ * before the press, and answers `false` when it no longer can — the op is on
+ * its way to the bucket or already there, or something else in the queue has
+ * moved since — so a caller never says "undone" about something that was not.
+ */
+export interface QueuedOp {
+  ok: boolean;
+  undo?: () => boolean;
 }
 
 export function useOfflineNotes(options: {
@@ -154,6 +297,19 @@ export function useOfflineNotes(options: {
   write: (write: PendingWrite) => Promise<WriteOutcome>;
   /** Called for each write that landed, so the editor can take the new etag. */
   onWritten?: (result: { path: string; etag: string }) => void;
+  /**
+   * Performs one queued op. Optional for the callers with nothing but edits —
+   * without it, ops are left in the queue untouched.
+   */
+  op?: (op: PendingOp) => Promise<OpOutcome>;
+  /** Called for each op that landed, so the editor can follow a renamed note. */
+  onOpDone?: (done: OpSent) => void;
+  /**
+   * The visibility a new note in this folder gets, as the console last listed
+   * it — for the badge of a note created offline, until a sync says. Absent,
+   * `private`: a guess never claims a note is shared.
+   */
+  folderDefaultFor?: (path: string) => Visibility;
 }): OfflineNotes {
   const { tier, workspaceId } = options;
   const reachability = useReachability();
@@ -207,6 +363,12 @@ export function useOfflineNotes(options: {
   writeRef.current = options.write;
   const onWrittenRef = useRef(options.onWritten);
   onWrittenRef.current = options.onWritten;
+  const opRef = useRef(options.op);
+  opRef.current = options.op;
+  const onOpDoneRef = useRef(options.onOpDone);
+  onOpDoneRef.current = options.onOpDone;
+  const folderDefaultRef = useRef(options.folderDefaultFor);
+  folderDefaultRef.current = options.folderDefaultFor;
 
   const flush = useCallback(
     (next: Outbox) => {
@@ -284,8 +446,49 @@ export function useOfflineNotes(options: {
    */
   useEffect(() => {
     if (!ready) return;
-    void sweep(store, { now: Date.now() }).catch(() => {});
-  }, [ready, store]);
+    void (async () => {
+      /*
+        On a device with a mirror, the note and listing copies are handed over
+        and retired first — see the file comment. Adopted before removal, so a
+        copy that is the ancestor of an edit queued before the upgrade keeps
+        its Merge; removed only once the adoption has been written, so a
+        session that ended part-way (the adoption refused by the barrier)
+        leaves the copies for `forgetLocalCopies`, which is already taking them.
+      */
+      const mirror = await openMirrorStore();
+      if (mirror !== null && mine()) {
+        let handedOver = true;
+        for (const group of await cachedNoteCopies(store)) {
+          const adopted = await adoptCachedNotes(
+            mirror,
+            epochRef.current,
+            group.scope,
+            group.workspaceId,
+            group.copies,
+          );
+          if (!adopted && !mine()) handedOver = false;
+        }
+        if (handedOver && mine()) await retireCopies(store);
+      }
+      await sweep(store, { now: Date.now() });
+    })().catch(() => {});
+  }, [mine, ready, store]);
+
+  /*
+    The versions this context's live queue is based on, held for the mirror.
+
+    The store's copy of the queue trails this one by up to
+    `PERSIST_DEBOUNCE_MS`, and a sync that ran in that second would see no
+    queued edit and replace the body it is based on. The hold closes that
+    second; `mirrorHolds.ts` has the rest of the argument.
+  */
+  const holdOwner = useRef(`outbox:${Math.random().toString(36).slice(2)}`).current;
+  useEffect(() => {
+    const byPath: Record<string, (string | null)[]> = {};
+    for (const write of outbox.writes) (byPath[write.path] ??= []).push(write.baseEtag);
+    holdAncestors(holdOwner, workspaceId, byPath);
+  }, [holdOwner, outbox, workspaceId]);
+  useEffect(() => () => releaseAncestors(holdOwner), [holdOwner]);
 
   useEffect(
     () => () => {
@@ -293,6 +496,127 @@ export function useOfflineNotes(options: {
       if (draftTimer.current !== null) clearTimeout(draftTimer.current);
     },
     [],
+  );
+
+  /**
+   * Move this device's copy of a note onto text and an etag that are now in the
+   * bucket. The mirror where there is one — at every clearance holding the
+   * note, keeping any ancestor still needed — and the bounded cache where there
+   * is not. Neither invents an entry for a note it does not hold: a save result
+   * carries none of the visibility fields.
+   */
+  const rememberSent = useCallback(
+    (body: { path: string; text: string; etag: string }) => {
+      if (workspaceId === null || scope === null || !mine()) return;
+      const epoch = epochRef.current;
+      void (async () => {
+        const mirror = await openMirrorStore();
+        if (mirror !== null) {
+          const needed = await neededEtags(store, workspaceId);
+          if (!mine()) return;
+          await moveMirroredBody(mirror, epoch, workspaceId, body, needed, Date.now());
+          return;
+        }
+        const cached = await getNote(store, scope, workspaceId, body.path);
+        /*
+          Checked again here, and this is the one writer where the entry gate
+          is not enough: every other one writes synchronously after it, or
+          re-checks when its timer fires. This one awaits a read first, so the
+          session can end in the gap.
+
+          Web hid it — `store.web.ts` reads `localStorage` synchronously inside
+          an async function, so the whole chain drains in microtasks before a
+          press can be handled. Native does not: `AsyncStorage.getItem` is a
+          queued bridge call, so a read issued before sign-out resolves after
+          the clear has walked past that key, and the write behind it lands on
+          a device whose session is over. Measured that way round, from
+          `useFileBrowser`'s two call sites — a save, then sign out.
+        */
+        if (cached === null || !mine()) return;
+        await putNote(
+          store,
+          scope,
+          workspaceId,
+          { ...cached.value, text: body.text, etag: body.etag },
+          Date.now(),
+        );
+      })().catch(() => {});
+    },
+    [mine, scope, store, workspaceId],
+  );
+
+  /**
+   * Move this device's copy of a note onto where an op just put it in the
+   * bucket: a renamed note's body to its new name (at the version the move
+   * returned, where it said), and a deleted or archived one off the device —
+   * the next sync brings the archived copy back where the archive put it.
+   * Without this the tree drawn from the mirror shows the note under its old
+   * name, beside the new one, until the next sync prunes it.
+   */
+  /** A note this device created, now in the bucket: into the mirror. See the drain. */
+  const rememberCreated = useCallback(
+    (note: OpenNote) => {
+      if (workspaceId === null || scope === null || !mine()) return;
+      const epoch = epochRef.current;
+      void (async () => {
+        const mirror = await openMirrorStore();
+        if (mirror === null) return;
+        const needed = await neededEtags(store, workspaceId);
+        if (!mine()) return;
+        await putMirroredNotes(mirror, epoch, scope, workspaceId, [note], needed, Date.now());
+      })().catch(() => {});
+    },
+    [mine, scope, store, workspaceId],
+  );
+
+  const rememberOpDone = useCallback(
+    (done: OpSent) => {
+      if (workspaceId === null || scope === null || !mine()) return;
+      if (done.kind === "folder") return;
+      const epoch = epochRef.current;
+      void (async () => {
+        const mirror = await openMirrorStore();
+        if (mirror === null) return;
+        if (done.kind === "move" && done.to !== undefined) {
+          const copy = await mirroredNote(mirror, scope, workspaceId, done.path);
+          if (copy !== null && mine()) {
+            const needed = await neededEtags(store, workspaceId);
+            if (!mine()) return;
+            await putMirroredNotes(
+              mirror,
+              epoch,
+              scope,
+              workspaceId,
+              [{ ...copy.value, path: done.to, etag: done.etag ?? copy.value.etag }],
+              needed,
+              Date.now(),
+            );
+          }
+        }
+        if (!mine()) return;
+        await forgetMirroredNote(mirror, epoch, workspaceId, done.path);
+      })().catch(() => {});
+    },
+    [mine, scope, store, workspaceId],
+  );
+
+  /**
+   * An undo that puts the ops back exactly as they were before one press.
+   *
+   * Only while nothing has touched them since, and never during a drain: an op
+   * already on the wire cannot be recalled by editing the queue, and restoring
+   * the rename a delete folded into, after the delete reached the bucket, would
+   * queue a rename of a note in the trash.
+   */
+  const undoTo = useCallback(
+    (before: Outbox, after: Outbox) => () => {
+      if (draining.current) return false;
+      const now = outboxRef.current;
+      if (now.ops !== after.ops || now.writes !== after.writes) return false;
+      commit({ ...now, writes: before.writes, ops: opsOf(before) }, true);
+      return true;
+    },
+    [commit],
   );
 
   const drain = useCallback(() => {
@@ -308,13 +632,19 @@ export function useOfflineNotes(options: {
     */
     if (draining.current || workspaceId === null || !mine()) return;
     const current = outboxRef.current;
-    if (current.writes.length === 0) return;
+    if (isEmpty(current)) return;
     draining.current = true;
 
+    const send = opRef.current;
     void drainOutbox(current, {
       write: (write) => writeRef.current(write),
+      ...(send === undefined ? {} : { op: (op: PendingOp) => send(op) }),
       now: () => Date.now(),
       onWritten: (result) => onWrittenRef.current?.({ path: result.path, etag: result.etag }),
+      onOpDone: (done) => {
+        rememberOpDone(done);
+        onOpDoneRef.current?.(done);
+      },
     })
       .then(({ outbox: next, report }) => {
         /*
@@ -324,8 +654,43 @@ export function useOfflineNotes(options: {
           than replacing it — is what stops a save made mid-drain from being
           silently dropped.
         */
-        commit(reconcile(outboxRef.current, next, report), true);
+        commit(
+          reconcile(outboxRef.current, next, report, { id: newOpId, now: Date.now() }),
+          true,
+        );
         setLastDrain(report);
+        /*
+          What was sent is in the bucket now, at the etag the write returned,
+          so the device's copy moves onto it — the same thing a Save that lands
+          does (`rememberBody`). Without it, an edit made offline and drained
+          reads back offline as the version it replaced until the next sync.
+        */
+        for (const sent of report.sent) {
+          const entry = current.writes.find((write) => write.path === sent.path);
+          if (entry === undefined) continue;
+          if (sent.sentBaseEtag === null) {
+            /*
+              A note created offline is in the bucket now, and in nothing on
+              the device: the queue has let it go and the mirror never held it,
+              so the tree drawn offline would lose it until the next sync
+              fetched it. It goes into the mirror as what was written, drawn
+              with its folder's default for a badge — the next complete sync
+              replaces that with the server's own answer.
+            */
+            const visibility = folderDefaultRef.current?.(sent.path) ?? "private";
+            rememberCreated({
+              path: sent.path,
+              text: entry.text,
+              etag: sent.etag,
+              visibility,
+              inherited: visibility,
+              exception: false,
+              readOnly: false,
+            });
+            continue;
+          }
+          rememberSent({ path: sent.path, text: entry.text, etag: sent.etag });
+        }
       })
       .catch(() => {
         // `drainOutbox` does not throw; an injected `write` that rejects rather
@@ -335,7 +700,7 @@ export function useOfflineNotes(options: {
       .finally(() => {
         draining.current = false;
       });
-  }, [commit, mine, workspaceId]);
+  }, [commit, mine, rememberCreated, rememberOpDone, rememberSent, workspaceId]);
 
   /** Empty the queue whenever we believe we can reach the bucket. */
   useEffect(() => {
@@ -372,48 +737,101 @@ export function useOfflineNotes(options: {
       */
       rememberNote: (note) => {
         if (copies === null || !mine()) return;
-        void putNote(store, copies.scope, copies.workspaceId, note, Date.now()).catch(() => {});
+        const epoch = epochRef.current;
+        void (async () => {
+          const mirror = await openMirrorStore();
+          if (mirror === null) {
+            await putNote(store, copies.scope, copies.workspaceId, note, Date.now());
+            return;
+          }
+          /*
+            Through the one writer the sync uses too, so an online open keeps
+            the ancestor a parked write needs — the read cache lost it here,
+            the moment a note with a conflicted write was opened online.
+          */
+          const needed = await neededEtags(store, copies.workspaceId);
+          if (!mine()) return;
+          await putMirroredNotes(
+            mirror,
+            epoch,
+            copies.scope,
+            copies.workspaceId,
+            [note],
+            needed,
+            Date.now(),
+          );
+        })().catch(() => {});
       },
       rememberBody: (body) => {
-        if (copies === null || !mine()) return;
-        void getNote(store, copies.scope, copies.workspaceId, body.path)
-          .then((cached) => {
-            /*
-              Checked again here, and this is the one writer where the entry
-              gate is not enough: every other one writes synchronously after
-              it, or re-checks when its timer fires. This one awaits a read
-              first, so the session can end in the gap.
-
-              Web hid it — `store.web.ts` reads `localStorage` synchronously
-              inside an async function, so the whole chain drains in
-              microtasks before a press can be handled. Native does not:
-              `AsyncStorage.getItem` is a queued bridge call, so a read issued
-              before sign-out resolves after the clear has walked past that
-              key, and the write behind it lands on a device whose session is
-              over. Measured that way round, from `useFileBrowser`'s two call
-              sites — a save, then sign out.
-            */
-            if (cached === null || !mine()) return;
-            return putNote(
-              store,
-              copies.scope,
-              copies.workspaceId,
-              { ...cached.value, text: body.text, etag: body.etag },
-              Date.now(),
-            );
-          })
-          .catch(() => {});
+        if (copies === null) return;
+        rememberSent(body);
       },
       rememberListing: (listing) => {
         if (copies === null || !mine()) return;
-        void putListing(store, copies.scope, copies.workspaceId, listing, Date.now()).catch(
-          () => {},
-        );
+        const epoch = epochRef.current;
+        void (async () => {
+          const mirror = await openMirrorStore();
+          if (mirror === null) {
+            await putListing(store, copies.scope, copies.workspaceId, listing, Date.now());
+            return;
+          }
+          // The mirror derives every listing from paths; what a listing adds
+          // is each folder's own default, for its badge offline.
+          await rememberMirroredFolders(mirror, epoch, copies.scope, copies.workspaceId, listing);
+        })().catch(() => {});
       },
-      cachedNote: async (path) =>
-        copies === null ? null : getNote(store, copies.scope, copies.workspaceId, path),
-      cachedListing: async (path) =>
-        copies === null ? null : getListing(store, copies.scope, copies.workspaceId, path),
+      cachedNote: async (path) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        return mirror === null
+          ? getNote(store, copies.scope, copies.workspaceId, path)
+          : mirroredNote(mirror, copies.scope, copies.workspaceId, path);
+      },
+      cachedListing: async (path) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        return mirror === null
+          ? getListing(store, copies.scope, copies.workspaceId, path)
+          : mirroredListing(mirror, copies.scope, copies.workspaceId, path);
+      },
+      instantCopy: async (path) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        return mirror === null ? null : mirroredNote(mirror, copies.scope, copies.workspaceId, path);
+      },
+      ancestorFor: async (path, baseEtag) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        if (mirror !== null) {
+          return mirroredAncestor(mirror, copies.scope, copies.workspaceId, path, baseEtag);
+        }
+        const cached = await getNote(store, copies.scope, copies.workspaceId, path);
+        return cached === null ? null : { text: cached.value.text, etag: cached.value.etag };
+      },
+
+      /*
+        Not gated on `copies`, which is what every other line on the copy side
+        of this object is. `copies` is `null` while the clearance is unknown,
+        and a *read* must stop there — filing or serving a copy under a
+        clearance nobody has established is the leak `keys.ts` argues about at
+        length. A **removal** fails the other way round: refusing to clear
+        because the tier has not landed yet would leave the plaintext exactly
+        where the caller asked for it to stop being, in the one window where
+        nobody can prove it is safe. So this needs only the workspace.
+      */
+      forgetNote: (path) => {
+        if (workspaceId === null) return;
+        void clearNote(store, workspace, path).catch(() => {});
+        // Both bodies and the entry, at every clearance — the mirrored copy is
+        // the same plaintext the lock was meant to be the last of.
+        void openMirrorStore()
+          .then((mirror) =>
+            mirror === null
+              ? undefined
+              : forgetMirroredNote(mirror, epochRef.current, workspace, path),
+          )
+          .catch(() => {});
+      },
 
       savedDraft: async (path) => (workspaceId === null ? null : getDraft(store, workspace, path)),
       rememberDraft: (draft) => {
@@ -454,19 +872,122 @@ export function useOfflineNotes(options: {
         writes the ref synchronously alongside `setOutbox`, so reading it is
         always the latest. The rendered `outbox` above is for drawing.
       */
-      pendingFor: (path) => find(outboxRef.current, path),
+      /*
+        The edits are keyed by the bucket's name for a note — see
+        `serverPathOf` — so an edit typed into a note renamed on this device is
+        queued against the note the bucket has, and sent before the rename.
+      */
+      pendingFor: (path) => find(outboxRef.current, serverPathOf(outboxRef.current, path)),
       queueSave: (save) =>
-        commit(enqueue(outboxRef.current, { ...save, now: Date.now() }), false),
+        commit(
+          enqueue(outboxRef.current, {
+            ...save,
+            path: serverPathOf(outboxRef.current, save.path),
+            now: Date.now(),
+          }),
+          false,
+        ),
       // The three below all take work *out* of the queue or change what it will
       // do, so they are written through rather than debounced.
-      dropQueued: (path) => commit(discard(outboxRef.current, path), true),
-      keepQueued: (path) => commit(forceMine(outboxRef.current, path), true),
-      retryQueued: (path) => commit(retry(outboxRef.current, path), true),
+      dropQueued: (path) =>
+        commit(discard(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
+      keepQueued: (path) =>
+        commit(forceMine(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
+      retryQueued: (path) =>
+        commit(retry(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
+
+      serverPathOf: (path) => serverPathOf(outboxRef.current, path),
+      localPathOf: (path) => localPathOf(outboxRef.current, path),
+      landedQueued: (path, etag) => {
+        const current = outboxRef.current;
+        const server = serverPathOf(current, path);
+        const write = find(current, server);
+        let next = settle(current, server);
+        const op = opsOf(next).find((one) => one.path === server);
+        if (write !== undefined && op !== undefined && (op.baseEtag === null || op.baseEtag === write.baseEtag)) {
+          next = rebaseOpIn(next, op.id, etag);
+        }
+        commit(next, true);
+      },
+      routesThroughQueue: (path) => routesThroughQueue(outboxRef.current, path),
+      claims: (path) => claimedPaths(outboxRef.current).has(path),
+      pendingCreate: (path) => {
+        const write = find(outboxRef.current, serverPathOf(outboxRef.current, path));
+        return write?.baseEtag === null ? write : undefined;
+      },
+      /*
+        Every op below is written through at once rather than debounced: each
+        is one press, not a stream of keystrokes, and a rename that survived
+        only in memory would come back after a crash as the old name with the
+        person's edits queued against a path they think is gone.
+
+        `coalesce` is off while a drain is running — see `QueueOpInput` — which
+        is the one thing here that depends on the drain rather than the queue.
+      */
+      queueMove: ({ from, to, etag }) => {
+        const next = queueMoveIn(outboxRef.current, {
+          id: newOpId(),
+          path: from,
+          to,
+          etag,
+          now: Date.now(),
+          coalesce: !draining.current,
+        });
+        if (next === null) return { ok: false };
+        const before = outboxRef.current;
+        commit(next, true);
+        return { ok: true, undo: undoTo(before, next) };
+      },
+      queueRemoval: ({ kind, path, etag }) => {
+        const id = newOpId();
+        const result = queueRemovalIn(outboxRef.current, {
+          id,
+          kind,
+          path,
+          etag,
+          now: Date.now(),
+          coalesce: !draining.current,
+        });
+        if (result === null) return { ok: false };
+        const before = outboxRef.current;
+        commit(result.outbox, true);
+        if (result.dropped !== undefined) return { ok: true, dropped: result.dropped };
+        return { ok: true, undo: undoTo(before, result.outbox) };
+      },
+      queueFolder: (path) => {
+        const next = queueFolderIn(outboxRef.current, { id: newOpId(), path, now: Date.now() });
+        if (next === null) return { ok: false };
+        const before = outboxRef.current;
+        commit(next, true);
+        return { ok: true, undo: undoTo(before, next) };
+      },
+      dropOp: (id) => commit(dropOpFrom(outboxRef.current, id), true),
+      retryOp: (id) => commit(retryOpIn(outboxRef.current, id), true),
+      overrideOp: (id) => commit(overrideOpIn(outboxRef.current, id), true),
+      restoreCreate: (write) => {
+        const current = outboxRef.current;
+        // Only into a name nothing else has taken since.
+        if (claimedPaths(current).has(write.path)) return;
+        commit({ ...current, writes: [...current.writes, write] }, true);
+      },
 
       drain,
       lastDrain,
     };
-  }, [commit, drain, lastDrain, mine, outbox, reachability, ready, scope, store, workspaceId]);
+  }, [
+    commit,
+    drain,
+    lastDrain,
+    mine,
+    outbox,
+    reachability,
+    ready,
+    rememberSent,
+    scope,
+    store,
+    undoTo,
+    workspaceId,
+  ]);
 
   return api;
 }
@@ -495,7 +1016,13 @@ export function useOfflineNotes(options: {
  * self-conflict a minute later) and it is unreachable through the hook without
  * a fake timer race.
  */
-export function reconcile(live: Outbox, drained: Outbox, report: DrainReport): Outbox {
+export function reconcile(
+  live: Outbox,
+  drained: Outbox,
+  report: DrainReport,
+  /** For the one op reconciling can add — see the inverse move below. */
+  make: { id: () => string; now: number } = { id: newOpId, now: Date.now() },
+): Outbox {
   let result = live;
 
   for (const entry of live.writes) {
@@ -522,7 +1049,86 @@ export function reconcile(live: Outbox, drained: Outbox, report: DrainReport): O
     });
   }
 
-  return result;
+  return reconcileOps(result, drained, report, make);
+}
+
+/**
+ * The same fold for ops, which have one case the edits do not.
+ *
+ * Ops are never rewritten while a drain runs (`coalesce` is off), so an op the
+ * drain sent is exactly the op still in the live queue — it goes. An op the
+ * drain reached a verdict on takes that verdict, and its re-based version with
+ * it. An op queued *during* the drain was not in the snapshot, so nothing
+ * re-based it; it is moved here onto what the drain's landings produced, by
+ * the same rule the drain uses (`rebaseOp`) — the edit it followed, or the
+ * rename it was queued behind.
+ *
+ * **And an op the person took back while it was on the wire.** The undo that
+ * could do that refuses during a drain, but "Discard" on a parked op in the
+ * sheet is always a drop, and a `dropOp` racing a send is possible. The bucket
+ * has done it; the person's last word was "don't". For a rename that is
+ * answered by queueing the rename back, at the version the rename returned —
+ * a real, conditional op the person can see. A delete or archive that landed
+ * cannot be taken back from here and is not pretended to have been.
+ */
+function reconcileOps(
+  live: Outbox,
+  drained: Outbox,
+  report: DrainReport,
+  make: { id: () => string; now: number },
+): Outbox {
+  const done = new Map(report.ops.done.map((one) => [one.id, one]));
+  const ops: PendingOp[] = [];
+  for (const op of opsOf(live)) {
+    if (done.has(op.id)) continue;
+    const after = findOp(drained, op.id);
+    if (after !== undefined) {
+      ops.push({
+        ...op,
+        state: after.state,
+        attempts: after.attempts,
+        baseEtag: after.baseEtag,
+        conflict: after.conflict,
+        rejection: after.rejection,
+        lastError: after.lastError,
+      });
+      continue;
+    }
+    ops.push(rebasedOnLandings(op, report));
+  }
+
+  for (const landed of report.ops.done) {
+    if (landed.kind !== "move" || landed.to === undefined) continue;
+    // Sent from the snapshot and gone from the live queue: dropped mid-flight.
+    if (opsOf(live).some((op) => op.id === landed.id)) continue;
+    if (landed.etag === undefined) continue;
+    ops.push({
+      id: make.id(),
+      kind: "move",
+      path: landed.to,
+      to: landed.path,
+      baseEtag: landed.etag,
+      queuedAt: make.now,
+      updatedAt: make.now,
+      state: "pending",
+      attempts: 0,
+    });
+  }
+  return { ...live, ops };
+}
+
+function rebasedOnLandings(op: PendingOp, report: DrainReport): PendingOp {
+  const edit = report.sent.find((one) => one.path === op.path);
+  if (edit !== undefined && (op.baseEtag === null || op.baseEtag === edit.sentBaseEtag)) {
+    return { ...op, baseEtag: edit.etag };
+  }
+  if (op.baseEtag === null) {
+    const rename = report.ops.done.find(
+      (one) => one.kind === "move" && one.to === op.path && one.etag !== undefined,
+    );
+    if (rename?.etag !== undefined) return { ...op, baseEtag: rename.etag };
+  }
+  return op;
 }
 
 function patch(outbox: Outbox, path: string, fields: Partial<PendingWrite>): Outbox {

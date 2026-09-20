@@ -275,3 +275,69 @@ group("noteHeadingSource — which rung named the note", () => {
     }
   });
 });
+
+group("a drawing is named by its file, never by the plugin's scaffolding", () => {
+  /*
+    `<name>.excalidraw.md` opens with `# Excalidraw Data` — the Obsidian
+    plugin's own container heading, written into every drawing it has ever
+    saved. `firstHeading` found it and every drawing in the console was
+    therefore called "Excalidraw Data": the breadcrumb, the tab and the inline
+    title all named the format instead of the file.
+
+    It is not a heading the reader can even see. `NoteEditor` draws a drawing
+    through `DrawingView`, so the Markdown half is never on screen, and the
+    rung below — the filename — leaves `.excalidraw` on the end. `drawingName`
+    in `@context/drawings` is the one place that knows the suffix is two
+    extensions.
+  */
+  const DRAWING = [
+    "---",
+    "excalidraw-plugin: parsed",
+    "---",
+    "",
+    "# Excalidraw Data",
+    "",
+    "## Text Elements",
+    "Ingest ^a1b2c3d4",
+    "",
+    "%%",
+    "## Drawing",
+    "```json",
+    '{"type":"excalidraw","elements":[]}',
+    "```",
+    "%%",
+    "",
+  ].join("\n");
+
+  test("the plugin's container heading never names the note", () => {
+    expect(noteHeading(DRAWING, "4-resources/engineering/request-path.excalidraw.md")).toBe(
+      "request-path",
+    );
+    // Both extensions, not just `.md`.
+    expect(noteHeading(DRAWING, "request-path.excalidraw.md")).not.toContain(".excalidraw");
+  });
+
+  test("so the inline title is drawn rather than stepping aside", () => {
+    // "heading" is the one answer that hides the title, and it is the answer
+    // this file used to give for every drawing — leaving a drawing with no
+    // name anywhere on screen once the breadcrumb was off the leading edge.
+    expect(noteHeadingSource(DRAWING, "4-resources/request-path.excalidraw.md")).toBe("filename");
+  });
+
+  test("a title somebody wrote by hand still wins", () => {
+    // The rung above is unchanged: a `title:` in the frontmatter was written
+    // on purpose, and a drawing is not a special case of that.
+    const titled = DRAWING.replace("excalidraw-plugin: parsed", 'title: "Ingest path"');
+    expect(noteHeading(titled, "4-resources/request-path.excalidraw.md")).toBe("Ingest path");
+    expect(noteHeadingSource(titled, "4-resources/request-path.excalidraw.md")).toBe("frontmatter");
+  });
+
+  test("and an ordinary note is untouched by any of it", () => {
+    const note = "# Build decisions\n\nTenancy is bucket-level.\n";
+    expect(noteHeading(note, "notes/context-lc.md")).toBe("Build decisions");
+    expect(noteHeadingSource(note, "notes/context-lc.md")).toBe("heading");
+    // A path is still optional: `noteHeadingSource` is called before the
+    // editor has one.
+    expect(noteHeadingSource(note)).toBe("heading");
+  });
+});

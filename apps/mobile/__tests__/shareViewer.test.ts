@@ -25,6 +25,7 @@ import {
 } from "../features/share/markdown";
 import { ConvexError } from "convex/values";
 import shareSegmentCases from "../../../infra/router/src/shareSegment.fixtures.json";
+import shortLinkSlugCases from "../../../infra/router/src/shortLinkSlug.fixtures.json";
 import {
   MAX_SHARE_SLUG,
   SHARE_ROUTE,
@@ -38,14 +39,23 @@ import {
   shareSignInHref,
   shareSlug,
   shareTokenFromSegment,
+  shortLinkAddress,
+  shortLinkHref,
   type SharedNote,
 } from "../features/share/share";
 
 const note = (over: Partial<SharedNote> = {}): SharedNote => ({
   path: "1-projects/overview.md",
   text: "# Overview\n\nBody.\n",
+  // A note by default, which is what every existing case in this file is
+  // about; the folder half has its own fixture where it is exercised.
+  kind: "note",
+  entries: [],
   entryPath: "1-projects/overview.md",
   links: [],
+  // A read link by default: the collecting half is collect mode's, and its
+  // own tests set it.
+  collecting: false,
   openToAnyone: false,
   editableInContext: null,
   ...over,
@@ -687,5 +697,154 @@ describe("what the page actually renders", () => {
     const body = title === null ? parsed.blocks : parsed.blocks.slice(1);
     expect(title).toBeNull();
     expect(body).toHaveLength(parsed.blocks.length);
+  });
+});
+
+
+/* -------------------------------------------------------------------------- */
+/* Short links — the same page at an address somebody can say out loud        */
+/* -------------------------------------------------------------------------- */
+
+describe("a short link's address", () => {
+  test("the @ is stripped, so one form of the name exists downstream", () => {
+    expect(shortLinkAddress("@seyi", "intake")).toEqual({
+      handle: "seyi",
+      slug: "intake",
+    });
+  });
+
+  test("a first segment without an @ is not a short link at all", () => {
+    // This is the one failure the route may tell apart, and it is answered
+    // without asking the server anything — so it says nothing about whether
+    // any particular short link exists.
+    expect(shortLinkAddress("seyi", "intake")).toBeNull();
+    expect(shortLinkAddress(null, "intake")).toBeNull();
+    expect(shortLinkAddress("@seyi", null)).toBeNull();
+  });
+
+  test("the shape agrees with the router's and the control plane's copies", () => {
+    // Three copies of one rule, none of them able to import the others. All
+    // three run this corpus.
+    for (const item of shortLinkSlugCases.cases) {
+      // The case is named in the value rather than in a message, because
+      // jest's `expect` takes one argument and a bare `true`/`false` mismatch
+      // says nothing about which case failed.
+      expect([item.segment, shortLinkAddress("@seyi", item.segment) !== null]).toEqual([
+        item.segment,
+        item.parses,
+      ]);
+    }
+    expect(shortLinkSlugCases.cases.length).toBeGreaterThan(20);
+    expect(shortLinkSlugCases.cases.some((item) => item.parses)).toBe(true);
+    expect(shortLinkSlugCases.cases.some((item) => !item.parses)).toBe(true);
+  });
+
+  test("the URL carries the @ back, with a note inside it in the query", () => {
+    const address = { handle: "seyi", slug: "intake" };
+    expect(shortLinkHref(address)).toBe("/@seyi/intake");
+    expect(shortLinkHref(address, "1-projects/plan.md")).toBe(
+      "/@seyi/intake?path=1-projects%2Fplan.md",
+    );
+  });
+});
+
+describe("what the short-link page decides", () => {
+  const auth = { isLoading: false, isAuthenticated: false };
+  const address = { handle: "seyi", slug: "intake" };
+
+  test("a name that parsed is enough to ask with — there is no token here", () => {
+    // The whole point: a short link's token is resolved on the server and
+    // never reaches this screen, so `token: null` must not read as "no
+    // address" when a short link supplied one.
+    const view = resolveShareView({
+      token: null,
+      shortLink: address,
+      auth,
+      note: undefined,
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("loading");
+  });
+
+  test("and with neither, the page refuses exactly as a spent token does", () => {
+    const view = resolveShareView({
+      token: null,
+      shortLink: null,
+      auth,
+      note: undefined,
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("unavailable");
+  });
+
+  test("signing in comes back to the short link, never to a token URL", () => {
+    // A `next` built from the token would hand the reader a URL carrying the
+    // capability — the one thing this path exists to keep server-side.
+    const view = resolveShareView({
+      token: null,
+      shortLink: address,
+      auth,
+      note: new ConvexError({ code: "NOT_AUTHENTICATED" }),
+      requestedPath: "1-projects/plan.md",
+    });
+    expect(view.kind).toBe("signIn");
+    if (view.kind !== "signIn") return;
+    expect(view.href).toContain(encodeURIComponent("/@seyi/intake"));
+    expect(view.href).not.toContain(SHARE_ROUTE + "/");
+  });
+
+  test("a note withdrawn when the session drops goes back to the short link too", () => {
+    const note: SharedNote = {
+      path: "1-projects/plan.md",
+      text: "# Plan\n",
+      kind: "note",
+      entries: [],
+      entryPath: "1-projects/plan.md",
+      links: [],
+      collecting: false,
+      openToAnyone: false,
+      editableInContext: null,
+    };
+    const view = resolveShareView({
+      token: null,
+      shortLink: address,
+      auth,
+      note,
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("signIn");
+    if (view.kind !== "signIn") return;
+    expect(view.href).toContain(encodeURIComponent("/@seyi/intake"));
+  });
+
+  test("an open note renders, and the token path is unchanged by any of this", () => {
+    const note: SharedNote = {
+      path: "1-projects/plan.md",
+      text: "# Plan\n",
+      kind: "note",
+      entries: [],
+      entryPath: "1-projects/plan.md",
+      links: [],
+      collecting: false,
+      openToAnyone: true,
+      editableInContext: null,
+    };
+    expect(
+      resolveShareView({
+        token: null,
+        shortLink: address,
+        auth,
+        note,
+        requestedPath: null,
+      }).kind,
+    ).toBe("ready");
+    expect(
+      resolveShareView({
+        token: "a".repeat(64),
+        auth,
+        note,
+        requestedPath: null,
+      }).kind,
+    ).toBe("ready");
   });
 });

@@ -59,25 +59,17 @@ export {
   type MeetingFlowInput,
 } from "./useMeetingFlow";
 export {
-  chooseOffer,
+  automaticDestination,
   describeDestination,
   parseDestination,
-  recallDestination,
-  rememberDestination,
-  resolveDestinations,
-  sameDestination,
-  CONTEXT_ROOT_LABEL,
   INBOX_FOLDER,
   ONLY_YOU,
-  READ_ONLY_REFUSAL,
-  VISIBLE_TO_TEAM,
-  type CurrentPage,
-  type DestinationChoice,
+  UNFILEABLE_FOLDER,
+  type AutomaticDestination,
   type DestinationContext,
-  type DestinationOffer,
   type MeetingDestination,
 } from "./destination";
-export { DestinationSheet, AUDIO_SENTENCE } from "./components/DestinationSheet";
+export { AUDIO_SENTENCE, MIC_ONLY_SENTENCE } from "./disclosure";
 
 export { LiveMeetingScreen } from "./LiveMeetingScreen";
 export { MeetingNoteScreen } from "./MeetingNoteScreen";

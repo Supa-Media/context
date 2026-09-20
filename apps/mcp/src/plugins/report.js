@@ -30,16 +30,50 @@ const BLURBS = {
   "needs-approval": "these run, but call a host outside Context — approve the hosts to install",
   "files-only":
     "these stay in Obsidian, and Context reads the files they write, so no data is stranded",
-  "wont-run": "these need a filesystem, a shell, or Obsidian's private internals",
+  "wont-run": "these need a filesystem, a shell, Obsidian's private internals, or a part of its interface Context has not built yet",
   unknown: "the check could not read these; they are not offered as working",
 };
 
 /** The order sections are printed in: what works first, what needs you last. */
 const ORDER = ["runs", "needs-approval", "files-only", "wont-run", "unknown"];
 
-export function renderPluginReport(report) {
+/**
+ * The Context plugins, printed above the vault's.
+ *
+ * They lead because they are the ones that are definitely working: a built-in
+ * needs no verdict, since there is no bundle to read and nothing to be unsure
+ * about. Printing them at all is the point of the merge — an agent asking what
+ * this context can do got an answer about somebody else's plugin directory and
+ * nothing about the four form tools it was holding.
+ *
+ * An empty list prints nothing, so a caller that does not pass them (a test, a
+ * self-hosted shim) gets exactly the report it got before.
+ */
+function contextPluginLines(contextPlugins) {
+  if (!contextPlugins?.length) return [];
+  const on = contextPlugins.filter((entry) => entry.enabled);
+  const lines = [
+    `CONTEXT PLUGINS (${on.length} of ${contextPlugins.length} on) — built in, no bundle to check`,
+  ];
+  for (const { manifest, enabled } of contextPlugins) {
+    lines.push(`  ${manifest.name} (${manifest.id}) — ${enabled ? "on" : "off"}`);
+    const tools = manifest.context?.tools || [];
+    if (enabled && tools.length) lines.push(`      tools: ${tools.join(", ")}`);
+    // Why a tool is missing, on the row that explains it. An agent that reads
+    // "off" and nothing else will report the tool as unsupported rather than
+    // as switched off, which is the wrong thing to tell the person who
+    // switched it off.
+    if (!enabled) lines.push(`      ${manifest.context?.offMeans || "turned off in this context"}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+export function renderPluginReport(report, contextPlugins = []) {
+  const preamble = contextPluginLines(contextPlugins);
   if (!report.available) {
     return (
+      `${preamble.join("\n")}` +
       "Could not read .obsidian/plugins/ in this context's bucket: " +
       `${report.reason}\n\n` +
       "This is a report about your Obsidian setup, not about your notes — nothing else is affected."
@@ -47,6 +81,7 @@ export function renderPluginReport(report) {
   }
   if (!report.found) {
     return (
+      `${preamble.join("\n")}` +
       "No Obsidian plugins found in this context's bucket.\n\n" +
       "Context looks in .obsidian/plugins/, which is where Obsidian keeps them. " +
       "If your vault syncs to this bucket and you expected plugins here, check that " +
@@ -54,7 +89,7 @@ export function renderPluginReport(report) {
     );
   }
 
-  const lines = [];
+  const lines = [...preamble];
   lines.push(headline(report));
   lines.push("");
 
@@ -89,6 +124,14 @@ function pluginLines(plugin) {
   lines.push(`  ${plugin.name} (${plugin.id})${version}${author}`);
 
   if (plugin.manifestError) lines.push(`      ${plugin.manifestError}`);
+  // The same plugin is in the vault too. Said on the row, because the
+  // alternative is somebody updating the copy that is not the one running —
+  // see the precedence note in `inventory.js`.
+  if (plugin.alsoInVault) {
+    lines.push(
+      "      Your vault has a copy of this plugin as well. The Context-installed one above is the one that runs here; the vault's runs in Obsidian."
+    );
+  }
   for (const item of plugin.evidence) lines.push(`      ${item.id} — ${item.reason}`);
   if (plugin.hosts?.length) lines.push(`      hosts it names: ${plugin.hosts.join(", ")}`);
   for (const limitation of plugin.limitations) lines.push(`      ${limitation}`);

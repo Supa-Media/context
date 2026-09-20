@@ -48,7 +48,7 @@ import { startCompletion, currentCompletions, acceptCompletion } from "@codemirr
 import {
   MAX_CHOICES,
   noteChoices,
-  noteCompletion,
+  editorCompletion,
   openWikilink,
 } from "../features/console/files/linkComplete";
 import type { NoteLinkContext } from "../features/console/files/noteLinks";
@@ -185,7 +185,7 @@ afterEach(() => {
 /** A mounted editor whose only extension is the completion under test. */
 function mount(doc: string): EditorView {
   const ref: { current: NoteLinkContext } = {
-    current: { path: null, paths: PATHS, onOpen: () => {}, onPress: () => {} },
+    current: { path: null, paths: PATHS, onOpen: () => {} },
   };
   const parent = document.createElement("div");
   document.body.appendChild(parent);
@@ -193,7 +193,7 @@ function mount(doc: string): EditorView {
     state: EditorState.create({
       doc,
       selection: { anchor: doc.length },
-      extensions: [noteCompletion(ref)],
+      extensions: [editorCompletion(ref)],
     }),
     parent,
   });

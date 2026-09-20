@@ -23,18 +23,26 @@ import { syntaxTree } from "@codemirror/language";
 import { highlightTree } from "@lezer/highlight";
 import {
   decorationsFor,
+  editorEngaged,
   fenceHighlightStyle,
+  engageEditor,
+  frontmatterBlock,
   frontmatterRange,
   completedTasks,
   hangingIndents,
+  HtmlPreviewWidget,
+  htmlPreviews,
   livePreviewStyles,
   listGlyphs,
   markdownLanguage,
   hiddenMarkRanges,
+  previewDocument,
   selectionTouches,
   styleClassFor,
+  tableGrids,
   tableLines,
 } from "../features/console/files/livePreview";
+import { openingCaret } from "../features/console/files/editorSetup";
 
 /**
  * Positions are clamped to the document, so a test can say "cursor far away"
@@ -52,6 +60,22 @@ function stateFor(doc: string, cursor?: number | [number, number]): EditorState 
     doc,
     extensions: [markdownLanguage()],
     ...(selection ? { selection } : {}),
+  });
+}
+
+/**
+ * The same document, read-only — reading mode, `privacy.md`, an encrypted note.
+ *
+ * `EditorState.readOnly` rather than a flag of the extension's own, because
+ * that is the condition `revealSelection` asks about and there must not be a
+ * second one for the two to disagree over.
+ */
+function readingStateFor(doc: string, cursor?: number): EditorState {
+  const state = stateFor(doc, cursor);
+  return EditorState.create({
+    doc: state.doc,
+    selection: state.selection,
+    extensions: [markdownLanguage(), EditorState.readOnly.of(true)],
   });
 }
 
@@ -773,6 +797,309 @@ describe("a table is drawn in the face its columns need", () => {
     expect(() => decorationsFor(stateFor(doc, doc.length))).not.toThrow();
     expect(() => decorationsFor(stateFor(doc, [0, doc.length]))).not.toThrow();
   });
+
+  test("and the mono face is what is left for a table the grid refuses", () => {
+    /*
+      This used to read "the pipes are the author's while the note can be typed
+      into", and the grid replaced them only for a reader. It does not any
+      more: a table is a table in both modes, and the cell you are in is what
+      reveals (see `tableGrids`). So the mono line is now the *fallback* — a
+      table the grid will not draw, such as one indented inside a list item,
+      still gets its columns lined up as text.
+    */
+    expect(tableGrids(stateFor(TABLE)).length).toBe(1);
+    const indented = ["- item", "", "  | a | b |", "  | --- | --- |", "  | 1 | 2 |"].join("\n");
+    expect(tableGrids(stateFor(indented))).toEqual([]);
+    expect(tableText(indented).length).toBe(3);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A TABLE, LAID OUT — which is the half `tableLines` deliberately did not do.
+ *
+ * The mono face lines up the columns of a table whose rows happen to fit and
+ * does nothing at all for one that does not: a wide table wrapped, and a reader
+ * got a paragraph of pipes. This is the block widget that header called the
+ * next step.
+ *
+ * **The rule for when is the form block's rule, and it is the same sentence:**
+ * `state.readOnly`, and nothing else. You cannot edit syntax you cannot see, so
+ * while the note can be typed into the pipes stay exactly where the author put
+ * them; a reader has no caret to reveal them with and gets the grid. One
+ * condition — reading mode, `privacy.md`, a viewer below editor, an encrypted
+ * envelope — rather than a flag of this pass's own.
+ */
+describe("a table is laid out for a reader", () => {
+  const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
+
+  /** One row's cells, as plain strings. */
+  function textOf(row: ReadonlyArray<ReadonlyArray<{ text: string }>>): string[] {
+    return row.map((cell) => cell.map((run) => run.text).join(""));
+  }
+
+  function gridIn(doc: string) {
+    const grids = tableGrids(readingStateFor(doc));
+    expect(grids.length).toBe(1);
+    return grids[0];
+  }
+
+  /** One cell's rendered text, header row excluded. */
+  function cell(doc: string, row: number, column: number): string {
+    const grid = gridIn(doc);
+    return (grid.rows[row]?.[column] ?? []).map((run) => run.text).join("");
+  }
+
+  test("the header and the body rows come back separately", () => {
+    const grid = gridIn(TABLE);
+    expect(textOf(grid.header)).toEqual(["a", "b"]);
+    expect(grid.rows.length).toBe(1);
+    expect(textOf(grid.rows[0])).toEqual(["1", "2"]);
+  });
+
+  test("the delimiter row is read for alignment, not drawn", () => {
+    const grid = gridIn(["| l | c | r | d |", "|:--|:-:|--:|---|", "| 1 | 2 | 3 | 4 |"].join("\n"));
+    expect(grid.align).toEqual(["left", "center", "right", null]);
+    // Three lines in, two rows out: the dashes are syntax and are gone.
+    expect(grid.rows.length).toBe(1);
+  });
+
+  test("it replaces the table's whole lines, and only those", () => {
+    const doc = `before\n\n${TABLE}\n\nafter`;
+    const grid = gridIn(doc);
+    expect(doc.slice(grid.from, grid.to)).toBe(TABLE);
+  });
+
+  /**
+   * The reason this pass exists at all rather than "tables look nicer".
+   *
+   * `apps/mcp/src/forms.js` escapes every value it writes into a response row:
+   * a pipe becomes `\|`, a newline becomes `<br>`, and `<`, `>` and `&` become
+   * entities — see `escapeCell` and `docs/decisions/forms.md`. A grid that drew
+   * the source would show a backslash in front of every pipe somebody typed and
+   * the literal characters `&lt;`, which is the feature's own output rendered
+   * wrong. So the three node kinds the grammar gives for exactly those escapes
+   * are read back here, and `unescapeCell` is the function this has to agree
+   * with.
+   */
+  describe("it reads back what the form renderer wrote", () => {
+    const cellDoc = (value: string) => ["| v |", "| --- |", `| ${value} |`].join("\n");
+
+    test("an escaped pipe is a pipe", () => {
+      expect(cell(cellDoc("a\\|b"), 0, 0)).toBe("a|b");
+    });
+
+    test("an escaped backslash is one backslash", () => {
+      expect(cell(cellDoc("a\\\\b"), 0, 0)).toBe("a\\b");
+    });
+
+    test("a break is a newline, which the widget draws as one", () => {
+      expect(cell(cellDoc("one<br>two"), 0, 0)).toBe("one\ntwo");
+    });
+
+    test("the entities are their characters", () => {
+      expect(cell(cellDoc("&lt;br&gt; &amp; co"), 0, 0)).toBe("<br> & co");
+    });
+
+    /**
+     * The round trip the gateway's own fixture is about: somebody who typed
+     * `<br>` gets `<br>` back, not a line break. `escapeCell` runs the HTML-ish
+     * escapes first for this, and a reader that decoded entities *after*
+     * recognising breaks would undo it.
+     */
+    test("and somebody who typed <br> sees <br>, not a break", () => {
+      expect(cell(cellDoc("&lt;br&gt;"), 0, 0)).toBe("<br>");
+    });
+
+    test("an entity nobody wrote on purpose is left as itself", () => {
+      expect(cell(cellDoc("&notanentity;"), 0, 0)).toBe("&notanentity;");
+    });
+  });
+
+  /**
+   * THE COLUMN SHIFT, WHICH IS THE ONE THAT CORRUPTS DATA RATHER THAN LOOKS.
+   *
+   * lezer emits no `TableCell` for an empty cell, so reading the columns off
+   * the cell nodes silently shifts every column to the right of a blank one.
+   * A reader is then shown a value under the wrong header with nothing to say
+   * anything moved — and in a form's response table an unanswered optional
+   * field does that to every column after it, which is this feature's own
+   * output misattributed. The columns are the gaps between the delimiters.
+   */
+  describe("an empty cell is a column, not a missing one", () => {
+    test("a blank cell keeps everything to its right under its own header", () => {
+      const grid = gridIn(["| a | b | c |", "| - | - | - |", "| 1 |  | 3 |"].join("\n"));
+      expect(textOf(grid.rows[0])).toEqual(["1", "", "3"]);
+    });
+
+    test("a blank header cell does not shrink the table", () => {
+      const grid = gridIn(["| a |  | c |", "| - | - | - |", "| 1 | 2 | 3 |"].join("\n"));
+      expect(grid.header.length).toBe(3);
+      expect(textOf(grid.rows[0])).toEqual(["1", "2", "3"]);
+    });
+
+    test("a row of nothing but blanks still has the right width", () => {
+      const grid = gridIn(["| a | b |", "| - | - |", "|  |  |"].join("\n"));
+      expect(textOf(grid.rows[0])).toEqual(["", ""]);
+    });
+
+    /*
+      GFM makes the outer pipes optional; this dialect does not implement that —
+      `a | b | c` over a delimiter row parses as a paragraph and a bullet list,
+      not a table. `cellsOf` handles the shape anyway, because the gaps between
+      delimiters are the columns either way and a defensive branch is cheaper
+      than a grid that mis-columns if the grammar ever gains it. What is pinned
+      here is the grammar's actual answer, so this test fails loudly on the day
+      that changes rather than the rendering failing quietly.
+    */
+    test("a table written without its outer pipes is not a table to this dialect", () => {
+      expect(tableGrids(readingStateFor(["a | b | c", "- | - | -", "1 |  | 3"].join("\n")))).toEqual([]);
+    });
+  });
+
+  /**
+   * A code span's content is literal to CommonMark, so the grammar emits no
+   * `Escape`, `Entity` or `HTMLTag` inside one and the node-by-node reading
+   * above simply does not fire there. The gateway escaped the value anyway —
+   * it escapes the whole cell before it knows or cares what is in it — so a
+   * submitted `a|b` inside backticks came back as `a\|b`. GFM unescapes a
+   * cell's pipes before inline parsing, so the spec agrees with the round trip.
+   */
+  describe("a code span in a cell is read back too", () => {
+    const inCode = (value: string) =>
+      ["| v |", "| - |", `| \`${value}\` |`].join("\n");
+
+    test("an escaped pipe inside backticks is a pipe", () => {
+      expect(cell(inCode("a\\|b"), 0, 0)).toBe("a|b");
+    });
+
+    test("the entities inside backticks are their characters", () => {
+      expect(cell(inCode("&lt;x&gt;"), 0, 0)).toBe("<x>");
+    });
+
+    test("and it is still drawn as code", () => {
+      const grid = gridIn(inCode("a\\|b"));
+      expect(grid.rows[0][0][0].className).toContain("cm-lp-code");
+    });
+  });
+
+  /**
+   * `[[note]]` is not a grammar node: the dialect reads it as a `Link` around
+   * `[note]` with the outer brackets as plain text, so hiding the link's own
+   * marks — right for `[label](url)` — left a reader `[note]`. `noteLinks`
+   * normally covers for that by decorating the whole span and cannot reach
+   * inside a block widget.
+   */
+  describe("a wiki link in a cell is drawn as its words", () => {
+    const inCell = (value: string) => ["| v |", "| - |", `| ${value} |`].join("\n");
+
+    test("no stray brackets survive", () => {
+      expect(cell(inCell("[[note]]"), 0, 0)).toBe("note");
+    });
+
+    /*
+      The pipe has to be escaped for the alias to be in the cell at all — a bare
+      one ends the cell — so this is how an aliased wiki link is really written
+      in a table, and the backslash must not reach the reader.
+    */
+    test("an alias is what the reader gets, without the escape that carried it", () => {
+      expect(cell(inCell("[[1-projects/foo\\|the foo project]]"), 0, 0)).toBe("the foo project");
+    });
+
+    test("and it is drawn in the link colour", () => {
+      const grid = gridIn(inCell("[[note]]"));
+      expect(grid.rows[0][0][0].className).toContain("cm-lp-link");
+    });
+
+    test("an ordinary inline link still shows its label alone", () => {
+      expect(cell(inCell("[label](target.md)"), 0, 0)).toBe("label");
+    });
+
+    test("brackets inside a code span stay literal", () => {
+      expect(cell(inCell("`[[note]]`"), 0, 0)).toBe("[[note]]");
+    });
+  });
+
+  test("inline markup in a cell is drawn, not spelled out", () => {
+    const grid = gridIn(["| v |", "| --- |", "| **bold** and `code` |"].join("\n"));
+    const runs = grid.rows[0][0];
+    expect(runs.map((run) => run.text).join("")).toBe("bold and code");
+    expect(runs.find((run) => run.text === "bold")?.className).toContain("cm-lp-strong");
+    expect(runs.find((run) => run.text === "code")?.className).toContain("cm-lp-code");
+  });
+
+  test("a short row is padded rather than dropping a column", () => {
+    const grid = gridIn(["| a | b | c |", "| --- | --- | --- |", "| 1 |"].join("\n"));
+    expect(grid.header.length).toBe(3);
+    expect(grid.rows[0].length).toBe(3);
+  });
+
+  test("a table indented inside a list item is left as text", () => {
+    // A block widget replaces whole lines, and this one does not occupy them —
+    // the same refusal `htmlPreviews` and `formFences` make.
+    const doc = ["- item", "", "  | a | b |", "  | --- | --- |", "  | 1 | 2 |"].join("\n");
+    expect(tableGrids(readingStateFor(doc))).toEqual([]);
+  });
+
+  test("nothing in the frontmatter is read as a table", () => {
+    const doc = ["---", "| not | a | table |", "---", "", "# Title"].join("\n");
+    const state = readingStateFor(doc);
+    const front = frontmatterRange(doc);
+    expect(tableGrids(state, front === null ? 0 : front.to)).toEqual([]);
+  });
+
+  /**
+   * WHERE EACH CELL'S CHARACTERS ARE — the half that makes the grid editable
+   * without a serializer. A span is the raw range between two delimiters, so
+   * typing in a cell replaces those characters and reads nothing else; the
+   * writes themselves are `tableEdit.ts`, pinned in `tableEdit.test.ts`.
+   */
+  describe("every drawn cell knows which characters it is", () => {
+    test("a span is the cell's own text, padding included", () => {
+      const doc = TABLE;
+      const grid = gridIn(doc);
+      const slice = (span: { from: number; to: number } | null) =>
+        span === null ? null : doc.slice(span.from, span.to);
+      expect(grid.headerSpans.map(slice)).toEqual([" a ", " b "]);
+      expect(grid.rowSpans[0].map(slice)).toEqual([" 1 ", " 2 "]);
+    });
+
+    test("and the column GFM invented for a short row has none", () => {
+      // There are no characters in the file for it, so there is nothing for a
+      // keystroke in it to replace — the widget draws it and refuses to edit.
+      const grid = gridIn(["| a | b |", "| --- | --- |", "| 1 |"].join("\n"));
+      expect(grid.rowSpans[0][0]).not.toBeNull();
+      expect(grid.rowSpans[0][1]).toBeNull();
+    });
+
+    test("an escaped pipe stays inside the cell it belongs to", () => {
+      const doc = ["| v |", "| --- |", "| a\\|b |"].join("\n");
+      const grid = gridIn(doc);
+      expect(grid.rowSpans[0].length).toBe(1);
+      expect(doc.slice(grid.rowSpans[0][0]!.from, grid.rowSpans[0][0]!.to)).toBe(" a\\|b ");
+    });
+  });
+
+  test("the grid replaces the lines rather than sitting beside them", () => {
+    // No `cm-lp-table` mono line survives under the widget: two decorations
+    // describing the same characters is the range set that throws.
+    const set = decorationsFor(readingStateFor(TABLE));
+    const found: string[] = [];
+    const iter = set.iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { class?: string };
+      if (spec.class !== undefined) found.push(spec.class);
+      iter.next();
+    }
+    expect(found).not.toContain("cm-lp-table");
+  });
+
+  test("and decorating one throws for no document", () => {
+    for (const doc of [TABLE, `# h\n\n${TABLE}\n\ntail`, `${TABLE}\n${TABLE}`]) {
+      expect(() => decorationsFor(readingStateFor(doc))).not.toThrow();
+    }
+  });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -795,8 +1122,34 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
    */
   const FRONT = "---\nupdated: 2026-08-26\nstatus: active\n---\n\n# Real title\n";
 
-  function classesIn(doc: string): string[] {
-    const set = decorationsFor(stateFor(doc, 500));
+  /**
+   * Is the whole block replaced right now?
+   *
+   * Read off `decorationsFor` rather than `visibleText`, and that is the one
+   * thing worth explaining here: `hiddenMarkRanges` deliberately answers
+   * *nothing* inside the frontmatter — its own comment is why, and the
+   * asymmetric fences are the reason — so the helper built on it cannot see
+   * this. The block decoration is `decorationsFor`'s, because whole lines are
+   * what a `block: true` replace is for, and this asks the set that actually
+   * reaches CodeMirror.
+   */
+  function blockHidden(doc: string, cursor: number | [number, number] = 500): boolean {
+    const range = frontmatterBlock(doc);
+    if (range === null) return false;
+    const set = decorationsFor(stateFor(doc, cursor));
+    const iter = set.iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { block?: boolean; widget?: unknown };
+      if (spec.block === true && spec.widget === undefined && iter.from === range.from) {
+        return iter.to === range.to;
+      }
+      iter.next();
+    }
+    return false;
+  }
+
+  function classesIn(doc: string, cursor: number | [number, number] = 500): string[] {
+    const set = decorationsFor(stateFor(doc, cursor));
     const found: string[] = [];
     const iter = set.iter();
     while (iter.value !== null) {
@@ -819,14 +1172,44 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
     expect(names).toContain("SetextHeading2");
   });
 
-  test("and it is not drawn as one", () => {
+  /**
+   * **The block is hidden while nobody is in it, and that is new.**
+   *
+   * It used to be drawn always, small and dim, on the argument that it is
+   * "metadata a person may need to edit". Measured in Chromium at 1440×900
+   * against the console's own demo note, that meant four lines of filing —
+   * `---`, `updated:`, `status:`, `---` — above the note's own title, on every
+   * note anybody had ever filed anything on. Dim is not the same as out of the
+   * way.
+   *
+   * So it follows the rule every other mark in this file follows. The editing
+   * half of the old argument is kept exactly: the caret reaching it brings it
+   * back in full, which is the case below, and the editor is still the one
+   * thing in the product that can change a note's metadata —
+   * `NoteEditor`'s Properties panel is a reader.
+   */
+  test("with the caret elsewhere it is not drawn at all", () => {
     const classes = classesIn(FRONT);
-    expect(classes).toContain("cm-lp-frontmatter");
+    expect(classes).not.toContain("cm-lp-frontmatter");
     expect(classes).not.toContain("cm-lp-h2");
+    expect(blockHidden(FRONT)).toBe(true);
+  });
+
+  test("and the caret reaching it brings the whole block back", () => {
+    // Anywhere inside, including the fences: the block is one object, and
+    // revealing the keys without the fences is the half-hidden state this
+    // file's header calls the worst of both.
+    for (const cursor of [0, 10, 38]) {
+      const classes = classesIn(FRONT, cursor);
+      expect(`${cursor}: ${classes.includes("cm-lp-frontmatter")}`).toBe(`${cursor}: true`);
+      expect(`${cursor}: ${classes.includes("cm-lp-h2")}`).toBe(`${cursor}: false`);
+      expect(`${cursor}: ${blockHidden(FRONT, cursor)}`).toBe(`${cursor}: false`);
+    }
   });
 
   test("the note's own headings still are", () => {
-    // The other direction, so the fix cannot be "stop styling headings".
+    // The other direction, so the fix cannot be "stop styling headings". Read
+    // with the caret away, which is also the resting state.
     expect(classesIn(FRONT)).toContain("cm-lp-h1");
   });
 
@@ -851,20 +1234,28 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
       to find a closer would consume the rest of the document. Reading the text
       answers before anything is consumed.
     */
-    expect(frontmatterRange("---\nthis note has no closing fence\n")).toBeNull();
-    expect(classesIn("---\nthis note has no closing fence\n")).not.toContain(
-      "cm-lp-frontmatter",
-    );
+    const doc = "---\nthis note has no closing fence\n";
+    expect(frontmatterRange(doc)).toBeNull();
+    expect(classesIn(doc)).not.toContain("cm-lp-frontmatter");
+    // And it is still *on screen*: not frontmatter means not hidden either,
+    // which is the half a "no class" assertion cannot see now that the block
+    // is replaced rather than dimmed.
+    expect(blockHidden(doc)).toBe(false);
+    expect(visibleText(doc, 500)).toContain("this note has no closing fence");
   });
 
-  test("both fences are visible, not just the opening one", () => {
+  test("both fences are visible once it is revealed, not just the opening one", () => {
     /*
       The asymmetry this rules out. The opening `---` parses as a
       HorizontalRule and the closing one as a setext HeaderMark, so ordinary
       mark-hiding removed the closing fence and left the opening one — and the
       block read as an unterminated rule above two stray keys.
+
+      Read with the caret inside, which is the only state the block is drawn
+      in now. With it away the whole thing is gone, fences included, which is
+      the case above and is not the asymmetry this is about.
     */
-    expect(visibleText(FRONT, 500)).toContain("---\nupdated: 2026-08-26\nstatus: active\n---");
+    expect(visibleText(FRONT, 10)).toContain("---\nupdated: 2026-08-26\nstatus: active\n---");
   });
 
   test("YAML's other closing fence counts", () => {
@@ -878,6 +1269,84 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
     expect(frontmatterRange("")).toBeNull();
     expect(frontmatterRange("---")).toBeNull();
     expect(frontmatterRange("---\n")).toBeNull();
+  });
+
+  /**
+   * WHERE THE CARET GOES WHEN A NOTE IS OPENED, AND WHY IT IS NOT ZERO.
+   *
+   * **This is the other half of hiding the block, and without it the first
+   * half buys nothing.** The reveal rule is "the selection is in it", a note
+   * opens with the caret at position 0, and position 0 is inside the
+   * frontmatter — so every note with a `---` block opened showing exactly the
+   * four lines that hiding it was for.
+   *
+   * `openingCaret` is `editorSetup.ts`'s, spent by both hosts: the web editor
+   * passes it to `EditorState.create` and `replaceDocument` sets it on every
+   * note switch, so a note opened cold and a note switched to agree.
+   *
+   * The alternative was to make the *reveal* rule cleverer — "touching the
+   * range does not count at its first character" — and it is worse for a
+   * reason worth writing down: ⌘↑ and Home both put the caret at 0
+   * deliberately, and a rule that ignores 0 is a rule that cannot be used to
+   * get there.
+   */
+  describe("the caret opens on the writing, not on the filing", () => {
+    test("past the block and the blank line under it, on the body's first line", () => {
+      const block = frontmatterBlock(FRONT)!;
+      expect(openingCaret(FRONT)).toBe(block.to + 1);
+      // And it really is past it, which is what stops the block revealing.
+      // `frontmatterBlock`, not `frontmatterRange`: a caret one character past
+      // the *fence* is on the blank line, which is hidden with it.
+      expect(
+        selectionTouches(block, [
+          { from: openingCaret(FRONT), to: openingCaret(FRONT) },
+        ]),
+      ).toBe(false);
+    });
+
+    test("and the blank line under the fence is hidden with it", () => {
+      /*
+        `frontmatterRange` stops at the closing fence, because that is where
+        the YAML stops. Hiding exactly that left a 28pt empty line above the
+        note's title — the separator, still separating, with nothing on the
+        other side of it. Measured in Chromium at 1440×900 before this: the
+        first `.cm-line` was an empty box 28pt tall between the breadcrumb and
+        the heading.
+      */
+      const block = frontmatterBlock(FRONT)!;
+      expect(FRONT.slice(block.from, block.to)).toBe(
+        "---\nupdated: 2026-08-26\nstatus: active\n---\n",
+      );
+      // And the fence's own range is unchanged, which is what its own tests
+      // above hold and what the YAML document actually is.
+      expect(frontmatterRange(FRONT)!.to).toBeLessThan(block.to);
+    });
+
+    test("several blank lines go too, and a line with anything on it stops the walk", () => {
+      const spaced = "---\na: 1\n---\n\n\n\n# Title\n";
+      expect(spaced.slice(0, frontmatterBlock(spaced)!.to)).toBe("---\na: 1\n---\n\n\n");
+      expect(openingCaret(spaced)).toBe(spaced.indexOf("# Title"));
+
+      const tight = "---\na: 1\n---\n# Title\n";
+      expect(frontmatterBlock(tight)!.to).toBe(frontmatterRange(tight)!.to);
+    });
+
+    test("and zero for every document that has no block", () => {
+      // A note with no frontmatter, an unterminated fence, and a rule further
+      // down: `frontmatterRange` answers `null` for all three, and the first
+      // character is the first character.
+      expect(openingCaret("# Just a note\n")).toBe(0);
+      expect(openingCaret("---\nno closing fence\n")).toBe(0);
+      expect(openingCaret("# Title\n\n---\nnot: frontmatter\n---\n")).toBe(0);
+      expect(openingCaret("")).toBe(0);
+    });
+
+    test("and never past the end of a document that ends at the fence", () => {
+      // A file that is frontmatter and nothing else has no body line to land
+      // on. `min` is what stops the caret being one past the document.
+      const only = "---\na: 1\n---";
+      expect(openingCaret(only)).toBe(only.length);
+    });
   });
 });
 
@@ -943,5 +1412,427 @@ describe("R3 — a fenced code block is highlighted by its own language", () => 
     const doc = ["```bash", "echo hi", "```"].join("\n");
     expect(() => highlightedRanges(doc)).not.toThrow();
     expect(highlightedRanges(doc)).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A FENCE TAGGED `html-preview` IS DRAWN AS THE THING IT DESCRIBES.
+ *
+ * The convention is the tag and nothing else: no new file format, no
+ * frontmatter switch, no per-note setting. A note carrying a diagram is still a
+ * plain Markdown file that `cat`, GitHub and Obsidian all show as a labelled
+ * code block.
+ *
+ * **Everything in this block is about one attribute.** Anyone can email
+ * `<name>@context.lc`, so a note this renders may have been written by a
+ * stranger — and the console it renders in holds a live authenticated Convex
+ * connection. A bare `sandbox` is what stops the markup being code, and it is
+ * the browser's guarantee rather than one of ours. The cases below assert on
+ * the attribute because it is the whole security model; `e2e/webkit/` asserts
+ * that a script in the fence actually fails to run, which is the part jsdom
+ * cannot prove — it does not enforce iframe sandboxing at all, so a passing
+ * jsdom test there would be a false green.
+ */
+describe("html-preview fences", () => {
+  const DIAGRAM = [
+    "# Map",
+    "",
+    "```html-preview",
+    '<div class="box">drawn</div>',
+    "```",
+    "",
+    "after",
+  ].join("\n");
+
+  /** Every preview widget the real decoration set carries, in document order. */
+  function widgetsIn(doc: string, cursor = 10_000): HtmlPreviewWidget[] {
+    const state = stateFor(doc, cursor);
+    const found: HtmlPreviewWidget[] = [];
+    decorationsFor(state).between(0, state.doc.length, (_from, _to, value) => {
+      const spec = value.spec as { widget?: unknown };
+      if (spec.widget instanceof HtmlPreviewWidget) found.push(spec.widget);
+    });
+    return found;
+  }
+
+  test("the fence's own body is what gets rendered, without its fence lines", () => {
+    const previews = htmlPreviews(stateFor(DIAGRAM, 10_000));
+    expect(previews).toHaveLength(1);
+    expect(previews[0]!.html).toBe('<div class="box">drawn</div>');
+  });
+
+  /**
+   * Opting in is the entire convention. A plain HTML block in somebody's note
+   * — a snippet they are quoting, a fragment they are debugging — must stay a
+   * code block, or every note that talks about HTML starts executing it.
+   */
+  /**
+   * Every fixture here ends in a line of prose, and that line is load-bearing.
+   *
+   * The caret is parked at the end of the document to say "not in the fence",
+   * and `selectionTouches` is inclusive at both ends — so a document that *is*
+   * the fence leaves nowhere to stand, the reveal rule fires, and a test
+   * asserting "this tag does not render" passes for the wrong reason. It did:
+   * the first version of the two cases below went green against an
+   * implementation that rendered every fence in the file, whatever its tag.
+   */
+  const afterFence = (tag: string, body = "<div>x</div>") =>
+    ["```" + tag, body, "```", "", "after"].join("\n");
+
+  test("a fence tagged `html` is not a preview", () => {
+    const plain = afterFence("html", "<div>quoted</div>");
+    expect(htmlPreviews(stateFor(plain, 10_000))).toEqual([]);
+    expect(widgetsIn(plain)).toEqual([]);
+  });
+
+  test("neither is any other tag, nor an untagged fence", () => {
+    for (const tag of ["", "js", "css", "htmlpreview", "html-previews", "preview", "HTML"]) {
+      expect(htmlPreviews(stateFor(afterFence(tag), 10_000))).toEqual([]);
+    }
+  });
+
+  test("the tag itself is what decides, and it is matched whole", () => {
+    // The positive control for the two cases above: the same fixture shape,
+    // the only difference being the tag, renders. Without this a check that
+    // rendered nothing at all would pass every negative case here.
+    expect(htmlPreviews(stateFor(afterFence("html-preview"), 10_000))).toHaveLength(1);
+    // Case-insensitively, and with a second word after it — a fence written
+    // ```` ```HTML-Preview title=… ```` is still the author opting in.
+    expect(htmlPreviews(stateFor(afterFence("HTML-Preview"), 10_000))).toHaveLength(1);
+    expect(htmlPreviews(stateFor(afterFence("html-preview wide"), 10_000))).toHaveLength(1);
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * The other half of the sandbox, and it is not about code at all.
+   *
+   * CSS alone can fetch — a background image, a webfont — and a fetch from a
+   * note somebody emailed you is a read receipt on a document you did not ask
+   * for. `default-src 'none'` is what stops it; `img-src data:` is what still
+   * lets a diagram carry its own inline artwork.
+   */
+  test("the frame's document carries a CSP that permits no network at all", () => {
+    const doc = previewDocument("<div>x</div>");
+    expect(doc).toContain("default-src 'none'");
+    expect(doc).toContain("style-src 'unsafe-inline'");
+    expect(doc).toContain("img-src data:");
+    // No `https:`, no `*`, and no scheme a stylesheet could reach out over.
+    expect(doc).not.toMatch(/(?:img|font|default)-src[^;"]*https?:/);
+  });
+
+  test("the fence's content is inside that document, unaltered", () => {
+    // Not sanitized, not escaped, not rewritten. The browser is the boundary —
+    // a filter of ours would be a second mechanism nobody tests.
+    const html = '<div class="cmap" style="--x:1">a &amp; b</div>';
+    expect(previewDocument(html)).toContain(html);
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * The Live Preview rule, which this file argues for at length: you cannot
+   * edit syntax you cannot see. A drawn diagram must become its own fence
+   * again the moment the caret enters it, exactly as `## Heading` does.
+   */
+  test("the caret entering the block gives the raw fence back", () => {
+    const at = DIAGRAM.indexOf('<div class="box">');
+    expect(htmlPreviews(stateFor(DIAGRAM, at))).toEqual([]);
+    expect(widgetsIn(DIAGRAM, at)).toEqual([]);
+  });
+
+  test("and a caret on either boundary counts as inside", () => {
+    const from = DIAGRAM.indexOf("```html-preview");
+    const to = from + "```html-preview\n<div class=\"box\">drawn</div>\n```".length;
+    expect(htmlPreviews(stateFor(DIAGRAM, from))).toEqual([]);
+    expect(htmlPreviews(stateFor(DIAGRAM, to))).toEqual([]);
+  });
+
+  test("a caret elsewhere in the note leaves it drawn", () => {
+    expect(htmlPreviews(stateFor(DIAGRAM, 2))).toHaveLength(1);
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  test("the rendered block replaces whole lines and nothing else is drawn inside it", () => {
+    const state = stateFor(DIAGRAM, 10_000);
+    const preview = htmlPreviews(state)[0]!;
+    expect(state.doc.lineAt(preview.from).from).toBe(preview.from);
+    expect(state.doc.lineAt(preview.to).to).toBe(preview.to);
+
+    // No `cm-lp-fence`, and no hidden CodeMark ranges, inside a range the
+    // widget has already replaced — overlapping a block replacement with the
+    // decorations it swallowed is a range-set error waiting for the one note
+    // that has both.
+    const inside: string[] = [];
+    decorationsFor(state).between(preview.from, preview.to, (from, _to, value) => {
+      const spec = value.spec as { class?: string; widget?: unknown };
+      if (spec.widget instanceof HtmlPreviewWidget) return;
+      if (from >= preview.from && from < preview.to) inside.push(spec.class ?? "replace");
+    });
+    expect(inside).toEqual([]);
+  });
+
+  test("a fence nobody can replace cleanly is left as text", () => {
+    // Indented inside a list item: the fence does not start at the margin, so a
+    // block widget cannot stand in for whole lines. An honest code block beats
+    // a widget that eats half a list.
+    const nested = ["- item", "  ```html-preview", "  <div>x</div>", "  ```"].join("\n");
+    expect(htmlPreviews(stateFor(nested, 10_000))).toEqual([]);
+  });
+
+  test("an empty preview fence draws nothing", () => {
+    const empty = ["```html-preview", "```"].join("\n");
+    expect(htmlPreviews(stateFor(empty, 10_000))).toEqual([]);
+  });
+
+  test("an unterminated preview fence still draws what it has", () => {
+    /*
+      The state every fence passes through while somebody is typing one, and it
+      needs a line above it to be observable at all: an unterminated fence runs
+      to the end of the document, so the only caret positions left are inside
+      it, where the reveal rule correctly shows the source.
+    */
+    const open = ["# Title", "", "```html-preview", "<div>x</div>"].join("\n");
+    const previews = htmlPreviews(stateFor(open, 0));
+    expect(previews).toHaveLength(1);
+    expect(previews[0]!.html).toBe("<div>x</div>");
+  });
+
+  test("nothing inside the frontmatter is ever a preview", () => {
+    // The same rule every other pass in this file follows: metadata is drawn as
+    // metadata. A `---` block that happens to contain a fence is still YAML.
+    const doc = ["---", "```html-preview", "<div>x</div>", "```", "---", "", "# Title"].join("\n");
+    const state = stateFor(doc, 10_000);
+    const front = frontmatterRange(doc);
+    expect(front).not.toBeNull();
+    expect(htmlPreviews(state, front!.to)).toEqual([]);
+  });
+
+  test("two previews in one note are two widgets", () => {
+    const doc = [DIAGRAM, "", "```html-preview", "<p>second</p>", "```", "", "end"].join("\n");
+    expect(htmlPreviews(stateFor(doc, 10_000))).toHaveLength(2);
+    expect(widgetsIn(doc)).toHaveLength(2);
+  });
+
+  /**
+   * Widget identity, and it is load-bearing rather than an optimisation: the
+   * decoration set is rebuilt on every keystroke and every cursor move, and a
+   * widget that reported itself new each time would tear the iframe down and
+   * reload the document under the reader's eyes several times a second.
+   */
+  test("an unchanged preview is the same widget", () => {
+    const [a] = widgetsIn(DIAGRAM, 2);
+    const [b] = widgetsIn(DIAGRAM, 5);
+    expect(a!.eq(b!)).toBe(true);
+  });
+
+  test("a changed preview is not", () => {
+    const other = DIAGRAM.replace("drawn", "redrawn");
+    expect(widgetsIn(DIAGRAM)[0]!.eq(widgetsIn(other)[0]!)).toBe(false);
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  test("a click on the frame reaches the editor, so the block can reveal itself", () => {
+    // The frame is a separate document and swallows its own clicks. Without
+    // `pointer-events: none` on it there is no way to get the source back with
+    // a pointer at all — the one interaction the reveal rule is about.
+    expect(livePreviewStyles).toMatch(/\.cm-lp-preview-frame\b[^}]*pointer-events:\s*none/s);
+    const widget = widgetsIn(DIAGRAM)[0]!;
+    expect(widget.ignoreEvent()).toBe(false);
+  });
+
+  test("the widget it builds is the preview widget, and it is the only widget here", () => {
+    // `htmlPreviewFrame.test.ts` mounts this one and reads the attribute that
+    // is the whole security model; it runs under jsdom, which this file
+    // deliberately does not.
+    expect(widgetsIn(DIAGRAM)).toHaveLength(1);
+    expect(widgetsIn(DIAGRAM)[0]).toBeInstanceOf(HtmlPreviewWidget);
+  });
+
+  test("the box is clipped, so a layout cannot draw over the console", () => {
+    expect(livePreviewStyles).toMatch(/\.cm-lp-preview\b[^}]*overflow:\s*hidden/s);
+    expect(livePreviewStyles).toMatch(/\.cm-lp-preview-frame\b[^}]*max-height/s);
+  });
+
+  test("a note mixing a preview with every other construct still builds", () => {
+    const doc = [
+      "---",
+      "updated: 2026-09-11",
+      "---",
+      "",
+      "# Title",
+      "",
+      "- [ ] a task with **bold** and [a link](x.md)",
+      "",
+      "```html-preview",
+      "<div>drawn</div>",
+      "```",
+      "",
+      "```js",
+      "const x = 1;",
+      "```",
+      "",
+      "| a | b |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+    ].join("\n");
+    expect(() => decorationsFor(stateFor(doc, 10_000))).not.toThrow();
+    expect(() => decorationsFor(stateFor(doc, 0))).not.toThrow();
+    expect(() => decorationsFor(stateFor(doc, [0, doc.length]))).not.toThrow();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * NOTHING REVEALS IN A DOCUMENT NOBODY CAN TYPE INTO.
+ *
+ * The reveal rule exists because you cannot edit syntax you cannot see. A
+ * read-only note has no caret to edit with — `editability` drops
+ * `contenteditable` — but `state.selection` is still a range at 0, so without
+ * `revealSelection` the note's first construct draws its own asterisks at a
+ * reader who can do nothing about them, and a preview at the top of a note sits
+ * there as its own source.
+ *
+ * Three states share the condition: reading mode, `privacy.md`, and an
+ * encrypted envelope. One check per changed call site, each paired with the
+ * editable case so the rule cannot widen onto a note somebody is typing into.
+ *
+ * ## Sabotage record
+ *
+ * `revealSelection` returning the ranges unconditionally: **2** failed, one per
+ * call site, and the two editable checks stayed green — which is the pairing
+ * doing its job.
+ */
+describe("a read-only note reveals nothing", () => {
+  const HEADING = "# Chapter transition";
+
+  /** The classes `decorationsFor` drew, so a hidden mark can be told from a styled one. */
+  function hiddenCount(state: EditorState): number {
+    const set = decorationsFor(state);
+    let hidden = 0;
+    const iter = set.iter();
+    while (iter.value !== null) {
+      // A hidden mark is drawn as a zero-width replacement; a style is a class.
+      const spec = iter.value.spec as { class?: string };
+      if (!spec.class && iter.from !== iter.to) hidden += 1;
+      iter.next();
+    }
+    return hidden;
+  }
+
+  test("a cursor in a heading reveals its hashes while the note is editable", () => {
+    expect(hiddenCount(stateFor(HEADING, 3))).toBe(0);
+  });
+
+  test("...and the same cursor in a read-only note does not", () => {
+    expect(hiddenCount(readingStateFor(HEADING, 3))).toBeGreaterThan(0);
+  });
+
+  /*
+    `html-preview`, not `html`: a plain `html` fence is a code block and draws
+    no widget at all. Written the other way first, and both halves passed —
+    the editable one because there was nothing to withdraw. A fixture that
+    produces no preview cannot show one being kept.
+  */
+  /*
+    Shaped like `DIAGRAM` above — a line before and a line after — because a
+    lone fence at the very top of a document draws no widget, and a fixture
+    that produces no preview cannot show one being kept. Written both of the
+    other ways first: a plain ```html fence (a code block, no widget) and a
+    bare ```html-preview with nothing around it. Each made the editable half
+    pass for the wrong reason.
+  */
+  const PREVIEW = ["# Map", "", "```html-preview", "<div>x</div>", "```", "", "after"].join("\n");
+  /** Inside the fence's body, which is what withdraws a preview. */
+  const IN_FENCE = PREVIEW.indexOf("<div>") + 2;
+
+  test("a preview is drawn when the cursor is elsewhere", () => {
+    expect(htmlPreviews(stateFor(PREVIEW, 10_000)).length).toBe(1);
+  });
+
+  test("...and withdrawn when the cursor enters its fence, while editable", () => {
+    expect(htmlPreviews(stateFor(PREVIEW, IN_FENCE))).toEqual([]);
+  });
+
+  test("...but the same cursor in a read-only note leaves it drawn", () => {
+    const previews = htmlPreviews(readingStateFor(PREVIEW, IN_FENCE));
+    expect(previews.length).toBe(1);
+    expect(previews[0]!.html).toBe("<div>x</div>");
+  });
+});
+
+/**
+ * NOTHING REVEALS IN A DOCUMENT NOBODY IS TYPING INTO.
+ *
+ * The reveal rule's second half, and the one that was missing. A caret exists
+ * the moment the document does, so a note that was *opened* rather than edited
+ * drew the markup of whichever construct the caret happened to land in — and
+ * `openingCaret` puts it on the first line of the writing, which on most notes
+ * is `# Title`. The page's own title rendered as `# Title`, at a reader who had
+ * not touched anything, which is what a screenshot against the design canvas
+ * showed and no test here could have.
+ *
+ * `editorFocused` is what `revealSelection` now reads. These two cases are the
+ * reversal guard, and they are a pair on purpose: delete the gate and the first
+ * fails; wire the gate shut and the second does.
+ *
+ * Sabotaged both ways before being committed. With `revealSelection`'s focus
+ * line removed: 1 failed (the unfocused one), and every other case in this file
+ * stayed green — which is the third thing being asserted, that a state with no
+ * focus field reveals exactly as it always did.
+ */
+describe("the reveal rule waits for somebody to touch the note", () => {
+  const NOTE = "# Title\n\nSome **bold** words.\n";
+
+  /** The text `decorationsFor` replaced with nothing, as strings. */
+  function hiddenIn(state: EditorState): string[] {
+    const out: string[] = [];
+    const iter = decorationsFor(state).iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { class?: string };
+      if (!spec.class && iter.from !== iter.to) {
+        out.push(state.doc.sliceString(iter.from, iter.to));
+      }
+      iter.next();
+    }
+    return out;
+  }
+
+  /**
+   * A state with the engagement field installed, at the given value.
+   *
+   * The caret is at 0 — inside the heading's own `# ` — because that is where
+   * `openingCaret` leaves it on a note with no frontmatter, and it is the
+   * position that made the bug visible.
+   */
+  function stateAt(engaged: boolean): EditorState {
+    const base = EditorState.create({
+      doc: NOTE,
+      selection: { anchor: 0 },
+      extensions: [markdownLanguage(), editorEngaged],
+    });
+    /*
+      Engagement is delivered as a transaction, not as a different initial
+      value: `create: () => false` is part of what is being guarded here, and a
+      state built at `true` would pass against a field that starts open.
+    */
+    return engaged ? base.update({ effects: engageEditor(true) }).state : base;
+  }
+
+  test("an untouched note hides its markup wherever the caret happens to be", () => {
+    // The `# ` the caret is sitting inside — the exact case this was found in.
+    expect(hiddenIn(stateAt(false))).toContain("# ");
+  });
+
+  test("and working in it brings back the markup under the caret", () => {
+    const hidden = hiddenIn(stateAt(true));
+    expect(hidden).not.toContain("# ");
+    // Still a live preview everywhere else: the bold marks stay away.
+    expect(hidden).toContain("**");
   });
 });

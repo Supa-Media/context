@@ -80,6 +80,19 @@ jest.mock("@convex-dev/auth/react", () => ({
   }),
 }));
 
+/*
+  The console layout mints this app's gateway grant through `useAgentEngine`,
+  which is the first thing in it to reach `convex/react` directly — everything
+  else goes through `useLiveConsoleData`, mocked below. The action is never
+  called here: `VoiceButton` is what would call it, and nothing in this file
+  asks the agent anything.
+*/
+jest.mock("convex/react", () => ({
+  useAction: () => async () => {
+    throw new Error("not used in this test");
+  },
+}));
+
 jest.mock("../features/console/useLiveConsoleData", () => ({
   useLiveConsoleData: () => mockConsoleData(),
 }));
@@ -90,6 +103,8 @@ const keys = require("../features/offline/keys") as typeof import("../features/o
 const cache = require("../features/offline/cache") as typeof import("../features/offline/cache");
 const { emptyOutbox, enqueue } =
   require("../features/offline/outbox") as typeof import("../features/offline/outbox");
+const { memorySpool, setAudioSpool } =
+  require("../features/meetings/capture/spool") as typeof import("../features/meetings/capture/spool");
 
 type OutboxCounts = import("../features/offline/outbox").OutboxCounts;
 type OpenNote = import("../features/console/files/types").OpenNote;
@@ -306,8 +321,23 @@ function mountConsole(width = 1440) {
     byLabel: (label: string) =>
       document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`),
     press,
-    signOut: () =>
-      press(document.body.querySelector<HTMLElement>('[data-testid="rail-sign-out"]')),
+    /*
+      Sign out, two presses, and that is the product's own shape rather than a
+      test detail.
+
+      It used to be one: `rail-sign-out`, the power glyph at the foot of the
+      rail's account block. The rail folded into `SwitcherMenu`
+      (`docs/decisions/app-and-console.md`), so on a pointer layout signing out
+      is a row in the menu under the workspace's name — open the menu, then
+      choose. The phone's own route is unchanged and is `AccountBlock`'s
+      `compact` disclosure, which was always two presses for the same reason:
+      a press that ends a session with no question asked is a press people
+      make by accident.
+    */
+    signOut: async () => {
+      await press(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]'));
+      await press(document.body.querySelector<HTMLElement>('[data-testid="switcher-sign-out"]'));
+    },
     unmount: () => {
       act(() => root.unmount());
       container.remove();
@@ -322,6 +352,7 @@ beforeEach(() => {
   mockReplaced.length = 0;
   counts = NO_WRITES;
   queueReady = true;
+  setAudioSpool(null);
 });
 
 /* -------------------------------------------------------------------------- */
@@ -375,7 +406,7 @@ describe("signing out takes the notes off the device", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(1);
-    expect(app.text()).not.toContain("edits that have not reached your bucket");
+    expect(app.text()).not.toContain("not reached your bucket");
     app.unmount();
   });
 });
@@ -391,7 +422,7 @@ describe("signing out with work that never reached the bucket", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(0);
-    expect(app.text()).toContain("2 notes have edits that have not reached your bucket");
+    expect(app.text()).toContain("2 changes have not reached your bucket");
     // Nothing has been discarded while the question is open, either.
     expect(ownedNow().length).toBeGreaterThan(0);
     app.unmount();
@@ -455,7 +486,7 @@ describe("signing out with work that never reached the bucket", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(0);
-    expect(app.text()).toContain("1 note has edits that have not reached your bucket");
+    expect(app.text()).toContain("1 change has not reached your bucket");
     app.unmount();
   });
 
@@ -481,7 +512,7 @@ describe("signing out with work that never reached the bucket", () => {
     const app = mountConsole();
     await app.signOut();
 
-    expect(app.text()).toContain("1 note has edits that have not reached your bucket");
+    expect(app.text()).toContain("1 change has not reached your bucket");
     app.unmount();
   });
 
@@ -500,7 +531,67 @@ describe("signing out with work that never reached the bucket", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(0);
-    expect(app.text()).toContain("2 notes have edits that have not reached your bucket");
+    expect(app.text()).toContain("2 changes have not reached your bucket");
+    app.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("signing out with a meeting's audio still on the phone", () => {
+  /*
+    The spool keeps audio that has not reached the transcriber, and sign-out
+    wipes it (`forgetLocalCopies`). Without this question the person could end
+    their session and silently lose an un-transcribed meeting — the one thing
+    the spool exists to prevent. No note edits are waiting here, so the dialog
+    can only be about the audio.
+
+    SABOTAGE: `useSignOutFlow` passing `0` for the audio count, and separately
+    `unsentMeetingAudio` answering `0`: both fail both tests below.
+  */
+  function spoolWithAudio(meetings: number) {
+    const spool = memorySpool();
+    for (let n = 0; n < meetings; n += 1) {
+      const meetingId = `mtg_${String(n).repeat(20).slice(0, 20)}`;
+      for (let index = 0; index < 2; index += 1) {
+        spool.keep(
+          { meetingId, index, offsetMs: index * 20_000, durationMs: 20_000 },
+          { kind: "bytes", bytes: Uint8Array.from([index]), mimeType: "audio/wav" },
+          0,
+        );
+      }
+    }
+    setAudioSpool(spool);
+    return spool;
+  }
+
+  test("asks first, naming the meeting whose audio would be deleted", async () => {
+    const spool = spoolWithAudio(1);
+    await seedDevice({ cached: false });
+
+    const app = mountConsole();
+    await app.signOut();
+
+    expect(signOutCalls).toBe(0);
+    expect(app.text()).toContain(
+      "1 meeting's audio has not been transcribed yet — signing out deletes it from this phone.",
+    );
+    // Nothing is wiped while the question is open.
+    expect(spool.list()).toHaveLength(2);
+    app.unmount();
+  });
+
+  test("and signing out anyway takes the audio with it", async () => {
+    const spool = spoolWithAudio(2);
+    await seedDevice({ cached: false });
+
+    const app = mountConsole();
+    await app.signOut();
+    expect(app.text()).toContain("2 meetings' audio has not been transcribed yet");
+    await app.press(app.byLabel("Sign out and discard"));
+
+    expect(signOutCalls).toBe(1);
+    expect(spool.list()).toEqual([]);
     app.unmount();
   });
 });

@@ -5,7 +5,7 @@
  *
  * A connection reaches every context its person is a live member of, and a tool
  * call addresses one by name — so a named URL is no longer how somebody invited
- * into a brain gets at it. What it still decides is where a client *starts*:
+ * into a workspace gets at it. What it still decides is where a client *starts*:
  * the grant's own context is what an unaddressed call resolves to, and the URL
  * the client was connected at is what chose it. Somebody who works mostly in a
  * context shared with them connects at its name and never types one again.
@@ -38,7 +38,7 @@ const SLUG_PATTERN = /^[a-z0-9-]{2,32}$/;
  * for the reason that file gives for keeping its own: no context can be called
  * any of these — `functions/lib/names.ts` reserves them — but a screen that
  * assumed the two lists stayed in sync would print a URL that resolves to a
- * route. Only the five that could pass `SLUG_PATTERN` need to be here; `t` is
+ * route. Only the ones that could pass `SLUG_PATTERN` need to be here; `t` is
  * too short and `.well-known` has a dot in it, so both are already refused.
  */
 const RESERVED_FIRST_SEGMENTS = new Set([
@@ -48,6 +48,10 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "granola-webhook",
   // Meeting ingestion, `/meetings/sessions` on the gateway.
   "meetings",
+  // The agent turn, `/agent` on the gateway.
+  "agent",
+  // The presence socket, `/presence` on the gateway.
+  "presence",
 ]);
 
 /**

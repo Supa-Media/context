@@ -28,12 +28,22 @@ import {
 } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore, redo, undo } from "@codemirror/commands";
-import { startCompletion } from "@codemirror/autocomplete";
+import { startCompletion, type CompletionSource } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
-import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
-import { noteCompletion } from "./linkComplete";
+import {
+  codeHighlighting,
+  engageEditor,
+  frontmatterBlock,
+  livePreview,
+  markdownLanguage,
+} from "./livePreview";
+import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
+import { editorCompletion } from "./linkComplete";
+import { formHost, type FormHostRef } from "./formBlock";
+import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
+import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
 
 /**
@@ -77,12 +87,69 @@ export const externalDoc = Annotation.define<boolean>();
  * `addMapping` is what CodeMirror does with the change instead, so an undo
  * across a note switch is not merely skipped — the positions it holds are
  * remapped, which is what stops it pasting one note's text into another.
+ *
+ * The caret lands at `openingCaret` — the start of the writing, past any
+ * frontmatter — rather than wherever mapping the old selection through a
+ * whole-document replacement happens to put it.
  */
 export function replaceDocument(view: EditorView, text: string): void {
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: text },
+    selection: { anchor: openingCaret(text) },
+    /*
+      A note put on screen is a note nobody has touched, so Live Preview draws
+      it clean until somebody does — see `editorEngaged`. Closed here rather
+      than left to the field's own `create`, because this view is built once and
+      has notes swapped through it: without this, the second note you open
+      inherits the first one's engagement and shows its markup on arrival.
+    */
+    effects: [engageEditor(false)],
     annotations: [externalDoc.of(true), Transaction.addToHistory.of(false)],
   });
+}
+
+/**
+ * Where the caret goes when a note is opened: the first character of the note,
+ * which is not always the first character of the file.
+ *
+ * **This exists because a note opens at position 0 and position 0 is inside
+ * the frontmatter.** `livePreview.ts` hides that block until the selection
+ * reaches it, and a caret parked at 0 by the act of opening reaches it — so
+ * every note with a `---` block opened showing four lines of YAML above its
+ * own title, which is the thing hiding it was for. Making the *reveal* rule
+ * cleverer was the other option and is worse: "touching the range does not
+ * count at its first character" would also mean ⌘↑ cannot get you there.
+ *
+ * It is right on its own terms too, and that is what makes it the fix rather
+ * than a workaround: the caret belongs where the writing starts. A phone has
+ * had this for free since `NoteEditor` started handing that surface the body
+ * alone — the two agree now instead of differing by which density you are on.
+ *
+ * `frontmatterBlock` rather than `frontmatterRange`, and that difference is
+ * the whole of whether this works: what is hidden is the fences *and the
+ * blank lines under them*, so a caret one character past the fence would be
+ * inside what is hidden and would reveal the lot. `+ 1` steps over the
+ * newline that ends the block.
+ *
+ * `frontmatterBlock` only answers for a document that opens with a terminated
+ * block, so a note with no frontmatter, an unterminated fence, or a `---`
+ * further down all answer 0 — which is the first character either way.
+ *
+ * ## It is load-bearing for the browser suite, which is how it was measured
+ *
+ * Sabotaged — `return 0` — `editorFormatting.spec.ts`'s two Bold cases fail,
+ * and they fail in the way that names the cause. A caret at 0 sits inside the
+ * hidden block, so the block is revealed on arrival; the **first** click of
+ * `selectFirstWord`'s double-click moves the caret out of it, the block
+ * collapses, and the document reflows upward *between the two clicks*. The
+ * second click lands on a different line than the one that was measured, and
+ * the bold goes somewhere nobody asked for: the run came back
+ * `A** **shared context is just a workspace…`. Nothing about that failure
+ * points at the caret, which is why it is written down here.
+ */
+export function openingCaret(text: string): number {
+  const front = frontmatterBlock(text);
+  return front === null ? 0 : Math.min(front.to + 1, text.length);
 }
 
 export interface EditorHandlers {
@@ -166,29 +233,22 @@ export function editability(editable: boolean): Extension {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Bold, italic — the pair of markers around whatever is selected.
+ * Bold, italic — the pair of markers around whatever is selected, **and off
+ * again**.
  *
- * `changeByRange` rather than one dispatch per marker, because a document with
- * more than one cursor in it is an ordinary CodeMirror document and two
- * separate dispatches would apply the second against positions the first has
- * already moved. The returned range spans the original selection shifted by the
- * opening marker, so wrapping a word leaves the word selected and wrapping
- * nothing leaves the caret between the two markers — which is the behaviour
- * that makes `**` on an empty line worth pressing at all.
+ * One line now, because the verb moved to `markdownFormat.ts` the day a second
+ * and a third surface wanted it: ⌘B/⌘I below, and the web console's right-click
+ * menu. The argument for `changeByRange`, for the range it returns, and for why
+ * a multi-cursor document is an ordinary one, is there rather than deleted.
+ *
+ * **What changed under the accessory bar, which did not ask for it.** This used
+ * to insert a pair and nothing took one off, so pressing Bold twice on the same
+ * word produced `****word****`. It toggles now, because ⌘B is the chord people
+ * press twice and the bar must not mean something different by Bold than the
+ * keyboard does — the whole reason this configuration is one file and not two.
  */
 function wrapSelection(view: EditorView, before: string, after: string): void {
-  view.dispatch(
-    view.state.update(
-      view.state.changeByRange((range) => ({
-        changes: [
-          { from: range.from, insert: before },
-          { from: range.to, insert: after },
-        ],
-        range: EditorSelection.range(range.from + before.length, range.to + before.length),
-      })),
-      { scrollIntoView: true, userEvent: "input" },
-    ),
-  );
+  toggleWrap(view, before, after);
 }
 
 /**
@@ -287,6 +347,22 @@ export function runCommand(view: EditorView, command: EditorCommand): void {
     return;
   }
   if (view.state.readOnly) return;
+  /*
+    Dictation returns before the `view.focus()` below, and that is the one
+    behavioural difference between it and the other six.
+
+    Every other command is a *button press*, where taking focus back is the
+    whole point — a bar whose second press lands somewhere else is worse than
+    no bar. A dictated phrase is not a press: it arrives on its own several
+    times a minute while somebody is looking at the capsule, and focusing the
+    editor on each one would pull the keyboard focus off Stop mid-sentence and
+    make the control unusable from a keyboard. The caret does not need focus to
+    be inserted at; CodeMirror keeps the selection either way.
+  */
+  if (command.name === "dictate") {
+    insertDictated(view, command.text);
+    return;
+  }
   switch (command.name) {
     case "wrap":
       wrapSelection(view, command.before, command.after);
@@ -379,6 +455,48 @@ function listIndent(direction: 1 | -1) {
 }
 
 /**
+ * ⌘B, ⌘I and ⌘⇧X, bound to the same toggles every other surface runs.
+ *
+ * ## Why every arm returns `true`
+ *
+ * The same reason `Mod-s` does, and it is not theoretical: **Ctrl-B and Ctrl-I
+ * are live browser chords in Firefox** — the bookmarks sidebar and the page
+ * info window. A binding that returned `false` on a note somebody may only
+ * read would answer ⌘B by opening a sidebar over their note, which is a worse
+ * outcome than the key doing nothing. CodeMirror calls `preventDefault()` only
+ * on a truthy return, so `false` here is a real browser action rather than a
+ * nicety.
+ *
+ * The read-only branch is therefore *inert*, not merely harmless: it refuses
+ * before dispatching, for the reason `runCommand` gives at length — a refused
+ * transaction is still a transaction, and `editability`'s `changeFilter`
+ * dropping the changes would still have moved the selection and written the
+ * undo history.
+ *
+ * ## Why there is no chord for an inline code span
+ *
+ * Every obvious one is taken by something that already works: ⌘E is
+ * `togglePreview`, and ⌘⇧C is the element inspector in Chrome and Edge, which
+ * this app cannot take and should not try to. Inline code is on the right-click
+ * menu with no shortcut printed beside it, which `describeBinding` already
+ * treats as a legitimate state rather than an error.
+ */
+const markerKeymap = (
+  [
+    ["Mod-b", "bold"],
+    ["Mod-i", "italic"],
+    ["Mod-Shift-x", "strikethrough"],
+  ] as const satisfies readonly (readonly [string, MarkerName])[]
+).map(([key, name]) => ({
+  key,
+  run: (view: EditorView): boolean => {
+    if (view.state.readOnly) return true;
+    toggleWrap(view, MARKERS[name].before, MARKERS[name].after);
+    return true;
+  },
+}));
+
+/**
  * Everything the editor is, minus where it is drawn.
  *
  * `editableCompartment` is passed in rather than made here because the host
@@ -404,12 +522,66 @@ export function editorExtensions(options: {
    * which is honest rather than a degraded feature.
    */
   links?: NoteLinkRef;
+  /**
+   * Where a filled-in form block sends its answers.
+   *
+   * Absent on a surface that cannot send one — the landing page's demo console
+   * again — and the form then draws with its button off and says so, rather
+   * than accepting a press it has nowhere to take. "An absent capability is
+   * reported, never faked."
+   */
+  forms?: FormHostRef;
+  /**
+   * A running plugin's in-editor suggestions, as a completion source.
+   *
+   * A source rather than an extension, and passed through here rather than
+   * added beside `editorExtensions(...)` by the host: `override` is one list on
+   * one facet, and a second `autocompletion()` throws at state construction
+   * instead of composing. See `editorCompletion`.
+   *
+   * Absent on every surface with no sandbox behind it — the native editor's
+   * `WebView` guest and the landing page's demo console — and the editor then
+   * offers its own two sources, which is what it did before plugins existed.
+   */
+  pluginSuggest?: CompletionSource;
+  /**
+   * Where an image in this note comes from, and where a pasted one goes.
+   *
+   * Absent on a surface with no bucket behind it — the landing page's demo
+   * console — and a row then draws its own "this surface cannot load images"
+   * rather than an empty box, which is the same "an absent capability is
+   * reported, never faked" rule `forms` follows.
+   */
+  images?: ImageHostRef;
+  /** Where a refused paste is said out loud. Absent means silence, honestly. */
+  reportImage?: (message: string) => void;
 }): Extension[] {
-  const { editable, editableCompartment, handlers, insetBottom, links } = options;
+  const {
+    editable,
+    editableCompartment,
+    handlers,
+    insetBottom,
+    links,
+    forms,
+    pluginSuggest,
+    images,
+    reportImage,
+  } = options;
   return [
     markdownLanguage(),
     livePreview(),
     codeHighlighting(),
+    /*
+      Dictation's two pieces of state: the guess drawn at the caret, and the
+      extent of what this run has inserted. Unconditional, and it costs an
+      empty `DecorationSet` on a surface nobody dictates into — the alternative
+      is reconfiguring an editor the moment somebody presses the microphone,
+      which would cost the caret. See `dictate.ts`.
+    */
+    dictationExtension({
+      openingCaret,
+      isExternalDoc: (transaction) => transaction.annotation(externalDoc) === true,
+    }),
     /*
       Both halves of "a link to another note": drawing one as a link and
       following it, and offering the notes a `[[` could mean. One ref feeds
@@ -417,7 +589,28 @@ export function editorExtensions(options: {
       to be the same set of paths, or the editor suggests destinations it then
       refuses to draw as links.
     */
-    ...(links === undefined ? [] : [noteLinks(links), noteCompletion(links)]),
+    ...(links === undefined ? [] : [noteLinks(links)]),
+    /*
+      Completion is unconditional where `noteLinks` is not: the `[[` half needs
+      a note list and a form block needs nothing but the text it is in. A
+      surface with no `links` — the landing page's demo console — still offers
+      the form vocabulary, which is the half a person writing one by hand cannot
+      do without.
+    */
+    editorCompletion(links ?? null, pluginSuggest),
+    /*
+      A facet rather than an argument to `livePreview()`, so the decorations
+      stay a pure function of the state and the widget can still reach its host
+      — see `formHost`.
+    */
+    ...(forms === undefined ? [] : [formHost.of(forms)]),
+    /*
+      Images: the host a row reads its bytes from, plus the paste and drop
+      handlers that put one in the bucket. One extension so a surface cannot
+      end up able to draw an image and unable to accept one, or the reverse —
+      which is what a second argument here would have allowed.
+    */
+    ...(images === undefined ? [] : [imageBlock(images, reportImage ?? (() => {}))]),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
@@ -455,6 +648,28 @@ export function editorExtensions(options: {
           return true;
         },
       },
+      /*
+        THE FORMATTING CHORDS — ⌘B, ⌘I, ⌘⇧X.
+
+        Here rather than in the web half, even though the web console is what
+        asked for them and a phone has no keyboard, because an iPad with a
+        hardware keyboard runs the native editor and a ⌘B that bolds in one
+        host and does nothing in the other is exactly the drift this file
+        exists to prevent. `markerKeymap` is four lines; a second
+        implementation on the other side of a bridge is not.
+
+        The pairs come from `MARKERS` rather than being spelled here, so the
+        bar's Bold key and this chord cannot disagree about what bold is.
+
+        Declared in `features/design/keymap.ts` as well, and that is not a
+        duplicate binding: nothing in the console's `Shortcuts` switch answers
+        `bold`, so the app-level listener resolves the chord, finds no handler
+        and leaves it alone. What the declaration buys is the two things a
+        binding written only here cannot give — the menu prints the real chord
+        through `describeBinding`, and ⌘B stops toggling the rail while the
+        caret is in a note. See that file's scope-precedence rule.
+      */
+      ...markerKeymap,
       /*
         K1 in the sweep: with no indent/outdent binding at all, nesting a list
         meant typing spaces by hand — CM6 deliberately keeps `indentWithTab`
@@ -505,6 +720,12 @@ export function editorStateFor(options: {
   handlers: HandlerRef;
   insetBottom?: () => number;
   links?: NoteLinkRef;
+  forms?: FormHostRef;
+  /** See `editorExtensions`. The `WebView` guest passes one; the web half
+   * builds its extensions directly and never comes through here. */
+  pluginSuggest?: CompletionSource;
+  images?: ImageHostRef;
+  reportImage?: (message: string) => void;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,

@@ -381,7 +381,7 @@ carries what the shell gives up for it and what it deliberately does not.
 
 ### One connection reaches every context its person belongs to
 
-Asked for by the owner (2026-09-02) after somebody invited into a brain found
+Asked for by the owner (2026-09-02) after somebody invited into a workspace found
 their agents could not open it: *"If I have access to someone's brain, my MCP
 should be able to connect to it."* This **reverses** the section that stood here
 a day earlier, which recorded the opposite as deliberate — that a grant covers
@@ -391,7 +391,7 @@ with the cost stated, which is the only way it should ever have been settled.
 
 `resolveGrantByAccessToken` returns every context its person is a **live
 member** of, and `sessionForContext` in the gateway addresses one of them from a
-tool call's `context: "@name"`. Read live rather than frozen at consent: a brain
+tool call's `context: "@name"`. Read live rather than frozen at consent: a workspace
 shared with you afterwards is reachable from the client you already connected,
 and one you are removed from stops being reachable on the very next call —
 `resolveLiveGrant`'s rule 5, applied to the whole set.
@@ -401,17 +401,17 @@ the connection's own context applies to the addressed one, from the grant's
 scopes and the *target's* role: `effectiveScopes` makes a `member` read-only
 wherever they are a member, and `visibilityTierForGrant` reads `team` for
 anybody who is not that context's owner, so no private note of somebody else's
-is reachable by any client, ever. What a connected client can do in your brain
+is reachable by any client, ever. What a connected client can do in your workspace
 is exactly what you can do in it yourself.
 
 Five things hold it, and each fails a test if removed:
 
 - **The clamp reads the grant's scopes, never the connection's clamped set.**
   `session.grantScopes` exists for this. Re-clamping an already-clamped set
-  intersects two roles, so somebody who connected to a brain they are a `member`
+  intersects two roles, so somebody who connected to a workspace they are a `member`
   of would lose write in a context they *own* — fails closed, and reads as a
   permission bug in the wrong place. The fixture that catches it is a person
-  whose home context is somebody else's brain.
+  whose home context is somebody else's workspace.
 - **The tier is re-read for the target role**, not carried across. Carried, an
   owner's `private` connection reads private notes in a context they are only a
   member of, which is the leak this whole section has to not be.
@@ -492,12 +492,137 @@ Four rules hold that, and each fails a test:
   It is handed a store with no opener, so it names the rest: one tool call opens
   one context beyond its own, never a chain.
 
+### One context is pinned for everybody, and the pin is reach rather than membership
+
+`@context-lc` — our own workspace: the docs, the changelog, the bug tracker —
+is in every account's context list without an invitation, read-only, with the
+form tools still open to it. Asked for by the owner (2026-09-16): *"pin the
+@context-lc workspace to everyone's context, and make them viewers (should
+still be able to submit bug requests and stuff)."*
+
+`vocabulary-and-workspaces.md` had already described it as "the shared context
+every user is a member of", and that was a sentence rather than a mechanism:
+nothing outside `createWorkspace` and `acceptInvitation` had ever written a
+`workspaceMembers` row, so the context everybody was supposedly in had exactly
+the people who had been invited to it one at a time.
+
+**Nobody gets a membership row, and that is the decision rather than an
+optimisation.** `listMembers` returns every member's name and email to any
+member. A row per account would make that query a directory of everybody on the
+platform, readable by everybody on the platform — enumeration with the contact
+details attached, which is precisely what non-negotiable #4 refuses. So the pin
+is computed, in three narrow places, and `requireWorkspaceAccess` — the tenant
+boundary, ~90 call sites — is not touched:
+
+- `contextsForGrant` appends it to what an MCP session covers, at role `member`,
+  last and after the cap. **The gateway needed no change at all**, which is the
+  property that made this cheap: `sessionForContext` clamps it like any other
+  covered context, and `openStorageBinding` picks the binding to open out of
+  that same set — so a pin added anywhere else would resolve a session and then
+  fail to open a store, which presents as a context that is visible and empty.
+- `listMyWorkspaces` appends it flagged `pinned: true`, after the sort. It is
+  older than almost every account that will see it, so sorting it in by
+  `createdAt` puts it at the *head* of everybody's list, above their own
+  workspace.
+- `authorizeFileAccess` grants it on the `minimum === "member"` branch only. The
+  five callers that ask for `member` are exactly the five reads; everything that
+  changes a byte asks for `editor` or `owner` and goes to `requireWorkspaceRole`,
+  which knows nothing about the pin. A pinned reader is therefore refused a
+  write by the same code that refuses a stranger, rather than by a second check
+  somebody could forget to add.
+
+So the member list, the audit trail, billing, the storage binding, grants,
+shares, groups and invitations all answer a pinned reader exactly as they answer
+somebody who has never heard of the workspace. Blended search is untouched as
+well: `searchContexts` only ever authorizes contexts `searchableContextsFor`
+already returned, and that is driven off real memberships — the pin does not
+point every account's cross-context search at one bucket.
+
+**"Viewer" is the `member` role, and there is no fourth one.** `member` is
+already read-only, `effectiveScopes` already drops `context:write` for it, and
+`participatesInForms` already carves out a form answer as the one write it
+permits — written in so many words so that "a view-only workspace" is not
+"useless for collecting a bug report". That carve-out is what makes the bug
+tracker work, and it is a plain ```` ```form ```` fence with `submit: member` in
+a note in our bucket: nothing about it is special-cased for us, and any customer
+can write the same line in their own.
+
+**A real membership always wins.** The people who run that workspace are `owner`
+and `editor` in it through ordinary invitations, and the row appears once — two
+would make `sessionForContext`'s `.find()` answer with the pinned `member` one
+and silently demote them. The test that catches the other direction is an owner
+*reading* in the pinned context: it must come back `private`, and a resolver
+that skipped the membership check would answer `team` and hide every private
+note from the people who wrote it. A sabotage sweep found nothing covering that
+case; two tests were added for it.
+
+**There is no opt-out**, decided with the cost stated: pinned means pinned. It
+needs no code, because `leaveWorkspace` deletes a membership row and there is
+none — it answers `{ left: false }` and the context is still there. If that ever
+stops being true, a test fails.
+
+**The slug is a hardcoded constant**, also decided rather than defaulted. The
+name is already in this repository in prose and in `functions/lib/names.ts`, so
+naming it in `packages/shared` discloses nothing new. The cost lands on
+self-hosting, which is a supported path: a self-hoster gets a pinned context
+only if a workspace with that slug exists in *their* control plane, and on a
+fresh deployment none does — `pinnedContextWorkspace` answers `null` and the
+feature is simply absent, which is the right answer for somebody who has no
+reason to want our bug tracker in their rail.
+
+**But the slug SELECTS that row and does not MAKE it the pinned context.**
+`functions/lib/names.ts` reserves this name's lookalikes and deliberately not
+the name itself — *"what protects a name we hold is holding it"* — because a
+reserved name is refused for everyone including us, and we could then never
+recreate this workspace after a delete. That argument is about a **handle**, and
+it stands; pinning is what turns the same string into a **trust anchor**, which
+is a different question that the first decision did not answer. Anywhere the
+name is not already held — a self-hosted control plane, a fresh staging
+database, this one after a delete frees it — the first account to claim
+`context-lc` would be pinned into every rail and every session: their notes
+reaching every user's agent under a handle that reads as ours, and, because
+`participatesInForms` asks only for a write-scoped grant and a non-empty role, a
+form of theirs taking submissions from any user's client.
+
+So the resolver asks for two things the account claiming a name cannot give
+itself. The workspace must be **`shared`** — a personal context has a mailbox,
+an ingestion alias and an owner it is deleted with, and `pinnedContextRow`
+reports the row's own kind. And somebody this deployment already trusts must
+stand behind it: a **staff** creator or owner, by `ADMIN_EMAILS`, which lives in
+the Convex environment exactly because nothing this codebase executes can write
+it, and which unset means nobody. Neither is new configuration where this
+already works, and both fail in the direction that leaves a self-hoster with no
+pinned context rather than with somebody else's.
+
+**What the console had to be told.** A row nobody joined breaks rules that were
+correct while every row was the reader's own. `needsOnboarding` counts
+`listMyWorkspaces` to ask "is there anything here for you", so the pin made that
+count never zero and a brand-new account rendered the console instead of
+`/welcome` — no claimed name, no bucket, no route to either. `defaultContext`'s
+`?? contexts[0]` fallback exists for somebody who owns nothing, which is exactly
+who signs in with the pin as their only row, so signing in landed them in our
+docs. And eleven member-scoped subscriptions would have failed silently behind
+`usable()`, each rendering `undefined` as "still loading" forever. One
+derivation — `membershipContextId`, `null` when the selection is pinned — turns
+all eleven off, and `useFileBrowser` alone keeps the real id.
+
+**Drawn as somebody else's workspace, in three quiet things rather than one loud
+one**: last in the rail under a hairline, with the only line of prose any row
+gets and a `read-only` mark in the palette's existing somebody-else's-access
+violet; on a phone, a divider and the pill's own tint, since a 34pt row has
+nowhere to put a sentence. Both orderings pin it last themselves rather than
+trusting the order the control plane sent, because the separation is
+*positional* — "everything after this is different" is only true while exactly
+one row follows it. A badge shouting READ-ONLY was the obvious answer and is the
+wrong one: it would make another party's workspace the loudest row in somebody's
+own console, and what has to be unmistakable is whose the notes are.
+
 ### A grant is one person's tooling, and the refusal follows the listing
 
 `listGrants` showed every grant in a context to `owner` and `editor` alike. The
 argument for that was written about a *shared* context — "which robots can read
 our notes" is a question the people responsible for the place need answered —
-and then applied to every context there is. What it meant in a personal brain is
+and then applied to every context there is. What it meant in a personal workspace is
 that somebody invited in to write notes opened Settings and found the owner's
 nine connected clients sitting there: every AI tool that person uses, how much
 of the context each one can read, and when it last read it. That is how it was
@@ -834,3 +959,190 @@ strictness we cannot test, and the cost of being wrong is their whole settings
 file failing to load. Our entries are identified by the command string instead —
 still recognised on read, so an upgrade replaces an old marked entry rather than
 stacking a second one beside it.
+
+### A workspace's name can be given back, and only its owner can give it
+
+A workspace claims its slug at step 1 of its creation flow — before a bucket,
+before a member, before anything — out of the same global namespace usernames
+come from, and `createWorkspace` counts it against `MAX_WORKSPACES_PER_USER`
+the moment it commits. Until `account.deleteWorkspace` existed, the only thing
+that released either was deleting the whole account. A workspace somebody named
+and never finished was therefore a reservation nobody could cancel, including
+the person who made it: the name was spent globally, one of their ten contexts
+was spent, and the flow's "nothing here expires" was true in a way that read as
+reassurance.
+
+The release path is deletion, not expiry. **A name must never vanish from under
+somebody**, which rules out reaping an idle workspace on a timer: a context with
+no binding is a state the schema supports on purpose, and "no activity" is
+indistinguishable from "not started yet" for a workspace whose members were
+invited and have not answered. So the name comes back when its owner says so and
+never otherwise, and the creation flow now says which it is.
+
+Four guards, and each is the reason the other three are safe to offer:
+
+- **Owner only.** `requireWorkspaceRole(…, "owner")`, which tells a stranger
+  nothing beyond "not found". An editor tearing down somebody else's workspace
+  is the worst thing this mutation could be made to do.
+- **The slug, typed, checked on the server.** `DeleteAccountCard` is armed by
+  pressing twice, which is right for the one account a person has. A person can
+  have ten workspaces open in as many tabs, all reached through the same
+  settings section, so "the one I was looking at" is not a guard and the
+  confirmation is the name itself. The console gates its button on the same
+  comparison, but the mutation is what enforces it — a client that skipped the
+  field cannot skip the check.
+- **Shared only.** A workspace's slug is the person's own username and its capture
+  address is live on the apex, so releasing it is account deletion's business
+  and is deliberately not reachable from a settings panel (`PERSONAL_CONTEXT`).
+- **Not while we hold the only key.** On managed storage the notes live in a
+  bucket the customer has no credential for, and the free hand-off path is still
+  unbuilt (`billing.md`, "What is deliberately not built"). Deleting the row
+  would either strand their notes in our infrastructure with nothing pointing at
+  them or destroy the only copy; non-negotiable #1 permits neither, so it is
+  refused with `MANAGED_STORAGE` and the refusal is drawn in place of the field
+  rather than after the press. The export and hand-off work is what lifts it.
+
+What is deleted is `deleteAccount`'s cascade, unchanged — our metadata about the
+workspace, credential envelopes included. **A bucket the customer owns is never
+touched**: the same "revoke the key and we're gone" promise `disconnectStorage`
+makes, which is precisely why this is safe to offer at all. Their notes stay
+where they put them and stay openable in Obsidian.
+
+**The tests that fail if this is reversed.**
+`apps/convex/__tests__/deleteWorkspace.test.ts` walks every guard, proves the
+name is claimable again afterwards, and proves one workspace's deletion leaves
+another's rows alone; `apps/mobile/__tests__/deleteWorkspaceCard.test.ts` holds
+the console half — the typed-name gate, the refusal drawn instead of a button,
+and the sentence saying the files stay.
+
+### OPEN: the local agent and the console agent are two different principals
+
+*Recorded 2026-09-19, unresolved. Raised by the self-review on #724 rather than
+by a bug, which is the reason it is written here instead of nowhere: it is
+invisible from either file that has it.*
+
+The agent panel can reach a person's context by two roads, and they authenticate
+as different things.
+
+- **The gateway road** (`/agent`) uses a grant minted by
+  `functions/agentGrant.ts` for the console client, **clamped to the caller's
+  role in the workspace being asked about**, one hour long, revocable from the
+  connections list.
+- **The local road** (`window.desktop.agent`, #724) runs the customer's own
+  `claude` against the same MCP endpoint using **the grant this machine got at
+  `connectMachine` time** — a different row, minted for a different client, with
+  whatever scopes that machine was approved for and no relationship to the role
+  the console is currently rendering.
+
+Both are the same human, and neither road can exceed what its own grant allows,
+so this is not a privilege escalation and nothing here is presently exploitable.
+What it is, is an **asymmetry nobody declared**: the same question, asked from
+the same panel, can be answered under two different ceilings depending on
+whether a CLI happens to be installed. Non-negotiable #4 says one person or
+workspace is one security boundary; two principals reaching one context from one
+control is the sort of thing that sentence exists to keep visible.
+
+Three specific consequences, none of them resolved:
+
+1. **Revoking the console grant does not stop the local road**, and revoking the
+   machine does not stop the gateway road. The connections list shows two rows
+   and the panel shows one control, so "I revoked the agent" is ambiguous.
+2. **The machine grant is not clamped per question.** The console road re-mints
+   against the workspace being asked about; the local road uses whatever the
+   machine holds, so a console switched to a context the machine's grant does
+   not cover is refused by the gateway rather than narrowed to it. That is the
+   safe direction, but it is a refusal the person will read as a bug.
+3. **The audit trail records two different acting identities** for the same
+   person doing the same thing, which `Audit records the acting identity, not
+   just the scope` makes a feature — but nothing tells a reader of that trail
+   that the two rows are one control.
+
+**What a resolution would look like**, when somebody takes it: the local road
+mints a console grant the way the gateway road does and hands *that* to
+`--mcp-config`, so the machine grant goes back to meaning "this Mac files
+meetings" and the agent means one thing on both roads. The cost is a round trip
+to Convex per question from a surface that currently needs none, and a token
+written to a file that today holds a longer-lived one — neither obviously worse,
+both worth measuring before choosing.
+
+**There is no test that fails if this is reversed**, because there is nothing
+yet to reverse. What exists is `apps/desktop/test/localAgent.test.mjs` and
+`apps/mobile/__tests__/agentLocalRoute.test.ts`, which hold the local road's own
+guards; the asymmetry above is deliberately *not* asserted anywhere, because
+asserting it would be ratifying it.
+
+## The covered-context set is a reach, not an identity
+
+`session.workspaces` answers "what may this connection address". It is read in
+three places in the gateway and one of them was asking a different question —
+"who is this person" — and getting an answer that happened to be right for
+everybody who had never been let into somebody else's context.
+
+The set is built by `contextsForGrant`: the context the grant was approved
+against first, then that person's other memberships. A personal context is in it
+whenever its owner shared it, because `schema.ts` says a personal workspace "may
+gain more members when that person shares it" — sharing does not change what it
+is. So a guest who connected a client to `/@alice/mcp` has Alice's *personal*
+context at the head of their own covered set, and `find(kind === "personal")`
+returns Alice.
+
+`presenceDisplayName` did exactly that, and labelled the guest's caret `@alice`
+in Alice's own note, where Alice was looking at it. Two things made it worth a
+decision rather than a one-line fix:
+
+- **The correct predicate already existed forty lines away.** `personalNameFor`,
+  which stamps `submitted_by` on a form response, had all three clauses:
+  `kind === "personal" && role === "owner" && slug`. Two functions answering one
+  question is how one of them goes stale without anybody reading it, so there is
+  now one, and presence calls it.
+- **The guard was sited on the wrong channel.** `presence.js` says "a member
+  cannot name itself" and means the socket: nothing a client sends over the wire
+  sets its name. That was true and stayed true. The name still came from a
+  client — asserted at an unauthenticated registration endpoint, or, here, taken
+  from the wrong row of a list the control plane filled in. A sentence about one
+  channel is not a property of the value.
+
+**What `role === "owner"` rests on.** The control plane writes `role: "owner"`
+in exactly one place — `workspaces.create`, for the creator — and an invitation
+can confer `editor` or `member` and nothing else. So one member of a personal
+context is its owner, and that owner is the person its slug names. If a path is
+ever added that promotes somebody to `owner` of a personal context, this
+predicate is one of the things that changes meaning, and it should be found by
+grepping for that literal.
+
+**`kind === "personal"` is load-bearing in the other direction.** Usernames and
+workspace slugs are one global namespace, so a shared context's slug on a caret
+or a signature reads as a person who does not exist. So does `@null`, which is
+why an absent slug falls through to the client's own name rather than being
+interpolated into a handle.
+
+**What a simplification costs.** Matching on `kind` alone is one clause shorter
+and mislabels every guest of every shared personal context as its host —
+silently, to the host. Dropping `kind` labels people with workspace names.
+Dropping the slug check invents a handle out of a missing one.
+
+**The tests that fail if this is reversed** are in
+`apps/mcp/test/presence.test.mjs`: a guest of a personal context carries their
+own handle, a caller who owns a shared context is still named by their personal
+one, and a covered context with no name falls through to the client's. Each was
+measured by reverting one clause; the last two were **0** before their fixtures
+were added, because every fixture in that file was a caller in one context.
+
+**The timing is the argument, so it is recorded rather than left to be
+inferred.** The route this was in shipped at 23:57 and deployed; the defect was
+found and fixed at 02:07, two hours and ten minutes later. In between, it was
+not a latent edge — every guest of every shared personal context who opened a
+note was sitting in it under the host's own handle, and the person most likely
+to see that was the host. The pull request that shipped the route was careful,
+self-reviewed, and green on a suite that grew by 24 checks; it kept a sabotage
+row at **0** *as a finding*, which is the discipline working. None of that
+reached this function, because every fixture in its suite was a caller in
+exactly one context, and a predicate about *which* of several contexts names a
+person cannot be wrong in a world with one.
+
+So: **a new route gets an adversarial pass before it is called done, not after
+it is deployed.** The specific thing that pass must do here, and the thing a
+green suite cannot do for it, is vary the *shape of the caller* — more than one
+covered context, a role that is not `owner`, a personal context belonging to
+somebody else — because a fixture with one of everything makes every
+"which one" bug invisible and every assertion about it look true.

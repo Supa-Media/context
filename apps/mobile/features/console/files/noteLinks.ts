@@ -10,6 +10,8 @@ import {
 } from "@codemirror/view";
 import { indexByName, parseLinks, resolveLink } from "@context/shared/src/links";
 
+import { selectionTouches } from "./livePreview";
+
 /**
  * A link to another note is a link you can follow.
  *
@@ -21,21 +23,38 @@ import { indexByName, parseLinks, resolveLink } from "@context/shared/src/links"
  * the path, finding it in the tree, and clicking that. The owner's words: "links
  * like [[…]] dont actually link to the page they are referencing".
  *
- * ## Why a modifier, and why a tooltip saying so
+ * ## One click follows it, and the caret keeps a way in
  *
- * This is an **editor**, and the text under the pointer is text somebody may be
- * about to select or retype. A plain click has to keep placing the caret, or
- * every attempt to fix a typo inside a link navigates away instead. So
- * following one is ⌘-click (Ctrl elsewhere), which is what every editor with
- * this feature does — and because a modifier is invisible, the affordance has
- * to say so: hovering shows a tooltip naming the note and the chord. Without
- * the tooltip the feature is a secret.
+ * This was ⌘-click (Ctrl elsewhere), with a tooltip naming the chord, because
+ * the text under the pointer is text somebody may be about to retype and a
+ * mistyped path lives *inside* a link. The reasoning was sound and the
+ * conclusion was wrong: a modifier is invisible, so the feature had to announce
+ * its own keystroke to exist at all, and the gesture everybody already has —
+ * pointing at a link and clicking it — did nothing. Obsidian follows on a plain
+ * click and so does this now.
  *
- * On a touch screen there is no modifier and no hover, so **long press** is the
- * gesture, and it does not navigate on its own: it asks the host, which puts a
- * small confirmation in front of the person. A long press that silently threw
- * away the note you were editing would be the worst possible reading of an
- * ambiguous gesture.
+ * What made that safe is that **the caret keeps two ways in**, and they are the
+ * whole of the old argument's answer:
+ *
+ *  - **⌥/Alt-click** places the caret and navigates nothing. It is the
+ *    deliberate "I am editing this link" gesture.
+ *  - **A click on a link that already holds the caret** places the caret too.
+ *    Live preview has already unfolded that link to its `[[…]]` source, and
+ *    source is text: clicking text puts the caret in it. So the way to fix a
+ *    path is the way you were already going to try — click into it, then click
+ *    again — rather than a chord you have to be told about.
+ *
+ * ⌘/Ctrl-click opens the note **behind** the one you are reading, which is what
+ * the modifier means in a browser and is the one thing the old binding was
+ * quietly spending. Middle-click is the same. On an Apple keyboard the Ctrl
+ * half is deliberately dropped: Ctrl-click *is* a right-click there, and
+ * claiming it would take the note's own context menu away over every link.
+ *
+ * On a touch screen a **tap** follows — a tap is not an ambiguous gesture, so
+ * the confirmation sheet that used to stand in front of a long press is gone,
+ * and with it the whole `touchcancel`/`contextmenu` reading of WebKit's
+ * long-press recogniser. Long press is selection again, as it is everywhere
+ * else in the note.
  *
  * ## What is drawn as a link, and what deliberately is not
  *
@@ -61,6 +80,19 @@ import { indexByName, parseLinks, resolveLink } from "@context/shared/src/links"
  * reverse.
  */
 
+/**
+ * Where a followed link lands.
+ *
+ * `"foreground"` is the click: the note opens and you go to it. `"background"`
+ * is ⌘-click and middle-click: the note opens in a tab behind, and the caret,
+ * the scroll position and the note in front of you are all left alone.
+ *
+ * Carried as a *mode* rather than as two callbacks because the host decides
+ * what a tab is — on a phone there is no strip and both modes are the same
+ * arrival — and a second callback would push that decision into every caller.
+ */
+export type NoteLinkOpen = "foreground" | "background";
+
 /** Everything the extension needs from the app, read at event time. */
 export interface NoteLinkContext {
   /** The note being edited. Relative targets are resolved against its folder. */
@@ -74,10 +106,8 @@ export interface NoteLinkContext {
    * module comment.
    */
   paths?: readonly string[];
-  /** ⌘-click, or a confirmed long press. */
-  onOpen: (path: string) => void;
-  /** A long press. The host asks before opening; see the module comment. */
-  onPress: (path: string) => void;
+  /** A click, a ⌘-click, a middle-click, or a tap. */
+  onOpen: (path: string, mode: NoteLinkOpen) => void;
 }
 
 /**
@@ -162,32 +192,67 @@ export function noteLinkAt(spans: readonly NoteLinkSpan[], pos: number): NoteLin
 }
 
 /**
- * `⌘` on an Apple keyboard, `Ctrl` everywhere else.
+ * Whether this keyboard is an Apple one.
  *
- * Read from the user agent because this string goes in front of a person and
- * naming the wrong key is worse than naming none. It is deliberately not read
- * from `Platform.OS`: the editor is a web surface on both hosts, so what
- * matters is the keyboard attached to the browser and not what compiled the
- * app around it. A native iPad with a Magic Keyboard is a Mac for this purpose,
- * and a Windows browser is not, however the app was built.
+ * Read from the user agent because what it decides goes in front of a person
+ * and reaches their hands: which modifier opens a link behind, and which word
+ * the tooltip uses for it. It is deliberately not read from `Platform.OS` —
+ * the editor is a web surface on both hosts, so what matters is the keyboard
+ * attached to the browser and not what compiled the app around it. A native
+ * iPad with a Magic Keyboard is a Mac for this purpose, and a Windows browser
+ * is not, however the app was built.
  */
-export function followChord(agent: string | undefined): string {
-  return /mac|iphone|ipad|ipod/i.test(agent ?? "") ? "⌘" : "Ctrl";
+export function isAppleKeyboard(agent: string | undefined): boolean {
+  return /mac|iphone|ipad|ipod/i.test(agent ?? "");
 }
 
-/** How long a touch has to stay put to be a press rather than a tap. */
-export const LONG_PRESS_MS = 450;
-/** How far it may drift first. Beyond this it is a scroll, not a press. */
-export const LONG_PRESS_SLOP = 10;
+/** `⌘` on an Apple keyboard, `Ctrl` everywhere else. The tooltip's word. */
+export function followChord(agent: string | undefined): string {
+  return isAppleKeyboard(agent) ? "⌘" : "Ctrl";
+}
+
 /**
- * How long a touch must have been held before the browser taking it away is
- * read as a press rather than as an interruption.
+ * Whether this click asks for the note to open **behind** the one on screen.
  *
- * See the `touchcancel` handler. A cancel at twenty milliseconds is a phone
- * call arriving; a cancel at three hundred is the platform's own long-press
- * recogniser claiming a finger that has not moved.
+ * ⌘ on an Apple keyboard, Ctrl everywhere else, and the middle button
+ * anywhere — the browser's own vocabulary for "open in a background tab".
+ *
+ * **Ctrl is not honoured on an Apple keyboard, and that asymmetry is the
+ * point.** Ctrl-click there *is* a right-click: the OS raises a context menu
+ * from it, and an extension that claimed it would take the note's own
+ * right-click menu away over every link while looking, on every other
+ * platform, like it worked.
  */
-export const PRESS_CANCEL_FLOOR_MS = 150;
+export function opensBehind(
+  event: { button: number; metaKey: boolean; ctrlKey: boolean },
+  agent: string | undefined,
+): boolean {
+  if (event.button === MIDDLE_BUTTON) return true;
+  return isAppleKeyboard(agent) ? event.metaKey : event.ctrlKey;
+}
+
+/** The auxiliary button. `button` is 0 primary, 1 auxiliary, 2 secondary. */
+const MIDDLE_BUTTON = 1;
+
+/**
+ * How far a finger may drift and still be a tap. Beyond this it is a scroll.
+ *
+ * A note is a scroller and most notes have links in them, so a tap that
+ * survived a drag would navigate on an ordinary flick down the page — the
+ * gesture people make most.
+ */
+export const TAP_SLOP = 10;
+
+/**
+ * How long a finger may stay down and still be a tap.
+ *
+ * Above this it is a long press, which is **not** this extension's gesture any
+ * more: it is a selection, and the platform's own recogniser is welcome to it.
+ * The ceiling is what keeps the two apart without the page having to guess at
+ * WebKit's intentions, which is what the `touchcancel` and `contextmenu`
+ * handling that used to live here was doing.
+ */
+export const TAP_MAX_MS = 500;
 
 const linkMark = Decoration.mark({ class: "cm-note-link" });
 
@@ -237,141 +302,158 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         name.textContent = span.path;
         const hint = document.createElement("span");
         hint.className = "cm-note-link-hint";
-        hint.textContent = `${followChord(navigatorAgent())}-click to open`;
+        /*
+          It names the note, and then says what the two modifiers do. It no
+          longer has to teach the gesture that *opens* the link, which is the
+          difference between an affordance and a feature's only documentation.
+        */
+        hint.textContent = `Click to open · ${followChord(navigatorAgent())} behind · ⌥ edit`;
         dom.append(name, hint);
         return { dom };
       },
     };
   });
 
-  /*
-    A press is state that belongs to one gesture, so it is held here rather than
-    on the view: two fingers are two touches and only the first of them can be a
-    press.
+  /**
+   * Whether this link is currently showing its source, with a caret in it.
+   *
+   * The second of the two ways into a link's text, and the one nobody has to
+   * be told about: live preview unfolds the link the selection touches, so
+   * what is under the pointer at that moment is `[[…]]` rather than a rendered
+   * link. Clicking source has to put the caret where somebody aimed, exactly
+   * as clicking any other text does.
+   *
+   * `selectionTouches` is **live preview's own predicate**, imported rather
+   * than re-derived, because the question here is precisely the one it
+   * answers: is this link drawn as source right now? Two implementations of it
+   * would drift into a state where the editor shows a path and a click on that
+   * path navigates instead of putting a caret in it.
+   *
+   * **`hasFocus` is what stops a freshly opened note eating its first click.**
+   * A view that nobody has clicked into still has a selection — at position 0
+   * — so a note whose first characters are a link would count as "the caret is
+   * in it" before anybody had touched it, and following that link would do
+   * nothing. An unfocused editor has no caret anybody can see and nobody is
+   * editing it; there is nothing there to protect.
+   */
+  const ranges = (view: EditorView): { from: number; to: number }[] =>
+    view.state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
 
-    ## Two ways a long press arrives, because one of them was never arriving
+  const editing = (view: EditorView, span: NoteLinkSpan): boolean =>
+    view.hasFocus && selectionTouches(span, ranges(view));
 
-    The timer below is the obvious one and, driven as real touch events in a
-    real browser, it works: touch down, hold, and at `LONG_PRESS_MS` the host is
-    asked. **On iOS Safari it fired approximately never**, and the reason is
-    that the page is not the only thing watching the finger. WebKit's own
-    long-press recogniser — the one that puts up the selection magnifier over
-    editable text — claims a stationary touch and tells the page by sending
-    `touchcancel`. This handler used that as its cue to give up, so the gesture
-    was cancelled by the very thing that recognised it.
-
-    So there are two signals now, and either one is the press:
-
-     - the timer, for every browser that leaves the touch alone;
-     - `contextmenu`, which is the platform *reporting* a long press, and which
-       is only honoured while a touch gesture of ours is live — a right-click
-       on a desktop has no touch behind it and must keep the browser's menu.
-
-    And `touchcancel` no longer cancels a finger that has not moved: the timer
-    is left to run, which is what turns WebKit's interruption into the press it
-    was recognising. A scroll has already drifted past the slop by then and a
-    genuine interruption is caught by `PRESS_CANCEL_FLOOR_MS`.
-
-    Two signals cannot become two dialogs, and no flag is needed to say so:
-    `press` cancels the pending gesture on its way out, so whichever signal
-    arrives first takes the timer with it and the other finds nothing pending.
-    A first draft carried an `emitted` boolean as well; sabotaging it changed
-    no test's outcome, because it was guarding a case `cancel` had already
-    closed.
-  */
-  let pending: {
-    timer: ReturnType<typeof setTimeout>;
-    x: number;
-    y: number;
-    path: string;
-    startedAt: number;
-  } | null = null;
-  const cancel = () => {
-    if (pending === null) return;
-    clearTimeout(pending.timer);
-    pending = null;
+  const linkAtCoords = (view: EditorView, x: number, y: number): NoteLinkSpan | null => {
+    const pos = view.posAtCoords({ x, y });
+    if (pos === null) return null;
+    return noteLinkAt(spansOf(view), pos);
   };
-  const press = (path: string) => {
-    cancel();
-    ref.current.onPress(path);
+
+  /*
+    A tap is state that belongs to one gesture, so it is held here rather than
+    on the view: two fingers are two touches and only the first of them can be
+    a tap.
+
+    **This is all that is left of the long press**, and the deletion is the
+    feature. The old gesture had to be told apart from a scroll *and* from
+    WebKit's own long-press recogniser, which claims a stationary touch and
+    announces it by sending `touchcancel` — so this module carried a timer, a
+    cancel floor, a `contextmenu` handler and a rule about which of two signals
+    got to fire first, and the host carried a confirmation dialog in front of
+    all of it. A tap needs none of that: it is over before any of those
+    recognisers has an opinion, and it is not ambiguous, so there is nothing to
+    ask about.
+  */
+  let tap: { x: number; y: number; path: string; startedAt: number } | null = null;
+  const forget = () => {
+    tap = null;
   };
 
   const events = EditorView.domEventHandlers({
     mousedown(event, view) {
-      if (!(event.metaKey || event.ctrlKey)) return false;
-      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-      if (pos === null) return false;
-      const span = noteLinkAt(spansOf(view), pos);
-      if (span === null) return false;
+      // The secondary button is the context menu's, and `rightClick.web.ts`
+      // draws it over links like anything else.
+      if (event.button !== 0 && event.button !== MIDDLE_BUTTON) return false;
       /*
-        Handled here rather than on `click`: the browser has already moved the
-        caret by then, and on a modified click macOS also raises a context menu
-        on some inputs. Returning true is what stops both.
+        ⌥ is the deliberate "I am editing this link" gesture, and it is checked
+        before anything is even looked up: whatever is under the pointer, this
+        click belongs to the caret.
+      */
+      if (event.altKey) return false;
+      const span = linkAtCoords(view, event.clientX, event.clientY);
+      if (span === null) return false;
+      // The link is unfolded to its source and somebody is working inside it.
+      if (editing(view, span)) return false;
+      /*
+        Handled on `mousedown` rather than on `click`: the browser has already
+        moved the caret by then, and preventing the default here is what stops
+        both that and, on a middle click, the paste-on-select some platforms
+        still do.
       */
       event.preventDefault();
-      ref.current.onOpen(span.path);
+      ref.current.onOpen(span.path, opensBehind(event, navigatorAgent()) ? "background" : "foreground");
       return true;
     },
     touchstart(event, view) {
-      cancel();
+      forget();
       if (event.touches.length !== 1) return false;
       const touch = event.touches[0]!;
-      const pos = view.posAtCoords({ x: touch.clientX, y: touch.clientY });
-      if (pos === null) return false;
-      const span = noteLinkAt(spansOf(view), pos);
+      const span = linkAtCoords(view, touch.clientX, touch.clientY);
       if (span === null) return false;
-      pending = {
-        x: touch.clientX,
-        y: touch.clientY,
-        path: span.path,
-        startedAt: Date.now(),
-        timer: setTimeout(() => press(span.path), LONG_PRESS_MS),
-      };
-      // Deliberately `false`: the touch keeps behaving like a touch — the caret
-      // still lands, the note still scrolls — until the timer decides it was a
-      // press. Claiming the event here would break scrolling over any note with
-      // a link in it, which is most of them.
+      /*
+        THE PHONE'S WAY INTO A LINK'S TEXT, and without it there is none.
+
+        A touch screen has no ⌥, so the caret rule is the *only* one of the two
+        escape hatches it has — and a tap that always followed would make the
+        characters inside a link unreachable on a phone, which is the whole
+        objection the old ⌘-click rule was built around, surviving on one
+        platform.
+
+        It reads as: tap beside the link to put the caret there, which unfolds
+        it to source (live preview reveals what the selection touches, ends
+        included), and tap again to land in the path. The same two taps a
+        pointer spends, without the modifier.
+      */
+      if (editing(view, span)) return false;
+      tap = { x: touch.clientX, y: touch.clientY, path: span.path, startedAt: Date.now() };
+      // Deliberately `false`: the touch keeps behaving like a touch — the note
+      // still scrolls, the caret still lands — until `touchend` decides it was
+      // a tap. Claiming the event here would break scrolling over any note
+      // with a link in it, which is most of them.
       return false;
     },
     touchmove(event) {
-      if (pending === null) return false;
+      if (tap === null) return false;
       const touch = event.touches[0];
       if (touch === undefined) return false;
       const drifted =
-        Math.abs(touch.clientX - pending.x) > LONG_PRESS_SLOP ||
-        Math.abs(touch.clientY - pending.y) > LONG_PRESS_SLOP;
-      if (drifted) cancel();
+        Math.abs(touch.clientX - tap.x) > TAP_SLOP || Math.abs(touch.clientY - tap.y) > TAP_SLOP;
+      if (drifted) forget();
       return false;
     },
-    touchend() {
-      cancel();
-      return false;
+    touchend(event) {
+      if (tap === null) return false;
+      const { path, startedAt } = tap;
+      forget();
+      // Held too long: a selection, and the platform's to finish.
+      if (Date.now() - startedAt > TAP_MAX_MS) return false;
+      /*
+        Claimed, unlike `touchstart`. The synthetic click a browser sends after
+        a touch would otherwise land on the note we have just left and put a
+        caret in it — the arriving note scrolled to wherever the finger was.
+      */
+      event.preventDefault();
+      ref.current.onOpen(path, "foreground");
+      return true;
     },
     touchcancel() {
       /*
-        **The one handler that must not do the obvious thing.** A cancel over a
-        finger that has not drifted is, on iOS, the platform's long-press
-        recogniser taking the touch — so the timer is left to run and the press
-        still lands. A cancel that arrives before `PRESS_CANCEL_FLOOR_MS` is
-        something interrupting a touch that had not become anything yet, and is
-        dropped.
+        An ordinary give-up now, which it could not be while a long press lived
+        here: a cancel over a stationary finger was iOS *recognising* the
+        gesture, so the handler had to keep a timer running through it. A tap
+        that the platform takes away was not a tap.
       */
-      if (pending !== null && Date.now() - pending.startedAt < PRESS_CANCEL_FLOOR_MS) cancel();
+      forget();
       return false;
-    },
-    contextmenu(event) {
-      /*
-        Only while one of our touch gestures is live. A right-click on a
-        pointer device reaches this handler too and must keep the browser's own
-        menu, which is why this reads `pending` rather than the event.
-      */
-      if (pending === null) return false;
-      // Explicit rather than relying on the `true` below: the system menu
-      // coming up over the dialog is the failure this prevents, and it should
-      // not depend on a library's convention for what a handled event means.
-      event.preventDefault();
-      press(pending.path);
-      return true;
     },
   });
 
@@ -405,12 +487,13 @@ const linkTheme = EditorView.theme({
     textUnderlineOffset: "2px",
     cursor: "pointer",
     /*
-      Safari's own long-press menu, off — over this text and nowhere else.
-      Long press *is* this feature's gesture on a touch screen, and the system
-      callout is the other thing that answers to it. Scoped to the link span so
-      the rest of the note keeps every selection affordance it has.
+      Safari's own long-press callout is deliberately **not** suppressed any
+      more. It was off here because long press used to be this feature's
+      gesture and the system menu was the other thing answering to it; now a
+      tap follows the link and a long press is a selection, so a link is the
+      one piece of text in the note with no reason left to behave differently
+      from the rest of it.
     */
-    WebkitTouchCallout: "none",
   },
   ".cm-note-link-tooltip": {
     display: "flex",

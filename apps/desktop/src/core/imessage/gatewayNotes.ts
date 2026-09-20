@@ -56,6 +56,7 @@ export interface NotesGatewayConfig {
   /** What the grant this machine holds actually carries. Required; see the header. */
   scope: () => string | null;
   fetch?: typeof fetch;
+  signal?: AbortSignal;
   timeoutMs?: number;
 }
 
@@ -166,9 +167,12 @@ async function callTool(
 
   const doFetch = config.fetch ?? fetch;
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  config.signal?.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 20_000);
   let response: Response;
   try {
+    if (config.signal?.aborted) controller.abort();
     response = await doFetch(config.mcpUrl, {
       method: "POST",
       headers: headersFor(token, name),
@@ -182,6 +186,7 @@ async function callTool(
     return { ok: false, retryable: true, message: "the gateway could not be reached" };
   } finally {
     clearTimeout(timeout);
+    config.signal?.removeEventListener("abort", abort);
   }
 
   if (response.status === 401 || response.status === 403) {

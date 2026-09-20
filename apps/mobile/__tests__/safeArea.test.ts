@@ -159,6 +159,8 @@ const { InviteListScreen } =
 const { ShareScreen } = require("../features/share/ShareScreen") as typeof import("../features/share/ShareScreen");
 const { DropboxCallbackScreen } =
   require("../features/console/storage/DropboxCallbackScreen") as typeof import("../features/console/storage/DropboxCallbackScreen");
+const { GoogleCallbackScreen } =
+  require("../features/console/google/GoogleCallbackScreen") as typeof import("../features/console/google/GoogleCallbackScreen");
 const { EditorRegion } =
   require("../features/console/EditorRegion") as typeof import("../features/console/EditorRegion");
 const { AppFrame } = require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
@@ -210,6 +212,8 @@ const ROUTES: Record<string, Coverage> = {
     paints nothing; that half is `authRedirect.test.ts`'s.
   */
   "index.tsx": { kind: "screen", mount: () => createElement(requireRoute("index.tsx")) },
+  "privacy.tsx": { kind: "screen", mount: () => createElement(requireRoute("privacy.tsx")) },
+  "terms.tsx": { kind: "screen", mount: () => createElement(requireRoute("terms.tsx")) },
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*
@@ -257,7 +261,23 @@ const ROUTES: Record<string, Coverage> = {
   "invite/index.tsx": { kind: "screen", mount: () => createElement(InviteListScreen) },
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
+  /*
+    The same screen at its second address. `/@seyi/intake` resolves the name
+    server-side to the share row `/s/<token>` carries directly, so what is
+    mounted here is `ShareScreen` with an address rather than a token — one
+    page, two ways in, and no second layout to keep in step.
+  */
+  "[handle]/[slug].tsx": {
+    kind: "screen",
+    mount: () =>
+      createElement(ShareScreen as (props: {
+        shortLink?: { handle: string; slug: string };
+      }) => ReturnType<typeof ShareScreen>, {
+        shortLink: { handle: "seyi", slug: "intake" },
+      }),
+  },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
+  "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },
   /*
     `EXPO_PUBLIC_E2E_FIXTURE` is unset here, exactly as it is in every real
     build, so this renders a bare `Redirect` and nothing else — the `gate`
@@ -296,6 +316,10 @@ const ROUTES: Record<string, Coverage> = {
   "connect/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("connect/_layout.tsx")) },
   "invite/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("invite/_layout.tsx")) },
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
+  "[handle]/_layout.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("[handle]/_layout.tsx")),
+  },
   "note/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("note/_layout.tsx")) },
 
   /*
@@ -361,7 +385,18 @@ const ROUTES: Record<string, Coverage> = {
   "(app)/console/search.tsx": { kind: "framed" },
   "(app)/console/connections.tsx": { kind: "framed" },
   "(app)/console/[slug]/index.tsx": { kind: "framed" },
-  "(app)/console/[slug]/settings.tsx": { kind: "framed" },
+  /*
+    A `<Redirect>` and nothing else since settings became an overlay — which
+    is this census's own definition of a gate. It was left as `framed` for one
+    commit, and a census entry that mounts an empty file is worse than none:
+    it reports coverage of a screen whose content moved into a `Modal` this
+    walk cannot see. `Overlay` pays the insets itself; `overlayInsets.test.ts`
+    is what actually holds that now.
+  */
+  "(app)/console/[slug]/settings.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("(app)/console/[slug]/settings.tsx")),
+  },
 };
 
 const APP_DIR = join(__dirname, "..", "app");
@@ -668,14 +703,11 @@ describe("the console's panes, through the frame that carries them", () => {
         AppFrame,
         {
           switcher: null,
-          rail: () => null,
           children: createElement(
             EditorRegion,
             {
               browse: false,
               failure: null,
-              tabs: null,
-              onCloseTab: () => {},
               phone: true,
               children: createElement(Text, null, "@seyi settings"),
             },
@@ -726,7 +758,6 @@ describe("the console's panes, through the frame that carries them", () => {
     const mounted = mount(
       createElement(AppFrame, {
         switcher: null,
-        rail: () => null,
         children: createElement(Probe),
       }),
     );
@@ -769,7 +800,6 @@ describe("the console's panes, through the frame that carries them", () => {
     const mounted = mount(
       createElement(AppFrame, {
         switcher: null,
-        rail: () => null,
         // A toolbar has to exist for the frame to reserve room for one.
         bottomBar: createElement(Text, null, "toolbar"),
         children: createElement(NoteEditor, {

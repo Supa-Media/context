@@ -2,11 +2,14 @@
 
 **Free your context. Share your context.**
 
+A simple notes app you, your team and your agents all work in — plain
+Markdown, in storage you own.
+
 Your context is the durable layer. AI clients are replaceable interfaces.
 
-Your personal context is your **brain** — one per person, addressed by your
-name. A shared one is a **workspace**. Your brain, the brains people share
-with you, and your workspaces are, together, your **context**.
+Every context is a **workspace**. Your own is one per person, addressed by your
+name; others are shared, with several members. Your workspace, the ones people
+share with you, and the ones you belong to are, together, your **context**.
 
 Context gives you one MCP endpoint you add everywhere — ChatGPT, Claude, Codex,
 Notion AI, whatever comes next — so every tool starts already knowing your
@@ -24,9 +27,9 @@ That's not a feature we might remove later. It's the architecture:
 
 - **Plain files are canonical.** Markdown you can open in Obsidian, grep, or
   `rclone` out. Never a proprietary database that becomes the only copy.
-- **Your storage keeps its native shape.** In Dropbox, your brain is an
+- **Your storage keeps its native shape.** In Dropbox, your workspace is an
   ordinary folder. In object storage, tenancy is bucket-level: we never rewrite
-  your keys or namespace your paths. An existing brain connects without a
+  your keys or namespace your paths. An existing one connects without a
   migration.
 - **The gateway is portable.** `apps/mcp` is a self-contained Cloudflare Worker.
   If Context.LC disappears tomorrow, deploy it yourself and your bucket keeps
@@ -48,8 +51,7 @@ That's not a feature we might remove later. It's the architecture:
                             ├──────────────────────┤      │  4-archive/        │
                             │  MCP gateway         │─────▶│  index.md          │
                             │  (Cloudflare Worker) │OAuth │  privacy.md        │
-                            └──────────────────────┘/keys │  .audit/           │
-                                                          │  .context/         │
+                            └──────────────────────┘/keys │  .context/         │
                                                           └────────────────────┘
      control plane holds metadata only — never your notes, never a second copy
 ```
@@ -75,6 +77,29 @@ on setup:
 It's a suggestion, not a schema. Bring your own structure and Context works the
 same — the tools operate on paths, not on a fixed taxonomy.
 
+Context-owned data is kept under one reserved tree so the bucket root stays
+human-readable:
+
+```text
+.context/
+├── manifest.json
+├── access/note-acl/
+├── assets/images/
+├── audit/
+├── history/
+├── integrations/granola/events/
+├── meetings/sessions/
+├── migrations/
+├── probes/
+├── proposals/
+└── search/
+```
+
+Buckets created before storage-layout v1 continue to work through dual reads;
+the owner-only `migrate_storage_layout` tool copies and verifies legacy objects,
+keeps them for a seven-day rollback window, and removes them only in a separate
+explicit cleanup phase.
+
 ## `index.md` — the front page every agent reads
 
 Every connected client is told to call one tool first, `orient`. It is cheap on
@@ -94,7 +119,7 @@ screen shows you exactly where, per client):
 
 Most of what `orient` returns is derived from the bucket and rebuilt on every
 call. One part is not: `index.md`, an ordinary Markdown file at the root of your
-bucket that you own. Setting up a new brain writes a starting one describing
+bucket that you own. Setting up a new workspace writes a starting one describing
 the conventions; what makes it earn its place is the part only you can write.
 
 ```markdown
@@ -120,7 +145,7 @@ changing first. Owners can add an `index-private.md` beside it for anything that
 should only reach a personal connection.
 
 Connecting a bucket that already has months of notes in it never overwrites
-anything, so an imported brain may have no `index.md` at all. `orient` then
+anything, so an imported workspace may have no `index.md` at all. `orient` then
 says so and tells the agent what it's for, which is usually enough to get one
 written.
 
@@ -169,6 +194,9 @@ anonymous tier.
 | `packages/hook/`  | `npx @supa-media/context-hook` — the session-end hook                    |
 
 ## Development
+
+Production monitoring, privacy rules, release verification, and the incident
+runbook live in [docs/observability.md](docs/observability.md).
 
 ```sh
 pnpm install

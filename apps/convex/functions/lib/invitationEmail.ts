@@ -314,10 +314,10 @@ const FOOTER_LINE = "Context — free your context, share your context.";
 /**
  * The headline, and the one place the two kinds of context read differently.
  *
- * **Personal:** "…invited you into part of their brain." A personal context's
+ * **Personal:** "…invited you into part of their workspace." A personal context's
  * display name *is* the owner's handle, so the obvious sentence says the same
  * word twice — "@ada invited you to ada" — which reads like a machine filled a
- * template. Naming what it actually is — their brain, in the product's own
+ * template. Naming what it actually is — their workspace, in the product's own
  * vocabulary (CLAUDE.md, "Vocabulary") — says more in fewer words.
  *
  * **"part of" is accuracy before it is intrigue.** An invitee is granted the
@@ -347,7 +347,7 @@ function headlineFor(
   context: string,
 ): string {
   return kind === "personal"
-    ? `${inviter} invited you into part of their brain`
+    ? `${inviter} invited you into part of their workspace`
     : `${inviter} invited you to ${context}`;
 }
 

@@ -1,37 +1,48 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useConvex } from "convex/react";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
-import { Check, FieldGrid, Hint } from "../../design/components/Field";
+import { Check, FieldList, Hint } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { leading } from "../../design/tokens";
+import { leading, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { appSectionsFor, type AppSectionKey } from "../nav";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
+import { PanelHead, SubHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
-import { loadedFolders } from "../files/browser";
-import { IngestionCard } from "../ingestion/IngestionCard";
-/*
-  The component's own path rather than the meetings barrel, deliberately: that
-  barrel re-exports `useMeetingFlow`, which imports `expo-router`, and pulling a
-  navigator into the settings pane makes every console test that renders this
-  pane mock a router it has nothing to do with. This card needs React and a
-  bridge and nothing else.
-*/
-import { ThisMachineCard } from "../../meetings/components/ThisMachineCard";
+import { SourcesPanel } from "../settings/panels/SourcesPanel";
+import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
+import { ModelPanel } from "../settings/panels/ModelPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
+import type { CheckoutOutcome } from "@context/shared";
+import { OverviewPanel } from "../settings/panels/OverviewPanel";
+import { PremiumPanel } from "../settings/panels/PremiumPanel";
+import { MembersSection } from "../members/MembersSection";
+import { ConnectedAppsCard } from "../settings/AccountSections";
+import { GroupsPanel } from "../settings/panels/GroupsPanel";
+import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
+import { shareBackSuggestions } from "../members/members";
+import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
+import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
+import { PluginsPanel } from "../settings/panels/PluginsPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
+import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
 import { StorageChoice } from "../storage/StorageChoice";
+import { VaultImport } from "../storage/VaultImport";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
+import { StorageMigrationCard } from "../storage/StorageMigration";
+import { useManagedOffer } from "../../onboarding/useManagedOffer";
+import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
 
 /**
  * A context's settings: its bucket, its credentials, and its ingestion rules.
@@ -41,7 +52,7 @@ import type { ReverifyState } from "../storage/reverify";
  * binding hangs off a `workspaceId`, never a `userId`, so two contexts can and
  * do point at two different buckets. A pane at app level was quietly claiming
  * there is one. It is reached now from the gear beside the storage chip in
- * Browse, which is where somebody looking at `R2 · brain` is already looking.
+ * Browse, which is where somebody looking at `R2 · notes-bucket` is already looking.
  *
  * The components below are the Storage pane's, moved rather than rewritten:
  * the same binding card, the same connect form, the same re-verify state
@@ -66,29 +77,54 @@ import type { ReverifyState } from "../storage/reverify";
 export function SettingsPane({
   data,
   onClose,
-  onOpenSection,
+  onSelect,
+  section,
+  returned = null,
 }: {
   data: ConsoleData;
   onClose: () => void;
   /**
-   * Open Map or Connections. Absent on the landing page's picture of the
-   * console, which has nowhere to send anybody.
+   * Open another section, for the blocks that link to one.
+   *
+   * Absent on the whole-pane scroll — the landing page's console and the
+   * `/settings` fallback — where every block is already on screen and a link
+   * to one of them would be a link to somewhere the reader is. Overview's
+   * facts render as plain facts there, which is what they were.
    */
-  onOpenSection?: (section: AppSectionKey) => void;
+  onSelect?: (key: SettingsSectionKey) => void;
+  /**
+   * Render one section rather than the whole scroll.
+   *
+   * Absent is the original pane — every section in order, with its own head
+   * and Done button — which is what the landing page's picture of the console
+   * still draws and what the redirected `/settings` route falls back to. When
+   * present the overlay owns the chrome and the section list, and this renders
+   * only the block it was asked for.
+   */
+  section?: SettingsSectionKey;
+  /** What a return from Stripe said, from the route. Only Premium reads it. */
+  returned?: CheckoutOutcome | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const storage = data.storage;
   const actions = data.storageActions;
   const current = selectedContext(data);
-  const hasIngestion = data.ingestion.availability === "available";
   const [rebinding, setRebinding] = useState(false);
+
+  /**
+   * Whether a block belongs on screen. No `section` is the original pane —
+   * everything, in order — so this is the identity there; with one, it is the
+   * only block drawn and the overlay is drawing the rest of the chrome.
+   */
+  const show = (key: SettingsSectionKey) => section === undefined || section === key;
 
   return (
     <View>
+      {section !== undefined ? null : (
       <PaneHead
         title={`${atName(current?.slug ?? "this context")} settings`}
-        description="Storage and ingestion rules. They belong here, not to your account — every other brain or workspace can point somewhere else entirely."
+        description="Storage and ingestion rules. They belong here, not to your account — every other workspace can point somewhere else entirely."
         trailing={
           <View style={styles.headActions}>
             {/*
@@ -107,10 +143,10 @@ export function SettingsPane({
           </View>
         }
       />
+      )}
 
-      <Text variant="eyebrow" style={styles.sectionHead}>
-        Storage
-      </Text>
+      {show("storage") ? (
+      <>
       {/*
         The sentence has to name the thing the reader can actually go and do,
         and that differs by backend: an S3 owner revokes a key at their
@@ -118,11 +154,11 @@ export function SettingsPane({
         Telling the second to revoke a key sends them looking for a screen that
         does not exist.
       */}
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <PanelHead section="storage" sectioned={section !== undefined} first>
         {storage?.provider === "dropbox"
           ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
           : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
-      </Text>
+      </PanelHead>
 
       {storage === null || storage === undefined ? (
         // `undefined` is the binding still in flight, which is what the
@@ -136,7 +172,12 @@ export function SettingsPane({
             </View>
           </Card>
         ) : actions ? (
-          <StorageChoice workspaceId={actions.workspaceId} connect={actions.connect} />
+          <SettingsStorageChoice
+            workspaceId={actions.workspaceId}
+            contextName={current == null ? "this context" : `@${current.slug}`}
+            connect={actions.connect}
+            onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
+          />
         ) : (
           <Card>
             <Text variant="rowTitle">No storage connected</Text>
@@ -156,14 +197,16 @@ export function SettingsPane({
         // its owner wants is either the same consent screen again or a bucket
         // instead, which is exactly the pair `StorageChoice` draws.
         storage.provider === "dropbox" ? (
-          <StorageChoice
+          <SettingsStorageChoice
             workspaceId={actions.workspaceId}
+            contextName={current == null ? "this context" : `@${current.slug}`}
             connect={async (values) => {
               const result = await actions.connect(values);
               setRebinding(false);
               return result;
             }}
             onCancel={() => setRebinding(false)}
+            onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
           />
         ) : (
           <ConnectForm
@@ -201,154 +244,384 @@ export function SettingsPane({
         />
       )}
 
-      {/*
-        The blurb describes a setting, so it is shown only where there is one.
-        A shared context has no capture address at all, and telling a team to
-        forward mail into this context — above a card explaining that they
-        cannot — would be the same lie one line higher up. The heading then
-        carries the sub's bottom margin, so the card does not ride up against it.
-      */}
-      <Text
-        variant="eyebrow"
-        style={[styles.sectionHeadLater, hasIngestion ? null : styles.sectionHeadAlone]}
-      >
-        Email ingestion
-      </Text>
-      {hasIngestion ? (
-        <Text variant="paneSub" style={styles.sectionSub}>
-          Forward mail into this context. The address is semi-public once it is in a
-          forwarding rule, so who may send to it is the setting that matters.
-        </Text>
+      {storage?.connected === true && actions ? (
+        <SettingsVaultImport workspaceId={actions.workspaceId} />
       ) : null}
 
-      <IngestionCard
-        state={data.ingestion}
-        fallbackAddress={data.ingestionAddress}
-        folders={loadedFolders(data.files.listings)}
-      />
+      {/*
+        The one-time storage-layout update, in the section about where this
+        context's files are kept — which is the only place somebody would
+        think to look for it.
+
+        Gated on nothing but the action's presence, which is the guard it has
+        always had: `useFileBrowser` hands `updateStorageLayout` to an owner
+        and to nobody else, so an absent function is an absent row.
+
+        The console's *notice* takes two further conditions — a connected
+        binding and nothing recorded yet, `storageMigrationWorthOffering` —
+        and this row deliberately takes neither. The asymmetry is the
+        difference between the two surfaces rather than an oversight in one of
+        them: an offer that appears in front of somebody has to earn the
+        interruption, while a row they went looking for should still be here
+        when a probe is mid-flight, and should still be here to *answer* them
+        once the migration has run. Neither condition decides who may run it.
+
+        So the row stays and its words change: `storageMigrationRow` turns the
+        binding's recorded state into what somebody who came looking wants to
+        know, and drops the button for the states where pressing it would do
+        nothing.
+      */}
+      {data.files.updateStorageLayout !== undefined ? (
+        <View style={styles.migration}>
+          <StorageMigrationCard
+            run={data.files.updateStorageLayout}
+            state={data.storage?.layoutState}
+            workspaceId={data.files.contextId}
+          />
+        </View>
+      ) : null}
 
       {/*
-        Search, under the same gear as storage and ingestion, and here rather
-        than at app level for the same reason this whole pane moved: what it
-        switches is per context. Two brains can be answered from two different
-        places, and a switch above the context picker would claim there is one
-        setting for all of them.
+        The index, under the bucket it is built from.
 
-        Below ingestion because it is the least urgent of the three and the
-        only one that is off for everybody until somebody asks — and the same
-        screen on a phone and in a browser, which is the whole point of it
-        living in Expo Router's shared tree rather than a web-only console.
+        Search was a row of its own, one below Storage, and the two rows asked
+        the same question at two depths: where are my notes kept, and where is
+        the thing that finds them. An index is a disposable derivative of the
+        files — `CLAUDE.md` #3, rebuildable and never the only copy of
+        anything — so it belongs under them rather than beside them.
+
+        What it switches is still per context, which is why it is here at all
+        and not at app level: two workspaces can be answered from two
+        different places, and a switch above the context picker would claim
+        there is one setting for all of them.
       */}
-      <Text variant="eyebrow" style={styles.sectionHeadLater}>
-        Search
-      </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
+      <SubHead title="Search">
         Where this context&apos;s search is answered from. Your Markdown never moves:
         the index is a copy that can be deleted and rebuilt, and it is off until an
         owner turns it on.
-      </Text>
-
+      </SubHead>
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
 
+      </>
+      ) : null}
+
+      {show("workspace") ? (
+      <>
       {/*
-        The machine this console is running on — drawn only inside the desktop
-        shell, and by the component itself rather than by a check here.
+        What this context is, and the levers that act on the whole of it.
 
-        It belongs in settings and it belongs *per person* rather than per
-        context, which is the one thing about it that looks out of place on this
-        pane: a machine's grant is one OAuth client on one computer. It is here
-        because this is where somebody comes to ask "is my stuff actually
-        landing", and because the shell records with no window open — so the
-        state that a laptop cannot send is otherwise invisible in a UI that is
-        signed in perfectly happily.
-
-        `ThisMachineCard` returns `null` in a browser and on a phone, so this is
-        a render and nothing else on every surface but one.
+        Overview was a row of its own above Premium, answering "which context
+        am I in, what am I in it, and is it working" — which is what you ask on
+        arrival, not something you navigate to. It heads this page instead
+        (owner's call, 2026-09-18, with Sayo: the overview is not needed).
+        Advanced follows it, because audit, key export and deleting the
+        workspace are the same subject at the other end: this context as a
+        whole, rather than what comes into it or who can see it.
       */}
-      <ThisMachineCard />
+      <PanelHead section="workspace" sectioned={section !== undefined}>
+        {current?.kind === "shared"
+          ? "A workspace several people share. It has no address of its own — only a personal one can be sent mail."
+          : "One bucket, one set of privacy rules, one history."}
+      </PanelHead>
+      <OverviewPanel data={data} onSelect={onSelect} />
+
+      <SubHead title="Advanced">
+        Background folder moves, audit trail, and key export. Most people never need this.
+      </SubHead>
+      <AdvancedPanel view={data.advanced} demo={data.demo} />
+      </>
+      ) : null}
+
+      {show("premium") ? (
+      <>
+      <PanelHead section="premium" sectioned={section !== undefined}>
+        What this context costs, and what changes if it costs something.
+        Downloading everything is free on either plan and still works after
+        you cancel.
+      </PanelHead>
+      <PremiumPanel data={data} section={section} returned={returned} />
+      </>
+      ) : null}
+
+      {show("sharing") ? (
+      <>
+      {/*
+        One screen for one question.
+
+        People, Groups, Shared links and Privacy were four rows under a heading
+        that asked "Who can see it" — which is one question, asked once, and
+        answered in four places a person had to visit in turn to find out what
+        the answer actually was. They are four blocks of one panel now, in
+        widening order: who is here, who is named as a set, what was handed out
+        one note at a time, and what the rules underneath all of it are.
+
+        Nothing about what any of them *decides* moved. `PrivacyPanel` still
+        reads the live manifest through the same pure modules, and the members,
+        groups and shares views are the same owner-gated shapes they were.
+      */}
+      <PanelHead section="sharing" sectioned={section !== undefined}>
+        Who can reach this context, what each of them may do, and what has been
+        handed out one link at a time. Nothing here is public — no setting on
+        this screen puts a note in front of somebody you have not named.
+      </PanelHead>
+
+      <SubHead title="People">
+        Everyone who can reach this context, and what each of them may do. Write access
+        is never implied by read — a role is granted, not inherited.
+      </SubHead>
+      <MembersSection
+        view={data.members}
+        viewerRole={current?.role}
+        /*
+          The owner's paragraph about what having members hands over is the
+          Privacy block's sentence in older words — "mark it team" against the
+          two words that block is held to. One point, two voices, and no longer
+          a screen apart: Privacy keeps it, People stops repeating it.
+        */
+        showReachRule={false}
+        /*
+          Defensive because this pane is rendered from fixtures that carry only
+          the half of `members` their own subject needs — the Dropbox screens
+          test among them. A missing invitations list is "nobody to suggest",
+          not a crash in a section that test is not about.
+        */
+        shareBackWith={
+          Array.isArray(data.members?.invitations)
+            ? shareBackSuggestions(data.contexts, data.members)
+            : []
+        }
+      />
+
+      <SubHead title="Groups">
+        A named set of people, so a folder rule can point at &quot;leads&quot; rather
+        than at three usernames you have to keep in step by hand.
+      </SubHead>
+      <GroupsPanel
+        view={data.groups}
+        members={data.members.members}
+        slug={current?.slug.replace(/^@/, "") ?? ""}
+      />
+
+      <SubHead title="Shared links">
+        Every note you have handed to somebody outside this context, one link at a
+        time — with a Revoke beside each.
+      </SubHead>
+      <SharedLinksPanel view={data.shares} />
 
       {/*
-        Map and Connections, re-homed.
-
-        They used to be an `App` group at the top of the rail, and on a phone
-        that made the rail a *second left navigation*: the same edge and the
-        same gesture produced either the file tree or a panel headed APP /
-        YOURS / SHARED WITH YOU, depending on which control you had pressed.
-        Obsidian has one sidebar whose contents switch; it never becomes a
-        different panel. So the rail is the vault switcher now and these two
-        live here, behind the gear at the foot of the tree.
-
-        Here rather than deleted, and here rather than anywhere else: the
-        constellation is the clearest picture this product has of what it *is*,
-        and the grants list is the one place a person revokes an AI client. Both
-        are facts about a context you would come to settings to check, and
-        neither is a place you navigate to in order to read a note.
-
-        `onOpenSection` is absent on the landing page's copy of this pane, which
-        is a picture with nowhere to send anybody — so the rows are not drawn
-        there rather than drawn dead.
+        Its own file, and its own module beneath that. Privacy is the block
+        whose every sentence is a claim about who can read somebody's notes, so
+        the rows, the words and the one control all come from pure modules a
+        test can drive — see `features/console/privacy/`.
       */}
-      {onOpenSection === undefined ? null : (
-        <>
-          <Text variant="eyebrow" style={styles.sectionHeadLater}>
-            This context, from further out
-          </Text>
-          <Card>
-            {/*
-              Search is drawn only where something would answer it — see
-              `appSectionsFor`. `data.searchableContexts` is `undefined` until
-              the query behind it has landed, and `undefined` draws the row: a
-              navigation item that appears a beat after the screen does is one
-              people learn not to look for.
-            */}
-            {appSectionsFor(data.searchableContexts).map((section, index) => (
-              <Row key={section.key} divided={index > 0}>
-                <View style={styles.sectionRow}>
-                  <View style={styles.sectionRowText}>
-                    <Text variant="rowTitle">{section.label}</Text>
-                    <Text variant="rowSub" style={styles.rowSub}>
-                      {SECTION_BLURBS[section.key]}
-                    </Text>
-                  </View>
-                  <Button
-                    label="Open"
-                    accessibilityLabel={`Open ${section.label}`}
-                    onPress={() => onOpenSection(section.key)}
-                    testID={`settings-open-${section.key}`}
-                  />
-                </View>
-              </Row>
-            ))}
-          </Card>
-        </>
-      )}
+      <PrivacyPanel data={data} />
+      </>
+      ) : null}
+
+      {show("integrations") ? (
+      <>
+      {/*
+        Everything that talks to this context without being typed into it.
+
+        It was five rows — AI apps, Email, Calendar, Chats — under a heading
+        nobody navigates by. The split was right about one thing and wrong
+        about the other: a person does ask "why isn't my mail here" rather than
+        "what does my Google account do", and that question is answered on one
+        page whatever number of mechanisms it takes. But five pages to ask five
+        versions of "what is plugged in" is the list Sayo called overwhelming.
+
+        AI apps leads, because an MCP client is the first thing most people
+        connect and the word they arrive with. It is account-scoped — a
+        connection reaches every workspace its person is a live member of — and
+        the block says so in its own sentence, which is what keeps an
+        account-wide fact on a context-scoped page from being a lie.
+
+        Meetings is deliberately *not* here. It is the one capture surface
+        people open on purpose rather than configure once, and Sayo asked for
+        it separately by name.
+      */}
+      <PanelHead section="integrations" sectioned={section !== undefined}>
+        Everything that fills this context without being typed into it: the AI
+        apps holding a grant, the mailboxes and calendars we read, and the chats.
+      </PanelHead>
+
+      <SubHead title="AI apps">
+        One address, added once per app. A connection reaches every workspace you
+        are a live member of, and each app can be cut off on its own without
+        touching the others.
+      </SubHead>
+      <ConnectedAppsCard data={data} />
+
+      <SourcesPanel data={data} />
+      </>
+      ) : null}
+
+      {show("model") ? <ModelPanel data={data} sectioned={section !== undefined} /> : null}
+
+      {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
+
+
+      {show("plugins") ? (
+      <>
+      <PanelHead section="plugins" sectioned={section !== undefined}>
+        {/*
+          It said "the Obsidian plugins already in this context's bucket", which
+          named one of the two places they live and was the top of a screen
+          where every other sentence named the same one. A person whose plugins
+          were all installed through Context read that and concluded Context
+          ignores its own folder — and the panel, which showed nothing until a
+          scan was pressed, gave them no reason to think otherwise.
+        */}
+        The plugins in this context — the ones Context installed, and any your Obsidian vault
+        syncs here. Context reads <Text variant="mono">.obsidian/</Text> and never writes to
+        it, so nothing on this screen changes your vault.
+      </PanelHead>
+      <PluginsPanel
+        view={data.plugins}
+        contextPlugins={data.contextPlugins}
+        installs={data.pluginInstalls}
+        grants={data.pluginGrants}
+        browse={data.pluginBrowse}
+        runtime={data.pluginRuntime}
+      />
+      </>
+      ) : null}
+
+
+    </View>
+  );
+}
+
+/** Billing is optional in render fixtures and self-hosted builds. */
+function SettingsStorageChoice({
+  workspaceId,
+  contextName,
+  connect,
+  onCancel,
+  onOpenPremium,
+}: {
+  workspaceId: string;
+  contextName: string;
+  connect: StorageActions["connect"];
+  onCancel?: () => void;
+  onOpenPremium?: () => void;
+}) {
+  const client = useConvex();
+  if (client === undefined) {
+    return <StorageChoice workspaceId={workspaceId} connect={connect} onCancel={onCancel} />;
+  }
+  return (
+    <SettingsStorageChoiceLive
+      workspaceId={workspaceId as Id<"workspaces">}
+      contextName={contextName}
+      connect={connect}
+      onCancel={onCancel}
+      onOpenPremium={onOpenPremium}
+    />
+  );
+}
+
+function SettingsStorageChoiceLive({
+  workspaceId,
+  contextName,
+  connect,
+  onCancel,
+  onOpenPremium,
+}: {
+  workspaceId: Id<"workspaces">;
+  contextName: string;
+  connect: StorageActions["connect"];
+  onCancel?: () => void;
+  onOpenPremium?: () => void;
+}) {
+  const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
+
+  if (managed.mode === "confirm" && managed.status !== null) {
+    return (
+      <ManagedConfirm
+        status={managed.status}
+        contextName={contextName}
+        state={managed.session}
+        failure={managed.failure}
+        onToggle={managed.toggle}
+        onContinue={managed.proceed}
+        onBack={managed.back}
+      />
+    );
+  }
+
+  return (
+    <StorageChoice
+      workspaceId={workspaceId}
+      connect={connect}
+      onCancel={onCancel}
+      managed={!managed.available ? undefined : {
+        price: managed.price,
+        onChoose: () => {
+          if (managed.paid) {
+            if (managed.status?.selected.managedStorage) onOpenPremium?.();
+            else {
+              managed.toggle("managedStorage", true);
+              onOpenPremium?.();
+            }
+            return;
+          }
+          managed.choose();
+        },
+      }}
+    />
+  );
+}
+
+/** Existing owners get the same create-only importer after storage is live. */
+function SettingsVaultImport({ workspaceId }: { workspaceId: string }) {
+  const client = useConvex();
+  if (client === undefined) return null;
+  return (
+    <View style={{ marginTop: 24 }}>
+      <VaultImport
+        workspaceId={workspaceId as Id<"workspaces">}
+        existingData
+        testIDPrefix="settings-vault"
+      />
     </View>
   );
 }
 
 /**
- * What each re-homed pane is for, said once.
+ * A label and its value, on one row.
  *
- * A row that is only a name is a row people press to find out what it does,
- * which on a settings page is a navigation somebody has to come back from.
+ * The shape the settings redesign is built on: what a thing is on the left,
+ * what it currently is on the right, and no control unless there is something
+ * to change. It replaces a column of full-width fields where every value had
+ * the same visual weight as every other.
  */
-const SECTION_BLURBS: Record<AppSectionKey, string> = {
-  search: "One search across every context you can reach, with a scope you can narrow.",
-  map: "Every context you can reach, and every AI client connected to one, as a diagram.",
-  connections: "The MCP endpoint, and the clients holding a grant. Revoke one without disturbing the others.",
-};
-
-function StatusPill({ storage }: { storage: ConsoleStorage }) {
+/**
+ * Exported because the overlay draws it, not the pane.
+ *
+ * Sectioning skips `PaneHead`, and this pill is the one thing in it that
+ * qualifies everything below — "you cannot connect a bucket here" is said by
+ * this chip and two absent controls. The overlay carries it in its header
+ * instead, which is also the only place a phone can see it: the top bar's
+ * storage chip is pointer-only.
+ */
+export function StatusPill({
+  storage,
+  testID,
+}: {
+  storage: ConsoleStorage;
+  testID?: string;
+}) {
   if (storage.connected) {
     return (
-      <Pill tone="ok" leading={<Dot tone="ok" />}>
+      <Pill tone="ok" leading={<Dot tone="ok" />} testID={testID}>
         Connected
       </Pill>
     );
   }
   const broken = storage.status === "error";
   return (
-    <Pill tone="warn" leading={<Dot tone={broken ? "crit" : "warn"} />}>
+    <Pill tone="warn" leading={<Dot tone={broken ? "crit" : "warn"} />} testID={testID}>
       {broken ? "Not working" : "Not verified"}
     </Pill>
   );
@@ -384,6 +657,7 @@ function BindingCard({
 
   const addressing = forcePathStyleToAddressing(storage.forcePathStyle);
   const isDropbox = storage.provider === "dropbox";
+  const isManaged = storage.managed === true;
 
   /**
    * Only the fields this backend actually has.
@@ -395,7 +669,10 @@ function BindingCard({
    * capability rows below follow — absent, never a placeholder.
    */
   const fields: Array<{ label: string; value: string }> = [
-    { label: "Provider", value: isDropbox ? "Dropbox" : storage.provider },
+    {
+      label: "Provider",
+      value: isManaged ? "Context-managed storage" : isDropbox ? "Dropbox" : storage.provider,
+    },
   ];
   // Which account, not just which provider — the two things the field was
   // stored for are saying whose Dropbox this is and noticing a *different*
@@ -432,10 +709,128 @@ function BindingCard({
       : null;
 
   return (
-    <Card>
-      <FieldGrid fields={fields} />
+    <>
+    <Card testID="storage-binding">
+      <FieldList fields={fields} testIDPrefix="storage-field" />
+      {/*
+        A binding in `error` is the state this pane exists to get someone out
+        of, so it gets the failure, the fix, and the provider's own words —
+        not a one-line `Check` buried among four healthy ones.
+      */}
+      {failure ? (
+        <FormError
+          headline={failure.headline}
+          next={joinSentences(failure.next, failure.detail)}
+          style={styles.failure}
+        />
+      ) : null}
 
-      <View style={styles.checks}>
+      <ReverifyStatus state={reverify.state} />
+
+      <Row style={styles.actions}>
+        {/*
+          Re-verify stays available in every status — including `connected`,
+          which is exactly when someone checks, because the gateway started
+          failing and a credential revoked at the provider still reads
+          `connected` here until something asks.
+        */}
+        <Button
+          label={reverify.state.kind === "running" ? "Checking…" : "Re-verify"}
+          accessibilityLabel="Check this bucket again"
+          disabled={reverify.start === null || reverify.state.kind === "running"}
+          onPress={() => reverify.start?.()}
+          trailing={
+            reverify.state.kind === "running" ? (
+              <ActivityIndicator color={colors.text} size="small" />
+            ) : null
+          }
+          testID="storage-reverify"
+        />
+        {/*
+          One button, two honest labels. A Dropbox binding has no key to
+          rotate, so offering "Rotate key" against one would name a credential
+          that has never existed for it — the same lie the failure copy avoids
+          by not telling a Dropbox owner to paste an access key.
+        */}
+        {isManaged ? null : (
+          <Button
+            label={isDropbox ? "Reconnect" : "Rotate key"}
+            accessibilityLabel={
+              isDropbox
+                ? "Reconnect Dropbox, or connect a bucket instead"
+                : "Paste a new access key and secret"
+            }
+            disabled={actions === undefined || disconnecting}
+            onPress={onRebind}
+            testID="storage-rebind"
+          />
+        )}
+        {/*
+          Two presses, and the second expires.
+
+          This was one tap with no confirmation, sitting in the same row and at
+          the same size as Re-verify and Rotate key — the two buttons people
+          open this pane to use — differing only in border colour. What it does
+          is delete the binding, and the encrypted secret goes with it: this
+          pane says a few lines above that "the secret is never sent back down
+          from the control plane", so reconnecting needs a value R2 or S3 shows
+          exactly once, at creation. There is no undo and no copy of it here.
+        */}
+        {isManaged ? null : (
+          <Button
+            label={
+              disconnecting
+                ? "Disconnecting…"
+                : disconnect.stage === "armed"
+                  ? "Press again to disconnect"
+                  : "Disconnect"
+            }
+            variant="danger"
+            disabled={actions === undefined || disconnecting}
+            onPress={disconnect.press}
+            testID="storage-disconnect"
+          />
+        )}
+      </Row>
+
+      {/*
+        The reversibility the product actually promises, at the moment of the
+        press rather than in a paragraph scrolled off the top of the pane — and
+        beside the one thing that is *not* reversible.
+      */}
+      {!isManaged && disconnect.stage === "armed" ? (
+        <Hint>
+          <Text variant="hint">
+            Your bucket and every file in it are untouched — Context only forgets how
+            to reach them, and you can reconnect by pasting a key. What it cannot give
+            back is this secret: it is never sent down from the control plane, so you
+            will need the one your provider showed you when you created the key.
+          </Text>
+        </Hint>
+      ) : null}
+
+      {!demo && actions === undefined ? (
+        <Text variant="foot" style={styles.readOnly}>
+          You have read-only access to this context&apos;s storage. Only an owner can
+          re-verify, rotate, or disconnect it.
+        </Text>
+      ) : null}
+      </Card>
+
+      {/*
+        What came back when something looked, in a card of its own.
+
+        These lines used to stack under the fields inside the binding's card,
+        so what you *connected* and what the last probe *found* read as one
+        list of eight facts. They answer different questions, and only the
+        second kind changes without anybody touching this screen.
+      */}
+      <Card testID="storage-capabilities" style={styles.capabilities}>
+        <Text variant="rowTitle">What this store can do</Text>
+        <Text variant="rowSub" style={styles.rowSub}>
+          Probed when this binding was last verified, never assumed from the provider&apos;s name.
+        </Text>
+        <View style={styles.checks}>
         {/*
           Every line in this block is a claim about somebody's own bucket, so
           each one has to come from something that looked.
@@ -513,108 +908,9 @@ function BindingCard({
             Versioning is off — turn it on at your provider for point-in-time recovery
           </Check>
         )}
-      </View>
-
-      {/*
-        A binding in `error` is the state this pane exists to get someone out
-        of, so it gets the failure, the fix, and the provider's own words —
-        not a one-line `Check` buried among four healthy ones.
-      */}
-      {failure ? (
-        <FormError
-          headline={failure.headline}
-          next={joinSentences(failure.next, failure.detail)}
-          style={styles.failure}
-        />
-      ) : null}
-
-      <ReverifyStatus state={reverify.state} />
-
-      <Row style={styles.actions}>
-        {/*
-          Re-verify stays available in every status — including `connected`,
-          which is exactly when someone checks, because the gateway started
-          failing and a credential revoked at the provider still reads
-          `connected` here until something asks.
-        */}
-        <Button
-          label={reverify.state.kind === "running" ? "Checking…" : "Re-verify"}
-          accessibilityLabel="Check this bucket again"
-          disabled={reverify.start === null || reverify.state.kind === "running"}
-          onPress={() => reverify.start?.()}
-          trailing={
-            reverify.state.kind === "running" ? (
-              <ActivityIndicator color={colors.text} size="small" />
-            ) : null
-          }
-          testID="storage-reverify"
-        />
-        {/*
-          One button, two honest labels. A Dropbox binding has no key to
-          rotate, so offering "Rotate key" against one would name a credential
-          that has never existed for it — the same lie the failure copy avoids
-          by not telling a Dropbox owner to paste an access key.
-        */}
-        <Button
-          label={isDropbox ? "Reconnect" : "Rotate key"}
-          accessibilityLabel={
-            isDropbox
-              ? "Reconnect Dropbox, or connect a bucket instead"
-              : "Paste a new access key and secret"
-          }
-          disabled={actions === undefined || disconnecting}
-          onPress={onRebind}
-          testID="storage-rebind"
-        />
-        {/*
-          Two presses, and the second expires.
-
-          This was one tap with no confirmation, sitting in the same row and at
-          the same size as Re-verify and Rotate key — the two buttons people
-          open this pane to use — differing only in border colour. What it does
-          is delete the binding, and the encrypted secret goes with it: this
-          pane says a few lines above that "the secret is never sent back down
-          from the control plane", so reconnecting needs a value R2 or S3 shows
-          exactly once, at creation. There is no undo and no copy of it here.
-        */}
-        <Button
-          label={
-            disconnecting
-              ? "Disconnecting…"
-              : disconnect.stage === "armed"
-                ? "Press again to disconnect"
-                : "Disconnect"
-          }
-          variant="danger"
-          disabled={actions === undefined || disconnecting}
-          onPress={disconnect.press}
-          testID="storage-disconnect"
-        />
-      </Row>
-
-      {/*
-        The reversibility the product actually promises, at the moment of the
-        press rather than in a paragraph scrolled off the top of the pane — and
-        beside the one thing that is *not* reversible.
-      */}
-      {disconnect.stage === "armed" ? (
-        <Hint>
-          <Text variant="hint">
-            Your bucket and every file in it are untouched — Context only forgets how
-            to reach them, and you can reconnect by pasting a key. What it cannot give
-            back is this secret: it is never sent down from the control plane, so you
-            will need the one your provider showed you when you created the key.
-          </Text>
-        </Hint>
-      ) : null}
-
-      {!demo && actions === undefined ? (
-        <Text variant="foot" style={styles.readOnly}>
-          You have read-only access to this context&apos;s storage. Only an owner can
-          re-verify, rotate, or disconnect it.
-        </Text>
-      ) : null}
-    </Card>
+        </View>
+      </Card>
+    </>
   );
 }
 
@@ -676,17 +972,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionRowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
 
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  sectionHead: { marginBottom: 4 },
-  sectionHeadLater: { marginTop: 30, marginBottom: 4 },
-  sectionHeadAlone: { marginBottom: 12 },
-  sectionSub: { marginBottom: 12, maxWidth: 546 },
   rowSub: { marginTop: 2 },
+  capabilities: { marginTop: space.x3 },
   checks: {
     marginTop: 15,
     gap: 8,
   },
   failure: { marginTop: 15 },
   notice: { marginTop: 15 },
+  /** The same 24pt gap the vault importer above it takes from the card. */
+  migration: { marginTop: 24 },
   noticeBody: { flex: 1, minWidth: 0 },
   okText: { color: colors.okText },
   warnText: { color: colors.warnText },

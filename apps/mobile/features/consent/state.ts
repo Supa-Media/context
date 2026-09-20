@@ -516,7 +516,7 @@ export function describeDecisionFailure(
       };
     case "NO_GRANTABLE_WORKSPACE":
       return {
-        headline: "You don't have a brain to share yet",
+        headline: "You don't have a workspace of your own to share yet",
         next: "Create one from your console, then connect the app again.",
       };
     case "WORKSPACE_NOT_FOUND":

@@ -72,10 +72,30 @@ async function editorText(page: Page): Promise<string> {
   return (await page.locator('[aria-label="1-projects/e2e-secret.md markdown"]').innerText()).trim();
 }
 
+/**
+ * Wait for the note to be *open*, which is not the same thing as clicked.
+ *
+ * This waited on `note-durability`, and that stopped being a signal this
+ * viewport can see. The durability sentence is drawn at a pointer width only
+ * where it is explaining something — a failed save, a queued draft — because
+ * everywhere else the top bar's `SaveChip` makes the claim, and drawing both
+ * put "Saved in your bucket" 40pt above the word "Saved" (see
+ * `NoteEditor.tsx`'s own note on the row). This file overrides the suite's
+ * phone viewport to 1280×900 for the reasons in the header, so it was waiting
+ * on an element the layout it asked for deliberately does not draw, and every
+ * test here died in `beforeEach`'s successor rather than in an assertion.
+ *
+ * `browse-read` is the replacement because it is true of exactly this
+ * condition and no other: `BrowsePane` draws the eye only for
+ * `selected.kind === "file"`, so a folder selection does not satisfy it, and
+ * it is drawn for a locked note as well as a plaintext one — which the reload
+ * case below needs, since by then this note is an envelope and CodeMirror is
+ * not on screen at all.
+ */
 async function openFixtureNote(page: Page): Promise<void> {
   await page.getByTestId("breadcrumb-folder-1-projects").click();
   await page.getByLabel("e2e-secret", { exact: true }).click();
-  await page.getByTestId("note-durability").waitFor();
+  await page.getByTestId("browse-read").waitFor();
 }
 
 async function openShareDialog(page: Page): Promise<void> {
@@ -228,9 +248,7 @@ test("a real page reload proves the ciphertext persisted and the unlock session 
   // very start of the test — see its own comment for why this reload must
   // not repeat that.
   await page.reload();
-  await page.getByTestId("breadcrumb-folder-1-projects").click();
-  await page.getByLabel("e2e-secret", { exact: true }).click();
-  await page.getByTestId("note-durability").waitFor();
+  await openFixtureNote(page);
 
   // The ciphertext survived a reload nothing in this session's memory could
   // have carried it through — this is what proves it was actually written

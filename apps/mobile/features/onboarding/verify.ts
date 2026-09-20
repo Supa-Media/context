@@ -77,6 +77,24 @@ export function connectProgress({
   binding: WatchedBinding | null | undefined;
   timedOut: boolean;
 }): ConnectState {
+  /*
+    A connected row is connected, whoever wrote it.
+
+    Managed storage is bound *server-side* while the person is at Stripe, and
+    they come back on a fresh page load: this client never submitted anything
+    and never will, so `submitted` is false for a bucket that exists and
+    answers. Reading that as `idle` is what left somebody who had paid watching
+    "Creating your storage" spin against storage the rest of the app was
+    already using.
+
+    The gate below still holds for every other status — an untouched form must
+    not narrate a probe nobody started — but the finish line is a fact about the
+    row, not about who wrote it.
+  */
+  if (binding !== undefined && binding !== null && binding.status === "connected") {
+    return { kind: "connected" };
+  }
+
   if (!submitted) return { kind: "idle" };
 
   // No row yet — either the action is still running, or its write has not come
@@ -90,8 +108,6 @@ export function connectProgress({
         }
       : { kind: "binding" };
   }
-
-  if (binding.status === "connected") return { kind: "connected" };
 
   if (binding.status === "error") {
     return {

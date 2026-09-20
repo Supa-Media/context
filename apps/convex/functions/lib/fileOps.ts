@@ -50,6 +50,7 @@ import {
   canSee,
   clearedOverrides,
   effectiveVisibility,
+  narrowerVisibility,
   foldPath,
   hasOverride,
   isPlumbing,
@@ -60,13 +61,20 @@ import {
   renderPrivacyRulesBlock,
   replacePrivacyRulesBlock,
   visibilityOf,
+  archiveRoot,
+  archiveRoots,
+  insideArchive,
 } from "./privacy";
+import { type Clearance } from "./clearance";
 import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold";
 import { indexByName, rewriteLinks } from "@context/shared/src/links";
+import { WORKSPACE_ICON_EXTENSIONS } from "@context/shared/src/workspaceIcon";
+import { HISTORY_PREFIX, IMAGE_PREFIX, legacyStorageKey } from "@context/shared/src/storageLayout.cjs";
 // The gateway's search, imported rather than ported — see `searchNotes` below.
 // `apps/mcp` targets the Workers runtime, which is Convex's runtime too, so
 // these run here unmodified over the same store `provisioning.ts` already
 // builds from a binding.
+import { forwardPath, readForwarding, recordForwarding } from "../../../mcp/src/forwarding.js";
 import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
@@ -110,7 +118,6 @@ const MANIFEST_CAS_ATTEMPTS = 5;
  * the customer's to enable at their provider — but buckets connected before
  * that change are full of them, so `deletePath` still purges what it finds.
  */
-const HISTORY_PREFIX = ".history/";
 
 /**
  * Where the one copy this product still keeps for somebody goes.
@@ -128,8 +135,12 @@ const HISTORY_PREFIX = ".history/";
  * the notes, which is the test for whether anything else belongs here.
  */
 const RECOVER_PREFIX = ".context/recover/";
+const TRASH_ROOT = ".context/trash";
 
-const ARCHIVE_ROOT = "4-archive";
+/**
+ * Retired as a constant: which folder is *the* archive is a question about the
+ * context's own manifest, not a literal. See `archiveRoot` in `lib/privacy.ts`.
+ */
 
 /* -------------------------------------------------------------------------- */
 /*                                   store                                    */
@@ -145,8 +156,62 @@ const ARCHIVE_ROOT = "4-archive";
  * stub.
  */
 export interface FileStore extends ScaffoldStore {
-  delete(key: string): Promise<void>;
-  capabilities?: { conditionalWrite: boolean };
+  delete(
+    key: string,
+    options?: { onlyIf?: { etagMatches?: string } },
+  ): Promise<void | null>;
+  capabilities?: {
+    conditionalWrite: boolean;
+    conditionalCreate?: boolean;
+    conditionalDelete?: boolean;
+  };
+}
+
+/** Keys removed per retryable replacement pass. Small enough for every provider. */
+export const VAULT_CLEAR_BATCH_OBJECTS = 100;
+
+/**
+ * Count or remove a bounded piece of a bucket for an explicitly confirmed
+ * vault replacement. This deliberately sees plumbing: "replace everything"
+ * means notes, attachments, privacy, audit, and derived indexes alike.
+ *
+ * Deletion always lists from the beginning. Persisting a continuation cursor
+ * while mutating the same listing can skip keys on S3-compatible providers;
+ * shrinking the first page makes every retry safe, including a retry after
+ * the objects were deleted but before Convex recorded the count.
+ */
+export async function clearVaultBatch(
+  store: FileStore,
+  countOnly: boolean,
+): Promise<{ mode: "counted" | "deleted"; objects: number; complete: boolean }> {
+  if (countOnly) {
+    let cursor: string | undefined;
+    let objects = 0;
+    for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
+      const page = await store.list({ cursor, limit: 1_000 });
+      objects += page.objects.length;
+      if (!page.truncated) return { mode: "counted", objects, complete: true };
+      if (!page.cursor || page.cursor === cursor) {
+        throw new FileOpError(
+          "LISTING_INCOMPLETE",
+          "Context could not finish counting this bucket. Try again before replacing it.",
+        );
+      }
+      cursor = page.cursor;
+    }
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "This bucket is too large to replace safely in this flow.",
+    );
+  }
+
+  const page = await store.list({ limit: VAULT_CLEAR_BATCH_OBJECTS });
+  for (const object of page.objects) await store.delete(object.key);
+  return {
+    mode: "deleted",
+    objects: page.objects.length,
+    complete: page.truncated !== true,
+  };
 }
 
 /**
@@ -162,7 +227,7 @@ type SearchStore = Parameters<typeof searchIndexedNotes>[0];
  * Store operations one console search may spend.
  *
  * It no longer buys a backfill. A search reads a ready index — the change that
- * took a console search over a real brain from twenty-odd seconds to a
+ * took a console search over a real workspace from twenty-odd seconds to a
  * fraction of one — so what this covers is a manifest, the shards the query's
  * terms can be in, ten snippet reads, and the one listing a **miss** over a
  * converged index is allowed to buy before it says "nothing". Generous rather
@@ -180,7 +245,7 @@ const CONSOLE_SEARCH_BUDGET = 300;
  * already answered. Cloudflare's per-invocation subrequest cap is what bounds
  * the gateway's equivalent and there is no such cap here, so the number is
  * chosen against the customer's request quota instead — large enough that a
- * cold brain converges in a handful of passes rather than dozens.
+ * cold workspace converges in a handful of passes rather than dozens.
  */
 const INDEX_SYNC_BUDGET = 600;
 
@@ -201,7 +266,20 @@ export type FileErrorCode =
   | "PRIVACY_MANIFEST_USABLE"
   | "PRIVACY_MANIFEST_BUSY"
   | "CONTENT_TOO_LARGE"
+  /** `readFiles` was asked for more paths than one call may name. */
+  | "BATCH_TOO_LARGE"
   | "FOLDER_TOO_LARGE"
+  | "STORAGE_UNSAFE"
+  | "PLUGIN_TOO_LARGE"
+  /**
+   * The Context plugin this operation belongs to is switched off here.
+   *
+   * Its own code rather than `CONFIRMATION_REQUIRED` or `CONFLICT`, because it
+   * means something neither of those does to whoever is holding the editor:
+   * retrying will not help and there is nothing to reload — an owner turns the
+   * plugin back on, or this does not happen. See `plugins.md`.
+   */
+  | "PLUGIN_OFF"
   /** The store would not hand over the whole listing. Not the folder's fault. */
   | "LISTING_INCOMPLETE"
   | "ARCHIVE_UNAVAILABLE"
@@ -221,7 +299,22 @@ export type FileErrorCode =
   | "NOTE_ENCRYPTED"
   /** `removeNoteEncryption` asked to act on a note that was never encrypted. */
   | "NOTE_NOT_ENCRYPTED"
-  | "NOT_A_FOLDER";
+  | "NOT_A_FOLDER"
+  /**
+   * The five a markdown form refuses with. See `lib/formOps.ts`.
+   *
+   * Separate codes rather than one, because the console does something
+   * different with each: `FORM_NOT_FOUND` and `FORM_INVALID` are the author's
+   * to fix and name a block, `FORM_FORBIDDEN` is the reader's answer and must
+   * read as a refusal rather than a fault, `FORM_NOT_COLLECTING` is a form an
+   * editor has to save once more, and `FORM_STORAGE_UNSUITABLE` is a property
+   * of the customer's store that no retry will change.
+   */
+  | "FORM_NOT_FOUND"
+  | "FORM_INVALID"
+  | "FORM_FORBIDDEN"
+  | "FORM_NOT_COLLECTING"
+  | "FORM_STORAGE_UNSUITABLE";
 
 /**
  * A failure with a code the console can branch on and a message a person can
@@ -277,6 +370,29 @@ export function normalizePath(input: string): string | null {
   if (clean.split("/").some((segment) => segment === "." || segment === "..")) {
     return null;
   }
+  // No control characters, and a newline is the one that mattered.
+  //
+  // `privacy.md` is a line-oriented format and `renderPrivacyRulesBlock`
+  // interpolates a path into it unescaped, so a path carrying `\n` wrote its
+  // own extra rules. Measured on this door before the fix: one
+  // `setFolderVisibility` declaring **private** for
+  // `2-areas/hr: team\n  1-projects/junk` published `2-areas/hr` to the whole
+  // team, and one `setVisibility` declaring **private** for
+  // `2-areas/salaries.md: team\n  1-projects/junk.md` left
+  // `note_overrides` holding that note twice — `private` then `team`, the
+  // later winning. The call declared `private` both times, so the console
+  // asked for no publish confirmation.
+  //
+  // The hostile input is a KEY IN THE BUCKET, not the owner's typing:
+  // `writableAsRule`'s own docstring says a newline is a legal S3 key
+  // character and names this exact escalation. Obsidian sync, rclone and the
+  // provider console all write keys directly.
+  //
+  // Rejected here, where every path argument arrives, rather than escaped at
+  // the renderer: a path with a control character in it is not a path worth
+  // preserving. `#422` did this in the gateway; this is the same fix on the
+  // other engine.
+  if (/[\u0000-\u001F\u007F]/.test(clean)) return null;
   return clean;
 }
 
@@ -405,15 +521,23 @@ export interface FolderListing {
  */
 function folderVisibleAtScope(
   folderPath: string,
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): boolean {
   if (isPlumbing(folderPath)) return false;
-  if (scope === "private") return true;
-  if (visibilityOf(folderPath, rules) === "team") return true;
+  if (clearance.scope === "private") return true;
+  // A name the caller answers to reaches a folder exactly as `team` does, and
+  // every `=== "team"` below had to learn the same thing. Missing one of them
+  // is the defect that made a group-named folder readable by direct path and
+  // absent from the tree: reachable only by somebody who already knew its name,
+  // which is the failure `folderVisibleAtScope`'s own nested-rule scan exists
+  // to prevent.
+  const reaches = (visibility: Visibility) =>
+    visibility === "team" || clearance.names.has(visibility);
+  if (reaches(visibilityOf(folderPath, rules))) return true;
   for (const [path, visibility] of overrides) {
-    if (visibility === "team" && path.startsWith(`${folderPath}/`)) return true;
+    if (reaches(visibility) && path.startsWith(`${folderPath}/`)) return true;
   }
   // A nested `team` *rule* has to count for the same reason a nested `team`
   // exception does, and only the exceptions were being scanned. An owner who
@@ -424,7 +548,7 @@ function folderVisibleAtScope(
   // name. The disclosure is the same one the loop above already accepts: an
   // ancestor's name, in exchange for the shared folder being reachable.
   for (const rule of rules) {
-    if (rule.vis === "team" && rule.prefix.startsWith(`${folderPath}/`)) return true;
+    if (reaches(rule.vis) && rule.prefix.startsWith(`${folderPath}/`)) return true;
   }
   return false;
 }
@@ -452,7 +576,7 @@ function describeFile(
 /** One folder's immediate children, as the tree renders them. */
 export async function listFolder(
   store: FileStore,
-  options: { path: string; scope: Scope },
+  options: { path: string; clearance: Clearance },
 ): Promise<FolderListing> {
   const folder = requireFolderPath(options.path);
   const state = await loadPrivacyState(store);
@@ -479,7 +603,7 @@ export async function listFolder(
   // an empty listing is what an absent folder already produces here.
   const withheld =
     folder !== "" &&
-    !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides);
+    !folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides);
 
   const prefix = folder === "" ? "" : `${folder}/`;
   const entries: FileEntry[] = [];
@@ -512,7 +636,7 @@ export async function listFolder(
     for (const object of listing.objects ?? []) {
       const key = object.key;
       if (key === prefix) continue; // a zero-byte folder marker, if a tool made one
-      if (!canSee(key, options.scope, state.rules, state.overrides)) continue;
+      if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
       const meta = object as { size?: number; uploaded?: Date | string | number };
       entries.push(
         describeFile(key, state.rules, state.overrides, {
@@ -526,7 +650,7 @@ export async function listFolder(
     for (const raw of listing.delimitedPrefixes ?? []) {
       const child = raw.replace(/\/+$/, "");
       if (!child || seenFolders.has(child)) continue;
-      if (!folderVisibleAtScope(child, options.scope, state.rules, state.overrides)) continue;
+      if (!folderVisibleAtScope(child, options.clearance, state.rules, state.overrides)) continue;
       seenFolders.add(child);
       const inherited = visibilityOf(child, state.rules);
       entries.push({
@@ -584,7 +708,7 @@ export async function listFolder(
     // own tree.
     folderDefault: withheld
       ? visibilityOf(
-          nearestVisibleAncestor(folder, options.scope, state.rules, state.overrides),
+          nearestVisibleAncestor(folder, options.clearance, state.rules, state.overrides),
           state.rules,
         )
       : folder === ""
@@ -637,12 +761,12 @@ export async function listFolder(
  */
 function nearestVisibleAncestor(
   folder: string,
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): string {
   let at = parentOf(folder);
-  while (at !== "" && !folderVisibleAtScope(at, scope, rules, overrides)) {
+  while (at !== "" && !folderVisibleAtScope(at, clearance, rules, overrides)) {
     at = parentOf(at);
   }
   return at;
@@ -652,6 +776,175 @@ function nearestVisibleAncestor(
 function compareEntries(a: FileEntry, b: FileEntry): number {
   if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
   return a.name.localeCompare(b.name);
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              the sync manifest                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Manifest entries one call may return. Around 220 bytes of JSON each, so a
+ * page stays near two megabytes — well inside what an action may return — and
+ * a context of a few thousand notes arrives in one round trip.
+ */
+export const MANIFEST_PAGE_ENTRIES = 10_000;
+
+/**
+ * One object the caller may see, as the offline mirror needs it.
+ *
+ * The visibility fields are `describeFile`'s, so a tree drawn from the mirror
+ * marks exactly the rows a live listing would. `etag` is the store's own,
+ * taken from the listing — the same value `readFile` would return — and is
+ * absent only where the store listed an object without one, which means
+ * "read it to learn its version", never "unchanged".
+ */
+export interface ManifestEntry {
+  path: string;
+  etag?: string;
+  size?: number;
+  updatedAt?: number;
+  visibility: Visibility;
+  inherited: Visibility;
+  exception: boolean;
+  readOnly: boolean;
+}
+
+export interface SyncManifest {
+  /** In the store's key order. */
+  entries: ManifestEntry[];
+  /**
+   * Call again with this to get what follows; `null` when nothing does.
+   *
+   * It is always the path of the last entry this page returned — never the
+   * store's continuation token. See `syncManifest`.
+   */
+  cursor: string | null;
+  /**
+   * The walk stopped and cannot continue, so the pages so far are a floor, not
+   * a total. A mirror must not read a missing path as deleted while this is
+   * true. Implies `cursor === null`.
+   */
+  truncated: boolean;
+  /** `privacy.md` is missing or unparseable. Same meaning as a listing's. */
+  manifestUsable: boolean;
+}
+
+/** S3 lists in UTF-8 byte order, which is not JavaScript's string order. */
+const KEY_BYTES = new TextEncoder();
+function compareKeys(a: string, b: string): number {
+  const x = KEY_BYTES.encode(a);
+  const y = KEY_BYTES.encode(b);
+  const shared = Math.min(x.length, y.length);
+  for (let index = 0; index < shared; index += 1) {
+    if (x[index] !== y[index]) return x[index]! - y[index]!;
+  }
+  return x.length - y.length;
+}
+
+/**
+ * Every object in the bucket this caller may see, with its version — what the
+ * offline mirror is built from.
+ *
+ * **One filter, and it is `canSee`.** The same call `listFolder` and
+ * `readFile` make, with the same clearance, so there is no second privacy path
+ * to drift: a `team` reader never receives a private note's path, etag or
+ * size, `privacy.md` reaches only `private` scope, and Context's plumbing
+ * (`.context/`, `.history/`, `.audit/`, `.obsidian/`) reaches nobody.
+ *
+ * **No note is read.** The etag is the listing's — S3's `ETag`, Dropbox's
+ * `rev` — which is the value a read returns, so a sync can tell which notes
+ * changed from one walk and fetch only those.
+ *
+ * ## Why the cursor is a path the caller was given
+ *
+ * A bucket can hold more than one response's worth, so this pages. The
+ * obvious cursor is the store's continuation token, and it is a leak: on S3 it
+ * is base64 of the last *backend* key of the page, and at `team` scope that key
+ * is routinely a private note. So the cursor is the last path this page
+ * returned — something the caller already holds — and resuming asks the store
+ * for what comes after it (`startAfter`, ListObjectsV2's `start-after`).
+ *
+ * That only means something on a store that lists in key order and honours the
+ * position, and not every store does: Dropbox's recursive `list_folder` does
+ * neither. So both are checked rather than assumed. A listing seen out of
+ * order gets no cursor, and a resumed walk that comes back with a key at or
+ * before the cursor stops — in both cases `truncated`, because handing back
+ * the start of the bucket under a cursor that promised the rest would loop the
+ * client forever. A page that can make no progress (a run of more hidden keys
+ * than the page budget) ends the same way, for the same reason.
+ */
+export async function syncManifest(
+  store: FileStore,
+  options: { clearance: Clearance; cursor?: string; pageEntries?: number },
+): Promise<SyncManifest> {
+  const after = options.cursor === undefined ? undefined : requirePath(options.cursor);
+  const pageEntries = options.pageEntries ?? MANIFEST_PAGE_ENTRIES;
+  const state = await loadPrivacyState(store);
+  const manifestUsable = state.text !== null && !state.invalid;
+  const short = (): SyncManifest => ({ entries: [], cursor: null, truncated: true, manifestUsable });
+
+  const entries: ManifestEntry[] = [];
+  const seenKeys = new Set<string>();
+  const seenCursors = new Set<string>();
+  let ordered = true;
+  let previous: string | undefined;
+  let token: string | undefined;
+
+  /** Stop here, with a cursor only where one can be honoured and moves on. */
+  const stop = (): SyncManifest => {
+    if (!ordered || entries.length === 0) {
+      return { ...short(), entries };
+    }
+    return { entries, cursor: entries[entries.length - 1]!.path, truncated: false, manifestUsable };
+  };
+
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({
+      prefix: "",
+      limit: 1000,
+      ...(token !== undefined ? { cursor: token } : after !== undefined ? { startAfter: after } : {}),
+    });
+
+    for (const object of listing.objects ?? []) {
+      const key = object.key;
+      // The store went back to the start rather than resuming. Nothing it says
+      // from here is "the rest", and `entries` may be a replay.
+      if (after !== undefined && compareKeys(key, after) <= 0) return short();
+      if (previous !== undefined && compareKeys(key, previous) <= 0) ordered = false;
+      previous = key;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
+
+      const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string };
+      const described = describeFile(key, state.rules, state.overrides);
+      entries.push({
+        path: key,
+        ...(typeof meta.etag === "string" && meta.etag !== "" ? { etag: meta.etag } : {}),
+        ...(typeof meta.size === "number" ? { size: meta.size } : {}),
+        ...(meta.uploaded === undefined ? {} : { updatedAt: new Date(meta.uploaded).getTime() }),
+        visibility: described.visibility,
+        inherited: described.inherited,
+        exception: described.exception,
+        readOnly: described.readOnly,
+      });
+      if (entries.length >= pageEntries) return stop();
+    }
+
+    if (!listing.truncated) {
+      return { entries, cursor: null, truncated: false, manifestUsable };
+    }
+    // Truncated with nowhere to go, or a cursor seen before: the store cannot
+    // finish this walk. See `listFolder` and `keysUnder` for the shapes.
+    if (!listing.cursor || seenCursors.has(listing.cursor)) {
+      return { ...short(), entries };
+    }
+    seenCursors.add(listing.cursor);
+    token = listing.cursor;
+  }
+  // The page budget ran out mid-bucket. Resumable from the last path returned
+  // where there is one; otherwise this call learned nothing it can hand on.
+  return stop();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -684,11 +977,53 @@ export interface FileContents {
 
 export async function readFile(
   store: FileStore,
-  options: { path: string; scope: Scope },
+  options: { path: string; clearance: Clearance; forward?: "never" | "onMiss" },
 ): Promise<FileContents> {
   const path = requirePath(options.path);
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (options.forward !== "onMiss") {
+    return await readVisibleFile(store, state, path, options.clearance);
+  }
+
+  /*
+    A STALE ADDRESS IS FORWARDED, AFTER IT HAS MISSED AND NEVER BEFORE.
+
+    A path means what it says *today*: if a note lives where the address
+    points, that note is the answer, even when something else once lived there.
+    Only an address that resolves to nothing has anything to gain from the
+    forwarding ledger — which also keeps the extra GET off every successful
+    read.
+
+    A share is the one caller that needs the opposite order, because its grant
+    was minted on a *note* rather than on a string. It resolves through the
+    `forward` operation before it reads, for the reasons in `shares.ts`; the
+    two orders are deliberately not one rule.
+
+    The destination still goes through `readVisibleFile`, so `canSee` is
+    re-asked there and a forward can never widen what a caller reaches.
+  */
+  try {
+    return await readVisibleFile(store, state, path, options.clearance);
+  } catch (error) {
+    if (!(error instanceof FileOpError) || error.code !== "FILE_NOT_FOUND") throw error;
+    const forwarded = forwardPath(await readForwarding(store), path);
+    if (forwarded === path) throw error;
+    return await readVisibleFile(store, state, forwarded, options.clearance);
+  }
+}
+
+/**
+ * The body of `readFile`, against a manifest already loaded — so `readFiles`
+ * reads a batch through exactly this, and a single read and a batched one
+ * cannot come to disagree about who may see a note.
+ */
+async function readVisibleFile(
+  store: FileStore,
+  state: PrivacyState,
+  path: string,
+  clearance: Clearance,
+): Promise<FileContents> {
+  if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
 
   const object = await store.get(path);
   if (object === null) throw notFound();
@@ -713,6 +1048,89 @@ export async function readFile(
   };
 }
 
+/** Paths one `readFiles` call may name. */
+export const READ_BATCH_PATHS = 50;
+/**
+ * Note bytes one `readFiles` call may return: two of the largest note the
+ * console will write. Past it the rest are deferred rather than read, so a
+ * batch of big notes cannot make a response nothing can carry.
+ */
+export const READ_BATCH_BYTES = 2 * MAX_NOTE_BYTES;
+
+/**
+ * One path's answer in a batch.
+ *
+ * `read` carries exactly what `readFile` returns. `error` carries a refusal's
+ * code and message — `FILE_NOT_FOUND` for a note that is missing *and* for one
+ * the caller may not see, identically, because both came from `readFile`'s own
+ * `notFound()`. `deferred` means the byte budget was spent before this path was
+ * looked at: ask again, nothing is implied about the path.
+ */
+export type BatchRead =
+  | { path: string; outcome: "read"; note: FileContents }
+  | { path: string; outcome: "error"; code: FileErrorCode; message: string }
+  | { path: string; outcome: "deferred" };
+
+/**
+ * Read several notes at once, for the offline mirror to fill itself.
+ *
+ * Every path goes through `readVisibleFile`, the body of `readFile`, against
+ * one load of `privacy.md` — so the batch is N single reads sharing a manifest,
+ * not a second privacy path. A refusal is per path and does not fail the batch:
+ * one note deleted since the manifest was taken must not stop the other
+ * forty-nine arriving.
+ *
+ * `path` on each answer echoes what was asked, so a caller can match answers
+ * to requests even for a path that did not normalise. Answers come back in
+ * request order.
+ *
+ * The budget is spent only by notes that were read, which only a visible note
+ * is, and once it is spent nothing further is looked at. So whether a path is
+ * `deferred` turns on the sizes of notes the caller can read and never on
+ * whether a hidden one exists. The first note always reads, whatever its size,
+ * so every batch makes progress.
+ */
+export async function readFiles(
+  store: FileStore,
+  options: { paths: readonly string[]; clearance: Clearance },
+): Promise<BatchRead[]> {
+  if (options.paths.length > READ_BATCH_PATHS) {
+    throw new FileOpError(
+      "BATCH_TOO_LARGE",
+      `Read at most ${READ_BATCH_PATHS} notes at a time.`,
+    );
+  }
+  if (options.paths.length === 0) return [];
+
+  const state = await loadPrivacyState(store);
+  const results: BatchRead[] = [];
+  let bytes = 0;
+  let spent = false;
+  for (const requested of options.paths) {
+    if (spent) {
+      results.push({ path: requested, outcome: "deferred" });
+      continue;
+    }
+    try {
+      const note = await readVisibleFile(store, state, requirePath(requested), options.clearance);
+      const size = byteLength(note.text);
+      if (bytes > 0 && bytes + size > READ_BATCH_BYTES) {
+        spent = true;
+        results.push({ path: requested, outcome: "deferred" });
+        continue;
+      }
+      bytes += size;
+      results.push({ path: requested, outcome: "read", note });
+    } catch (error) {
+      // A refusal is this path's answer. Anything else is the bucket failing,
+      // which is the whole batch's problem and goes up as one.
+      if (!(error instanceof FileOpError)) throw error;
+      results.push({ path: requested, outcome: "error", code: error.code, message: error.message });
+    }
+  }
+  return results;
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                   writing                                  */
 /* -------------------------------------------------------------------------- */
@@ -720,6 +1138,23 @@ export async function readFile(
 export interface WriteResult {
   path: string;
   etag: string;
+  /**
+   * What was written, in bytes, for `activity.md`.
+   *
+   * `byteLength`, not `String.length`: the activity file's substance test is a
+   * byte threshold, and it must not be laxer for a note written in English
+   * than for one written in Yoruba.
+   *
+   * There is deliberately no `previousBytes` beside it. The store's `get`
+   * returns a handle without a size, so knowing what was there before would
+   * mean reading the old body on every save — a second full read per
+   * keystroke-triggered autosave, to answer a question the activity file
+   * already answers another way: an unknown size counts as substantial, and
+   * the merge window collapses a typing session into one line whatever the
+   * sizes were. The gateway, which has the old body in hand for its own
+   * conflict message, does send both.
+   */
+  bytes: number;
   /**
    * How the conflict check was performed.
    *
@@ -733,6 +1168,107 @@ export interface WriteResult {
   conflictCheck: "conditional" | "read-compare";
 }
 
+export interface VaultImportFile {
+  path: string;
+  bytes: Uint8Array;
+  contentType: string;
+}
+
+export interface VaultImportResult {
+  created: string[];
+  skipped: string[];
+  bytesCreated: number;
+}
+
+export const MAX_VAULT_IMPORT_FILE_BYTES = 4_500_000;
+
+const VAULT_IMPORT_CONTENT_TYPES = new Set([
+  "text/markdown; charset=utf-8",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/octet-stream",
+]);
+
+/**
+ * Put a bounded piece of an Obsidian vault into its original bucket path.
+ *
+ * This is create-only. A retry skips files that landed before a connection
+ * failed, and an import into a bucket somebody has already edited never
+ * overwrites their newer copy. Hidden folders are refused again here rather
+ * than trusted to the browser's picker; `.obsidian` can contain plugin tokens
+ * and `.context`/`.audit` are Context's own plumbing.
+ *
+ * **Create-only is enforced two ways, because one of them is not always
+ * available.** `onlyIf: { absent: true }` is what every adapter in this
+ * codebase *sends*; whether the bucket behind it obeys is a different
+ * question, and the one `initialCapabilities()` answers `false` to until a
+ * probe says otherwise — "B2 and arbitrary S3-compatible endpoints do not
+ * reliably" support conditional writes. Sending the precondition anyway and
+ * trusting the reply is how a write that should have been skipped comes back
+ * reported as created, with the owner's own file gone under it: the "lost
+ * write with no error" that same comment calls the one failure mode a notes
+ * product cannot have, arriving here during onboarding over the vault they
+ * are importing. So the capability decides, exactly as `saveNote` and the
+ * manifest writers already do, and an unproven backend gets a read-then-create
+ * whose residual race is one round trip — the same window `scaffold.ts`
+ * documents rather than defends.
+ */
+export async function importVaultFiles(
+  store: FileStore,
+  options: { files: readonly VaultImportFile[]; clearance: Clearance },
+): Promise<VaultImportResult> {
+  const state = await loadPrivacyState(store);
+  const conditional = store.capabilities?.conditionalWrite === true;
+  const created: string[] = [];
+  const skipped: string[] = [];
+  let bytesCreated = 0;
+
+  for (const file of options.files) {
+    const path = requirePath(file.path);
+    assertWritablePath(path);
+    if (path.split("/").some((segment) => segment.startsWith("."))) {
+      throw new FileOpError("PATH_INVALID", "Hidden folders are not uploaded from an Obsidian vault.");
+    }
+    if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
+    if (file.bytes.byteLength > MAX_VAULT_IMPORT_FILE_BYTES) {
+      throw new FileOpError(
+        "CONTENT_TOO_LARGE",
+        `A vault file must be at most ${MAX_VAULT_IMPORT_FILE_BYTES} bytes.`,
+      );
+    }
+    if (!VAULT_IMPORT_CONTENT_TYPES.has(file.contentType)) {
+      throw new FileOpError("PATH_INVALID", "That vault file type cannot be uploaded safely.");
+    }
+
+    // The precondition makes retries idempotent and closes the race between a
+    // preceding GET and PUT — where the bucket honours it. Where the binding
+    // has not proven it does, the read is the check, and the one-round-trip
+    // window is stated rather than papered over.
+    if (!conditional && (await store.get(path)) !== null) {
+      skipped.push(path);
+      continue;
+    }
+    const put = conditional
+      ? await store.put(path, file.bytes, {
+          onlyIf: { absent: true },
+          contentType: file.contentType,
+        })
+      : await store.put(path, file.bytes, { contentType: file.contentType });
+    if (put === null) {
+      skipped.push(path);
+    } else {
+      created.push(path);
+      bytesCreated += file.bytes.byteLength;
+    }
+  }
+
+  return { created, skipped, bytesCreated };
+}
+
 /**
  * Save a note.
  *
@@ -741,7 +1277,10 @@ export interface WriteResult {
  * elsewhere" and offer to reload — never a silent overwrite.
  *
  * Omitting `expectedEtag` means "this is new": if the key already exists that
- * is also a conflict, not an overwrite. There is no way to say "clobber
+ * is also a conflict, not an overwrite — and where the bucket can enforce it
+ * (`conditionalCreate`), the put itself is `onlyIf: { absent: true }`, so that
+ * holds even for a file created between the check and the write. That is the
+ * create mode an offline-queued new note uses. There is no way to say "clobber
  * whatever is there", by design.
  */
 export async function writeFile(
@@ -750,7 +1289,7 @@ export async function writeFile(
     path: string;
     text: string;
     expectedEtag?: string;
-    scope: Scope;
+    clearance: Clearance;
     now: number;
   },
 ): Promise<WriteResult> {
@@ -767,9 +1306,37 @@ export async function writeFile(
   // Creating a note somewhere a team caller cannot see means creating a note
   // they immediately could not read. Refuse with the same not-found as a note
   // that is not theirs, so the folder's default is not an oracle either.
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const existing = await store.get(path);
+
+  /*
+   * AND A CREATE ASKS A SECOND QUESTION: DOES THE FOLDER ADMIT A NOTE FROM
+   * THIS TIER?
+   *
+   * `canSee` above is the read direction, and its comment is right about it.
+   * It is not sufficient for a CREATE, because it honours an exact override —
+   * and **an override can outlive the note it was written for.** `trashPath`
+   * deliberately leaves one behind: `restoreTrashedPath` re-checks `canSee` at
+   * the original path, so the exception has to survive for a restored note to
+   * come back at the visibility it had. (`deletePath` is permanent and clears
+   * it; the two differ on purpose.)
+   *
+   * In the window between, the manifest names a path with no object at it. A
+   * team caller writing there passed `canSee` on the dead note's exception and
+   * created a note **inside a folder the owner keeps private** — the thing
+   * `scope_info` advertises as outside their write surface.
+   *
+   * The gateway's `write_note` has always asked this, and its answer is the
+   * one ported here: not "can this caller see this path" but "what does the
+   * FOLDER say", which `visibilityOf` answers without consulting overrides.
+   * `notFound()` rather than a permission error, to match the refusal above:
+   * a distinct message here would make the folder's default an oracle.
+   */
+  if (existing === null && options.clearance.scope !== "private") {
+    const inherited = visibilityOf(path, state.rules);
+    if (inherited !== "team" && !options.clearance.names.has(inherited)) throw notFound();
+  }
 
   /*
    * AN ENCRYPTED NOTE IS NOT OVERWRITTEN WITH PLAINTEXT THROUGH THIS DOOR —
@@ -851,17 +1418,44 @@ export async function writeFile(
   // they own — see docs/decisions/storage-and-credentials.md. With it off, this
   // overwrite is final, and the console says so before it runs.
   const conditional = store.capabilities?.conditionalWrite === true && existing !== null;
+  /*
+   * A CREATE IS CONDITIONAL TOO, WHERE THE BUCKET HAS PROVEN IT CAN BE.
+   *
+   * The read above found nothing, and until this was added the put that
+   * followed was unconditional — so a note created at the same path in the
+   * round trip between them (an Obsidian sync, an AI client, a second device
+   * draining its own offline queue) was overwritten with no error. Offline
+   * made that window hours wide: a "new note" typed on a train is sent when
+   * the train comes out of the tunnel, and whatever landed at that path in
+   * between is exactly what it would have clobbered.
+   *
+   * `onlyIf: { absent: true }` is `If-None-Match: *`, which is a different
+   * feature from `If-Match` and is probed separately, as `conditionalCreate`.
+   * A bucket that honours one need not honour the other, so this asks for the
+   * capability it is about to rely on and not its neighbour. Where it is not
+   * proven the read above is the check, its one-round-trip race is what the
+   * `read-compare` in the result reports, and nothing is sent that the bucket
+   * might accept and ignore — `importVaultFiles` gives the same reasoning.
+   */
+  const conditionalCreate =
+    existing === null && store.capabilities?.conditionalCreate === true;
   const put = conditional
     ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
-    : await store.put(path, options.text);
+    : conditionalCreate
+      ? await store.put(path, options.text, { onlyIf: { absent: true } })
+      : await store.put(path, options.text);
 
   if (put === null) {
     // The backend rejected the precondition: somebody wrote between our read
-    // and our put. Exactly the case conditional writes exist for.
+    // and our put. Exactly the case conditional writes exist for — and for a
+    // create it is the same `CONFLICT` a create onto an existing file gets
+    // above, with the etag of what is there now.
     const current = await store.get(path);
     throw new FileOpError(
       "CONFLICT",
-      "That file changed somewhere else while you were editing it.",
+      existing === null
+        ? "A file already exists at that path. Reload to see it."
+        : "That file changed somewhere else while you were editing it.",
       current?.etag,
     );
   }
@@ -869,7 +1463,8 @@ export async function writeFile(
   return {
     path,
     etag: put.etag,
-    conflictCheck: conditional ? "conditional" : "read-compare",
+    bytes: byteLength(options.text),
+    conflictCheck: conditional || conditionalCreate ? "conditional" : "read-compare",
   };
 }
 
@@ -905,7 +1500,7 @@ export async function removeNoteEncryption(
     path: string;
     text: string;
     expectedEtag?: string;
-    scope: Scope;
+    clearance: Clearance;
   },
 ): Promise<WriteResult> {
   const path = requirePath(options.path);
@@ -928,7 +1523,7 @@ export async function removeNoteEncryption(
   }
 
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const existing = await store.get(path);
   if (existing === null) throw notFound();
@@ -976,6 +1571,7 @@ export async function removeNoteEncryption(
   return {
     path,
     etag: put.etag,
+    bytes: byteLength(options.text),
     conflictCheck: conditional ? "conditional" : "read-compare",
   };
 }
@@ -1007,7 +1603,7 @@ function byteLength(text: string): number {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Create a folder.
+ * What lands in a folder the moment it is made.
  *
  * S3 has no folders — a folder is a shared key prefix — so an "empty folder"
  * can only exist in a UI's memory unless something is written. Rather than
@@ -1015,10 +1611,37 @@ function byteLength(text: string): number {
  * invisible to the very tools this is for), a new folder gets a `README.md`,
  * exactly as the PARA scaffold does. The folder is then real for Obsidian,
  * rclone, the gateway and everything else that reads the bucket.
+ *
+ * **It says it is a placeholder, because it is one.** It used to be `# <name>`
+ * — the shape of a note somebody had started writing, on a file nobody wrote,
+ * at the top of every folder they made. A person who opened it found an empty
+ * overview page they had not asked for and could not tell whether they were
+ * supposed to fill in. So the body names itself and says why it is there, which
+ * is the only thing it knows. The console does not list it at all
+ * (`isFolderPlaceholder`); this text is for the tools that do.
+ *
+ * `renderFolderPlaceholder` is exported so the copy is pinned by a test rather
+ * than being a string literal nobody would notice changing.
+ */
+export function renderFolderPlaceholder(folder: string): string {
+  return [
+    "Folder placeholder.",
+    "",
+    `Object storage has no empty folders, so this file is what makes ${folder}/`,
+    "exist. Context does not list it; Obsidian and anything else that reads your",
+    "bucket will. Delete it once the folder holds something else, or write in it —",
+    "it is an ordinary note.",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Create a folder — which means writing the one key that makes its prefix
+ * exist. See `renderFolderPlaceholder` for what that key holds and why.
  */
 export async function createFolder(
   store: FileStore,
-  options: { path: string; scope: Scope; now: number },
+  options: { path: string; clearance: Clearance; now: number },
 ): Promise<{ path: string; readme: string }> {
   const folder = requirePath(options.path);
   if (isPlumbing(folder)) {
@@ -1040,7 +1663,7 @@ export async function createFolder(
   // the same residual `writeFile` has, and one `listFolder` already exposes
   // by returning an empty listing rather than `notFound()` there.
   const state = await loadPrivacyState(store);
-  if (!folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+  if (!folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {
     throw notFound();
   }
 
@@ -1051,8 +1674,8 @@ export async function createFolder(
   }
   await writeFile(store, {
     path: readme,
-    text: `# ${baseName(folder)}\n`,
-    scope: options.scope,
+    text: renderFolderPlaceholder(folder),
+    clearance: options.clearance,
     now: options.now,
   });
   return { path: folder, readme };
@@ -1183,7 +1806,7 @@ function walkStopped(stop: WalkStop, tooLarge: string): FileOpError {
 async function keysUnder(
   store: FileStore,
   folder: string,
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): Promise<{ keys: string[]; withheld: string[] }> {
@@ -1209,7 +1832,7 @@ async function keysUnder(
     const listing = await store.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
-      if (!canSee(object.key, scope, rules, overrides)) {
+      if (!canSee(object.key, clearance.scope, rules, overrides, clearance.names)) {
         withheld.push(object.key);
         continue;
       }
@@ -1376,52 +1999,58 @@ async function historyKeysFor(
 ): Promise<string[]> {
   // A folder's history mirrors its shape (`.history/1-projects/note.md.<stamp>.md`),
   // so the whole subtree goes. A file's history is the siblings sharing its name.
-  const prefix = pathIsFolder ? `${HISTORY_PREFIX}${path}/` : `${HISTORY_PREFIX}${path}.`;
   const keys: string[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix, cursor, limit: 1000 });
-    for (const object of listing.objects ?? []) {
-      // For a file, a `/` in the tail would mean a directory we did not put
-      // there — leave it rather than sweep something we cannot explain.
-      if (!(pathIsFolder || !object.key.slice(prefix.length).includes("/"))) continue;
-      if (deleted !== null) {
-        // Which note does this snapshot belong to? `.history/a.md.X.md` could
-        // be a version of `a.md` stamped `X`, or of a note actually called
-        // `a.md.X` — a prefix test cannot tell, and testing the deleted set and
-        // the survivors separately gets it wrong in both directions at once:
-        // `a.md` shields `a.md.notes.md`'s snapshots from a delete that took
-        // it, and `a.md.notes.md` is swept by a delete of `a.md`.
-        //
-        // Longest match decides, the same way `visibilityOf` resolves a key
-        // against overlapping folder rules. The snapshot belongs to the most
-        // specific note whose name it extends, and it goes only if that note
-        // is one of the ones actually deleted.
-        let owner: string | null = null;
-        for (const key of [...deleted, ...survivors]) {
-          if (!object.key.startsWith(`${HISTORY_PREFIX}${key}.`)) continue;
-          if (owner === null || key.length > owner.length) owner = key;
+  const currentPrefix = pathIsFolder ? `${HISTORY_PREFIX}${path}/` : `${HISTORY_PREFIX}${path}.`;
+  const storagePrefixes = [currentPrefix, legacyStorageKey(currentPrefix)].filter(
+    (value): value is string => Boolean(value),
+  );
+  for (const prefix of storagePrefixes) {
+    let cursor: string | undefined;
+    for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+      const listing = await store.list({ prefix, cursor, limit: 1000 });
+      for (const object of listing.objects ?? []) {
+        const logicalKey = `${currentPrefix}${object.key.slice(prefix.length)}`;
+        // For a file, a `/` in the tail would mean a directory we did not put
+        // there — leave it rather than sweep something we cannot explain.
+        if (!(pathIsFolder || !object.key.slice(prefix.length).includes("/"))) continue;
+        if (deleted !== null) {
+          // Which note does this snapshot belong to? `.history/a.md.X.md` could
+          // be a version of `a.md` stamped `X`, or of a note actually called
+          // `a.md.X` — a prefix test cannot tell, and testing the deleted set and
+          // the survivors separately gets it wrong in both directions at once:
+          // `a.md` shields `a.md.notes.md`'s snapshots from a delete that took
+          // it, and `a.md.notes.md` is swept by a delete of `a.md`.
+          //
+          // Longest match decides, the same way `visibilityOf` resolves a key
+          // against overlapping folder rules. The snapshot belongs to the most
+          // specific note whose name it extends, and it goes only if that note
+          // is one of the ones actually deleted.
+          let owner: string | null = null;
+          for (const key of [...deleted, ...survivors]) {
+            if (!logicalKey.startsWith(`${HISTORY_PREFIX}${key}.`)) continue;
+            if (owner === null || key.length > owner.length) owner = key;
+          }
+          if (owner === null || !deleted.includes(owner)) continue;
         }
-        if (owner === null || !deleted.includes(owner)) continue;
+        keys.push(object.key);
       }
-      keys.push(object.key);
+      // The one walk with nowhere to put the answer. Its only caller has already
+      // deleted the live keys by the time it runs, so it cannot refuse, and
+      // `DeleteResult` carries only `paths` — there is no `truncated` to report
+      // through. A short walk here leaves snapshots of a note somebody
+      // permanently deleted, which is the lie the delete copy must not tell.
+      //
+      // Already reachable at `LIST_PAGE_CAP`, and the fold below does not widen
+      // it as much as it looks: on a store that misreports consistently,
+      // `deletePath` never gets this far, because `keysUnder` (folder) or
+      // `namesExtending` (file) refuses first. What is left needs a store that
+      // misbehaves only under `.history/`, or only sometimes — narrow, but not
+      // nothing, and stating "not made worse" flatly would be the overclaim.
+      // Left as it is rather than papered over: the fix is to resolve the history
+      // before the live keys go, which is a bigger change than this one.
+      if (!listing.truncated || !listing.cursor) break;
+      cursor = listing.cursor;
     }
-    // The one walk with nowhere to put the answer. Its only caller has already
-    // deleted the live keys by the time it runs, so it cannot refuse, and
-    // `DeleteResult` carries only `paths` — there is no `truncated` to report
-    // through. A short walk here leaves snapshots of a note somebody
-    // permanently deleted, which is the lie the delete copy must not tell.
-    //
-    // Already reachable at `LIST_PAGE_CAP`, and the fold below does not widen
-    // it as much as it looks: on a store that misreports consistently,
-    // `deletePath` never gets this far, because `keysUnder` (folder) or
-    // `namesExtending` (file) refuses first. What is left needs a store that
-    // misbehaves only under `.history/`, or only sometimes — narrow, but not
-    // nothing, and stating "not made worse" flatly would be the overclaim.
-    // Left as it is rather than papered over: the fix is to resolve the history
-    // before the live keys go, which is a bigger change than this one.
-    if (!listing.truncated || !listing.cursor) break;
-    cursor = listing.cursor;
   }
   return keys;
 }
@@ -1439,6 +2068,11 @@ export interface MoveResult {
   paths: string[];
   /** What the link rewrite did. See `rewriteReferences`. */
   references?: ReferenceRewrite;
+  /**
+   * The moved note's etag at its new path — a single note only, and only where
+   * the bucket answered the write with one. See `movePath`.
+   */
+  etag?: string;
 }
 
 export interface ReferenceRewrite {
@@ -1489,12 +2123,12 @@ export interface ReferenceRewrite {
  */
 function assertDestinationsVisible(
   destinations: readonly string[],
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): void {
   for (const destination of destinations) {
-    if (scope === "private") continue;
+    if (clearance.scope === "private") continue;
     // The place, then the note that may already be in it.
     //
     // `visibilityOf` and not `effectiveVisibility`: they differ only when the
@@ -1548,12 +2182,12 @@ function assertDestinationsVisible(
  */
 function assertMoveDestinationsVisible(
   pairs: readonly { source: string; destination: string }[],
-  scope: Scope,
+  clearance: Clearance,
   state: PrivacyState,
 ): void {
   assertDestinationsVisible(
     pairs.map((pair) => pair.destination),
-    scope,
+    clearance,
     state.rules,
     state.overrides,
   );
@@ -1646,15 +2280,32 @@ function rulesSurvivorsRestOn(
  *
  * The collision has no right answer - the arriving folder and the one already
  * there both have a claim - so it is resolved in the only direction that
- * cannot leak.
+ * cannot leak: the narrower of the two survives.
+ *
+ * That used to be spelled `existing.vis === "team" && rule.vis === "private"`,
+ * which was the same thing while there were two values and stopped being it
+ * the day a rule could name a group. Nothing in that test narrows `team` to a
+ * group, and nothing narrows a group to `private`, so renaming a folder whose
+ * subfolder was held back to `@supa-leads` over one whose matching subfolder
+ * was `team` kept `team` - every note under it readable by the whole
+ * workspace, from a rename. `narrowerVisibility` is the engine's own order and
+ * is identical to the old test on the two tiers.
  */
 function oneRulePerPrefix(rules: readonly PrivacyRule[]): PrivacyRule[] {
   const byPrefix = new Map<string, PrivacyRule>();
   for (const rule of rules) {
     const existing = byPrefix.get(rule.prefix);
-    if (existing === undefined || (existing.vis === "team" && rule.vis === "private")) {
+    if (existing === undefined) {
       byPrefix.set(rule.prefix, rule);
+      continue;
     }
+    const narrower = narrowerVisibility(existing.vis, rule.vis);
+    // Keep the rule object whose value won, and prefer the incumbent on a tie
+    // so the pass stays stable. Two different groups narrow to `private`, which
+    // is neither rule's object - it is written as a fresh one rather than
+    // dropped, because "neither claim survives" must still leave a rule.
+    if (narrower === existing.vis) continue;
+    byPrefix.set(rule.prefix, narrower === rule.vis ? rule : { prefix: rule.prefix, vis: narrower as Visibility });
   }
   return [...byPrefix.values()];
 }
@@ -1687,7 +2338,29 @@ function rulesAfterFolderMove(
  */
 export async function movePath(
   store: FileStore,
-  options: { from: string; to: string; scope: Scope; now: number },
+  options: {
+    from: string;
+    to: string;
+    clearance: Clearance;
+    now: number;
+    /**
+     * The version of the note this move was asked about. Given, the move is
+     * refused with `CONFLICT` and the current etag when the note is anywhere
+     * else — the same answer a queued edit gets, for the same reason: a rename
+     * typed offline is a decision about the note as it was then. Absent is an
+     * online press made while looking at the listing, exactly as before.
+     *
+     * A note only: a folder has no version to name.
+     */
+    expectedEtag?: string;
+    /**
+     * Refuse, rather than read-compare, where the bucket cannot make the check
+     * atomic. The plugin runtime asks for this — a plugin renames as part of a
+     * transaction it cannot see the end of. A person's queued rename does not:
+     * it gets the check an online save gets on the same bucket.
+     */
+    requireAtomic?: boolean;
+  },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
@@ -1712,9 +2385,35 @@ export async function movePath(
   }
 
   const state = await loadPrivacyState(store);
-  if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
+  if (options.expectedEtag !== undefined && sourceIsFolder) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      options.requireAtomic === true
+        ? "Plugins may only rename files, not folders."
+        : "A folder has no version, so it cannot be moved against one.",
+    );
+  }
+  /*
+    Atomic where the bucket can do both halves conditionally — the copy
+    `onlyIf: { absent }` and the delete `onlyIf: { etagMatches }` — and a
+    read-compare where it cannot: the source's etag is compared just before it
+    is copied, which is what an online save on such a bucket gets too. Only the
+    plugin runtime refuses the second kind.
+  */
+  const atomic =
+    options.expectedEtag !== undefined &&
+    store.capabilities?.conditionalCreate === true &&
+    store.capabilities?.conditionalDelete === true;
+  if (options.expectedEtag !== undefined && options.requireAtomic === true && !atomic) {
+    throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely rename plugin files.");
+  }
+  const changedElsewhere =
+    options.requireAtomic === true
+      ? "That file changed somewhere else while the plugin was using it."
+      : "That note changed somewhere else after this was asked for.";
 
   // The header of this function says "the destination must not exist: this
   // never merges and never overwrites". That was true of files, which the
@@ -1734,7 +2433,7 @@ export async function movePath(
   // left a file key shadowing a folder prefix — a shape a Dropbox binding
   // cannot even represent.
   if (await isFolder(store, to)) {
-    if (!folderVisibleAtScope(to, options.scope, state.rules, state.overrides)) throw notFound();
+    if (!folderVisibleAtScope(to, options.clearance, state.rules, state.overrides)) throw notFound();
     throw new FileOpError(
       "DESTINATION_EXISTS",
       sourceIsFolder
@@ -1743,12 +2442,12 @@ export async function movePath(
     );
   }
   if (sourceIsFolder && (await store.get(to)) !== null) {
-    if (!canSee(to, options.scope, state.rules, state.overrides)) throw notFound();
+    if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
     throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
   }
 
   const walk = sourceIsFolder
-    ? await keysUnder(store, from, options.scope, state.rules, state.overrides)
+    ? await keysUnder(store, from, options.clearance, state.rules, state.overrides)
     : { keys: [from], withheld: [] };
   const sources = walk.keys;
   if (!sourceIsFolder && (await store.get(from)) === null) throw notFound();
@@ -1761,7 +2460,7 @@ export async function movePath(
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
 
-  assertMoveDestinationsVisible(pairs, options.scope, state);
+  assertMoveDestinationsVisible(pairs, options.clearance, state);
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
@@ -1785,12 +2484,37 @@ export async function movePath(
     }
   }
 
+  /*
+    The etag the note has at its new path, for a single note. A queue that
+    renamed a note and then deletes it offline sends the delete against *this*
+    version — the one its own rename produced — and without it would have to
+    either guess or drop the check.
+  */
+  let movedEtag: string | undefined;
   for (const pair of pairs) {
     const object = await store.get(pair.source);
-    if (object === null) continue; // vanished mid-move; nothing to carry
+    if (object === null) {
+      // Vanished mid-move. Nothing to carry — unless this move was asked
+      // against a version, and then the version it named is not there.
+      if (options.expectedEtag !== undefined) throw new FileOpError("CONFLICT", changedElsewhere);
+      continue;
+    }
+    if (options.expectedEtag !== undefined && object.etag !== options.expectedEtag) {
+      throw new FileOpError("CONFLICT", changedElsewhere, object.etag);
+    }
     const body = await object.text();
-    await store.put(pair.destination, body);
-    await store.delete(pair.source);
+    const created = atomic
+      ? await store.put(pair.destination, body, { onlyIf: { absent: true } })
+      : await store.put(pair.destination, body);
+    if (created === null) throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
+    const removed = atomic
+      ? await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag! } })
+      : await store.delete(pair.source);
+    if (removed === null) {
+      if (created?.etag) await store.delete(pair.destination, { onlyIf: { etagMatches: created.etag } });
+      throw new FileOpError("CONFLICT", changedElsewhere);
+    }
+    if (!sourceIsFolder && created?.etag) movedEtag = created.etag;
   }
 
   await remapPrivacy(store, {
@@ -1799,13 +2523,740 @@ export async function movePath(
     survivors: walk.withheld,
   });
 
+  /*
+    A FORWARDING ADDRESS, FOR THE REFERENCES A REWRITE CANNOT REACH.
+
+    `rewriteReferences` below fixes every link inside the bucket. It cannot
+    touch the ones held elsewhere — a share link already sent, a deep link in
+    somebody's chat log — so the move also records where things went. See
+    `apps/mcp/src/forwarding.js` for why this is a trail between paths rather
+    than an index of who points at what.
+
+    **A folder move is one entry**, not one per file it carried: a nine
+    thousand note rename must not write nine thousand rows, and a prefix rule
+    forwards the whole subtree. It is the same engine the gateway records with,
+    imported rather than ported, so a rename through the console and the same
+    rename through an MCP client leave the same trail.
+  */
+  await recordForwarding(
+    store,
+    folderMove
+      ? [{ from, to, kind: "folder" as const }]
+      : pairs.map((pair) => ({ from: pair.source, to: pair.destination, kind: "note" as const })),
+    { now: options.now },
+  );
+
   const references = await rewriteReferences(store, {
-    scope: options.scope,
+    clearance: options.clearance,
     state,
     renames: new Map(pairs.map((pair) => [pair.source, pair.destination])),
+    /*
+      A note that links to itself is rewritten here too, which moves its etag
+      past the one the copy produced — and the queue would then send its next
+      step against a version its own rename had already superseded.
+    */
+    onRewritten: (key, etag) => {
+      if (!sourceIsFolder && key === to) movedEtag = etag;
+    },
   });
 
-  return { from, to, paths: pairs.map((pair) => pair.destination), references };
+  return {
+    from,
+    to,
+    paths: pairs.map((pair) => pair.destination),
+    references,
+    ...(movedEtag === undefined ? {} : { etag: movedEtag }),
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                       moving between two contexts                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ONE MOVE, TWO BUCKETS, AND NEITHER FUNCTION HOLDS BOTH.
+ *
+ * `movePath` above is the whole operation in one call because it has one
+ * store. A move into *another* context has two, in two different customers'
+ * accounts under two different credentials, and there is no portable
+ * server-side copy between them — the adapter has `get`/`put`/`delete`/`list`
+ * and nothing else. So the bytes have to travel through the caller, and the
+ * caller is the control plane.
+ *
+ * That is why this is three exported functions rather than one. Each takes a
+ * single store, so each runs behind its own credential barrier
+ * (`runFileOperation`), and the orchestrator that calls all three in turn
+ * — `functions/contextMoves.ts` — never holds a bucket key at all. A single
+ * `moveAcrossStores(source, destination, …)` would have been shorter and would
+ * have required a second credential barrier to exist, holding two customers'
+ * plaintext secrets in one scope. The enumeration in
+ * `__tests__/structure.test.ts` says what that costs; this is the shape that
+ * does not pay it.
+ *
+ * The order is copy, verify, delete, per batch, which is the discipline the
+ * gateway's `materialize_move` already uses: nothing is removed from the
+ * source until the destination has answered with an etag for it. A batch that
+ * dies halfway leaves objects in both places, which is recoverable by running
+ * the move again — the copied ones are gone from the source by then, so the
+ * next pass simply does not see them. The opposite order is not recoverable.
+ *
+ * ## What a cross-context move deliberately does not do
+ *
+ *  - **It does not rewrite links.** `movePath` rewrites every reference it can
+ *    see, because the notes that point at the moved one are in the same
+ *    bucket. Across a boundary they are not, and a rewrite would have to reach
+ *    into a context the mover may only be an editor of. The gateway's
+ *    cross-context `move_note` says the same thing in its own output —
+ *    "references: not rewritten across workspace boundaries".
+ *  - **It does not carry attachments.** Images live under `IMAGE_PREFIX`,
+ *    which `isPlumbing` refuses, and they are addressed by leaf name for the
+ *    whole context rather than per folder. Carrying them would mean parsing
+ *    every body to find which leaves a subtree depends on.
+ *  - **It does not widen anything, ever.** See `landingVisibility`.
+ */
+
+/** Objects one batch may carry. Bounded by the Convex argument limit, not the store. */
+export const CONTEXT_MOVE_BATCH_OBJECTS = 40;
+
+/**
+ * Bytes one batch may carry.
+ *
+ * Convex caps a function's arguments and return value at 16 MiB, and one batch
+ * crosses that boundary twice — out of the export barrier and into the import
+ * one — so the real ceiling is well under half of it. Eight megabytes leaves
+ * room for the paths and etags travelling beside the bodies, and a single
+ * object larger than this is still carried: the check is made *before* each
+ * read rather than after, so a batch always carries at least one object and a
+ * move can never wedge on a note it refuses to pick up.
+ */
+export const CONTEXT_MOVE_BATCH_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Objects a move may leave behind before it stops asking.
+ *
+ * Something left behind is skipped by every later batch, so the skip list is
+ * the one part of a move's state that grows. It is small in practice — a note
+ * encrypted to the source context's key is the only thing that lands on it —
+ * and a folder with a hundred of them is a different problem from the one this
+ * operation solves.
+ */
+export const CONTEXT_MOVE_SKIP_CAP = 100;
+
+export interface ContextMoveObject {
+  /** Key in the source bucket. */
+  source: string;
+  /** Key in the destination bucket. */
+  destination: string;
+  bytes: ArrayBuffer;
+  /** What the source held when it was read. The delete is conditional on it. */
+  etag: string;
+  /**
+   * The source's effective visibility, collapsed to the two tiers.
+   *
+   * A group rule reads `private` here, and that is the gateway's decision made
+   * again rather than a lossy cast: `@supa-leads` names a group in the SOURCE
+   * workspace, and the destination resolves names in its own. Carrying the
+   * string would write a rule the destination cannot resolve — reaching nobody
+   * today, and reaching the wrong people the day that name is minted there.
+   */
+  sourceVisibility: "private" | "team";
+}
+
+/** A key this move will not carry, and the reason it can be shown. */
+export interface ContextMoveSkip {
+  path: string;
+  reason: "encrypted";
+}
+
+export interface ContextMoveExport {
+  objects: ContextMoveObject[];
+  skipped: ContextMoveSkip[];
+  /** Whether anything under the source is still waiting after these. */
+  remaining: boolean;
+}
+
+/**
+ * What the destination should land an object at, which is never wider than
+ * either end.
+ *
+ * Two questions, and the answer is the narrower of the two: what the object
+ * could be seen as where it came from, and what the folder it is landing in
+ * already publishes. A `team` note into a private-default folder lands
+ * private — the destination's own default wins. A `private` note into a
+ * team-default folder lands private too, with an exception written for it —
+ * the source's tier wins.
+ *
+ * **So a cross-context move never publishes anything to anybody who could not
+ * already read it, on either side, and it needs no confirmation step to say
+ * so.** The gateway's `move_note` refuses that second case instead, behind
+ * `confirm_team_publish`; refusing is the right answer for a tool call, where
+ * an agent picked the destination and the person may not have seen it, and the
+ * wrong one for a folder of mixed notes that somebody dragged somewhere on
+ * purpose — one checkbox cannot express per-note intent, and the safe reading
+ * of it is the one this function already takes.
+ */
+export function landingVisibility(
+  sourceVisibility: "private" | "team",
+  destinationFolderDefault: Visibility,
+): "private" | "team" {
+  return sourceVisibility === "team" && destinationFolderDefault === "team" ? "team" : "private";
+}
+
+/**
+ * Folders this caller can see, everywhere in the context, in one call.
+ *
+ * For the destination picker: "move this into @work" needs @work's folders,
+ * and the console's tree only ever holds the folders of the context it is
+ * standing in. Asking for them one `listFiles` at a time would be one Convex
+ * action — and one bucket credential — per folder, so the walk happens here,
+ * inside the single call that already has the store open.
+ *
+ * Bounded twice over, because the bucket is a customer's and somebody is
+ * waiting on this: `FOLDER_PATH_CAP` folders and `FOLDER_PATH_LISTINGS`
+ * listings. Past either it reports `truncated` and returns what it has, which
+ * is the honest shape for a picker — a short list somebody can still use beats
+ * a refusal, and the destination they wanted can always be typed into a
+ * subfolder of one that is here. It is the same choice `listFolder` makes one
+ * folder down, and the opposite of `keysUnder`'s, for the reason that function
+ * gives: a partial *walk* cannot be operated on, and a partial *list* can be
+ * read.
+ */
+export const FOLDER_PATH_CAP = 500;
+const FOLDER_PATH_LISTINGS = 200;
+
+export async function listFolderPaths(
+  store: FileStore,
+  options: { clearance: Clearance },
+): Promise<{ folders: string[]; truncated: boolean }> {
+  const state = await loadPrivacyState(store);
+  if (state.invalid) {
+    // Fail closed, exactly as every read does: an unreadable manifest is not a
+    // reason to show somebody every folder in the bucket.
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_INVALID",
+      "privacy.md could not be read, so this context's folders cannot be listed.",
+    );
+  }
+
+  const folders: string[] = [];
+  const queue: string[] = [""];
+  let listings = 0;
+  let truncated = false;
+
+  while (queue.length > 0) {
+    const folder = queue.shift()!;
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+      if (listings >= FOLDER_PATH_LISTINGS) return { folders, truncated: true };
+      listings += 1;
+      const listing = await store.list({
+        prefix: folder === "" ? "" : `${folder}/`,
+        delimiter: "/",
+        limit: 1_000,
+        cursor,
+      });
+      for (const raw of listing.delimitedPrefixes ?? []) {
+        const child = raw.replace(/\/+$/, "");
+        if (!child || isPlumbing(child)) continue;
+        if (!folderVisibleAtScope(child, options.clearance, state.rules, state.overrides)) continue;
+        if (folders.length >= FOLDER_PATH_CAP) {
+          truncated = true;
+          continue;
+        }
+        folders.push(child);
+        queue.push(child);
+      }
+      if (!listing.truncated) break;
+      if (!listing.cursor || seen.has(listing.cursor)) {
+        truncated = true;
+        break;
+      }
+      seen.add(listing.cursor);
+      cursor = listing.cursor;
+      if (page === LIST_PAGE_CAP - 1) truncated = true;
+    }
+  }
+
+  folders.sort();
+  return { folders, truncated };
+}
+
+/**
+ * Read the next bounded piece of what is moving out of this context.
+ *
+ * **It lists from the beginning of the subtree every time, and that is the
+ * property that makes a move of any size finish.** A persisted continuation
+ * cursor over a listing whose keys are being deleted underneath it can skip
+ * objects on S3-compatible providers — `clearVaultBatch` says the same thing
+ * above, for the same reason — and it would also make every retry a guess
+ * about how far the last attempt got. Listing from the start costs nothing
+ * extra because the previous batch's objects are *gone* by the time this runs:
+ * the first page is already the next thing to move. Only what was deliberately
+ * left behind is paged over again, which is what `skip` is for and why it is
+ * capped.
+ *
+ * So this has no cap on the size of the folder. `keysUnder` refuses past
+ * `FOLDER_OPERATION_CAP` because a single-store move rewrites the manifest as
+ * though the whole walk happened and a partial walk cannot be operated on
+ * safely. Here the unit that must be all-or-nothing is one *object* — copied,
+ * verified, then deleted — so a pass that sees only the first forty of nine
+ * thousand is an ordinary pass rather than a half-done move.
+ */
+export async function exportContextMoveBatch(
+  store: FileStore,
+  options: {
+    from: string;
+    to: string;
+    clearance: Clearance;
+    /** Keys an earlier pass could not carry. Never re-offered. */
+    skip?: readonly string[];
+    limit?: number;
+    maxBytes?: number;
+  },
+): Promise<ContextMoveExport> {
+  const from = requirePath(options.from);
+  const to = requirePath(options.to);
+  assertWritablePath(from);
+  assertWritablePath(to);
+  // Before the first read, not after the first copy: a move that discovered
+  // this on the way to retiring a source would already have written the
+  // destination, and the only way out of that is a duplicate.
+  assertSourceCanRetire(store);
+
+  const state = await loadPrivacyState(store);
+  if (state.invalid) {
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_INVALID",
+      "privacy.md could not be read in the context this is moving out of. Nothing was moved.",
+    );
+  }
+  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+    throw notFound();
+  }
+
+  const limit = options.limit ?? CONTEXT_MOVE_BATCH_OBJECTS;
+  const maxBytes = options.maxBytes ?? CONTEXT_MOVE_BATCH_BYTES;
+  const skip = new Set(options.skip ?? []);
+
+  const sourceIsFolder = await isFolder(store, from);
+  const candidates: string[] = [];
+  let remaining = false;
+
+  if (!sourceIsFolder) {
+    if (!skip.has(from)) candidates.push(from);
+  } else {
+    const prefix = `${from}/`;
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    pages: for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+      const listing = await store.list({ prefix, cursor, limit: 1_000 });
+      for (const object of listing.objects ?? []) {
+        const key = object.key;
+        if (isPlumbing(key)) continue;
+        if (skip.has(key)) continue;
+        if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+          // Only reachable if this ever runs at `team`, which it does not:
+          // starting a move out of a context requires owning it, and an owner
+          // reads at `private`. Kept because "the caller sees everything" is an
+          // argument about a caller, and this function takes a clearance.
+          continue;
+        }
+        if (candidates.length >= limit) {
+          remaining = true;
+          break pages;
+        }
+        candidates.push(key);
+      }
+      if (!listing.truncated) break;
+      if (!listing.cursor || seen.has(listing.cursor)) {
+        // A store that will not page is not a store this can finish against,
+        // and saying so beats moving an arbitrary prefix of a folder.
+        throw new FileOpError(
+          "LISTING_INCOMPLETE",
+          "That folder could not be listed to the end, so nothing more was moved. Try again.",
+        );
+      }
+      seen.add(listing.cursor);
+      cursor = listing.cursor;
+    }
+  }
+
+  const objects: ContextMoveObject[] = [];
+  const skipped: ContextMoveSkip[] = [];
+  let carried = 0;
+  let looked = 0;
+  for (const key of candidates) {
+    // Checked before the read, so one object over the ceiling is still carried
+    // rather than refused forever. The pass after this one starts behind it.
+    if (carried > 0 && carried >= maxBytes) break;
+    looked += 1;
+    const object = await store.get(key);
+    if (object === null) continue; // deleted underneath us; nothing to carry
+    const bytes = await object.arrayBuffer();
+    if (key.endsWith(".md") && isEncryptedNote(new TextDecoder().decode(bytes))) {
+      /*
+        AN ENCRYPTED NOTE IS ENCRYPTED TO *THIS* CONTEXT'S KEY.
+
+        Its ciphertext would arrive in the destination as a note nobody there
+        can ever open, including the person who moved it — the data key is held
+        per workspace (`functions/encryptionKeys.ts`) and does not travel.
+        Carrying it would be a silent, permanent loss dressed up as a
+        successful move, so it stays where it can still be read and the move
+        reports it by name.
+      */
+      skipped.push({ path: key, reason: "encrypted" });
+      continue;
+    }
+    carried += bytes.byteLength;
+    objects.push({
+      source: key,
+      destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
+      bytes,
+      etag: object.etag,
+      sourceVisibility:
+        effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",
+    });
+  }
+
+  // Anything this pass listed but did not reach is still waiting. Folded in
+  // here rather than set at each `break` above, because the two ceilings and
+  // the skip both leave work behind and only one of them is a loop exit.
+  return { objects, skipped, remaining: remaining || looked < candidates.length };
+}
+
+export interface ContextMoveImport {
+  /** What actually exists at the destination now, with the etag it was given. */
+  landed: { source: string; destination: string; etag: string }[];
+  /**
+   * Why the batch stopped, if it did.
+   *
+   * A partial batch is reported rather than thrown, because the sources for
+   * everything in `landed` must still be deleted: throwing would leave copies
+   * in both buckets with nothing recording that they are copies.
+   */
+  failure: { destination: string; code: FileErrorCode; message: string } | null;
+}
+
+/**
+ * Land a batch in the destination context, narrowing before it writes.
+ *
+ * The exceptions go in **first**, in one manifest write for the whole batch,
+ * and the objects follow. The order is the whole point: a private note put
+ * into a team-default folder and then narrowed is a note that was readable by
+ * the destination's team for as long as the second write took. The gateway's
+ * cross-context move makes the same choice, one note at a time
+ * (`persistExactVisibility` before the `put`).
+ */
+export async function importContextMoveBatch(
+  store: FileStore,
+  options: {
+    objects: readonly ContextMoveObject[];
+    clearance: Clearance;
+    /**
+     * The move's destination root, on the first batch only.
+     *
+     * Checked once rather than per object, and only when nothing has landed
+     * yet — by the second batch this move's own objects are under it, so the
+     * same check would then refuse the move on the strength of its own work.
+     *
+     * It is what stops a folder move **merging** into a folder that is already
+     * there. The per-object `get` below cannot see that: for a folder move
+     * every destination is `to` plus a suffix, so two trees interleave key by
+     * key with no key ever colliding, and `movePath` records what the result
+     * is — the source folder's rule carried onto a destination that already
+     * had notes in it, one of which went from hidden to readable. A file
+     * already sitting at `to` is the other half of the same question, and is
+     * invisible to a per-object check for the same reason.
+     */
+    root?: string;
+  },
+): Promise<ContextMoveImport> {
+  assertDestinationCanLand(store);
+
+  const state = await loadPrivacyState(store);
+  if (state.invalid) {
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_INVALID",
+      "privacy.md could not be read in the context this is moving into. Nothing was moved.",
+    );
+  }
+
+  if (options.root !== undefined) {
+    const root = requirePath(options.root);
+    assertWritablePath(root);
+    if (await isFolder(store, root)) {
+      // Refused whether or not they can see it, and `notFound` when they
+      // cannot: "that folder already exists" about a folder somebody cannot
+      // list is the disclosure, not the merge. Same shape as `movePath`'s.
+      if (!folderVisibleAtScope(root, options.clearance, state.rules, state.overrides)) {
+        throw notFound();
+      }
+      throw new FileOpError(
+        "DESTINATION_EXISTS",
+        `${root} already exists there. Moving one folder onto another would merge them.`,
+      );
+    }
+    if ((await store.get(root)) !== null) {
+      if (!canSee(root, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+        throw notFound();
+      }
+      throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${root}.`);
+    }
+  }
+
+  const planned = options.objects.map((object) => {
+    const destination = requirePath(object.destination);
+    assertWritablePath(destination);
+    return {
+      object,
+      destination,
+      visibility: landingVisibility(object.sourceVisibility, visibilityOf(destination, state.rules)),
+    };
+  });
+
+  /*
+    THE MOVER'S OWN CLEARANCE IN THE DESTINATION, ASKED BEFORE ANYTHING IS
+    WRITTEN.
+
+    Starting a move needs `editor` there, and an editor reads at `team` — so
+    the same rule every other write in this file obeys applies here: they may
+    land something in a folder they can see, and a `private` folder of somebody
+    else's context is not one. Without this, "move into @theirs" would be a way
+    to write into a folder the mover cannot list, and to learn from the result
+    that it is there.
+
+    The identical guard `movePath` uses, deliberately: this is the one place a
+    write arrives in a context from outside it, and a second implementation of
+    "may they write here" is a second one to get wrong. An owner
+    (`scope: "private"`) passes it unconditionally, which is the arm every move
+    started by the destination's own owner takes.
+  */
+  assertDestinationsVisible(
+    planned.map((entry) => entry.destination),
+    options.clearance,
+    state.rules,
+    state.overrides,
+  );
+
+  const narrowed = planned.filter(
+    (entry) => entry.visibility !== visibilityOf(entry.destination, state.rules),
+  );
+  if (narrowed.length > 0) {
+    await mutateManifest(store, (current) => {
+      let overrides = current.overrides;
+      for (const entry of narrowed) {
+        overrides = nextOverrides(entry.destination, entry.visibility, current.rules, overrides);
+      }
+      return { rules: current.rules, overrides };
+    });
+  }
+
+  const landed: ContextMoveImport["landed"] = [];
+  for (const entry of planned) {
+    try {
+      if ((await store.get(entry.destination)) !== null) {
+        return {
+          landed,
+          failure: {
+            destination: entry.destination,
+            code: "DESTINATION_EXISTS",
+            message: `Something already exists at ${entry.destination}.`,
+          },
+        };
+      }
+      // Unconditionally conditional: `assertDestinationCanLand` has already
+      // refused a store that cannot do this, so there is no fallback arm to
+      // get wrong — and the fallback that used to be here was a read-compare,
+      // which is exactly the window this operation must not have.
+      const created = await store.put(entry.destination, entry.object.bytes, {
+        onlyIf: { absent: true },
+      });
+      if (created === null) {
+        return {
+          landed,
+          failure: {
+            destination: entry.destination,
+            code: "DESTINATION_EXISTS",
+            message: `Something already exists at ${entry.destination}.`,
+          },
+        };
+      }
+      landed.push({
+        source: entry.object.source,
+        destination: entry.destination,
+        etag: created.etag,
+      });
+    } catch (error) {
+      return {
+        landed,
+        failure: {
+          destination: entry.destination,
+          code: "STORAGE_UNSAFE",
+          message: error instanceof Error ? error.message : "The destination bucket refused a write.",
+        },
+      };
+    }
+  }
+  return { landed, failure: null };
+}
+
+/**
+ * Take the copied objects out of the source, and only those.
+ *
+ * Conditional on the etag each was read at, so a note somebody edited between
+ * the copy and this call is **not** deleted: the copy at the destination is
+ * the older text, and silently removing the newer one would lose the edit. It
+ * is reported as a conflict instead, and the caller removes the stale copy it
+ * made and stops — see `contextMoves.ts`.
+ */
+/**
+ * Take one copied object out, under a guard the storage will actually enforce.
+ *
+ * **A conditional DELETE is not that guard on the storage this product runs
+ * on.** R2 accepts `If-Match` on DELETE and ignores it — measured, in
+ * `apps/mcp`'s "Move a note on storage that will not enforce a conditional
+ * delete", once every binding was probed instead of inheriting a claim: every
+ * real row came back `conditionalDelete: false` and `conditionalWrite: true`.
+ * So the obvious `delete(path, { onlyIf: { etagMatches } })` either refuses
+ * every move (if the capability is required) or silently destroys the edit
+ * somebody made mid-move (if it is not) — and the second is what the
+ * unguarded fallback here used to do, while this file's own comment claimed
+ * the newer text was kept.
+ *
+ * The substitute is the gateway's `retireMovedSource`, ported rather than
+ * reinvented so the two engines cannot drift on a data-loss guard:
+ *
+ *   1. PUT a zero-byte marker at the source path under `If-Match` on the etag
+ *      that was copied. Atomic, and it fails if anybody touched the note —
+ *      the same conflict, established from the same evidence.
+ *   2. Delete the marker. By then the only thing at that key is ours, so the
+ *      delete cannot destroy a customer's bytes whether or not it is
+ *      conditional.
+ *
+ * `unguarded` is a store that can do neither, which `assertContextMoveSafe`
+ * refuses before anything is copied. It is returned rather than thrown so that
+ * a caller which somehow reaches it treats it as a refusal instead of as a
+ * successful retirement.
+ */
+async function retireMovedSource(
+  store: FileStore,
+  key: string,
+  etag: string,
+): Promise<"retired" | "conflict" | "unguarded"> {
+  if (etag === "") return "unguarded";
+  if (store.capabilities?.conditionalDelete === true) {
+    const deleted = await store.delete(key, { onlyIf: { etagMatches: etag } });
+    return deleted === null ? "conflict" : "retired";
+  }
+  if (store.capabilities?.conditionalWrite !== true) return "unguarded";
+  const claimed = await store.put(key, new Uint8Array(0), { onlyIf: { etagMatches: etag } });
+  if (claimed === null) return "conflict";
+  try {
+    await store.delete(key);
+  } catch {
+    // A zero-byte marker at a path whose content is already at the destination.
+    // The next pass lists it, finds nothing to carry, and removes it; reporting
+    // the move as failed here would be the false half of a move that happened.
+  }
+  return "retired";
+}
+
+/**
+ * What each end of a cross-context move needs of its own store.
+ *
+ * The gateway's `moveSafetyRefusal`, split in two because the two stores are
+ * opened by two different calls through the credential barrier and nothing in
+ * this process ever holds both. Each half is asked **before its own side does
+ * anything**, and refused by name rather than silently degraded: the
+ * degradation is "your edit was destroyed instead of refused", which is the
+ * one outcome this operation may never have.
+ *
+ * Either conditional satisfies the source, for the reason `retireMovedSource`
+ * gives at length. B2 and Wasabi have neither and are refused, which is what
+ * every other conflict-safe path in this file already does to them.
+ */
+function assertSourceCanRetire(store: FileStore): void {
+  if (
+    store.capabilities?.conditionalDelete !== true &&
+    store.capabilities?.conditionalWrite !== true
+  ) {
+    throw new FileOpError(
+      "STORAGE_UNSAFE",
+      "This context is on storage that cannot make a conflict-safe write, so a note edited while it moved would be lost rather than refused. Nothing was moved.",
+    );
+  }
+}
+
+function assertDestinationCanLand(store: FileStore): void {
+  if (store.capabilities?.conditionalCreate !== true) {
+    throw new FileOpError(
+      "STORAGE_UNSAFE",
+      "The context you are moving into is on storage that cannot write a file only if it is absent, so a move there could overwrite something. Nothing was moved.",
+    );
+  }
+}
+
+export async function deleteMovedSources(
+  store: FileStore,
+  options: { sources: readonly { path: string; etag: string }[] },
+): Promise<{ deleted: string[]; conflicts: string[] }> {
+  const deleted: string[] = [];
+  const conflicts: string[] = [];
+  for (const source of options.sources) {
+    const retired = await retireMovedSource(store, source.path, source.etag);
+    if (retired === "retired") deleted.push(source.path);
+    else conflicts.push(source.path);
+  }
+
+  if (deleted.length > 0) {
+    const state = await loadPrivacyState(store);
+    if (state.text !== null && !state.invalid && deleted.some((path) => hasOverride(state.overrides, path))) {
+      await mutateManifest(store, (current) => {
+        let overrides = current.overrides;
+        for (const path of deleted) overrides = clearedOverrides(path, overrides);
+        return { rules: current.rules, overrides };
+      });
+    }
+  }
+  return { deleted, conflicts };
+}
+
+/**
+ * Forget what the source manifest still says about a subtree nothing is left in.
+ *
+ * Run once, after the last batch. A folder rule whose folder is gone is not
+ * inert: the name comes back the day anybody recreates that path — an
+ * ingestion alias filing into `1-projects/acme`, a new note saved to the same
+ * place — and it comes back carrying a visibility nobody chose for it. Rules
+ * covering something that stayed behind are kept, which is why this takes the
+ * survivors rather than assuming there are none.
+ */
+export async function clearMovedSourceRules(
+  store: FileStore,
+  options: { from: string; survivors?: readonly string[] },
+): Promise<void> {
+  const from = requirePath(options.from);
+  const survivors = options.survivors ?? [];
+  const state = await loadPrivacyState(store);
+  if (state.text === null || state.invalid) return;
+
+  const under = (path: string) => path === from || path.startsWith(`${from}/`);
+  const kept = (prefix: string) =>
+    survivors.some((path) => path === prefix || path.startsWith(`${prefix}/`));
+
+  const staleRule = state.rules.some((rule) => under(rule.prefix) && !kept(rule.prefix));
+  const staleOverride = [...state.overrides.keys()].some(
+    (path) => under(path) && !survivors.includes(path),
+  );
+  if (!staleRule && !staleOverride) return;
+
+  await mutateManifest(store, (current) => ({
+    rules: current.rules.filter((rule) => !under(rule.prefix) || kept(rule.prefix)),
+    overrides: new Map(
+      [...current.overrides].filter(([path]) => !under(path) || survivors.includes(path)),
+    ),
+  }));
 }
 
 /**
@@ -1825,8 +3276,8 @@ const LINK_SCAN_CAP = 4000;
  *
  * The control plane's half of the rule the gateway states in full at
  * `apps/mcp/src/links.js`: a reference follows what it points at, by default,
- * because a brain whose links rot the first time somebody tidies a folder is a
- * brain people stop tidying. A rename made in the console and the same rename
+ * because a workspace whose links rot the first time somebody tidies a folder is a
+ * workspace people stop tidying. A rename made in the console and the same rename
  * made through an MCP client have to do the same thing, and
  * `linkParity.test.ts` is what keeps the two engines honest about that.
  *
@@ -1852,16 +3303,18 @@ const LINK_SCAN_CAP = 4000;
 async function rewriteReferences(
   store: FileStore,
   options: {
-    scope: Scope;
+    clearance: Clearance;
     state: PrivacyState;
     renames: ReadonlyMap<string, string>;
+    /** Told the new etag of every note this rewrites. See `movePath`'s `etag`. */
+    onRewritten?: (key: string, etag: string) => void;
   },
 ): Promise<ReferenceRewrite> {
   if (options.renames.size === 0) return { notes: 0, links: 0, capped: false };
 
   let keys: string[] | null;
   try {
-    keys = await visibleNoteKeys(store, options.scope, options.state);
+    keys = await visibleNoteKeys(store, options.clearance, options.state);
   } catch {
     return { notes: 0, links: 0, capped: true };
   }
@@ -1892,7 +3345,8 @@ async function rewriteReferences(
       path alone would restore the write amplification that decision removed
       from every other one.
     */
-    await store.put(key, rewritten.text);
+    const put = await store.put(key, rewritten.text);
+    if (put?.etag) options.onRewritten?.(key, put.etag);
   }
   return { notes, links, capped: false };
 }
@@ -1907,7 +3361,7 @@ async function rewriteReferences(
  */
 async function visibleNoteKeys(
   store: FileStore,
-  scope: Scope,
+  clearance: Clearance,
   state: PrivacyState,
 ): Promise<string[] | null> {
   const keys: string[] = [];
@@ -1918,7 +3372,7 @@ async function visibleNoteKeys(
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
       if (!object.key.endsWith(".md")) continue;
-      if (!canSee(object.key, scope, state.rules, state.overrides)) continue;
+      if (!canSee(object.key, clearance.scope, state.rules, state.overrides, clearance.names)) continue;
       if (seen.has(object.key)) continue;
       seen.add(object.key);
       keys.push(object.key);
@@ -1943,7 +3397,7 @@ async function visibleNoteKeys(
  */
 export async function copyPath(
   store: FileStore,
-  options: { from: string; to: string; scope: Scope },
+  options: { from: string; to: string; clearance: Clearance },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
@@ -1960,13 +3414,13 @@ export async function copyPath(
   }
 
   const state = await loadPrivacyState(store);
-  if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
   // `copyPrivacy` only ever writes a per-note exception, never a folder rule,
   // so a partial copy has nothing to get wrong and `filtered` is not needed.
   const sources = sourceIsFolder
-    ? (await keysUnder(store, from, options.scope, state.rules, state.overrides)).keys
+    ? (await keysUnder(store, from, options.clearance, state.rules, state.overrides)).keys
     : [from];
   if (sources.length === 0) throw notFound();
 
@@ -1977,7 +3431,7 @@ export async function copyPath(
 
   assertDestinationsVisible(
     pairs.map((pair) => pair.destination),
-    options.scope,
+    options.clearance,
     state.rules,
     state.overrides,
   );
@@ -2013,6 +3467,7 @@ export async function copyPath(
   await copyPrivacy(
     store,
     pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
+    sourceIsFolder ? { from, to } : null,
   );
 
   return { from, to, paths: pairs.map((pair) => pair.destination) };
@@ -2021,7 +3476,7 @@ export async function copyPath(
 /** Copy beside itself under a free "… copy" name. */
 export async function duplicatePath(
   store: FileStore,
-  options: { path: string; scope: Scope },
+  options: { path: string; clearance: Clearance },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   const parent = parentOf(path);
@@ -2042,7 +3497,7 @@ export async function duplicatePath(
   // `FILE_NOT_FOUND`, for two notes the caller could see neither of.
   assertWritablePath(path);
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   // Every name in use, not every name this caller can see.
   //
@@ -2061,7 +3516,7 @@ export async function duplicatePath(
   // overclaim this file has already made once.
   const taken = await namesInUse(store, parent);
   const destination = joinPath(parent, duplicateName(baseName(path), taken));
-  return await copyPath(store, { from: path, to: destination, scope: options.scope });
+  return await copyPath(store, { from: path, to: destination, clearance: options.clearance });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2069,23 +3524,52 @@ export async function duplicatePath(
 /* -------------------------------------------------------------------------- */
 
 /**
- * Archive: move into `4-archive/<timestamp>/<original path>`.
+ * Archive: move into `<this context's archive>/<timestamp>/<original path>`.
  *
  * This is the destructive-looking action people should reach for, and it is
  * **not destructive** — the file is intact, its original path is preserved
  * inside the archive path, and moving it back restores it exactly. The
  * timestamp segment means archiving the same note twice never collides.
  *
- * Same destination shape the gateway's `archive_note` uses, so a note archived
- * by Claude and a note archived from the console land in the same place.
+ * Same destination shape the gateway's `archive_note` uses, **and now the same
+ * destination**, which it was not. Both were written against a literal
+ * `4-archive`; the gateway refused a context that did not declare one, and
+ * this created it regardless. So on a `company`-preset workspace — a layout
+ * whose archive is `5-archive`, and the default for a shared context — Claude
+ * refused to archive and the console quietly opened a second archive beside
+ * the real one, in a bucket the owner also sees in Obsidian. One resolver
+ * (`archiveRoot`) now answers for both, and this path adopts the gateway's
+ * refusal rather than its own invention: a context with no archive folder is
+ * told so, instead of being given one nobody chose.
  */
 export async function archivePath(
   store: FileStore,
-  options: { path: string; scope: Scope; now: number },
+  options: {
+    path: string;
+    clearance: Clearance;
+    now: number;
+    /** The version this archive was asked about. See `movePath`. */
+    expectedEtag?: string;
+  },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  if (path === ARCHIVE_ROOT || path.startsWith(`${ARCHIVE_ROOT}/`)) {
+  // Ahead of the destination rather than after it: which folder this context
+  // archives into is a fact about its manifest, so the manifest is read first
+  // and the same state answers the visibility check below.
+  const state = await loadPrivacyState(store);
+  const roots = archiveRoots(state.rules);
+  const archive = archiveRoot(state.rules);
+  // Every archive it has, not the one we would write to: a note already in
+  // `5-archive/` must not be moved into `4-archive/` because the resolver
+  // preferred the latter.
+  if (insideArchive(path, roots)) {
     throw new FileOpError("PATH_INVALID", "That is already in the archive.");
+  }
+  if (archive === null) {
+    throw new FileOpError(
+      "ARCHIVE_UNAVAILABLE",
+      "This context has no archive folder, and archiving will not create one — its layout is yours. Move this to wherever you keep inactive material, or add an archive folder to privacy.md.",
+    );
   }
   // A free destination, because `movePath` refuses to merge onto an existing
   // folder and archiving a child and then its parent inside the same
@@ -2095,36 +3579,164 @@ export async function archivePath(
   // it. Archiving twice in one millisecond is a scripted or concurrent caller,
   // not a person clicking twice.
   const stamp = timestampSlug(options.now);
-  let destination = `${ARCHIVE_ROOT}/${stamp}/${path}`;
+  let destination = `${archive}/${stamp}/${path}`;
   for (let attempt = 2; attempt <= 100; attempt += 1) {
     if (!(await isFolder(store, destination)) && (await store.get(destination)) === null) break;
-    destination = `${ARCHIVE_ROOT}/${stamp}-${attempt}/${path}`;
+    destination = `${archive}/${stamp}-${attempt}/${path}`;
   }
 
   // Archiving is a move, so it inherits the destination rule — and on the
-  // scaffold's defaults `4-archive` is private, which means a team caller
+  // scaffold's defaults the archive is private, which means a team caller
   // cannot archive. That is right: archiving a shared note into a private
   // archive takes it away from everybody else, irreversibly for the person who
   // did it. The gateway's `archive_note` has always refused it.
   //
   // What it must not do is inherit the *message*. "That file does not exist"
   // about a note the caller is looking at explains nothing and points at the
-  // wrong thing. Naming `4-archive` discloses nothing they do not already
-  // hold: whether it is shared is visible in their own root listing.
-  const state = await loadPrivacyState(store);
-  if (options.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
+  // wrong thing. Naming the folder discloses nothing they do not already hold:
+  // whether it is shared is visible in their own root listing.
+  if (options.clearance.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
     throw new FileOpError(
       "ARCHIVE_UNAVAILABLE",
-      "Archiving needs access to 4-archive, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.",
+      `Archiving needs access to ${archive}, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.`,
     );
   }
 
   return await movePath(store, {
     from: path,
     to: destination,
-    scope: options.scope,
+    clearance: options.clearance,
     now: options.now,
+    ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
   });
+}
+
+/**
+ * Move a visible entry into hidden, recoverable trash without rewriting its
+ * privacy rules or links. Keeping those rules at the original path makes Undo
+ * restore the exact access state instead of guessing it from the trash folder.
+ */
+export async function trashPath(
+  store: FileStore,
+  options: {
+    path: string;
+    clearance: Clearance;
+    now: number;
+    /**
+     * The version this delete was asked about — see `movePath`. A delete typed
+     * offline must not put somebody's newer text in the trash without the
+     * person who asked for it being told it changed. Compared after the
+     * visibility check, so a note the caller cannot see is `notFound()` and its
+     * version is never on the wire.
+     */
+    expectedEtag?: string;
+  },
+): Promise<MoveResult> {
+  const path = requirePath(options.path);
+  assertWritablePath(path);
+  const state = await loadPrivacyState(store);
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
+
+  const sourceIsFolder = await isFolder(store, path);
+  if (options.expectedEtag !== undefined && sourceIsFolder) {
+    throw new FileOpError("PATH_INVALID", "A folder has no version, so it cannot be deleted against one.");
+  }
+  const walk = sourceIsFolder
+    ? await keysUnder(store, path, options.clearance, state.rules, state.overrides)
+    : { keys: [path], withheld: [] };
+  const source = sourceIsFolder ? null : await store.get(path);
+  if (!sourceIsFolder && source === null) throw notFound();
+  if (walk.keys.length === 0) throw notFound();
+  /*
+    A read-compare, made just before the move, on every bucket. `movePairs` is
+    shared with the restore and copies-then-deletes unconditionally; the window
+    between this read and that delete is the one an online save on a
+    read-compare bucket has, and what lands in it is recoverable from the trash
+    rather than gone.
+  */
+  if (options.expectedEtag !== undefined && source !== null && source.etag !== options.expectedEtag) {
+    throw new FileOpError(
+      "CONFLICT",
+      "That note changed somewhere else after this was asked for.",
+      source.etag,
+    );
+  }
+
+  const stamp = timestampSlug(options.now);
+  let destination = `${TRASH_ROOT}/${stamp}/${path}`;
+  for (let attempt = 2; attempt <= 100; attempt += 1) {
+    if ((await hiddenKeysAt(store, destination)).length === 0) break;
+    destination = `${TRASH_ROOT}/${stamp}-${attempt}/${path}`;
+  }
+  const pairs = walk.keys.map((key) => ({
+    source: key,
+    destination: sourceIsFolder ? `${destination}${key.slice(path.length)}` : destination,
+  }));
+  await movePairs(store, pairs);
+  return { from: path, to: destination, paths: pairs.map((pair) => pair.destination) };
+}
+
+/** Restore one trash result to the original path encoded inside its key. */
+export async function restoreTrashedPath(
+  store: FileStore,
+  options: { from: string; to: string; clearance: Clearance },
+): Promise<MoveResult> {
+  const from = requirePath(options.from);
+  const to = requirePath(options.to);
+  assertWritablePath(to);
+  const match = /^\.context\/trash\/[^/]+\/(.+)$/.exec(from);
+  if (match === null || match[1] !== to) {
+    throw new FileOpError("PATH_INVALID", "That trash entry does not match this restore path.");
+  }
+  const state = await loadPrivacyState(store);
+  if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
+  const sources = await hiddenKeysAt(store, from);
+  if (sources.length === 0) throw notFound();
+  const sourceIsFolder = sources.length > 1 || sources[0] !== from;
+  const pairs = sources.map((source) => ({
+    source,
+    destination: sourceIsFolder ? `${to}${source.slice(from.length)}` : to,
+  }));
+  await movePairs(store, pairs);
+  return { from, to, paths: pairs.map((pair) => pair.destination) };
+}
+
+async function hiddenKeysAt(store: FileStore, path: string): Promise<string[]> {
+  if ((await store.get(path)) !== null) return [path];
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix: `${path}/`, cursor, limit: 1_000 });
+    for (const object of listing.objects) {
+      keys.push(object.key);
+      if (keys.length > FOLDER_OPERATION_CAP) {
+        throw new FileOpError("FOLDER_TOO_LARGE", "That trash entry is too large to restore in one go.");
+      }
+    }
+    if (!listing.truncated) return keys;
+    if (!listing.cursor || listing.cursor === cursor) {
+      throw new FileOpError("LISTING_INCOMPLETE", "Context could not finish reading that trash entry.");
+    }
+    cursor = listing.cursor;
+  }
+  throw new FileOpError("FOLDER_TOO_LARGE", "That trash entry is too large to restore in one go.");
+}
+
+async function movePairs(
+  store: FileStore,
+  pairs: readonly { source: string; destination: string }[],
+): Promise<void> {
+  for (const pair of pairs) {
+    if ((await store.get(pair.destination)) !== null) {
+      throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
+    }
+  }
+  for (const pair of pairs) {
+    const object = await store.get(pair.source);
+    if (object === null) throw notFound();
+    await store.put(pair.destination, await object.arrayBuffer());
+    await store.delete(pair.source);
+  }
 }
 
 /** The word a caller must send to delete something permanently. */
@@ -2176,7 +3788,7 @@ export interface DeleteResult {
  */
 export async function deletePath(
   store: FileStore,
-  options: { path: string; confirmation: string; scope: Scope },
+  options: { path: string; confirmation: string; clearance: Clearance; expectedEtag?: string },
 ): Promise<DeleteResult> {
   if (options.confirmation !== DELETE_CONFIRMATION) {
     throw new FileOpError(
@@ -2188,11 +3800,17 @@ export async function deletePath(
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const targetIsFolder = await isFolder(store, path);
+  if (options.expectedEtag !== undefined && targetIsFolder) {
+    throw new FileOpError("PATH_INVALID", "Plugins may only delete files, not folders.");
+  }
+  if (options.expectedEtag !== undefined && store.capabilities?.conditionalDelete !== true) {
+    throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely delete plugin files.");
+  }
   const walk = targetIsFolder
-    ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
+    ? await keysUnder(store, path, options.clearance, state.rules, state.overrides)
     : { keys: [path], withheld: await namesExtending(store, path) };
   const keys = walk.keys;
   if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
@@ -2201,7 +3819,15 @@ export async function deletePath(
   // there, where reporting "deleted 0 files" would say one is present.
   if (targetIsFolder && keys.length === 0) throw notFound();
 
-  for (const key of keys) await store.delete(key);
+  for (const key of keys) {
+    const removed = options.expectedEtag === undefined
+      ? await store.delete(key)
+      : await store.delete(key, { onlyIf: { etagMatches: options.expectedEtag } });
+    if (removed === null) {
+      const current = await store.get(key);
+      throw new FileOpError("CONFLICT", "That file changed somewhere else while the plugin was using it.", current?.etag);
+    }
+  }
 
   // The half that used to be missing. Deleting a folder purges its history
   // subtree in one go; deleting a file purges the snapshots that share its
@@ -2218,7 +3844,7 @@ export async function deletePath(
     // names can extend its own, so it always names what it deleted and lets
     // longest match decide — otherwise an owner deleting `a.md` takes the
     // history of `a.md.notes.md`, which they never asked to delete.
-    targetIsFolder && options.scope === "private" ? null : keys,
+    targetIsFolder && options.clearance.scope === "private" ? null : keys,
     walk.withheld,
   )) {
     await store.delete(key);
@@ -2313,7 +3939,7 @@ export interface PrivacyResetResult {
  *
  * The scaffold writes the five PARA names because it is laying down a bucket
  * that has nothing in it. This runs against a bucket that has a life already —
- * frequently the case this whole feature is for, since a brain synced from
+ * frequently the case this whole feature is for, since a workspace synced from
  * Obsidian is exactly the kind that arrives with a hand-edited manifest — so
  * declaring `0-inbox … 4-archive` over somebody's `Journal/` and `Clients/`
  * would hand them a file with no line to edit for any folder they have. The
@@ -2323,9 +3949,9 @@ export interface PrivacyResetResult {
  */
 export async function resetPrivacyManifest(
   store: FileStore,
-  options: { scope: Scope; now: number },
+  options: { clearance: Clearance; now: number },
 ): Promise<PrivacyResetResult> {
-  if (options.scope !== "private") {
+  if (options.clearance.scope !== "private") {
     // Same wording an editor gets for anything else out of reach, and the
     // action above refuses first. Belt and braces: this module is the one an
     // in-memory test can drive, so the rule is asserted where it can be.
@@ -2453,20 +4079,59 @@ async function rootFolders(
  * repair. It then has no rule, so it inherits `default_visibility: private` —
  * the fail-closed direction — and `partial` says the list is short.
  */
-function writableAsRule(folder: string): boolean {
+function writableAsRule(folder: string, vis: Visibility = "private"): boolean {
   try {
     const parsed = parsePrivacyManifest(
-      renderPrivacyRulesBlock([{ prefix: folder, vis: "private" }], new Map()),
+      renderPrivacyRulesBlock([{ prefix: folder, vis }], new Map()),
     );
     return (
       parsed.rules.length === 1 &&
       parsed.rules[0]!.prefix === folder &&
+      parsed.rules[0]!.vis === vis &&
       parsed.overrides.size === 0
     );
   } catch {
     return false;
   }
 }
+
+/**
+ * The same round trip for a NOTE OVERRIDE, which is the other half of the
+ * format and the other half a caller supplies.
+ *
+ * `writableAsRule` existed and was correct, and guarded exactly one path —
+ * `rootFolders`, the manifest *repair* routine. Neither visibility setter
+ * reached it, and those are the two functions that take a caller-supplied path
+ * and interpolate it into the file. A guard that cannot be reached from the
+ * door the attacker uses is not a guard for that door.
+ *
+ * Why this is not redundant with `normalizePath`'s control-character refusal:
+ * a blacklist is a guess about a parser that has a comment stripper, a
+ * trailing-slash tolerance and a dot-segment rule. `2-areas/pay: team`
+ * contains no control character at all, and renders a rule the parser reads as
+ * naming `2-areas/pay` — a different note, silently. The oracle here is the
+ * code that will actually read the file, so the two cannot drift.
+ */
+function writableAsOverride(path: string, vis: Visibility): boolean {
+  try {
+    const parsed = parsePrivacyManifest(
+      renderPrivacyRulesBlock([], new Map([[path, vis]])),
+    );
+    if (parsed.rules.length !== 0 || parsed.overrides.size !== 1) return false;
+    // Through `overrideFor`, like every other override read in this file: the
+    // map has one entry so the case fold cannot change the answer, which is
+    // exactly why reaching past the helper would be a harmless-looking
+    // exception.
+    return overrideFor(parsed.overrides, path) === vis;
+  } catch {
+    return false;
+  }
+}
+
+/** What a path that cannot be written as a rule is told, at either setter. */
+const UNWRITABLE_PATH_MESSAGE =
+  "That path cannot be recorded in privacy.md: it contains a character the rule " +
+  "format uses. Rename it and try again.";
 
 /* -------------------------------------------------------------------------- */
 /*                                 visibility                                 */
@@ -2492,15 +4157,40 @@ export interface VisibilityResult {
  * writing a redundant line, so the exception list stays a statement of what is
  * unusual. See `nextOverrides`.
  */
+/**
+ * Set one path's visibility without asking whose hand it is.
+ *
+ * `setVisibility` is a caller's verb: it refuses anybody but the owner,
+ * because rewriting `privacy.md` is the owner's alone. This is the product's
+ * own, used for exactly one file — `activity.md`, which Context writes and
+ * must keep private whatever folder default it lands under, because it names
+ * paths from every corner of the context.
+ *
+ * Deliberately not exported through any action or operation. A second door
+ * into the manifest that skips the clearance check is only safe while its one
+ * caller is a constant, so the path is a parameter for testability and there
+ * is exactly one value anything passes.
+ */
+export async function setExactVisibility(
+  store: FileStore,
+  path: string,
+  visibility: Visibility,
+): Promise<void> {
+  await mutateManifest(store, (current) => ({
+    rules: current.rules,
+    overrides: nextOverrides(path, visibility, current.rules, current.overrides),
+  }));
+}
+
 export async function setVisibility(
   store: FileStore,
-  options: { path: string; visibility: Visibility; scope: Scope },
+  options: { path: string; visibility: Visibility; clearance: Clearance },
 ): Promise<VisibilityResult> {
   // Visibility writes rewrite `privacy.md`, the file that decides what every
   // non-owner may see — so only the owner's scope may reach them. The public
   // actions already require `owner`; this refusal is the layer that survives
   // a future caller getting that minimum wrong, the way the console once did.
-  if (options.scope !== "private") {
+  if (options.clearance.scope !== "private") {
     throw new FileOpError(
       "PATH_INVALID",
       "Only the owner of a context can change visibility.",
@@ -2514,9 +4204,19 @@ export async function setVisibility(
       "Only markdown notes can have their own visibility. Set the folder's default instead.",
     );
   }
+  // Belt to `normalizePath`'s brace — see `writableAsOverride`.
+  //
+  // Placed AFTER the specific refusals, not before them: the parser enforces
+  // the `.md` rule too, so a guard in front of that check would answer "that
+  // path contains a character the rule format uses" for an ordinary folder and
+  // quietly take over a message another check exists to give. A check added in
+  // front of another makes the second one's tests vacuous.
+  if (!writableAsOverride(path, options.visibility)) {
+    throw new FileOpError("PATH_INVALID", UNWRITABLE_PATH_MESSAGE);
+  }
 
   const state = await mutateManifest(store, (current) => {
-    if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
+    if (!canSee(path, options.clearance.scope, current.rules, current.overrides, options.clearance.names)) throw notFound();
     const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
     return { rules: current.rules, overrides };
   });
@@ -2545,13 +4245,13 @@ export async function setVisibility(
  */
 export async function setFolderVisibility(
   store: FileStore,
-  options: { path: string; visibility: Visibility; scope: Scope },
+  options: { path: string; visibility: Visibility; clearance: Clearance },
 ): Promise<VisibilityResult> {
   // Visibility writes rewrite `privacy.md`, the file that decides what every
   // non-owner may see — so only the owner's scope may reach them. The public
   // actions already require `owner`; this refusal is the layer that survives
   // a future caller getting that minimum wrong, the way the console once did.
-  if (options.scope !== "private") {
+  if (options.clearance.scope !== "private") {
     throw new FileOpError(
       "PATH_INVALID",
       "Only the owner of a context can change visibility.",
@@ -2559,11 +4259,15 @@ export async function setFolderVisibility(
   }
   const folder = requirePath(options.path);
   if (isPlumbing(folder)) throw new FileOpError("PATH_INVALID", "That path is reserved.");
+  // Belt to `normalizePath`'s brace — see `writableAsOverride`.
+  if (!writableAsRule(folder, options.visibility)) {
+    throw new FileOpError("PATH_INVALID", UNWRITABLE_PATH_MESSAGE);
+  }
 
   await mutateManifest(store, (current) => {
     if (
-      options.scope !== "private" &&
-      !folderVisibleAtScope(folder, options.scope, current.rules, current.overrides)
+      options.clearance.scope !== "private" &&
+      !folderVisibleAtScope(folder, options.clearance, current.rules, current.overrides)
     ) {
       throw notFound();
     }
@@ -2657,7 +4361,30 @@ async function remapPrivacy(
         rule.prefix === change.folderMove!.from ||
         rule.prefix.startsWith(`${change.folderMove!.from}/`),
     );
-  if (!touchesOverride && !touchesRule) return;
+  /*
+    What each moved note was actually visible as, which is a different question
+    from whether it had an exception — and the difference is the whole of this
+    block.
+
+    A note is usually private because its FOLDER is, with nothing in the
+    manifest naming the note at all. That fact does not travel with it: carry
+    only the exceptions and the inherited case lands on the destination's rule,
+    so dragging a note out of a private folder into a shared one published it,
+    to exactly the people the folder was private from. `movePath`'s own header
+    has always said this must not happen; it said it about the exception, which
+    is the case that was handled.
+
+    The gateway has narrowed a move against its destination since `move_note`
+    was written — `narrowerVisibility(sourceVisibility, visibilityOf(destination))`
+    — and this is that rule on this side of the platform split, computed from
+    the manifest as it was BEFORE the move.
+  */
+  const wasVisibleAs = new Map<string, Visibility>();
+  for (const move of change.moves) {
+    wasVisibleAs.set(move.from, effectiveVisibility(move.from, state.rules, state.overrides));
+  }
+  const mayWiden = change.moves.some((move) => wasVisibleAs.get(move.from) === "private");
+  if (!touchesOverride && !touchesRule && !mayWiden) return;
 
   await mutateManifest(store, (current) => {
     const rules = [...rulesAfterFolderMove(current.rules, change.folderMove)];
@@ -2674,32 +4401,99 @@ async function remapPrivacy(
         ),
       );
     }
+    /*
+      A folder that was private only because its parent was needs ONE rule at
+      the destination, not an exception per note: a 500-note folder would
+      otherwise write 500 lines into a customer's `privacy.md` to say what one
+      line says. `rulesAfterFolderMove` has already carried a rule the folder
+      owned itself, so this fires only where the folder owned none.
+    */
+    if (change.folderMove !== null) {
+      const ownsRule = current.rules.some((rule) => rule.prefix === change.folderMove!.from);
+      const inherited = visibilityOf(change.folderMove.from, current.rules);
+      if (!ownsRule && inherited === "private" && visibilityOf(change.folderMove.to, rules) === "team") {
+        rules.push({ prefix: change.folderMove.to, vis: inherited });
+      }
+    }
     const deduped = oneRulePerPrefix(rules);
     let overrides = current.overrides;
     for (const move of change.moves) {
       overrides = movedOverrides(move.from, move.to, deduped, overrides);
+      // Only where the note had no exception of its own: `movedOverrides` has
+      // already re-derived that case against the destination, and re-deriving
+      // it a second time here would quietly retier an owner's deliberate
+      // exception. `nextOverrides` writes nothing where the destination folder
+      // already gives the note what it had, so a move that widens nothing
+      // leaves the manifest untouched.
+      if (hasOverride(current.overrides, move.from)) continue;
+      const was = wasVisibleAs.get(move.from);
+      if (was === undefined) continue;
+      // `narrowerVisibility` is typed for two optional arguments, so it answers
+      // optionally; both of these are present, and the guard says so rather
+      // than asserting it.
+      const carry = narrowerVisibility(was, visibilityOf(move.to, deduped));
+      if (carry === undefined) continue;
+      overrides = nextOverrides(move.to, carry, deduped, overrides);
     }
     return { rules: deduped, overrides };
   });
 }
 
-/** Give a copy the same exception as its original, where it is still one. */
+/**
+ * Give a copy what its original had — its exception where it had one, and
+ * otherwise the visibility its folder gave it.
+ *
+ * The second half is the same fact `remapPrivacy` turns on, and it is not the
+ * rarer half: a note is usually private because its FOLDER is, with nothing in
+ * the manifest naming the note. Carrying only exceptions meant a copy taken
+ * into a shared folder arrived readable by every member, and the copy is the
+ * operation where that is hardest to notice — the original is still sitting
+ * where it was, still private, so nothing the owner is looking at changed.
+ *
+ * Narrowed against the destination, never widened, exactly as a move is.
+ */
 async function copyPrivacy(
   store: FileStore,
   pairs: { from: string; to: string }[],
+  folderCopy: { from: string; to: string } | null = null,
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
-  if (!pairs.some(({ from }) => hasOverride(state.overrides, from))) return;
+  const wasVisibleAs = new Map<string, Visibility>();
+  for (const pair of pairs) {
+    wasVisibleAs.set(pair.from, effectiveVisibility(pair.from, state.rules, state.overrides));
+  }
+  const carriesSomething = pairs.some(
+    ({ from }) => hasOverride(state.overrides, from) || wasVisibleAs.get(from) === "private",
+  );
+  if (!carriesSomething) return;
 
   await mutateManifest(store, (current) => {
+    // One rule for a copied folder that was private only because its parent
+    // was, for `remapPrivacy`'s reason: an exception per note turns a
+    // customer's `privacy.md` into a list of everything they ever copied.
+    const rules = [...current.rules];
+    if (folderCopy !== null) {
+      const inherited = visibilityOf(folderCopy.from, current.rules);
+      if (inherited === "private" && visibilityOf(folderCopy.to, current.rules) === "team") {
+        rules.push({ prefix: folderCopy.to, vis: inherited });
+      }
+    }
+    const deduped = oneRulePerPrefix(rules);
     let overrides = current.overrides;
     for (const pair of pairs) {
       const existing = overrideFor(current.overrides, pair.from);
-      if (existing === undefined) continue;
-      overrides = nextOverrides(pair.to, existing, current.rules, overrides);
+      const was = wasVisibleAs.get(pair.from);
+      // An exception is carried as it stands — the owner chose it, and
+      // re-deriving it here would retier that choice. Only the inherited case
+      // is computed, and `nextOverrides` writes nothing where the destination
+      // folder already gives the copy what the original had.
+      const carry =
+        existing ?? (was === undefined ? undefined : narrowerVisibility(was, visibilityOf(pair.to, deduped)));
+      if (carry === undefined) continue;
+      overrides = nextOverrides(pair.to, carry, deduped, overrides);
     }
-    return { rules: current.rules, overrides };
+    return { rules: deduped, overrides };
   });
 }
 
@@ -2763,7 +4557,7 @@ export const MAX_STORED_IMAGE_BYTES = 5_000_000;
  * on `IMAGE_PREFIX` in the gateway, which reads the same store from the other
  * side.
  */
-export const IMAGE_PREFIX = ".images/";
+export { IMAGE_PREFIX };
 
 /**
  * The leaf extensions `read_image` will serve back.
@@ -2816,7 +4610,8 @@ export const STORABLE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
  * then requires the character class below; then a `.` past position 0; then an
  * extension in `IMAGE_MIME_TYPES`. Only the
  * character class was enforced here, so `writeImage` would happily resolve for
- * `abc`, `abc.txt` and `abc.svg` — measured, returning `{ key: ".images/abc" }`
+ * `abc`, `abc.txt` and `abc.svg` — measured, returning
+ * `{ key: ".context/assets/images/abc" }`
  * — every one of which `read_image` refuses forever.
  *
  * (An earlier version of this comment said "two halves" and enumerated three
@@ -2912,7 +4707,9 @@ export async function readImage(store: FileStore, leaf: string): Promise<ArrayBu
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) || leaf.length > 200) {
     throw new FileOpError("PATH_INVALID", "That is not a valid stored-object name.");
   }
-  const object = await store.get(`${IMAGE_PREFIX}${leaf}`);
+  const key = `${IMAGE_PREFIX}${leaf}`;
+  const legacyKey = legacyStorageKey(key);
+  const object = (await store.get(key)) || (legacyKey ? await store.get(legacyKey) : null);
   if (object === null) throw notFound();
   // `arrayBuffer` rather than `text`: a PNG decoded as UTF-8 is mojibake, and
   // the adapters that predate images only guaranteed `text`.
@@ -2926,6 +4723,84 @@ export async function readImage(store: FileStore, leaf: string): Promise<ArrayBu
     throw notFound();
   }
   return await reader.arrayBuffer();
+}
+
+/* -------------------------------------------------------------------------- */
+/*                      an image somebody pasted into a note                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The leaf a pasted image is stored under, inside `IMAGE_PREFIX`.
+ *
+ * **It goes in the opaque store with everything else, and that reverses the
+ * first version of this feature**, which put pastes in a visible
+ * `attachments/<YYYY>/<MM>/` folder so the embed would resolve in Obsidian. The
+ * owner's call, and the reasons are good ones: one image store rather than two,
+ * nothing new in the listing, the file tree stays the customer's own folders,
+ * and `read_image` already serves this prefix — so an agent can fetch a pasted
+ * image, which the visible folder could not offer without widening
+ * `imageRefFor`. What it costs is stated rather than hidden: Obsidian skips
+ * dot-folders, so the embed draws as a broken link there until this product
+ * writes an Obsidian-side resolver or the file is exported.
+ *
+ * The name is the content hash, which buys the same three things it always did:
+ * the same paste in three notes is one object, a retried upload overwrites
+ * itself rather than leaving `-1` behind, and a clipboard with no filename needs
+ * no invented one. `paste-` in front so a person looking at the store can see
+ * where an object came from, and because `writeImage`'s leaf rule wants an
+ * alphanumeric first character.
+ */
+const PASTE_EXTENSIONS = new Map<string, string>([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/gif", "gif"],
+  ["image/webp", "webp"],
+  ["image/heic", "heic"],
+  ["image/heif", "heif"],
+]);
+
+export function pasteImageLeaf(options: { hash: string; contentType: string }): string {
+  const extension = PASTE_EXTENSIONS.get(options.contentType);
+  if (extension === undefined) {
+    throw new FileOpError("PATH_INVALID", "That is not an image type this store accepts.");
+  }
+  const hash = options.hash.toLowerCase().replace(/[^a-f0-9]/g, "").slice(0, 16);
+  if (hash.length < 8) {
+    throw new FileOpError("PATH_INVALID", "A stored image needs a content hash for its name.");
+  }
+  return `paste-${hash}.${extension}`;
+}
+
+/**
+ * The leaf a workspace's icon photo is stored under, inside `IMAGE_PREFIX`.
+ *
+ * The same store as a paste and a different prefix, for the reason `paste-`
+ * has one: somebody reading the objects in their own bucket can see where each
+ * came from. It is not a namespace and nothing resolves on it — `readImage`
+ * takes leaves, not patterns — so the prefix is a label and the content hash is
+ * still what names the object.
+ *
+ * Content-addressed like a paste, and the same three things follow: setting the
+ * same photo on two workspaces writes one object, a retried upload overwrites
+ * itself, and a picker result with no filename needs no invented one.
+ *
+ * **The type list is narrower than `PASTE_EXTENSIONS`** and that is the
+ * difference worth stating: `WORKSPACE_ICON_EXTENSIONS` drops `gif`, `heic` and
+ * `heif`, because an icon has to draw in a browser and two of those do not. It
+ * is imported from `@context/shared` rather than restated, because the picker
+ * pre-flights the same rule before it uploads and two copies of it would be a
+ * picker offering what this refuses; see its own note for why each type is out.
+ */
+export function workspaceIconLeaf(options: { hash: string; contentType: string }): string {
+  const extension = WORKSPACE_ICON_EXTENSIONS.get(options.contentType);
+  if (extension === undefined) {
+    throw new FileOpError("PATH_INVALID", "That is not an image type an icon can be stored as.");
+  }
+  const hash = options.hash.toLowerCase().replace(/[^a-f0-9]/g, "").slice(0, 16);
+  if (hash.length < 8) {
+    throw new FileOpError("PATH_INVALID", "A stored image needs a content hash for its name.");
+  }
+  return `icon-${hash}.${extension}`;
 }
 
 /** One console search result: a path the caller may see, and lines from it. */
@@ -2993,7 +4868,7 @@ export interface SearchResults {
  * surfaces afterwards.
  *
  * **A search does not maintain the index**, and that is the change that took a
- * console search over a real brain from twenty-odd seconds to a fraction of
+ * console search over a real workspace from twenty-odd seconds to a fraction of
  * one. It reads a manifest, the shards this query's terms can be in, and the
  * notes it is quoting. `searchContext` schedules `maintainSearchIndex` behind
  * the answer when the answer says the index is behind.
@@ -3056,11 +4931,12 @@ export interface SearchResults {
  */
 export async function notePathIndex(
   store: FileStore,
-  scope: Scope,
+  clearance: Clearance,
   budget: number = CONSOLE_SEARCH_BUDGET,
 ): Promise<{ paths: string[] } | null> {
   const state = await loadPrivacyState(store);
-  const isVisible = (path: string) => canSee(path, scope, state.rules, state.overrides);
+  const isVisible = (path: string) =>
+    canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
   const found = await loadDocmapPaths(
     store as unknown as Parameters<typeof loadDocmapPaths>[0],
     createSearchBudget(budget),
@@ -3075,7 +4951,7 @@ export async function searchNotes(
   options: {
     query: string;
     prefix?: string;
-    scope: Scope;
+    clearance: Clearance;
     budget?: number;
     /**
      * How far down the ranked list to read, in notes.
@@ -3097,7 +4973,7 @@ export async function searchNotes(
      * **A fan-out across contexts passes false**, and the arithmetic is the
      * reason. The rule costs one listing per *miss*, and a blended search over
      * eight contexts misses in most of them by construction — a word that is in
-     * one brain is absent from the other seven. That is seven full bucket
+     * one workspace is absent from the other seven. That is seven full bucket
      * listings, on seven customers' request quotas, for one keystroke's worth
      * of scrolling, and it would make the fan-out's worst case its ordinary
      * case. The honesty the rule buys is not lost: a source whose index is
@@ -3126,12 +5002,12 @@ export async function searchNotes(
   // A folder this scope cannot open is not a narrower search, it is a folder
   // that does not exist — the same answer `listFolder` gives, so a prefix
   // cannot become a way to ask whether a hidden folder has anything in it.
-  if (folder !== "" && !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+  if (folder !== "" && !folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {
     throw notFound();
   }
 
   const isVisible = (path: string) =>
-    canSee(path, options.scope, state.rules, state.overrides);
+    canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names);
 
   // Clamped once, here, and handed to both index paths — a page depth that the
   // projection honoured and the R2 index did not would make the number of
@@ -3144,7 +5020,7 @@ export async function searchNotes(
       const fast = await answerFromProjection(projection, {
         query,
         prefix: folder,
-        tier: options.scope,
+        tier: options.clearance.scope,
         isVisible,
         limit,
       });
@@ -3272,7 +5148,7 @@ async function runIndexPass(
  * whole of the console's half of index maintenance — a full listing of the
  * bucket, an etag diff, the notes that changed re-read, the shards they belong
  * to rewritten. It used to happen in front of the person asking the question,
- * which is what made a search over a real brain take twenty seconds and
+ * which is what made a search over a real workspace take twenty seconds and
  * sometimes fail on a ten-second fetch deadline partway through.
  *
  * It is reached through the same credential barrier every other file operation

@@ -32,6 +32,30 @@ export interface FakeRecorder extends MeetingRecorder {
   fail(error: RecorderError): void;
   /** Make the next `start()` reject — a refused permission, a busy device. */
   refuseStart(message: string): void;
+  /**
+   * Make `drain()` hang until the returned function is called.
+   *
+   * The wait that used to live inside `stop()` and now happens after the
+   * meeting has ended. A test about *where* that wait falls — before the fold
+   * or after it — cannot be written against a drain that resolves on the next
+   * tick, because both orders look identical from the outside.
+   */
+  holdDrain(): () => void;
+  /**
+   * Make `stop()` hang until the returned function is called.
+   *
+   * The real recorders' `stop()` is the slowest call in this feature and is
+   * slow on purpose: it drains the last chunk so the end of the meeting reaches
+   * the note (`capture/audio.ts`, "a spinner rather than a microphone"). That
+   * wait is a *state a person is looking at* — `MeetingsSnapshot.ending`, and
+   * the screens that draw it — and a fake whose `stop()` resolves on the next
+   * tick makes that state unobservable, so a test against it would pass whether
+   * or not anything published it.
+   *
+   * Holding it is the only way to stand inside the window and assert what the
+   * screen says there.
+   */
+  holdStop(): () => void;
   /** What the last `start()` was asked for, or `null`. */
   readonly startedWith: CaptureOptions | null;
   /**
@@ -59,6 +83,10 @@ export function fakeRecorder(
   let state: RecorderState = "idle";
   let refusal: string | null = null;
   let startedWith: CaptureOptions | null = null;
+  /** Set by `holdStop`; awaited by `stop` while it is not `null`. */
+  let held: Promise<void> | null = null;
+  /** The same, for `drain`. */
+  let heldDrain: Promise<void> | null = null;
 
   return {
     calls,
@@ -74,6 +102,7 @@ export function fakeRecorder(
     capability: {
       audio: true,
       systemAudio: false,
+      systemAudioNeedsPicker: false,
       transcribesAt: "device",
       unavailableReason: null,
       ...capability,
@@ -83,6 +112,29 @@ export function fakeRecorder(
     },
     refuseStart(message) {
       refusal = message;
+    },
+    holdDrain() {
+      let release = (): void => {};
+      heldDrain = new Promise<void>((resolve) => {
+        release = () => {
+          heldDrain = null;
+          resolve();
+        };
+      });
+      return release;
+    },
+    async drain() {
+      if (heldDrain !== null) await heldDrain;
+    },
+    holdStop() {
+      let release = (): void => {};
+      held = new Promise<void>((resolve) => {
+        release = () => {
+          held = null;
+          resolve();
+        };
+      });
+      return release;
     },
     emit(segment) {
       for (const listener of segmentListeners) listener(segment);
@@ -113,6 +165,14 @@ export function fakeRecorder(
     },
     async stop() {
       calls.push("stop");
+      /*
+        Awaited *before* the state moves, which is the order the real recorders
+        use: `audio.ts` releases the device and then waits on `drainSends()`, so
+        for the whole of that wait the meeting has not ended yet. A fake that
+        moved first would let a test pass against a controller that published
+        `ending` after the drain, which is the version that shows nothing.
+      */
+      if (held !== null) await held;
       state = nextRecorderState(state, "stop");
     },
     onSegment(listener) {

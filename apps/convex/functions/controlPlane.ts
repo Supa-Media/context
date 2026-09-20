@@ -52,6 +52,23 @@ import {
 } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";
+import { pinnedContextRow } from "./lib/pinnedContext";
+import {
+  /*
+    The capability object, from the one module that owns it.
+
+    #653 named this exact hazard — "a field added to the schema and to three of
+    the five is a field the gateway never sees" — and then left the gateway's
+    two copies restated here. `serverSideCopy` landed in the schema and in
+    `storage.ts`, so `getBindingForGateway` started returning it and this
+    file's `v.object` refused its own return value: every `POST
+    /gateway/binding` threw `ReturnsValidationError`, the gateway read that as
+    a control-plane failure, and every client was told `storage_unavailable`.
+    Importing the shape is what makes the next field impossible to miss.
+  */
+  capabilitiesValidator,
+  type StorageCapabilities,
+} from "./storage";
 import { getMembership } from "./lib/workspaceAuth";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
@@ -132,7 +149,7 @@ const MAX_SESSION_CONTEXTS = 50;
  * Every context this grant's person can reach right now.
  *
  * **Live membership, re-read on every request, never a list frozen at consent
- * time.** A brain shared with somebody after they connected a client is
+ * time.** A workspace shared with somebody after they connected a client is
  * reachable from that client, and one they are removed from stops being
  * reachable the moment the row goes — the same immediacy rule 5 of
  * `resolveLiveGrant` already gives the grant's own context.
@@ -142,15 +159,46 @@ const MAX_SESSION_CONTEXTS = 50;
  * that is not in the covered set. A person in fifty-one contexts must lose
  * reach into the fifty-first, never the ability to open the one they actually
  * authorized.
+ *
+ * ## The pinned context is appended here, and only here
+ *
+ * `@context-lc` is reachable by every account without an invitation. This is
+ * the one place that is decided for an MCP session, and it needs no change in
+ * the gateway at all — which is the property worth stating, because it is what
+ * makes the pin cheap and what would make a second implementation expensive:
+ *
+ *  - `sessionForContext` finds it in this set like any other covered context,
+ *    then applies the clamps it applies to all of them. `effectiveScopes`
+ *    intersects the grant with `member`, which drops `context:write`;
+ *    `visibilityTierForGrant` answers `team` for anybody who is not the owner.
+ *    So the pin reaches notes and refuses writes without a line of gateway code
+ *    knowing it exists.
+ *  - `openStorageBinding` selects the binding to open from *this same set*, by
+ *    matching an id it then drops. A pinned context that were reachable but not
+ *    in this list would resolve a session and then fail to open a store, which
+ *    presents as a context that is visible and empty.
+ *
+ * It is appended **last and after the cap**, for the same reason the grant's
+ * own context is first: somebody in fifty contexts must not lose the one they
+ * authorized, and must not lose the bug tracker either. Appending after the
+ * truncation costs one row over `MAX_SESSION_CONTEXTS` in the worst case, which
+ * is a bounded overshoot of one rather than an unbounded read.
+ *
+ * A real membership wins — an owner or editor of that workspace is already in
+ * `rows`, and `pinnedContextRow` stands down when the id is already covered, so
+ * nobody is demoted to a viewer in a context they run.
  */
 async function contextsForGrant(
   ctx: QueryCtx,
   live: LiveGrant,
-): Promise<Array<{ workspaceId: Id<"workspaces">; slug: string; role: string }>> {
+): Promise<
+  Array<{ workspaceId: Id<"workspaces">; slug: string; role: string; kind: "personal" | "shared" }>
+> {
   const own = {
     workspaceId: live.workspace._id,
     slug: live.workspace.slug,
     role: live.role,
+    kind: live.workspace.kind,
   };
   const memberships = await ctx.db
     .query("workspaceMembers")
@@ -177,8 +225,18 @@ async function contextsForGrant(
       workspaceId: workspace._id,
       slug: workspace.slug,
       role: membership.role,
+      kind: workspace.kind,
     });
   }
+
+  // See the header. Last, after the cap, and skipped when a real membership
+  // already put this workspace in the set.
+  const pinned = await pinnedContextRow(
+    ctx,
+    new Set(rows.map((row) => row.workspaceId)),
+  );
+  if (pinned !== null) rows.push(pinned);
+
   return rows;
 }
 
@@ -188,14 +246,14 @@ async function contextsForGrant(
  * `workspaces` is every context this connection may address — each one its
  * person is a live member of, not only the one the grant was approved against.
  * That widening was the owner's instruction (2026-09-02): *"if I have access to
- * someone's brain, my MCP should be able to connect to it"*, against one
+ * someone's workspace, my MCP should be able to connect to it"*, against one
  * connection, one approval and one endpoint per context.
  *
  * **Reach is not permission, and nothing about permission moved.** The gateway
  * still clamps the grant's scopes to the caller's role in whichever context the
  * call addressed (`effectiveScopes`), and still reads the visibility tier as
  * `team` for anybody who is not that context's owner (`visibilityTierForGrant`).
- * A `member` in somebody's brain reaches it read-only and sees no private note,
+ * A `member` in somebody's workspace reaches it read-only and sees no private note,
  * from any client, however wide the grant that reached it.
  *
  * `workspaceId`/`slug`/`role` stay the grant's *own* context, which the gateway
@@ -210,17 +268,33 @@ export const resolveGrantByAccessToken = internalQuery({
     v.object({
       grantId: v.id("oauthGrants"),
       clientId: v.string(),
+      /**
+       * What the client called itself when it registered.
+       *
+       * Display text, and the gateway treats it as nothing else: it is what
+       * lets a line in `activity.md` read "@sayo's Claude added three notes"
+       * rather than naming a registration id nobody recognises. Every
+       * authorization decision on both sides reads `clientId`, which we
+       * issued; this is client-asserted, as `registerClient` says.
+       *
+       * `null` where the client row is gone — a registration removed while a
+       * grant it minted is still live. The name is missing; nothing else
+       * changes.
+       */
+      clientName: v.union(v.string(), v.null()),
       actorUserId: v.id("users"),
       scopes: v.array(v.string()),
       expiresAt: v.number(),
       workspaceId: v.id("workspaces"),
       slug: v.string(),
       role: v.string(),
+      kind: v.union(v.literal("personal"), v.literal("shared")),
       workspaces: v.array(
         v.object({
           workspaceId: v.id("workspaces"),
           slug: v.string(),
           role: v.string(),
+          kind: v.union(v.literal("personal"), v.literal("shared")),
         }),
       ),
     }),
@@ -228,15 +302,21 @@ export const resolveGrantByAccessToken = internalQuery({
   handler: async (ctx, args) => {
     const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
     if (live === null) return null;
+    const client = await ctx.db
+      .query("oauthClients")
+      .withIndex("by_clientId", (q) => q.eq("clientId", live.grant.clientId))
+      .unique();
     return {
       grantId: live.grant._id,
       clientId: live.grant.clientId,
+      clientName: client?.clientName ?? null,
       actorUserId: live.grant.userId,
       scopes: live.grant.scopes,
       expiresAt: live.grant.accessTokenExpiresAt as number,
       workspaceId: live.grant.workspaceId,
       slug: live.workspace.slug,
       role: live.role,
+      kind: live.workspace.kind,
       workspaces: await contextsForGrant(ctx, live),
     };
   },
@@ -588,7 +668,7 @@ export interface S3GatewayBinding {
    * decide", which is what the gateway's `nativeStore` already passes through.
    */
   forcePathStyle?: boolean;
-  capabilities: { conditionalWrite: boolean };
+  capabilities: StorageCapabilities;
   status: string;
 }
 
@@ -603,7 +683,7 @@ export interface DropboxGatewayBinding {
   provider: "dropbox";
   accessToken: string;
   rootPrefix?: string;
-  capabilities: { conditionalWrite: boolean };
+  capabilities: StorageCapabilities;
   status: string;
 }
 
@@ -727,7 +807,7 @@ const s3BindingValidator = v.object({
   accessKeyId: v.string(),
   secretAccessKey: v.string(),
   forcePathStyle: v.optional(v.boolean()),
-  capabilities: v.object({ conditionalWrite: v.boolean() }),
+  capabilities: capabilitiesValidator,
   status: v.string(),
 });
 
@@ -737,7 +817,7 @@ const dropboxBindingValidator = v.object({
   provider: v.literal("dropbox"),
   accessToken: v.string(),
   rootPrefix: v.optional(v.string()),
-  capabilities: v.object({ conditionalWrite: v.boolean() }),
+  capabilities: capabilitiesValidator,
   status: v.string(),
 });
 
@@ -756,6 +836,95 @@ const searchIndexValidator = v.object({
   accountId: v.string(),
   apiToken: v.string(),
   state: v.union(v.literal("backfilling"), v.literal("ready")),
+});
+
+const GATEWAY_JOB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GATEWAY_JOB_LEASE_MS = 15 * 60 * 1000;
+const GATEWAY_JOB_ERROR_MAX = 240;
+const MOVE_ID_PATTERN = /^move-[a-f0-9-]{12,}$/;
+
+const gatewayJobKindValidator = v.union(v.literal("materialize_move"));
+type GatewayJobKind = "materialize_move";
+
+interface ClaimedGatewayJob {
+  workspaceId: Id<"workspaces">;
+  actorUserId: Id<"users">;
+  actorClientId: string;
+  grantId: Id<"oauthGrants">;
+  kind: GatewayJobKind;
+  moveId?: string;
+}
+
+interface OpenedGatewayJob {
+  job: ClaimedGatewayJob;
+  binding: GatewayBinding;
+  searchIndex?: GatewaySearchIndex;
+  encryptionKey?: GatewayEncryptionKey;
+  rotation?: GatewayKeyRotation;
+}
+
+function gatewayJobError(message: string | undefined): string | undefined {
+  if (typeof message !== "string" || message.length === 0) return undefined;
+  return message.slice(0, GATEWAY_JOB_ERROR_MAX);
+}
+
+function gatewayOwnerClearance(
+  session: {
+    scopes: string[];
+    workspaceId: Id<"workspaces">;
+    workspaces: Array<{ workspaceId: Id<"workspaces">; role: string }>;
+  },
+  expectedWorkspaceId: string,
+): Id<"workspaces"> | null {
+  const covered = session.workspaces.find((entry) => entry.workspaceId === expectedWorkspaceId);
+  if (covered === undefined) return null;
+  if (covered.role !== "owner") return null;
+  if (!session.scopes.includes("context:write")) return null;
+  if (!session.scopes.includes("context:private")) return null;
+  return covered.workspaceId;
+}
+
+/**
+ * Owner clearance for a gateway-borne access token, for the routes that mint
+ * or revoke on somebody's behalf. INTERNAL.
+ *
+ * The same two-factor shape every gateway route here has, stated once more
+ * because this one hands back an **identity** rather than a yes: the gateway
+ * secret got the caller through the door in `http.ts`, and this is where the
+ * *user's* proof is spent. The token's hash resolves to a live grant
+ * independently of anything the gateway concluded, and both the workspace and
+ * the acting user come off that grant — `expectedWorkspaceId` only ever
+ * selects within the token's own set and is never a lookup key.
+ *
+ * `gatewayOwnerClearance` is the same predicate a queued job passes, and that
+ * is deliberate rather than convenient: minting a share and queueing work are
+ * both "this person may act as owner of this context through an agent", and
+ * two predicates for one sentence is how one of them ends up laxer.
+ *
+ * The returned `actorUserId` is what the audit trail records. A share minted
+ * through an agent is a share somebody minted, and the row has to say who.
+ */
+export const ownerClearanceForGateway = internalQuery({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ workspaceId: v.id("workspaces"), actorUserId: v.id("users") }),
+  ),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return null;
+    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    if (live === null) return null;
+    const workspaceId = gatewayOwnerClearance(
+      {
+        scopes: live.grant.scopes,
+        workspaceId: live.grant.workspaceId,
+        workspaces: await contextsForGrant(ctx, live),
+      },
+      args.expectedWorkspaceId,
+    );
+    if (workspaceId === null) return null;
+    return { workspaceId, actorUserId: live.grant.userId };
+  },
 });
 
 /**
@@ -1082,5 +1251,286 @@ export const openStorageBinding = internalAction({
       encryptionKey,
       rotation,
     };
+  },
+});
+
+export const createGatewayJob = internalMutation({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    hashedTicket: v.string(),
+    kind: gatewayJobKindValidator,
+    moveId: v.optional(v.string()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return false;
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return false;
+    if (args.kind === "materialize_move" && !MOVE_ID_PATTERN.test(args.moveId || "")) return false;
+
+    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
+    if (live === null) return false;
+    const workspaceId = gatewayOwnerClearance(
+      {
+        scopes: live.grant.scopes,
+        workspaceId: live.grant.workspaceId,
+        workspaces: await contextsForGrant(ctx, live),
+      },
+      args.expectedWorkspaceId,
+    );
+    if (workspaceId === null) return false;
+
+    const now = Date.now();
+    await ctx.db.insert("gatewayJobs", {
+      hashedTicket: args.hashedTicket,
+      workspaceId,
+      actorUserId: live.grant.userId,
+      actorClientId: live.grant.clientId,
+      grantId: live.grant._id,
+      kind: args.kind,
+      moveId: args.moveId,
+      status: "queued",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: now + GATEWAY_JOB_TTL_MS,
+    });
+    return true;
+  },
+});
+
+export const claimGatewayJob = internalMutation({
+  args: { hashedTicket: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      actorUserId: v.id("users"),
+      actorClientId: v.string(),
+      grantId: v.id("oauthGrants"),
+      kind: gatewayJobKindValidator,
+      moveId: v.optional(v.string()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return null;
+    const job = await ctx.db
+      .query("gatewayJobs")
+      .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", args.hashedTicket))
+      .unique();
+    if (job === null) return null;
+    if (job.expiresAt <= Date.now()) return null;
+    const now = Date.now();
+    const staleLease =
+      job.status === "running" &&
+      typeof job.leasedAt === "number" &&
+      job.leasedAt + GATEWAY_JOB_LEASE_MS <= now;
+    if (job.status !== "queued" && !staleLease) return null;
+    const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
+    if (membership === null || membership.role !== "owner") return null;
+    await ctx.db.patch(job._id, {
+      status: "running",
+      attempts: job.attempts + 1,
+      leasedAt: now,
+      updatedAt: now,
+      lastError: undefined,
+    });
+    return {
+      workspaceId: job.workspaceId,
+      actorUserId: job.actorUserId,
+      actorClientId: job.actorClientId,
+      grantId: job.grantId,
+      kind: job.kind,
+      moveId: job.moveId,
+    };
+  },
+});
+
+export const openGatewayJob = internalAction({
+  args: { hashedTicket: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      job: v.object({
+        workspaceId: v.id("workspaces"),
+        actorUserId: v.id("users"),
+        actorClientId: v.string(),
+        grantId: v.id("oauthGrants"),
+        kind: gatewayJobKindValidator,
+        moveId: v.optional(v.string()),
+      }),
+      binding: v.union(s3BindingValidator, dropboxBindingValidator),
+      searchIndex: v.optional(searchIndexValidator),
+      encryptionKey: v.optional(encryptionKeyValidator),
+      rotation: v.optional(keyRotationValidator),
+    }),
+  ),
+  handler: async (ctx, args): Promise<OpenedGatewayJob | null> => {
+    const claimed: ClaimedGatewayJob | null = await ctx.runMutation(
+      internal.functions.controlPlane.claimGatewayJob,
+      {
+        hashedTicket: args.hashedTicket,
+      },
+    );
+    if (claimed === null) return null;
+
+    let credential;
+    try {
+      credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
+        workspaceId: claimed.workspaceId,
+      });
+    } catch {
+      await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
+        hashedTicket: args.hashedTicket,
+        result: { status: "failed", error: "storage_unavailable" },
+      });
+      return null;
+    }
+    if (credential === null || !isUsable(credential.status as BindingStatus)) {
+      await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
+        hashedTicket: args.hashedTicket,
+        result: { status: "failed", error: "storage_unavailable" },
+      });
+      return null;
+    }
+
+    let searchIndex: GatewaySearchIndex | undefined;
+    try {
+      const target: { databaseId: string; state: "backfilling" | "ready" } | null = await ctx.runQuery(
+        internal.functions.fastSearch.projectionTargetForWorkspace,
+        { workspaceId: claimed.workspaceId },
+      );
+      if (target !== null) {
+        const apiToken: string | null = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+          name: D1_TOKEN_SECRET,
+        });
+        const accountId: string | null = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+          name: D1_ACCOUNT_SECRET,
+        });
+        if (
+          typeof apiToken === "string" &&
+          apiToken.length > 0 &&
+          typeof accountId === "string" &&
+          accountId.length > 0
+        ) {
+          searchIndex = {
+            databaseId: target.databaseId,
+            accountId,
+            apiToken,
+            state: target.state,
+          };
+        }
+      }
+    } catch {
+      searchIndex = undefined;
+    }
+
+    let encryptionKey: GatewayEncryptionKey | undefined;
+    try {
+      const opened: GatewayEncryptionKey | null = await ctx.runAction(
+        internal.functions.encryptionKeys.openWorkspaceDataKey,
+        { workspaceId: claimed.workspaceId },
+      );
+      encryptionKey = opened === null ? undefined : opened;
+    } catch {
+      encryptionKey = undefined;
+    }
+
+    let rotation: GatewayKeyRotation | undefined;
+    try {
+      const active: { fromGeneration: string; toGeneration: string } | null = await ctx.runQuery(
+        internal.functions.encryptionKeys.getActiveWorkspaceKeyRotation,
+        { workspaceId: claimed.workspaceId },
+      );
+      rotation =
+        active === null ? undefined : { fromGeneration: active.fromGeneration, toGeneration: active.toGeneration };
+    } catch {
+      rotation = undefined;
+    }
+
+    if (credential.provider === "dropbox") {
+      return {
+        job: claimed,
+        binding: {
+          workspaceId: claimed.workspaceId,
+          provider: credential.provider,
+          accessToken: credential.accessToken,
+          rootPrefix: credential.rootPrefix,
+          capabilities: credential.capabilities,
+          status: "active",
+        },
+        searchIndex,
+        encryptionKey,
+        rotation,
+      };
+    }
+    return {
+      job: claimed,
+      binding: {
+        workspaceId: claimed.workspaceId,
+        provider: credential.provider,
+        endpoint: credential.endpoint,
+        region: credential.region,
+        bucket: credential.bucket,
+        rootPrefix: credential.rootPrefix,
+        accessKeyId: credential.accessKeyId,
+        secretAccessKey: credential.secretAccessKey,
+        forcePathStyle: credential.forcePathStyle,
+        capabilities: credential.capabilities,
+        status: "active",
+      },
+      searchIndex,
+      encryptionKey,
+      rotation,
+    };
+  },
+});
+
+export const reportGatewayJob = internalMutation({
+  args: {
+    hashedTicket: v.string(),
+    result: v.object({
+      status: v.union(v.literal("queued"), v.literal("complete"), v.literal("failed")),
+      error: v.optional(v.string()),
+      progress: v.optional(
+        v.object({
+          phase: v.union(v.literal("copying"), v.literal("deleting")),
+          completed: v.number(),
+          total: v.number(),
+        }),
+      ),
+    }),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return false;
+    const job = await ctx.db
+      .query("gatewayJobs")
+      .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", args.hashedTicket))
+      .unique();
+    if (job === null) return false;
+    if (job.status !== "running") return false;
+    const progress = args.result.progress;
+    const validProgress =
+      progress !== undefined &&
+      Number.isInteger(progress.completed) &&
+      Number.isInteger(progress.total) &&
+      progress.completed >= 0 &&
+      progress.total > 0 &&
+      progress.completed <= progress.total;
+    await ctx.db.patch(job._id, {
+      status: args.result.status,
+      updatedAt: Date.now(),
+      completedAt: args.result.status === "complete" ? Date.now() : undefined,
+      lastError: gatewayJobError(args.result.error),
+      ...(validProgress
+        ? {
+            progressPhase: progress.phase,
+            progressCompleted: progress.completed,
+            progressTotal: progress.total,
+          }
+        : {}),
+    });
+    return true;
   },
 });

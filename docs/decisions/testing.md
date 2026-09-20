@@ -233,19 +233,29 @@ own launch, which needs a real macOS process; a Linux-hosted WebKit engine is
 still the right trade for the editor's DOM event handling, and remains one.)
 
 **What a green run there proves:** the app's own touch-event handling — the
-long-press timer, the `touchcancel` interpretation, the checkbox toggle, the
-caret/reveal rule issue #254 was about — runs correctly inside a genuine
-WebKit JavaScript engine and DOM, against the real built web export, driven by
-real `page.touchscreen` taps wherever Playwright's API reaches that far.
+tap that follows a link, the long press that must *not*, the drift that is a
+scroll, the checkbox toggle, the caret/reveal rule issue #254 was about — runs
+correctly inside a genuine WebKit JavaScript engine and DOM, against the real
+built web export, driven by real `page.touchscreen` taps wherever Playwright's
+API reaches that far.
+
+*The link cases inverted on 2026-09-19* and the job is worth more for it, not
+less: a tap follows a link now and a long press is a selection again, so the
+whole `touchcancel`/`contextmenu` reading of WebKit's recogniser is deleted
+rather than merely re-tested. What the suite holds there now is that the
+deletion is complete — a held finger, cancelled the way WebKit cancels one,
+navigates nowhere. See `docs/decisions/app-and-console.md`, "Following a link
+is one click".
 **What it does not prove:** Linux WebKit is close to iOS Safari's DOM event
 handling and not identical, and Playwright's `Touchscreen` has exactly one
 method, `tap(x, y)` — there is no public, cross-browser way to ask a real OS
 input pipeline for a held touch, in either engine. So the one case that needs
 the WebKit long-press *recogniser* itself to claim a touch and raise
-`touchcancel` (`editor.spec.ts`'s first case) constructs and dispatches that
-`TouchEvent` directly rather than waiting for the engine to produce it — which
-proves the handler again, in WebKit's engine this time, but still does not
-reach the recogniser that inspired the fix. Closing that residue would cost a
+`touchcancel` (`editor.spec.ts`'s long-press case, which now asserts that
+nothing happens) constructs and dispatches that `TouchEvent` directly rather
+than waiting for the engine to produce it — which proves the handler again, in
+WebKit's engine this time, but still does not reach the recogniser that
+inspired the fix. Closing that residue would cost a
 macOS runner and a real device farm; this is the layer beneath "enough to fix"
 that is affordable in CI, not the whole of "enough to prove."
 
@@ -254,3 +264,333 @@ that is affordable in CI, not the whole of "enough to prove."
 regression test that pins the code's own logic, beside it. A fix whose only
 evidence is a simulated sequence in Chromium is exactly the shape every bug in
 "A long press has two signals" already was.
+
+### A surface no browser can open is a surface no test is looking at
+
+`SettingsOverlay` reached this state: a large, heavily tested component that
+**could not be opened in a real browser anywhere in this repository.** The
+`/e2e-fixture` route — the one the `Editor in WebKit` job drives — handed
+`BrowsePane` an `onOpenSettings={() => {}}`, and the landing page's only
+trigger is a "Connect a bucket" button drawn while a context has *no* bucket,
+which no demo context is. Two agents established that by trying, one of them
+by loading the page and enumerating every `aria-label` on it.
+
+The bill came in defects that passed a fully green suite and were caught only
+when somebody hand-wrote a throwaway route and looked at it in a browser:
+`rowTouch` carrying a `justifyContent: "center"` — written as the vertical
+centring of a column, and horizontal centring the moment the row grew a dot
+and a trailing label — which centred every label in the phone's settings list;
+a temporal dead zone that crashed the whole overlay behind an error boundary
+with typecheck clean; a panel that was a heading over an empty page; and copy
+telling a member "yours alone" about somebody else's workspace. Every agent since
+wrote the same disposable route and deleted it before committing, which is the
+hand-scan this file already refuses to accept as a fix.
+
+**The rule: a console surface reachable only through chrome the fixture does
+not mount gets wired into `E2EFixtureScreen` and a case in
+`apps/mobile/e2e/webkit`, in the change that builds it.** Not a second fixture
+and not a route in the shipped app — `app/e2e-fixture.tsx`'s flag is what
+keeps every real export blind to this, and a permanent `dev-settings` route
+would be a screen in the product that exists for us. The fixture's own header
+records what it substitutes for a router: keep what the navigation *does* to
+the screen's state, and say so rather than pretending there is a URL.
+
+`settings.spec.ts` is the first of these. It asserts the things jsdom cannot
+have an opinion about — the panel on screen, list and panel together at a
+pointer width, Back popping the phone's second level, and every section label
+starting at its row's left edge — and it was proved by reintroducing the
+centring declaration and watching that last case fail with `AI apps: starts
+154pt in` while the other two stayed green.
+
+**What it still does not cover**, because the fixture has no session and no
+router: `onSignOut`, `onOpenInvitation` and `onOpenSection` are absent there,
+so the sign-out row, the invitation answer and the "Elsewhere in the console"
+card are not on that screen to be pressed. Those are the next ones to earn a
+surface, not things this case quietly claims.
+
+**One measurement worth keeping**, because it cost a red run to find: the
+overlay is a `Modal` with `animationType="slide"`, and `helpers.ts`'s `tap`
+reads a `boundingBox()` and then taps that point — so a press issued while the
+panel is still travelling lands where the button was, resolves normally, and
+does nothing at all. Presses inside an animating overlay use `locator.tap()`,
+which is the same real touch under an actionability check that waits for the
+element to stop moving.
+
+### A fake models the platform only where somebody has already been surprised by it
+
+The offline work (#687–#689) shipped with its riskiest file — `public/sw.js`, a
+service worker that sits in front of every request the web app makes, survives
+the tab, and cannot be reloaded out of — proven **only** in a `node:vm` sandbox
+against a `CacheStorage` written by hand. That sandbox earns its place: it
+drives the real file through its own event handlers, it runs in a second, and
+six deliberate sabotages against it each failed the right case.
+
+It still missed a real defect, and the shape of the miss is the point. #690:
+`cache.put` stores a *response*, a response carries its own `url`, so the shell
+entry — stored under one constant key precisely so the cache could not become a
+list of note paths — reported the address of the navigation that last filled
+it. On this product that address is a context slug and a note path, sitting in
+a cache deliberately exempted from `forgetLocalCopies` on the argument that it
+held nothing worth clearing. The fake could not exhibit it: a `Response` built
+in Node reports an empty `url` after `clone()`. The fake was not wrong, it was
+not the platform.
+
+`appShellWorker.test.ts` catches that defect today, because #690 taught the
+fake to model the url. **That ordering is the rule, not a footnote:** the
+measurement came from a real browser and the fake was corrected to match it. A
+fake only models the platform where somebody has already been surprised by the
+platform, so a suite made entirely of fakes cannot discover the next surprise —
+it can only re-assert the last one.
+
+**So the guard is `apps/mobile/e2e/webkit/offlineShell.spec.ts`**, which loads
+the real export in a real engine, goes genuinely offline with
+`context.setOffline(true)`, and asserts the app still renders and the shell it
+served remembers nobody. Its own rule is narrow on purpose: assert only what a
+real engine can disagree with the fake about. Network-first ordering stays in
+the sandbox, because that is control flow Node reproduces exactly.
+
+**It runs in Chromium, not WebKit, and that is measured rather than assumed.**
+The first CI run got further than expected: WebKit registered the worker on
+`http://127.0.0.1`, took control, and passed 85 cases beside it. What failed
+was a reload taken while `setOffline(true)` was in force — `page.reload: WebKit
+encountered an internal error`, before the navigation starts, inside
+Playwright's WebKit driver rather than anywhere in `sw.js`. So the case skips
+itself there with that reason written on it, and `ci.yml` runs it as its own
+Chromium step. The cost is stated rather than hidden: this check does not run
+in the engine iOS Safari ships, which is the platform a service worker is most
+likely to differ on. Re-check when Playwright's WebKit offline support changes
+— the skip is one line and the case is engine-agnostic.
+
+Four things this cost, recorded so the next person does not pay them again:
+
+- **It drives the built export, not `public/`.** A sabotage of the source
+  passed here and failed the unit suite, which reads `public/sw.js` off disk.
+  CI builds before it tests; locally it reads as "the browser disagrees with
+  the sandbox" when it means "the browser is a build behind."
+- **`navigator.serviceWorker.ready` hangs here.** The app registers from a
+  `load` listener and `page.goto` already resolves on `load`, so the promise is
+  created before the registration it waits for is asked for. `controller` is
+  the right wait and the stronger fact.
+- **`page.route` cannot intercept a service worker's own `fetch`.** A draft
+  proved network-first by intercepting the document and expecting the newer
+  body; it fails, and a green version of it would have proved nothing.
+- **A CI step that runs a browser has to ask for it.** `Editor in WebKit`
+  installed `webkit` alone, so the first Chromium step died with "Executable
+  doesn't exist" — a failure that reads like the new test and is really the
+  job's install line. The install is now `webkit chromium`, and the reason
+  Chromium is there at all is one spec.
+
+### Two offline claims rest on stores no test in this repository has ever talked to
+
+#693 gave the offline mirror its server half, and two of its behaviours are
+correct against the in-memory store stub and **unverified against the thing
+they are about**. Both are written here rather than left in a pull request,
+because the gap is not closeable by anyone without credentials this repository
+deliberately does not hold.
+
+**A Dropbox context past one page reports `truncated`.** `DropboxStore.list`
+ignores `startAfter` — `list_folder` has no position, only its own cursor, and
+promises no key order — so `syncManifest` checks the order it got back and
+reports a short manifest rather than looping. The *detection* is proven:
+`offlineSync.test.ts`'s "a store that ignores the resume point is reported
+short, never replayed as the rest". What is unproven is the premise under it —
+that real Dropbox behaves the way the stub does when the position is ignored.
+
+**A bucket without proven `conditionalCreate` keeps read-then-compare.**
+`files.test.ts`'s "a create on a bucket that never proved create-only writes
+says it was a read-compare" pins the degradation, at `conditionalCreate: false`.
+What is unproven is that real B2 and Wasabi actually *fail* the connect-time
+probe rather than claiming a capability they do not honour — which is not a
+hypothetical for this class of store: `S3Store` declares `conditionalWrite`
+`true` for every S3-compatible endpoint including the ones that ignore
+`If-Match`, and `docs/decisions/app-and-console.md` already had to route around
+exactly that by reading the binding's *probed* capability instead of the
+provider's claim.
+
+**What would falsify each**, so this is a standing task rather than a caveat:
+one real bucket per store, with a note count past a single list page, walked
+by `syncManifest` and then written to with no `expectedEtag`. If Dropbox
+returns its pages in a stable order the manifest could resume rather than
+truncate, and the conservative answer is costing a full re-walk per sync. If
+B2 or Wasabi pass the `conditionalCreate` probe and then overwrite anyway, the
+offline queue's create path is silently last-write-wins for a note typed on a
+train — which is the failure the whole feature exists to prevent.
+
+**Why no test here does it:** a long-lived storage credential in a public
+repository's workflow is the property `gateway-health.yml` above is built
+around not having, and the same argument applies with more force to a
+credential that can write. The honest position is a manual check against a
+throwaway bucket, recorded in a pull request, not a CI job — and until somebody
+runs one, "offline sync works on Dropbox" and "a create is safe on B2" are
+claims about a stub.
+
+### An unauthenticated probe is not a health check for an authenticated endpoint
+
+`gateway-health.yml` (#659) watches the gateway every fifteen minutes with three
+probes, and #659 states plainly why all three are unauthenticated: *"needs no
+secret to do it"*. That was the right trade for getting a monitor up at all —
+production had none, and the first report of an outage was a person failing to
+connect. What it bought is narrower than the word "health" suggests, and on
+2026-09-18 that narrowness was demonstrated twice in one night.
+
+**Instance one, the outage.** #653 deployed at 00:51 UTC and left
+`controlPlane.ts` restating a capabilities validator that `v.object` made exact,
+so `/gateway/binding` answered `ReturnsValidationError` to every call and every
+AI client on every context was told `storage_unavailable` — *"This context has
+no reachable storage. Reconnect it from the dashboard."* The `Gateway Health`
+run at 02:38 UTC, an hour and three quarters into that, passed all three probes.
+It was not wrong: the two metadata documents were fine and `POST /mcp` did
+answer a well-formed 401 challenge. The break is past the auth boundary, and
+nothing without a credential can reach it. See #661.
+
+**Instance two, found while diagnosing the first and still live.** `enforceOrigin`
+(#610) runs *above* the auth path, so its refusals are invisible for the opposite
+reason. Measured against the shipped worker with production's own vars
+(`PUBLIC_ORIGIN=https://mcp.context.lc`, `ALLOWED_ORIGINS=https://context.lc`):
+
+| request | answer |
+| --- | --- |
+| no `Origin` — what `health-check-gateway.mjs` sends | `401` challenge |
+| `Origin: https://claude.ai` | `403 {"code":-32000,"message":"origin not allowed"}` |
+| `Origin: https://context.lc` | `401` challenge |
+
+The probe passes `headers: undefined` (`scripts/health-check-gateway.mjs`), so it
+reads a healthy 401 whether or not every browser-based client on the internet is
+being refused. An allowlist that is wrong — a console origin that moves, a
+first-party client nobody listed — would be a total outage for those clients and
+a green board throughout.
+
+**So the blind spot is not "post-auth".** It is everything keyed on what the
+probe does not carry: a credential on one side of the auth boundary, and request
+headers on the other. Both were reported to a person as "the server is broken"
+while the monitor said otherwise, which is the specific harm — a green check that
+is read as *clients can connect* sends the next hour into the wrong hypothesis.
+It sent this one into the wrong hypothesis, against a security control, and the
+fix that was nearly shipped would have widened `ALLOWED_ORIGINS` permanently to
+work around a validator mismatch.
+
+**The decision, which is about reading the monitor rather than changing it:** a
+green `Gateway Health` run means the gateway is serving and its discovery
+documents are well-formed. It is never evidence that a client can connect, and
+must not be cited as such in an incident. The probes stay unauthenticated by
+default — a long-lived grant in CI is a credential in a public repository's
+workflow, and #659's no-secret property is worth more than it looks.
+
+Two ways to close it, neither chosen here because both are the owner's call:
+
+- **An authenticated canary.** A dedicated workspace and a scoped token in
+  Actions secrets, probing one real `tools/call`. Catches everything, and costs
+  exactly the property #659 was built around.
+- **An origin probe.** Send `Origin: https://claude.ai` and assert the answer the
+  allowlist implies. No secret, no new credential, and it catches the second axis
+  only. Cheap enough that its absence is a choice.
+
+Reversing this means an incident that reads a 401 as health. The
+table above is reproducible in one node script against `src/index.js`; if a
+future `enforceOrigin` stops refusing an unlisted origin, the second row goes
+`401` and the control is gone with no test and no probe saying so.
+
+### The socket is proven by hand, and CI does not cover it
+
+Live co-editing is the feature in this repository with the widest gap between
+what its suites assert and what has to be true. The suites are good and they
+are not enough, and the record of that is not an opinion:
+
+| Bug | Suites at the time | Found by |
+| --- | --- | --- |
+| Nobody ever seeded the shared document | green, both halves | two browsers, in seconds |
+| The room's replay was lost into an iframe that had not booted | green, four suites | two browsers |
+| A save never told the room, so the next saver conflicted | green | reading the code against what was asked for |
+| A tool's version reached members who never got its text | green | adversarial review |
+
+Every one of those fixtures was written from the same assumption as the code it
+was testing, which is exactly the failure a unit test cannot see. So there are
+two harnesses that run **by hand**, not in CI:
+
+- `apps/mcp/test/browser/verify.mjs` — two Chromium contexts against
+  `wrangler dev` with real Durable Objects, real WebSockets, a control plane
+  over real HTTP, and the note created through the product's own MCP tools.
+- `apps/mcp/test/browser/verifyDrawing.mjs` — the same, loading the real
+  Excalidraw editor in both browsers and drawing with real mouse and keyboard.
+  Needs `node scripts/build-drawing-editor.mjs` first.
+
+**They are not in CI because they need a Worker runtime and a browser**, and
+nobody has priced that job. That is a choice, not an oversight, and this
+paragraph exists so the next person does not read a green suite as covering the
+socket, the gateway and the save path. **A green CI run says nothing about
+whether two people can type in one note.** If you change anything under
+`src/presence*.js`, `features/console/presence/`, or the drawing bridge, run
+both harnesses and say in the pull request what they reported — the numbers in
+this repository's presence PRs are there because they were run, not inferred.
+
+Every check in them has been sabotaged individually: the line removed, the
+harness re-run, and exactly the expected check turned red. A harness nobody has
+sabotaged is the same shape of nothing as a guard nobody has checked.
+
+**Closing it ends in a merge either way.** Running them in CI needs a job that
+boots `workerd` and Playwright — perhaps twenty minutes of setup and a slower
+pipeline — and the alternative is this paragraph, which is the option taken.
+Reversing *that* means deleting this section, at which point the harnesses look
+like dead code and get removed by the next person tidying up.
+
+### An agent's write to a canvas reached one screen — closed
+
+**Kept rather than deleted, because the shape of the debt is the useful part.**
+This section used to say that when a tool writes a `.excalidraw.md`, the room
+hands the text to one member, which parses it into elements and reconciles
+them — and the editor page marks them as already-sent, so the drawing reached
+exactly that one screen and everybody else saw it at their next reload. #769
+had made that *safe* (the others keep their old etag and are asked rather than
+silently overwritten) and the note said plainly that it was not yet *good*.
+
+**#773 closed it.** The member the room asked to merge now re-broadcasts the
+elements as an ordinary `draw`, which is not a loop because they came from the
+gateway and no peer echoes them. Safe for a canvas and not for text:
+reconciliation is by element version, so applying the same element twice is
+the same drawing, while merging the same text twice is the text twice. It
+arrived with the rest of what that debt was really hiding — a tool nobody could
+see was editing — so the same change also made the tool a member of the room,
+with a caret in a note and a pointer on a canvas.
+
+Verified the way this section asks for: both harnesses, by hand, 21/21 and
+19/19, every new check sabotaged individually. Removing the re-broadcast takes
+the drawing run to 16/19, which is this paragraph's own receipt.
+
+Nothing here is open. A future session reading this should not re-open it; if
+the behaviour regresses, the harnesses are what say so.
+
+
+### A bundle that builds for a browser need not build for a phone
+
+The failure this repository keeps meeting, in its third costume.
+
+Everything in CI resolved modules for **node** (jest) or for a **browser** (the
+web export, the WebKit suite). A phone is a third resolver: Metro picks the
+`react-native` export condition, and a dependency can have an entry point there
+that exists on npm and cannot be resolved in this tree.
+
+Live co-editing put Yjs in the console. Yjs reaches Web Crypto through
+`lib0/webcrypto`, whose `react-native` condition requires
+`isomorphic-webcrypto/src/react-native` — a package nothing here depends on. So
+every pull request was green, the gateway and Convex deployed on every merge,
+and `Deploy Mobile Update (OTA)` failed at `expo export` on **every merge from
+#752 onward** — seven in a row, over seven hours — without anybody noticing,
+because the only thing that builds a native bundle ran after the merge button.
+
+Two details worth keeping. The failure began on the exact merge that added the
+dependency, so it was never mysterious, only invisible. And one of the seven
+was a forms change that had nothing to do with any of this: a broken deploy
+step does not block the branch that broke it, it blocks **everybody's**.
+
+Two things came out of it, and the second is the one that matters:
+
+- `apps/mobile/shims/lib0-webcrypto.js`, wired in `metro.config.js` for `ios`
+  and `android` only — `getRandomValues` from `expo-crypto`, which is the
+  platform's own CSPRNG and already a native dependency, and a `subtle` that
+  throws with an explanation rather than being absent.
+- **`ci / The native bundle still builds`**, which runs the deploy's own export
+  for both platforms before merging rather than after. No EAS credential and
+  nothing published: it asks only whether the bundle builds, which is the one
+  question no other check in this repository could answer.
+
+A deploy step that runs only after the merge button is a check nobody has run.

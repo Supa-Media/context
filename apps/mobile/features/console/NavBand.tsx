@@ -101,7 +101,42 @@ export function useNavBand(): NavBandNodes {
   return useContext(NavBandContext);
 }
 
-export function NavBand({ gutter = 0, path }: { gutter?: number; path?: ReactNode }) {
+export function NavBand({
+  gutter = 0,
+  path,
+  trailKey,
+}: {
+  gutter?: number;
+  path?: ReactNode;
+  /**
+   * What "the same row" means, for the scroll position that survives a
+   * re-render.
+   *
+   * The row is a plain scrollable `div` under the hood, so its scroll offset
+   * is a property of *that DOM node*, not of the path it happens to be
+   * showing — nothing about drawing a new, shorter path resets it, any more
+   * than opening a new tab in a browser resets a sibling tab's scroll. Left
+   * alone, a row scrolled right to read a deep leaf and then handed a shallow
+   * one — a top-level note opened next — stays scrolled to a position the new,
+   * shorter content may not even reach, which a browser clamps to its own new
+   * end rather than to the start: the context pill and every ancestor scrolled
+   * out of reach, for a path that never needed scrolling in the first place.
+   *
+   * Changing `key` is what a React row uses to say "this is not a scroll
+   * position, this is a new row" — it throws the old DOM node away and mounts
+   * a fresh one, whose scroll offset starts at zero the way a freshly opened
+   * tab's does. `BrowsePane` passes the selected path (folder or note, joined
+   * with the context id so a switch counts too) — cheap to compute, unique
+   * enough for this, and it is the one fact that actually decides what "the
+   * same position" means here.
+   *
+   * `undefined` — the default — asks for no remounting at all, which is right
+   * for every other caller of this row: `EditorRegion`'s bare `<NavBand />`
+   * passes no `path`, so there is nothing in the scroller whose position could
+   * ever need resetting.
+   */
+  trailKey?: string;
+}) {
   const styles = useThemedStyles(makeStyles);
   const { contexts, current } = useNavBand();
   /*
@@ -118,6 +153,7 @@ export function NavBand({ gutter = 0, path }: { gutter?: number; path?: ReactNod
       {current == null && path == null ? null : (
         <View style={styles.trailAnchor}>
           <ScrollView
+            key={trailKey}
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.trail}

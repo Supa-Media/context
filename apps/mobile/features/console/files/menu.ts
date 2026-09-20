@@ -38,13 +38,15 @@
 
 import { describeBinding, type Command } from "../../design/keymap";
 import type { Clipboard } from "./clipboard";
-import { restoreTargetFor } from "./paths";
+import { baseName, parentPath, restoreTargetFor, withoutSortPrefix } from "./paths";
 import type { TreeRow } from "./tree";
+import type { Visibility } from "./types";
 
 export type MenuActionId =
   | "open"
   | "openInNewTab"
   | "newNote"
+  | "newDrawing"
   | "newFolder"
   | "rename"
   | "duplicate"
@@ -68,12 +70,34 @@ export type MenuActionId =
   | "visibilityPrivate"
   | "visibilityTeam"
   | "visibilityFollow"
+  /**
+   * From a breadcrumb segment back to that folder's row in the tree.
+   *
+   * Not an alias for `open`: you are already *in* the folder, which is why you
+   * are standing on its crumb at all. This puts the *tree* on it — expands the
+   * ancestors and selects the row — so the folder's full set of verbs is one
+   * right-click away.
+   */
+  | "revealInTree"
   | "archive"
   | "restore"
   | "delete";
 
-export interface MenuItem {
-  id: MenuActionId;
+/**
+ * One row's data, generic in its own id.
+ *
+ * Parameterised — defaulting to `MenuActionId` — so that `Menu.tsx` and
+ * `Menu.web.tsx` are a **disclosure menu component**, not "the file menu's
+ * renderer": the account menu (`ConsoleRail.tsx`'s `AccountBlock`) draws with
+ * the exact same two files against its own two-item id union. Widening
+ * `MenuActionId` itself to fit a caller with nothing to do with files was the
+ * alternative, and it is the wrong one — `Explorer.tsx`'s `runAction` switches
+ * on every member of that union, so an unrelated id added there is a case
+ * that dispatcher must now also not mishandle, forever, for a menu it never
+ * draws.
+ */
+export interface MenuItem<Id extends string = MenuActionId> {
+  id: Id;
   label: string;
   /**
    * A second line under the label, for an outcome a verb cannot carry alone.
@@ -86,17 +110,61 @@ export interface MenuItem {
   detail?: string;
   /** Printed on the right on web. Absent on touch. */
   shortcut?: string;
+  /**
+   * A radio mark: this is the setting in force right now.
+   *
+   * Present only where "in force" is a question with an answer. The visibility
+   * items on a *note* are three mutually exclusive states, so all three carry
+   * it and exactly one may be true; a folder's pair is a bulk write over its
+   * contents rather than a state the folder is in, and a selection has no
+   * single state at all, so both leave it `undefined`.
+   *
+   * `false` and `undefined` therefore mean different things and the renderer
+   * must keep them apart: `false` reserves the check gutter so three radio rows
+   * line up, `undefined` draws no gutter at all.
+   */
+  checked?: boolean;
   danger?: boolean;
+  /**
+   * Present, but inert and drawn dimmed.
+   *
+   * **The file menu never sets this, and that is a rule rather than an
+   * oversight** — see this module's own header: a console that cannot edit is
+   * offered *fewer* items, because a screen of greyed rows tells somebody their
+   * context is broken while a short menu tells them the truth.
+   *
+   * It exists for the tab menu's "Reopen closed", where the opposite is right
+   * and for a reason that does not generalise: that item is one ⌘⇧T away from
+   * being available again, it comes back on its own the moment anything is
+   * closed, and a menu of three rows whose contents shuffle between openings is
+   * a menu nobody can learn. Absence tells the truth about a permission;
+   * absence would tell a lie about an empty undo stack.
+   *
+   * A new caller reaching for this should read both paragraphs and expect to
+   * have to argue for the second one.
+   */
+  disabled?: boolean;
   /** Items after this one start a new visual group. */
   separatorBefore?: boolean;
   /** A submenu (Visibility ▸). Only ever one level deep. */
-  items?: MenuItem[];
+  items?: MenuItem<Id>[];
+  /**
+   * Overrides the row's default `menu-item-<id>` testID.
+   *
+   * For a caller whose id is chrome-internal (short, reused across menus) but
+   * whose row is cited elsewhere by a stable name — the account menu's
+   * `account-settings` / `account-sign-out`, which predate this menu and are
+   * asserted directly rather than through the `menu-item-` convention.
+   */
+  testID?: string;
 }
 
 export type MenuTarget =
   | { kind: "background"; folder: string }
   | { kind: "row"; row: TreeRow }
-  | { kind: "selection"; rows: readonly TreeRow[] };
+  | { kind: "selection"; rows: readonly TreeRow[] }
+  /** A breadcrumb segment. `""` is the context root. */
+  | { kind: "crumb"; folder: string };
 
 export interface MenuContext {
   target: MenuTarget;
@@ -155,6 +223,18 @@ export interface MenuContext {
    * of anything that could answer it.
    */
   apple?: boolean;
+  /**
+   * What this target would be visible to with **no setting of its own** — the
+   * folder default it inherits.
+   *
+   * Supplied rather than derived: this module cannot see the listings, and the
+   * one place that can (`FileEntry.inherited`, which the server computes) is
+   * two layers away. A caller that does not know passes nothing, and the
+   * "use the folder's setting" row then carries the check without the sentence
+   * — the menu never invents a visibility it was not told, because a menu that
+   * guesses wrong about who can read a note is worse than one that says less.
+   */
+  inherited?: Visibility;
 }
 
 /**
@@ -190,10 +270,9 @@ const COMMANDS: Partial<Record<MenuActionId, Command>> = {
   cut: "cut",
   paste: "paste",
   archive: "archive",
-  // The one pair whose names differ, and they differ on purpose: the menu item
-  // is `delete` because that is where it sits in the list, the command is
-  // `deleteForever` because that is what pressing it does. Mapping them here
-  // rather than renaming either keeps both names honest in their own file.
+  // Keep the established command id so existing keyboard customizations keep
+  // working. The action is now recoverable even though this legacy id says
+  // `deleteForever`.
   delete: "deleteForever",
 };
 
@@ -209,7 +288,7 @@ function makeItem(
   context: MenuContext,
   id: MenuActionId,
   label: string,
-  extra: { danger?: boolean; items?: MenuItem[]; detail?: string } = {},
+  extra: { danger?: boolean; items?: MenuItem[]; detail?: string; checked?: boolean } = {},
 ): MenuItem {
   const command = COMMANDS[id];
   const shortcut =
@@ -221,6 +300,9 @@ function makeItem(
     label,
     ...(extra.detail === undefined ? {} : { detail: extra.detail }),
     ...(shortcut === undefined ? {} : { shortcut }),
+    // `checked: false` is carried through rather than treated as absent: the
+    // two mean different things to the renderer. See `MenuItem.checked`.
+    ...(extra.checked === undefined ? {} : { checked: extra.checked }),
     ...(extra.danger === true ? { danger: true } : {}),
     ...(extra.items === undefined ? {} : { items: extra.items }),
   };
@@ -242,8 +324,10 @@ function makeItem(
  * Any `separatorBefore` already on an incoming item is dropped, so a caller
  * composing groups out of pre-built items cannot smuggle one back in.
  */
-export function joinGroups(groups: readonly (readonly MenuItem[])[]): MenuItem[] {
-  const items: MenuItem[] = [];
+export function joinGroups<Id extends string = MenuActionId>(
+  groups: readonly (readonly MenuItem<Id>[])[],
+): MenuItem<Id>[] {
+  const items: MenuItem<Id>[] = [];
   for (const group of groups) {
     if (group.length === 0) continue;
     group.forEach((entry, index) => {
@@ -305,7 +389,39 @@ export function canPasteInto(clipboard: Clipboard, folder: string): boolean {
  * set it by hand, leaving a redundant exception behind that then stops
  * tracking the folder.
  */
-function visibilityGroup(context: MenuContext, isFolder: boolean, count: number): MenuItem[] {
+/**
+ * "Currently team — from 1-projects."
+ *
+ * The one line in this menu that explains a row, and the row earns it: the
+ * other two visibility items name the value they write, and this one names a
+ * value that lives somewhere else. Knowing a note follows its folder without
+ * knowing what the folder *says* is not knowing who can read it, which in a
+ * product where `team` means named people is the only question that matters.
+ *
+ * The root folder is the context, and is called that rather than being given
+ * `baseName("")`'s empty string. The folder is named the way its row and its
+ * crumb name it — `withoutSortPrefix` — because a sentence that says "from
+ * 1-projects" about a folder drawn `projects` is asking the reader to work out
+ * that those are the same folder.
+ */
+function followDetail(path: string, inherited: Visibility): string {
+  const folder = parentPath(path);
+  return `Currently ${inherited} — from ${folder === "" ? "this context" : withoutSortPrefix(baseName(folder))}.`;
+}
+
+function visibilityGroup(
+  context: MenuContext,
+  isFolder: boolean,
+  count: number,
+  /**
+   * The one row this is about, or `null` for a selection or a crumb.
+   *
+   * Only a single note has a visibility "in force" to mark. A selection of
+   * three can be in three different states, and marking any one of them would
+   * be the menu claiming a fact about the other two.
+   */
+  single: TreeRow | null,
+): MenuItem[] {
   /*
     These read as verbs because they are controls, and they used to read
     "Private" and "Team", which are the words the tree's marker and the
@@ -324,6 +440,25 @@ function visibilityGroup(context: MenuContext, isFolder: boolean, count: number)
   // same rule the archive and delete labels follow — a label that names how
   // much it touches, so a selection can never be mistaken for a row.
   const where = count === 1 ? "here" : `in ${count} folders`;
+  /*
+    Which of the three a *note* is in right now, read off `marker` and nothing
+    else. `markerFor` sets it exactly when the note carries an exception and
+    leaves it undefined when the note follows its folder, so "no marker" is
+    "follows" — the same fact the tree draws by not marking the row.
+
+    A group rule (`@design`) is none of the three, and checks nothing. Rounding
+    it to "private" because it is not `team` would be the console claiming a
+    note two colleagues can read is yours alone.
+  */
+  const current =
+    single === null || isFolder
+      ? null
+      : single.marker === undefined
+        ? "follow"
+        : single.marker === "private" || single.marker === "team"
+          ? single.marker
+          : "group";
+
   const children = isFolder
     ? [
         makeItem(context, "visibilityPrivate", `Make everything ${where} private`, {
@@ -334,11 +469,20 @@ function visibilityGroup(context: MenuContext, isFolder: boolean, count: number)
         }),
       ]
     : [
-        makeItem(context, "visibilityPrivate", "Make private"),
-        makeItem(context, "visibilityTeam", "Share with the team"),
+        makeItem(context, "visibilityPrivate", "Make private", {
+          ...(current === null ? {} : { checked: current === "private" }),
+        }),
+        makeItem(context, "visibilityTeam", "Share with the team", {
+          ...(current === null ? {} : { checked: current === "team" }),
+        }),
         // Not "Follow folder": that names the state this leaves behind, and the
         // act is removing this note's own exception.
-        makeItem(context, "visibilityFollow", "Use the folder's setting"),
+        makeItem(context, "visibilityFollow", "Use the folder's setting", {
+          ...(current === null ? {} : { checked: current === "follow" }),
+          ...(current === "follow" && single !== null && context.inherited !== undefined
+            ? { detail: followDetail(single.path, context.inherited) }
+            : {}),
+        }),
       ];
   return [makeItem(context, "visibility", "Visibility", { items: children })];
 }
@@ -352,12 +496,62 @@ function visibilityGroup(context: MenuContext, isFolder: boolean, count: number)
  */
 function backgroundItems(context: MenuContext, folder: string): MenuItem[] {
   if (!context.canEdit) return [];
+  return joinGroups([createGroup(context, false), pasteGroup(context, folder)]);
+}
+
+/**
+ * New note / new drawing / new folder, in that order.
+ *
+ * Most-used first and no `New ▸` parent in front of them: right-clicking empty
+ * space has one intent, and putting the single most frequent action in the
+ * product behind a hover would be tidiness bought with the thing people came to
+ * do. It grows a submenu on the day there is a fifth, not before.
+ *
+ * `here` is the difference between the three surfaces that offer these. On a
+ * folder row or a breadcrumb segment the target is a folder you are *pointing
+ * at* rather than in, so the label has to say which folder it means; on empty
+ * space there is nowhere else it could mean and the word would be noise.
+ */
+function createGroup(context: MenuContext, here: boolean): MenuItem[] {
+  const where = here ? " here" : "";
+  return [
+    makeItem(context, "newNote", `New note${where}`),
+    makeItem(context, "newDrawing", `New drawing${where}`),
+    makeItem(context, "newFolder", `New folder${where}`),
+  ];
+}
+
+/**
+ * A breadcrumb segment's menu: the folder you are standing in.
+ *
+ * It creates, addresses and sets what the folder shares — and it deliberately
+ * **cannot rename, move, archive or trash that folder**. You are inside it: a
+ * control that removes the ground under the view you are looking at is a
+ * footgun, and every one of those verbs is a right-click away on the same
+ * folder's row in the tree, where the target is a thing you are pointing at
+ * rather than a place you are in.
+ *
+ * The root (`""`) is the context itself. It has no address worth copying —
+ * `""` is not something anybody can paste — so the two address items are absent
+ * rather than putting an empty string on the clipboard.
+ */
+function crumbItems(context: MenuContext, folder: string): MenuItem[] {
+  const addresses =
+    folder === ""
+      ? []
+      : [makeItem(context, "copyPath", "Copy path"), makeItem(context, "copyAtPath", "Copy @path")];
+  const opening = [
+    makeItem(context, "open", "Open"),
+    makeItem(context, "revealInTree", "Reveal in tree"),
+  ];
+  // The same early return the row menu takes, and for the same reason: with no
+  // write access there is nothing between opening and addressing to offer.
+  if (!context.canEdit) return joinGroups([opening, addresses]);
   return joinGroups([
-    [
-      makeItem(context, "newNote", "New note"),
-      makeItem(context, "newFolder", "New folder"),
-    ],
-    pasteGroup(context, folder),
+    opening,
+    [...createGroup(context, true), ...pasteGroup(context, folder)],
+    addresses,
+    context.canSetVisibility ? visibilityGroup(context, true, 1, null) : [],
   ]);
 }
 
@@ -426,9 +620,19 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   const archived = rows.every((row) => restoreTargetFor(row.path) !== null);
 
   return joinGroups([
-    // Opening. A folder has no document to put in a tab, and touch has a tab
-    // switcher rather than a pointer with a middle button, so the second item
-    // is web-and-file only.
+    /*
+      Opening. A folder has no document to put in a tab, so the second item is
+      file-only — and it is web-only because **tabs are a pointer instrument**.
+
+      That second half used to read "touch has a tab switcher rather than a
+      pointer with a middle button", which had the causation backwards: a
+      switcher *displays* a set of tabs, it does not produce one. This line was
+      the only verb that produces one, so withholding it here was what left the
+      phone's count button reading `1` for the life of the app — the switcher
+      the comment pointed at as the alternative was the thing this made empty.
+      It is gone (`files/RecentSheet.tsx`), and the gate is now saying what it
+      always did: a phone has no tab surface, so it is offered no tab verb.
+    */
     single === null
       ? []
       : [
@@ -444,6 +648,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     single !== null && single.kind === "folder"
       ? [
           makeItem(context, "newNote", "New note here"),
+          makeItem(context, "newDrawing", "New drawing here"),
           makeItem(context, "newFolder", "New folder here"),
           ...pasteGroup(context, single.path),
         ]
@@ -491,22 +696,19 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // nothing for a folder, and a submenu that applies to some of what is
     // selected is the partial success this menu exists to avoid.
     context.canSetVisibility && (single !== null || isFolder || isFile)
-      ? visibilityGroup(context, isFolder, count)
+      ? visibilityGroup(context, isFolder, count, single)
       : [],
 
     [
       archived
         ? makeItem(context, "restore", single === null ? `Restore ${items(count)}` : "Restore")
         : makeItem(context, "archive", single === null ? `Archive ${items(count)}` : "Archive"),
-      // The ellipsis is the promise that this asks first. Deletion is
-      // permanent — `describeDeleteForever` is the sentence it asks with — and
-      // "Move to…" needs a destination before it can do anything. "New note"
-      // takes no ellipsis: it offers something rather than asking about what is
-      // already there.
+      // Deleting is an immediate move into the archive-backed trash. The toast
+      // offers Undo, so there is no confirmation dialog or ellipsis.
       makeItem(
         context,
         "delete",
-        single === null ? `Delete ${items(count)} forever…` : "Delete forever…",
+        single === null ? `Move ${items(count)} to trash` : "Move to trash",
         { danger: true },
       ),
     ],
@@ -524,6 +726,7 @@ export function itemsFor(context: MenuContext): MenuItem[] {
   if (context.target.kind === "background") {
     return backgroundItems(context, context.target.folder);
   }
+  if (context.target.kind === "crumb") return crumbItems(context, context.target.folder);
   const rows = targetRows(context.target);
   if (rows === null) return [];
   return entryItems(context, rows);

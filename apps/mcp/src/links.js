@@ -5,8 +5,8 @@
  *
  * **A reference follows what it points at.** Renaming or moving a note rewrites
  * every link to it, everywhere the caller can see, by default and without being
- * asked. A brain whose links rot the first time somebody tidies a folder is a
- * brain people stop tidying; every note in it is also an Obsidian note, where
+ * asked. A workspace whose links rot the first time somebody tidies a folder is a
+ * workspace people stop tidying; every note in it is also an Obsidian note, where
  * this is the behaviour people already have.
  *
  * Nothing here talks to a store. It is text in, text out, so the interesting
@@ -125,6 +125,13 @@ const INLINE = /\[([^\]\n]*)\]\((<[^>\n]*>|[^\s()]*)\s*(?:"[^"\n]*"|'[^'\n]*')?\
  * The span is the target and not the whole link, so a rewrite replaces a path
  * and leaves the label, the alias, the embed marker and the anchor exactly as
  * the person wrote them.
+ *
+ * `embed` is the `!` the parser has always matched and used to discard. A
+ * rewrite has no use for it — it replaces the target and never the marker — but
+ * a *reader* does: an embed puts a drawing or an image inside the note it is
+ * read from, so "what does this note contain" cannot be answered without it.
+ * Its twin in `packages/shared/src/links.ts` carries the same field; the parity
+ * test compares the parse structurally and would fail on one and not the other.
  */
 export function parseLinks(text) {
   const skip = codeRanges(text);
@@ -138,7 +145,7 @@ export function parseLinks(text) {
     const target = bar === -1 ? inner : inner.slice(0, bar);
     // `[[` plus the embed marker's width.
     const start = match.index + match[1].length + 2;
-    found.push({ kind: "wiki", target, start, end: start + target.length });
+    found.push({ kind: "wiki", embed: match[1] === "!", target, start, end: start + target.length });
   }
 
   for (const match of text.matchAll(INLINE)) {
@@ -147,7 +154,13 @@ export function parseLinks(text) {
     const bracketed = raw.startsWith("<") && raw.endsWith(">");
     const target = bracketed ? raw.slice(1, -1) : raw;
     const start = match.index + match[1].length + 3 + (bracketed ? 1 : 0);
-    found.push({ kind: "inline", target, start, end: start + target.length });
+    found.push({
+      kind: "inline",
+      embed: match.index > 0 && text[match.index - 1] === "!",
+      target,
+      start,
+      end: start + target.length,
+    });
   }
 
   return found.sort((a, b) => a.start - b.start);

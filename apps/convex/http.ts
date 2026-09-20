@@ -115,6 +115,12 @@ import {
   tokenHashField,
   unauthorized,
 } from "./functions/lib/gatewayAuth";
+import { STRIPE_WEBHOOK_SECRET_ENV_VAR } from "./functions/lib/premium";
+import {
+  STRIPE_SIGNATURE_HEADER,
+  stripeEventFacts,
+  stripeSignatureIsValid,
+} from "./functions/lib/stripe";
 
 const http = httpRouter();
 
@@ -195,6 +201,56 @@ function emailWorkerRoute(
   });
 }
 
+/**
+ * The third door, and the only one whose key is a signature rather than a
+ * bearer secret.
+ *
+ * Stripe posts to this endpoint from an address nobody here controls, with no
+ * Authorization header, because that is how webhooks work — so the two
+ * factories above cannot be reused and this is not a shortcut around them. What
+ * replaces the bearer check is strictly more than one: the body carries an
+ * HMAC-SHA256 over `<timestamp>.<raw body>`, computed with a secret only Stripe
+ * and this deployment hold, and the timestamp is both *inside* the MAC and
+ * checked against the clock, so a captured delivery is not a standing key.
+ *
+ * `STRIPE_WEBHOOK_SECRET` is an environment variable and not an `appSecrets`
+ * row, deliberately: this check has to happen before anything in the request is
+ * trusted, and reading it out of the database would make this route the fourth
+ * HTTP route able to reach a decrypted credential — a list
+ * `__tests__/structure.test.ts` pins at three, each argued for. Same reasoning
+ * `RESERVED_SECRET_NAMES` gives about `GATEWAY_SECRET`, and it is in that
+ * refusal list for the same reason.
+ *
+ * **A deployment with no signing secret refuses every delivery.** Not "allows",
+ * which would be a free upgrade for anybody who can find this URL, and is
+ * exactly the shape of mistake that ships because it makes a staging
+ * environment work.
+ *
+ * The raw body is read once, verified, and only then parsed. Re-serialising a
+ * parsed object and hashing that verifies a different document from the one
+ * Stripe signed.
+ */
+function stripeWebhookRoute(
+  handler: (ctx: ActionCtx, body: unknown) => Promise<Response>,
+) {
+  return httpAction(async (ctx, request) => {
+    const payload = await request.text();
+    const signed = await stripeSignatureIsValid({
+      payload,
+      header: request.headers.get(STRIPE_SIGNATURE_HEADER),
+      secret: process.env[STRIPE_WEBHOOK_SECRET_ENV_VAR],
+    });
+    if (!signed) return unauthorized();
+    let body: unknown;
+    try {
+      body = JSON.parse(payload);
+    } catch {
+      return badRequest();
+    }
+    return await handler(ctx, body);
+  });
+}
+
 /** Something on our side broke. Says so, and says nothing else. */
 function serverError(): Response {
   return json({ error: "server_error" }, 500);
@@ -239,6 +295,9 @@ export const gatewaySession = gatewayRoute(async (ctx, body) => {
     session: {
       grantId: session.grantId,
       clientId: session.clientId,
+      // Display text only — see `resolveGrantByAccessToken`. The gateway puts
+      // it in `activity.md` and nowhere else.
+      clientName: session.clientName,
       actorUserId: session.actorUserId,
       scopes: session.scopes,
       expiresAt: session.expiresAt,
@@ -340,6 +399,74 @@ export const gatewayBinding = gatewayRoute(async (ctx, body) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 2a. POST /gateway/provider — the model account the agent spends            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Open one workspace's own Anthropic or OpenAI key for the gateway.
+ *
+ * ## Why this is a route and not a fifth sibling on `/gateway/binding`
+ *
+ * Every gateway-facing credential added since `binding` became a sibling of it
+ * — `searchIndex`, `encryptionKey`, `rotation` — precisely so that
+ * `CREDENTIAL_HTTP_ROUTES` would not grow, and the comment above says adding to
+ * that set is a conversation. This is the conversation, and it comes out the
+ * other way for one reason.
+ *
+ * #661 was a **returns validator** accident: `v.object` is exact, a field
+ * drifted, the error named the object it had refused, and `s3BindingValidator`
+ * carries `secretAccessKey`. Everything folded into `openStorageBinding`'s
+ * return shares that fate — one drift anywhere in it spills everything in it.
+ * A model key folded in would make that error able to spill a storage secret
+ * *and* somebody's provider account in one line.
+ *
+ * So the model key gets a validator of its own, two flat fields wide, with
+ * nothing nested to drift. That is a smaller blast radius than the sibling,
+ * and it is bought with a door that is the same door: the same `gatewayRoute`
+ * factory, the same gateway secret, the same access token, the same
+ * `expectedWorkspaceId`-is-compared-never-looked-up rule in
+ * `providers.openProviderForGateway`, and `null` for everything that is not a
+ * hit.
+ *
+ * It buys one more thing. An ordinary MCP request spends `/gateway/binding` on
+ * every call; a model key riding that payload would be decrypted on every
+ * `list_notes` in the product. Here it is opened only by the request that is
+ * about to spend it.
+ *
+ * ## What this route decides, which is nothing
+ *
+ * It shapes the body and hands the two proofs on. The provider string is passed
+ * through *unvalidated* on purpose: the closed set lives in `providers.ts`, and
+ * checking it there means an unknown provider is the same `null` as an unknown
+ * token rather than a different status a caller could count.
+ */
+export const gatewayProvider = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = nullableStringField(body, "expectedWorkspaceId");
+  const provider = stringField(body, "provider");
+  // A malformed request is answered exactly like an unknown token, for the
+  // reason `/gateway/binding` gives: a 400 would tell a caller holding the
+  // gateway secret which of its proofs was the bad one.
+  if (accessToken === null || !expected.ok || provider === null) {
+    return json({ credential: null });
+  }
+
+  const credential = await ctx.runAction(
+    internal.functions.providers.openProviderForGateway,
+    {
+      hashedAccessToken: await hashToken(accessToken),
+      expectedWorkspaceId: expected.value,
+      provider,
+    },
+  );
+
+  // `credential` is the whole answer. Nothing rides beside it — not the
+  // workspace it came from, not the fingerprint, not the grant. See the
+  // `a hit names the provider and the key, and nothing else` test.
+  return json({ credential });
+});
+
+/* -------------------------------------------------------------------------- */
 /* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
 /* -------------------------------------------------------------------------- */
 
@@ -418,6 +545,140 @@ export const gatewaySearchIndexProgress = gatewayRoute(async (ctx, body) => {
     // not want this" is the oracle this route must not be.
   }
   return answered();
+});
+
+/* -------------------------------------------------------------------------- */
+/* 2b-bis. POST /gateway/activity — a context changed                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The gateway saying that a line landed in a context's `activity.md`.
+ *
+ * It exists for one pixel: the dot on *another* workspace's mark, which the
+ * console draws from the workspace row rather than by opening four buckets on
+ * every load. The console stamps the same field directly; this is the other
+ * writer saying the same thing across a network boundary.
+ *
+ * **It carries a workspace id and one boolean.** What changed, who changed it
+ * and where are in the customer's bucket, and a route that reported any of
+ * that would be the control plane holding note metadata it has no business
+ * holding (non-negotiable #1). The boolean is not about the note: it says
+ * which of the two stamps may move, because a member who is not the owner is
+ * served `activityTeamAt` and a private line must not tell them its time.
+ * Absent reads as private, so a caller that omits it can only under-report.
+ *
+ * The timestamp is taken here rather than accepted from the caller, so a
+ * gateway with a wrong clock cannot park a context in the future.
+ *
+ * Answered identically whatever happens, like its neighbours: a malformed id
+ * and a context that does not exist must not be distinguishable.
+ */
+export const gatewayActivity = gatewayRoute(async (ctx, body) => {
+  const answered = () => json({ ok: true });
+  const workspaceId = stringField(body, "workspaceId");
+  if (workspaceId === null) return answered();
+  try {
+    await ctx.runMutation(internal.functions.files.markWorkspaceActivity, {
+      workspaceId: workspaceId as Id<"workspaces">,
+      at: Date.now(),
+      teamVisible: body.teamVisible === true,
+    });
+  } catch {
+    // As above: the difference between "that is not an id" and "that context
+    // is not yours" is the oracle this route must not be.
+  }
+  return answered();
+});
+
+/* -------------------------------------------------------------------------- */
+/* 2c. POST /gateway/jobs/create — mint queued gateway work                  */
+/* -------------------------------------------------------------------------- */
+
+export const gatewayJobsCreate = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  const job = body.job && typeof body.job === "object" && !Array.isArray(body.job)
+    ? body.job as Record<string, unknown>
+    : null;
+  const kind = job?.kind === "materialize_move" ? "materialize_move" : null;
+  const moveId = typeof job?.moveId === "string" ? job.moveId : undefined;
+  if (accessToken === null || expected === null || kind === null) {
+    return json({ ticket: null });
+  }
+
+  const ticket = randomOpaqueToken();
+  const created = await ctx.runMutation(internal.functions.controlPlane.createGatewayJob, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+    hashedTicket: await hashToken(ticket),
+    kind,
+    moveId,
+  });
+  return json({ ticket: created ? ticket : null });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 2d. POST /gateway/jobs/open — spend queued work for one bounded attempt    */
+/* -------------------------------------------------------------------------- */
+
+export const gatewayJobsOpen = gatewayRoute(async (ctx, body) => {
+  const ticket = stringField(body, "ticket");
+  if (ticket === null) return json({ job: null });
+  const opened = await ctx.runAction(internal.functions.controlPlane.openGatewayJob, {
+    hashedTicket: await hashToken(ticket),
+  });
+  return json({ job: opened });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 2e. POST /gateway/jobs/report — report a queue attempt outcome             */
+/* -------------------------------------------------------------------------- */
+
+export const gatewayJobsReport = gatewayRoute(async (ctx, body) => {
+  const ticket = stringField(body, "ticket");
+  const result = body.result && typeof body.result === "object" && !Array.isArray(body.result)
+    ? body.result as Record<string, unknown>
+    : null;
+  const status =
+    result?.status === "queued" || result?.status === "complete" || result?.status === "failed"
+      ? result.status
+      : null;
+  const rawProgress =
+    result?.progress && typeof result.progress === "object" && !Array.isArray(result.progress)
+      ? result.progress as Record<string, unknown>
+      : null;
+  const progress =
+    rawProgress !== null &&
+    (rawProgress.phase === "copying" || rawProgress.phase === "deleting") &&
+    typeof rawProgress.completed === "number" &&
+    Number.isInteger(rawProgress.completed) &&
+    rawProgress.completed >= 0 &&
+    typeof rawProgress.total === "number" &&
+    Number.isInteger(rawProgress.total) &&
+    rawProgress.total > 0 &&
+    rawProgress.completed <= rawProgress.total
+      ? {
+          phase: rawProgress.phase as "copying" | "deleting",
+          completed: rawProgress.completed,
+          total: rawProgress.total,
+        }
+      : null;
+  if (ticket !== null && status !== null) {
+    try {
+      await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
+        hashedTicket: await hashToken(ticket),
+        result: {
+          status,
+          ...(typeof result?.error === "string" ? { error: result.error } : {}),
+          ...(progress === null ? {} : { progress }),
+        },
+      });
+    } catch {
+      // Reporting is not a read path and not a credential path; every refusal
+      // answers the same way so the ticket cannot be probed from the outside.
+    }
+  }
+  return json({ ok: true });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -1011,6 +1272,112 @@ export const shareNotePreview = httpAction(async (ctx, request) => {
 http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
 
 /**
+ * `POST /share/short` — the card for a short link, `/@seyi/intake`.
+ *
+ * **The fourth unauthenticated route, and the first one added since this list
+ * was called "a pin, not an amnesty".** So the argument in full, on its own
+ * terms.
+ *
+ * *Why it cannot be a field on one of the other three.* `/share/note` takes a
+ * handle and a note path; this takes a handle and a name that is not a path
+ * and does not resolve like one. Folding them together would mean one route
+ * whose second argument means two things depending on a flag, and the failure
+ * that list exists to prevent is exactly a field nobody looked at reaching an
+ * anonymous crawler.
+ *
+ * *Why it may answer at all, when `/@seyi` may not.* The same hinge
+ * `/share/note` turns on: the probe space is names the **owner** chose. There
+ * is no list of likely slugs — a slug exists only where somebody typed one —
+ * and `shortLinkSlugRejection` refuses every name this product writes, so the
+ * guessable ones cannot be claimed in the first place. What a prober learns is
+ * the title of something its owner deliberately published at a memorable
+ * address, which is the feature.
+ *
+ * *What it costs, stated.* Anyone holding or guessing the URL learns the title
+ * without signing in, and a card that has already unfurled is cached by the
+ * platform that unfurled it and cannot be recalled. Content still needs the
+ * live share; revocation is enforced at the destination, where it is immediate.
+ *
+ * *One field, and never the token.* `/share/note` returns a `cardToken`
+ * because a team link's token is a locator — its reader is authorised by
+ * membership on every request. A short link may sit over an `anyone` share,
+ * where the token **is** the authorization, so handing it to whoever guessed
+ * the name would be a capability outliving the name it was published at. This
+ * route therefore returns the title alone, and a short link unfurls with the
+ * product's own image rather than a per-share card.
+ *
+ * Always 200, always `{ "title": string | null }`. Every absence — unknown
+ * handle, unclaimed name, released, revoked, expired, title switched off — is
+ * that shape with `null`.
+ */
+export const shareShortLinkPreview = httpAction(async (ctx, request) => {
+  const body = await readJsonBody(request);
+  const handle = body === null ? null : stringField(body, "handle");
+  const slug = body === null ? null : stringField(body, "slug");
+  if (handle === null || slug === null) return json({ title: null });
+
+  const result = await ctx.runQuery(api.functions.shares.previewForShortLink, {
+    handle,
+    slug,
+  });
+  // Named rather than spread, for the reason stated on the three routes above.
+  return json({ title: result.title });
+});
+
+http.route({ path: "/share/short", method: "POST", handler: shareShortLinkPreview });
+
+/* -------------------------------------------------------------------------- */
+/* POST /stripe/webhook — a signed subscription event                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What Stripe tells us about a subscription.
+ *
+ * The signature is checked by the factory; everything here runs on a body that
+ * has been proved to come from Stripe. What is left is deliberately thin: read
+ * the handful of fields `stripeEventFacts` names and hand them to one internal
+ * mutation, which decides which context the event is about and whether it is
+ * still news.
+ *
+ * **It answers 200 to everything it understood, including work it chose not to
+ * do.** A type nobody handles, an event for a context that no longer exists, a
+ * redelivery of an event already applied — all 200, because a non-2xx tells
+ * Stripe to retry, and retrying will not change any of those answers. A 4xx is
+ * reserved for a body that is not an event at all, and a 5xx for our own
+ * failure, which is the one case a retry can fix.
+ *
+ * The response body says nothing about which context, which subscription, or
+ * whether anything changed. The caller is Stripe and does not need it, and this
+ * endpoint is reachable by anybody who can construct a signed request — which
+ * during a secret leak is more people than we would like.
+ */
+export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
+  const facts = stripeEventFacts(body);
+  if (facts === null) return badRequest();
+  try {
+    await ctx.runMutation(internal.functions.billing.applyStripeEvent, {
+      id: facts.id,
+      type: facts.type,
+      createdSeconds: facts.createdSeconds,
+      customerId: facts.customerId,
+      subscriptionId: facts.subscriptionId,
+      checkoutRef: facts.checkoutRef,
+      rawStatus: facts.rawStatus,
+      sessionStatus: facts.sessionStatus,
+      paymentStatus: facts.paymentStatus,
+      currentPeriodEndSeconds: facts.currentPeriodEndSeconds,
+      cancelAtPeriodEnd: facts.cancelAtPeriodEnd,
+    });
+  } catch {
+    // Ours, so Stripe should retry. Nothing about the failure goes back.
+    return serverError();
+  }
+  return json({ received: true });
+});
+
+http.route({ path: "/stripe/webhook", method: "POST", handler: stripeWebhook });
+
+/**
  * `POST /gateway/usage` — the gateway telling the control plane that some
  * counted things happened.
  *
@@ -1073,10 +1440,27 @@ export const gatewayUsage = gatewayRoute(async (ctx, body) => {
 // put a token in a URL — in a log, in a referrer, in browser history.
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
+http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
 http.route({
   path: "/gateway/search-index/progress",
   method: "POST",
   handler: gatewaySearchIndexProgress,
+});
+http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
+http.route({
+  path: "/gateway/jobs/create",
+  method: "POST",
+  handler: gatewayJobsCreate,
+});
+http.route({
+  path: "/gateway/jobs/open",
+  method: "POST",
+  handler: gatewayJobsOpen,
+});
+http.route({
+  path: "/gateway/jobs/report",
+  method: "POST",
+  handler: gatewayJobsReport,
 });
 http.route({
   path: "/gateway/clients/register",
@@ -1128,6 +1512,98 @@ http.route({
   method: "POST",
   handler: gatewayIngestRecord,
 });
+/* -------------------------------------------------------------------------- */
+/* Links, for an agent that asked for one                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `POST /gateway/links/create` — mint a link and answer with its URL.
+ *
+ * **The URL, never the token.** An agent that was handed a token would have to
+ * assemble the address itself, and a second builder is a second opinion about
+ * what a share link looks like — which is the whole complaint this answers.
+ * The control plane builds it from `@context/shared`, the same function the
+ * console's Copy link uses.
+ *
+ * The clearance is the ordinary two-factor one: this route's factory refuses
+ * without the gateway secret, and `ownerClearanceForGateway` then spends the
+ * *user's* access token against a live grant that has to be an owner's. One
+ * `null` covers every refusal, so an agent cannot tell "not yours" from "not a
+ * note" from "already encrypted".
+ */
+export const gatewayLinksCreate = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  const path = stringField(body, "path");
+  const audience = body.audience === "members" ? "members" : "anyone";
+  const kind = body.kind === "folder" ? "folder" : body.kind === "note" ? "note" : undefined;
+  const short = stringField(body, "short");
+  // Only the literal. Anything else — absent, misspelled, a truthy object — is
+  // a read link, because "I could not read what you asked for" must never
+  // resolve to the one mode that opens a write path to strangers.
+  const mode = body.mode === "collect" ? "collect" : undefined;
+  // Passed through as a number and normalized by `mintLinkShare`, which is the
+  // one place the range lives. Anything that is not a number is simply absent.
+  const collectCap = typeof body.collectCap === "number" ? body.collectCap : undefined;
+  if (accessToken === null || expected === null || path === null) {
+    return json({ link: null, shortRefused: null });
+  }
+
+  const result = await ctx.runAction(internal.functions.shares.gatewayCreateLink, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+    path,
+    audience,
+    ...(kind === undefined ? {} : { kind }),
+    ...(short === null ? {} : { short }),
+    ...(typeof body.titleInPreview === "boolean"
+      ? { titleInPreview: body.titleInPreview }
+      : {}),
+    ...(mode === undefined ? {} : { mode }),
+    ...(collectCap === undefined ? {} : { collectCap }),
+  });
+  return json({
+    link: result?.link ?? null,
+    shortRefused: result?.shortRefused ?? null,
+  });
+});
+
+http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
+
+/** `POST /gateway/links/list` — every live link in this context. */
+export const gatewayLinksList = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  if (accessToken === null || expected === null) return json({ links: null });
+
+  const links = await ctx.runQuery(internal.functions.shares.gatewayListLinks, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+  });
+  return json({ links });
+});
+
+http.route({ path: "/gateway/links/list", method: "POST", handler: gatewayLinksList });
+
+/** `POST /gateway/links/revoke` — take one back. */
+export const gatewayLinksRevoke = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  const shareId = stringField(body, "shareId");
+  if (accessToken === null || expected === null || shareId === null) {
+    return json({ revoked: false });
+  }
+
+  const revoked = await ctx.runMutation(internal.functions.shares.gatewayRevokeLink, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+    shareId,
+  });
+  return json({ revoked });
+});
+
+http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
+
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 
 export default http;

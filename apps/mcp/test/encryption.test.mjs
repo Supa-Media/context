@@ -338,13 +338,76 @@ export async function runEncryptionChecks(check) {
       instanceof NoteCryptoError,
   );
 
+  /*
+    THE IV, AND WHY THIS CHECK COUNTS A CALL RATHER THAN CATCHING AN ERROR.
+
+    The name claims two things — that a malformed IV is *refused*, and that it
+    is refused *before Web Crypto is asked* — and for a long time the assertion
+    could see neither. It was `threw(...) instanceof NoteCryptoError`, and with
+    `assertIv` deleted the short IV reaches `crypto.subtle.decrypt`, fails its
+    authentication tag, and `openContent`'s catch turns that into a
+    `NoteCryptoError` too. Same class, same shape, different reason: the check
+    passed with the guard gone.
+
+    This file's own header already names that hazard — *"it refuses it with a
+    `NoteCryptoError`, which every 'is refused' check here would have
+    accepted"* — and closed it for the marker sabotage with `value()`. This
+    check kept it.
+
+    So: the message, which distinguishes the guard's refusal ("envelope has a
+    malformed IV") from the catch's ("failed to decrypt the note"), AND a count
+    of the calls the name is actually about. The guard sits in the *argument*
+    to `crypto.subtle.decrypt`, so "before it is asked" is a real, checkable
+    ordering rather than a figure of speech.
+  */
   const shortIv = editEnvelope(stored, (e) => {
     e.iv = e.iv.slice(0, 4);
   });
+  const realDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+  let decryptCalls = 0;
+  crypto.subtle.decrypt = (...args) => {
+    decryptCalls += 1;
+    return realDecrypt(...args);
+  };
+  const ivError = await threw(() =>
+    decryptNote(shortIv, { workspaceId: WORKSPACE_A, keys: { k1: keyA } }),
+  );
+  const ivDecryptCalls = decryptCalls;
+  crypto.subtle.decrypt = realDecrypt;
+
+  check("a malformed IV is refused", ivError instanceof NoteCryptoError);
   check(
-    "a malformed IV is refused before Web Crypto is asked",
-    (await threw(() => decryptNote(shortIv, { workspaceId: WORKSPACE_A, keys: { k1: keyA } })))
-      instanceof NoteCryptoError,
+    "...and by the IV guard, not by a failed authentication tag downstream",
+    ivError instanceof NoteCryptoError && /malformed IV/.test(ivError.message),
+  );
+  check(
+    "...before Web Crypto is asked to decrypt the body, which is the claim",
+    // One call unwraps the note key; the body's decrypt must never be reached.
+    ivDecryptCalls === 1,
+  );
+
+  /*
+    A RECIPIENT'S ALGORITHM, WHICH NOTHING CHECKED EITHER.
+
+    Same family as the IV above and found the same way: deleting the
+    `recipient.alg !== CONTENT_ALG` line left the whole gateway suite green.
+    An envelope whose recipient claims a different algorithm is malformed —
+    this build wraps note keys one way — and a build that shrugged at the label
+    would unwrap it as A256GCM regardless, turning a structural refusal into an
+    authentication failure somewhere further in.
+
+    Asserted at parse time and on the message, because `parseEncryptedNote`
+    throws `NoteCryptoError` for a dozen reasons and "it threw" would be
+    satisfied by every one of them.
+  */
+  const foreignRecipientAlg = editEnvelope(stored, (e) => {
+    e.recipients[0].alg = "A128GCM";
+  });
+  const recipientAlgError = await threw(async () => parseEncryptedNote(foreignRecipientAlg));
+  check(
+    "a recipient claiming another algorithm is refused as malformed",
+    recipientAlgError instanceof NoteCryptoError &&
+      /unsupported algorithm/.test(recipientAlgError.message),
   );
 
   check(

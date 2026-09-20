@@ -76,7 +76,18 @@ export function isTransportPath(path) {
   // `/inbox` is not MCP, but it is the other authenticated, state-changing,
   // browser-reachable endpoint on this worker. Guarding one and not the other
   // would be an accident of which spec sentence we were reading.
-  return path === "/mcp" || path === "/inbox";
+  //
+  // `/agent` joins them on exactly that reasoning and not because it speaks the
+  // transport, which it does not. It is authenticated with the same token,
+  // reachable from a browser, and a turn can spend the customer's model account
+  // and file a proposal — so a page on another origin that could POST to it
+  // would be able to do both with somebody else's session.
+  // `/presence` is here for the same reason, and for one more that is specific
+  // to it: it is the only route in this worker a browser opens as a *socket*,
+  // and a WebSocket handshake is not subject to CORS at all. A page on any
+  // origin can open one and read every frame it receives, so if this route were
+  // not origin-checked here, the check would not exist anywhere.
+  return path === "/mcp" || path === "/inbox" || path === "/agent" || path === "/presence";
 }
 
 /**

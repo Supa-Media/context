@@ -63,6 +63,11 @@ import {
 } from "../src/links.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 
+/** `test.mjs`'s own predicate, kept local: this file stands up its own worker. */
+function succeeded(result) {
+  return Boolean(result) && !result.isError;
+}
+
 /* --------------------------------- pure ---------------------------------- */
 
 const NOTE = "1-projects/persistence/overview.md";
@@ -380,7 +385,7 @@ async function runWiredChecks(check) {
   controlPlane.addWorkspace("ws_links", "links", {
     provider: "r2-binding",
     bindingName: "CONTEXT_BUCKET",
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
   const OWNER = "cat_test_links_owner_0000000000000000";
@@ -534,6 +539,79 @@ async function runWiredChecks(check) {
   check(
     "and the link now names where the note actually went",
     /^# keep\n\n\[\[\.\.\/\.\.\/4-archive\/.+\/1-projects\/beta\/log\]\]\n$/.test(read("1-projects/gamma/keep.md") ?? "")
+  );
+
+  /* -- forwarding: the references a rewrite cannot reach ------------------- */
+
+  /*
+    Everything above is a link *inside* the bucket, which is rewritten in place.
+    This is the other half: somebody holding a path we cannot rewrite — a share
+    link already sent, a deep link in a chat log, a path an agent wrote down.
+    The ledger in `forwarding.js` is what lets that address still arrive.
+
+    `1-projects/alpha/overview.md` is the strongest case available here: it was
+    renamed to `summary.md` and then carried into `4-archive/alpha` by a folder
+    move, so a correct answer requires the chain, and the folder half of it was
+    recorded as one entry rather than one per file.
+  */
+  {
+    const stale = await call(OWNER, "read_note", { path: "1-projects/alpha/overview.md" });
+    check(
+      "a path renamed and then carried by a folder move still arrives",
+      succeeded(stale) &&
+        stale.content[0].text.includes("path: 4-archive/alpha/summary.md") &&
+        stale.content[0].text.includes("moved_from: 1-projects/alpha/overview.md")
+    );
+  }
+  check(
+    "a folder move left one forwarding entry, not one per note it carried",
+    JSON.parse(read(".context/forwarding.json") ?? '{"entries":[]}').entries.filter(
+      (entry) => entry.kind === "folder"
+    ).length === 1
+  );
+
+  /*
+    THE LEDGER IS PLUMBING, AND PLUMBING IS NOT READABLE AS A NOTE.
+
+    It holds paths, and some of those paths are private ones — where a private
+    note went is exactly the kind of fact a team caller must not be able to
+    read. `.context/` is already excluded from every listing and every note
+    read; this asserts it for the one file this change adds, because a guard
+    nobody has checked is not a guard.
+  */
+  check(
+    "the forwarding ledger cannot be read as a note, by an owner or anyone else",
+    (await call(OWNER, "read_note", { path: ".context/forwarding.json" })).isError &&
+      (await call(TEAM, "read_note", { path: ".context/forwarding.json" })).isError
+  );
+  {
+    const listed = await call(OWNER, "list_notes", { prefix: "" });
+    check(
+      "and it is not listed",
+      !(listed?.content?.[0]?.text ?? "").includes("forwarding.json")
+    );
+  }
+
+  /*
+    AND FORWARDING NEVER WIDENS WHAT A CALLER CAN REACH.
+
+    A note moved into a private folder is gone for a team caller — asking by the
+    address they already had must not be a way around `privacy.md`. The owner's
+    own read of the same stale address is forwarded, which is what proves the
+    refusal is the privacy rule doing its job rather than the ledger having
+    forgotten the move.
+  */
+  await call(OWNER, "move_note", {
+    source: "1-projects/gamma/keep.md",
+    destination: "2-areas/private/keep.md",
+  });
+  check(
+    "a team caller is not forwarded into a private folder",
+    (await call(TEAM, "read_note", { path: "1-projects/gamma/keep.md" })).isError
+  );
+  check(
+    "while the owner's read of the same stale path arrives",
+    succeeded(await call(OWNER, "read_note", { path: "1-projects/gamma/keep.md" }))
   );
 
   restore();

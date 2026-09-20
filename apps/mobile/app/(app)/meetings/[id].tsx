@@ -1,7 +1,10 @@
+import { useEffect, useRef } from "react";
 import { useLocalSearchParams } from "expo-router";
 import { LiveMeetingScreen } from "../../../features/meetings/LiveMeetingScreen";
 import { MeetingNoteScreen } from "../../../features/meetings/MeetingNoteScreen";
 import { isLive } from "../../../features/meetings/session";
+import { meetings } from "../../../features/meetings/controller";
+import { activityActionFor } from "../../../features/meetings/activity";
 import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
 
 /**
@@ -23,11 +26,49 @@ import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
  * screen does not pretend either way.
  */
 export default function MeetingRoute() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, activityAction, controlToken } = useLocalSearchParams<{
+    id?: string;
+    activityAction?: string | string[];
+    controlToken?: string | string[];
+  }>();
   const snapshot = useMeetingsSnapshot();
   const meetingId = typeof id === "string" ? id : "";
+  const consumed = useRef<string | null>(null);
 
-  const record = snapshot.records.find((candidate) => candidate.session.id === meetingId);
+  useEffect(() => {
+    const token = typeof controlToken === "string" ? controlToken : null;
+    const action = activityActionFor(
+      activityAction,
+      meetingId,
+      snapshot.live?.session.id ?? null,
+      token ?? undefined,
+    );
+    const key =
+      action === null || token === null
+        ? null
+        : `${meetingId}:${action}:${token}`;
+    if (key === null || consumed.current === key || snapshot.status !== "ready")
+      return;
+    consumed.current = key;
+
+    // The link wakes the app; the extension never controls audio cross-process.
+    // The controller consumes a cryptographic, per-state capability before acting.
+    if (token === null || !meetings.consumeActivityControl(meetingId, token))
+      return;
+    if (action === "pause") void meetings.pause();
+    else if (action === "resume") void meetings.resume();
+    else if (action === "end") void meetings.end();
+  }, [
+    activityAction,
+    controlToken,
+    meetingId,
+    snapshot.live?.session.id,
+    snapshot.status,
+  ]);
+
+  const record = snapshot.records.find(
+    (candidate) => candidate.session.id === meetingId,
+  );
   if (record !== undefined && isLive(record.session.state)) {
     return <LiveMeetingScreen meetingId={meetingId} />;
   }

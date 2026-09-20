@@ -2,6 +2,7 @@ import { capabilitiesFrom, getDesktopBridge, type DesktopBridge } from "@context
 import type { TranscriptSegment } from "../protocol";
 import { desktopRecorder } from "./desktop";
 import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
+import { METER_FLOOR_DB, meterLevel, publishRecorderLevel } from "./level";
 import { notesOnlyRecorder } from "./notesOnly";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
@@ -18,14 +19,39 @@ import { resolveTranscriber } from "./transcriber";
  *
  * ## What a browser can and cannot hear, said plainly
  *
- * This captures the **microphone**, which is the room and your own side of a
- * call — the same thing Notion's web recorder captures, and enough for an
- * in-person meeting or a call on speaker. It does **not** capture system audio,
- * so the far side of a call on headphones is not in the recording.
- * `getDisplayMedia({ audio: true })` can get a *shared tab's* audio, only in
- * some browsers, and only with the person choosing a source every time; that is
- * a different feature with a different consent story, and system audio is the
- * desktop app's job. Nothing on screen may imply otherwise.
+ * The microphone is always the floor: the room and your own side of a call.
+ * The far side of a call on headphones is not in *that*, and it used to be the
+ * whole of what this file could do — the header here said so, and said system
+ * audio was the desktop app's job.
+ *
+ * It is still the desktop app's job in the sense that matters: a browser tab
+ * cannot tap the machine's output, and nothing here pretends otherwise. What a
+ * browser can do is ask the **person** to hand it a source —
+ * `getDisplayMedia({ audio: true })`, the tab or screen picker, with the "share
+ * audio" option ticked — and mix that source's audio with the microphone into
+ * one recording. That is a genuinely different consent story from the shell's
+ * loopback tap and it is drawn as one: `systemAudioNeedsPicker` is what tells
+ * the sheet to say a picker is coming, the offer is **off** by default on this
+ * surface, and every way it can come back empty is reported in a sentence
+ * rather than left to look like a recording of both sides.
+ *
+ * Three ways it comes back empty, all of them ordinary: the picker was
+ * cancelled, the source chosen carries no audio (a whole screen on most
+ * platforms, anything at all on a browser that cannot share audio), or nothing
+ * here can mix two inputs into one recording. Each one leaves a microphone
+ * recording and says `SYSTEM_AUDIO_UNSHARED`.
+ *
+ * ## The meter, which is an `AnalyserNode` and not a `MediaRecorder` thing
+ *
+ * `MediaRecorder` has no meter, which is why `capture/level.ts` lists a browser
+ * among the surfaces that cannot answer "how loud is it" — and the honest
+ * `null` that produced drew `Waveform`'s static silhouette for the length of
+ * every meeting, which is the flat bar that reads as a dead microphone. The
+ * shell has always answered this with an `AnalyserNode`; so does this file now,
+ * over the same inputs it is recording, published on the same module channel
+ * and at the same 10 Hz the phone polls at. A browser with no `AudioContext`
+ * still publishes nothing at all, because *"nothing here can tell you"* and
+ * *"the room is quiet"* are different answers.
  *
  * ## Why stop/restart rather than `start(timeslice)`
  *
@@ -83,11 +109,34 @@ const NO_TRANSCRIBER =
 const NO_SESSION_ID =
   "This meeting had no id to record against, so nothing was captured. Start the meeting again.";
 
+/**
+ * Same rule and same words as `audio.ts`, which carries the argument: one
+ * device records one meeting, a second `start()` for the *same* meeting is
+ * still one start, and a second meeting is refused out loud rather than by
+ * returning and going on minting the first meeting's chunk ids.
+ */
+const ALREADY_RECORDING =
+  "This device is already recording another meeting. End that one first — your notes here are still kept.";
+
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
 
 const SEND_BACKLOG =
   "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
+
+/**
+ * OFFLINE IN A BROWSER, SAID RATHER THAN HUNG.
+ *
+ * The phone keeps audio it cannot send (`spool.ts`); a browser does not —
+ * `spoolDevice.web.ts` says why — so offline, a chunk here has nowhere to go.
+ * It used to be dispatched anyway, into an action that neither resolves nor
+ * rejects without a socket, three of them held in memory and the rest dropped
+ * under "running behind", which blamed the transcriber for a missing network.
+ * Now the chunk is not sent, and the screen says what is true and what still
+ * works: the typed notes, and the phone.
+ */
+const OFFLINE_NOT_KEPT =
+  "You're offline, and this browser can't keep audio to transcribe later, so this part of the meeting isn't being transcribed. Your typed notes are still saved. The phone app keeps audio offline.";
 
 /*
   WHY THERE IS A SENTENCE FOR SILENCE AT ALL. Same rule and same words as
@@ -108,6 +157,30 @@ const SEND_BACKLOG =
 const NO_SPEECH =
   "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.";
 
+/*
+  ASKED FOR THE WHOLE CALL AND GIVEN HALF OF IT.
+
+  One sentence for the three ways a browser hands back no shareable audio —
+  the picker was cancelled, the source chosen has none, or nothing here can mix
+  two inputs into one recording — because the person's next move is the same in
+  all three and a sentence per cause is three chances to pick the wrong one.
+  `recoverable: true`: the microphone half is running and the meeting is fine.
+  It is the *claim* that would have been wrong, not the recording, which is the
+  same reason `desktop.ts` reports `micOnly` rather than failing the start.
+*/
+const SYSTEM_AUDIO_UNSHARED =
+  "Only your microphone is in this recording — the call's own audio was not shared. To capture both sides, start a meeting again and share the tab the call is in, with its audio.";
+
+/** The share was stopped from the browser's own bar, mid-meeting. */
+const SYSTEM_AUDIO_ENDED =
+  "Sharing stopped, so the rest of this meeting is your microphone only. What was recorded before it stopped still has both sides.";
+
+/** `navigator.onLine === false`, the one direction of it that is reliable. */
+function browserOffline(): boolean {
+  const nav = (globalThis as { navigator?: { onLine?: unknown } }).navigator;
+  return nav?.onLine === false;
+}
+
 /**
  * Everything a `RecorderError` from this module may say, and the whole of it.
  *
@@ -124,8 +197,12 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   NO_TRANSCRIBER,
   CHUNK_FAILED,
   SEND_BACKLOG,
+  OFFLINE_NOT_KEPT,
   NO_SPEECH,
   NO_SESSION_ID,
+  SYSTEM_AUDIO_UNSHARED,
+  SYSTEM_AUDIO_ENDED,
+  ALREADY_RECORDING,
 ]);
 
 /**
@@ -224,15 +301,94 @@ function browserCanRecord(): boolean {
   return typeof Blob !== "undefined" && typeof Blob.prototype.arrayBuffer === "function";
 }
 
+/**
+ * Whether this browser could, with the person's help, hear the call as well.
+ *
+ * Both halves, and the second is the one that is easy to forget: a picker with
+ * nothing to mix its audio *into* is a share that holds a tab hostage and
+ * records the microphone anyway. `createMediaStreamDestination` is how two
+ * inputs become one recording, so a browser without it cannot offer this at all
+ * and says so by not drawing the switch.
+ *
+ * What this probe **cannot** tell you is whether the browser will actually
+ * hand over audio — Firefox has `getDisplayMedia` and shares no audio from it,
+ * and every browser refuses audio for some sources and not others. There is no
+ * API that answers that in advance, which is why the offer is worded as a
+ * request and every empty answer is reported rather than assumed away. An
+ * absent capability is still never faked: what is claimed here is *"this
+ * browser can ask"*, which is true.
+ */
+function browserCanShareSystemAudio(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (typeof navigator.mediaDevices?.getDisplayMedia !== "function") return false;
+  if (typeof AudioContext === "undefined") return false;
+  return typeof AudioContext.prototype?.createMediaStreamDestination === "function";
+}
+
+/** What the picker is asked for: the audio, and the least video it will take. */
+const DISPLAY_CONSTRAINTS = {
+  audio: true,
+  /*
+    `video` is not optional — every implementation refuses `getDisplayMedia`
+    with audio alone — and the track it hands back cannot simply be stopped
+    either, because stopping it ends the share and takes the audio with it. So
+    it is asked for as small and as slow as a constraint can make it, kept
+    alive, and never rendered or recorded: `MediaRecorder` is given the mixed
+    **audio** destination, not this stream.
+  */
+  video: { frameRate: 1, width: 1, height: 1 },
+} as const;
+
+/**
+ * How often the browser's own meter is read, in milliseconds.
+ *
+ * The phone's `LEVEL_INTERVAL_MS`, restated rather than imported, for the
+ * reason `requireSessionId` is restated: `audio.ts` is unreachable from a
+ * browser bundle by construction and importing it for one number would put
+ * `expo-audio` into the web build.
+ */
+const LEVEL_INTERVAL_MS = 100;
+
+/**
+ * The analyser's window: 2048 samples, which is ~43ms at 48kHz.
+ *
+ * Long enough that one RMS reading is a syllable rather than a zero-crossing,
+ * short enough that the mark moves with a voice rather than lagging it.
+ */
+const LEVEL_FFT_SIZE = 2048;
+
+/**
+ * The Web Audio graph this capture is running, or `null` for none.
+ *
+ * `mixed` is non-null **only** when there are genuinely two inputs to combine.
+ * A microphone-only meeting records `getUserMedia`'s own stream exactly as it
+ * always did — the bytes `MediaRecorder` sees do not change because a meter was
+ * added — and the analyser hangs off the side of it.
+ */
+interface AudioGraph {
+  context: AudioContext;
+  analyser: AnalyserNode | null;
+  mixed: MediaStream | null;
+}
+
 function mediaRecorderRecorder(): MeetingRecorder {
   const segmentListeners = new Set<(segment: TranscriptSegment) => void>();
   const errorListeners = new Set<(error: RecorderError) => void>();
 
+  const canShareSystemAudio = browserCanShareSystemAudio();
+
   let state: RecorderState = "idle";
+  /** What `MediaRecorder` records: the microphone, or the two inputs mixed. */
   let stream: MediaStream | null = null;
+  /** The microphone itself, which is what is watched and what is released. */
+  let micStream: MediaStream | null = null;
+  /** The tab or screen the person shared, while they are sharing it. */
+  let displayStream: MediaStream | null = null;
+  let graph: AudioGraph | null = null;
   let active: MediaRecorder | null = null;
   let parts: Blob[] = [];
   let rotationTimer: ReturnType<typeof setInterval> | null = null;
+  let levelTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Identity of this capture session. Read once, at `start`, and never again. */
   let sessionKey = "";
@@ -248,6 +404,8 @@ function mediaRecorderRecorder(): MeetingRecorder {
 
   /** The sends that have not answered yet. See `MAX_INFLIGHT_CHUNKS`. */
   const inFlight = new Set<Promise<void>>();
+  /** `OFFLINE_NOT_KEPT` has been said for the stretch offline we are in. */
+  let offlineSaid = false;
 
   function queue(work: () => Promise<void>): Promise<void> {
     // Both arms are `work` on purpose — see `audio.ts`, same reason.
@@ -298,11 +456,59 @@ function mediaRecorderRecorder(): MeetingRecorder {
         }
       });
     }, SEGMENT_MS);
+    startLevelPolling();
   }
 
   function stopRotation(): void {
     if (rotationTimer !== null) clearInterval(rotationTimer);
     rotationTimer = null;
+    /*
+      The meter's life is the rotation's, because they are the same life —
+      `audio.ts` ties them at the same two functions and says why. Every path
+      that starts or stops one wants the other, and there are six of them.
+    */
+    stopLevelPolling();
+  }
+
+  /**
+   * Read the analyser ten times a second and publish what it says.
+   *
+   * Nothing at all when there is no analyser, which is the honest answer for a
+   * browser with no `AudioContext`: `capture/level.ts` draws a different mark
+   * for *"nothing here can tell you"* than for *"listening, and the room is
+   * quiet"*, and publishing a zero would collapse the two into the flat bar
+   * that reads as a dead microphone.
+   */
+  function startLevelPolling(): void {
+    stopLevelPolling();
+    const node = graph?.analyser ?? null;
+    if (node === null) return;
+    const samples = new Float32Array(node.fftSize);
+    levelTimer = setInterval(() => {
+      if (graph === null || state !== "recording") {
+        publishRecorderLevel(null);
+        return;
+      }
+      try {
+        node.getFloatTimeDomainData(samples);
+        publishRecorderLevel(meterLevel(rmsDbfs(samples)));
+      } catch {
+        // A graph going away underneath this timer is not a capture failure
+        // and is not worth a chip. The meter says it has no reading.
+        publishRecorderLevel(null);
+      }
+    }, LEVEL_INTERVAL_MS);
+  }
+
+  function stopLevelPolling(): void {
+    if (levelTimer !== null) clearInterval(levelTimer);
+    levelTimer = null;
+    /*
+      Said rather than left. A meter holding its last reading after the
+      microphone has gone is the same lie as one that never moves, pointed the
+      other way — it would draw a loud room over a meeting that has ended.
+    */
+    publishRecorderLevel(null);
   }
 
   function openChunk(): void {
@@ -360,6 +566,15 @@ function mediaRecorderRecorder(): MeetingRecorder {
       await abandon(NO_TRANSCRIBER);
       return;
     }
+
+    if (browserOffline()) {
+      // Once per stretch offline, not once per chunk: a chip every twenty
+      // seconds saying the same thing is a chip people learn to ignore.
+      if (!offlineSaid) report({ recoverable: true, message: OFFLINE_NOT_KEPT });
+      offlineSaid = true;
+      return;
+    }
+    offlineSaid = false;
 
     if (inFlight.size >= MAX_INFLIGHT_CHUNKS) {
       // Dropped rather than queued, and said out loud. See MAX_INFLIGHT_CHUNKS.
@@ -491,26 +706,65 @@ function mediaRecorderRecorder(): MeetingRecorder {
     });
   }
 
+  /**
+   * The share ended from the browser's own bar, mid-meeting.
+   *
+   * Not a capture failure: the microphone is still open, the mixed destination
+   * is still what `MediaRecorder` is recording, and the source node for the
+   * share simply goes silent. So the recording continues with one input and the
+   * person is told the recording changed under them — which they need, because
+   * "Stop sharing" is a button about a *screen* and the cost of pressing it here
+   * is half the call.
+   */
+  function watchShared(track: MediaStreamTrack): void {
+    track.addEventListener("ended", () => {
+      const shared = displayStream;
+      if (state !== "recording" || shared === null) return;
+      displayStream = null;
+      // The video track is still live — see `DISPLAY_CONSTRAINTS` — and nothing
+      // will release it now that `releaseStream` has lost its handle on it.
+      for (const other of shared.getTracks()) other.stop();
+      report({ recoverable: true, message: SYSTEM_AUDIO_ENDED });
+    });
+  }
+
   function releaseStream(): void {
     // The browser's recording indicator stays lit until every track is stopped,
-    // and a page that leaves it on is the web's version of iOS's red bar.
-    for (const track of stream?.getTracks() ?? []) track.stop();
+    // and a page that leaves it on is the web's version of iOS's red bar. The
+    // share's own indicator is a second one, with its own bar, so it is stopped
+    // here too — including the video track nothing ever looked at.
+    for (const track of micStream?.getTracks() ?? []) track.stop();
+    for (const track of displayStream?.getTracks() ?? []) track.stop();
+    micStream = null;
+    displayStream = null;
     stream = null;
+    /*
+      An `AudioContext` is a hardware resource with a small per-page limit, and
+      a page that opens one per meeting and closes none stops being able to open
+      them at all. Closing is async and nothing waits on it: releasing the
+      microphone is what the caller is waiting for.
+    */
+    const open = graph;
+    graph = null;
+    if (open !== null) void open.context.close().catch(() => {});
   }
 
   return {
     capability: {
       audio: true,
       /*
-        A browser captures the microphone and nothing else. `getDisplayMedia({
-        audio: true })` can get a *shared tab's* audio, in some browsers, with
-        the person choosing a source every time — a different feature with a
-        different consent story. The far side of a call on headphones is not in
-        this recording, and this `false` is what keeps the screen from saying
-        otherwise. A browser running inside the desktop shell never reaches this
-        recorder at all; see `resolveRecorder` below.
+        A browser cannot tap the machine's output the way the shell's loopback
+        does. What it can do is ask the person for a source and mix that
+        source's audio into the recording, which is a real answer to "the far
+        side of my call is on headphones" and a different consent story from the
+        shell's — so it is claimed only where both halves of the probe hold, and
+        `systemAudioNeedsPicker` beside it is what makes the sheet say a picker
+        is coming rather than offering the shell's silent switch. A browser
+        running inside the desktop shell never reaches this recorder at all; see
+        `resolveRecorder` below.
       */
-      systemAudio: false,
+      systemAudio: canShareSystemAudio,
+      systemAudioNeedsPicker: canShareSystemAudio,
       transcribesAt: "cloud",
       unavailableReason: null,
     },
@@ -519,17 +773,56 @@ function mediaRecorderRecorder(): MeetingRecorder {
     },
 
     async start(options?: CaptureOptions) {
-      if (state === "recording") return;
+      // The id before the state: see `ALREADY_RECORDING`, and `audio.ts`.
       const meetingId = requireSessionId(options);
+      if (state === "recording") {
+        if (meetingId === sessionKey) return;
+        throw new Error(ALREADY_RECORDING);
+      }
+
+      /*
+        THE PICKER GOES FIRST, AND BEFORE THE MICROPHONE PROMPT.
+
+        `getDisplayMedia` requires transient activation and `getUserMedia` does
+        not, so the order is not a preference: a microphone prompt sitting on
+        screen while somebody finds the Allow button spends the activation the
+        picker needs, and the share would then be refused for a reason that has
+        nothing to do with what anybody chose. Asked first, the picker rides the
+        press that opened it.
+
+        Only when the person asked. `options.systemAudio` is the sheet's switch
+        and it is **off** by default on this surface (`useMeetingFlow` says
+        why) — a picker nobody asked for, in front of every meeting, is the
+        version of this feature that gets turned off entirely.
+      */
+      const wanted = options?.systemAudio === true && canShareSystemAudio;
+      displayStream = wanted ? await shareSystemAudio() : null;
+
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch {
         // Denied, dismissed, or no input device. One sentence either way: the
         // person cannot act on the difference, and the notepad is unaffected.
-        stream = null;
+        // The share, if there is one, is handed back rather than left running
+        // in front of a meeting that never started.
+        releaseStream();
         throw new Error(MIC_DENIED);
       }
-      for (const track of stream.getAudioTracks()) watch(track);
+
+      graph = await buildGraph(micStream, displayStream);
+      if (displayStream !== null && graph?.mixed == null) {
+        /*
+          Nothing here can combine two inputs into one recording, so the share
+          would be held — its bar lit, its tab captured — and not recorded. Hand
+          it straight back; the sentence below says the recording is mic-only.
+        */
+        for (const track of displayStream.getTracks()) track.stop();
+        displayStream = null;
+      }
+      stream = graph?.mixed ?? micStream;
+
+      for (const track of micStream.getAudioTracks()) watch(track);
+      for (const track of displayStream?.getAudioTracks() ?? []) watchShared(track);
 
       sessionKey = meetingId;
       chunkIndex = 0;
@@ -546,6 +839,18 @@ function mediaRecorderRecorder(): MeetingRecorder {
 
       state = "recording";
       startRotation();
+
+      /*
+        Asked for the whole call and given half of it. Reported rather than
+        rendered silently, and after the recording is genuinely running so the
+        sentence is about a meeting that exists: `recoverable: true`, because
+        the microphone half is fine and it is the *claim* that would be wrong.
+        `desktop.ts` reports its own `micOnly` at the same point for the same
+        reason.
+      */
+      if (wanted && displayStream === null) {
+        report({ recoverable: true, message: SYSTEM_AUDIO_UNSHARED });
+      }
     },
 
     async pause() {
@@ -613,6 +918,130 @@ function mediaRecorderRecorder(): MeetingRecorder {
       return () => errorListeners.delete(listener);
     },
   };
+}
+
+/**
+ * Ask the person for a source, and hand back only one that carries audio.
+ *
+ * `null` for every way this comes back empty, because the caller says the same
+ * sentence for all of them. The two that are not obvious:
+ *
+ *  - **A rejection is ordinary.** Cancelling the picker is a `NotAllowedError`,
+ *    and so is a browser that will not share audio at all, and so is a lapsed
+ *    transient activation. None of them is a fault worth its own words.
+ *  - **A resolved share with no audio track is the common miss.** Chrome hands
+ *    back a video-only stream when the "share audio" box is left unticked, and
+ *    when a whole screen is picked on a platform that cannot loop it back. Kept,
+ *    it would hold a tab captured for a recording it contributes nothing to, so
+ *    it is stopped here — including the video track, which is what actually
+ *    ends the share and turns the browser's sharing bar off.
+ */
+async function shareSystemAudio(): Promise<MediaStream | null> {
+  let shared: MediaStream;
+  try {
+    shared = await navigator.mediaDevices.getDisplayMedia(DISPLAY_CONSTRAINTS);
+  } catch {
+    return null;
+  }
+  if (shared.getAudioTracks().length === 0) {
+    for (const track of shared.getTracks()) track.stop();
+    return null;
+  }
+  return shared;
+}
+
+/**
+ * The Web Audio graph for this capture: a meter always, a mixer when needed.
+ *
+ * `null` for a browser with no usable `AudioContext`, which costs the meter and
+ * — because `mixed` comes from the same graph — costs the share as well. Both
+ * absences are reported by their own callers rather than papered over.
+ *
+ * ## Nothing is connected to `context.destination`, ever
+ *
+ * That is the speakers. Connecting a shared tab's audio to them plays the call
+ * back into the room the microphone is in, which is a feedback loop on a
+ * recording, and connecting the microphone to them is the same loop with the
+ * inputs swapped. The analyser and the mixing destination are both sinks that
+ * pull without playing, which is exactly what is wanted here.
+ *
+ * ## A suspended context is a silent recording, so it is checked
+ *
+ * Autoplay policy can hand back a context in `suspended`, and a suspended
+ * context's `MediaStreamAudioDestinationNode` produces a stream of silence —
+ * a meeting that records perfectly and contains nothing. `resume()` is the fix
+ * and the state check after it is the guard: a context that will not run is
+ * closed and answered as `null`, so the caller falls back to recording the
+ * microphone's own stream rather than a silent mix of it.
+ */
+async function buildGraph(mic: MediaStream, display: MediaStream | null): Promise<AudioGraph | null> {
+  if (typeof AudioContext === "undefined") return null;
+  let context: AudioContext;
+  try {
+    context = new AudioContext();
+  } catch {
+    return null;
+  }
+  try {
+    if (context.state === "suspended") await context.resume();
+  } catch {
+    // The state check below is what decides; a rejected resume is one way of
+    // arriving at it and not a separate outcome.
+  }
+  if (context.state !== "running") {
+    void context.close().catch(() => {});
+    return null;
+  }
+  try {
+    const sources = [context.createMediaStreamSource(mic)];
+    if (display !== null) sources.push(context.createMediaStreamSource(display));
+
+    let mixed: MediaStream | null = null;
+    if (display !== null) {
+      const destination = context.createMediaStreamDestination();
+      for (const source of sources) source.connect(destination);
+      mixed = destination.stream;
+    }
+
+    /*
+      One analyser fed by every input, rather than one per input and `loudest`
+      over the pair. The bridge carries two numbers because the shell genuinely
+      knows both and a diagnostics screen may want the split; here the two
+      inputs are already being summed into one recording, and the question the
+      mark answers — *"can this hear anything"* — is a question about that
+      recording. A browser with no `getFloatTimeDomainData` has no meter, which
+      is `null` rather than a zero, for the reason `capture/level.ts` gives.
+    */
+    const analyser = context.createAnalyser();
+    analyser.fftSize = LEVEL_FFT_SIZE;
+    for (const source of sources) source.connect(analyser);
+    const usable = typeof analyser.getFloatTimeDomainData === "function";
+
+    return { context, analyser: usable ? analyser : null, mixed };
+  } catch {
+    void context.close().catch(() => {});
+    return null;
+  }
+}
+
+/**
+ * One window of samples as dBFS, on the scale `meterLevel` maps.
+ *
+ * RMS rather than peak, because `meterLevel`'s floor was calibrated against
+ * `AVAudioRecorder.averagePower` on the phone and a peak reading against an
+ * average's scale would sit a mark high all meeting.
+ *
+ * A window of exact zeros is digital silence, and `20 * log10(0)` is
+ * `-Infinity`, which `meterLevel` reads as *"no reading"* — the one answer it
+ * must not be, because something genuinely is listening. It is returned as the
+ * floor instead, which is the bottom of the mark rather than the absence of one.
+ */
+function rmsDbfs(samples: Float32Array): number {
+  let sum = 0;
+  for (const sample of samples) sum += sample * sample;
+  const rms = Math.sqrt(sum / Math.max(1, samples.length));
+  if (!(rms > 0)) return METER_FLOOR_DB;
+  return 20 * Math.log10(rms);
 }
 
 /**

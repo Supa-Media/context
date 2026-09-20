@@ -41,7 +41,7 @@ channels as its direct children, nothing interposed — and that shape survives
 intact. What does not survive is the folder's *name*, for three reasons:
 
 - **The bucket already has an inbox, and it is `0-inbox/`.** PARA numbering is
-  the layout every existing brain was scaffolded with and the one `privacy.md`
+  the layout every existing workspace was scaffolded with and the one `privacy.md`
   carries folder rules for. A second inbox root beside the first is two
   inboxes: two places an unfiled thing can be, two folder rules to keep in
   step, and a `0-inbox` that quietly means "everything except mail".
@@ -85,7 +85,133 @@ meeting note in every bucket plus a `privacy.md` rule nobody's manifest has,
 and buys a folder name one character shorter. The check is
 `every communications path this package writes begins with 0-inbox/`.
 
+### ...and the default a connection is given is that folder, not a second string
+
+The rule above binds the package. It did not bind the **control plane**, which
+carries its own `defaultGoogleDestinationFolder` — the folder a connection
+syncs into until somebody opens the destination field — and that function
+spelled all three answers out longhand. Gmail's and Calendar's matched. Chat's
+read `2-areas/communications/daily`, and nothing anywhere compared the two, so
+**every Google Chat connection that had never had its destination changed wrote
+its days outside the Inbox**: outside the folder this file decided, unrouted by
+`classifyCommsPath` (the console listed the days as plain files rather than
+drawing a channel), uncollapsed by `classifyCaptureKind` (so a week of
+automated chat paperwork crowded out `orient`'s recency list, which is the
+exact failure *A firehose is not attention* exists to prevent), and — in a
+bucket where an older importer had left a generated `2-areas/communications/contacts/`
+— filed beside a second contacts folder, so the product's own `0-inbox/contacts`
+looked like the duplicate.
+
+A default is not a smaller thing than the layout it defaults to. It is the
+layout, for everybody who never opened the field, which is most people. So the
+three branches are the package's constants now, and the checks compare each
+default to **the key the package writes when a pass is handed no folder**
+(`channelDayNotePath`, `calendarDayNotePath`) rather than to a constant:
+two constants agreeing only proves they were typed on the same day.
+
+**What reversing this costs**: a second spelling of a folder name whose first
+spelling is in `protocol.js`, discovered by a customer reading their own
+bucket, which is how this one was found.
+
+**Changing it moves nothing already written.** A pass that ran under the old
+default leaves its days where they are, exactly as changing the destination in
+the console does — `updateGoogleSyncDestination` patches the row and never
+touches the bucket. The notes are the customer's; relocating a folder of them
+is `move_folder` and their decision, not a migration this product performs on
+its own.
+
+**The tests that fail if this is reversed**: `"the default destination folder
+is the package's answer, not a second one"` in
+`apps/convex/__tests__/googleConnect.test.ts`, `"a chat connection nobody has
+configured files its days in the Inbox"` in `chatProduct.test.ts`, and the two
+end-to-end Chat passes in `googleSyncLoop.test.ts` — five checks, confirmed by
+putting the old string back.
+
+### A day is filed under `YYYY/MM/`, and the date stays in the filename
+
+**Reversed on 2026-09-18, by the owner, and the section it reverses is kept
+below** — because the argument it made is still true and is now simply
+outweighed. Read both.
+
+What changed is not the reasoning, it is the weight: a channel day is one file
+per active day and **nothing ages out**, so a mailbox synced for three years is
+a folder with eleven hundred files in it, and `0-inbox/email/<mailbox>/` is a
+folder the customer opens in Obsidian, in Finder, and in whatever sync client
+they point at their own bucket. "A listing is not how anybody reaches a day of
+mail" is right about *reaching* a day and says nothing about what that folder is
+like to live with. The owner weighed the two and chose the folders. So:
+
+    0-inbox/email/<mailbox>/2026/09/2026-09-07.md
+    0-inbox/calendar/<account>/2026/09/2026-09-07.md
+    0-inbox/google-chat/<account>/2026/09/2026-09-07.md
+    0-inbox/imessage/2026/09/2026-09-07.md
+
+**The filename keeps its whole date.** Not `07.md`: a note in a search result,
+behind a shared link, or in somebody's Daily Notes pane has to say what it is
+without its folder, and a note somebody *moves* has to keep saying it.
+`isMeetingNotePath` has accepted exactly this shape since meetings were filed
+this way, so the two recognisers agree rather than disagreeing in a new place.
+
+**Meetings stay flat, and that is not an inconsistency.** The dated tree was
+built for meetings, used, and removed as unusable ([meetings](./meetings.md),
+same section) — a person who records twice a month got two directory levels per
+note, every folder holding one file. A meetings folder grows at the rate
+somebody records; a channel folder grows one file per day whether or not
+anybody does anything. Different rate, different answer.
+
+**Forward-only, so both shapes are read forever.** Nothing already written
+moves: the notes are the customer's, and moving a year of them is
+`move_folder`'s job and their decision. This is the branch the section below
+refused, on the premise that *no bucket anywhere holds a channel-day note* —
+true when it was written, false now. And it needs one more rule than "read
+both", because a day is **regenerated** on every pass rather than appended to:
+a day that already exists flat and is next written in the tree would not
+continue, it would exist twice under one date. So a writer asks the bucket
+first — `apps/mcp/src/communications/dayPlacement.js`, and `flatDayPath` in the
+package — and **a day that already has a note keeps it**. The switch lands per
+day, not per deploy: a bucket synced yesterday has no seam at all.
+
+The console follows the same rule when reading: after `parseChannelDayPath`
+recognizes either shape, the day view reads part 1 and every sibling part from
+the selected note's actual folder. Reconstructing the newer dated path from the
+date would accept a legacy flat note as a route and then ask the bucket for a
+different key, falsely rendering a healthy note as unreadable.
+
+The checks are `a day already filed flat is written flat, not moved into the
+tree`, `...while a day the same bucket has NOT seen is filed under its month`,
+`a date folder that disagrees with the filename is nobody's note`, and `a
+legacy flat day is read from the path that was selected`.
+
+### The account level reaches Calendar and Chat
+
+Same date, same reason the mailbox folder exists, and it closes a real hole:
+two connected Google accounts wrote **one** `0-inbox/calendar/2026-09-07.md`
+between them. It read correctly — every event names its account — and it cost
+the thing the folder was for. `visibilityOf` is longest-matching-prefix over
+folder defaults, so a folder is the only unit that can say "this account, and
+everything in it, forever". Merged, "my work calendar is team and my personal
+one is private" was not expressible at all, at any number of lines in
+`privacy.md`.
+
+The slug is Gmail's when Gmail has one, so one account is one folder name
+across all three products, and it is **recorded** in the connection's
+`destinationFolder` at connect and never recomputed — a later connect or
+disconnect cannot rename the folder somebody's calendar is already in. A
+connection bound before this keeps the folder its row names, which is what
+makes this forward-only too: `defaultGoogleDestinationFolder` with no slug
+still answers the folder these products have always used.
+
+The check is `calendar defaults to this account's own folder under the calendar
+folder`, and its pair `...and a connection with no recorded slug keeps the
+folder it has always written to`.
+
 ### There are no `YYYY/MM/` folders, and the date is the filename
+
+**Superseded on 2026-09-18 — see the two sections above.** Kept because its
+argument is the one that has to be outweighed again by anybody who wants to
+reverse the reversal, and because its last paragraph is exactly the rule the
+new layout had to break and says why that was expensive.
+
 
 The scoping note nests `2026/09/2026-09-07.md`. **That tree was built here
 once, used, and removed as unusable**, and the argument against it is already
@@ -355,7 +481,7 @@ Four consequences, each of which is the thing a reviewer should check for:
 
 - **Default private, and that is the folder rule doing it, not a special
   case.** `visibilityOf` returns `private` when no rule matches, and a personal
-  brain is scaffolded all-private. A newly connected mailbox writes into a
+  workspace is scaffolded all-private. A newly connected mailbox writes into a
   folder nobody has named in `privacy.md`, so it is private from the first
   byte, before any code in this package runs.
 - **Never `team` by default, and a shared workspace is where that would have
@@ -419,7 +545,7 @@ thousand notes today — so the shard budget, the manifest and `pending` all
 have to be measured against a mailbox before this is switched on, and the
 switch is per context. And the existing single-document path stays: a note
 that is not a channel-day note is indexed exactly as it is now, so nothing
-about this reaches a brain with no mailbox connected.
+about this reaches a workspace with no mailbox connected.
 
 This is **decided here and built in phase 2**, with `apps/mcp/src/search/CONTRACT.md`
 amended in the same commit as the code. Phase 1 shipped the rendering, the
@@ -470,7 +596,7 @@ messages could not be spread across shards, the single shard's serialized body
 passed `SHARD_PARSE_BYTE_CAP`, and the write was correctly refused on every
 pass. That is the plateau `docs/decisions/search.md` describes ("each pass
 rebuilt the same oversized shard and had its write refused"), reached here by a
-mailbox rather than by a brain of thousands of notes, and it took the 200
+mailbox rather than by a workspace of thousands of notes, and it took the 200
 ordinary notes in that bucket down with it. The threshold was **four messages a
 day**: 1.67 MB of shard at four, past the 2 MB cap at five.
 
@@ -595,7 +721,7 @@ Three properties follow from that split and are each proved by a test in
 The check that fails if this is reversed back to exclusion is
 `toolOrient answers "what came in" with a pointer, never silence`; the check
 that fails if the collapse is dropped entirely is
-`a brain with a year of channel-day notes still surfaces its own recent notes
+`a workspace with a year of channel-day notes still surfaces its own recent notes
 in orient` — sabotaged by returning `null` from every branch of
 `classifyCaptureKind`, which failed 13 of the 16 checks in that block,
 including the ones proving a hand-edited note is not displaced.
@@ -769,7 +895,60 @@ correspondence. **A merge never rewrites a channel-day note** — the messages
 are what happened, the contact page is a view of them — so an unmerge is
 deleting and regenerating one file rather than unpicking a year of edits.
 
+**Contacts grow organically from communication sync, not from a separate
+address-book import.** The normalized events already read for iMessage, Gmail
+and Google Chat yield the sender and recipients, their email/phone/provider
+identifiers, and a link back to the message anchor in the channel-day note.
+iMessage, Gmail and Chat materialize those drafts in the same durable pass that
+writes the day; a failed contact write holds the provider cursor rather than
+silently losing the relationship. The owner's own email and provider
+identity are filtered at the connection boundary. No macOS Contacts permission,
+Google People scope, or second provider crawl is part of this path.
+
 The check is `a name-only match never merges two contacts`.
+
+### And they are read through two tools, because a page nobody can find is a file
+
+For a week after the pages landed there was no way to *ask* for one. A
+connected client could read a contact page if it already knew the path, which
+it only ever would by having been told; "who does this person correspond with"
+had no answer at all, on a surface whose whole claim is that the answer is one
+call away. `list_contacts` and `read_contact` are that pair, built the same way
+`list_channel_days` and `read_channel_day` are — a listing from the folder
+listing and then the notes, never an index, so a page the owner moved out stops
+being listed and stays a note of theirs — and they carry the
+[`context-contacts` plugin](./plugins.md)'s switch.
+
+Three things they do that the channel-day pair does not have to, all from one
+fact: **a contact's key is chosen by whoever sent the user a message.**
+
+- **`isContactNote`, not a successful parse, decides whether a page is ours.**
+  `parseContactView` is lenient by design; pointed at the owner's own note at a
+  contact's key — or at ciphertext — it returns a person with an empty name.
+  The listing labels such a note (`(a note of your own)`, `(encrypted)`) rather
+  than hiding it, and the read hands it to `read_note`, which is the tool that
+  can actually open the sealed one.
+- **Both print the same provenance sentence, from one constant.** The name, the
+  organization and the identifiers on a page are values off inbound mail. A
+  model handed them with nothing said reports them as this context's own claim
+  about a person — so the listing says it where somebody chooses who to read
+  about, and the read says it where they choose what to believe.
+- **The activity list is cut to five** unless `activity: true` asks for it, the
+  same bargain `read_channel_day` strikes with message bodies: a
+  three-year correspondence is a link per message, and a tool call should not
+  spend a model's context on a list nobody asked for.
+
+Ordering is the listing's own `uploaded`, so nothing is read before the slice —
+a contact page is rewritten whenever a sync adds activity, which makes
+"recently written" and "recently in touch" the same answer without opening a
+note to find it.
+
+**What a simplification costs**: gating on the parse turns the owner's own note
+into a person; dropping the provenance line makes a sender's self-description
+indistinguishable from something this context established; sorting on the key
+lists people alphabetically by the address that happened to name their file.
+The checks are `apps/mcp/test/contacts.test.mjs`, with its sabotage record —
+nine edits, every one caught.
 
 ### The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 
@@ -920,6 +1099,101 @@ setting takes it as a parameter or an injected `{listSpaces, listMessages}`
 client, so the whole transform-and-render path is tested end to end on
 fixtures, independent of how the control plane happens to store the
 credential that will eventually be handed to it.
+
+**A scheduled Chat pass stamps each regenerated day from the newest message
+in that day, never from the pass clock.** The fixture suite originally proved
+idempotence by running the same pass twice with the same injected `now`, which
+did not prove what a scheduler needs: the next pass runs five or fifteen
+minutes later. Passing that later wall clock into `updated` made an unchanged
+day byte-different and would have rewritten it on every poll. A day containing
+messages now uses its latest `sentAt`, matching Gmail's forward loop; an
+unavailable-only notice uses that day's midnight. The regression runs the same
+provider state at two different pass times and requires byte-identical output.
+
+**Neither Chat page walk trusts the provider to converge.** Both `spaces.list`
+and each space's `messages.list` remember every continuation
+token they have followed and stop with the fixed `PAGINATION_STALLED` code if
+one repeats; a thousand-page ceiling covers a provider that returns fresh junk
+forever. A stalled spaces walk fails the account pass for normal scheduler
+backoff. A stalled messages walk fails only that space, leaves its cursor
+untouched, and lets the other spaces finish. The fixture deliberately repeats
+one token and throws if a third request is made, so an unbounded loop fails
+quickly instead of hanging the suite.
+
+**A contact's key is chosen by whoever wrote to the owner, so the note already
+there is not necessarily ours.** `contactPathForDraft` derives the key from an
+identifier a *sender* supplied, and the scheduled Gmail pass writes to it —
+`0-inbox/contacts/email-<them>.md` exists because they emailed. `parseContactView`
+reads anything without complaining, by design, so merging straight into whatever
+is at that key turned "merge into the page that is there" into "replace whatever
+is there": a note the owner keeps by hand in that folder was rewritten as a
+generated contact page, and an **encrypted** note was replaced with plaintext —
+stripping the owner's lock and taking the ciphertext under it with the write,
+which is exactly the "it would look like a successful write" `sealNoteContent`
+refuses in the gateway. So `isContactNote` reads the frontmatter `type` the
+renderer always emits, `mergeContactNote` answers `null` for anything else, and
+every caller already treats `null` as *leave the key alone*. The checks are
+`a hand-written note at a contact's key is left alone, not replaced by a
+generated page` and `an owner's note with frontmatter of its own is not mistaken
+for a contact page` — the second because a guard that only asked "does this open
+with `---`" would pass the first. `CONTACT_TYPE` is now a named constant the
+reader and the renderer share, so the two cannot drift.
+
+**A Chat pass now exposes a JSON-safe account contribution before anything
+writes the shared day.** `syncGoogleChat` still returns its legacy single-account
+notes for callers that already use them, but also returns the exact day slices
+the live runner must persist per account. `renderSharedGoogleChat` takes all
+active contributions, groups them by configured destination, and renders one
+shared day from their union with a workspace-level nonce seed. Account polling
+order cannot change the bytes; updating one contribution cannot erase another;
+destinations never bleed together; and two copies of the same normalized
+account at one destination fail closed.
+
+**Those account contributions now have a customer-storage commit boundary.**
+Each connection owns a hash-addressed manifest and bounded day objects under
+`.context/communications/google-chat/contributions/`; message content still
+never enters Convex. A pass writes day objects first and conditionally commits
+the manifest last. The shared runner must load every active connection's
+manifest and every referenced day before rendering anything, and a missing,
+corrupt, duplicated, re-bound, or concurrently changed contribution aborts the
+join rather than letting the last account erase a sibling. The manifest keeps
+the newest 366 days and removes older plumbing only after its replacement is
+committed. A store whose connection probe found that it cannot enforce
+conditional writes is refused rather than given a false concurrency
+guarantee.
+
+**The account-level forward loop now runs that Chat boundary** (2026-09-12).
+The same five-minute sweep that drives Gmail selects the least-recently-synced
+product on the shared Google row, opens the customer's store through the one
+credential barrier, persists this account's contribution, loads every current
+and disconnected contributor, writes the shared day and organic Contacts, and
+only then advances the per-space cursors. A missing sibling contribution is a
+quiet warm-up skip rather than an outage; its cursor stays put until the sibling
+has completed a pass. Chat-bearing account rows are serialized per workspace
+so two account passes cannot race a stale aggregate over a newer one. Gmail-only
+rows retain the sweep's bounded parallelism because their destination folders
+are per-account and never overlap.
+
+**Two rules that join has to keep, because the first draft of it kept
+neither.** A *destination* is the folder a key lands in, not the string a
+settings field holds, so contributions are grouped by
+`channelDestinationFolder`'s answer — the same function `channelDayNotePath`
+resolves the path with. Grouping on the raw string made
+`0-inbox/google-chat` and `0-inbox/google-chat/` two destinations that then
+rendered the same path twice, one note per account, and whichever the runner
+persisted last erased the other: the exact erasure the join exists to prevent,
+reachable by a trailing slash. And the *notice order* inside a day is
+codepoint order, never `localeCompare`, for the reason `chronological` in
+`packages/communications/src/note.js` already states — a comparator decides
+which bytes land in the note, so a default-locale collation makes the day a
+property of the machine that rendered it. A collation additionally treats
+U+0000 as ignorable, which quietly voided the NUL joining a notice's label to
+its reason and let two different notices compare equal, leaving their order to
+whichever account was polled first — byte churn on a shared note, every pass,
+which is what "Keep scheduled Chat notes byte-stable" was merged to end. The
+checks are `two spellings of one destination folder are one destination, not
+two notes at one path` and `notices whose label and reason run together under a
+collation still order the same either way`.
 
 **On the control-plane side, `functions/chatProduct.ts` attaches Chat to the
 same `googleConnections` row Gmail already writes** (2026-09-07) — no second
@@ -1335,21 +1609,289 @@ whatever was written intact rather than discarding a partially-written day —
 the day it stopped on is picked up again once the connection's usage has room,
 by the next scheduled pass.
 
-**What phase 1 does NOT wire up, named so it reads as scope rather than a
-gap**: `apps/mcp/src/communications/gmailSync.js` takes its Gmail socket, its
-access token and its `ContextStore` as parameters and is tested end to end
-against a fixture Gmail server and an in-memory store — but nothing yet calls
-it from a live Worker, and nothing yet mints that access token over the
-network. `functions/googleConnect.ts`'s `mintGoogleAccessToken` is a real,
-tested internal action, reachable today only from a test; a live sync needs
-the same two things `/gateway/ingest/binding` already is for the email worker
-— an internet-facing route on the control plane the gateway can call with its
-own secret, and a scheduled trigger on the gateway side to call it — and
-building both is exactly the shape `docs/decisions/search.md` already uses
-for its own phase boundary ("decided here and built in phase 2"). Until then
-the control plane can connect a mailbox and the gateway can render one
-correctly; nothing yet makes the second happen automatically for a real
-person.
+**What phase 1 did NOT wire up — closed 2026-09-10 by the forward sync loop
+below, and left here rather than deleted because the gap it describes was real
+and the shape of the fix is the argument.** `apps/mcp/src/communications/gmailSync.js`
+takes its Gmail socket, its access token and its `ContextStore` as parameters
+and is tested end to end against a fixture Gmail server and an in-memory store
+— but for a while nothing called it at all: the historical backfill that used
+to (#388) was removed, and the reference count went to zero without anybody
+noticing, because a module nothing imports still passes its own tests. What was
+missing was never a pipeline. It was a trigger.
+
+The route it was assumed to need was not needed either. `mintGoogleAccessToken`
+and the storage binding both already live in the control plane, and
+`runFileOperation` is already the one function allowed to open a bucket
+credential — so the loop runs *there*, exactly as the removed backfill did,
+rather than as an internet-facing route the gateway calls with its own secret.
+A second credential-bearing route is a real cost (`__tests__/structure.test.ts`,
+`CREDENTIAL_HTTP_ROUTES`), and this needed none.
+
+### The forward sync loop: a pull, on a floor of five minutes
+
+**Nothing in this section has ever contacted Google.** Every operational claim
+below — the cursor invariant, how long a `historyId` survives, what a rate
+limit looks like, what `history.list` returns on page fifty — is read from
+Google's documentation and exercised against a fixture, and the whole loop is
+proved end to end against a fake Gmail and an in-memory bucket. That is enough
+to hold the *shape* of the thing; it is not evidence about Google's actual
+behaviour, and the first real mailbox may contradict a sentence here. Whoever
+runs it against one should correct this section rather than work around it.
+
+Built 2026-09-10 (`functions/googleSync.ts`, `crons.ts`), because a person
+could connect Gmail, see a healthy-looking connection, and receive nothing,
+forever. The grant was stored, the `historyId` baseline was recorded, and
+**nothing advanced it**: no cron, no webhook, and the gateway's `scheduled()`
+handler has no `[triggers]` block configured and reaches only the single-tenant
+legacy path when it does fire.
+
+**Why a pull, and not Google's push.** Gmail can push — `users.watch` posts
+change notifications to a Cloud Pub/Sub topic, and Calendar has watch channels.
+Both are rejected for now, and not because they are hard:
+
+- A push path needs a Pub/Sub topic in **our** Google Cloud project, an
+  internet-facing endpoint verified with Google, and per-mailbox
+  re-registration every seven days (`users.watch` expires). That is a second
+  externally-triggered ingress, a second thing to authenticate, and a second
+  thing to rotate — against a control plane whose whole discipline is that
+  exactly one HTTP route may reach a customer credential.
+- It does not remove the poll. A watch that expires, a notification that is
+  dropped, a topic whose subscription lapsed: each is only ever *noticed* by
+  something that polls. Every mature push integration has a reconciliation
+  loop underneath it, so the loop is the part that has to exist first.
+- The notification carries no mail. It says "this mailbox changed"; the client
+  still calls `history.list` and `messages.get`. Push buys latency, not work
+  avoided — and latency is what the interval is for.
+
+So: a pull now, and push later as an *accelerator* that pokes the same pass
+rather than as a second path into the bucket. What that costs is honest and
+worth stating: mail is late by up to one interval. It is never lost, because
+every pass rebuilds each touched day from Gmail's live state.
+
+**Why the floor is five minutes.** The cron ticks at five and the sweep starts
+a pass only where `now >= lastSyncAt + interval`, so one fixed tick serves
+every per-connection frequency; an interval below the tick could not be
+honoured anyway. Five is also where the cost stops being negligible: every pass
+mints or reuses an access token, calls `history.list`, and re-lists and
+re-renders every day a changed message landed on — against Google's quota and
+a Convex action budget, per connection. `apps/desktop/src/main/imessage.ts`,
+the one sync loop in this codebase that has always worked, settled on the same
+five minutes against a *local* SQLite file; this one crosses a network. The
+floor is enforced in the mutation, not the picker: four minutes is refused from
+a console, a script, and a client that has never seen the UI.
+
+**Why the default is fifteen and not the floor.** Mail is not a chat. Three
+passes an hour keeps a workspace within a quarter of an hour of the mailbox at a
+third of the floor's cost, and somebody who wants the floor can choose it.
+
+**What a person loses by choosing a longer interval**, in the order it starts
+to matter:
+
+1. **Freshness, linearly.** An hourly connection's workspace can be an hour behind.
+   Nothing else changes: the same bytes are written, later.
+2. **Nothing else, until a day.** A day's note is regenerated from the complete
+   current query for that date, so a slow poll writes the same file a fast one
+   would.
+3. **At the far end, actual mail.** Google documents a `historyId` as usable
+   for "typically at least a week", and adds "in rare circumstances only a few
+   hours". The tail matters more than the typical case: it means **even a
+   one-day interval can gap**, so the maximum is a bound on how *often* that
+   happens rather than a promise it cannot. Under a forward-only policy an
+   expired cursor cannot be recovered by a reconcile — there is no backfill to
+   run — so the mail that arrived in the gap is never captured, which is why an
+   expired cursor is written onto the row as a failure a person can read rather
+   than silently re-baselined.
+
+**Forward-only, and what a gap therefore means.** #388's decision stands: a
+pass advances `historyId` from wherever it is, and a connection with no cursor
+takes one from `users.getProfile` and starts *there* — the mail from before
+that moment is not this loop's to collect. The recovery this file documented
+for `gapDetected` ("call `runBackfill` over the connection's window again") no
+longer exists, so the gap is re-baselined forward and recorded as
+`GOOGLE_SYNC_GAP` on the connection, alongside a healthy `active` state,
+because both are true.
+
+**The cursor never advances past mail that was not written.** A quota ceiling
+reached mid-pass, or anything thrown, leaves `historyId` exactly where it was
+and the next pass asks Gmail the same question again. Advancing it would be the
+one defect in this design that loses somebody's mail with nothing to show for
+it, so it has its own check.
+
+**A history walk that runs out of pages resumes from the last record it read,
+and stays due — it does not store the mailbox head.** This is the same failure
+as the paragraph above wearing a much better disguise, and it was found in
+adversarial review of the first implementation rather than by writing it
+correctly. `history.list` returns the **mailbox's current** `historyId` on
+*every* page, not a per-page cursor. So a bounded walk (fifty pages) that
+stopped early and stored that value would report "caught up" while holding only
+the first pages — and every change behind them would be skipped **forever**,
+with no `gapDetected`, on a row reading `active`. It fires hardest on exactly
+the case this loop exists for: the first pass against a connection whose
+baseline is weeks old.
+
+Three ways out were available, and the third is taken:
+
+1. *Raise the page limit.* Moves the cliff without removing it, and makes one
+   pass unboundedly long against a Convex action deadline.
+2. *Leave the cursor where it is and re-run.* Safe, and it never finishes: the
+   next pass re-reads the same first fifty pages and stops in the same place.
+   Correct, and permanently stuck one page-limit from the front.
+3. *Advance to the last history record actually walked.* A history record's own
+   `id` is a valid `startHistoryId`, and it covers precisely the records this
+   pass collected and regenerated. The cursor moves, nothing is skipped, and
+   the next pass starts where this one stopped.
+
+**That third option rests on one assumption, and it is the sentence in this
+file most worth checking against a real mailbox first**: that Google accepts a
+`History.id` where it accepts a `historyId`. Google's own documentation says
+`startHistoryId` "should be obtained from the historyId of a message, thread,
+or previous list response", and a history record's id is that same mailbox
+sequence value — but nothing here has asked Google. If it is wrong, the symptom
+is a 404 on the next pass, which this code already reads as an expired cursor
+and handles as a gap: wrong in the safe direction, and visible on the row
+rather than silent.
+
+Which is why `listAllHistory` reports `truncated` and carries `lastRecordId`,
+why `runIncrementalSync` hands back the record boundary rather than the head
+when truncated, and why the pass then sets `syncCatchUp` on the row. That flag
+makes the connection **due on the next tick regardless of its interval**: the
+interval is how often to ask *whether anything changed*, and a connection
+draining a backlog is not asking — it has already seen the edge of one. Each
+pass makes real progress, so the loop terminates, and the flag is cleared by
+the first pass that reaches the end. The console says "catching up on older
+mail" rather than naming a next due time it does not mean.
+
+There are two cases where that urgent flag must not survive. Gmail can return
+many pages whose `history` arrays are empty after applying the requested
+`messageAdded` filter; if the bounded walk sees a next page token but no
+history-record id, it has no safe cursor to persist. That pass fails visibly
+with `GOOGLE_SYNC_NO_RESUME_CURSOR` and honors the retry ladder instead of
+re-reading the same fifty pages on every sweep. Likewise, any failed or
+skipped catch-up pass clears `syncCatchUp`, so its recorded backoff or retry
+time is authoritative. Both cases were found by comparing the merged loop
+against its saved adversarial review, and both have end-to-end regression
+checks.
+
+**A failed pass counts the bytes it wrote, and a refused grant stays refused.**
+Both were also review findings, and both are the same shape — a branch that
+patched a row *nearly* correctly. Byte accounting that skipped the failure path
+froze `bytesAlreadyUsed` below the ceiling on the one path that reaches it (the
+quota stop, which writes whole days before stopping), leaving a quota that
+could never be crossed and a day rewritten forever. And a failure that
+overwrote `health: "reconnect_required"` with a plain `error` erased the state
+the pass's own skip gate keys on, so a grant Google had revoked was offered
+back to Google's token endpoint on every backoff, forever, while the console
+never showed the one state the owner could act on.
+
+**A failure backs off on a ladder, not a flat wait.** Fifteen minutes, doubling
+to a six-hour ceiling, plus a spread derived from the connection's own id so a
+deployment's connections do not all wake in the same minute when an outage
+ends. Flat retries meant a `dailyLimitExceeded` — which by definition will not
+clear today — was retried about ninety-six times before it could.
+
+**Idempotence had to become true on the backends that cannot do a conditional
+write.** `writeDayPart` used to `put` unconditionally when
+`capabilities.conditionalWrite` was false, which made "re-syncing an unchanged
+day writes nothing" a property of R2 and S3 rather than of this code — and on
+B2 and Wasabi (which CLAUDE.md already names) a loop running every few minutes
+would rewrite every touched day forever and re-count the bytes each time. It
+now does the same read-compare there; what those backends still cannot give is
+the *atomicity* that turns a race into a retry, and that remains the honest
+degradation.
+
+**The pass passes no `now`, which is not a detail.** `renderDay` keys a day's
+`updated` to the newest message's own `sentAt` precisely so that re-rendering an
+unchanged day is byte-identical — and `syncOneDay` forwards whatever `now` a
+caller hands it straight through, overriding that. The removed backfill passed a
+wall clock, which a one-shot import survives; a pass that runs every few minutes
+would rewrite every touched day forever, which is churn wearing the costume of
+sync activity. The check that holds it is "re-running the same pass writes no
+new bytes".
+
+**The fence nonce is the connection's own id, and that answers a question
+`calendar-sync.js` left for exactly this work.** That file's comment names the
+nonce as "a cross-cutting, not-yet-wired question for whoever builds the live
+sync trigger for either channel": Calendar derives it from account and date,
+both of which are printed in the note, so an inviter who knows which account
+they wrote to and which day their invite landed on can compute it and forge a
+fence marker. Gmail's is `gmail:<connectionId>` — the same value the removed
+backfill used, kept so a day rewritten by either path keeps its message anchors
+— and it does not have that weakness: a sender cannot derive a Convex row id
+from anything they can see, and they never see the note. It is stable across
+every pass by construction, which is the other property the fence needs.
+
+It is not the strongest available shape, and the stronger one is already in the
+schema next door: Chat's `nonceSeed`, a random value minted at connect time and
+stored on the row (not a credential — leaking it weakens one connection's fence
+and nothing else). Gmail has no such field, and adding one now would rename the
+fence markers in every day already written. Calendar moved first: its live
+runner hashes the internal contributor ids with the date. That value is stable
+across account polling order and cannot be derived from the address printed in
+the note. Gmail still needs a migration that reads and reuses the existing
+note's nonce, then mints a random value only for a new day.
+
+**The cron holds no decision**, which is the rule `crons.ts` opens with and the
+one a job that *starts* work has to argue rather than assume. Whether a
+connection may sync at all — still connected, personal context, a product this
+engine can advance, a deployment permitted to read a restricted scope — is the
+connection's own state, re-asked by `googleForwardSyncJob` inside the pass,
+before a credential is opened. The sweep decides only when to look. It also
+claims each row it starts (`syncStartedAt`) and skips anything claimed less than
+fifteen minutes ago, so a pass still running is never overtaken — the same
+heartbeat, and the same fifteen minutes, as `sweepStalledBackfills`.
+
+**A pass that establishes a cursor is not a pass that synced mail**, and the
+card has to be able to say so. Forward-only makes the two genuinely different:
+a first baseline, and a re-baseline after a gap, both read *nothing* by design.
+Counting them as a sync would have shown every freshly connected mailbox as
+current before a single message had been read — the same confusion the card was
+rewritten to end, arriving one state later. So `gmail.lastSyncedAt` moves only
+when mail was actually read, `cursorReady` is what a baseline makes true, and
+the console has three sentences where it used to have two: never synced,
+watching with nothing read yet, and syncing.
+
+**Every pass that writes leaves an audit row, and the actor is `boundBy`.**
+This loop is the first writer in the codebase with nobody present, and
+non-negotiable #4 says the audit records the acting identity rather than the
+scope. The identity is the person who connected the account, on whose grant
+every one of these writes is made; naming them is more honest than an empty
+actor and is the name an owner needs. Only passes that wrote something are
+recorded — a poll that found nothing is not an event, and 288 of those a day
+per connection would bury the rows that matter — and the row carries counts
+only: no address, no subject, no path.
+
+**A connection that has never synced must not look like one syncing fine.**
+That state is exactly what shipped, so the row now carries `lastSyncAt` (when a
+pass last *finished*, successfully or not — making it mean "last success" would
+leave a permanently failing connection due on every tick), `nextSyncAt`, and a
+`lastSyncFailure*` triple that is **not** cleared by a later success, because
+"did this break overnight?" is a different question from "is it broken now".
+The console reads all of it.
+
+**One account, one schedule — which is what makes Calendar and Chat cheap.**
+The loop's unit is the `googleConnections` row, not a product: one claim, one
+credential mint, one report, and `ENGINE_PRODUCTS` says which products a pass
+walks. Adding Calendar means adding it to that list and giving it a pass beside
+Gmail's in `functions/files.ts`; it needs no second cron, no second claim, and
+no second set of status fields. What each of the two still needs before that is
+true:
+
+- **Calendar** has a sync module (`apps/mcp/src/communications/calendar-sync.js`)
+  whose own comment names this same gap, and a `calendar.syncToken` cursor
+  already declared on the row. What it lacks is an incremental entry point
+  shaped like `runIncrementalSync` — one that takes a `syncToken`, returns the
+  new one, and reports a `410 GONE` (Calendar's equivalent of an expired
+  `historyId`) as a typed gap rather than an error. Its horizon also rolls on a
+  clock rather than on a token, so a pass has a second job Gmail's does not:
+  extending the window forward even when nothing changed.
+- **Chat** pages `spaces.messages.list` by `create_time` **per space**, so its
+  cursor is a map rather than a value. The engine does not care — the cursor
+  lives on the product's own object — but `recordGoogleForwardSyncPass` writes
+  `gmail` specifically today and would need the same per-product branch its
+  reader has. Chat also needs one space's failure not to stall another's, which
+  is a property of its pass rather than of this loop.
+
+Neither is half-built here. Gmail is built properly and the two are named.
 
 ## Calendar
 
@@ -1361,7 +1903,7 @@ connected. `packages/communications/src/calendar` is the prototype, the same
 role `src/` plays for the channel-day contract above; this section is the
 argument behind it.
 
-### A calendar day lands at `0-inbox/calendar/YYYY-MM-DD.md`, with no account level
+### A calendar day defaults to `0-inbox/calendar/YYYY-MM-DD.md`, with no account level
 
 Email nests under `0-inbox/email/<mailbox-slug>/` because a person has
 several mailboxes they think of as separate things, and `privacy.md` needs a
@@ -1387,8 +1929,68 @@ already storing the merge. There is no `YYYY/MM/` nesting either, for the
 same reason a channel day has none: a flat folder sorted by name already
 gives the ordering a date tree would, and nobody reaches a day of their
 calendar by scrolling a folder — they reach it from `list_meetings`-style
-tooling, a search hit, or the meeting-link half below. The check is
-`every calendar path this package writes begins with 0-inbox/calendar/, with no account segment`.
+tooling, a search hit, or the meeting-link half below. The default-path check is
+`every default calendar path begins with 0-inbox/calendar/, with no account segment`.
+
+The folder is a default, not a prison: Settings already lets the owner choose
+a different Calendar destination, and the sync engine now passes that choice
+through `calendarDayNotePath` instead of continuing to write the default while
+the console displayed the custom path. The override changes only the folder;
+the file remains one flat `YYYY-MM-DD.md`, with no account or tenant segment,
+and the same validated customer root still wraps it.
+
+**Choosing the folder is what ends "a path this sync writes is a path only
+this sync writes", so the pass now asks whose note it is holding.** While the
+destination was fixed at `0-inbox/calendar/`, every key a pass touched was one
+it had written, and a full pass may delete: it walks all fourteen horizon days
+and removes the note at every date with no events. A chosen destination breaks
+that assumption in the most ordinary way available — the control plane accepts
+`2-areas/communications/daily`, its own test picks exactly that, and
+`YYYY-MM-DD.md` is how the owner's Obsidian daily notes in such a folder are
+already named, in a bucket this product syncs to Obsidian on purpose. So
+`isCalendarDayNote` reads the frontmatter `type` the renderer always emits, and
+a note that is not one is neither overwritten nor deleted. It is deliberately
+false for anything unreadable as a calendar day, which makes ciphertext skip
+too — `sealNoteContent`'s rule (a note this request cannot open is a note it
+cannot write) arriving through the call graph rather than a second check. The
+checks are `a note this sync did not write is never deleted from a chosen
+destination` and `an owner's note with frontmatter of its own is not mistaken
+for this sync's`; the second exists because a guard that only asked "does this
+open with `---`" would pass the first.
+
+**And a destination that normalizes away is refused rather than filed at the
+bucket root.** `normalizeRoot` answers `""` for input that is only separators
+(`"/"`, `"///"`), which built `/2026-09-07.md` — no folder at all — and
+`<root>//2026-09-07.md` under a customer root. `channelDestinationFolder`
+already answers `null` for the same input so its caller refuses; the calendar
+copy had restated it without that line. Two implementations of "is this a
+folder we will file into" is how one of them ends up the weaker one. The
+control plane refuses an empty destination too, so this is the second lock on
+a door rather than the only one — and it is the lock a self-hoster calling
+`calendarDayNotePath` directly reaches first. The check is `a destination that
+normalizes away is refused, never turned into a rootless key`.
+
+That shared file makes **account aggregation a write-time invariant**, not a
+presentation detail. A scheduled pass updates one account's private event
+cache and renders the day from every contribution assigned to that destination.
+Writing the just-synced account alone would make the last account polled erase
+the others. `mergeEventCaches` is the fail-closed join: account-qualified event
+keys can be unioned without collision and duplicate contributions are rejected.
+The control-plane runner now selects the contributors, keeps a disconnected
+account only when it has history to preserve, and ignores a disconnected
+account that never completed a sync. Each connection atomically replaces one
+hash-addressed cache object under
+`.context/communications/calendar/contributions/`; the loader refuses a
+missing, corrupt, duplicated, re-bound, or concurrently changed source before
+the join. Provider event content remains in the customer's bucket, never
+Convex.
+
+**Shared contribution storage requires an observed conditional-write
+capability.** A stalled pass can be overtaken after the scheduler's safety
+window, so “the scheduler normally serializes this source” is not an atomicity
+guarantee. R2 and stores whose connection probe proved `If-Match` may use this
+path. A provider that ignores preconditions is refused rather than allowed to
+turn a manifest into last-writer-wins state. The same gate applies to Chat.
 
 ### An event anchor is `evt-` plus the same FNV-1a 64 a message anchor uses
 
@@ -1668,50 +2270,43 @@ checks are
 `a grant that covers both leaves the health alone`, and
 `reconnecting a DISCONNECTED account through Calendar makes it healthy again`.
 
-### What this does not build yet
+**A Calendar page walk must reach Google's terminal page before it can
+succeed.** The terminal page is the only one that carries `nextSyncToken`, so
+silently returning after a page cap leaves the caller with no safe cursor and
+makes the next scheduled pass replay the same pages. `fetchAllPages` now
+remembers every continuation token, refuses a repeated one, and treats its
+thousand-page ceiling as the same fixed `PAGINATION_STALLED` failure rather
+than a partial result. The fixture repeats one token and throws if a third
+request is attempted.
 
-**The control-plane connection and the sync engine landed as two separate,
-reconciled changes, and only their join point is left.** This section
-originally assumed a calendar connection would be its own OAuth grant, its
-own attempt table and its own row — a guess that did not survive contact with
-how Gmail's flow was actually generalized: `googleConnections` (see "The
-Gmail connection" above) is one row per Google account, one grant, a
-`products` set, and one nested settings-and-cursor object per product, built
-specifically so a sibling product could attach without a second migration.
-Calendar is that sibling: `functions/calendarConnect.ts` is the real
-connect/reconnect/disconnect flow — same PKCE-attempt-then-scheduled-exchange
-shape as Gmail's, its own `CALENDAR_CONNECT_ENABLED` flag (Calendar's scope
-is *sensitive*, not *restricted* — a real distinction in Google's policy, so
-it is not tied to Gmail's CASA-verification timeline), and it attaches
-`calendar` to whatever `googleConnections` row a workspace already has rather
-than inventing a table. What is **still** not built is the last mile: nothing
-yet reads a `googleConnections` row's `calendar` product, decrypts its token,
-and calls `apps/mcp/src/communications/calendar-sync.js` with the
-`CalendarConnection`-shaped object that function expects — the same live-
-trigger gap `gmailSync.js` has too (see the fence-nonce paragraph below).
-`calendar-sync.js` remains exercised entirely against a fake, stateful
-Calendar API server (`fakeCalendarServer.mjs`) and a fake store, deliberately
-the same "pure functions plus fixtures" shape the whole of this package
-already has — see "The Gmail restricted scope is Google's decision" above for
-the same argument about testing ahead of a credential nobody can grant an
-agent yet. Wiring a live sync trigger for either channel is one change,
-scoped the same way for both, and is named here rather than built silently
-because it is the kind of "while I'm in here" scope creep this file's own
-rule warns against.
+### The live Calendar pass
 
-**The fence nonce is a placeholder, and the same gap already exists in the
-Gmail sync.** `calendar-sync.js` derives it from the connection's account and
-the day (`account:date`), which keeps regeneration idempotent but is weaker
-than the fence's own design goal — both values end up visible in the
-rendered note, so an inviter who knows which account they invited and what
-day their invite landed on could compute it. `gmailSync.js` has exactly the
-same gap: its nonce is caller-supplied (`options.nonce`) with nothing yet
-generating or persisting a real one, because neither sync is wired to a live
-trigger yet. The fix that keeps both properties — unpredictable, and stable
-across a regeneration — reads the *existing* note's own nonce back out and
-reuses it, minting a fresh random one only the first time a day is written;
-named here as a decision for whoever builds the live sync trigger for either
-channel, not a gap discovered after one lands.
+The account-level forward loop now runs Calendar through the same credential
+barrier, claim, retry ladder and owner-only status used by Gmail and Chat. A
+Calendar-only connection is due immediately. On a row with several products,
+the least recently synced product runs first so Gmail cannot starve Calendar.
+Calendar writers are serialized per workspace because they replace shared day
+notes.
+
+The first provider response supplies the primary calendar's IANA timezone under
+the existing `calendar.events.readonly` scope. Until that response arrives, the
+first request over-fetches one UTC day at each edge, then prunes the cache to the
+exact 14-day local horizon. Later passes use the stored contribution's timezone.
+Accounts sharing one destination must use one timezone; otherwise the pass
+fails with a sentence asking the owner to choose separate folders rather than
+filing an event under the wrong day.
+
+The runner writes the account contribution first, loads every contributor for
+the destination, renders only the affected days, and advances `syncToken` and
+`lastFullSyncDate` last. A missing sibling contribution is a warm-up skip, not
+an outage. The new note's fence nonce is a stable hash of internal connection
+ids and the date, so an event sender cannot derive it from the account address
+printed in the note.
+
+The remaining Calendar work is live-account proof. The fixture suite covers
+timezone discovery, shared rendering, cursor ordering, missing contributors,
+conditional writes and disconnect history, but a connected production account
+still has to complete a pass before Settings should claim delivery.
 
 Also not built, named so a future reader knows these were considered rather
 than missed: RSVP/response writes (v1 is read-only, matching the read-only
@@ -1847,8 +2442,8 @@ the row otherwise, exactly as it already drops one whose target is outside the
 window. The check is `A TAPBACK FROM ANOTHER CONVERSATION IS NOT FOLDED onto a
 message it names by guid`; removing the comparison fails 2.
 
-**Full Disk Access is attempted, never requested — there is nothing to
-request.** Unlike the microphone or Screen Recording
+**Full Disk Access is attempted, never requested by an OS prompt — there is no
+such API.** Unlike the microphone or Screen Recording
 (`core/capture/permissions.ts`), macOS raises no dialog for this permission at
 all; the only way to learn whether it is granted is to try the read and see
 what happens. `core/imessage/permission.ts`'s `detectFullDiskAccess` is a pure
@@ -1866,6 +2461,10 @@ Access`, and offers the one deep link macOS honours,
 `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles` —
 never a sentence that could apply to the wrong permission, which is the same
 rule `docs/decisions/desktop.md`'s permission-notice work already established
+for capture. When an enabled import changes to `"denied"`, the Mac app now
+shows that explanation in a native sheet and offers to open the exact pane;
+the Chats settings card keeps the steps and button visible until a later read
+succeeds, including the required quit-and-reopen step after changing TCC.
 for the microphone.
 
 **There is no `chooseMailboxSlug` for iMessage, and there never will be.**
@@ -2019,3 +2618,163 @@ synthesized subject can include the owner's own address alongside everyone
 else's, where a resolved identity would have excluded it. Nothing about
 content, folding, or privacy depends on this value; it is read only to build
 a heading string.
+
+### The destination rule is shared, so the field can say something before Save
+
+`normalizeDestinationFolder` lived in `apps/convex/functions/googleConnect.ts`
+as a private function that threw `ConvexError`. That put the rule out of the
+console's reach, and the field somebody types a sync destination into paid for
+it: no completion, no validation, and no preview of what the pattern produces.
+The mutation was the first thing that checked, and it refused *after* Save —
+into a field narrower than the paths people put in it, so the value being
+checked had already scrolled out of view.
+
+It is `@context/communications/destination` now, and it **answers with a value
+rather than throwing**: `{ ok: true, folder }` or `{ ok: false, code, message }`.
+Two reasons, and only the first is obvious. A thrown message cannot be rendered
+under a field while somebody is still typing. And `normalizeRoot`'s messages
+quote what they refused, which is a reflection — fine for a prefix a customer
+typed into their own binding, wrong for a value that reaches a settings panel
+and a `ConvexError`. The control plane maps the result to its own error and
+keeps the `GOOGLE_` codes its callers switch on, so **the server-side check is
+still the one that matters**: a client with the check removed is still refused.
+
+Two functions came with the move and are new capability rather than a
+relocation. `resolveDestinationPattern` answers what a pattern writes on a
+given day — the half the field never had, because a pattern carrying
+`YYYY-MM-DD` is a template and nothing ever showed its output, so the only way
+to learn you were wrong was to wait for a sync. `suggestDestinationFolders`
+answers what could come next, matching on the **last segment being typed**
+against folders under the same parent: a completion that matched anywhere in
+the path would offer `1-projects/comms` to somebody who committed to `2-areas/`
+two keystrokes ago. Neither ever offers a folder the validator would then
+refuse.
+
+Both take their inputs rather than reading the world — the date, and the folder
+list — so they stay pure, and the console hands them
+`loadedFolders(files.listings)`, the same source the forwarding-address card's
+quick-picks already read. No second listing.
+
+**What a "simplification" would cost**: putting the rule back behind the
+mutation returns the field to guess-and-wait. Letting the console validate with
+a rule of its own is worse than either — a client that allows what the server
+refuses is a Save button that reports success and changes nothing.
+
+**The sabotage row worth remembering**: swapping the local date parts for
+`toISOString` in `resolveDestinationPattern` failed **zero** checks. CI runs in
+UTC, where the local date and the UTC date are the same date, so the check
+written to catch it was asserting a tautology. It forces `TZ` now, with a
+second check asserting the forcing worked — a guard nobody has checked is not a
+guard, and that included that one.
+
+**The tests that fail if this is reversed**:
+`packages/communications/test/destination.test.mjs`, the refusal guard in
+`apps/convex/__tests__/googleConnect.test.ts` (which catches the import being
+swapped for a pass-through, something the package's own suite cannot see), and
+`apps/mobile/__tests__/googleDestination.test.ts`.
+
+### iMessage import has never reached the gateway, and the two decisions that made it so are both in this repository
+
+Found 2026-09-19, from a console screenshot: *"Import is on; last synced Sep
+18, 10:31 PM"* with `this machine's grant was refused` under it. The sentence
+is `NOTES_REFUSAL`-adjacent — `gatewayNotes.ts`'s fixed answer to an HTTP 401
+or 403 — and the cause is not a revocation, an expiry, or anything a person
+did. **A desktop machine grant cannot call `/mcp` at all**, and never could.
+
+The two halves are each argued, each recorded here or in `desktop.md`, and
+contradict each other:
+
+- *The write goes through `write_note` over the machine's own MCP grant, not a
+  new gateway route* (above) chose the MCP tool surface for the channel-day
+  note, and closed with **"the gateway itself is out of scope for this feature
+  (`apps/mcp` has no new route and no new test requirement here)"**.
+- `MACHINE_GRANT_SCOPES` in `apps/convex/functions/lib/machineGrant.ts` mints a
+  machine's grant as exactly `context:write context:private`, and says why
+  there is no read: *"a laptop credential that could read every note its owner
+  ever wrote is past what this feature is worth."*
+
+`apps/mcp/src/index.js` gates the **whole** `/mcp` endpoint on `context:read`,
+above the tool dispatch, and `effectiveScopes` in `session.js` strips the
+implied read from a grant that does not carry it — a write-only grant is read
+as capture-only by construction. So every `read_note` and every `write_note`
+from a Mac answers `403 insufficient_scope`, decided before a store is opened
+or a tool name is looked at. Measured against the real worker with the control
+plane stub, at exactly `["context:write", "context:private"]`:
+
+```
+read_note  → 403 {"error":"insufficient_scope",
+                  "error_description":"This connection does not hold the context:read scope."}
+write_note → 403 (the same, for the same reason)
+```
+
+Meetings is unaffected and always was: `scopeForMeetingRequest` asks for
+`context:write` on a POST, which the grant has. The machine credential was
+designed for the meetings REST surface, and iMessage was later built on a
+different surface without the scope that surface requires.
+
+**Why no suite caught it.** `apps/desktop/test/imessageGatewayNotes.test.mjs`
+drives a fake `fetch` that answers 200, using the literal string
+`"context:write context:private"`; every grant in the gateway's own
+`meetings.test.mjs` carries `context:read`. `autoGrant.test.mjs` does pin the
+two scope literals to each other across the repository — which is exactly why
+they are consistently wrong together. **Nothing pins either of them to the
+surface the client actually calls**, and that is the guard this defect is
+asking for, not a third copy of the string.
+
+**Not fixed here, because the fix is a fork and both branches cost something a
+person decided on purpose.** `decideMachineApproval`'s third condition is set
+equality against the default, and its own comment anticipates this exact
+request: *"a request that added `context:read` is a different question and gets
+the screen that asks it."* So widening `DESKTOP_SCOPE` alone does not quietly
+work — it brings back the approve screen that #312 and the owner's *"when
+installing Granola I didn't have to 'connect' a machine"* removed. Auto-
+approving the wider set instead is the other branch, and it makes a no-screen
+credential one that reads every note in the context. The grant already *writes*
+every note in the context, which is the argument for it; confidentiality and
+integrity are still not the same loss, which is the argument against.
+
+**What did land**: the console's own lie about it, below.
+
+### "Last synced" means a pass that filed something, not a pass that ran
+
+The same screenshot, second half. `ImessageStatus.lastSyncedAt` is rendered by
+`ThisMachineCard` as *"Import is on; last synced &lt;time&gt;"*, and
+`contract.ts` defined it in two ways in one comment — "when it last actually
+wrote something" on the interface, "the last completed sync attempt" on the
+field. The shell implemented the looser one: **any** pass with a written *or
+errored* day stamped it, and so did the baseline pass that imports nothing by
+design.
+
+Both readings are wrong in the same direction, and the direction matters. A
+gateway refusing every write still ends a pass, so the timestamp advanced every
+five minutes, more reassuring each time, over an import that had never filed a
+single message — on precisely the screen somebody opens to find out whether
+this is working. The baseline pass is worse for being first: it is the pass a
+person is most likely to be watching, and it claimed a sync a minute after they
+turned the feature on.
+
+Now a pass stamps `lastSyncedAt` only if it wrote a day. The card's other
+branch already had the honest sentence for everything else — *"Import is on;
+waiting for the first completed sync."*
+
+**What a "simplification" would cost**: stamping on an attempt is one character
+shorter and turns the field back into "the shell is running", which the card
+already conveys by existing. The over-correction costs as much — a field that
+is never stamped is as uninformative as one that always is — so the checks run
+in both directions.
+
+**The gap left open, deliberately**: `lastError` is still only rewritten by a
+pass with a written or errored day, so a pass with no days at all cannot clear
+a refusal that has since been fixed. It is not closed here because it is not
+reachable from this suite's fixtures — a refused day holds the cursor back, so
+the next pass always has that day to retry — and shipping the branch anyway
+would have been a guard nobody has checked.
+
+**The tests that fail if this is reversed**: `A PASS WHERE EVERY WRITE WAS
+REFUSED NEVER CLAIMS A SYNC` and `...and having filed nothing, the baseline
+pass does not claim a sync either` in
+`apps/desktop/test/imessageService.test.mjs`, plus `...and a pass that threw
+claims no sync either` for the catch-all — which had the same defect and was
+found only by reading the diff back — with the two positive checks beside them
+catching the over-correction. Sabotage counts are in that file's
+header.

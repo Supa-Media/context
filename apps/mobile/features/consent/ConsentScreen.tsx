@@ -17,7 +17,7 @@ import { ChoiceGroup, FormError, ToggleGroup } from "../design/components/Input"
 import { Pill } from "../design/components/Pill";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "../console/format";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
@@ -314,13 +314,13 @@ export function ConsentBody({
       const who = view.clientName ?? "That app";
       return (
         <>
-          <Title size={titleSize}>You don&apos;t have a brain yet</Title>
+          <Title size={titleSize}>You don&apos;t have a workspace of your own yet</Title>
           <Text variant="heroSub" style={styles.sub}>
             {who} is asking for access, and this account has nothing to share yet.
             Connect a bucket you already own, then ask the app to connect again.
           </Text>
           <View style={styles.deadEndActions}>
-            <Button label="Set up your brain" variant="decision" onPress={onLeaveForConsole} />
+            <Button label="Set up your workspace" variant="decision" onPress={onLeaveForConsole} />
             <Button
               label="Back to Context.lc"
               variant="ghost"
@@ -654,7 +654,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   markSuffix: { color: colors.muted },
   title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text },
   titleClient: { color: colors.accentText },
-  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
   subStrong: { color: colors.text, fontWeight: "600" },
 
   card: { marginTop: 26 },

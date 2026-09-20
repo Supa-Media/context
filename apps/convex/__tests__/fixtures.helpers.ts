@@ -227,7 +227,21 @@ export async function seedStorageBinding(
     forcePathStyle?: boolean;
     accessKeyId?: string;
     secretAccessKey?: string;
-    capabilities?: { conditionalWrite: boolean };
+    /**
+     * The *row's* capability object, deliberately as loose as the schema.
+     *
+     * A binding written before 2026-09-12 carries `conditionalWrite` and
+     * nothing else, and that shape is not a hypothetical — it is what every
+     * production row of that vintage still holds, and what
+     * `sweepUnprobedCapabilities` exists to find. A test that could only seed
+     * the current shape could not reproduce the fault.
+     */
+    capabilities?: {
+      conditionalWrite: boolean;
+      conditionalCreate?: boolean;
+      conditionalDelete?: boolean;
+      serverSideCopy?: boolean;
+    };
     lastError?: string;
     errorCode?: string;
   },

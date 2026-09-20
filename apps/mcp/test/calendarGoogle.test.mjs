@@ -152,4 +152,26 @@ export async function runCalendarGoogleChecks(check) {
   check("fetchAllPages follows every page — 5 events at a page size of 2", all.items.length === 5);
   check("the pagination made three requests", pagedServer.requests.length === 3);
   check("nextSyncToken comes from the last page only", typeof all.nextSyncToken === "string");
+
+  let repeatedPageCalls = 0;
+  const repeatedPageFetch = async () => {
+    repeatedPageCalls += 1;
+    if (repeatedPageCalls > 2) {
+      throw Object.assign(new Error("fixture walked forever"), { code: "TEST_UNBOUNDED" });
+    }
+    return new Response(
+      JSON.stringify({ items: [], nextPageToken: "same-page" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  const repeatedPageError = await fetchAllPages({
+    fetchImpl: repeatedPageFetch,
+    accessToken: ACCESS_TOKEN,
+    calendarId: "primary",
+  }).catch((error) => error);
+  check("a repeated Calendar page token is detected before a third request", repeatedPageCalls === 2);
+  check(
+    "...and is a typed failure rather than a partial result with no safe sync token",
+    repeatedPageError?.code === "PAGINATION_STALLED",
+  );
 }

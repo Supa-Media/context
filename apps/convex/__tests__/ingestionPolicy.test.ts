@@ -499,8 +499,8 @@ describe("target folders", () => {
   });
 
   test("refuses the plumbing folders", () => {
-    // Mail landing in `.history/` would forge note history; `.audit/` likewise.
-    for (const raw of [".history", ".history/2026", ".audit", "0-inbox/.history"]) {
+    // Both layout-v1 plumbing and its legacy roots remain reserved.
+    for (const raw of [".history", ".history/2026", ".audit", ".context/audit", "0-inbox/.history"]) {
       expect(normalizeTargetFolder(raw)).toEqual({ ok: false, reason: "reserved" });
     }
   });

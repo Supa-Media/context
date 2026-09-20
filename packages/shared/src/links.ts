@@ -40,6 +40,16 @@
 /** Where a link sits in a note, and what it points at. */
 export interface Link {
   kind: "wiki" | "inline";
+  /**
+   * Is this an embed (`![[note]]`, `![alt](note.md)`) rather than a plain link?
+   *
+   * The parser has always known — the `!` is group 1 of the wikilink pattern —
+   * and used to throw it away, because a rewrite replaces the target and never
+   * the marker. It is kept now because a reader has to distinguish them: an
+   * embed is what puts a drawing or an image *inside* the note it is read from,
+   * so "what does this note contain" cannot be answered without it.
+   */
+  embed: boolean;
   /** The raw target as written, alias and label already stripped. */
   target: string;
   /** The span of the target itself, so a rewrite replaces only the path. */
@@ -138,7 +148,7 @@ export function parseLinks(text: string): Link[] {
     const target = bar === -1 ? inner : inner.slice(0, bar);
     // `[[` plus the embed marker's width.
     const start = match.index + match[1].length + 2;
-    found.push({ kind: "wiki", target, start, end: start + target.length });
+    found.push({ kind: "wiki", embed: match[1] === "!", target, start, end: start + target.length });
   }
 
   for (const match of text.matchAll(INLINE)) {
@@ -147,7 +157,13 @@ export function parseLinks(text: string): Link[] {
     const bracketed = raw.startsWith("<") && raw.endsWith(">");
     const target = bracketed ? raw.slice(1, -1) : raw;
     const start = match.index + match[1].length + 3 + (bracketed ? 1 : 0);
-    found.push({ kind: "inline", target, start, end: start + target.length });
+    found.push({
+      kind: "inline",
+      embed: match.index > 0 && text[match.index - 1] === "!",
+      target,
+      start,
+      end: start + target.length,
+    });
   }
 
   return found.sort((a, b) => a.start - b.start);

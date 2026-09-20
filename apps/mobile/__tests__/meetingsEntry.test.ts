@@ -60,11 +60,15 @@ const mockReplaced: string[] = [];
 let mockBacks = 0;
 /** Whether this navigator has anywhere to go back to. See the round-trip tests. */
 let mockHistory = true;
+let mockQuickParams: { quickAction?: string } = {};
 /** Where the bar is being drawn. See "ending a meeting takes you to it". */
 let mockPathname = "/console/@seyi";
 jest.mock("expo-router", () => ({
   useRouter: () => ({
-    replace: (href: string) => mockReplaced.push(href),
+    replace: (href: string) => {
+      mockReplaced.push(href);
+      if (href === "/meetings") mockQuickParams = {};
+    },
     push: (href: string) => pushed.push(href),
     back: () => {
       mockBacks += 1;
@@ -72,11 +76,12 @@ jest.mock("expo-router", () => ({
     canGoBack: () => mockHistory,
   }),
   usePathname: () => mockPathname,
+  useLocalSearchParams: () => mockQuickParams,
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { ConsoleRail } =
-  require("../features/console/ConsoleRail") as typeof import("../features/console/ConsoleRail");
+const { SwitcherMenu } =
+  require("../features/console/SwitcherMenu") as typeof import("../features/console/SwitcherMenu");
 const { RecordingBar } =
   require("../features/meetings/components/RecordingBar") as typeof import("../features/meetings/components/RecordingBar");
 const { MEETINGS_ROUTE } =
@@ -103,13 +108,12 @@ const { layout } = require("../features/design/tokens") as typeof import("../fea
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type ConsoleData = import("../features/console/types").ConsoleData;
-type RailMode = "full" | "icons" | "sheet";
 
 /* -------------------------------------------------------------------------- */
 /*                                  harness                                   */
 /* -------------------------------------------------------------------------- */
 
-/** The least `ConsoleData` the rail reads: its contexts and whether they landed. */
+/** The least `ConsoleData` the switcher reads: its contexts and whether they landed. */
 function railData(): ConsoleData {
   return {
     loading: false,
@@ -142,17 +146,35 @@ function mount(element: Parameters<Root["render"]>[0]): Mounted {
   };
 }
 
-function rail(mode: RailMode, onOpenMeetings?: () => void): Mounted {
-  return mount(
-    createElement(ConsoleRail as never, {
+/**
+ * The switcher, opened — which is where the rail's entry went.
+ *
+ * `ConsoleRail` was a column and its rows were in the tree from the first
+ * render, so this used to mount it in one of three modes and read the row off
+ * it. The rail folded into `SwitcherMenu`
+ * (`docs/decisions/app-and-console.md`), so the row is a menu item and the
+ * menu is opened by a press. Everything these tests assert about *who is
+ * offered it* and *what pressing it does* survives that intact.
+ */
+function switcher(onOpenMeetings?: () => void): Mounted {
+  const app = mount(
+    createElement(SwitcherMenu as never, {
       data: railData(),
-      route: { kind: "context", slug: "seyi", view: "browse" },
-      mode,
-      onNavigate: () => {},
-      account: createElement("div", { "data-testid": "account-block" }),
+      label: "@seyi",
+      kind: "personal",
+      tone: "ok",
+      onOpenContext: () => {},
       onOpenMeetings,
     } as never),
   );
+  /*
+    `document.body`, not the host: react-native-web renders a `Menu` through a
+    portal, so the rows land outside the tree they were declared in.
+  */
+  const find = (testId: string) =>
+    document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  click(find("frame-switcher")!);
+  return { ...app, find };
 }
 
 function click(node: Element): void {
@@ -164,6 +186,7 @@ function click(node: Element): void {
 }
 
 async function configure() {
+  mockQuickParams = {};
   const gateway = fakeGateway();
   await act(async () => {
     meetings.reset();
@@ -183,57 +206,40 @@ async function configure() {
 
 describe("the entry point exists on both surfaces", () => {
   /**
-   * Every mode a layout can actually be in.
+   * **This used to enumerate the rail's three modes**, and the enumeration is
+   * what went rather than the claim.
    *
-   * **`"sheet"` was in this list and is not any more**, and that is worth a
-   * paragraph rather than a shorter array. `regionsFor` cannot return
-   * `rail: "sheet"` at any density: a phone has no rail at all
-   * (`features/app/frame.ts`) and medium and wide have a permanent column. The
-   * arm survives on the type deliberately, and that file's own enumeration says
-   * why — but a test enumerating it was asserting about a screen nobody can
-   * reach, which is the opposite of what enumerating the modes is for.
+   * The rail could be `full`, `icons` or `sheet`, and a row drawn in only one
+   * of them was a way in that existed at one width — the failure that version
+   * of this test caught by running at each. There are no modes now: the entry
+   * is a row in `SwitcherMenu`, which is one control drawn identically at every
+   * pointer density, so "at which mode" is not a question the code can answer
+   * differently any more.
    *
-   * The phone's way in did not go with it; it moved. It is the seventh key on
-   * the bottom row, and it is asserted on that surface in
-   * `consoleChrome.test.ts` (`bottom-bar-meeting` is present, and pressing it
-   * raises the sheet that asks) rather than being approximated here.
-   *
-   * SABOTAGE: rendered the entry only when `mode === "sheet"`.
-   * MEASURED: this test failed on `full` and on `icons`; nothing else in the
-   * suite noticed, which is the whole reason it enumerates the modes.
+   * The phone's way in is unchanged and is elsewhere: the seventh key on the
+   * bottom row, asserted on that surface in `consoleChrome.test.ts`
+   * (`bottom-bar-meeting` is present, and pressing it raises the sheet that
+   * asks) rather than approximated here.
    */
-  test.each(["full", "icons"] as RailMode[])(
-    "the rail carries it at %s",
-    (mode) => {
-      const app = rail(mode, () => {});
-      expect(app.find("rail-meetings")).not.toBeNull();
-      app.unmount();
-    },
-  );
-
-  test("the collapsed rail keeps the name it cannot draw", () => {
-    // A rail that becomes a row of unlabelled glyphs to a screen reader is not
-    // collapsed, it is broken — `ConsoleRail`'s own rule, and the mark is the
-    // only thing left at this width, so it has to be the right one.
-    const app = rail("icons", () => {});
-    const entry = app.find("rail-meetings")!;
-    expect(entry.getAttribute("aria-label")).toBe("Open meetings");
-    expect(entry.querySelector('[data-icon="mic"]')).not.toBeNull();
+  test("the switcher carries it", () => {
+    const app = switcher(() => {});
+    expect(app.find("switcher-meetings")).not.toBeNull();
+    expect(app.find("switcher-meetings")!.textContent).toContain("Meetings");
     app.unmount();
   });
 
-  test("a rail with nowhere to send anybody draws no entry", () => {
+  test("a switcher with nowhere to send anybody draws no entry", () => {
     /*
       The same rule `onClaimContext` and `onCreateWorkspace` follow: the landing
       page mounts a *picture* of the console, and an entry there would open a
       flow that immediately refuses for want of a session.
 
       SABOTAGE: drew the row unconditionally.
-      MEASURED: this test failed; the two density tests above stayed green,
-      because they pass a callback.
+      MEASURED: this test failed; the one above stayed green, because it passes
+      a callback.
     */
-    const app = rail("full");
-    expect(app.find("rail-meetings")).toBeNull();
+    const app = switcher();
+    expect(app.find("switcher-meetings")).toBeNull();
     app.unmount();
   });
 });
@@ -251,8 +257,8 @@ describe("where it goes", () => {
 
   test("pressing it asks to be taken there", () => {
     const seen: number[] = [];
-    const app = rail("full", () => seen.push(1));
-    click(app.find("rail-meetings")!);
+    const app = switcher(() => seen.push(1));
+    click(app.find("switcher-meetings")!);
     expect(seen).toHaveLength(1);
     app.unmount();
   });
@@ -260,18 +266,18 @@ describe("where it goes", () => {
   /**
    * The wiring, which is the half a mounted rail cannot see.
    *
-   * `ConsoleRail` takes a callback so it imports no router, so the only thing
+   * `SwitcherMenu` takes a callback so it imports no router, so the only thing
    * a mounted test can prove is that the callback fires. What the callback
    * *does* lives in the console layout, which is a live Convex subscription
    * from its first line and is mounted by nothing in this suite. So it is read
    * rather than mounted — the same move `storageCodePosition.test.ts` makes for
    * a fact about the server asserted in another app.
    *
-   * SABOTAGE: removed the `onOpenMeetings` prop from the layout's `ConsoleRail`.
-   * MEASURED: this test failed and no other did — the rail went on rendering
+   * SABOTAGE: removed the `onOpenMeetings` prop from the layout's switcher.
+   * MEASURED: this test failed and no other did — the menu went on rendering
    * nothing, silently, which is exactly the bug this branch exists to fix.
    */
-  test("the console layout hands the rail somewhere to send them", () => {
+  test("the console layout hands the switcher somewhere to send them", () => {
     const source = readFileSync(
       join(__dirname, "..", "app", "(app)", "console", "_layout.tsx"),
       "utf8",
@@ -332,6 +338,38 @@ describe("a way in needs a way back", () => {
   });
 });
 
+describe("the widget meeting command is consumed", () => {
+  test("remounting or returning to the clean list does not start a second meeting", async () => {
+    await configure();
+    mockQuickParams = { quickAction: "meeting" };
+    mockReplaced.length = 0;
+    pushed.length = 0;
+
+    const first = mount(createElement(MeetingsListScreen));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockReplaced[0]).toBe(MEETINGS_ROUTE);
+    expect(meetings.getSnapshot().records).toHaveLength(1);
+    expect(pushed).toHaveLength(1);
+    first.unmount();
+
+    const returned = mount(createElement(MeetingsListScreen));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(meetings.getSnapshot().records).toHaveLength(1);
+    expect(pushed).toHaveLength(1);
+    returned.unmount();
+
+    await act(async () => {
+      await meetings.end();
+    });
+  });
+});
+
 describe("starting a meeting is a consent moment, so the entry point never starts one", () => {
   /**
    * The decision this protects, verbatim: "Detection may *suggest*, and the
@@ -339,7 +377,7 @@ describe("starting a meeting is a consent moment, so the entry point never start
    * recording would be the same product with the indicator removed"
    * (`docs/decisions/meetings.md`, *Consent is the customer's*).
    *
-   * A rail row that opened the microphone would be exactly that, one surface
+   * A menu row that opened the microphone would be exactly that, one surface
    * over. The entry **navigates**; the record button on `/meetings` — beside
    * the sentence saying where the audio goes — is what records.
    *
@@ -351,9 +389,9 @@ describe("starting a meeting is a consent moment, so the entry point never start
    */
   test("pressing it opens no microphone and writes no session", async () => {
     await configure();
-    const app = rail("full", () => {});
+    const app = switcher(() => {});
 
-    click(app.find("rail-meetings")!);
+    click(app.find("switcher-meetings")!);
     await act(async () => {
       await Promise.resolve();
     });
@@ -369,9 +407,10 @@ describe("it coexists with a recording that is already running", () => {
    * Two floating bars in the same 66pt of glass is worse than either
    * (`AppFrame`), which is why `bottomChrome.ts` exists and why the recording
    * bar stacks above the console's toolbar rather than replacing it. **The
-   * entry point stays out of that glass altogether**: it is in the rail's
-   * pinned head, at the top of a full-height panel, and the recording bar is
-   * anchored to the bottom edge.
+   * entry point stays out of that glass altogether**: it was the pinned head
+   * of a full-height rail, and it is now a row in the menu under the workspace
+   * name in the title bar. Both are the top edge; the recording bar is
+   * anchored to the bottom one.
    *
    * **The arithmetic that used to end this paragraph has reversed, and it is
    * corrected rather than deleted.** It read: "That is the reason the entry is
@@ -412,21 +451,24 @@ describe("it coexists with a recording that is already running", () => {
       createElement(
         Fragment,
         null,
-        createElement(ConsoleRail as never, {
+        createElement(SwitcherMenu as never, {
           data: railData(),
-          route: { kind: "context", slug: "seyi", view: "browse" },
-          mode: "full",
-          onNavigate: () => {},
-          account: createElement("div", { "data-testid": "account-block" }),
+          label: "@seyi",
+          kind: "personal",
+          tone: "ok",
+          onOpenContext: () => {},
           onOpenMeetings: () => seen.push(1),
         } as never),
         createElement(RecordingBar, { bottomInset: 34 }),
       ),
     );
+    const find = (testId: string) =>
+      document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
-    expect(app.find("recording-bar")).not.toBeNull();
-    expect(app.find("rail-meetings")).not.toBeNull();
-    click(app.find("rail-meetings")!);
+    expect(find("recording-bar")).not.toBeNull();
+    click(find("frame-switcher")!);
+    expect(find("switcher-meetings")).not.toBeNull();
+    click(find("switcher-meetings")!);
     expect(seen).toHaveLength(1);
 
     app.unmount();
@@ -439,48 +481,32 @@ describe("it coexists with a recording that is already running", () => {
    * The geometry, in the only form jsdom can hold: the two are declared at
    * opposite edges.
    *
-   * SABOTAGE: moved the entry out of the pinned head and into the rail's
-   * account footer, beside sign-out — the tidy-looking placement, and the one
-   * the recording bar lies across while a panel is up, because a panel over
-   * the editor makes the frame publish a chrome height of zero and the bar
-   * drops to `floatingStackBottom(34, 0)` = 34pt, occupying the bottom 100pt of
-   * the glass.
+   * **This asserted the rail's three children in order** — head, scrolling
+   * context list, account block — and that the entry was in the head rather
+   * than in the foot beside sign-out, which is the tidy-looking placement the
+   * recording bar lies across. The rail is gone, so the children are gone with
+   * it, and what is left to hold is the half that was ever about the collision:
+   * the entry is reached from the title bar at the top of the window, and the
+   * bar is anchored to the bottom of the glass.
    *
-   * MEASURED, and the first version of this test was **vacuous**: it read the
-   * children of `rail-head`'s own parent, which travels with the block, so the
-   * footer placement passed all eleven checks. It is anchored on the rail's
-   * root now — the three children in order — and the same sabotage then fails
-   * here and only here.
+   * The `Menu` the entry lives in is a popover, so "not in the bottom band" is
+   * the claim about it that can still be wrong — a menu that opened flush to
+   * the foot of the window would put its rows under the bar. It is anchored to
+   * the press, which is in the title bar, so the assertion is on the trigger.
    */
-  test("the entry is at the head of the rail and the bar is against the glass", async () => {
+  test("the entry is reached from the title bar and the bar is against the glass", async () => {
     await configure();
     await act(async () => {
       await meetings.start({ title: "Reboot Camp" });
     });
 
-    const app = rail("full", () => {});
+    const app = switcher(() => {});
     const bar = mount(createElement(RecordingBar, { bottomInset: 34 }));
 
-    const head = app.find("rail-head")!;
-    const entry = app.find("rail-meetings")!;
-    expect(head.contains(entry)).toBe(true);
-
-    /*
-      The rail is head, then the scrolling list of contexts, then the account
-      block — read off the rail's root, so this is a claim about where the head
-      *is* rather than about what it contains. The head is first, which is the
-      edge furthest from the floating band, and a long context list cannot push
-      it anywhere. The last assertion is the one the footer sabotage trips.
-    */
-    const railChildren = Array.from(app.find("console-rail")!.children);
-    expect(railChildren).toHaveLength(3);
-    expect(railChildren[0]).toBe(head);
-    const foot = railChildren[railChildren.length - 1]!;
-    expect(foot.contains(app.find("account-block")!)).toBe(true);
-    expect(foot.contains(entry)).toBe(false);
-
-    // Nothing about the head is anchored to an edge; it is in normal flow.
-    expect(window.getComputedStyle(head).position).not.toBe("absolute");
+    // Nothing about the trigger is anchored to an edge; it is in normal flow,
+    // in the row `AppFrame` draws across the top of the window.
+    const trigger = app.find("frame-switcher")!;
+    expect(window.getComputedStyle(trigger).position).not.toBe("absolute");
 
     // The bar is, and to the far one. 34 here rather than 25, because
     // `floatingGapFor` takes the larger of the home indicator and the gap.

@@ -78,11 +78,22 @@
  *    behavioural test of its own.
  * 12. **`hasOwnProperty.call` becomes a bare `key in properties`** — 2 checks
  *    failed, including `__proto__` sent as bytes over the wire.
+ *
+ * A thirteenth, added with the member-refusal checks below, and the first that
+ * sabotages a *list* rather than a code path:
+ *
+ * 13. **A writing tool is added to `FORM_TOOLS`**, the set exempted from the
+ *    write-scope gate. Before those checks existed: `move_note`,
+ *    `archive_note`, `set_visibility` and `move_folder` each failed
+ *    **nothing** — only `write_note` was held, and by other checks. After,
+ *    each fails 1. An exemption list is the one kind of list where a wrong
+ *    entry grants rather than refuses, so it is worth a check that does not
+ *    read it.
  */
 
 import { readFile } from "node:fs/promises";
 
-import worker from "../src/index.js";
+import worker, { EXISTENCE_MASKED_TOOLS } from "../src/index.js";
 import { META_PROTOCOL_VERSION, MODERN_PROTOCOLS } from "../src/protocol.js";
 import {
   describeName,
@@ -123,7 +134,7 @@ function s3Binding(bucket, key) {
     accessKeyId: `AKIAEXAMPLEEXAMPLE${key}`,
     secretAccessKey: `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLE${key}`,
     forcePathStyle: true,
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   };
 }
@@ -841,7 +852,7 @@ export async function runToolArgumentChecks(check) {
     check(
       "nothing reached the other context's bucket while all of that was asked",
       other.get("1-projects/probe.md")?.body === "OTHER-MARKER" &&
-        [...other.keys()].every((key) => !key.startsWith(".audit/"))
+        [...other.keys()].every((key) => !key.startsWith(".context/audit/"))
     );
 
     /* ------------------- the same, one tool at a time ---------------------- */
@@ -976,6 +987,126 @@ export async function runToolArgumentChecks(check) {
       "an invented tool name is not validated into existence either",
       textOf(await callTool(env, TOKEN_OWNER, "no_such_tool_at_all", { path: 7 })) ===
         "unknown tool: no_such_tool_at_all"
+    );
+
+    /*
+      THE SAME TWO PROPERTIES, FOR EVERY MEMBER OF `EXISTENCE_MASKED_TOOLS`.
+
+      The checks above prove it for `export_encryption_keys` alone, and the set
+      has four members. Measured before widening this, the way the traversal
+      matrix in `store.test.mjs` was: deleting `materialize_move` from
+      `EXISTENCE_MASKED_TOOLS` reddened **nothing**, and deleting
+      `migrate_storage_layout` reddened nothing either.
+
+      Those two are not the same case, and pinning both is what showed the
+      difference. **The mask has two readers, not one:** the refusal at the
+      dispatch site, and `toolArgumentRefusal`, which returns `null` for a
+      masked tool so its schema is never read back to a caller who is not
+      supposed to know it exists.
+
+      `materialize_move` has neither reader held: it re-checks the tier itself
+      but answers `permission denied: move materialization requires owner
+      access.`, so the mask is the only thing between a team-tier caller and a
+      sentence confirming the tool is real — and, separately, its argument
+      shape.
+
+      `migrate_storage_layout` re-checks the tier and returns the
+      *byte-identical* `unknown tool: …`, so the message reader really is
+      redundant there. **Its argument reader is not**, which is why removing it
+      from the set still reddens the first check below and not the second: the
+      validator fires and answers "permitted here: …" to a caller the dispatch
+      site would have told nothing. An assertion written only on the no-argument
+      case would have called this tool covered and been wrong.
+    */
+    /*
+      **Walked from the set itself, not from a copy of it.** This loop held a
+      hand-written literal of the same four names, and the drift that allowed
+      was measured rather than imagined: adding a fifth name to
+      `EXISTENCE_MASKED_TOOLS` and wiring it nowhere else reddened **nothing**
+      across the whole suite.
+
+      That silence is the dangerous kind, because membership of that set does
+      two opposite things. It *enables* the refusal at the dispatch site, and it
+      *disables* `toolArgumentRefusal`. A name added to the set and not to the
+      switch is therefore not an unguarded tool — it is a tool that is still
+      callable AND no longer argument-checked, which is strictly worse than
+      never having been listed. Deriving the loop is what makes the fifth name
+      arrive with its own failing checks instead of with silence.
+    */
+    const maskedNames = [...EXISTENCE_MASKED_TOOLS];
+    check(
+      "the masked set still holds every name it held when this loop was derived",
+      // Not `> 0`. A derived loop over an emptied set passes by running nothing,
+      // which is the failure mode deriving it was supposed to remove — and this
+      // set should only ever grow, so a shrink is a decision somebody has to
+      // come here and make rather than one a green run can hide.
+      maskedNames.length >= 4,
+    );
+    for (const masked of maskedNames) {
+      const withJunk = await callTool(env, TOKEN_TEAM, masked, { workspaceId: WORKSPACE_OTHER });
+      const inventedPeer = await callTool(env, TOKEN_TEAM, `${masked}_x`, {
+        workspaceId: WORKSPACE_OTHER,
+      });
+      check(
+        `${masked} is masked from a team tier, arguments and all`,
+        textOf(withJunk) === `unknown tool: ${masked}` &&
+          JSON.stringify(withJunk) === JSON.stringify(inventedPeer).replaceAll(`${masked}_x`, masked)
+      );
+      check(
+        `...and with no arguments at all it is still an unknown tool, not a denial`,
+        textOf(await callTool(env, TOKEN_TEAM, masked)) === `unknown tool: ${masked}` &&
+          !/permission denied/i.test(textOf(await callTool(env, TOKEN_TEAM, masked)))
+      );
+    }
+
+    /* ------ every writing tool refuses a member, exemption list pinned ------ */
+
+    /*
+      The write gate exempts the form tools — `FORM_TOOLS.has(name) &&
+      participatesInForms(target)`. That is an *exemption*, so an over-broad
+      entry is a member writing notes in somebody else's context, silently.
+      Measured before writing this: adding `move_note`, `set_visibility` or
+      `archive_note` to `FORM_TOOLS` reddened **nothing**. Only `write_note`
+      was held, and only by the checks above.
+
+      **The four names below are deliberately NOT read from `FORM_TOOLS`.** A
+      test that imports the set it is checking restates the source and asserts
+      nothing. Where a predicate and a test must agree on one list, the fix is
+      for both to read ONE exported constant — that is the case where they are
+      checking the same thing. Here they must differ: this is the independent
+      copy, so adding a fifth name to the gateway reddens this check and
+      somebody has to say why.
+
+      `TOKEN_OWNER` owns `WORKSPACE_MINE` and is a **member** of
+      `WORKSPACE_SHARED`, so routing the call there is the case that matters:
+      the grant asked for write, the role clamp took it away, and
+      `participatesInForms` is therefore true. A connection that never asked
+      for write cannot reach the exemption at all.
+
+      No arguments, on purpose: the scope gate runs *before* argument
+      validation, so an empty object still reaches it. That makes this a pin on
+      the ordering too — were validation ever moved first, these would fail
+      with an argument complaint instead of a denial.
+    */
+    const FORM_TOOL_NAMES = ["submit_form", "update_submission", "retract_submission", "vote_form"];
+    const writingToolNames = ((await rpc(env, TOKEN_OWNER, "tools/list", {}))?.result?.tools || [])
+      .filter((tool) => tool?.annotations?.readOnlyHint !== true)
+      .map((tool) => tool?.name)
+      .filter((name) => typeof name === "string" && !FORM_TOOL_NAMES.includes(name));
+    const memberLeaks = [];
+    for (const name of writingToolNames) {
+      const refusal = await callTool(env, TOKEN_OWNER, name, { context: "@shared" });
+      if (refusal?.isError !== true || textOf(refusal) !== "permission denied: you have read-only access to @shared.") {
+        memberLeaks.push(`${name} -> ${textOf(refusal)}`);
+      }
+    }
+    check(
+      `a member is refused every writing tool the form exemption does not name (${writingToolNames.length})`,
+      memberLeaks.length === 0
+    );
+    check(
+      "...and the set really was enumerated rather than empty",
+      writingToolNames.length >= 10
     );
 
     /* -------------- and all of that on the other protocol era -------------- */

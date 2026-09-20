@@ -15,6 +15,8 @@
  * never come back "runs here", and curation must never be able to make it.
  */
 
+import { readFile } from "node:fs/promises";
+
 import { R2Store } from "../src/store/r2.js";
 import {
   MAX_REPORTED_HOSTS,
@@ -25,7 +27,13 @@ import {
   scanPlugin,
   summarize,
 } from "../src/plugins/scan.js";
-import { PLUGIN_PREFIX, inventoryPlugins, listPluginFolders } from "../src/plugins/inventory.js";
+import {
+  MANAGED_PLUGIN_PREFIX,
+  PLUGIN_PREFIX,
+  inventoryPlugins,
+  listManagedInstalls,
+  listPluginFolders,
+} from "../src/plugins/inventory.js";
 import { renderPluginReport } from "../src/plugins/report.js";
 
 /**
@@ -42,13 +50,19 @@ function makeBucket({ delimiter = true, pageSize = 1000 } = {}) {
   let etagCounter = 0;
   const encoder = new TextEncoder();
   const writes = [];
+  // Every key anybody asked for, so "this does not open a bundle" can be a
+  // check rather than a claim. `listManagedInstalls` exists to be cheap, and a
+  // cheapness nobody measured is the kind that grows a manifest read back.
+  const reads = [];
   return {
     objects,
     writes,
+    reads,
     seed(key, text) {
       objects.set(key, { bytes: encoder.encode(text), etag: `e${++etagCounter}` });
     },
     async get(key) {
+      reads.push(key);
       const entry = objects.get(key);
       if (!entry) return null;
       if (entry.explode) throw new Error("backend refused this object");
@@ -259,11 +273,13 @@ export async function runPluginChecks(check) {
     `id` WAS THE ONE FIELD WITH NO BOUND, IN A FILE THAT BOUNDS EVERYTHING ELSE.
 
     Folder ≤200, `str` ≤300, `reason` ≤200, hosts ≤12, plugins ≤20, list pages
-    ≤20, bundle ≤4MB — and `id` only `.trim()`ed. `readText` caps a manifest at
-    `MAX_SCAN_BYTES + 1`, so one manifest can carry a ~4MB id, and `scanPlugin`
-    renders it twice (as `id`, and as `name` when name is absent). Measured: 20
-    such manifests produced 160MB of MCP text and 544MB RSS, against a 128MB
-    isolate limit — an OOM in `lines.join`.
+    ≤20, bundle ≤`MAX_SCAN_BYTES` — and `id` only `.trim()`ed. `readText` caps a
+    manifest at `MAX_SCAN_BYTES + 1`, so one manifest can carry an id that size,
+    and `scanPlugin` renders it twice (as `id`, and as `name` when name is
+    absent). Measured back when the cap was 4MB: 20 such manifests produced
+    160MB of MCP text and 544MB RSS, against a 128MB isolate limit — an OOM in
+    `lines.join`. The cap is 16MB now, so the same bug would cost four times
+    that; `str()` is what stops it, and this is what holds `str()`.
   */
   const huge = parseManifest(JSON.stringify({ id: "x".repeat(500_000) })).manifest;
   check("a manifest id is bounded like every other field", huge.id.length <= 300);
@@ -287,10 +303,317 @@ export async function runPluginChecks(check) {
   const clean = scanPlugin({ id: "demo", manifestText: manifestFor("demo"), source: CLEAN_BUNDLE });
   check("a bundle with no outside calls runs here", clean.verdict === "runs");
   check("a running plugin carries no evidence against it", clean.evidence.length === 0);
+  /*
+    This used to assert `registerMarkdownCodeBlockProcessor` was *supported*,
+    and that was the over-claim this split exists to end: the shim does not
+    implement it, and a bundle using it scanned clean, read as "everything these
+    use, Context implements", loaded, registered, and rendered nothing.
+
+    It is now named on the other list, and the row says so.
+  */
   check(
     "the supported members it touches are named",
-    clean.supported.includes("registerMarkdownCodeBlockProcessor") &&
-      clean.supported.includes("getMarkdownFiles")
+    clean.supported.includes("getMarkdownFiles")
+  );
+  check(
+    "a member the shim has not implemented is not called supported",
+    !clean.supported.includes("registerMarkdownCodeBlockProcessor") &&
+      clean.planned.includes("registerMarkdownCodeBlockProcessor")
+  );
+  check(
+    "and it becomes a limitation the reader can act on, rather than silence",
+    clean.limitations.some((line) => line.includes("code blocks are not drawn yet"))
+  );
+  check(
+    "a planned member never changes the verdict — the plugin still runs",
+    clean.verdict === "runs"
+  );
+  {
+    // Four link-graph members, one sentence: a row listing the same reason four
+    // times is a row nobody finishes reading.
+    const graph = scanPlugin({
+      id: "graph",
+      manifestText: manifestFor("graph"),
+      source:
+        "const a = this.app.metadataCache.resolvedLinks;\n" +
+        "const b = this.app.metadataCache.unresolvedLinks;\n" +
+        "const c = this.app.metadataCache.getFirstLinkpathDest('x');\n" +
+        "const d = this.app.metadataCache.fileToLinktext(e);\n",
+    });
+    check(
+      "four members with one cause produce one sentence",
+      graph.limitations.filter((line) => line.includes("link graph")).length === 1
+    );
+  }
+
+  /*
+    A PLANNED MEMBER USED AS A BASE CLASS IS NOT A MISSING FEATURE.
+
+    `PLANNED_MEMBERS` holds two kinds, and `surface.js` has always said so:
+    **present and inert** — `addSettingTab` accepts a registration and drops it
+    — and **absent**, which is not on the shim at all. The wording above is
+    written for the first kind and is right about it: the plugin loads, and one
+    part of it does nothing.
+
+    It is wrong about the second kind in one specific place. `class X extends
+    api.SuggestModal {}` evaluates `extends undefined` and throws, so the bundle
+    never finishes loading and *nothing* of the plugin arrives — reported, until
+    now, as `runs` with a "not yet" note under a heading that reads "everything
+    these use, Context implements".
+
+    That is this file's own asymmetry arriving from a new direction: `runs` rests
+    on evidence we did not find, and here we had the evidence and filed it as a
+    footnote. Found on Bible Reference (obsidian-bible-reference), which extends
+    `SuggestModal`. It is 4.11MB, so until the read cap moved to 16MB in this
+    same change it never reached this path at all — the bug was live only for
+    smaller plugins doing the same thing, which is the worst way for one to be
+    live: invisible on the plugin that would have shown it to you.
+  */
+  {
+    const base = scanPlugin({
+      id: "suggest",
+      manifestText: manifestFor("suggest"),
+      source: 'const o = require("obsidian");\nvar M = class extends o.MarkdownRenderer { };\n',
+    });
+    check(
+      "a bundle extending a class the shim does not provide will not run here",
+      base.verdict === "wont-run"
+    );
+    check(
+      "and the evidence names the class, not the category",
+      base.evidence.some((entry) => entry.id === "MarkdownRenderer")
+    );
+    // `report.js` draws the route out for `wont-run`, which is the correct
+    // advice here and the reason the verdict is this one rather than `unknown`.
+    check(
+      "it is not reported as a limitation on a row that says it runs",
+      !base.limitations.some((line) => line.includes("rendering markdown"))
+    );
+    check(
+      "a bare identifier works too — a bundler may not namespace the import",
+      scanPlugin({
+        id: "bare",
+        manifestText: manifestFor("bare"),
+        source: 'import { MarkdownRenderer } from "obsidian";\nclass M extends MarkdownRenderer {}\n',
+      }).verdict === "wont-run"
+    );
+  }
+  /*
+    The positive companion, and the half that stops this widening onto every
+    plugin: naming an absent member without extending it is unchanged. A
+    `TypeError` on a call is a crash in whatever path calls it; `extends` is a
+    crash before `onload` runs at all, and only the second makes the whole
+    plugin unavailable.
+  */
+  check(
+    "naming an absent member without extending it is still a limitation on a running plugin",
+    (() => {
+      const called = scanPlugin({
+        id: "called",
+        manifestText: manifestFor("called"),
+        source: "const m = new obsidian.MarkdownRenderer(this.app);\n",
+      });
+      return (
+        called.verdict === "runs" &&
+        called.limitations.some((line) => line.includes("rendering markdown"))
+      );
+    })()
+  );
+  /*
+    THE HALF NO LIST COULD HAVE ANSWERED.
+
+    `SuggestModal` was found because somebody had written it down as absent.
+    `Events` and `Modal` were on no list in this repository — not supported, not
+    planned, not absent — so a bundle extending either scanned clean, was
+    labelled "runs here: everything these use, Context implements", and then
+    died on `extends undefined` before `onload`. Verified against the real
+    Bible Reference release, which extends both.
+
+    `undeclaredBases` derives the answer from what the shim exports instead, so
+    a base class nobody thought of is caught by construction. The name is
+    reported without a claim about it: "not built yet" would be a promise about
+    somebody else's API.
+  */
+  /*
+    A PLUGIN THAT USES PLAIN fetch ASKS FOR APPROVAL.
+
+    It did not, and the omission was invisible while the sandbox CSP refused
+    every direct call: the scan said "no network" and the plugin reached
+    nothing, so the wrong reading and the right outcome agreed. Once the shim
+    brokers `fetch` the plugin really does reach outward, and a verdict of
+    `runs` would hand it the network without its owner ever naming a host.
+  */
+  check(
+    "a bundle that calls fetch needs approval rather than running unasked",
+    (() => {
+      const scanned = scanPlugin({
+        id: "fetcher",
+        manifestText: manifestFor("fetcher"),
+        source: 'const { Plugin } = require("obsidian");\nmodule.exports = class extends Plugin { async onload() { await fetch("https://example.invalid/x"); } };\n',
+      });
+      return (
+        scanned.verdict === "needs-approval" &&
+        scanned.evidence.some((entry) => entry.id === "fetch" && entry.kind === "network")
+      );
+    })()
+  );
+  check(
+    "a base class nobody ever listed is still a blocker, derived from what the shim exports",
+    (() => {
+      const scanned = scanPlugin({
+        id: "unlisted-base",
+        manifestText: manifestFor("unlisted-base"),
+        source: 'var eo = require("obsidian");\nclass V extends eo.NeverHeardOfIt {}\n',
+      });
+      return (
+        scanned.verdict === "wont-run" &&
+        scanned.evidence.some((entry) => entry.id === "NeverHeardOfIt") &&
+        !scanned.evidence.some((entry) => /not built yet/.test(entry.reason))
+      );
+    })()
+  );
+  check(
+    "and a class the shim does export is not one, however it was reached",
+    (() => {
+      const source =
+        'var eo = require("obsidian");\n' +
+        "class A extends eo.Events {}\nclass B extends eo.Modal { }\n" +
+        "class C extends eo.Plugin {}\nmodule.exports = C;\n";
+      return scanPlugin({ id: "real-bases", manifestText: manifestFor("real-bases"), source }).verdict === "runs";
+    })()
+  );
+  /*
+    AND THE OTHER WAY EVERY OBSIDIAN PLUGIN IS WRITTEN.
+
+    `const { Plugin, Modal } = require("obsidian")` is the form the official
+    sample plugin uses and the one every hand-written `main.js` in the ecosystem
+    copies; `import { Modal } from "obsidian"` is its ESM twin, and
+    `import * as obsidian from "obsidian"` the namespace one. The derived check
+    read only `var x = require("obsidian")`, so a bundle written any of the
+    other three ways extended whatever it liked and scanned clean — the exact
+    verdict this check exists to stop, surviving in the import style most
+    plugins are actually written in.
+
+    Measured before it was fixed: the namespace form answered `wont-run`, the
+    destructured form answered `runs`, for the same unknown base class.
+  */
+  for (const [style, binding] of [
+    ["destructured from require", 'const { Plugin, NeverHeardOfIt } = require("obsidian");'],
+    ["destructured and renamed", 'const { NeverHeardOfIt: Base } = require("obsidian");'],
+    ["a named ESM import", 'import { NeverHeardOfIt } from "obsidian";'],
+    ["an ESM namespace import", 'import * as eo from "obsidian";'],
+  ]) {
+    const extendee = style === "destructured and renamed"
+      ? "Base"
+      : style === "an ESM namespace import"
+        ? "eo.NeverHeardOfIt"
+        : "NeverHeardOfIt";
+    check(
+      `a base class nobody listed is caught when it arrives ${style}`,
+      (() => {
+        const scanned = scanPlugin({
+          id: "unlisted-base-other-form",
+          manifestText: manifestFor("unlisted-base-other-form"),
+          source: `${binding}\nclass V extends ${extendee} {}\n`,
+        });
+        return (
+          scanned.verdict === "wont-run" &&
+          // Reported under the name the SHIM would have to provide, which for a
+          // renamed import is the export's name and not the local one.
+          scanned.evidence.some((entry) => entry.id === "NeverHeardOfIt")
+        );
+      })()
+    );
+  }
+  check(
+    "...and a class the shim does export is still fine in those forms",
+    (() => {
+      const source =
+        'const { Plugin, Modal } = require("obsidian");\n' +
+        'import { Events as Bus } from "obsidian";\n' +
+        "class A extends Modal {}\nclass B extends Bus {}\nclass C extends Plugin {}\n";
+      return (
+        scanPlugin({ id: "real-bases-destructured", manifestText: manifestFor("real-bases-destructured"), source })
+          .verdict === "runs"
+      );
+    })()
+  );
+  check(
+    "...and a destructuring of some other module is left alone",
+    (() => {
+      const source =
+        'const { Widget } = require("some-charting-library");\n' +
+        "class V extends Widget {}\nmodule.exports = V;\n";
+      return (
+        scanPlugin({ id: "other-module-destructured", manifestText: manifestFor("other-module-destructured"), source })
+          .verdict === "runs"
+      );
+    })()
+  );
+  /*
+    The precision that keeps this from failing plugins that work: a bundled
+    third-party library has its own namespaces and its own classes, and only a
+    namespace that provably came from `require("obsidian")` is ours to judge.
+    The module string survives minification; the identifier does not.
+  */
+  check(
+    "a namespace that did not come from the obsidian module is left alone",
+    scanPlugin({
+      id: "other-namespace",
+      manifestText: manifestFor("other-namespace"),
+      source: 'var ui = require("some-ui-kit");\nclass W extends ui.Widget {}\n',
+    }).verdict === "runs"
+  );
+  check(
+    "and extending one the shim DOES answer is not a blocker",
+    scanPlugin({
+      id: "inert",
+      manifestText: manifestFor("inert"),
+      source: 'const o = require("obsidian");\nclass T extends o.PluginSettingTab {}\nthis.addSettingTab(new T());\n',
+    }).verdict === "runs"
+  );
+  /*
+    Curation moves the label the same way it does for a blocker, and for the
+    same reason: a plugin whose *format* Context reads strands no data, whatever
+    it cannot do here. Mirrored rather than special-cased so the two paths
+    cannot drift into disagreeing about one plugin.
+  */
+  /*
+    The heading has to describe both ways in. It read "these need a filesystem,
+    a shell, or Obsidian's private internals" — true of every plugin that had
+    ever landed there, and false the moment a missing base class could put one
+    there: Bible Reference needs none of those three, it needs a dialog we have
+    not built. A group blurb that does not cover its own rows is the same
+    overclaim as a verdict that does not, one level up.
+  */
+  check(
+    "the won't-run heading covers a plugin held back by us rather than by the sandbox",
+    (() => {
+      const held = scanPlugin({
+        id: "held",
+        manifestText: manifestFor("held"),
+        source: 'const o = require("obsidian");\nclass M extends o.MarkdownRenderer {}\n',
+      });
+      const rendered = renderPluginReport({
+        available: true,
+        reason: null,
+        plugins: [held],
+        counts: summarize([held]),
+        found: 1,
+        scanned: 1,
+        truncated: false,
+        checkedAt: new Date().toISOString(),
+      });
+      return /Context has not built yet/.test(rendered);
+    })()
+  );
+  check(
+    "a curated format-supported plugin reads files-only rather than wont-run",
+    scanPlugin({
+      id: "remotely-save",
+      manifestText: manifestFor("remotely-save"),
+      source: 'const o = require("obsidian");\nclass M extends o.MarkdownRenderer {}\n',
+    }).verdict === "files-only"
   );
 
   const shell = scanPlugin({
@@ -512,6 +835,15 @@ export async function runPluginChecks(check) {
   bucket.seed(`${PLUGIN_PREFIX}obsidian-git/manifest.json`, manifestFor("obsidian-git", { name: "Obsidian Git" }));
   bucket.seed(`${PLUGIN_PREFIX}obsidian-git/main.js`, `require("child_process")`);
   bucket.seed(`${PLUGIN_PREFIX}broken/manifest.json`, manifestFor("broken"));
+  bucket.seed(`${MANAGED_PLUGIN_PREFIX}virtual-linker/current.json`, JSON.stringify({
+    id: "virtual-linker",
+    version: "1.0.0",
+  }));
+  bucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}virtual-linker/releases/1.0.0/manifest.json`,
+    manifestFor("virtual-linker", { name: "Virtual Linker" })
+  );
+  bucket.seed(`${MANAGED_PLUGIN_PREFIX}virtual-linker/releases/1.0.0/main.js`, CLEAN_BUNDLE);
   bucket.seed("1-projects/real-note.md", "# a note\n");
   bucket.seed(".obsidian/app.json", "{}");
 
@@ -522,15 +854,47 @@ export async function runPluginChecks(check) {
   );
 
   const report = await inventoryPlugins(store);
-  check("every folder found is checked when under the cap", report.scanned === 3 && !report.truncated);
+  check("every folder found is checked when under the cap", report.scanned === 4 && !report.truncated);
+  check(
+    "managed installs are scanned beside Obsidian without writing into .obsidian",
+    report.plugins.find((p) => p.id === "virtual-linker").source === "context" &&
+      report.plugins.find((p) => p.id === "dataview").source === "obsidian"
+  );
   check(
     "a clean plugin runs and a shelling one does not, in the same report",
     report.plugins.find((p) => p.id === "dataview").verdict === "runs" &&
       report.plugins.find((p) => p.id === "obsidian-git").verdict === "wont-run"
   );
   check(
+    "each complete plugin is bound to the exact manifest and bundle objects that were checked",
+    /^v2:[^:]+:[^:]+:[^:]+$/.test(
+      report.plugins.find((p) => p.id === "dataview").bundleFingerprint
+    ) &&
+      report.plugins.find((p) => p.id === "dataview").bundleFingerprint !==
+        report.plugins.find((p) => p.id === "obsidian-git").bundleFingerprint
+  );
+  const dataviewFingerprint = report.plugins.find(
+    (p) => p.id === "dataview"
+  ).bundleFingerprint;
+  bucket.seed(`${PLUGIN_PREFIX}dataview/styles.css`, ".changed{}");
+  const styleChangedReport = await inventoryPlugins(store);
+  check(
+    "a styles-only change invalidates the reviewed bundle fingerprint",
+    styleChangedReport.plugins.find((p) => p.id === "dataview").bundleFingerprint !==
+      dataviewFingerprint
+  );
+  bucket.objects.get(`${PLUGIN_PREFIX}dataview/styles.css`).explode = true;
+  const unreadableStyleReport = await inventoryPlugins(store);
+  check(
+    "an unreadable optional stylesheet cannot be mistaken for an absent reviewed one",
+    unreadableStyleReport.plugins.find((p) => p.id === "dataview").bundleFingerprint === null
+  );
+  delete bucket.objects.get(`${PLUGIN_PREFIX}dataview/styles.css`).explode;
+  check(
     "a plugin with a manifest but no bundle is unknown, and the others still get verdicts",
-    report.plugins.find((p) => p.id === "broken").verdict === "unknown" && report.scanned === 3
+    report.plugins.find((p) => p.id === "broken").verdict === "unknown" &&
+      report.plugins.find((p) => p.id === "broken").bundleFingerprint === null &&
+      report.scanned === 4
   );
   check("the report dates itself", /^\d{4}-\d{2}-\d{2}/.test(report.checkedAt));
 
@@ -539,6 +903,177 @@ export async function runPluginChecks(check) {
   check(
     "and it does not touch notes, only .obsidian/plugins/",
     [...bucket.objects.keys()].includes("1-projects/real-note.md")
+  );
+
+  const managedEdgeBucket = makeBucket();
+  managedEdgeBucket.seed(`${MANAGED_PLUGIN_PREFIX}data-only/data.json`, "{}");
+  managedEdgeBucket.seed(`${MANAGED_PLUGIN_PREFIX}broken-pointer/current.json`, "{");
+  const encodedId = encodeURIComponent("plugin with spaces");
+  const encodedVersion = encodeURIComponent("1.0.0/beta");
+  managedEdgeBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}${encodedId}/current.json`,
+    JSON.stringify({ id: "plugin with spaces", version: "1.0.0/beta" })
+  );
+  managedEdgeBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}${encodedId}/releases/${encodedVersion}/manifest.json`,
+    manifestFor("plugin with spaces")
+  );
+  managedEdgeBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}${encodedId}/releases/${encodedVersion}/main.js`,
+    CLEAN_BUNDLE
+  );
+  const managedEdges = await inventoryPlugins(new R2Store(managedEdgeBucket));
+  check(
+    "managed plugin ids and versions are decoded only after staying inert path segments",
+    managedEdges.plugins.find((p) => p.id === "plugin with spaces").verdict === "runs"
+  );
+  check(
+    "a corrupt managed pointer is visible but unknown, never a failed inventory",
+    managedEdges.plugins.find((p) => p.id === "broken-pointer").verdict === "unknown" &&
+      managedEdges.available
+  );
+  check(
+    "managed settings without a current release are not mistaken for an install",
+    managedEdges.found === 2 && !managedEdges.plugins.some((p) => p.id === "data-only")
+  );
+
+  /* ------------------------------------- what Context itself installed here */
+  /*
+    The cheap question, asked without the expensive one.
+
+    These checks exist because the console used to be unable to answer "what
+    have I got" without running a full scan of somebody's vault, so it answered
+    "nothing" — and people reinstalled a plugin that had been installed the
+    whole time. The three properties below are the three halves of that bug:
+    the list is complete, it is cheap, and a failure to read it never comes back
+    looking like an empty bucket.
+  */
+  const installedBucket = makeBucket();
+  installedBucket.seed(`${PLUGIN_PREFIX}dataview/manifest.json`, manifestFor("dataview"));
+  installedBucket.seed(`${PLUGIN_PREFIX}dataview/main.js`, CLEAN_BUNDLE);
+  installedBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}obsidian-bible-reference/current.json`,
+    JSON.stringify({
+      id: "obsidian-bible-reference",
+      version: "26.08.07",
+      repository: "example/bible",
+    })
+  );
+  installedBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}obsidian-bible-reference/releases/26.08.07/manifest.json`,
+    manifestFor("obsidian-bible-reference")
+  );
+  installedBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}obsidian-bible-reference/releases/26.08.07/main.js`,
+    CLEAN_BUNDLE
+  );
+  installedBucket.seed(`${MANAGED_PLUGIN_PREFIX}half-written/current.json`, "{");
+  installedBucket.seed(`${MANAGED_PLUGIN_PREFIX}settings-only/data.json`, "{}");
+  installedBucket.reads.length = 0;
+  const installed = await listManagedInstalls(new R2Store(installedBucket));
+  const bible = installed.installs.find((row) => row.id === "obsidian-bible-reference");
+  check(
+    "an install Context made is named with its pinned version, having been asked nothing",
+    installed.available && bible?.version === "26.08.07" && bible?.repository === "example/bible"
+  );
+  check(
+    "and answering costs one pointer per install and not one bundle",
+    installedBucket.reads.length > 0 &&
+      installedBucket.reads.every((key) => key.endsWith("/current.json"))
+  );
+  check(
+    "a vault plugin is not a Context install",
+    !installed.installs.some((row) => row.id === "dataview")
+  );
+  check(
+    "a pointer that will not parse is still an install, with no version claimed",
+    installed.installs.some((row) => row.id === "half-written" && row.version === null)
+  );
+  check(
+    "settings left behind by a removal are not an install",
+    !installed.installs.some((row) => row.id === "settings-only")
+  );
+  const unreadableInstalls = await listManagedInstalls({
+    list: async () => {
+      throw new Error("the bucket refused this listing");
+    },
+  });
+  check(
+    "a listing that fails says so rather than reporting an empty bucket",
+    !unreadableInstalls.available &&
+      unreadableInstalls.installs.length === 0 &&
+      unreadableInstalls.reason === "the bucket refused this listing"
+  );
+  const cappedInstalls = await listManagedInstalls(new R2Store(installedBucket), { cap: 1 });
+  check(
+    "more installs than one answer carries is reported rather than silently cut",
+    cappedInstalls.installs.length === 1 && cappedInstalls.truncated
+  );
+
+  const crossSourceCap = await inventoryPlugins(store, { cap: 3 });
+  check(
+    "Obsidian and managed installs share one honest scan cap",
+    crossSourceCap.found === 4 && crossSourceCap.scanned === 3 && crossSourceCap.truncated
+  );
+
+  const collisionBucket = makeBucket();
+  collisionBucket.seed(`${PLUGIN_PREFIX}same-plugin/manifest.json`, manifestFor("same-plugin"));
+  collisionBucket.seed(`${PLUGIN_PREFIX}same-plugin/main.js`, CLEAN_BUNDLE);
+  collisionBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/current.json`,
+    JSON.stringify({ id: "same-plugin", version: "2.0.0" })
+  );
+  collisionBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/manifest.json`,
+    manifestFor("same-plugin", { version: "2.0.0" })
+  );
+  collisionBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/main.js`,
+    `require("child_process")`
+  );
+  const collisionReport = await inventoryPlugins(new R2Store(collisionBucket));
+  /*
+    The managed release is the row, because it is the only bundle this product
+    can actually run: a fingerprint resolves under `.context/plugins/`, so an
+    inventory that preferred the synced folder would stop a plugin somebody
+    installed and approved here the moment they also installed it in Obsidian.
+
+    The fixture makes the two impossible to confuse — the managed release here
+    is the one that calls `child_process` — so a build that silently switched
+    precedence reports `runs` for a plugin that does not.
+  */
+  check(
+    "a managed release deterministically replaces the same Obsidian plugin id",
+    collisionReport.found === 1 &&
+      collisionReport.scanned === 1 &&
+      collisionReport.plugins[0].source === "context" &&
+      collisionReport.plugins[0].version === "2.0.0" &&
+      collisionReport.plugins[0].verdict === "wont-run"
+  );
+  /*
+    What changed is that the duplicate is no longer invisible. The row says the
+    vault has a copy too, so somebody updating the wrong one can be told which
+    is which — and the console refuses to create this state in the first place,
+    which is the half that actually fixes it.
+  */
+  check(
+    "and the vault's copy is reported on that row rather than silently dropped",
+    collisionReport.plugins[0].alsoInVault === true
+  );
+  const managedOnlyBucket = makeBucket();
+  managedOnlyBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/current.json`,
+    JSON.stringify({ id: "same-plugin", version: "2.0.0" })
+  );
+  managedOnlyBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/manifest.json`,
+    manifestFor("same-plugin", { version: "2.0.0" })
+  );
+  managedOnlyBucket.seed(`${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/main.js`, CLEAN_BUNDLE);
+  const managedOnly = await inventoryPlugins(new R2Store(managedOnlyBucket));
+  check(
+    "a managed install with no vault copy carries no such marker",
+    managedOnly.plugins[0].alsoInVault === undefined
   );
 
   // A backend that ignores the delimiter must produce the same folder list, or
@@ -700,4 +1235,47 @@ export async function runPluginChecks(check) {
     checkedAt: "2026-09-02T00:00:00.000Z",
   });
   check("an approval verdict shows the host on the consent path", approvalText.includes("readwise.io"));
+
+  /*
+    THE DOWNLOAD CAP AND THE SCAN CAP ARE ONE NUMBER IN TWO PACKAGES.
+
+    `MAX_SCAN_BYTES` bounds what the gateway reads to check a bundle;
+    `MAX_PLUGIN_ASSET_BYTES` in `functions/obsidianPlugins.ts` bounds what the
+    control plane pulls down in the first place. Both files now say they are
+    deliberately equal, in those words, and the reason is the same on both
+    sides: **a bundle that can be fetched but not checked is the one
+    combination worth ruling out by construction.**
+
+    That is not hypothetical. They HAD drifted — 10MB down, 4MB read — and the
+    account of it is in the Convex file: "a 10MB plugin installed fine and
+    reported 'couldn't be checked' forever after." The invariant was stated
+    twice and held by nobody, which is how it drifted in the first place.
+
+    Divergence fails CLOSED, which is why this is small: `offersInstall` is
+    true only for `runs` and `needs-approval`, so an `unknown` plugin has no
+    install path at all. The cost is a legitimate plugin made permanently
+    uninstallable, not an unscanned one getting in.
+
+    Read from the source rather than imported, because that file is Convex code
+    and the constant is not exported. The MB figure is extracted in the shape
+    both files write it, so a change to either the number or the form fails
+    here instead of silently.
+  */
+  const convexPlugins = await readFile(
+    new URL("../../convex/functions/obsidianPlugins.ts", import.meta.url),
+    "utf8"
+  );
+  const downloadCapMb = Number(
+    /^const MAX_PLUGIN_ASSET_BYTES = (\d+) \* 1024 \* 1024;$/m.exec(convexPlugins)?.[1]
+  );
+  // Non-vacuity first: a regex that stopped matching would make the comparison
+  // below `NaN === NaN`-shaped and quietly prove nothing.
+  check(
+    "the control plane's plugin download cap is readable from its source",
+    Number.isFinite(downloadCapMb) && downloadCapMb > 0
+  );
+  check(
+    "...and it is the same number as the gateway's scan cap, so nothing installs unchecked",
+    downloadCapMb * 1024 * 1024 === MAX_SCAN_BYTES
+  );
 }

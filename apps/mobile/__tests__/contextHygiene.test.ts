@@ -145,6 +145,23 @@ function allKeys(): string[] {
 const keysFor = (workspaceId: string) =>
   allKeys().filter((key) => parseKey(key)?.workspaceId === workspaceId);
 
+/**
+ * Nothing this context held was taken.
+ *
+ * A subset check rather than `toEqual`, and the difference is the whole point
+ * of these two tests: they are about a clear that must **not** happen, so what
+ * has to hold is that every key survived. Mounting the console legitimately
+ * *adds* one — `useRememberedContexts` writes the context list down for a cold
+ * start with no network — and an exact comparison read that addition as a
+ * failure of a rule it has nothing to do with. What a removal looks like is
+ * unchanged, and `keysFor(...).toEqual([])` two tests up still pins the clear
+ * that is supposed to happen.
+ */
+function expectNothingCleared(before: readonly string[], workspaceId: string): void {
+  const after = new Set(keysFor(workspaceId));
+  for (const key of before) expect([...after]).toContain(key);
+}
+
 /** Mount the live hook and hand back the console data plus a way to act on it. */
 function mountConsole(): { data: () => ConsoleData; unmount: () => void } {
   const container = document.createElement("div");
@@ -238,7 +255,7 @@ describe("leaving a context", () => {
     });
     await settle();
 
-    expect(keysFor("w2").sort()).toEqual(before);
+    expectNothingCleared(before, "w2");
     app.unmount();
   });
 
@@ -267,7 +284,7 @@ describe("leaving a context", () => {
     });
     await settle();
 
-    expect(keysFor("w1").sort()).toEqual(before);
+    expectNothingCleared(before, "w1");
     app.unmount();
   });
 

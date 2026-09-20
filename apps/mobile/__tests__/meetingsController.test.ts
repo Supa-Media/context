@@ -14,6 +14,7 @@ import {
 } from "../features/meetings/keys";
 import { isSynced, pendingSteps } from "../features/meetings/record";
 import { FINALIZE_TIMEOUT_MS } from "../features/meetings/recovery";
+import type { MeetingActivityController } from "../features/meetings/activityCore";
 
 /**
  * A recording, from the press to the note — and everything that can happen to
@@ -85,9 +86,11 @@ async function harness(
     workspaceId?: string;
     /** Where this launch's clock starts. Defaults to the fixture instant. */
     startAt?: number;
+    activity?: MeetingActivityController;
+    activityToken?: () => string;
   } = {},
 ): Promise<Harness> {
-  const controller = new MeetingsController();
+  const controller = new MeetingsController(options.activity, options.activityToken);
   const store = options.store ?? memoryStore();
   const gateway = options.gateway ?? fakeGateway();
   const recorder = options.recorder ?? fakeRecorder();
@@ -112,11 +115,81 @@ async function settle(): Promise<void> {
   await Promise.resolve();
 }
 
+function fakeActivity() {
+  return {
+    available: jest.fn(() => true),
+    update: jest.fn(),
+    end: jest.fn(),
+    reconcile: jest.fn(),
+  } satisfies MeetingActivityController;
+}
+
 afterEach(() => {
   jest.useRealTimers();
 });
 
 describe("starting a meeting", () => {
+  test("system recording UI follows recorder truth through start, pause, resume and end", async () => {
+    const activity = fakeActivity();
+    const { controller, recorder, clock } = await harness({ activity });
+    const id = await controller.start({ title: "Design review" });
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      meetingId: id, phase: "recording", title: "Design review",
+    }));
+
+    clock.advance(4_000);
+    await controller.pause();
+    expect(recorder.state).toBe("paused");
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: "paused", recordedMs: 4_000, recordingSince: null,
+    }));
+
+    await controller.resume();
+    expect(recorder.state).toBe("recording");
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ phase: "recording" }));
+    await controller.end();
+    expect(activity.end).toHaveBeenCalledWith(id);
+  });
+
+  test("lock-screen controls require the current one-use capability and rotate after state changes", async () => {
+    const activity = fakeActivity();
+    const first = "11".repeat(32);
+    const second = "22".repeat(32);
+    const tokens = [first, second];
+    const { controller } = await harness({ activity, activityToken: () => tokens.shift()! });
+    const id = await controller.start({ title: "Security review" });
+
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ controlToken: first }));
+    expect(controller.consumeActivityControl(id, "ff".repeat(32))).toBe(false);
+    expect(controller.consumeActivityControl("mtg_someone_else", first)).toBe(false);
+    expect(controller.consumeActivityControl(id, first)).toBe(true);
+    expect(controller.consumeActivityControl(id, first)).toBe(false);
+
+    await controller.pause();
+    expect(activity.update).toHaveBeenLastCalledWith(expect.objectContaining({ controlToken: second }));
+    expect(controller.consumeActivityControl(id, first)).toBe(false);
+    expect(controller.consumeActivityControl(id, second)).toBe(true);
+  });
+
+  test("refused and background-downgraded capture never leaves a Live Activity", async () => {
+    const activity = fakeActivity();
+    const recorder = fakeRecorder();
+    recorder.refuseStart("no microphone");
+    const refused = await harness({ activity, recorder });
+    await refused.controller.start({ title: "Refused" });
+    expect(activity.update).not.toHaveBeenCalled();
+
+    const downgradedActivity = fakeActivity();
+    const downgraded = await harness({ activity: downgradedActivity });
+    const id = await downgraded.controller.start({ title: "Started" });
+    downgraded.recorder.fail({
+      recoverable: true,
+      kind: "background-unavailable",
+      message: "foreground only",
+    });
+    expect(downgradedActivity.end).toHaveBeenCalledWith(id);
+  });
+
   test("the notepad exists before the microphone does", async () => {
     /*
       The order this test exists for: the record is created and written down
@@ -192,6 +265,25 @@ describe("starting a meeting", () => {
     expect(snapshot.captureError).toBe("The microphone was taken by a call.");
   });
 
+  test("a foreground-only warning survives later capture notices", async () => {
+    const { controller, recorder } = await harness();
+    await controller.start({ title: "Design review" });
+    const warning =
+      "Recording works while Context stays open, but locking your phone will stop the audio.";
+
+    recorder.fail({ recoverable: true, kind: "background-unavailable", message: warning });
+
+    for (const message of [
+      "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.",
+      "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.",
+      "Something else took the microphone. Typing still works, and capture picks up when it is free.",
+    ]) {
+      recorder.fail({ recoverable: true, message });
+      expect(controller.getSnapshot().captureError).toBe(message);
+      expect(controller.getSnapshot().backgroundCaptureWarning).toBe(warning);
+    }
+  });
+
   test("the id is the protocol's, and the meeting is filed under this context", async () => {
     const { controller, store } = await harness();
     const id = await controller.start({ title: "Design review" });
@@ -206,15 +298,53 @@ describe("starting a meeting", () => {
   });
 });
 
+/**
+ * A CAPABILITY WITH A CONSENT STEP IS OPTED INTO, NEVER DEFAULTED INTO.
+ *
+ * `start()`'s fallback for a caller that says nothing about system audio is
+ * "whatever this build can do" — which was right while the only build that
+ * could do it was the desktop shell, whose loopback tap is silent. A browser
+ * can also do it, and doing it there means opening a screen-share picker.
+ * Falling back to the capability alone would put that picker in front of any
+ * caller that starts a meeting without going through the sheet, on behalf of
+ * somebody who was never asked.
+ *
+ * So the fallback is "whatever this build can do **without asking again**", and
+ * these two checks are the difference. The sheet still decides for itself; this
+ * is about every other way a meeting can start.
+ */
+describe("what a caller who says nothing gets", () => {
+  test("a silent tap is taken", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: false });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+
+  test("a picker is not opened on somebody's behalf", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    expect(recorder.startedWith?.systemAudio).toBe(false);
+  });
+
+  test("...and a caller who does say still decides", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup", systemAudio: true });
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+});
+
 describe("the clock is the log, not a timer", () => {
   test("pauses come out of the elapsed time", async () => {
     const { controller, clock } = await harness();
     await controller.start({ title: "Design review" });
 
     clock.advance(10 * 60_000);
-    controller.pause();
+    await controller.pause();
     clock.advance(15 * 60_000);
-    controller.resume();
+    await controller.resume();
     clock.advance(5 * 60_000);
 
     const live = controller.getSnapshot().live;
@@ -226,7 +356,7 @@ describe("the clock is the log, not a timer", () => {
     const { controller, clock } = await harness();
     await controller.start({ title: "Design review" });
     clock.advance(3 * 60_000);
-    controller.pause();
+    await controller.pause();
 
     const paused = controller.getSnapshot().live!;
     expect(recordElapsedMs(paused, clock.now() + 60 * 60_000)).toBe(3 * 60_000);
@@ -304,7 +434,7 @@ describe("the app being killed mid-meeting", () => {
     const first = await harness({ store });
     const id = await first.controller.start({ title: "Design review" });
     first.clock.advance(2 * 60_000);
-    first.controller.pause();
+    await first.controller.pause();
     await settle();
 
     const second = await harness({ store, startAt: first.clock.now() });
@@ -378,6 +508,43 @@ describe("the app being killed mid-meeting", () => {
     // Over-warning costs a sentence on a list screen; under-warning costs
     // somebody a meeting with nothing anywhere saying it existed.
     expect(controller.getSnapshot().unreadable).toBe(1);
+  });
+
+  test("a store that cannot be listed leaves the screen usable rather than loading forever", async () => {
+    /*
+      `loadMeetings` is the one caller of `keys()` in this app that is a read
+      rather than a clear, and it is the only one that must absorb a listing
+      failure instead of reporting it.
+
+      The port lets a failed listing reject on both real stores, because every
+      other caller is a *clear* and a clear that reads an empty listing as
+      "done" claims to have emptied a device it could not look at. Here the
+      opposite stance is right, and the reason is this assertion: `configure()`
+      is awaited from an effect in `useMeetings` that holds no `catch`, so a
+      rejection would leave `status` at `loading` for the life of the screen and
+      take the notepad — which needs no storage at all — down with the list.
+
+      `unreadable` stays 0 rather than being inflated: nothing was read, so
+      there is no count to report, and a number nobody could measure is the one
+      thing this feature does not print.
+    */
+    const store: KeyValueStore = {
+      ...memoryStore(),
+      keys: async () => {
+        throw new Error("database disk image is malformed");
+      },
+    };
+
+    const { controller } = await harness({ store });
+
+    expect(controller.getSnapshot().status).toBe("ready");
+    expect(controller.getSnapshot().records).toEqual([]);
+    expect(controller.getSnapshot().unreadable).toBe(0);
+
+    // And the feature still works: a meeting started after an unreadable launch
+    // is a meeting, not a screen that refuses.
+    const id = await controller.start({ title: "After a bad launch" });
+    expect(controller.getSnapshot().records.some((record) => record.session.id === id)).toBe(true);
   });
 });
 
@@ -1452,7 +1619,7 @@ describe("the snapshot is a store React can subscribe to", () => {
 
     unsubscribe();
     const quiet = heard;
-    controller.pause();
+    await controller.pause();
     expect(heard).toBe(quiet);
   });
 
@@ -1465,7 +1632,7 @@ describe("the snapshot is a store React can subscribe to", () => {
     await settle();
 
     const before = controller.getSnapshot();
-    controller.pause();
+    await controller.pause();
     expect(controller.getSnapshot()).toBe(before);
   });
 });

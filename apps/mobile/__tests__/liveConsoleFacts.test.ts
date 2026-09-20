@@ -56,7 +56,7 @@ const CONNECTED_BINDING = {
   provider: "Cloudflare R2",
   endpoint: "acct.r2.cloudflarestorage.com",
   region: "auto",
-  bucket: "brain",
+  bucket: "notes-bucket",
   maskedAccessKeyId: "a1b2…8f3c",
   capabilities: { conditionalWrite: true },
   status: "connected",
@@ -170,7 +170,7 @@ describe("the signed-in console states no fact it cannot answer", () => {
     const { text } = renderSettings(useLiveConsoleData);
     expect(text).toContain("Conditional writes verified");
     expect(text).toContain("Cloudflare R2");
-    expect(text).toContain("brain");
+    expect(text).toContain("workspace");
     expect(text).toContain("a1b2…8f3c");
     expect(text).toContain("Connected");
   });
@@ -209,6 +209,34 @@ describe("the signed-in console states no fact it cannot answer", () => {
     expect(data.stats[0]).toEqual({ value: "342", label: "notes across all" });
     // And it has not displaced what was already there.
     expect(data.stats.find((s) => s.label === "in your context")?.value).toBe("1");
+  });
+
+  /**
+   * AND THE TILE SAYS WHEN IT WAS COUNTED, WHICH IS NOT NOW.
+   *
+   * `noteCount` is written by the walk `verifyStorageBinding` runs and by
+   * nothing else — not the gateway, not `write_note`, not email ingestion, not
+   * this console's editor. A context verified while empty and filled in
+   * afterwards by a connected AI client reports the number it held *then*, for
+   * ever, and the tile printed it as a live figure.
+   *
+   * This is the wiring half of `noteTotals.test.ts`: the date has to survive
+   * the binding subscription, the sum, and the label, and a break anywhere on
+   * that path reads as "undated", which is the value that means "say nothing"
+   * — a silent failure, which is why it is asserted here and not only there.
+   */
+  test("and the tile dates the number rather than implying it is current", () => {
+    const { data } = renderSettings(
+      withBinding({
+        ...CONNECTED_BINDING,
+        noteCount: 342,
+        noteCountTruncated: false,
+        noteCountedAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      }),
+    );
+
+    expect(data.stats[0]?.value).toBe("342");
+    expect(data.stats[0]?.label).toMatch(/counted 3 days ago/i);
   });
 
   /**

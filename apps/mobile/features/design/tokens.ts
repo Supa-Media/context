@@ -3,14 +3,37 @@ import { Platform } from "react-native";
 /**
  * Design tokens for Context.
  *
- * The dark palette is lifted verbatim from `docs/design/console-mockup.html`,
- * which is the signed-off design and remains the app's own ground: every
- * colour is painted explicitly so nothing borrows a host background.
+ * ## Graphite and Paper
  *
- * There is now a light palette beside it, because `app.config.js` declares
- * `userInterfaceStyle: "automatic"` and that should be true rather than
- * aspirational. It is a **design**, not an inversion — see `lightColors` for
- * where the two deliberately diverge and why.
+ * The palettes are warm neutrals — Graphite in the dark, Paper in the light —
+ * and they replace a ramp of blue-blacks whose every accent was a Tailwind
+ * default (`#3B82F6` blue-500, `#34D399` emerald-400, `#FBBF24` amber-400,
+ * `#F87171` red-400, `#8B5CF6` violet-500). That is worth naming as the reason
+ * rather than as trivia: a palette assembled from a framework's defaults looks
+ * like every other application assembled from them, and no amount of layout
+ * work recovers from it. The product is plain files somebody owns, so the
+ * ground is paper and graphite and the greys carry warmth rather than a cast
+ * borrowed from a CSS framework.
+ *
+ * ## Hue is meaning here, so it is rationed
+ *
+ * Five hues, each with exactly one job, placed far enough apart on the wheel
+ * that no two can be confused at a glance:
+ *
+ *   - **petrol** (`accent`, `hint*`, `codeKey`) — here, active, yours. Never a
+ *     status. It is the only hue the interface spends on itself.
+ *   - **sage** (`ok*`) — synced, saved, bound.
+ *   - **amber** (`warn*`, `warm`) — degraded but working.
+ *   - **rust** (`crit*`) — conflict, revoked, failed.
+ *   - **iris** (`shared*`, `graphColors.shared`) — somebody else's context.
+ *
+ * `private` — the default state of everything in this product — wears no hue
+ * at all, which is why the neutral ramp has to do real work and has four steps
+ * in each palette rather than two near-identical ones.
+ *
+ * Both palettes are a **design**, not an inversion of one another — see
+ * `lightColors` for where they deliberately diverge and why. Every colour is
+ * painted explicitly so nothing borrows a host background.
  *
  * Neither palette is a module-level global any more. Screens obtain one
  * through `useColors()` / `useThemedStyles()` in `./theme`; non-React code
@@ -20,8 +43,8 @@ import { Platform } from "react-native";
  * is exactly the bug this file used to guarantee.
  */
 export const darkColors = {
-  ground: "#050506",
-  surface: "#0B0B0D",
+  ground: "#100F0E",
+  surface: "#191715",
   /**
    * `surface` at zero alpha, for the one thing that needs to fade *to* it.
    *
@@ -33,68 +56,185 @@ export const darkColors = {
    * file and adding some for one token is a worse trade than two literals a
    * test can compare.
    */
-  surfaceClear: "rgba(11,11,13,0)",
-  surface2: "#111114",
-  surface3: "#18181C",
-
-  /** Hairline separators. RN has no `currentColor`, so these are literal rgba. */
-  line: "rgba(255,255,255,0.07)",
-  lineStrong: "rgba(255,255,255,0.14)",
-
-  text: "#F2F2F4",
-  text2: "#A8A8B2",
-  muted: "#75757F",
-  /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#5E5E68",
-
-  accent: "#3B82F6",
-  accentDim: "rgba(59,130,246,0.13)",
-  accentText: "#CFE0FF",
-
-  ok: "#34D399",
-  okText: "#6EE7B7",
-  okWash: "rgba(52,211,153,0.10)",
-  okBorder: "rgba(52,211,153,0.22)",
-
-  warn: "#FBBF24",
-  warnText: "#FCD34D",
-  warnWash: "rgba(251,191,36,0.10)",
-  warnBorder: "rgba(251,191,36,0.22)",
-
-  crit: "#F87171",
-  critText: "#FCA5A5",
-  critBorder: "rgba(248,113,113,0.24)",
-  critWash: "rgba(248,113,113,0.09)",
+  surfaceClear: "rgba(25,23,21,0)",
+  surface2: "#201E1B",
+  surface3: "#2B2825",
 
   /**
-   * The violet that means "somebody else's access" — `graphColors.shared`'s
-   * family, as a wash and a label.
+   * The resting fill of a small control sitting on chrome.
    *
-   * Tokens rather than the two literals that used to sit in
-   * `ContinuityDemo.tsx`: a hardcoded `#D8C9FF` is legible on this ground and
-   * invisible on the light one, and a colour with no token is a colour no
-   * palette can answer for.
+   * The design canvas gives the switcher chip, the search box and the tree's
+   * "new note" button the same barely-there wash at rest, and it is the thing
+   * that makes the title bar read as a row of controls rather than a row of
+   * floating words. It is the ground's own ink at 5% rather than `surface2`,
+   * so it works on both `chromeSurface` and `pageSurface` without either
+   * having to know what is drawn on it.
    */
-  sharedWash: "rgba(139,92,246,0.13)",
-  sharedText: "#D8C9FF",
+  chipFill: "rgba(237,232,224,0.05)",
+
+  /**
+   * Chrome's grey, which is one step quieter than a label's.
+   *
+   * `muted` is what a *name* is drawn in — a folder in the tree, a row in a
+   * menu. This is what the furniture around it is drawn in: a chevron, an
+   * eyebrow, a status segment, the ✕ on a tab. The canvas uses two greys and
+   * collapsing them to one is what made the earlier chrome read as loud.
+   */
+  chromeMuted: "#8D857B",
+
+  /** A selected row in the file tree, under its accent bar. */
+  rowSelected: "#2B2825",
+
+  /**
+   * THE APPLICATION, AS DEPICTED INSIDE A PAGE THAT IS NOT IT.
+   *
+   * Two objects on the landing page are graphite in **both** palettes, and the
+   * design canvas is explicit about it: the endpoint bar — the MCP address you
+   * copy into a client — and the hero's application window are drawn dark on
+   * `Landing-Hero`'s paper board as well as its dark one.
+   *
+   * They are *depictions of software*, quoted inside a page that is not that
+   * software. A terminal is a dark thing; a screenshot of an application is a
+   * screenshot, whatever the brochure around it is made of. Re-tinting either
+   * to paper gives a slightly different paper, which is not a different kind of
+   * thing — and is what makes an embedded window read as a section of the
+   * website instead of as the product.
+   *
+   * Tokens rather than hexes at the call site because
+   * `paletteDiscipline.test.ts` is right: a component that names a colour is a
+   * component no palette can answer for, and "this one is meant to be fixed" is
+   * exactly the claim that needs to live where a reviewer will find it.
+   *
+   * **Two objects, and the rule is about what a thing *is*.** A third fixed
+   * dark box is not covered by "the other two do it"; anything genuinely part
+   * of the page inverts. Argued at length in `docs/decisions/app-and-console.md`,
+   * "A picture of the application does not invert with the page it sits on".
+   */
+  appSurface: "#201E1B",
+  appInk: "#EDE8E0",
+  appAccent: "#6BC8C1",
+  appChip: "rgba(237,232,224,0.09)",
+  appChipHover: "rgba(237,232,224,0.16)",
+  appChrome: "#191715",
+  appMuted: "#A79F95",
+  appDim: "#8D857B",
+  appBody: "#D8D2C9",
+  appRowSelected: "#2B2825",
+  appTeam: "#B9A3F2",
+  appOk: "#82C98E",
+  /*
+    A window's own controls, which belong to an operating system rather than to
+    this product: the three macOS drew, in a picture of a macOS window. They are
+    tokens for the same reason the rest are — a component may not name a colour
+    — and they are the one group here that is not this palette's at all.
+  */
+  appLightRed: "#FF5F57",
+  appLightAmber: "#FEBC2E",
+  appLightGreen: "#28C840",
+
+  /**
+   * The `team` marker in the file tree, and only that.
+   *
+   * Visibility is the one thing a row says about itself that is not about the
+   * file, and the canvas gives it its own hue rather than another grey: down a
+   * column of muted words, a second muted word is furniture, and this one is a
+   * fact about who can read what. It is the same violet the constellation map
+   * already uses for a shared edge (`darkGraphColors.shared`), written again
+   * rather than imported — the map's palette is keyed by *relationship* and
+   * this is keyed by *visibility*, and a shared import would tie two meanings
+   * together that are free to move apart.
+   */
+  markTeam: "#B9A3F2",
+
+  /** Hairline separators. RN has no `currentColor`, so these are literal rgba. */
+  line: "rgba(237,232,224,0.07)",
+  lineStrong: "rgba(237,232,224,0.14)",
+
+  text: "#EDE8E0",
+  text2: "#C3BCB2",
+  muted: "#A79F95",
+  /** The second hero line, deliberately dimmer than `muted`. */
+  heroDim: "#7A736A",
+
+  accent: "#6BC8C1",
+  accentDim: "rgba(107,200,193,0.13)",
+  accentText: "#A9DEDA",
+
+  ok: "#82C98E",
+  okText: "#A6DBAE",
+  okWash: "rgba(130,201,142,0.10)",
+  okBorder: "rgba(130,201,142,0.22)",
+
+  warn: "#DFAC52",
+  warnText: "#E9C47E",
+  warnWash: "rgba(223,172,82,0.10)",
+  warnBorder: "rgba(223,172,82,0.22)",
+
+  crit: "#F08C7C",
+  critText: "#F5B0A4",
+  critBorder: "rgba(240,140,124,0.24)",
+  critWash: "rgba(240,140,124,0.09)",
+
+  /**
+   * Iris — "somebody else's access" — `graphColors.shared`'s family, as a
+   * wash and a label.
+   *
+   * It is the one hue in the budget that is not warm, and deliberately: a
+   * context that is not yours should not sit in the same family as the paper
+   * it is drawn on. Tokens rather than the two literals that used to sit in
+   * `ContinuityDemo.tsx`, because a hardcoded value legible on one ground is
+   * invisible on the other, and a colour with no token is a colour no palette
+   * can answer for.
+   */
+  sharedWash: "rgba(185,163,242,0.13)",
+  sharedText: "#CEBCF7",
+  /**
+   * The edge of that wash, for the one place the wash alone cannot carry it:
+   * the pinned context's pill on the phone strip, which takes the lit pill's
+   * accent ground on top of `sharedWash` when somebody is standing in it. The
+   * border and the label are what go on saying whose context it is.
+   *
+   * Same alpha relationship the `ok`/`warn`/`crit` families use between their
+   * own wash and border, so it sits in the palette rather than beside it.
+   */
+  sharedBorder: "rgba(185,163,242,0.30)",
 
   /** Inverse ink, used on the white CTA and on the "You" node in the map. */
-  ink: "#08080A",
-  white: "#F2F2F4",
+  /**
+   * The two surfaces the application frame is built from.
+   *
+   * The rail, the explorer and the editor were all `surface` — one value, three
+   * regions — so nothing separated them and a hairline border had to be drawn
+   * between each pair. That is the shape the whole redesign argues against: a
+   * line doing work that a value should do, three times, down the middle of the
+   * screen.
+   *
+   * They cannot be spelled `surface`/`surface2` at the call site, because those
+   * two move in **opposite directions** in the two palettes — `surface2` is a
+   * darker tint on paper and a lighter one on graphite — and the rule here is
+   * the same in both: **the page is lighter than the chrome around it**, the way
+   * paper is lighter than the desk. Naming the roles rather than the tints is
+   * what lets one assignment be right in both themes.
+   */
+  chromeSurface: "#191715",
+  pageSurface: "#201E1B",
+
+  ink: "#100F0E",
+  white: "#EDE8E0",
 
   /** The near-black used for insets: code blocks, the map field, field values. */
-  well: "#030304",
+  well: "#0A0908",
 
   /** Warm accent for the first floating tile's mark. */
-  warm: "#FB9256",
+  warm: "#DFAC52",
 
-  hintWash: "rgba(59,130,246,0.06)",
-  hintBorder: "rgba(59,130,246,0.16)",
-  hintText: "#B9CEF5",
-  hintStrong: "#DCE8FF",
+  hintWash: "rgba(107,200,193,0.06)",
+  hintBorder: "rgba(107,200,193,0.16)",
+  hintText: "#A9DEDA",
+  hintStrong: "#CCEBE8",
 
   /** Syntax tints in the note preview. */
-  codeKey: "#7DA6F5",
+  codeKey: "#8FD3CE",
 
   /* ------------------------------------------------------------------ *
    * Floating chrome.
@@ -107,8 +247,8 @@ export const darkColors = {
    * its own ground to carry an edge on its own; these two are a step further
    * out, and the shadow underneath does the rest.
    * ------------------------------------------------------------------ */
-  chrome: "#191920",
-  chromePressed: "#24242C",
+  chrome: "#262421",
+  chromePressed: "#322E2A",
 
   /**
    * The wash over the editor while a panel is out.
@@ -121,7 +261,7 @@ export const darkColors = {
    * white sheet, which is a modal dialog's weight for a file tree you flick in
    * and out of a dozen times an hour. Obsidian barely tints it.
    */
-  scrim: "rgba(0,0,0,0.60)",
+  scrim: "rgba(10,9,8,0.60)",
 } as const;
 
 /**
@@ -159,8 +299,8 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  *     button's fill, a neutral pill, a selected row on a phone.
  *   - `well` stays the deepest inset, as it is in the dark palette.
  *
- * **`ground` and `surface` are both white, and that is the design rather than
- * a value nobody filled in.** This palette used to ground at `#EDEDF2` with
+ * **`ground` and `surface` are the same paper tone, and that is the design
+ * rather than a value nobody filled in.** This palette used to ground at `#EDEDF2` with
  * `#14141A` ink so that a white panel could lift off the page without a
  * border. On a desktop that is a defensible picture and on a phone it is the
  * single thing that made the app read as grey: the note, the file tree and the
@@ -190,95 +330,139 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  * Contrast is asserted, not asserted-in-prose: see `__tests__/theme.test.ts`.
  */
 export const lightColors: Colors = {
-  ground: "#FFFFFF",
-  surface: "#FFFFFF",
+  ground: "#FFFDF9",
+  surface: "#FFFDF9",
   /** `surface` at zero alpha. See the dark palette's own note. */
-  surfaceClear: "rgba(255,255,255,0)",
-  surface2: "#FAFAFA",
-  surface3: "#F1F1F3",
+  surfaceClear: "rgba(255,253,249,0)",
+  surface2: "#F7F4ED",
+  surface3: "#F0ECE3",
+
+  /** See the dark palette: the ground's ink at 5%, so it works on either surface. */
+  chipFill: "rgba(26,23,20,0.05)",
+  /** See the dark palette's note. Light's `heroDim` happens to be the same grey. */
+  chromeMuted: "#7A7264",
+  /**
+   * Deliberately darker than `surface3`.
+   *
+   * A selected row has to hold at a glance across a 260pt column of names, and
+   * on paper `surface3` at `#F0ECE3` is a tint you have to look for. The canvas
+   * draws it two steps down.
+   */
+  rowSelected: "#E6E1D6",
+
+  /** Identical to the dark palette's, deliberately — see its note. */
+  appSurface: "#201E1B",
+  appInk: "#EDE8E0",
+  appAccent: "#6BC8C1",
+  appChip: "rgba(237,232,224,0.09)",
+  appChipHover: "rgba(237,232,224,0.16)",
+  appChrome: "#191715",
+  appMuted: "#A79F95",
+  appDim: "#8D857B",
+  appBody: "#D8D2C9",
+  appRowSelected: "#2B2825",
+  appTeam: "#B9A3F2",
+  appOk: "#82C98E",
+  /*
+    A window's own controls, which belong to an operating system rather than to
+    this product: the three macOS drew, in a picture of a macOS window. They are
+    tokens for the same reason the rest are — a component may not name a colour
+    — and they are the one group here that is not this palette's at all.
+  */
+  appLightRed: "#FF5F57",
+  appLightAmber: "#FEBC2E",
+  appLightGreen: "#28C840",
+  /** See the dark palette's note. */
+  markTeam: "#6A46B8",
 
   /** Hairline separators — black at low alpha, mirroring the dark palette's white. */
-  line: "rgba(0,0,0,0.09)",
-  lineStrong: "rgba(0,0,0,0.18)",
+  line: "rgba(26,23,20,0.09)",
+  lineStrong: "rgba(26,23,20,0.18)",
 
   /**
    * Ink, and its two quieter voices.
    *
-   * `#222222` rather than a near-black with a blue cast. The cast was there to
-   * agree with a grey-blue ground that no longer exists; against paper it is a
-   * tint nobody asked for on every word in the app, and the type it is set in
-   * is a body face at 16/24 rather than a display face where a cool black
-   * reads as deliberate.
+   * A warm near-black rather than a neutral or blue-cast one. The earlier
+   * value was `#222222`, chosen to stop a cool cast fighting a grey-blue
+   * ground; now that the ground is paper, the ink is warmed to sit in the same
+   * family rather than merely stop clashing with it. The difference is small
+   * per character and unmissable over a page of prose, which is what this
+   * colour is mostly used for.
    */
-  text: "#222222",
-  text2: "#444444",
-  muted: "#6B6B6B",
+  text: "#1A1714",
+  text2: "#4A443C",
+  muted: "#635C52",
   /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#858585",
+  heroDim: "#7A7264",
 
-  accent: "#2563EB",
-  accentDim: "rgba(37,99,235,0.10)",
-  accentText: "#1D4ED8",
+  accent: "#0E6C69",
+  accentDim: "rgba(14,108,105,0.10)",
+  accentText: "#0A5350",
 
-  ok: "#068A5F",
-  okText: "#065F46",
-  okWash: "rgba(6,138,95,0.10)",
-  okBorder: "rgba(6,138,95,0.28)",
+  ok: "#3E7A4E",
+  okText: "#2C5C39",
+  okWash: "rgba(62,122,78,0.10)",
+  okBorder: "rgba(62,122,78,0.28)",
 
-  warn: "#B45309",
-  warnText: "#92400E",
-  warnWash: "rgba(180,83,9,0.12)",
-  warnBorder: "rgba(180,83,9,0.30)",
+  warn: "#96600A",
+  warnText: "#7A4E08",
+  warnWash: "rgba(150,96,10,0.12)",
+  warnBorder: "rgba(150,96,10,0.30)",
 
-  crit: "#DC2626",
-  critText: "#B91C1C",
-  critBorder: "rgba(220,38,38,0.28)",
-  critWash: "rgba(220,38,38,0.08)",
+  crit: "#B23A2B",
+  critText: "#962E21",
+  critBorder: "rgba(178,58,43,0.28)",
+  critWash: "rgba(178,58,43,0.08)",
 
-  sharedWash: "rgba(124,58,237,0.10)",
-  sharedText: "#5B21B6",
+  sharedWash: "rgba(106,70,184,0.10)",
+  sharedText: "#55329E",
+  sharedBorder: "rgba(106,70,184,0.30)",
 
   /** See the note above: the CTA fill is dark here, and its ink is white. */
-  ink: "#FFFFFF",
-  white: "#14141A",
+  /** See `darkColors.chromeSurface`: the page stays lighter than its chrome. */
+  chromeSurface: "#F4F1EA",
+  pageSurface: "#FFFDF9",
+
+  ink: "#FFFDF9",
+  white: "#1A1714",
 
   /**
    * The recessed grey used for insets: code blocks, the map field, field
    * values — and, in a note, the ground under an inline `code` span, which is
    * where most people will actually see it.
    */
-  well: "#F5F5F5",
+  well: "#EDE9E1",
 
   /** Warm accent for the first floating tile's mark. */
-  warm: "#C2410C",
+  warm: "#B5761C",
 
-  hintWash: "rgba(37,99,235,0.06)",
-  hintBorder: "rgba(37,99,235,0.22)",
-  hintText: "#2A57C4",
-  hintStrong: "#1B3F96",
+  hintWash: "rgba(14,108,105,0.06)",
+  hintBorder: "rgba(14,108,105,0.22)",
+  hintText: "#0E6C69",
+  hintStrong: "#0A4442",
 
   /** Syntax tints in the note preview. */
-  codeKey: "#2A5DB0",
+  codeKey: "#0A5350",
 
   /**
    * Floating chrome. A floating object in a light world is white and reads as
    * above the page through its shadow rather than through being brighter than
    * everything under it — there is nothing brighter than white.
    */
-  chrome: "#FFFFFF",
-  chromePressed: "#E9E9F0",
+  chrome: "#F4F1EA",
+  chromePressed: "#E4DFD4",
 
   /** See the dark palette's note: a tint here, not a blackout. */
-  scrim: "rgba(0,0,0,0.22)",
+  scrim: "rgba(26,23,20,0.22)",
 };
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
 export const darkGraphColors = {
-  own: "#3B82F6",
-  team: "#75757F",
-  shared: "#8B5CF6",
-  client: "#34D399",
-  you: "#F2F2F4",
+  own: "#6BC8C1",
+  team: "#A79F95",
+  shared: "#B9A3F2",
+  client: "#82C98E",
+  you: "#EDE8E0",
 } as const;
 
 export type GraphKind = keyof typeof darkGraphColors;
@@ -292,11 +476,11 @@ export type GraphColors = Readonly<Record<GraphKind, string>>;
  * disc drawn in the ground's opposite — near-black here, near-white there.
  */
 export const lightGraphColors: GraphColors = {
-  own: "#2563EB",
-  team: "#626270",
-  shared: "#7C3AED",
-  client: "#059669",
-  you: "#14141A",
+  own: "#0E6C69",
+  team: "#635C52",
+  shared: "#6A46B8",
+  client: "#3E7A4E",
+  you: "#1A1714",
 };
 
 /**
@@ -312,8 +496,27 @@ export const lightGraphColors: GraphColors = {
 const webStack = (primary: string, fallback: string) => `${primary}, ${fallback}`;
 
 export const fonts = {
+  /**
+   * The display voice.
+   *
+   * It was Onest, a second sans bought and shipped alongside the body face —
+   * and nothing in a console is set large enough to tell two humanist sans
+   * apart. The two faces differed by about a point and a half of width per
+   * hundred pixels and by nothing a reader would name, so the second webfont
+   * was a download that bought no identity.
+   *
+   * `display` stays as a token because the *role* is real: a wordmark, a hero,
+   * a pane title and a legal page's headings want one voice and the interface
+   * wants another, and keeping the name means that distinction can be given a
+   * face again later without touching a call site. It just resolves to the
+   * body face now, and the difference between display and interface is carried
+   * by size, weight and tracking instead.
+   */
   display: Platform.select({
-    web: webStack("Onest", "ui-sans-serif, system-ui, sans-serif"),
+    web: webStack(
+      "Instrument Sans",
+      "ui-sans-serif, system-ui, -apple-system, sans-serif",
+    ),
     default: undefined,
   }),
   body: Platform.select({
@@ -329,17 +532,111 @@ export const fonts = {
   }),
 } as const;
 
+/**
+ * The type scale.
+ *
+ * ## Why this file did not have one, and what that cost
+ *
+ * Colour, radii, spacing and shadows were all tokenised here and type was not,
+ * so every screen picked its own size. The result, counted across `features/`
+ * and `app/`: **26 distinct font sizes**, drifting in half-points — 10, 10.5,
+ * 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17 and up. That
+ * is not a scale, it is a ramp with every rung on it, and it is the single
+ * largest reason two panels built by two different hands never looked related.
+ *
+ * Nine sizes, integers only. Half-points were never a design decision; they
+ * are what happens when somebody nudges a number until one screen looks right,
+ * and they blur on any display that is not 2x.
+ *
+ * ## Two densities, one scale
+ *
+ * A phone is not this scale shrunk. `pointerType` and `touchType` are the same
+ * nine roles at two sizes, and `typeFor(density)` picks one — the same shape as
+ * `radii`'s pointer/phone split, which this file already argued for and which
+ * was previously expressed as three lonely radius values.
+ *
+ * Note that `title` gets **smaller** on a phone, not larger: the measure it has
+ * to fit into is roughly 342pt rather than 640, and a title that wraps to three
+ * lines is not emphatic, it is in the way.
+ */
+export const pointerType = {
+  /** Uppercase section labels, tracked +0.08em, weight 600. */
+  label: 11,
+  /** Counts, timestamps, paths, anything a row says about itself. */
+  meta: 12,
+  /** The default: tree rows, tabs, buttons, menu items, fields. */
+  ui: 13,
+  /** Settings prose, dialog bodies, empty states. */
+  lede: 15,
+  /** The note. Set against `layout.readingMeasureEm`. */
+  body: 16,
+  h3: 19,
+  h2: 23,
+  /** A note title. */
+  title: 30,
+  /** Marketing and first-run only; nothing in the console is this size. */
+  display: 40,
+} as const;
+
+export type TypeScale = Readonly<Record<keyof typeof pointerType, number>>;
+
+export const touchType: TypeScale = {
+  label: 11,
+  meta: 12,
+  ui: 16,
+  lede: 17,
+  body: 17,
+  h3: 20,
+  h2: 22,
+  title: 28,
+  display: 46,
+};
+
+/**
+ * The scale for a density.
+ *
+ * `compact` is the phone — see `features/app/frame.ts`, which owns the word.
+ * The two wider densities are pointer densities and share one scale: a medium
+ * window is a narrower desktop, not a larger phone.
+ */
+export function typeFor(density: "compact" | "medium" | "wide"): TypeScale {
+  return density === "compact" ? touchType : pointerType;
+}
+
+
 export const radii = {
+  /* ------------------------------------------------------------------ *
+   * Three corners, and a pill.
+   *
+   * These eleven names used to hold nine values — 6, 7, 8, 9, 10, 11, 12, 13,
+   * 16, 26 — which is a ramp rather than a family: no two of them read as
+   * related, and a row at 7 inside a card at 12 inside a panel at 13 has three
+   * corners that disagree by a point each, which is exactly close enough to
+   * look like a mistake and not close enough to look like a decision.
+   *
+   * The names are kept, because they say where a radius belongs and there are
+   * call sites for all of them. What changed is that they now resolve to three
+   * values chosen to nest:
+   *
+   *   **inner 6** — a row, a chip, an input, a small button.
+   *   **container 10** — a card, a panel, a menu, a popover.
+   *   **outer 16** — a window, a dialog, anything that is the widest thing on
+   *   the screen.
+   *
+   * The nesting rule is that a child's radius is its parent's minus the
+   * padding between them: 16 − 6 = 10, 10 − 4 = 6. Concentric corners are the
+   * difference between nested panels looking drawn and looking stacked.
+   * ------------------------------------------------------------------ */
   xs: 6,
-  sm: 7,
-  md: 8,
-  lg: 9,
+  sm: 6,
+  md: 6,
+  lg: 6,
   xl: 10,
-  card: 12,
-  panel: 13,
+  card: 10,
+  panel: 10,
+  cta: 10,
   console: 16,
-  tile: 26,
-  cta: 11,
+  tile: 16,
   pill: 999,
 
   /* ------------------------------------------------------------------ *
@@ -390,9 +687,101 @@ export const layout = {
   /** `@media(max-width:1080px)` — floating tiles are hidden. */
   tileBreakpoint: 1080,
   railWidth: 216,
+  /**
+   * The settings overlay's index, which is wider than the rail it used to
+   * borrow its width from.
+   *
+   * 216 is a column of bare labels. This one carries a mark, a label and what
+   * the setting is currently *set to* — and at 216 the value had about 33pt
+   * left, which is not a column, it is an ellipsis. The panel beside it is
+   * capped at 940, so the 36 points come out of a body that has them.
+   */
+  settingsListWidth: 252,
   treeWidth: 246,
   consoleBodyMinHeight: 566,
   mapHeight: 398,
+
+  /**
+   * The reading measure — how long a line of the note's own prose may get
+   * before it is hard to read — as a multiple of the note's own font size.
+   *
+   * Typography's "measure" is line length, and this is the only number in this
+   * file that is not in points, because the constraint is not a width: the eye
+   * loses the start of the next line somewhere past about 75 characters, and a
+   * 1440px console pane was giving a real paragraph roughly 150. Relative to
+   * the type, because a measure stated as a multiple of the note's own size is
+   * the same sentence whatever that size is — both densities draw 16px today,
+   * and this does not have to be revisited if either ever stops.
+   *
+   * ## Why `em` and not `ch`, which is the unit that means "characters"
+   *
+   * `ch` is the advance of the digit zero, and a digit is a poor proxy for
+   * prose: the zero-to-lowercase ratio is itself a property of the face, so a
+   * `ch` measure varies with *two* font metrics where an `em` measure varies
+   * with one. Measured, not theorised — this shipped as `62ch` and CI caught
+   * it: 75 characters a line in Chromium, **91** in WebKit on the same Linux
+   * runner, because the fallback face there draws a wide zero over narrow
+   * lowercase. Same declaration, same viewport, sixteen characters apart.
+   *
+   * (`ch` was ambiguous in a second way, which is worth knowing even though it
+   * is no longer the unit: a font-relative length in a custom property can be
+   * resolved either where the property is declared or where it is used, and
+   * engines differ. The note's wrapper is Times New Roman at 16px and the note
+   * is a sans at 14.5px, so the two answers were different lengths. The value
+   * is therefore a bare number here and gets its unit at the point of use, in
+   * the rule that draws the text — see `--lp-measure` in `LiveEditor.web.tsx`.)
+   *
+   * ## 40
+   *
+   * Measured at 1440x900 in a browser rather than trusted as arithmetic: 40em
+   * is 580px in the console's own face. English prose in a system sans
+   * averages 0.45-0.55em a character, so 40 lands between about 73 and 89
+   * across faces.
+   *
+   * This was 36 (522px, 68 characters) on the reasoning that the comfortable
+   * band is 60-75 and erring short is the cheaper error. The owner compared it
+   * against Obsidian, which is the app people arrive here from, and short read
+   * as *too* short. Measuring Obsidian's own reading measure settled it: in a
+   * 1010px pane it draws 582px of text, against our 522px in a pane of the
+   * same width — a tenth narrower, in the one place a reader has something to
+   * compare us to. 40em is 580px, which is that number.
+   *
+   * The lower bound of the readable band is not the target. A measure is
+   * comfortable across a range, and inside that range the tie is broken by
+   * what the reader already knows; being conspicuously narrower than the
+   * editor somebody used yesterday is a cost the band does not price.
+   *
+   * It is deliberately one value for both densities: on a phone the note is
+   * 342pt of text inside 24pt gutters, which is far narrower than 40em at
+   * 16px, so the measure cannot bind there and the padding governs. Two values
+   * would be two things to keep in step for no gain.
+   */
+  readingMeasureEm: 40,
+
+  /**
+   * The gutter the web editor's scroller keeps either side of the measure.
+   *
+   * `LiveEditor.web.tsx` spends it as `.cm-scroller`'s horizontal padding, and
+   * the measure is centred *inside* what is left — so anything that has to
+   * start at the same character as the note's first line adds this to half the
+   * remainder. `noteGutterFor` in `features/app/frame.ts` is that arithmetic,
+   * in one place, and the breadcrumb above the note is what asks for it.
+   *
+   * The WebView half (`files/webview/styles.ts`) sets `--lp-pad-x: 24`, and
+   * that is a different number for a different surface rather than drift: it
+   * is a phone's reading margin, where the measure never binds and the gutter
+   * is the whole of what governs the column.
+   */
+  notePadX: 16,
+
+  /**
+   * The note's own type size, in the web editor.
+   *
+   * Set on `.cm-scroller` in `LiveEditor.web.tsx`, and the unit
+   * `readingMeasureEm` is multiplied by — so it is half of what decides where
+   * the column's edges are, and `noteGutterFor` needs both.
+   */
+  noteFontSize: 16,
 
   /* ---------------------------------------------------------------------- *
    * The application frame.
@@ -407,10 +796,65 @@ export const layout = {
   wideBreakpoint: 1180,
   /** The rail reduced to its marks, for a medium window. */
   railIconWidth: 56,
+  /**
+   * The right panel's resting width, and the range a drag may take it to.
+   *
+   * Wider than the tree at rest, and deliberately: the tree holds file names
+   * and this holds a conversation, and a chat column under about 300pt turns
+   * every answer into a ladder. The ceiling is where the note's own measure
+   * starts to suffer on a 1180pt window, which is the narrowest layout that
+   * draws this as a column at all.
+   */
+  asideWidth: 340,
+  asideMinWidth: 300,
+  asideMaxWidth: 520,
   /** The explorer column's resting width, and the range a drag may take it to. */
   explorerWidth: 260,
   explorerMinWidth: 200,
   explorerMaxWidth: 460,
+  /**
+   * How far past the floor a drag has to go before releasing folds the column
+   * away instead of snapping back to it.
+   *
+   * `clampExplorerWidth` still refuses to *render* anything narrower than
+   * `explorerMinWidth` — the floor is where a kebab-case name under two indents
+   * stops being readable, and that has not changed. What changes is what
+   * happens when somebody keeps pulling: the drag arms a close rather than
+   * meeting a wall. 28 is far enough that overshooting the floor by a few
+   * pixels does not close the tree by accident, and near enough that a
+   * deliberate pull reaches it without a shove.
+   */
+  explorerCloseOvershoot: 28,
+  /**
+   * The seam between two panels: a hairline that is also a 7pt target.
+   *
+   * Wide enough to hit without looking, narrow enough to read as the rule it
+   * draws. The closed seam is wider because it is the only thing left standing
+   * where a whole panel was, and it is the control that brings the panel back.
+   */
+  seamWidth: 7,
+  /**
+   * How far the tree's drag handle reaches past the column, over the editor.
+   *
+   * A 7pt strip centred on a 1pt border: three points of it lie over the
+   * editor, three over the tree. People aim at the edge rather than a few
+   * points inside it, so a handle that stopped at the border would refuse
+   * about half the grabs aimed at it — which is why the frame draws this
+   * *after* the editor rather than inside the column (see `AppFrame`).
+   */
+  explorerSeamOverhang: 3,
+  seamClosedWidth: 10,
+  /** The chevron pill centred on a seam, revealed under the pointer. */
+  seamPillWidth: 18,
+  seamPillHeight: 42,
+  /**
+   * The warm strip down the leading edge in focus mode.
+   *
+   * Nothing is drawn in it. It exists so that a pointer sent to the edge of the
+   * window — which is where a hand goes looking for a panel that was there a
+   * moment ago — finds something rather than the note.
+   */
+  focusEdgeWidth: 12,
   /**
    * The smallest target a thumb can be asked to hit, in points.
    *
@@ -632,6 +1076,45 @@ export const layout = {
    * two numbers are separable precisely because the target is not this one.
    */
   stripPill: 34,
+  /**
+   * The height of the breadcrumb's own head mark — the `@seyi` at the front
+   * of row two, not a `stripPill` copy.
+   *
+   * The two used to be the identical object: same `stripPill` 34, same
+   * `radii.md`, same `shadows.floating`, same `wsSwitch` 13px label. That was
+   * right for as long as the pill *was* the switcher, moved down a row —
+   * `docs/decisions/app-and-console.md`'s "A context pill's target is not its
+   * mark" argues `stripPill` down to 34 and keeps the shadow for exactly that
+   * reason, and it was correct about the object it was arguing over. It
+   * stopped being the same object when that same file's "The contexts moved
+   * into the scroller" put the two rows on different jobs: row one switches
+   * *to* a context, row two's head names the one you are already in, and a
+   * switcher pill drawn a second time one row down is two objects claiming to
+   * be the same control. See that doc's "The breadcrumb head stopped being a
+   * switcher pill" for the measurement and the rest of the argument.
+   *
+   * `stripPill` is untouched — the switcher row still needs the whole target
+   * a phone's only route between contexts has always needed. This token is
+   * for the one caller that draws a *quieter* mark: `Pill`'s `head` variant.
+   */
+  crumbPill: 26,
+  /**
+   * A breadcrumb folder segment's own **drawn** height on a phone — short of
+   * the touch floor, exactly the shape `explorerRow` names below.
+   *
+   * `Breadcrumb.tsx`'s `folder`/`leaf` styles set the `label` role and never
+   * touch `lineHeight`, so what actually reaches the screen underneath that
+   * font size is still `Text`'s `mono` variant's own line height —
+   * `leading(ui, 1.55)`, 20.15pt, at the `ui` size the variant is defined for
+   * rather than the `label` size it is drawn at here. Add `segment`'s own 1pt of
+   * padding on each edge, for legibility rather than for a thumb, and the row
+   * is 22.15: half of 44.
+   *
+   * This is what somebody **sees**, not what they can press — see
+   * `Breadcrumb.tsx`'s folder `PressRow` for why the pressable itself is
+   * `minTouchTarget` tall regardless.
+   */
+  crumbSegmentHeight: leading(13, 1.55) + 1 * 2,
   /**
    * The account mark pinned at the leading end of a phone's top row.
    *

@@ -49,7 +49,7 @@ export const CONTEXT_OVERVIEW_FACTS: readonly OverviewFact[] = [
   },
   {
     title: "Your own structure",
-    body: "PARA, or folders you invented years ago. We don't impose a schema on a brain you have already arranged.",
+    body: "PARA, or folders you invented years ago. We don't impose a schema on a workspace you have already arranged.",
   },
   {
     title: "Named people, or one link you mint",
@@ -58,7 +58,7 @@ export const CONTEXT_OVERVIEW_FACTS: readonly OverviewFact[] = [
   {
     title: "Shared workspaces",
     status: "coming soon",
-    body: "One bucket, several members, one set of privacy rules. Mail is not part of it — a capture address belongs to one person's brain, and a workspace has none.",
+    body: "One bucket, several members, one set of privacy rules. Mail is not part of it — a capture address belongs to one person's own workspace, and a shared one has none.",
   },
 ];
 
@@ -68,6 +68,15 @@ export const CONTEXT_OVERVIEW_FACTS: readonly OverviewFact[] = [
  * Said in the same words in both places on purpose. Somebody who accepts an
  * invitation today and runs onboarding next week should meet one promise
  * twice, not two paraphrases they have to check against each other.
+ *
+ * **It used to say "your notes stay in a bucket you own", and that stopped
+ * being true.** It is the reassurance line, under every screen of the first
+ * run — and the moment the storage step gained a third answer where *we* keep
+ * the files, the first half was false for exactly the person that option
+ * exists for. The promise the sentence is actually making survives the change
+ * and is the one non-negotiable #1 makes: whoever holds the disk, the files
+ * are plain, they are yours, and they leave with you.
  */
 export const CONTEXT_OVERVIEW_FOOT =
-  "Your notes stay in a bucket you own. Nothing here moves a file you already have.";
+  "Your notes are plain files, in storage that answers to you. Nothing here moves a " +
+  "file you already have, and everything here leaves with you.";

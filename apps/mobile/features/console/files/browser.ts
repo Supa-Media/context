@@ -25,13 +25,23 @@
 
 import type { Clipboard } from "./clipboard";
 import type { EditorState } from "./editor";
+import type {
+  FormOutcome,
+  FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
+  FormSubmission,
+  FormVote,
+} from "./formBlock";
 import { ConvexError } from "convex/values";
 import type { NoteShare } from "./shares";
 import type { NoteScope } from "./scope";
 import type { ToastSpec } from "../../design/components/Toast";
-import type { FileError, FolderListing, Visibility } from "./types";
+import type { FileError, FolderListing, SettableVisibility } from "./types";
 import type { SyncFacts } from "../../offline/copy";
+import type { PendingMarks } from "./pendingMarks";
 import type { ConflictReview } from "./useConflictReview";
+import type { AppliedPluginNoteWrite } from "../plugins/runtime";
 
 /** What one search found, and whether there was an index to find it in. */
 export interface SearchAnswer {
@@ -73,6 +83,44 @@ export interface SearchAnswer {
    * whole thing.
    */
   reducedRecallNotes: string[];
+}
+
+/** Another context something can be moved into, as the picker prints it. */
+export interface MoveDestination {
+  id: string;
+  /** The addressable name, with its `@`. */
+  label: string;
+  displayName: string;
+}
+
+/**
+ * A move out of this context, while it runs and for a while after.
+ *
+ * A move between contexts is the one file operation the console does not
+ * finish inside the press: the bytes cross a tenancy boundary a batch at a
+ * time, and a folder can be arbitrarily large. So it reports rather than
+ * blocks — `objects` climbs, and `status` settles on something a person can
+ * act on.
+ */
+export interface ContextMoveProgress {
+  id: string;
+  from: string;
+  to: string;
+  /** Where it is going, as `@name`. The id where the name is not known. */
+  destination: string;
+  status: "moving" | "complete" | "failed";
+  /** Notes and files landed at the other end and removed from this one. */
+  objects: number;
+  /**
+   * What stayed behind, and why it had to.
+   *
+   * Today that is one reason — a note encrypted to this context's key, whose
+   * ciphertext elsewhere is a note nobody could ever open. Reported rather
+   * than swallowed: "moved, except for three of them" is a fact the person
+   * needs before they go looking in the other context.
+   */
+  skipped: readonly { path: string; reason: "encrypted" }[];
+  error?: string;
 }
 
 export interface FileBrowser {
@@ -153,6 +201,28 @@ export interface FileBrowser {
   select: (path: string) => boolean;
 
   /**
+   * How many times `select` has moved this browser somewhere.
+   *
+   * **A counter, because the URL has to tell a navigation from a correction**,
+   * and by the time it sees one it has only "the selected path changed" to go
+   * on. Those are two different facts wearing one shape: somebody opened a
+   * note (a place, and the browser's own back button should return from it),
+   * or the note that was already open changed path underneath them — a rename
+   * — and its address has to catch up without anybody having gone anywhere.
+   *
+   * Bumped only by a `select` the guard allowed, so a refused navigation is
+   * not one. **`deselect` deliberately does not bump it**: standing at the
+   * context's root after closing the last tab is where the console put you,
+   * not somewhere you asked to go, and a history entry for it is a back button
+   * that returns to an empty pane.
+   *
+   * Read by `noteAddress.ts`, which compares it against the value it last
+   * reconciled. See `useNoteUrl` for what the two answers do to the address
+   * bar.
+   */
+  navigations: number;
+
+  /**
    * Close what is open and stand at the context's root.
    *
    * **The inverse of `select`, and it did not exist.** For as long as it did
@@ -196,6 +266,31 @@ export interface FileBrowser {
   setDraft: (text: string) => void;
   save: () => void;
   /**
+   * A tool wrote the open note, and the live room has already merged it.
+   *
+   * Moves the editor onto the version the write produced, so this client's
+   * next conditional save is checked against what is actually in the bucket
+   * rather than against the version it opened — which would be a conflict
+   * raised about a change already present in the text being saved. Nothing
+   * else moves: the draft is the merge, and it is still unsaved.
+   */
+  onExternalWrite: (written: { path: string; etag: string | null }) => void;
+  /**
+   * Listen for saves this console makes, and return an unsubscribe.
+   *
+   * A save goes through the control plane rather than the gateway, so a live
+   * room has no other way to learn that the bucket moved. A subscription
+   * rather than a callback passed in, because the socket is opened from this
+   * browser's own state and handing it back down would be a cycle.
+   */
+  onSaved: (handler: (written: { path: string; etag: string }) => void) => () => void;
+  /**
+   * Reflect a plugin write only when the open editor is still the clean,
+   * exact version that write replaced; a newer or dirty draft always wins the
+   * screen and reaches the ordinary conflict flow on save.
+   */
+  applyPluginNoteWrite?: (write: AppliedPluginNoteWrite) => void;
+  /**
    * Write the draft autosave is holding, now, and say whether there was one.
    *
    * Every exit that is not a save goes through this: opening another note,
@@ -207,7 +302,61 @@ export interface FileBrowser {
    * path in this console and nothing here can force one.
    */
   flushAutosave: (path?: string) => boolean;
-  /** Take the version that is on the server, discarding this draft. Writes nothing. */
+  /**
+   * Drop every local copy of `path`'s plaintext: its draft, any write still
+   * waiting in the offline queue, and the cached body last read from the
+   * bucket. Writes nothing to the bucket.
+   *
+   * **All three, and the third is the one a name like `discardDraft` would
+   * have hidden.** A draft and a queued write are the person's own typing;
+   * the *cached body* is a copy of what the bucket answered — and for the
+   * caller this exists for, all three hold the same plaintext. Leaving the
+   * cache behind and trusting the reopen that follows a lock to overwrite it
+   * (`rememberNote`) is a fix that holds only while that reopen lands: a read
+   * that loses the connection between the lock and the reopen serves the
+   * pre-lock plaintext back out of `localStorage` — into an ordinary editor,
+   * because a cached copy taken before the lock says `encrypted: false` and so
+   * walks past `openNote`'s own guard — and leaves it there across reloads.
+   * Measured, not reasoned about: `encryptionLockDiscardsDraft.test.ts`
+   * enumerates the store after a lock whose reopen fails.
+   *
+   * **The one caller today is the moment a note becomes encrypted** — a
+   * first lock, or a re-lock after `removeNoteEncryption` put it back — where
+   * a passphrase-protected note's whole promise is that nothing this codebase
+   * runs can read it. A plaintext typed before the lock and never saved would
+   * otherwise sit in `features/offline`'s durable store, at a path that is
+   * now ciphertext, forever: `docs/decisions/encryption.md`'s "Encrypted
+   * notes are for humans; no AI client reads one" is a claim about the
+   * bucket, and a leftover draft on the device is the same plaintext sitting
+   * just outside it.
+   *
+   * Exposed here rather than folded into `useNoteEncryption.ts`'s own
+   * `protect`, on purpose: that module's header states the rule its caller
+   * depends on — it never imports `features/offline`, so an unlocked note's
+   * plaintext can never reach the durable draft queue *through* it.
+   * `__tests__/encryptionDraftQueueGuard.test.ts` holds that boundary on the
+   * source. Calling `forgetDraft`/`dropQueued` from inside the encryption
+   * module would be a second, narrower door into the same store; this keeps
+   * the one door in the file that already owns it (`useFileBrowser.ts`), and
+   * the caller that just finished a lock — `BrowsePane`, outside
+   * `features/console/encryption/` entirely — reaches through it instead.
+   *
+   * Takes an explicit path rather than reading `editor.path`: the note this
+   * clears is the one the lock just finished with, and a caller must never
+   * have to open it first to close the door behind it.
+   *
+   * What dropping the cached body costs, stated rather than hidden: the note
+   * is not readable offline until something reads it again. That is one round
+   * trip on a note that has just become unreadable without a passphrase
+   * anyway, and the reopen every caller already makes pays it immediately.
+   */
+  discardLocalCopies: (path: string) => void;
+  /**
+   * Another live console has just encrypted `path`. Cancels rather than flushes
+   * autosave, drops plaintext immediately, then re-reads the ciphertext.
+   */
+  encryptedElsewhere: (path: string) => void;
+  /** Take the server outcome (including deletion), discarding this draft. Writes nothing. */
   useTheirs: () => void;
   /** Keep this draft and save it over theirs, on the etag that is now current. */
   keepMine: () => void;
@@ -226,10 +375,11 @@ export interface FileBrowser {
    * Answer the conflict with this text: the draft as it stands, or a merge the
    * person has read and approved.
    *
-   * Conditional on the version the review actually showed them. A note somebody
-   * else has moved again since comes back as a fresh conflict rather than being
-   * forced through, and offline it goes back into the queue carrying the same
-   * etag, to be checked at drain time.
+   * Conditional on the version the review actually showed them, or create-only
+   * when that reviewed outcome is deletion. A note somebody else has moved or
+   * recreated since comes back as a fresh conflict rather than being forced
+   * through, and offline it goes back into the queue carrying the same version
+   * condition, to be checked at drain time.
    */
   resolveWith: (text: string) => void;
   discard: () => void;
@@ -243,6 +393,19 @@ export interface FileBrowser {
    * nothing for it — which is the right answer for a picture of the product.
    */
   sync?: SyncFacts;
+  /**
+   * Which notes in this context have an edit that has not reached the bucket,
+   * for the lists to mark and the phone's sync sheet to name. Read-only — see
+   * `pendingMarks.ts`. Optional for the reason `sync` is: the demo console has
+   * no queue, and absent marks nothing.
+   */
+  pending?: PendingMarks;
+  /**
+   * A person's answer to a parked rename, move, archive, delete or new folder
+   * — `OpRow.answers` says which are offered. Optional for the reason `pending`
+   * is: the demo console has no queue.
+   */
+  answerOp?: (id: string, answer: "override" | "retry" | "discard") => void;
 
   /** The last thing that went wrong, or a confirmation of what just happened. */
   notice: string | null;
@@ -263,6 +426,14 @@ export interface FileBrowser {
    * happened and never of something three moves ago that no longer inverts.
    */
   toasts: readonly ToastSpec[];
+
+  /**
+   * Say something transient that no row command produced — a refused paste.
+   *
+   * Separate from `notice`, which is about the console's own state (no storage
+   * connected, a stale listing) and stays until it stops being true.
+   */
+  say(message: string): void;
   dismissToast: (id: string) => void;
 
   clipboard: Clipboard | null;
@@ -288,14 +459,102 @@ export interface FileBrowser {
   copyTo: (from: string, destinationFolder: string) => void;
 
   createNote: (folder: string, name: string) => void;
+  /**
+   * New drawing, by the name a person would say rather than the file it becomes.
+   *
+   * `<name>.excalidraw.md` is two extensions, so the suffix is supplied here
+   * and `createNote` does the rest — one set of name and collision rules for
+   * both. Typing `plan.excalidraw` into New note reaches the same file.
+   */
+  createDrawing: (folder: string, name: string) => void;
   createFolder: (folder: string, name: string) => void;
+  /**
+   * Make one **now**, called `untitled-<date>`, and open it.
+   *
+   * The whole of "nothing asks you to name a note before you have written it".
+   * Every surface that used to raise `NamePrompt` for a new note or a new
+   * drawing calls this instead, and the name catches up on its own: the file is
+   * renamed to the document's first heading the first time that heading settles
+   * into something other than the placeholder. See `untitled.ts`.
+   *
+   * A folder is deliberately **not** one of the kinds. The argument for
+   * skipping the prompt is that the thing you are making has a title field
+   * inside it — the first line of the document — and a folder has no inside to
+   * type in. `untitled-2026-09-19/` in somebody's bucket, renameable only from
+   * a row menu, is a worse trade than one text field.
+   */
+  createUntitled: (folder: string, kind: "note" | "drawing") => void;
   rename: (path: string, name: string) => void;
   move: (path: string, destinationFolder: string) => void;
+  /**
+   * The other contexts this person may move something into.
+   *
+   * Empty unless they **own** this one, because taking something out of a
+   * context removes it from everybody who could read it there — see
+   * `functions/contextMoves.ts`. The server refuses it regardless of what this
+   * list says; the list is what keeps the dialog from offering a destination
+   * that will be refused.
+   */
+  moveDestinations: readonly MoveDestination[];
+  /**
+   * The folders of another context, for the destination picker.
+   *
+   * A promise rather than a field, because it is a bucket walk in a context
+   * this console is not standing in: fetching every destination's folders up
+   * front would open a credential per context on every render of a menu.
+   * Resolves to a floor when the walk hit a ceiling, and says so.
+   */
+  destinationFolders: (contextId: string) => Promise<{
+    folders: readonly string[];
+    truncated: boolean;
+  }>;
+  /**
+   * Start a move into another context.
+   *
+   * Deliberately not a shape of `move`. It reaches a different server action,
+   * it cannot rewrite links, it cannot be undone from a toast, and it does not
+   * finish inside the press — four differences that a caller has to know about,
+   * and an optional `contextId` on `move` would hide every one of them.
+   */
+  moveToContext: (path: string, contextId: string, destinationFolder: string) => void;
+  /** Moves out of this context that are running, or finished recently. */
+  contextMoves: readonly ContextMoveProgress[];
+  /** Pick a stopped move back up. Everything already carried stays carried. */
+  resumeContextMove: (id: string) => void;
+  /**
+   * Record that a move's outcome has been read, so it stops being listed.
+   *
+   * Per account rather than per screen: the row stays listable for a day, so
+   * a dismissal only the device remembered was the same line again on the
+   * next launch — and on the other device, which never asked.
+   *
+   * Takes any id and is refused for anything but a **completed** move, which
+   * is the server's rule to keep (`dismissContextMove`): a failed move's
+   * notice holds the only control that can finish it. Callers still hide the
+   * line locally; that is what "Not now" means on a failure.
+   */
+  dismissContextMove: (id: string) => void;
   duplicate: (path: string) => void;
   archive: (path: string) => void;
-  /** Permanent. The UI must have confirmed it in words before calling this. */
+  /** Recoverable delete: moves the entry into the archive-backed trash and offers Undo. */
   destroy: (path: string) => void;
-  setVisibility: (path: string, kind: "file" | "folder", visibility: Visibility) => void;
+  setVisibility: (path: string, kind: "file" | "folder", visibility: SettableVisibility) => void;
+  /**
+   * Point one note **or folder** at a group or a person, by name.
+   *
+   * Beside `setVisibility` rather than a third value on it: that setter takes
+   * the two tiers and stays that way, because widening it would make every
+   * caller of it a way to mint a rule.
+   *
+   * **`kind` is not optional, and that is the whole repair.** This took a path
+   * and a name, and sent both to the note action — so sharing a FOLDER with a
+   * group answered "Only markdown notes can have their own visibility", from
+   * the bottom of the stack, with advice naming a control that cannot express
+   * a group. The dialog knew the kind the whole time and the callback threw it
+   * away. Required rather than defaulted, so a new call site has to say which
+   * it means instead of quietly getting the note path again.
+   */
+  shareWithGroup: (path: string, kind: "file" | "folder", group: string) => void;
   /**
    * Move an entry between the three positions of the visibility control —
    * private, team, and a link anybody who has it can open.
@@ -336,6 +595,13 @@ export interface FileBrowser {
    */
   resetPrivacy: () => void;
   /**
+   * Re-home Context's reserved bucket objects under `.context/`.
+   *
+   * Optional because this is an owner maintenance control, not an editing
+   * capability: an absent function means the Explorer must not offer it.
+   */
+  updateStorageLayout?: () => void;
+  /**
    * Whether that control should exist at all.
    *
    * Three things have to be true and none of them is `canEdit`: the manifest
@@ -366,6 +632,53 @@ export interface FileBrowser {
   canShare: boolean;
 
   /**
+   * Send one filled-in ```form block on the open note.
+   *
+   * Here rather than on `NoteEditor` because it is a bucket write like every
+   * other member of this interface, and because of what makes it unlike them:
+   * it is the **only** one a `member` may call. `canEdit` is false for that
+   * role and stays false — `files.writeNote` requires `editor` and must — so a
+   * console that offered this through the editor's write path would either have
+   * to widen that path or would refuse every submission. It is its own action
+   * with its own `minimum: "member"`, and this is where it comes out.
+   *
+   * Resolves rather than throws: the outcome is drawn inside the form block
+   * that sent it, beside the button that was pressed, and a rejected promise
+   * there is a widget that has to phrase the failure itself.
+   */
+  submitForm(submission: FormSubmission): Promise<FormOutcome>;
+
+  /**
+   * The bytes behind an image the open note embeds, as an `<img>` src.
+   *
+   * `null` for every failure — missing, forbidden, or a store that is down —
+   * because the row draws the same absence for all three and there is nothing a
+   * reader can do with the difference. The note is the open one, read inside the
+   * implementation: an image borrows its visibility from the notes that
+   * reference it, so the pair (note, key) is the question, and a caller choosing
+   * the note would be choosing which note vouches for the image.
+   */
+  loadImage(target: string): Promise<string | null>;
+
+  /** Store a pasted image, and answer with the key to embed or why not. */
+  storeImage(image: {
+    bytes: ArrayBuffer;
+    contentType: string;
+  }): Promise<{ target: string } | { error: string }>;
+
+  /** Read the response note named by a form, subject to ordinary note visibility. */
+  readFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
+
+  /** Add or remove the signed-in person's named vote on one response. */
+  voteForm?: (vote: FormVote) => Promise<FormOutcome>;
+
+  /** Replace answers on a response when the server allows this viewer to. */
+  updateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+
+  /** Delete a response when the server allows this viewer to. */
+  retractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
+
+  /**
    * Every live share on this context, or `undefined` while the query is in
    * flight — never `[]` for "not loaded yet".
    *
@@ -391,6 +704,24 @@ export interface FileBrowser {
 
   /** Take a share back. Immediate, and final for that link. */
   revokeShare: (shareId: string) => void;
+  /**
+   * Claim or release a link's short name, answering whether it landed.
+   *
+   * A promise where `revokeShare` above is fire-and-forget, because the
+   * dialog's field decides what to do with what was typed on the strength of
+   * the answer — and the notice a refusal sets is behind the modal.
+   */
+  setShareSlug: (shareId: string, slug: string | null) => Promise<boolean>;
+
+  /**
+   * Turn a link's answer-taking on or off, answering whether it landed.
+   *
+   * A toggle, never a re-mint: the token is unchanged, so a link already sent
+   * goes on working either way. Only an `anyone` link over a note may be
+   * switched on, and the server is what refuses the other two — a client that
+   * decided for itself would be a third place for that rule to live.
+   */
+  setShareCollecting: (shareId: string, collecting: boolean) => Promise<boolean>;
 
   /**
    * Put a link to this note on the clipboard, and say whether it landed.

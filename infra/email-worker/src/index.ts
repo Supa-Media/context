@@ -107,6 +107,7 @@ import type { AttachmentPolicy } from "./note";
 // bucket-level: no adapter namespaces a key, and the customer's optional
 // rootPrefix is applied inside them and invisible here.
 import { storeForBinding } from "../../../apps/mcp/src/store/factory.js";
+import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 
 // `REFUSAL` and `DEFAULT_TARGET_FOLDER` used to be re-exported from here for
 // the tests' convenience. They are not any more, and must not be again: a
@@ -312,7 +313,7 @@ async function recordAudit(
   const at = now.toISOString();
   const entry = { at, action: "inbox_capture", actor_scope: "email", paths, details };
   const slug = at.replace(/[:.]/g, "-");
-  await store.put(`.audit/${slug}-${crypto.randomUUID()}.json`, JSON.stringify(entry));
+  await store.put(`${AUDIT_PREFIX}${slug}-${crypto.randomUUID()}.json`, JSON.stringify(entry));
 }
 
 /* --------------------------------- handler -------------------------------- */

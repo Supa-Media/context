@@ -5,11 +5,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SupaConvexProvider } from "@supa-media/core/providers";
 import { ErrorBoundary } from "../features/app/ErrorBoundary";
-import { ShellTitleBand } from "../features/app/ShellTitleBand";
+import { Observability } from "../features/observability/Observability";
+import { resetObservabilityUser } from "../features/observability/client";
+import { RootShellTitleBand } from "../features/app/ShellTitleBandView";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
-import { ThemeProvider, useColors, useScheme } from "../features/design/theme";
+import { keepAppShellOffline } from "../features/offline/appShell";
+import { useColors, useScheme } from "../features/design/theme";
 import { useConvexAuth } from "convex/react";
 import { useEffect } from "react";
 
@@ -48,26 +51,39 @@ ensureFontsLoaded();
 */
 holdSplash();
 
+/*
+  And the app shell, which is neither of the above: it is for the *next* load
+  rather than this one.
+
+  At module scope beside them because it costs nothing here — `appShell.web.ts`
+  waits for `load` before it registers anything, precisely so it does not take
+  network from the bundle or the first round trip on the load somebody is
+  actually waiting on. Native is a no-op. See `features/offline/appShell.web.ts`
+  for why a browser needs a service worker before any of `features/offline` can
+  run at all.
+*/
+keepAppShellOffline();
+
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <KeyboardProvider>
-        <SafeAreaProvider>
+    <Observability>
+        <KeyboardProvider>
+          <SafeAreaProvider>
           {/*
             `shouldHandleCode` keeps ConvexAuthProvider's hands off the `?code=`
             that Dropbox (and any future /connect/ provider) sends back — left
             to its default, it redeems that foreign code as a login code, gets
             `tokens: null`, and stores the sign-out. See features/auth/handleCode.
           */}
-          <SupaConvexProvider
-            url={process.env.EXPO_PUBLIC_CONVEX_URL}
-            shouldHandleCode={shouldHandleCodeHere}
-          >
-            <AppGround />
-          </SupaConvexProvider>
-        </SafeAreaProvider>
-      </KeyboardProvider>
-    </ThemeProvider>
+            <SupaConvexProvider
+              url={process.env.EXPO_PUBLIC_CONVEX_URL}
+              shouldHandleCode={shouldHandleCodeHere}
+            >
+              <AppGround />
+            </SupaConvexProvider>
+          </SafeAreaProvider>
+        </KeyboardProvider>
+    </Observability>
   );
 }
 
@@ -93,10 +109,25 @@ function AppGround() {
     true for all of them. `releaseSplash` is idempotent and the deadline is its
     own backstop, so a session that never resolves is still bounded.
   */
-  const { isLoading } = useConvexAuth();
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  /*
+    Only the session is worth waiting for. The other lever here used to be the
+    remembered appearance: a stored Light arriving one render late painted
+    dark first and then flipped, so the launch image was held until the device
+    had answered. Nothing is stored any more — the app follows the device, and
+    `useColorScheme` answers on the first render — so that wait had nothing
+    left to wait for.
+  */
   useEffect(() => {
     if (!isLoading) releaseSplash();
   }, [isLoading]);
+
+  // An expired or remotely-revoked session has no sign-out button to run its
+  // cleanup. Clear vendor identity as soon as Convex resolves that state, so a
+  // later account on the same device cannot inherit the previous user's ID.
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) resetObservabilityUser();
+  }, [isAuthenticated, isLoading]);
 
   return (
     <>
@@ -118,8 +149,14 @@ function AppGround() {
           disk is this same bundle. In normal flow, not `position:
           "absolute"`, so it shifts the route below down rather than floating
           over it — nothing under it for a stray click to land on instead.
+
+          `RootShellTitleBand` rather than the band itself, because a route
+          whose own chrome is tall enough to hold the buttons takes the job
+          and this stands down for it — the console at a pointer density does,
+          the sign-in screen and the phone layout do not. `topChrome.ts` is
+          the handshake and the argument for it.
         */}
-        <ShellTitleBand />
+        <RootShellTitleBand />
         <View style={{ flex: 1, minHeight: 0 }}>
           <ErrorBoundary>
             <Slot />

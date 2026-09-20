@@ -1,12 +1,13 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { supaAuthTables } from "@supa-media/convex/schema";
+import { storageLayoutStateValidator } from "./functions/lib/storageLayout";
 
 /**
  * Control-plane schema for Context.
  *
  * METADATA ONLY. Note content lives exclusively in the customer's own bucket
- * (see CLAUDE.md, "The customer owns the storage"). Nothing in this file may
+ * (see CLAUDE.md, "The customer owns the content, and can always leave with it"). Nothing in this file may
  * ever hold Markdown, note bodies, attachment bytes, or a second copy of
  * anyone's context. If a future table looks like it wants to cache note text,
  * that is the wrong table.
@@ -43,11 +44,20 @@ const schema = defineSchema({
    */
   names: defineTable({
     name: v.string(),
-    kind: v.union(v.literal("user"), v.literal("workspace")),
+    kind: v.union(v.literal("user"), v.literal("workspace"), v.literal("group")),
     /** Set when `kind === "user"`. */
     userId: v.optional(v.id("users")),
     /** Set when `kind === "workspace"`. */
     workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * Set when `kind === "group"`.
+     *
+     * A group claims a row here for the same reason a workspace does: a privacy
+     * rule names a person and a group with the same `@name` token, so the two
+     * cannot be allowed to collide. Keeping the third kind in this table makes
+     * that one lookup rather than three that could race past each other.
+     */
+    groupId: v.optional(v.id("workspaceGroups")),
     claimedBy: v.id("users"),
     claimedAt: v.number(),
   })
@@ -95,6 +105,83 @@ const schema = defineSchema({
     customFolders: v.optional(
       v.array(v.object({ folder: v.string(), description: v.string() })),
     ),
+    /**
+     * When something worth mentioning last happened in this context.
+     *
+     * The dot on another workspace's mark, and nothing else. It is the
+     * timestamp of the newest line in that context's `activity.md`, written by
+     * whichever side recorded it — so "has @seyi moved since I last looked"
+     * is answerable from the row the console already reads, without opening
+     * anybody's bucket.
+     *
+     * **A number, not a count.** A count would have to be a count of what
+     * *this* reader may see, which differs per member and cannot live on a
+     * shared row; the reader's own `activitySeenAt` turns this into a boolean
+     * on their side, and the honest number is one press away in the context
+     * itself.
+     *
+     * Absent for a context nothing has been recorded in. Monotonic: a writer
+     * that arrives late never walks it backwards.
+     *
+     * **Owner-only**, and `activityTeamAt` is the rest of the story.
+     */
+    activityAt: v.optional(v.number()),
+    /**
+     * The same, counting only the lines written at `team` tier.
+     *
+     * A member who is not the owner is served this one instead, because
+     * `activityAt` would otherwise hand them the exact time of a change they
+     * may not see — a dot that says "the owner did something private at
+     * 14:32". The file itself refuses them that, `list_changes` filters it and
+     * the tree hides it; a mark in the switcher must not be the one place it
+     * leaks. See `docs/decisions/privacy-and-sharing.md` on the two gates:
+     * this is the event-time flag, the coarser of them, and it is the right
+     * one here because nothing per-reader can be computed from a row every
+     * member reads.
+     */
+    activityTeamAt: v.optional(v.number()),
+    /**
+     * Where a meeting recorded into this context lands by default.
+     *
+     * Absent is `MEETINGS_FOLDER` — `0-inbox/meetings` — which is what every
+     * context had before this field existed and what a context that has never
+     * set one still has. Stored rather than derived because it is the one
+     * capture destination a person could not change: mail, calendars and Chat
+     * each carry an editable folder per connection, and meetings carried a
+     * constant interpolated into a sentence.
+     *
+     * **This names a folder, not whether the question is asked.** The
+     * destination sheet still asks before every recording — that rule is
+     * `features/meetings/destination.ts`'s and is untouched. What this changes
+     * is which folder the first offer points at.
+     */
+    meetingsFolder: v.optional(v.string()),
+    /**
+     * What this workspace draws in its mark, when its owner has chosen
+     * something better than the first letter of its slug.
+     *
+     * Absent is the default and always will be: the mark falls back to the
+     * letter, which is what every workspace drew before this field existed, so
+     * nothing here needs a migration or a backfill.
+     *
+     * **A photo is a leaf, never bytes.** The image itself lives in the
+     * workspace's own bucket, in the opaque image store under `IMAGE_PREFIX`,
+     * and this records only the name it was written under. The control plane
+     * holds metadata and never note content (`CLAUDE.md` #1), and a
+     * photograph somebody put in their context is content — storing it here
+     * would mean a customer who revokes our credential leaves without it.
+     *
+     * An emoji is not content. It is a handful of code points chosen from a
+     * list we ship, it means nothing outside this row, and there is nothing to
+     * leave with — so it sits here beside `displayName`, which is the same kind
+     * of fact about the same workspace.
+     */
+    icon: v.optional(
+      v.union(
+        v.object({ kind: v.literal("photo"), leaf: v.string() }),
+        v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+      ),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
@@ -113,10 +200,166 @@ const schema = defineSchema({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
     invitedBy: v.optional(v.id("users")),
     joinedAt: v.number(),
+    /**
+     * When this person last looked at this context's activity.
+     *
+     * One timestamp per person per workspace, and deliberately not a per-note
+     * read state: the feature it serves is a line across a list and a dot on a
+     * row, and neither needs to know which of forty notes somebody's eye
+     * stopped on. A counter would need one row per note per member and would
+     * still be wrong the moment two devices disagreed.
+     *
+     * Here rather than in the bucket because it is **about the reader, not
+     * about the context**. The bucket holds what happened; who has caught up
+     * with it is control-plane metadata, and writing it into somebody's own
+     * Markdown would put one member's reading habits into a file every other
+     * member can export.
+     *
+     * Absent means "has never looked", which reads as everything being new —
+     * the correct answer for a member who just joined.
+     */
+    activitySeenAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
     .index("by_workspace_user", ["workspaceId", "userId"]),
+
+  /**
+   * Explicit authority for one reviewed Obsidian plugin bundle.
+   *
+   * The bundle remains in the customer's bucket and never enters Convex. The
+   * fingerprint binds this row to the manifest/main.js objects the scanner
+   * reviewed, so syncing an update cannot inherit the old version's grant.
+   */
+  obsidianPluginGrants: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    capabilities: v.array(
+      v.union(
+        v.literal("vault:read"),
+        v.literal("metadata:read"),
+        v.literal("vault:write"),
+        v.literal("vault:rename"),
+        v.literal("vault:delete"),
+        v.literal("settings:read"),
+        v.literal("settings:write"),
+        v.literal("network:request"),
+      ),
+    ),
+    /** Exact hosts approved from the scanner's evidence; no wildcards. */
+    networkHosts: v.array(v.string()),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+    grantedBy: v.id("users"),
+    grantedAt: v.number(),
+    updatedAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
+  /** Serializes managed bundle changes against review, grants, and runtime issuance. */
+  obsidianPluginLifecycles: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    generation: v.number(),
+    busy: v.boolean(),
+    operation: v.union(
+      v.literal("installing"),
+      v.literal("uninstalling"),
+      v.literal("recovering"),
+    ),
+    updatedAt: v.number(),
+  }).index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
+  /** Short-lived, hashed bearer bindings held by the trusted sandbox host. */
+  obsidianPluginRuntimeSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    tokenHash: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
+  /** At-most-once request ids for side-effecting sandbox RPC calls. */
+  obsidianPluginRuntimeRequests: defineTable({
+    tokenHash: v.string(),
+    requestId: v.string(),
+    operation: v.string(),
+    claimedAt: v.number(),
+  }).index("by_session_request", ["tokenHash", "requestId"]),
+
+  /** Ephemeral execution health, never plugin output or note content. */
+  obsidianPluginRuntimeStates: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    status: v.union(
+      v.literal("loaded"),
+      v.literal("crash-looped"),
+      v.literal("blocked"),
+    ),
+    attempts: v.number(),
+    errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    rollbackFingerprint: v.optional(v.string()),
+    reportedBy: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
+  /**
+   * A named set of people inside one workspace, for a folder rule to point at.
+   *
+   * `name` is the FULL, slug-prefixed name (`supa-leads`) exactly as
+   * `privacy.md` carries it after the `@` — assembled by `buildGroupName` from
+   * the workspace's own slug, never accepted from a caller. That is what stops
+   * one workspace minting a name inside another's space in a namespace they
+   * share with every username.
+   *
+   * The group is the control plane's object and the manifest holds only the
+   * reference, which is the whole split: a name in a file is not a fact, and
+   * removing somebody from the workspace closes every folder at once without
+   * the bucket being touched.
+   */
+  workspaceGroups: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Normalized, slug-prefixed, and unique across the `names` table. */
+    name: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_name", ["name"]),
+
+  /**
+   * One person named in one group.
+   *
+   * **A row here grants nothing on its own.** Resolution intersects it with
+   * `workspaceMembers`, so a name left behind after somebody leaves the
+   * workspace is inert rather than a hole — see `resolveGroupMembers`. That is
+   * what lets the manifest keep a reference it cannot check.
+   *
+   * `workspaceId` is denormalized off the group so a workspace's rows can be
+   * swept without walking its groups first, and so every row carries the tenant
+   * it belongs to rather than inheriting it through a join.
+   */
+  workspaceGroupMembers: defineTable({
+    groupId: v.id("workspaceGroups"),
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    addedBy: v.id("users"),
+    addedAt: v.number(),
+  })
+    .index("by_group", ["groupId"])
+    .index("by_group_user", ["groupId", "userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user", ["userId"]),
 
   /**
    * An outstanding offer of membership.
@@ -303,6 +546,25 @@ const schema = defineSchema({
      */
     entryPath: v.string(),
     /**
+     * Whether `entryPath` is one note or a folder whose subtree this reaches.
+     *
+     * **Optional, and absent means `note`** — every row written before folder
+     * links existed is one, and a share's reach must never depend on a field
+     * being backfilled. Stored rather than derived, because a path cannot be
+     * told apart: `1-projects/transition` is a folder here and an
+     * extensionless file somewhere else, and `checkTeamSharePath` already
+     * records that "note or folder" was never implementable from the string.
+     *
+     * A folder share reaches what is **under** the prefix and is still
+     * re-derived through the live `privacy.md` at `team` scope on every read,
+     * so it publishes only what the manifest already published to the
+     * workspace — a narrowing of the folder, never a widening. That is the one
+     * place this is deliberately stricter than Drive, whose model is inherit
+     * unless restricted. See "A folder link reaches a subtree" in
+     * `docs/decisions/privacy-and-sharing.md`.
+     */
+    entryKind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
+    /**
      * `name` — a `@handle` out of the shared namespace, stored undecorated.
      * `email` — a lowercased address.
      *
@@ -379,7 +641,23 @@ const schema = defineSchema({
      * see `voidCapabilitiesAddressedTo`.
      */
     recipientHeldSince: v.optional(v.number()),
-    /** Unguessable, and useless without the matching identity. */
+    /**
+     * The 32 random bytes in the share URL.
+     *
+     * **Unguessable, and for three of the four audiences useless without the
+     * matching identity** — a `name`, `email` or `members` share resolves an
+     * identity or a membership before it answers, so the token is a locator
+     * and the reader is authorised by who they are.
+     *
+     * For `anyone` it is not a locator. `authorizeShareRead` takes
+     * `actorUserId: null` and `shareStillStands` answers for an unlisted
+     * share, so **possession of this value is the whole authorization** —
+     * which is the point of that audience and is argued under `recipientKind`
+     * above. This comment used to claim the identity requirement without
+     * qualification, which was true when it was written and stopped being true
+     * when `anyone` was added; a field holding a live bearer credential must
+     * not read as if it holds a locator.
+     */
     token: v.string(),
     status: v.union(v.literal("active"), v.literal("revoked")),
     /**
@@ -475,11 +753,74 @@ const schema = defineSchema({
      * control than a clock nobody set.
      */
     expiresAt: v.optional(v.number()),
+    /**
+     * The owner-chosen name in a short link, `intake` in
+     * `context.lc/@seyi/intake`, or absent for a link that has only its token.
+     *
+     * **A second locator for this row, never a second authorization.** The read
+     * path resolves a slug to this row and then runs exactly the code the token
+     * runs, so a short link grants what the share granted and dies when it is
+     * revoked. What it changes is arrival: a token is handed to somebody, a
+     * slug can also be guessed — which is stated to the owner before they claim
+     * one and is the reason claiming is its own step. See `lib/shareSlug.ts`.
+     *
+     * Unique per workspace, enforced by a read through `by_workspace_slug`
+     * before the write rather than by the index, which Convex does not
+     * constrain. Freed when the share is revoked, because the alternative is a
+     * name an owner cannot reuse on their own context.
+     */
+    slug: v.optional(v.string()),
+    /**
+     * What this link lets somebody do: read what it points at, or answer a
+     * form on it. Absent means `read`, which is every row written before
+     * collect mode and the only thing a link has ever done.
+     *
+     * **`collect` is the first write in this product that is not an
+     * authenticated member.** Every other one resolves a grant or a session to
+     * a person with a handle; this takes an answer from somebody who will
+     * never have an account, which is what an intake form is and is a rule
+     * this field changes rather than a surface it adds.
+     *
+     * What keeps it narrow is enforced in `collect.ts` rather than here, but
+     * the shape is: only on an `anyone` row, only over a note, only into the
+     * response file a form on that note already names, only where that form
+     * takes `member` submissions, and never as a way to *read* the answers.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /**
+     * How many answers this link may take in total, or absent for the default.
+     *
+     * An owner's own ceiling on a link they published. A rate limit stops a
+     * flood; this stops a slow drip that fills a bucket over a week, and it is
+     * per link rather than per context so that taking one down is not the only
+     * lever.
+     */
+    collectCap: v.optional(v.number()),
+    /**
+     * Answers taken through this link so far, counted here rather than by
+     * reading the responses file.
+     *
+     * The file is the canonical record and this is a counter beside it, which
+     * is the one shape that would normally be wrong — two copies of one truth.
+     * It is right here because the alternative is opening the customer's
+     * bucket to decide whether to refuse, which means an unauthenticated
+     * caller can make us spend a GET on their quota by posting garbage. The
+     * counter is the cheap gate; the file stays the record, and a counter that
+     * drifts low costs at most a few answers over the cap rather than
+     * anything unrecoverable.
+     */
+    collectCount: v.optional(v.number()),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   })
     /** The owner's own listing, narrowed in the index for `listInvitations`' reason. */
     .index("by_workspace_status", ["workspaceId", "status"])
+    /**
+     * A short link's whole lookup: the handle names the workspace, this names
+     * the row. Live-ness is checked on the row, never in the index, so a
+     * revoked slug answers exactly as a slug nobody ever claimed does.
+     */
+    .index("by_workspace_slug", ["workspaceId", "slug"])
     /** "Shared with me": the `(kind, recipient)` prefix finds every share addressed to you. */
     .index("by_recipient", ["recipientKind", "recipient", "status"])
     .index("by_token", ["token"])
@@ -504,7 +845,7 @@ const schema = defineSchema({
    *
    * `rootPrefix` is optional and is applied at the storage-adapter boundary
    * only. It is NOT tenancy: we never namespace keys inside a customer bucket,
-   * so a bucket that already looks like a Context brain connects unchanged.
+   * so a bucket that already looks like a Context workspace connects unchanged.
    *
    * `encryptedSecretAccessKey` is an opaque envelope produced by
    * `functions/lib/crypto.ts` (`v2:<key-id>:<iv-b64>:<ciphertext-b64>`). The
@@ -615,8 +956,23 @@ const schema = defineSchema({
      * Probed at connect time, not assumed. R2 and AWS S3 support conditional
      * writes; B2 and Wasabi do not reliably. We degrade honestly rather than
      * silently dropping conflict detection.
+     *
+     * **Every field but `conditionalWrite` is optional because it was added
+     * after bindings existed, and absent does not mean `false` — it means
+     * nobody has asked yet.** The gateway cannot tell those apart and must
+     * fail closed (`store/factory.js`), so an absent field disables the
+     * feature it describes: bindings verified before 2026-09-12 carried no
+     * `conditionalDelete` and every move on them refused, on R2 included,
+     * until `sweepUnprobedCapabilities` re-probed them. Adding a capability
+     * here is therefore adding a backfill: the sweep's `UNPROBED` predicate
+     * is what makes a new field reach the rows that already exist.
      */
-    capabilities: v.object({ conditionalWrite: v.boolean() }),
+    capabilities: v.object({
+      conditionalWrite: v.boolean(),
+      conditionalCreate: v.optional(v.boolean()),
+      conditionalDelete: v.optional(v.boolean()),
+      serverSideCopy: v.optional(v.boolean()),
+    }),
     status: v.union(
       v.literal("unverified"),
       v.literal("connected"),
@@ -729,7 +1085,156 @@ const schema = defineSchema({
     noteCount: v.optional(v.number()),
     noteCountedAt: v.optional(v.number()),
     noteCountTruncated: v.optional(v.boolean()),
+    /**
+     * WHERE THE STORAGE-LAYOUT MIGRATION GOT TO, AND WHEN WE LAST HEARD.
+     *
+     * The authoritative record is in the bucket — `migrateStorageLayout`
+     * persists it under `.context/` and short-circuits on `complete` — and
+     * that is where it stays: this is a **copy of an outcome we observed**, in
+     * the same category as `scaffolded` and `noteCount`, kept because a query
+     * cannot read somebody's bucket and a console cannot ask.
+     *
+     * Without it the console could not tell "this bucket still needs the
+     * update" from "it ran last week", so the offer to run it was answered by
+     * a flag on one device: it came back on the next browser, the next phone,
+     * and after clearing site data, however many times it had already been
+     * run. Absent means nobody has run it *through us* — the honest answer for
+     * a bucket we have never migrated, and the one state that still offers.
+     *
+     * Six words, the migration's own (`apps/mcp/src/storageLayout.js`), rather
+     * than a boolean: `copying` and `cleaning` are under way, `copied` is
+     * waiting out the rollback window, `conflict` needs somebody, and
+     * `unsupported` is a bucket without conflict-safe writes, which no amount
+     * of pressing will change.
+     *
+     * Metadata about our own plumbing. No key names, no note content.
+     */
+    storageLayoutState: v.optional(storageLayoutStateValidator),
+    storageLayoutAt: v.optional(v.number()),
+    /**
+     * WHEN WE LAST *LOOKED*, WHICH IS NOT WHEN WE LAST HEARD.
+     *
+     * `storageLayoutState` absent was originally read as "nobody has run the
+     * migration". It never meant that. It meant **nobody has looked** — and
+     * for every context migrated before that field existed, those are opposite
+     * answers: the bucket's own state under `.context/` said `complete` while
+     * this row said nothing, so the console went on offering an update that
+     * had already run, on every device, exactly as it had before the field was
+     * added. The owner who reported the original nag was still being nagged.
+     *
+     * So the absence is split in two. This timestamp is set whenever the
+     * bucket answered — by `readStorageLayout`, which runs nothing, or by any
+     * pass of the migration itself — including when the answer was "there is
+     * no migration state here". `storageLayoutState` stays what the bucket
+     * *said*, absent when it has genuinely never run.
+     *
+     * Set means the question has been asked. Absent means it has not, and is
+     * the only state the console still offers in.
+     *
+     * Cleared by a rebind with the state it qualifies: a new bucket has not
+     * been looked at either, and carrying "checked" onto it would silently
+     * strand it on the old layout with nothing on any screen saying so.
+     */
+    storageLayoutCheckedAt: v.optional(v.number()),
+    /**
+     * WHICH GENERATION OF THE QUESTION PRODUCED THAT ANSWER.
+     *
+     * The timestamp above spends the question for ever: asked once, never
+     * asked again. That is right for a question whose answer cannot change,
+     * and wrong for one we asked badly — and the first probe asked badly. It
+     * looked only for a migration state file, so a bucket **we scaffolded
+     * ourselves**, born on the v1 layout and never in its life the owner of a
+     * pre-v1 object, answered "nobody has run the migration" — and every
+     * newly created workspace was offered a one-time update with nothing
+     * behind it, on its first console load.
+     *
+     * A better probe does not rewrite the rows the old one wrote, and those
+     * rows are exactly the new workspaces the bug was about. So the generation
+     * is recorded beside the answer: a row from an older one is asked once
+     * more by the next console that opens, and nothing has to be backfilled by
+     * hand — least of all in a self-hosted deployment nobody here can reach.
+     *
+     * Only ever consulted for a binding with no recorded `storageLayoutState`.
+     * A state is the bucket's own word, and every generation reads that the
+     * same way. `functions/lib/storageLayout.ts` holds the number and the
+     * predicate.
+     */
+    storageLayoutCheckedVersion: v.optional(v.number()),
     boundBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The model account the agent spends, one row per provider per workspace.
+   *
+   * The customer's own Anthropic or OpenAI key, so the bill is theirs and we
+   * add nothing to it. It is a credential in exactly the sense non-negotiable
+   * #1 means, and it is held the way `storageBindings` holds an S3 secret:
+   * an envelope from `encryptSecret`, bound by AAD to this workspace, never
+   * returned by a client-callable function and never logged.
+   *
+   * **`fingerprint` is a hash and not a prefix.** `appSecrets` settled that
+   * already — "what appears in a screenshot is not a fragment of the real
+   * value" — and it matters more here, because this key was issued by somebody
+   * else's console and a leaked fragment is a clue to a credential we do not
+   * control. The console shows which provider is connected and when; it never
+   * shows part of the key.
+   *
+   * There is no base URL either, and no `compatible` provider yet: a URL the
+   * gateway attaches a key to needs the loopback and private-network refusals
+   * `storage.ts` already applies to a bucket endpoint, and the request it
+   * would feed does not exist yet. See `functions/providers.ts`.
+   *
+   * There is no `selected` column. Which provider answers is a question about
+   * the agent, not about the credential, and a boolean here would let two rows
+   * both claim it.
+   */
+  providerCredentials: defineTable({
+    workspaceId: v.id("workspaces"),
+    provider: v.union(v.literal("anthropic"), v.literal("openai")),
+    /** An envelope from `encryptSecret`. Never plaintext, never returned. */
+    encryptedApiKey: v.string(),
+    /** SHA-256 of the key, first 8 hex. For support, never for display as a key. */
+    fingerprint: v.string(),
+    connectedBy: v.id("users"),
+    connectedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_provider", ["workspaceId", "provider"]),
+
+  /**
+   * A paid copy from customer-owned storage into a managed bucket.
+   *
+   * The source binding remains live until copy and verification finish. Its
+   * id is pinned so a reconnect during the copy makes cutover fail closed.
+   * The destination credential is workspace-bound encrypted metadata and is
+   * never returned by a public function.
+   */
+  managedStorageMigrations: defineTable({
+    workspaceId: v.id("workspaces"),
+    sourceBindingId: v.id("storageBindings"),
+    targetEndpoint: v.string(),
+    targetBucket: v.string(),
+    targetAccessKeyId: v.string(),
+    encryptedTargetSecretAccessKey: v.string(),
+    status: v.union(v.literal("copying"), v.literal("failed")),
+    phase: v.union(
+      v.literal("count"),
+      v.literal("copy"),
+      v.literal("verify_source"),
+      v.literal("verify_target"),
+    ),
+    cursor: v.optional(v.string()),
+    objectsCopied: v.number(),
+    /** Stable denominator measured before the first copy pass. */
+    objectsTotal: v.optional(v.number()),
+    /** Cursor-independent progress within the current phase. */
+    objectsProcessedInPhase: v.optional(v.number()),
+    changesInPass: v.number(),
+    readyToCutover: v.optional(v.boolean()),
+    errorCode: v.optional(v.string()),
+    startedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
@@ -897,7 +1402,9 @@ const schema = defineSchema({
      * steady state a reader should trust — `functions/googleConnect.ts` writes
      * both in the same mutation.
      */
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    products: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     /**
      * Gmail's own settings and cursor. Present iff `"gmail"` is in `products`.
      * See `docs/decisions/communications.md` for what each field argues.
@@ -950,7 +1457,15 @@ const schema = defineSchema({
          * `sweepExpiredAttachments` treats absent the same as the documented
          * 90-day default.
          */
-        attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
+        attachmentRetentionDays: v.optional(
+          v.union(v.number(), v.literal("forever")),
+        ),
+        /**
+         * Customer-visible folder where this mailbox's day notes and
+         * attachments land. Absent on rows written before integration settings
+         * existed, in which case the old canonical folder is used.
+         */
+        destinationFolder: v.optional(v.string()),
         /**
          * A hard ceiling on bytes this connection may write into the bucket
          * — note text and stored attachment bytes both — independent of the
@@ -971,17 +1486,18 @@ const schema = defineSchema({
       }),
     ),
     /**
-     * Calendar's own settings and cursor. Not implemented by this change —
-     * declared so the shape exists for the sibling work building it, per the
-     * same "declared here, built next" phasing `docs/decisions/search.md`
-     * already uses. `syncToken` is Calendar's own incremental-sync cursor
-     * (the `events.list` `nextSyncToken`), the Calendar analogue of Gmail's
-     * `historyId`.
+     * Calendar's settings and incremental-sync cursor. Event content and the
+     * per-account materialized cache stay in customer storage; this row keeps
+     * only the `events.list` token and the owner-local date of the last full
+     * rolling-horizon refresh.
      */
     calendar: v.optional(
       v.object({
         scopes: v.array(v.string()),
+        destinationFolder: v.optional(v.string()),
         syncToken: v.optional(v.string()),
+        /** Owner-local date of the last full horizon refresh. */
+        lastFullSyncDate: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
       }),
     ),
@@ -1011,8 +1527,14 @@ const schema = defineSchema({
     chat: v.optional(
       v.object({
         scopes: v.array(v.string()),
-        spaceSettings: v.optional(v.record(v.string(), v.union(v.literal("excluded"), v.literal("paused")))),
+        spaceSettings: v.optional(
+          v.record(
+            v.string(),
+            v.union(v.literal("excluded"), v.literal("paused")),
+          ),
+        ),
         cursors: v.optional(v.record(v.string(), v.string())),
+        destinationFolder: v.optional(v.string()),
         nonceSeed: v.string(),
         lastSyncedAt: v.optional(v.number()),
       }),
@@ -1027,6 +1549,77 @@ const schema = defineSchema({
     lastError: v.optional(v.string()),
     errorCode: v.optional(v.string()),
     /**
+     * HOW OFTEN THIS ACCOUNT IS POLLED, AND WHEN IT IS NEXT DUE.
+     *
+     * The fields below are the whole scheduling state of the forward sync
+     * loop (`functions/googleSync.ts`), and they are **per account, not per
+     * product**: one Google account is one grant, so one pass mints one
+     * access token and walks whichever products the row enables. A per-product
+     * schedule would mint the same credential three times an hour to ask three
+     * questions of the same account.
+     *
+     * They sit at the top level rather than inside `gmail` for that reason and
+     * for one more: `nextSyncAt` is indexed, and an index over a field nested
+     * inside an optional object is a shape this schema does not otherwise use.
+     *
+     *  - `syncIntervalMinutes` — the owner's choice, floored at
+     *    `MIN_SYNC_INTERVAL_MINUTES` server-side. Absent means the default
+     *    (`DEFAULT_SYNC_INTERVAL_MINUTES`), so a row written before this
+     *    existed is scheduled rather than stalled.
+     *  - `lastSyncAt` — when a pass last **finished**, successfully or not.
+     *    Absent means this connection has never synced, which the console
+     *    must be able to say out loud: "connected" and "syncing" looking
+     *    identical is the defect this loop exists to close.
+     *  - `nextSyncAt` — `lastSyncAt + interval`, materialized so the sweep can
+     *    ask the index for due rows instead of reading every connection.
+     *    Absent means due now, which is what a never-synced row is.
+     *  - `syncStartedAt` — set when a pass is claimed, cleared when it
+     *    reports. It is the not-overtaking guard: a pass still running is
+     *    never started a second time until it has been silent long enough to
+     *    be considered lost.
+     *  - `lastSyncFailure*` — the last failure this connection had, kept
+     *    **after** a later pass succeeds. `lastError` / `errorCode` describe
+     *    the connection's health right now and are cleared by a good pass;
+     *    somebody asking "did this break overnight?" is asking a different
+     *    question, and clearing the answer is how it stopped being askable.
+     */
+    syncIntervalMinutes: v.optional(v.number()),
+    lastSyncAt: v.optional(v.number()),
+    nextSyncAt: v.optional(v.number()),
+    syncStartedAt: v.optional(v.number()),
+    lastSyncFailureAt: v.optional(v.number()),
+    lastSyncFailureCode: v.optional(v.string()),
+    lastSyncFailure: v.optional(v.string()),
+    /**
+     * The last pass ran out of history pages before it ran out of history.
+     *
+     * Gmail's `history.list` is paged and the walk is bounded, so a connection
+     * whose cursor is weeks old cannot be caught up in one pass. The cursor
+     * still moves — to the last record actually walked, never to the mailbox
+     * head — and this says the interval must not be waited out, because the
+     * pass already knows there is more. `isDue` reads it; a pass that finishes
+     * clears it, which is what stops a connection being due forever.
+     */
+    syncCatchUp: v.optional(v.boolean()),
+    /**
+     * Consecutive failed passes, cleared by the first good one.
+     *
+     * The backoff ladder's input. A flat retry means a mailbox Google is
+     * rate-limiting is asked again ~96 times a day, which is the request
+     * pattern most likely to keep it rate-limited.
+     */
+    syncFailures: v.optional(v.number()),
+    /**
+     * Bytes the forward loop has written into the bucket for this connection.
+     *
+     * `gmail.quotaBytes` is a lifetime ceiling on what one connection may
+     * write, and a ceiling with nothing counting against it is decoration. The
+     * historical backfill counted on its run row; a forward loop has no run,
+     * so the total lives here and every pass is handed it as
+     * `bytesAlreadyUsed`.
+     */
+    syncBytesWritten: v.optional(v.number()),
+    /**
      * Set by disconnect. The row is kept — never deleted outright — so a
      * disconnected connection's sync job can be told apart from one that
      * simply has not synced yet, and so the notes it already wrote are
@@ -1036,12 +1629,124 @@ const schema = defineSchema({
      */
     disconnectedAt: v.optional(v.number()),
     boundBy: v.id("users"),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
+    /** One shared-note writer per workspace at a time. */
+    .index("by_workspace_sync_started", ["workspaceId", "syncStartedAt"])
     /** One connection per address per context — the uniqueness `chooseMailboxSlug` assumes for Gmail. */
-    .index("by_workspace_address", ["workspaceId", "address"]),
+    .index("by_workspace_address", ["workspaceId", "address"])
+    /**
+     * The sweep's index: connections that are still connected, oldest due
+     * first.
+     *
+     * `disconnectedAt` leads so a disconnected row is outside the range
+     * entirely rather than filtered out after being read — a disconnected
+     * connection with an old `nextSyncAt` would otherwise sit at the head of
+     * every bounded batch forever and starve the live ones behind it.
+     *
+     * A row with no `nextSyncAt` sorts before every number, so a never-synced
+     * connection is at the front of the queue rather than invisible to it.
+     */
+    .index("by_sync_due", ["disconnectedAt", "nextSyncAt"]),
+
+  /**
+   * User-visible Google sync work.
+   *
+   * A connection row says which account and products are authorized. It is not
+   * a job ledger: calling an account "backfilling" because OAuth completed is
+   * the production confusion this table closes. A run row is the thing a person
+   * started, the unit a worker advances, and the progress the console renders.
+   *
+   * Counts are deliberately coarse. The actual message bodies live only in the
+   * customer's bucket; Convex records service, days, bytes and safe error
+   * codes, never mail subjects, chat text, calendar titles, or object paths.
+   */
+  googleSyncRuns: defineTable({
+    workspaceId: v.id("workspaces"),
+    connectionId: v.id("googleConnections"),
+    requestedBy: v.id("users"),
+    mode: v.literal("backfill"),
+    services: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("complete"),
+      v.literal("failed"),
+    ),
+    requestedBackfillDays: v.number(),
+    totalUnits: v.number(),
+    completedUnits: v.number(),
+    itemsFound: v.optional(v.number()),
+    daysWithMail: v.optional(v.number()),
+    bytesWritten: v.optional(v.number()),
+    destinationFolder: v.optional(v.string()),
+    currentService: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
+    currentUnit: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    transientFailures: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_connection_created", ["connectionId", "createdAt"])
+    .index("by_connection_status", ["connectionId", "status"]),
 
   /**
    * ONE IN-FLIGHT GOOGLE OAUTH ATTEMPT. Same shape and the same reasoning as
@@ -1072,9 +1777,27 @@ const schema = defineSchema({
     workspaceId: v.id("workspaces"),
     startedBy: v.id("users"),
     redirectUri: v.string(),
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    /**
+     * Which public callback is allowed to spend this shared-table attempt.
+     * Optional only for rows parked before this discriminator existed; those
+     * remain product-callback compatible and are refused by the combined Google
+     * callback.
+     */
+    flow: v.optional(
+      v.union(
+        v.literal("gmail"),
+        v.literal("calendar"),
+        v.literal("chat"),
+        v.literal("google"),
+      ),
+    ),
+    products: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     backfillDays: v.optional(v.number()),
-    folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
+    folders: v.optional(
+      v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+    ),
     /**
      * The attachment choices made before leaving for Google's consent
      * screen, carried the same way `backfillDays`/`folders` are — see this
@@ -1085,7 +1808,9 @@ const schema = defineSchema({
      * to row; `googleConnect.ts` is the only reader and reassembles the
      * `number | "forever"` shape on the way out.
      */
-    attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
+    attachmentMode: v.optional(
+      v.union(v.literal("metadata-only"), v.literal("store")),
+    ),
     attachmentRetentionDays: v.optional(v.number()),
     attachmentRetentionForever: v.optional(v.boolean()),
     expiresAt: v.number(),
@@ -1210,7 +1935,7 @@ const schema = defineSchema({
    * guessable from a slug that is itself public addressing. Anything that
    * lands there becomes a note, and notes are read back by the owner's AI
    * clients *as trusted context*. So an open inbox is not a spam problem, it
-   * is a durable prompt-injection channel into somebody's second brain.
+   * is a durable prompt-injection channel into somebody's own notes.
    *
    * Hence the shape: an allowlist that starts closed, and one explicit boolean
    * to open it. There is no "allow" wildcard string, no regex field, and no
@@ -1285,6 +2010,159 @@ const schema = defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Progress for a vault import whose bytes stay on the person's device.
+   *
+   * This table never stores file bytes or note bodies. A completed batch
+   * number is enough for the same locally selected vault to resume without
+   * sending finished batches again.
+   */
+  vaultImportJobs: defineTable({
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    strategy: v.union(v.literal("merge"), v.literal("folder"), v.literal("replace")),
+    sourceFingerprint: v.string(),
+    totalFiles: v.number(),
+    totalBytes: v.number(),
+    totalBatches: v.number(),
+    completedBatches: v.array(v.number()),
+    completedFiles: v.number(),
+    createdFiles: v.number(),
+    skippedFiles: v.number(),
+    /** Present only for destructive imports created after replacement shipped. */
+    replacement: v.optional(v.object({
+      phase: v.union(v.literal("counting"), v.literal("deleting"), v.literal("uploading")),
+      totalObjects: v.number(),
+      deletedObjects: v.number(),
+    })),
+    status: v.union(v.literal("active"), v.literal("paused"), v.literal("complete")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_workspace_createdAt", ["workspaceId", "createdAt"])
+    .index("by_actor_updatedAt", ["actorUserId", "updatedAt"]),
+
+  /**
+   * A move of a note or a folder out of one context and into another.
+   *
+   * ## Why this is a row rather than one action
+   *
+   * Every other console file operation finishes inside the request that asked
+   * for it, and a folder past `FOLDER_OPERATION_CAP` is refused rather than
+   * half-done. That is the right trade when the whole move is one bucket's
+   * rename. A cross-context move is not: the bytes travel out of one
+   * customer's bucket, through the control plane, into another's, one bounded
+   * batch at a time, and a folder of nine thousand notes is simply more
+   * batches. The row is what makes "more batches" survive the request that
+   * started it — the scheduler picks the next one up, and the console watches
+   * a counter instead of a spinner that will time out.
+   *
+   * ## What it holds, and why paths are on it
+   *
+   * Both ends' workspace ids, both paths, phase, counts, and the keys the move
+   * would not carry. `gatewayJobs` beside this deliberately holds no path at
+   * all, and the difference is not an oversight: that row is minted for a
+   * queue ticket and read again with nobody present, so the least it can know
+   * the better. This row exists only because a person pressed Move, it is
+   * readable only by an owner of the context the move came out of, and the
+   * audit trail already records `file.move` with both paths for every
+   * same-context move. A move job that could not name what was moving could
+   * not tell that person which of their folders is still going.
+   *
+   * **Never note content.** The bodies exist only in flight, inside the action
+   * that carries one batch across.
+   */
+  contextMoves: defineTable({
+    sourceWorkspaceId: v.id("workspaces"),
+    destinationWorkspaceId: v.id("workspaces"),
+    /** Who pressed Move. Owner of the source at the time, re-checked on resume. */
+    actorUserId: v.id("users"),
+    /** Path in the source context. A note, or a folder and everything under it. */
+    from: v.string(),
+    /** Path in the destination context. Never merged onto something already there. */
+    to: v.string(),
+    status: v.union(
+      v.literal("moving"),
+      v.literal("complete"),
+      v.literal("failed"),
+    ),
+    /** Objects landed in the destination and removed from the source. */
+    movedObjects: v.number(),
+    movedBytes: v.number(),
+    /**
+     * Keys this move will not carry, with the reason, so the console can name
+     * them. Capped at `CONTEXT_MOVE_SKIP_CAP` — past that the move stops and
+     * says so rather than growing this without limit.
+     */
+    skipped: v.array(v.object({
+      path: v.string(),
+      reason: v.union(v.literal("encrypted")),
+    })),
+    /** Set on `failed`, and written for a person rather than a log. */
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    /**
+     * When the owner read the outcome and said so, on any device.
+     *
+     * A finished row outlives the screen that was watching it — it stays
+     * listable for a day so a move does not vanish from somebody else's
+     * console at ninety-nine percent. Without this the console had nowhere
+     * durable to put "I have read that", so the notice came back on every
+     * launch for the rest of the day, and its Dismiss button only ever
+     * reached memory that the next launch threw away.
+     *
+     * Set for a `complete` row only. A `failed` one's notice carries the
+     * Resume button that is the clean way to finish it, so it can be put
+     * aside for a session but never answered for good —
+     * `dismissContextMove` is where that argument lives.
+     */
+    dismissedAt: v.optional(v.number()),
+  })
+    .index("by_source_updatedAt", ["sourceWorkspaceId", "updatedAt"])
+    .index("by_destination_updatedAt", ["destinationWorkspaceId", "updatedAt"])
+    .index("by_actor_updatedAt", ["actorUserId", "updatedAt"]),
+
+  /**
+   * Durable gateway work, never note content.
+   *
+   * A row is minted only while a live user token is present; later Cloudflare
+   * Queue attempts present an opaque ticket for that already-authorized row.
+   * The ticket is stored hashed, and the payload is deliberately small: which
+   * bounded gateway operation to resume, not the files or bytes it will touch.
+   */
+  gatewayJobs: defineTable({
+    hashedTicket: v.string(),
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    actorClientId: v.string(),
+    grantId: v.id("oauthGrants"),
+    kind: v.union(v.literal("materialize_move")),
+    moveId: v.optional(v.string()),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("complete"),
+      v.literal("failed"),
+    ),
+    attempts: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    expiresAt: v.number(),
+    leasedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    progressPhase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+    progressCompleted: v.optional(v.number()),
+    progressTotal: v.optional(v.number()),
+  })
+    .index("by_hashed_ticket", ["hashedTicket"])
+    .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_workspace_updatedAt", ["workspaceId", "updatedAt"])
+    .index("by_expiresAt", ["expiresAt"]),
 
   /**
    * A short-lived capability the email worker presents to fetch a credential.
@@ -1426,9 +2304,7 @@ const schema = defineSchema({
     grantTypes: v.optional(v.array(v.string())),
     responseTypes: v.optional(v.array(v.string())),
     scope: v.optional(v.string()),
-    applicationType: v.optional(
-      v.union(v.literal("native"), v.literal("web")),
-    ),
+    applicationType: v.optional(v.union(v.literal("native"), v.literal("web"))),
     /**
      * RFC 7591's `software_id`: what the client says it *is*, as opposed to
      * what it called itself this time.
@@ -1780,12 +2656,20 @@ const schema = defineSchema({
    * a database *we* own holding a disposable derivative, and holds no customer
    * credential at all. Deleting every row here costs a rebuild and loses
    * nothing (CLAUDE.md, "Plain files stay canonical"). Deleting a storage
-   * binding disconnects somebody's brain.
+   * binding disconnects somebody's workspace.
    *
    * The reasoning for the two-condition gate is in `functions/lib/fastSearch.ts`.
    */
   searchIndexes: defineTable({
     workspaceId: v.id("workspaces"),
+    /**
+     * Which product contract created this derivative.
+     *
+     * Rows written before Premium launched have no generation and are never
+     * served. A paid opt-in replaces their remote coordinates and provisions a
+     * fresh database in the customer-data account; the files remain canonical.
+     */
+    generation: v.optional(v.literal("premium-v1")),
     /**
      * The owner's answer, and the reason the row exists.
      *
@@ -1833,6 +2717,30 @@ const schema = defineSchema({
     /** Backfill progress, so the settings screen can be honest about it. */
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1998,6 +2906,214 @@ const schema = defineSchema({
     .index("by_day", ["day"])
     .index("by_day_surface", ["day", "surface"])
     .index("by_day_surface_workspace", ["day", "surface", "workspaceId"]),
+
+  /**
+   * What one context pays for.
+   *
+   * **Keyed by `workspaceId`, never by `userId`**, exactly as a storage
+   * binding is and for the same reason (`CLAUDE.md`, "The workspace model"):
+   * you are upgrading a bucket, not a person. One person may hold a free
+   * personal workspace and a paid work workspace on a work card, and each is one
+   * row and one subscription. A `userId` here would make the second of those
+   * impossible to express and the first impossible to keep free.
+   *
+   * **A row exists only where somebody chose something.** No row is the
+   * ordinary state and means free, no entitlements, no Stripe customer — so
+   * "how many contexts are paying" is a count rather than a filter, the same
+   * shape `searchIndexes` uses.
+   *
+   * **Nothing here gates the exit.** There is no export flag, no quota and no
+   * expiry attached to one: downloading everything, or handing the bucket to
+   * storage of their own, is free, identical on both plans, and works after a
+   * cancellation (non-negotiable #1). `__tests__/premium.test.ts` fails on a
+   * field shaped like one.
+   */
+  workspacePlans: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * What the owner asked for, stored whether or not anybody is paying.
+     *
+     * Kept apart from what is *active* so a lapsed subscription can be resumed
+     * with a payment rather than a re-selection — the same "asked for" /
+     * "entitled" separation `lib/fastSearch.ts` argues at length. Nothing reads
+     * these two directly to decide what a context gets: `activeEntitlements`
+     * in `lib/premium.ts` is the one place that ANDs them with the status.
+     */
+    managedStorage: v.boolean(),
+    fastSearch: v.boolean(),
+    /**
+     * Stripe's subscription status as this build understands it —
+     * `planStatusFromStripe`, a closed set. A word we have never heard of
+     * lands here as `unknown` and serves nothing; it is never read as
+     * `active`, which would be an entitlement bought by a vocabulary change.
+     */
+    status: v.union(
+      v.literal("none"),
+      v.literal("active"),
+      v.literal("past_due"),
+      v.literal("canceled"),
+      v.literal("unknown"),
+    ),
+    /**
+     * Stripe's own identifiers, and deliberately **not credentials**: a
+     * customer id and a subscription id decide nothing without the API key,
+     * which lives in `appSecrets` and never here. They are what lets a later
+     * event be reconciled to the context it belongs to without trusting an id
+     * that arrived in the event body.
+     */
+    stripeCustomerId: v.optional(v.string()),
+    stripeSubscriptionId: v.optional(v.string()),
+    /** Seconds, from Stripe. The end of the period already paid for. */
+    currentPeriodEnd: v.optional(v.number()),
+    /** True where Stripe says the subscription stops at the period end. */
+    cancelAtPeriodEnd: v.optional(v.boolean()),
+    /**
+     * When Stripe created the newest event applied, in seconds, and **every**
+     * event id applied at that second.
+     *
+     * Webhook delivery is at-least-once and out of order, and the two fields
+     * answer the two halves of that: the timestamp drops anything created
+     * before the newest applied, and the set drops a redelivery of anything
+     * applied *at* it.
+     *
+     * ## Why a set and not one id
+     *
+     * One id plus a strict `<` left a hole precisely where Stripe stamps a
+     * cancellation pair, because `updated` and `deleted` are emitted together
+     * in the same second:
+     *
+     *   evt_upd (T, active)  applied → last id = evt_upd
+     *   evt_del (T, deleted) applied → last id = evt_del, plan canceled
+     *   evt_upd (T) retried  → a different id, and T < T is false → APPLIED,
+     *                          and the cancelled plan is active again.
+     *
+     * A retry is freshly signed, so the signature's five-minute tolerance does
+     * not bound it — it can arrive days later, anywhere in Stripe's retry
+     * schedule. Widening the comparison to `<=` is not the fix either: it
+     * drops the legitimate `deleted` when `updated` arrives first in the same
+     * second, which is the ordinary ordering.
+     *
+     * So the set holds every id at `lastEventAt` and is **reset when the
+     * second moves**, which is what keeps it bounded: its size is the number
+     * of events Stripe emits for one subscription within one second.
+     */
+    lastEventIds: v.optional(v.array(v.string())),
+    lastEventAt: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    /** How a subscription event finds the context it belongs to. */
+    .index("by_subscription", ["stripeSubscriptionId"]),
+
+  /**
+   * One attempt to open Stripe's hosted checkout or customer portal.
+   *
+   * The row exists because the URL cannot be returned from the mutation that
+   * asks for it. Minting one needs the payment key, only an action may open a
+   * credential, and a public action that awaited one would be a public
+   * function reaching a decrypt — which `__tests__/structure.test.ts` refuses.
+   * So the mutation writes a row and **schedules** the action ("scheduling is
+   * not calling"), the action fills the row in, and the console watches the
+   * row it was handed. Same shape as `cloudflareProvisioning`.
+   *
+   * The row holds a URL and no credential. Stripe's checkout URL is a
+   * capability — anybody holding it can pay — so it is readable only by the
+   * owner who started the attempt, and it expires.
+   */
+  billingSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    startedBy: v.id("users"),
+    kind: v.union(v.literal("checkout"), v.literal("portal")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("ready"),
+      v.literal("failed"),
+    ),
+    /** Stripe's hosted page, once it exists. */
+    url: v.optional(v.string()),
+    /**
+     * What the owner had chosen when this attempt was opened.
+     *
+     * **What somebody paid for is what they chose at checkout**, not whatever
+     * the toggles happen to say when the webhook lands minutes later. Stored
+     * so a plan can never activate entitling nothing: if the live selection is
+     * empty at activation, this is restored. Absent on a portal attempt, which
+     * buys nothing.
+     */
+    selectedAtCheckout: v.optional(
+      v.object({ managedStorage: v.boolean(), fastSearch: v.boolean() }),
+    ),
+    /**
+     * Where the attempt started, which decides where finishing returns to.
+     *
+     * Optional because rows written before this existed have no answer, and
+     * "settings" is the right reading of those: it is where the only checkout
+     * the product had could be started from. Never taken from a client as a
+     * URL — it selects one of two shapes we wrote, which is the same rule
+     * `expectedWorkspaceId` follows at the gateway.
+     */
+    origin: v.optional(v.union(v.literal("settings"), v.literal("onboarding"))),
+    /** Ours, from a closed set — never Stripe's text, which can name an account. */
+    errorCode: v.optional(v.string()),
+    /**
+     * Short. An attempt nobody completed within a few minutes is a tab
+     * somebody abandoned, and a live checkout URL is a live capability.
+     */
+    expiresAt: v.number(),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_expiresAt", ["expiresAt"]),
 });
 
 export default schema;

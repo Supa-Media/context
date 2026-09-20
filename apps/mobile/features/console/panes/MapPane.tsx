@@ -17,7 +17,7 @@ export function MapPane({ data }: { data: ConsoleData }) {
     <View>
       <PaneHead
         title="Your context"
-        description="Everything you can read from — your brain, brains shared with you, and your workspaces — and which AI clients are connected to each. Solid edges are yours; dashed edges are access someone granted you."
+        description="Everything you can read from — your own workspace, workspaces shared with you, and the ones you are a member of — and which AI clients are connected to each. Solid edges are yours; dashed edges are access someone granted you."
         trailing={
           /*
             Absent, not zero, until the list has arrived — the same rule the

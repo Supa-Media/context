@@ -23,7 +23,7 @@ import type { CreateWorkspaceController } from "../useCreateWorkspace";
  * ## Why the presets are not PARA
  *
  * PARA sorts one person's work by how permanent it is, which is the right
- * question for a brain and the wrong one for a company — see `../presets`. So
+ * question for a workspace and the wrong one for a company — see `../presets`. So
  * the default here is a company shape, PARA is offered third for teams that
  * already use it, and every preset is editable in place: choosing "Company" and
  * renaming `4-customers` is the common case, not an escape hatch.

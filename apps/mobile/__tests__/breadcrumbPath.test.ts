@@ -30,23 +30,32 @@
  * Because two surfaces draw it — the phone's band and the pointer layout's
  * region header — and the last time they each decided for themselves what a
  * segment was, one of them lost the way up and shipped. The list of crumbs is
- * decided once, here; both renderers map over it. `breadcrumbRender.test.ts`
- * asserts that they do.
+ * decided once, here; both renderers map over it. `noteChrome.test.ts`'s "the
+ * path bar" asserts that they do, against the real mounted console.
+ *
+ * ## What used to live below, and does not any more
+ *
+ * This file once carried two more `describe` blocks: a folder count capped at
+ * `MAX_FOLDER_CRUMBS` with the middle elided to a `{ kind: "gap" }` crumb, and
+ * a character `budget` (`CHAR_WIDTH_PX`, `SEPARATOR_CHARS`, `phoneRowBudget`)
+ * that shortened the leaf itself once folders had nothing left to give up. Both
+ * existed to answer "does the leaf fit on a 390pt row" without a scroll, and
+ * both are gone: `NavBand`'s row is a horizontal `ScrollView`, and a scroller
+ * answers that question for free, correctly, at every width and every font
+ * size — which a folder count or a pixel estimate could only approximate.
+ * `crumbs.ts`'s header carries the fuller argument, and
+ * `docs/decisions/app-and-console.md`'s "Two, not three" and "A count cannot
+ * guarantee a fit, so a width budget does" are marked superseded rather than
+ * deleted, because the constraint they solved (width) is what expired, not the
+ * reasoning.
  */
 
 import { describe, expect, test } from "@jest/globals";
-import {
-  crumbsFor,
-  CHAR_WIDTH_PX,
-  MAX_FOLDER_CRUMBS,
-  SEPARATOR_CHARS,
-} from "../features/console/files/crumbs";
+import { crumbsFor } from "../features/console/files/crumbs";
 
-/** The labels, in order, with the gap drawn as the character it renders as. */
+/** The labels, in order. */
 function labels(path: string, options?: Parameters<typeof crumbsFor>[1]): string[] {
-  return crumbsFor(path, options).map((crumb) =>
-    crumb.kind === "gap" ? "…" : crumb.label,
-  );
+  return crumbsFor(path, options).map((crumb) => crumb.label);
 }
 
 describe("the path of the place you are in", () => {
@@ -57,7 +66,7 @@ describe("the path of the place you are in", () => {
    * SABOTAGE: restored `segments.slice(0, -1)` as the whole answer. Fails here.
    */
   test("a note is the last segment, not the folder above it", () => {
-    expect(labels("1-projects/october-trip.md")).toEqual(["1-projects", "october-trip"]);
+    expect(labels("1-projects/october-trip.md")).toEqual(["projects", "october-trip"]);
   });
 
   /**
@@ -73,7 +82,45 @@ describe("the path of the place you are in", () => {
 
   /** The extension is filing, not a name. `noteHeading` strips it too. */
   test("the leaf drops .md, and only at the end", () => {
-    expect(labels("1-projects/notes.md/deep.md")).toEqual(["1-projects", "notes.md", "deep"]);
+    expect(labels("1-projects/notes.md/deep.md")).toEqual(["projects", "notes.md", "deep"]);
+  });
+
+  /**
+   * The sort number is filing too — the same rule the tree row, the tab and
+   * the folder's own heading make, so one folder is not two names on one
+   * screen. It applies to every segment, folder and leaf alike.
+   *
+   * SABOTAGE: dropped `withoutSortPrefix` from the folder map. Fails here.
+   */
+  test("every segment drops its sort number, and only what the rule allows", () => {
+    expect(labels("1-projects/2-planning/3-trip.md")).toEqual([
+      "projects",
+      "planning",
+      "trip",
+    ]);
+    // A date is not a sort number — see `SORT_PREFIX`. The archive's own
+    // timestamped folder is the one this would break worst: the crumb would
+    // name a folder that does not exist.
+    expect(labels("4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md")).toEqual([
+      "archive",
+      "2026-08-26T09-14-02-113Z",
+      "projects",
+      "foo",
+    ]);
+  });
+
+  /**
+   * What the crumb *presses* is untouched by any of it. A label that leaked
+   * into `path` would ask somebody's bucket for a folder called `projects`
+   * that is not there — the empty listing being the *kind* answer, and a
+   * created-on-write `projects/` beside `1-projects/` the unkind one.
+   */
+  test("no trim reaches the path a segment opens", () => {
+    expect(crumbsFor("1-projects/2-planning/3-trip.md").map((crumb) => crumb.path)).toEqual([
+      "1-projects",
+      "1-projects/2-planning",
+      "1-projects/2-planning/3-trip.md",
+    ]);
   });
 
   /**
@@ -82,8 +129,8 @@ describe("the path of the place you are in", () => {
    * and that heading scrolls away exactly like a note's inline title does.
    */
   test("a folder you are standing in is the last segment too", () => {
-    expect(labels("3-resources/books")).toEqual(["3-resources", "books"]);
-    expect(labels("1-projects")).toEqual(["1-projects"]);
+    expect(labels("3-resources/books")).toEqual(["resources", "books"]);
+    expect(labels("1-projects")).toEqual(["projects"]);
   });
 
   /**
@@ -96,21 +143,45 @@ describe("the path of the place you are in", () => {
   });
 
   test("a leading or doubled slash does not invent an empty segment", () => {
-    expect(labels("1-projects//trip.md")).toEqual(["1-projects", "trip"]);
+    expect(labels("1-projects//trip.md")).toEqual(["projects", "trip"]);
   });
 
   /** What a folder segment presses to: its own listing, not its parent's. */
   test("every folder segment carries the path it opens", () => {
-    // `maxFolders: null` so this is about the paths rather than about the cap,
-    // which the last block of this file is the subject of.
-    const crumbs = crumbsFor("3-resources/books/reading/notes.md", { maxFolders: null });
-    expect(crumbs.map((crumb) => (crumb.kind === "gap" ? null : crumb.path))).toEqual([
+    const crumbs = crumbsFor("3-resources/books/reading/notes.md");
+    expect(crumbs.map((crumb) => crumb.path)).toEqual([
       "3-resources",
       "3-resources/books",
       "3-resources/books/reading",
       "3-resources/books/reading/notes.md",
     ]);
     expect(crumbs.map((crumb) => crumb.kind)).toEqual(["folder", "folder", "folder", "leaf"]);
+  });
+
+  /**
+   * The property the elision used to trade away and no longer has to: every
+   * folder on the path is drawn, whatever the depth, in order, and nothing
+   * stands in for a hidden one.
+   *
+   * SABOTAGE: restored the cap-and-collapse branch from before this file was
+   * cut down (`folders.length <= cap ? whole : collapse`). Fails here — a
+   * seven-folder path would come back as `a, …, g, note` instead of every
+   * name.
+   */
+  test("a deep path draws every folder, in order, with nothing eliding", () => {
+    const path = "a/b/c/d/e/f/g/note.md";
+    const crumbs = crumbsFor(path);
+    expect(crumbs.map((crumb) => crumb.kind)).toEqual([
+      "folder",
+      "folder",
+      "folder",
+      "folder",
+      "folder",
+      "folder",
+      "folder",
+      "leaf",
+    ]);
+    expect(crumbs.map((crumb) => crumb.label)).toEqual(["a", "b", "c", "d", "e", "f", "g", "note"]);
   });
 });
 
@@ -123,298 +194,48 @@ describe("what a title does to the last segment", () => {
    */
   test("a title replaces the filename, and nothing else", () => {
     expect(labels("0-inbox/3efac11d4eead8832e5b1236.md", { title: "Airbnb, October" })).toEqual([
-      "0-inbox",
+      "inbox",
       "Airbnb, October",
     ]);
   });
 
   test("a title is never applied to a folder segment", () => {
     const crumbs = crumbsFor("0-inbox/note.md", { title: "Something" });
-    expect(crumbs[0]).toEqual({ kind: "folder", label: "0-inbox", path: "0-inbox" });
+    // The label is trimmed and the path is not — see "no trim reaches the path
+    // a segment opens" above.
+    expect(crumbs[0]).toEqual({ kind: "folder", label: "inbox", path: "0-inbox" });
+  });
+
+  /*
+    A drawing carries two extensions, and the trim knew about one.
+
+    `plan.excalidraw.md` is one file whose name is `plan`: the `.excalidraw`
+    is as much filing as the `.md` beside it. Trimming only the outer one put
+    `plan.excalidraw` in the band — and this is the crumb somebody sees
+    whenever the editor is not holding the note, which is every listing.
+  */
+  test("the leaf drops .excalidraw.md whole", () => {
+    expect(labels("4-resources/engineering/request-path.excalidraw.md")).toEqual([
+      "resources",
+      "engineering",
+      "request-path",
+    ]);
+    // Still only at the end, and still only the extension: a folder that
+    // happens to be called `plan.excalidraw.md` keeps its own spelling.
+    expect(labels("plan.excalidraw.md/inner.md")).toEqual(["plan.excalidraw.md", "inner"]);
   });
 });
 
-describe("fitting a deep path on a 390pt screen", () => {
-  /**
-   * The band scrolls, and scrolling is a poor answer for the segment that says
-   * *where you are*: it starts off-screen and stays there until somebody thinks
-   * to drag a row they have no reason to think is draggable. So the number of
-   * folder segments is capped and the middle ones are elided — the root folder
-   * and the immediate parent kept, which is the classic breadcrumb shape.
-   *
-   * **No segment's own text is ever truncated** — that is `ContextStrip`'s rule
-   * and it is untouched: two folders ellipsised to `3-resour…` are two folders
-   * that look identical on the control whose job is telling them apart. What is
-   * capped is how many of them are drawn.
-   *
-   * The cap does not *guarantee* a fit and cannot — segment names are the
-   * customer's, so no count is a width. `crumbs.ts` records what was measured
-   * in a browser at 390pt and what the cap actually buys.
-   *
-   * SABOTAGE: removed the elision. Fails here.
-   */
-  test("more than two folders elides the middle, never the last", () => {
-    expect(labels("a/b/c/note.md")).toEqual(["a", "…", "c", "note"]);
-    expect(labels("a/b/c/d/e/f/note.md")).toEqual(["a", "…", "f", "note"]);
-  });
+/*
+  The touch-target claim — "every folder segment is a target a thumb can
+  hit" — moved to `noteChrome.test.ts`, which mounts the real component tree.
+  It used to live here as an assertion over a `hitSlop` object this module
+  never touches, which was a workaround for react-native-web dropping
+  `hitSlop` before it reaches the DOM (see `Breadcrumb.tsx`'s `segment`
+  style): a jsdom test could hold the constant fed to `hitSlop`, but never see
+  whether the box a browser actually hit-tests against grew to match it — and,
+  measured live in a real Chromium build of this page, it never did. The fix
+  is `segment`'s own `minHeight`, a real layout property a rendered assertion
+  can see, so the claim now belongs where rendering happens.
+*/
 
-  test("two folders or fewer are drawn whole", () => {
-    expect(MAX_FOLDER_CRUMBS).toBe(2);
-    expect(labels("a/b/note.md")).toEqual(["a", "b", "note"]);
-  });
-
-  /**
-   * The leaf is never the thing that goes. It is the answer to the question the
-   * line is asked.
-   *
-   * SABOTAGE: elided from the end instead of the middle. Fails here.
-   */
-  test("the last segment survives every depth", () => {
-    for (let depth = 0; depth < 12; depth += 1) {
-      const path = `${Array.from({ length: depth }, (_, i) => `f${i}`).join("/")}/note.md`;
-      const crumbs = crumbsFor(path);
-      expect(crumbs[crumbs.length - 1]).toEqual({
-        kind: "leaf",
-        label: "note",
-        path,
-      });
-    }
-  });
-
-  /**
-   * The gap says which folders it is standing in for, so a screen reader is not
-   * told "ellipsis" and left there. Those folders are still reachable: the
-   * first segment is drawn and pressing it lists what is under it.
-   */
-  test("the gap names what it hides", () => {
-    const gap = crumbsFor("a/b/c/d/e/note.md").find((crumb) => crumb.kind === "gap");
-    expect(gap).toEqual({ kind: "gap", hidden: ["b", "c", "d"] });
-  });
-
-  /**
-   * The root folder is kept as well as the parent, and both are pressable.
-   * That is what stops the elision hiding anything for good: the PARA bucket is
-   * one press away and its listing is how anybody reached the middle folders in
-   * the first place.
-   */
-  test("the two folders kept are the root and the immediate parent, both live", () => {
-    const crumbs = crumbsFor("3-resources/books/reading/notes.md");
-    expect(crumbs.map((crumb) => (crumb.kind === "gap" ? "…" : crumb.path))).toEqual([
-      "3-resources",
-      "…",
-      "3-resources/books/reading",
-      "3-resources/books/reading/notes.md",
-    ]);
-  });
-
-  /**
-   * The cap is a cap, at every depth and every setting — the property the
-   * hand-written cases above are examples of, and the one a future edit to the
-   * slicing would break silently.
-   *
-   * SABOTAGE: `slice(-(maxFolders - 1))` with the floor removed, then
-   * `maxFolders: 1`. Fails here with the *whole* path returned, an ellipsis in
-   * the middle of it — which is what `slice(-0)` means and what the floor in
-   * `crumbsFor` exists to stop.
-   */
-  test("never more folder segments than the cap, whatever it is asked for", () => {
-    for (const cap of [1, 2, 3, 5]) {
-      for (let depth = 0; depth < 10; depth += 1) {
-        const path = `${Array.from({ length: depth }, (_, i) => `f${i}`).join("/")}/note.md`;
-        const folders = crumbsFor(path, { maxFolders: cap }).filter(
-          (crumb) => crumb.kind === "folder",
-        );
-        expect(folders.length).toBeLessThanOrEqual(Math.max(2, cap));
-      }
-    }
-  });
-
-  /**
-   * A gap stands for folders, so a gap standing for none is a mark that means
-   * nothing — worse than either answer it sits between.
-   *
-   * SABOTAGE: floored the cap *after* the "is it short enough" comparison
-   * instead of before it, then `maxFolders: 1`. Fails here on `a/b/note.md`,
-   * which elides two folders into first-gap-last over the same two.
-   */
-  test("a gap always stands for at least one folder", () => {
-    for (const cap of [1, 2, 3]) {
-      for (let depth = 0; depth < 8; depth += 1) {
-        const path = `${Array.from({ length: depth }, (_, i) => `f${i}`).join("/")}/note.md`;
-        for (const crumb of crumbsFor(path, { maxFolders: cap })) {
-          if (crumb.kind === "gap") expect(crumb.hidden.length).toBeGreaterThan(0);
-        }
-      }
-    }
-  });
-
-  /**
-   * The pointer layout has the width for the whole path and a chip beside it,
-   * so it asks for no cap. Same function, same crumbs, one argument apart —
-   * which is the point of the function existing.
-   */
-  test("a caller with room asks for none", () => {
-    expect(labels("a/b/c/d/e/note.md", { maxFolders: null })).toEqual([
-      "a",
-      "b",
-      "c",
-      "d",
-      "e",
-      "note",
-    ]);
-  });
-});
-
-/**
- * **The leaf must never be the segment that goes off screen.**
- *
- * `MAX_FOLDER_CRUMBS` bounds the row; it does not fit it — the cap's own
- * comment says so, and the two screenshots that came out of it are the
- * defect this block exists to close: `1-note-two-folders-deep.png` clipped
- * "Org chart" behind the trailing fade, and `5-deep-path-elided.png` cut
- * "the-lean-startup" to "the-lean-sta…" the same way. A `budget` is a caller
- * saying it needs the fit *guaranteed*, and past this point nothing that goes
- * missing is allowed to go missing silently: a folder collapses to a `…` that
- * still says "there is more here", and only the leaf's own label is ever
- * shortened — visibly, in the middle, never by scrolling an unmarked edge
- * past the glass.
- */
-describe("protecting the leaf with a character budget", () => {
-  /** Comfortably inside budget: nothing changes. */
-  test("a budget with room to spare changes nothing", () => {
-    expect(labels("1-projects/october-trip.md", { budget: { chars: 200 } })).toEqual([
-      "1-projects",
-      "october-trip",
-    ]);
-  });
-
-  /**
-   * Too tight for the capped shape (root, gap, parent, leaf) but roomy enough
-   * for the harder collapse: every folder becomes the one `…` standing for
-   * "there is a path above this", and the leaf survives whole.
-   *
-   * SABOTAGE: budget ignored once `maxFolders` has already run. Fails here —
-   * `books` and `reading` would still be drawn.
-   */
-  test("a budget the cap alone cannot meet collapses every folder", () => {
-    const crumbs = crumbsFor("3-resources/books/reading/notes.md", { budget: { chars: 20 } });
-    expect(crumbs.map((crumb) => (crumb.kind === "gap" ? "…" : crumb.label))).toEqual([
-      "…",
-      "notes",
-    ]);
-    expect(crumbs.find((crumb) => crumb.kind === "gap")).toEqual({
-      kind: "gap",
-      hidden: ["3-resources", "books", "reading"],
-    });
-  });
-
-  /**
-   * The immediate parent is worth keeping pressable longer than the root: it
-   * is the one "step back" actually reaches, where the pill in front of this
-   * row already reaches the root. So folders give way from the *front* —
-   * oldest ancestor first — rather than jumping straight to one bare `…`.
-   */
-  test("the immediate parent stays a live folder as long as it can", () => {
-    const crumbs = crumbsFor("reallyreallylongrootfoldername/x/note-name.md", {
-      budget: { chars: 24 },
-    });
-    expect(crumbs).toEqual([
-      { kind: "gap", hidden: ["reallyreallylongrootfoldername"] },
-      { kind: "folder", label: "x", path: "reallyreallylongrootfoldername/x" },
-      { kind: "leaf", label: "note-name", path: "reallyreallylongrootfoldername/x/note-name.md" },
-    ]);
-  });
-
-  test("a root-level note has no folder to collapse, only itself", () => {
-    const crumbs = crumbsFor("the-lean-startup.md", { budget: { chars: 6 } });
-    expect(crumbs).toHaveLength(1);
-    expect(crumbs[0]!.kind).toBe("leaf");
-  });
-
-  /**
-   * The last resort, and the one the report's screenshots are about: the
-   * leaf's own name is what does not fit, once there is nothing left of the
-   * path to give up. It is cut in the middle, not at an edge — `the-lean` and
-   * `startup` both survive, which is what tells someone this is the note they
-   * were looking for rather than a different one with the same prefix.
-   *
-   * SABOTAGE: truncated from the end (`slice(0, maxChars - 1) + "…"`). Fails
-   * here — the label would start with `the-lean-star` rather than keep a
-   * piece of both ends.
-   */
-  test("only once folders give up everything is the leaf itself shortened", () => {
-    const crumbs = crumbsFor("3-resources/books/reading-notes/2026/the-lean-startup.md", {
-      budget: { chars: 20 },
-    });
-    // Folders are already at their hardest collapse — one gap standing for
-    // all four of them — before the leaf gives up anything of its own.
-    expect(crumbs[0]).toEqual({
-      kind: "gap",
-      hidden: ["3-resources", "books", "reading-notes", "2026"],
-    });
-    const leaf = crumbs[1] as { kind: string; label: string; fullLabel?: string };
-    expect(leaf.kind).toBe("leaf");
-    // A cut in the middle, not at an edge: both the word somebody typed at the
-    // front of the name and the word at the end of it survive.
-    expect(leaf.label).toBe("the-l…artup");
-    // The full name is not lost — it travels for a screen reader to read.
-    expect(leaf.fullLabel).toBe("the-lean-startup");
-  });
-
-  test("a leaf within budget carries no fullLabel — it was never shortened", () => {
-    const crumbs = crumbsFor("1-projects/october-trip.md", { budget: { chars: 200 } });
-    const leaf = crumbs.find((crumb) => crumb.kind === "leaf");
-    expect(leaf?.fullLabel).toBeUndefined();
-  });
-
-  /**
-   * The property the hand-written cases above are examples of: whatever the
-   * budget, and however deep the path, the row this function returns never
-   * costs more characters than it was given — one separator per crumb plus
-   * its own text, `…` counted as the one character it renders as.
-   *
-   * Budgets below 10 are not asserted: the smallest possible shape with a
-   * folder to collapse — a gap plus a one-character leaf, `SEPARATOR_CHARS`
-   * in front of each — already costs 10, and a caller offering less than that
-   * is asking for something with no answer. No real screen does;
-   * `Breadcrumb`'s narrowest supported width is nowhere near it.
-   *
-   * SABOTAGE: the leaf-truncation branch skipped (`return collapsed`
-   * unconditionally past the second budget check). Fails at every budget
-   * once the leaf alone is longer than it.
-   */
-  test("the row never spends more characters than its budget, at any depth", () => {
-    const rowChars = (path: string, chars: number): number =>
-      crumbsFor(path, { budget: { chars } }).reduce(
-        (total, crumb) => total + SEPARATOR_CHARS + (crumb.kind === "gap" ? 1 : crumb.label.length),
-        0,
-      );
-    for (const chars of [10, 14, 20, 40, 100]) {
-      for (let depth = 0; depth < 6; depth += 1) {
-        const folders = Array.from({ length: depth }, (_, i) => `folder-${i}`).join("/");
-        const path = `${depth === 0 ? "" : `${folders}/`}a-fairly-long-note-name-for-a-test.md`;
-        expect(rowChars(path, chars)).toBeLessThanOrEqual(chars);
-      }
-    }
-  });
-
-  /** The leaf is drawn at every depth and every budget — never dropped, only shortened. */
-  test("the leaf is never the segment that disappears, whatever the budget", () => {
-    for (const chars of [4, 6, 8, 14, 40]) {
-      for (let depth = 0; depth < 6; depth += 1) {
-        const folders = Array.from({ length: depth }, (_, i) => `folder-${i}`).join("/");
-        const path = `${depth === 0 ? "" : `${folders}/`}a-fairly-long-note-name-for-a-test.md`;
-        const crumbs = crumbsFor(path, { budget: { chars } });
-        const leaf = crumbs[crumbs.length - 1];
-        expect(leaf?.kind).toBe("leaf");
-        expect((leaf as { label: string }).label.length).toBeGreaterThan(0);
-      }
-    }
-  });
-
-  /** `CHAR_WIDTH_PX` is a real number a caller multiplies pixels by, not a placeholder. */
-  test("the char width is a positive, sub-glyph-sized number of points", () => {
-    expect(CHAR_WIDTH_PX).toBeGreaterThan(0);
-    expect(CHAR_WIDTH_PX).toBeLessThan(20);
-  });
-});

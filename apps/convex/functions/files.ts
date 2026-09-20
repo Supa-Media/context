@@ -69,20 +69,99 @@
 
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import {
+  PINNED_CONTEXT_ROLE,
+  WORKSPACE_ICON_CONTENT_TYPES,
+  WORKSPACE_ICON_MAX_BYTES,
+  matchesDestructiveActionAcknowledgement,
+} from "@context/shared";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
+  type QueryCtx,
   action,
   internalAction,
+  internalMutation,
   internalQuery,
+  mutation,
+  query,
 } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import { type Clearance, clearanceOf, privateClearance } from "./lib/clearance";
+import { grantedNamesFor } from "./lib/grantedNames";
+import { resolveAddressedUser } from "./lib/identities";
+import { forwardPath, readForwarding } from "../../mcp/src/forwarding.js";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+import { inventoryPlugins, listManagedInstalls } from "../../mcp/src/plugins/inventory.js";
+import {
+  resolveContextPlugins,
+  setPluginEnabled,
+} from "../../mcp/src/plugins/enablement.js";
 // The gateway's D1 wire, imported rather than ported, for the same reason
 // `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
 // which is Convex's runtime too. It holds the write token for the life of one
 // call and puts it in exactly one place, an `Authorization` header.
 import { createD1Client } from "../../mcp/src/search/d1/client.js";
+import {
+  migrateStorageLayout as migrateStorageLayoutOp,
+  readStorageLayoutState as readStorageLayoutStateOp,
+  STORAGE_LAYOUT_ROLLBACK_MS,
+} from "../../mcp/src/storageLayout.js";
+/*
+ * The Gmail pipeline, imported rather than ported, for exactly the reason the
+ * two imports above are: `apps/mcp` targets the Workers runtime, which is
+ * Convex's runtime too, and this module takes its socket, its access token and
+ * its store as parameters — it opens nothing itself.
+ *
+ * It came back with the forward sync loop. #388 removed the historical
+ * backfill that used to import it and left the module reachable from nothing
+ * at all, which is how a complete, fixture-tested mail pipeline sat in the
+ * repository while connected mailboxes synced nothing.
+ */
+import {
+  getProfileHistoryId,
+  GmailApiError,
+  runIncrementalSync,
+  writeContactDraft,
+  writeDayPart,
+} from "../../mcp/src/communications/gmailSync.js";
+import { placeDayParts } from "../../mcp/src/communications/dayPlacement.js";
+import {
+  ChatApiError,
+  listMessagesPage,
+  listSpacesPage,
+} from "../../mcp/src/communications/googleChat/client.js";
+import {
+  ChatPaginationError,
+  renderSharedGoogleChat,
+  syncGoogleChat,
+} from "../../mcp/src/communications/googleChat/sync.js";
+import {
+  ChatContributionConflictError,
+  ChatContributionIncompleteError,
+  loadActiveChatContributions,
+  persistChatContribution,
+} from "../../mcp/src/communications/googleChat/contributionStore.js";
+import {
+  CalendarApiError,
+  CalendarPaginationError,
+} from "../../mcp/src/communications/calendar-google.js";
+import { syncCalendarAccount } from "../../mcp/src/communications/calendar-sync.js";
+import {
+  CalendarContributionConflictError,
+  CalendarContributionIncompleteError,
+  loadActiveCalendarContributions,
+  loadCalendarContribution,
+  persistCalendarContribution,
+} from "../../mcp/src/communications/calendarContributionStore.js";
+import {
+  calendarDayNotePath,
+  isCalendarDayNote,
+  mergeEventCaches,
+  projectDay,
+  renderCalendarDay,
+} from "../../../packages/communications/src/calendar/index.js";
+import { fnv1a64 } from "../../../packages/communications/src/anchors.js";
 import {
   D1_ACCOUNT_SECRET,
   D1_TOKEN_SECRET,
@@ -103,44 +182,82 @@ import {
   DELETE_CONFIRMATION,
   FileOpError,
   type FileStore,
+  clearVaultBatch,
   archivePath,
+  clearMovedSourceRules,
+  type ContextMoveExport,
+  type ContextMoveImport,
+  type ContextMoveObject,
   copyPath,
+  deleteMovedSources,
+  exportContextMoveBatch,
+  importContextMoveBatch,
+  listFolderPaths,
   createFolder,
   deletePath,
   duplicatePath,
   listFolder,
   movePath,
+  restoreTrashedPath,
   readFile,
+  readFiles,
+  READ_BATCH_PATHS,
+  type FileContents,
+  type SyncManifest,
+  syncManifest as syncManifestOp,
   maintainSearchIndex,
   notePathIndex,
   projectSearchIndex,
   type ProjectionClient,
   type ProjectionPass,
   searchNotes,
+  trashPath,
   type SearchResults,
   removeNoteEncryption as removeNoteEncryptionOp,
   resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
   writeFile,
+  importVaultFiles,
   writeImage,
   readImage,
+  pasteImageLeaf,
+  workspaceIconLeaf,
 } from "./lib/fileOps";
-import type { Scope } from "./lib/privacy";
+import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
+import {
+  storageLayoutStateValidator,
+  type StorageLayoutState,
+} from "./lib/storageLayout";
+import {
+  ensureFormResponseFiles,
+  runFormAction,
+  type FormAction,
+  type FormResult,
+  type FormSeedResult,
+} from "./lib/formOps";
 import {
   type WorkspaceRole,
   requireWorkspaceAccess,
   requireWorkspaceRole,
 } from "./lib/workspaceAuth";
+import { reachesPinnedContext } from "./lib/pinnedContext";
+import {
+  readActivity,
+  recordActivity,
+  type ActivityActor,
+  type ActivityEntry,
+} from "./lib/activity";
 import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
-const REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 20_000;
+const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
  *
- * A brain of a few thousand notes does not index in one pass, and the
+ * A workspace of a few thousand notes does not index in one pass, and the
  * alternative to chaining is what the project note calls out as still open:
  * "the complete backfill finishes without requiring repeated user searches".
  * Making somebody search eight times to finish their own index is making them
@@ -179,14 +296,36 @@ export { DELETE_CONFIRMATION };
 /*                                 validators                                 */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * What a console caller may ASK for. Two-valued, and it stays that way.
+ *
+ * A rule naming a group reaches `privacy.md` from the console's own group
+ * controls or a person's editor — never from `setNoteVisibility` or
+ * `setFolderVisibility`, whose whole job is the two tiers. Widening this
+ * would make every path that takes a visibility a way to mint a rule, which
+ * is the opposite of the gateway's position that no AI client can.
+ */
 const visibilityValidator = v.union(v.literal("private"), v.literal("team"));
+
+/**
+ * What a visibility may be on the way OUT.
+ *
+ * `v.string()` rather than the two literals, because a rule may name a group
+ * and a bucket can already hold one. The narrow validator did not merely
+ * mislabel such a note — it **threw at the boundary**, so one hand-edited rule
+ * took the whole console listing down. What a group name may contain is
+ * enforced where it is parsed (`GROUP_SCOPE_PATTERN` in `lib/privacy.ts`),
+ * which fails the manifest closed rather than per response; there is nothing
+ * left for this validator to check that the parser has not.
+ */
+const visibilityReadValidator = v.string();
 
 const entryValidator = v.object({
   kind: v.union(v.literal("file"), v.literal("folder")),
   path: v.string(),
   name: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
   readOnly: v.boolean(),
   size: v.optional(v.number()),
@@ -196,7 +335,7 @@ const entryValidator = v.object({
 const listingValidator = v.object({
   kind: v.literal("listing"),
   path: v.string(),
-  folderDefault: visibilityValidator,
+  folderDefault: visibilityReadValidator,
   entries: v.array(entryValidator),
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
@@ -213,13 +352,256 @@ const imageValidator = v.object({
   bytes: v.bytes(),
 });
 
+
+const pluginVerdictValidator = v.union(
+  v.literal("runs"),
+  v.literal("needs-approval"),
+  v.literal("files-only"),
+  v.literal("wont-run"),
+  v.literal("unknown"),
+);
+
+const pluginEvidenceValidator = v.object({
+  id: v.string(),
+  kind: v.union(
+    v.literal("module"),
+    v.literal("member"),
+    v.literal("network"),
+    v.literal("dynamic"),
+    v.literal("scan"),
+  ),
+  reason: v.string(),
+});
+
+const pluginValidator = v.object({
+  source: v.union(v.literal("obsidian"), v.literal("context")),
+  folder: v.string(),
+  id: v.string(),
+  name: v.string(),
+  version: v.string(),
+  author: v.string(),
+  description: v.string(),
+  bundleFingerprint: v.union(v.string(), v.null()),
+  isDesktopOnly: v.boolean(),
+  manifestError: v.union(v.string(), v.null()),
+  verdict: pluginVerdictValidator,
+  evidence: v.array(pluginEvidenceValidator),
+  notes: v.array(v.string()),
+  limitations: v.array(v.string()),
+  hosts: v.array(v.string()),
+  reason: v.string(),
+  supported: v.array(v.string()),
+  /**
+   * A Context-managed install whose id is also a folder in `.obsidian/plugins/`.
+   *
+   * Optional because it is only ever true: absent means "no duplicate", which
+   * is every row in almost every bucket, and a boolean on all of them would be
+   * a field the console has to read to learn nothing.
+   */
+  alsoInVault: v.optional(v.boolean()),
+  /**
+   * Members the shim has committed to and does not answer yet.
+   *
+   * Reported beside `supported` rather than folded into it, because the two are
+   * different claims: `supported` says the sandbox serves this, `planned` says
+   * it will. Mixing them is exactly the drift the scanner's own list had, where
+   * twenty names read as implemented and threw on first call. The console does
+   * not render this array directly — `limitations` already carries a sentence
+   * per distinct cause — but it travels so the two halves stay auditable
+   * against each other.
+   */
+  planned: v.array(v.string()),
+});
+
+const pluginInventoryValidator = v.object({
+  kind: v.literal("pluginInventory"),
+  available: v.boolean(),
+  reason: v.union(v.string(), v.null()),
+  plugins: v.array(pluginValidator),
+  // Convex object-validator fields are identifiers, so verdicts containing
+  // hyphens must be represented as string record keys instead of object fields.
+  counts: v.record(v.string(), v.number()),
+  found: v.number(),
+  scanned: v.number(),
+  truncated: v.boolean(),
+  checkedAt: v.string(),
+});
+
+/**
+ * What Context installed in this bucket, without any claim about whether it runs.
+ *
+ * Deliberately a different shape from `pluginInventoryValidator` rather than a
+ * thinner version of it. A row here carries an id, the version that was pinned
+ * and where it came from — three facts read out of a pointer — and nothing
+ * else. There is no verdict field to leave empty and therefore no way for a
+ * console to draw this answer as though a scan had run.
+ */
+const pluginManagedInstallsValidator = v.object({
+  kind: v.literal("pluginManagedInstalls"),
+  available: v.boolean(),
+  reason: v.union(v.string(), v.null()),
+  installs: v.array(
+    v.object({
+      id: v.string(),
+      /** `null` for a pointer that names no release — corrupt, or mid-operation. */
+      version: v.union(v.string(), v.null()),
+      repository: v.union(v.string(), v.null()),
+    }),
+  ),
+  truncated: v.boolean(),
+  checkedAt: v.string(),
+});
+
+const pluginSettingsValidator = v.object({
+  kind: v.literal("pluginSettings"),
+  json: v.string(),
+  etag: v.union(v.string(), v.null()),
+});
+
+/**
+ * One built-in Context plugin, resolved against this bucket's settings file.
+ *
+ * Flattened out of the manifest rather than passed through, because the wire
+ * shape is a contract with the console and the manifest is the gateway's.
+ * `offMeans` travels with the row for the same reason it exists at all: the
+ * switch is only honest if the cost is on screen beside it, and a console that
+ * had to keep its own copy of that sentence is a console whose copy goes stale.
+ */
+const contextPluginValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  description: v.string(),
+  version: v.string(),
+  author: v.string(),
+  enabled: v.boolean(),
+  defaultEnabled: v.boolean(),
+  tools: v.array(v.string()),
+  surfaces: v.array(v.string()),
+  offMeans: v.string(),
+});
+
+const contextPluginsValidator = v.object({
+  kind: v.literal("contextPlugins"),
+  plugins: v.array(contextPluginValidator),
+  // Why a row might not reflect what somebody set: a settings file that will
+  // not parse resolves to the defaults, and saying so is the difference
+  // between a console that looks wrong and one that explains itself.
+  settingsError: v.union(v.string(), v.null()),
+});
+
+const pluginManagedValidator = v.object({
+  kind: v.literal("pluginManaged"),
+  pluginId: v.string(),
+  version: v.string(),
+});
+
+const pluginBundleValidator = v.object({
+  kind: v.literal("pluginBundle"),
+  pluginId: v.string(),
+  version: v.string(),
+  bundleFingerprint: v.string(),
+  manifestJson: v.string(),
+  mainJs: v.string(),
+  stylesCss: v.union(v.string(), v.null()),
+});
+
+type PluginVerdict = "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
+type ContextPluginRow = {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  enabled: boolean;
+  defaultEnabled: boolean;
+  tools: string[];
+  surfaces: string[];
+  offMeans: string;
+};
+
+type PluginInventory = {
+  available: boolean;
+  reason: string | null;
+  plugins: Array<{
+    source: "obsidian" | "context";
+    folder: string;
+    id: string;
+    name: string;
+    version: string;
+    author: string;
+    description: string;
+    bundleFingerprint: string | null;
+    isDesktopOnly: boolean;
+    manifestError: string | null;
+    verdict: PluginVerdict;
+    evidence: Array<{
+      id: string;
+      kind: "module" | "member" | "network" | "dynamic" | "scan";
+      reason: string;
+    }>;
+    notes: string[];
+    limitations: string[];
+    hosts: string[];
+    reason: string;
+    supported: string[];
+    alsoInVault?: boolean;
+    planned: string[];
+  }>;
+  counts: Record<PluginVerdict, number>;
+  found: number;
+  scanned: number;
+  truncated: boolean;
+  checkedAt: string;
+};
+
+/** What `listManagedInstalls` answers: the pointers, and no verdict about any of them. */
+type ManagedInstalls = {
+  available: boolean;
+  reason: string | null;
+  installs: Array<{ id: string; version: string | null; repository: string | null }>;
+  truncated: boolean;
+  checkedAt: string;
+};
+
+const vaultImportResultValidator = v.object({
+  kind: v.literal("vaultImported"),
+  created: v.array(v.string()),
+  skipped: v.array(v.string()),
+  bytesCreated: v.number(),
+});
+
+const vaultClearResultValidator = v.object({
+  kind: v.literal("vaultCleared"),
+  mode: v.union(v.literal("counted"), v.literal("deleted")),
+  objects: v.number(),
+  complete: v.boolean(),
+});
+
+const replacementStatusValidator = v.object({
+  phase: v.union(v.literal("counting"), v.literal("deleting"), v.literal("uploading")),
+  totalObjects: v.number(),
+  deletedObjects: v.number(),
+});
+
+const vaultImportJobStatusValidator = v.object({
+  jobId: v.id("vaultImportJobs"),
+  strategy: v.union(v.literal("merge"), v.literal("folder"), v.literal("replace")),
+  status: v.union(v.literal("active"), v.literal("paused"), v.literal("complete")),
+  totalFiles: v.number(),
+  completedFiles: v.number(),
+  createdFiles: v.number(),
+  skippedFiles: v.number(),
+  completedBatches: v.array(v.number()),
+  replacement: v.optional(replacementStatusValidator),
+});
+
 const fileValidator = v.object({
   kind: v.literal("file"),
   path: v.string(),
   text: v.string(),
   etag: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
   readOnly: v.boolean(),
   /**
@@ -232,11 +614,74 @@ const fileValidator = v.object({
   encrypted: v.boolean(),
 });
 
+/**
+ * One object in the offline mirror's manifest. See `ManifestEntry` in
+ * `lib/fileOps.ts`: the visibility fields are a listing's, `etag` is the
+ * store's own from the listing and is absent only where the store gave none.
+ */
+const manifestEntryValidator = v.object({
+  path: v.string(),
+  etag: v.optional(v.string()),
+  size: v.optional(v.number()),
+  updatedAt: v.optional(v.number()),
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
+  exception: v.boolean(),
+  readOnly: v.boolean(),
+});
+
+const manifestValidator = v.object({
+  kind: v.literal("manifest"),
+  entries: v.array(manifestEntryValidator),
+  /** Pass back to get what follows. Always a path this caller was given. */
+  cursor: v.union(v.string(), v.null()),
+  /** The walk could not finish: the pages so far are a floor, not a total. */
+  truncated: v.boolean(),
+  manifestUsable: v.boolean(),
+});
+
+/**
+ * A batch read. Each note is `fileValidator` itself — the very shape
+ * `readNote` returns — and a refusal is the code and message `readNote` would
+ * have thrown, so a hidden note and a missing one are the same row.
+ */
+const notesValidator = v.object({
+  kind: v.literal("notes"),
+  results: v.array(
+    v.union(
+      v.object({ path: v.string(), outcome: v.literal("read"), note: fileValidator }),
+      v.object({
+        path: v.string(),
+        outcome: v.literal("error"),
+        code: v.string(),
+        message: v.string(),
+      }),
+      v.object({ path: v.string(), outcome: v.literal("deferred") }),
+    ),
+  ),
+});
+
+/**
+ * What a form block's response files did on this write.
+ *
+ * Two lists of paths and reasons — never a body, never an etag of somebody
+ * else's note. It is reported back to the author because a `responses:` aimed
+ * at a file that already holds something is a form that will silently collect
+ * nothing, and they are the only person who can re-aim it.
+ */
+const formSeedValidator = v.object({
+  created: v.array(v.string()),
+  occupied: v.array(v.string()),
+});
+
 const writtenValidator = v.object({
   kind: v.literal("written"),
   path: v.string(),
   etag: v.string(),
+  /** What was stored, in bytes. See `WriteResult` — it is for `activity.md`. */
+  bytes: v.number(),
   conflictCheck: v.union(v.literal("conditional"), v.literal("read-compare")),
+  forms: formSeedValidator,
 });
 
 const movedValidator = v.object({
@@ -255,6 +700,12 @@ const movedValidator = v.object({
   references: v.optional(
     v.object({ notes: v.number(), links: v.number(), capped: v.boolean() }),
   ),
+  /**
+   * A single note's etag at its new path, where the bucket answered with one.
+   * The offline queue carries it on to whatever it was asked to do next with
+   * that note — see `movePath`.
+   */
+  etag: v.optional(v.string()),
 });
 
 const deletedValidator = v.object({
@@ -262,11 +713,65 @@ const deletedValidator = v.object({
   paths: v.array(v.string()),
 });
 
+const folderPathsValidator = v.object({
+  kind: v.literal("folderPaths"),
+  folders: v.array(v.string()),
+  /** The walk hit a ceiling. The list is a floor, and the picker says so. */
+  truncated: v.boolean(),
+});
+
+const contextMoveExportedValidator = v.object({
+  kind: v.literal("contextMoveExported"),
+  objects: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    bytes: v.bytes(),
+    etag: v.string(),
+    sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+  })),
+  skipped: v.array(v.object({
+    path: v.string(),
+    reason: v.literal("encrypted"),
+  })),
+  remaining: v.boolean(),
+});
+
+const contextMoveLandedValidator = v.object({
+  kind: v.literal("contextMoveLanded"),
+  landed: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    etag: v.string(),
+  })),
+  /**
+   * Why the batch stopped short, when it did.
+   *
+   * Reported rather than thrown, because the sources of everything in `landed`
+   * still have to be removed — see `importContextMoveBatch`. A thrown error
+   * here would leave the same objects in both buckets with nothing recording
+   * which of them is the copy.
+   */
+  failure: v.union(
+    v.null(),
+    v.object({ destination: v.string(), code: v.string(), message: v.string() }),
+  ),
+});
+
+const contextMoveRemovedValidator = v.object({
+  kind: v.literal("contextMoveRemoved"),
+  deleted: v.array(v.string()),
+  conflicts: v.array(v.string()),
+});
+
+const contextMoveFinishedValidator = v.object({
+  kind: v.literal("contextMoveFinished"),
+});
+
 const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),
   path: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
 });
 
@@ -292,6 +797,32 @@ const privacyResetValidator = v.object({
   backedUpTo: v.union(v.string(), v.null()),
   /** `folders` is short: the walk hit its cap, or a name could not be a rule. */
   partial: v.boolean(),
+});
+
+const storageMigrationResultValidator = v.object({
+  kind: v.literal("storageMigrated"),
+  state: storageLayoutStateValidator,
+  objectsCopied: v.number(),
+  objectsVerified: v.number(),
+  objectsDeleted: v.number(),
+  conflicts: v.number(),
+  error: v.optional(v.string()),
+});
+
+/**
+ * What `readStorageLayout` hands back: an observation, not an outcome.
+ *
+ * `observed: false` is a bucket that would not answer, and it carries no state
+ * — the caller records nothing rather than writing down a guess. `observed`
+ * with `state: null` is the real answer "there is pre-v1 plumbing here and
+ * nothing has moved it", which is a different fact and the one the console was
+ * missing. A bucket that never held any answers `complete`, because that is
+ * what its hidden files are — see `apps/mcp/src/storageLayout.js`.
+ */
+const storageLayoutReadValidator = v.object({
+  kind: v.literal("storageLayoutRead"),
+  observed: v.boolean(),
+  state: v.union(storageLayoutStateValidator, v.null()),
 });
 
 const searchResultsValidator = v.object({
@@ -327,6 +858,12 @@ const searchResultsValidator = v.object({
 const notePathsValidator = v.object({
   kind: v.literal("notePaths"),
   paths: v.union(v.array(v.string()), v.null()),
+});
+
+/** The answer to `forward`: the same paths, each where it is now. */
+const forwardedValidator = v.object({
+  kind: v.literal("forwarded"),
+  paths: v.array(v.string()),
 });
 
 /**
@@ -376,11 +913,11 @@ const blendedResultsValidator = v.object({
   /**
    * How many contexts this viewer could search at all, whatever they selected.
    *
-   * Zero is its own state on screen — "no context has fast search on" is a
+   * Zero is its own state on screen — "you are not in a context yet" is a
    * different sentence from "nothing matched", and collapsing them would tell
    * somebody their notes are not there when nothing looked.
    */
-  eligibleCount: v.number(),
+  searchableCount: v.number(),
 });
 
 /**
@@ -429,26 +966,150 @@ const indexProjectedValidator = v.object({
   failure: v.optional(v.string()),
 });
 
+const googleSyncRunValidator = v.object({
+  kind: v.literal("googleSyncRun"),
+  runId: v.id("googleSyncRuns"),
+  status: v.union(v.literal("running"), v.literal("complete"), v.literal("failed")),
+  totalUnits: v.number(),
+  completedUnits: v.number(),
+  itemsFound: v.number(),
+  daysWithMail: v.number(),
+  bytesWritten: v.number(),
+  continue: v.boolean(),
+});
+
+/**
+ * One forward sync pass, as the scheduler sees it. No mail, no path, no
+ * cursor — the cursor is written to the connection row by
+ * `recordGoogleForwardSyncPass`, and a scheduled action's return value is read
+ * by nobody but a test.
+ */
+const googleForwardSyncValidator = v.object({
+  kind: v.literal("googleForwardSync"),
+  connectionId: v.id("googleConnections"),
+  status: v.union(v.literal("synced"), v.literal("skipped"), v.literal("failed")),
+  daysTouched: v.number(),
+  bytesWritten: v.number(),
+  cursorAdvanced: v.boolean(),
+  gapDetected: v.boolean(),
+  /** The history walk ran out of pages; this connection has more to drain. */
+  truncated: v.boolean(),
+  errorCode: v.optional(v.string()),
+});
+
+/**
+ * One answer to one field.
+ *
+ * A list of pairs rather than an object keyed by field name, because a form's
+ * fields are the author's and a Convex validator — like the gateway's tool
+ * schema — cannot close an object whose keys it does not know. An open one at
+ * this position accepts whatever a caller puts there, which is the hole both
+ * validators exist to shut.
+ */
+const formAnswerValidator = v.object({ field: v.string(), value: v.string() });
+
+const formResultValidator = v.object({
+  kind: v.literal("formApplied"),
+  responseId: v.string(),
+  formId: v.string(),
+  responsesPath: v.string(),
+  votes: v.optional(v.number()),
+});
+
+/**
+ * One activity entry, as the console draws it.
+ *
+ * Paths, names, a kind and a time. No note text, by construction — the file it
+ * comes from has none either, which is the point of recording paths rather
+ * than diffs.
+ */
+const activityEntryValidator = v.object({
+  at: v.string(),
+  kind: v.string(),
+  paths: v.array(v.string()),
+  n: v.number(),
+  vis: v.union(v.literal("team"), v.literal("private")),
+  by: v.union(v.string(), v.null()),
+  via: v.union(v.string(), v.null()),
+  note: v.union(v.string(), v.null()),
+});
+
+const activityValidator = v.object({
+  kind: v.literal("activity"),
+  entries: v.array(activityEntryValidator),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
+  manifestValidator,
+  notesValidator,
   writtenValidator,
   movedValidator,
   deletedValidator,
+  folderPathsValidator,
+  contextMoveExportedValidator,
+  contextMoveLandedValidator,
+  contextMoveRemovedValidator,
+  contextMoveFinishedValidator,
   visibilityResultValidator,
   folderCreatedValidator,
   privacyResetValidator,
+  storageMigrationResultValidator,
+  storageLayoutReadValidator,
   imageWrittenValidator,
   imageValidator,
+  pluginInventoryValidator,
+  pluginManagedInstallsValidator,
+  contextPluginsValidator,
+  pluginSettingsValidator,
+  pluginManagedValidator,
+  pluginBundleValidator,
+  vaultImportResultValidator,
+  vaultClearResultValidator,
   searchResultsValidator,
   notePathsValidator,
+  forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
+  googleSyncRunValidator,
+  googleForwardSyncValidator,
+  formResultValidator,
+  activityValidator,
 );
 
 const operationValidator = v.union(
   v.object({ kind: v.literal("list"), path: v.string() }),
-  v.object({ kind: v.literal("read"), path: v.string() }),
+  v.object({
+    kind: v.literal("read"),
+    path: v.string(),
+    /**
+     * Whether a path that has moved is followed to where it went.
+     *
+     * Absent is `never`, which is every caller that predates the forwarding
+     * ledger. `onMiss` is for an address somebody is holding — a deep link, a
+     * remembered path. A share needs the opposite order and resolves through
+     * the `forward` operation instead; `readFile` carries the argument for why
+     * those two orders cannot be one.
+     */
+    forward: v.optional(v.union(v.literal("never"), v.literal("onMiss"))),
+  }),
+  /**
+   * Where these paths are now, according to the bucket's forwarding ledger.
+   *
+   * A read can forward itself (`forward`, above). A share cannot: its bound is
+   * decided in `shares.ts` *before* any bucket access — `withinSharedFolder`
+   * refuses a path outside the shared folder without spending a GET — and a
+   * bound checked against a stale prefix while the read forwards to a live one
+   * would be two different answers to the same question. So the share resolves
+   * both paths first, in one operation, and everything after it works in live
+   * paths.
+   */
+  v.object({ kind: v.literal("forward"), paths: v.array(v.string()) }),
+  /** The offline mirror's manifest, one page of it. See `syncManifest`. */
+  v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()) }),
+  /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
+  v.object({ kind: v.literal("readMany"), paths: v.array(v.string()) }),
   v.object({
     kind: v.literal("search"),
     query: v.string(),
@@ -477,7 +1138,7 @@ const operationValidator = v.union(
    * — there is no public action that reaches this variant.
    *
    * `passes` is how many *more* passes may be chained behind this one when it
-   * makes progress and does not finish. A cold brain needs several, and
+   * makes progress and does not finish. A cold workspace needs several, and
    * requiring a person to search repeatedly to finish their own backfill is
    * the acceptance criterion this closes; the bound is what stops a bucket
    * that never converges from scheduling itself forever.
@@ -493,12 +1154,30 @@ const operationValidator = v.union(
    * stopped being `backfilling`, or a projection that reached `ready`.
    */
   v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
+  v.object({ kind: v.literal("googleGmailBackfill"), runId: v.id("googleSyncRuns") }),
+  /**
+   * Advance one connected Google account from its own cursor. Scheduled by
+   * `googleSync.sweepDueGoogleSyncs` and by nothing else — there is no public
+   * action that reaches this variant, and no argument on it a caller could use
+   * to name a context: the workspace comes from the connection row.
+   */
+  v.object({ kind: v.literal("googleForwardSync"), connectionId: v.id("googleConnections") }),
   v.object({
     kind: v.literal("write"),
     path: v.string(),
     text: v.string(),
     expectedEtag: v.optional(v.string()),
   }),
+  v.object({
+    kind: v.literal("importVault"),
+    files: v.array(v.object({
+      path: v.string(),
+      bytes: v.bytes(),
+      contentType: v.string(),
+    })),
+  }),
+  v.object({ kind: v.literal("clearVault"), countOnly: v.boolean() }),
+  v.object({ kind: v.literal("ensurePrivacy") }),
   v.object({
     kind: v.literal("removeEncryption"),
     path: v.string(),
@@ -511,7 +1190,7 @@ const operationValidator = v.union(
    *
    * Deliberately not `write`/`read` with a flag. Those carry a path and consult
    * `privacy.md`; these carry a *leaf* and must not, because an object under
-   * `.images/` has no visibility of its own — it borrows the visibility of
+   * `.context/assets/images/` has no visibility of its own — it borrows the visibility of
    * whatever note references it. Sharing the variant would mean sharing the
    * question, and the manifest has no answer for a key it does not describe.
    */
@@ -522,10 +1201,113 @@ const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
-  v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
+  v.object({ kind: v.literal("pluginInventory") }),
+  v.object({ kind: v.literal("pluginManagedList") }),
+  v.object({ kind: v.literal("contextPlugins") }),
+  v.object({
+    kind: v.literal("contextPluginSet"),
+    pluginId: v.string(),
+    enabled: v.boolean(),
+  }),
+  v.object({
+    kind: v.literal("pluginManagedInstall"),
+    pluginId: v.string(),
+    version: v.string(),
+    repository: v.string(),
+    manifestJson: v.string(),
+    mainJs: v.string(),
+    stylesCss: v.union(v.string(), v.null()),
+    lifecycleGeneration: v.number(),
+  }),
+  v.object({
+    kind: v.literal("pluginManagedUninstall"),
+    pluginId: v.string(),
+    expectedVersion: v.string(),
+    lifecycleGeneration: v.number(),
+  }),
+  v.object({
+    kind: v.literal("pluginManagedFence"),
+    pluginId: v.string(),
+    lifecycleGeneration: v.number(),
+  }),
+  v.object({
+    kind: v.literal("pluginBundleRead"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+  }),
+  v.object({
+    kind: v.literal("pluginRename"),
+    from: v.string(),
+    to: v.string(),
+    expectedEtag: v.string(),
+  }),
+  v.object({ kind: v.literal("pluginDelete"), path: v.string(), expectedEtag: v.string() }),
+  v.object({ kind: v.literal("pluginSettingsRead"), pluginId: v.string() }),
+  v.object({
+    kind: v.literal("pluginSettingsWrite"),
+    pluginId: v.string(),
+    json: v.string(),
+    expectedEtag: v.union(v.string(), v.null()),
+  }),
+  /*
+    `expectedEtag` on these three is the version a queued rename, move or
+    delete was asked about — see `movePath`. Optional, and absent is the online
+    press it always was.
+  */
+  v.object({
+    kind: v.literal("move"),
+    from: v.string(),
+    to: v.string(),
+    expectedEtag: v.optional(v.string()),
+  }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
+  /*
+    THE THREE HALVES OF A MOVE INTO ANOTHER CONTEXT.
+
+    Three operations rather than one because they run against three different
+    buckets' worth of credential — export and delete against the source, import
+    against the destination — and `runFileOperation` opens exactly one. See the
+    section header in `lib/fileOps.ts`: keeping them apart is what stops a
+    cross-context move from needing a second credential barrier that holds two
+    customers' plaintext secrets at once.
+  */
+  /**
+   * Every folder this caller can see, for the "move into another context"
+   * picker. Read-only, `member` and above, and its own operation rather than a
+   * shape of `list` because it walks the whole bucket rather than one folder.
+   */
+  v.object({ kind: v.literal("folderPaths") }),
+  v.object({
+    kind: v.literal("contextMoveExport"),
+    from: v.string(),
+    to: v.string(),
+    skip: v.array(v.string()),
+  }),
+  v.object({
+    kind: v.literal("contextMoveImport"),
+    /** Set on the first batch only — see `importContextMoveBatch`. */
+    root: v.optional(v.string()),
+    objects: v.array(v.object({
+      source: v.string(),
+      destination: v.string(),
+      bytes: v.bytes(),
+      etag: v.string(),
+      sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+    })),
+  }),
+  v.object({
+    kind: v.literal("contextMoveDelete"),
+    sources: v.array(v.object({ path: v.string(), etag: v.string() })),
+  }),
+  v.object({
+    kind: v.literal("contextMoveFinish"),
+    from: v.string(),
+    survivors: v.array(v.string()),
+  }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
-  v.object({ kind: v.literal("archive"), path: v.string() }),
+  v.object({ kind: v.literal("archive"), path: v.string(), expectedEtag: v.optional(v.string()) }),
+  v.object({ kind: v.literal("trash"), path: v.string(), expectedEtag: v.optional(v.string()) }),
+  v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
   v.object({
     kind: v.literal("delete"),
     path: v.string(),
@@ -537,16 +1319,85 @@ const operationValidator = v.union(
     visibility: visibilityValidator,
   }),
   v.object({
+    kind: v.literal("setNoteGroup"),
+    path: v.string(),
+    /**
+     * The group's full name WITHOUT the `@`, already proven to belong to this
+     * workspace by `setNoteGroup` before the operation is dispatched. A plain
+     * string here rather than a group id: this is the value that lands in
+     * `privacy.md`, and the manifest holds names, not ids.
+     */
+    group: v.string(),
+  }),
+  v.object({
+    kind: v.literal("setFolderGroup"),
+    path: v.string(),
+    /**
+     * The name WITHOUT the `@`, already proven to belong to this workspace by
+     * `setFolderGroup` before the operation is dispatched. A plain string
+     * rather than an id for the same reason its note-shaped sibling is one:
+     * this is the value that lands in `privacy.md`, and the manifest holds
+     * names, not ids — which is what lets it stay legible on export and mean
+     * nothing without the control plane.
+     */
+    group: v.string(),
+  }),
+  v.object({
     kind: v.literal("setFolderVisibility"),
     path: v.string(),
     visibility: visibilityValidator,
   }),
+  v.object({
+    /**
+     * One markdown form action. See `lib/formOps.ts` for why this is a file
+     * operation rather than a second place that opens a bucket credential.
+     */
+    kind: v.literal("form"),
+    path: v.string(),
+    formId: v.optional(v.string()),
+    actorName: v.string(),
+    actorRole: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
+    action: v.union(
+      v.object({ kind: v.literal("submit"), values: v.array(formAnswerValidator) }),
+      v.object({
+        kind: v.literal("update"),
+        responseId: v.string(),
+        values: v.array(formAnswerValidator),
+      }),
+      v.object({ kind: v.literal("retract"), responseId: v.string() }),
+      v.object({
+        kind: v.literal("vote"),
+        responseId: v.string(),
+        vote: v.union(v.literal("up"), v.literal("none")),
+      }),
+    ),
+  }),
   v.object({ kind: v.literal("resetPrivacy") }),
+  v.object({
+    kind: v.literal("migrateStorage"),
+    cleanup: v.boolean(),
+  }),
+  /**
+   * Ask the bucket where the storage-layout migration got to, and run nothing.
+   *
+   * The counterpart to `migrateStorage`, and the reason it had to exist: until
+   * it did, the only way to learn whether a bucket had been migrated was to
+   * migrate it, so every context migrated before the control plane started
+   * recording outcomes looked exactly like one that had never run it. See
+   * `lib/storageLayout.ts`.
+   */
+  v.object({ kind: v.literal("readStorageLayout") }),
+  /** `activity.md`, filtered to what this caller may see. See `activity.ts`. */
+  v.object({ kind: v.literal("readActivity") }),
 );
 
 type FileOperation =
+  | { kind: "readActivity" }
   | { kind: "list"; path: string }
-  | { kind: "read"; path: string }
+  | { kind: "read"; path: string; forward?: "never" | "onMiss" }
+  | { kind: "forward"; paths: string[] }
+  | { kind: "manifest"; cursor?: string }
+  | { kind: "readMany"; paths: string[] }
   | {
       kind: "search";
       query: string;
@@ -558,6 +1409,12 @@ type FileOperation =
   | { kind: "maintainIndex"; passes?: number }
   | { kind: "projectIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
+  | {
+      kind: "importVault";
+      files: Array<{ path: string; bytes: ArrayBuffer; contentType: string }>;
+    }
+  | { kind: "clearVault"; countOnly: boolean }
+  | { kind: "ensurePrivacy" }
   /**
    * Replace an encrypted note's content with plaintext. A separate operation
    * from `write` rather than one more of its shapes — `writeFile` never
@@ -566,20 +1423,114 @@ type FileOperation =
    */
   | { kind: "removeEncryption"; path: string; text: string; expectedEtag?: string }
   | { kind: "createFolder"; path: string }
-  | { kind: "move"; from: string; to: string }
+  | { kind: "move"; from: string; to: string; expectedEtag?: string }
   | { kind: "copy"; from: string; to: string }
+  | { kind: "folderPaths" }
+  | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
+  | { kind: "contextMoveImport"; objects: ContextMoveObject[]; root?: string }
+  | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
+  | { kind: "contextMoveFinish"; from: string; survivors: string[] }
   | { kind: "duplicate"; path: string }
-  | { kind: "archive"; path: string }
+  | { kind: "archive"; path: string; expectedEtag?: string }
+  | { kind: "trash"; path: string; expectedEtag?: string }
+  | { kind: "restoreTrash"; from: string; to: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
+  | { kind: "setNoteGroup"; path: string; group: string }
+  | { kind: "setFolderGroup"; path: string; group: string }
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
-  | { kind: "resetPrivacy" };
+  | { kind: "pluginInventory" }
+  | { kind: "pluginManagedList" }
+  | { kind: "contextPlugins" }
+  | { kind: "contextPluginSet"; pluginId: string; enabled: boolean }
+  | {
+      kind: "pluginManagedInstall";
+      pluginId: string;
+      version: string;
+      repository: string;
+      manifestJson: string;
+      mainJs: string;
+      stylesCss: string | null;
+      lifecycleGeneration: number;
+    }
+  | {
+      kind: "pluginManagedUninstall";
+      pluginId: string;
+      expectedVersion: string;
+      lifecycleGeneration: number;
+    }
+  | { kind: "pluginManagedFence"; pluginId: string; lifecycleGeneration: number }
+  | { kind: "pluginBundleRead"; pluginId: string; bundleFingerprint: string }
+  | { kind: "pluginRename"; from: string; to: string; expectedEtag: string }
+  | { kind: "pluginDelete"; path: string; expectedEtag: string }
+  | { kind: "pluginSettingsRead"; pluginId: string }
+  | { kind: "pluginSettingsWrite"; pluginId: string; json: string; expectedEtag: string | null }
+  | {
+      kind: "form";
+      path: string;
+      formId?: string;
+      actorName: string;
+      actorRole: WorkspaceRole;
+      action: FormAction;
+    }
+  | { kind: "resetPrivacy" }
+  | { kind: "migrateStorage"; cleanup: boolean }
+  | { kind: "readStorageLayout" };
 
+/**
+ * What a file operation hands back to the console.
+ *
+ * `visibility`, `inherited` and `folderDefault` are `Visibility` rather than
+ * the two literals they used to be: a rule may name a group, and typing these
+ * narrowly meant the control plane silently re-tiered one on the way out —
+ * which is the same class of bug as the gateway writing `"private"` over a
+ * group rule on a move. The console renders the extra case explicitly; see
+ * `features/console/privacy/words.ts`.
+ */
 type OperationResult =
+  | { kind: "activity"; entries: ActivityEntry[] }
+  | ({ kind: "formApplied" } & FormResult)
+  | {
+      /**
+       * What the bucket's own migration state says, having run nothing.
+       *
+       * `observed` is whether it answered at all; `state` is what it said, and
+       * `null` means it genuinely has never run this. The two are separate
+       * because collapsing them records a false absence — which is exactly the
+       * nag this operation exists to end.
+       */
+      kind: "storageLayoutRead";
+      observed: boolean;
+      state: StorageLayoutState | null;
+    }
+  | {
+      kind: "storageMigrated";
+      state: "copying" | "copied" | "cleaning" | "conflict" | "unsupported" | "complete";
+      objectsCopied: number;
+      objectsVerified: number;
+      objectsDeleted: number;
+      conflicts: number;
+      error?: string;
+    }
   | ({ kind: "searchResults" } & SearchResults)
+  | ({ kind: "pluginInventory" } & PluginInventory)
+  | ({ kind: "pluginManagedInstalls" } & ManagedInstalls)
+  | { kind: "contextPlugins"; plugins: ContextPluginRow[]; settingsError: string | null }
+  | { kind: "pluginSettings"; json: string; etag: string | null }
+  | { kind: "pluginManaged"; pluginId: string; version: string }
+  | {
+      kind: "pluginBundle";
+      pluginId: string;
+      version: string;
+      bundleFingerprint: string;
+      manifestJson: string;
+      mainJs: string;
+      stylesCss: string | null;
+    }
   | { kind: "notePaths"; paths: string[] | null }
+  | { kind: "forwarded"; paths: string[] }
   | {
       kind: "indexMaintained";
       pending: number;
@@ -590,15 +1541,39 @@ type OperationResult =
     }
   | ({ kind: "indexProjected" } & Omit<ProjectionPass, "failure"> & { failure?: string })
   | {
+      kind: "googleSyncRun";
+      runId: Id<"googleSyncRuns">;
+      status: "running" | "complete" | "failed";
+      totalUnits: number;
+      completedUnits: number;
+      itemsFound: number;
+      daysWithMail: number;
+      bytesWritten: number;
+      continue: boolean;
+    }
+  | {
+      kind: "googleForwardSync";
+      connectionId: Id<"googleConnections">;
+      status: "synced" | "skipped" | "failed";
+      daysTouched: number;
+      bytesWritten: number;
+      cursorAdvanced: boolean;
+      gapDetected: boolean;
+      truncated: boolean;
+      errorCode?: string;
+    }
+  | { kind: "vaultImported"; created: string[]; skipped: string[]; bytesCreated: number }
+  | { kind: "vaultCleared"; mode: "counted" | "deleted"; objects: number; complete: boolean }
+  | {
       kind: "listing";
       path: string;
-      folderDefault: "private" | "team";
+      folderDefault: Visibility;
       entries: Array<{
         kind: "file" | "folder";
         path: string;
         name: string;
-        visibility: "private" | "team";
-        inherited: "private" | "team";
+        visibility: Visibility;
+        inherited: Visibility;
         exception: boolean;
         readOnly: boolean;
         size?: number;
@@ -612,26 +1587,52 @@ type OperationResult =
       path: string;
       text: string;
       etag: string;
-      visibility: "private" | "team";
-      inherited: "private" | "team";
+      visibility: Visibility;
+      inherited: Visibility;
       exception: boolean;
       readOnly: boolean;
       /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
       encrypted: boolean;
     }
+  | ({ kind: "manifest" } & SyncManifest)
+  | {
+      kind: "notes";
+      results: Array<
+        | { path: string; outcome: "read"; note: { kind: "file" } & FileContents }
+        | { path: string; outcome: "error"; code: string; message: string }
+        | { path: string; outcome: "deferred" }
+      >;
+    }
   | {
       kind: "written";
       path: string;
       etag: string;
+      /** What was stored, in bytes. See `WriteResult` — it is for `activity.md`. */
+      bytes: number;
       conflictCheck: "conditional" | "read-compare";
+      /**
+       * Response files this write created for form blocks on the note, and
+       * forms whose `responses:` points somewhere unusable.
+       *
+       * Reported to the author rather than kept quiet, for the reason
+       * `ensureFormResponseFiles` gives: a `responses:` aimed at an existing
+       * note is a form that will never collect anything, and the only person
+       * who can fix it is the one who just saved the block.
+       */
+      forms: FormSeedResult;
     }
-  | { kind: "moved"; from: string; to: string; paths: string[] }
+  | { kind: "moved"; from: string; to: string; paths: string[]; etag?: string }
+  | { kind: "folderPaths"; folders: string[]; truncated: boolean }
+  | ({ kind: "contextMoveExported" } & ContextMoveExport)
+  | ({ kind: "contextMoveLanded" } & ContextMoveImport)
+  | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
+  | { kind: "contextMoveFinished" }
   | { kind: "deleted"; paths: string[] }
   | {
       kind: "visibility";
       path: string;
-      visibility: "private" | "team";
-      inherited: "private" | "team";
+      visibility: Visibility;
+      inherited: Visibility;
       exception: boolean;
     }
   | { kind: "folderCreated"; path: string; readme: string }
@@ -644,6 +1645,115 @@ type OperationResult =
     }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer };
+
+/** Product-owned shadow settings; `.obsidian/` remains read-only. */
+/**
+ * The gateway's resolved built-ins, flattened onto the wire shape.
+ *
+ * One function for both operations, so a read and a write cannot come back
+ * describing the same context differently — the switch the console draws after
+ * saving is the same shape it drew before.
+ */
+/**
+ * Refuse an operation whose Context plugin is switched off.
+ *
+ * One read of one small object, on the write paths only — the console's reads
+ * are never gated, for the reason on `readImage`: a switch removes a capability
+ * and must never start hiding content that is already there.
+ *
+ * The refusal names the plugin and where to undo it, like the gateway's, because
+ * "that could not be saved" for a setting the reader themself chose is the
+ * refusal with no next step that `report.js` rules out.
+ */
+async function requireContextPlugin(
+  store: FileStore,
+  pluginId: string,
+  pluginName: string,
+): Promise<void> {
+  const resolved = await resolveContextPlugins(store);
+  const entry = resolved.plugins.find((plugin: { manifest: { id: string } }) =>
+    plugin.manifest.id === pluginId,
+  );
+  if (entry && !entry.enabled) {
+    throw new FileOpError(
+      "PLUGIN_OFF",
+      `${pluginName} is turned off in this context. An owner can turn it back on under Settings → Plugins.`,
+    );
+  }
+}
+
+function contextPluginsResult(
+  resolved: {
+    plugins: Array<{ manifest: Record<string, any>; enabled: boolean }>;
+    error: string | null;
+  },
+): Extract<OperationResult, { kind: "contextPlugins" }> {
+  return {
+    kind: "contextPlugins",
+    plugins: resolved.plugins.map(({ manifest, enabled }) => ({
+      id: String(manifest.id),
+      name: String(manifest.name),
+      description: String(manifest.description),
+      version: String(manifest.version),
+      author: String(manifest.author),
+      enabled,
+      defaultEnabled: manifest.context?.defaultEnabled !== false,
+      tools: [...(manifest.context?.tools ?? [])].map(String),
+      surfaces: [...(manifest.context?.surfaces ?? [])].map(String),
+      offMeans: String(manifest.context?.offMeans ?? ""),
+    })),
+    settingsError: resolved.error ?? null,
+  };
+}
+
+function pluginSettingsKey(pluginId: string): string {
+  if (
+    pluginId.length === 0 ||
+    pluginId.length > 300 ||
+    /[\u0000-\u001f\u007f]/.test(pluginId)
+  ) {
+    throw new FileOpError("PATH_INVALID", "That plugin id is not valid.");
+  }
+  return `.context/plugins/${encodeURIComponent(pluginId)}/data.json`;
+}
+
+function managedPluginSegment(value: string, label: string): string {
+  if (value.length === 0 || value.length > 300 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new FileOpError("PATH_INVALID", `That plugin ${label} is not valid.`);
+  }
+  return encodeURIComponent(value);
+}
+
+function managedPluginRoot(pluginId: string): string {
+  return `.context/plugins/${managedPluginSegment(pluginId, "id")}`;
+}
+
+function managedPointerGeneration(pointer: Record<string, unknown>): number {
+  const generation = pointer.lifecycleGeneration;
+  return Number.isSafeInteger(generation) && (generation as number) >= 0
+    ? generation as number
+    : 0;
+}
+
+async function putImmutablePluginObject(store: FileStore, key: string, text: string): Promise<void> {
+  const existing = await store.get(key);
+  if (existing) {
+    if (await existing.text() !== text) {
+      throw new FileOpError("CONFLICT", "That plugin release already exists with different bytes.");
+    }
+    return;
+  }
+  if (store.capabilities?.conditionalCreate !== true) {
+    throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely install plugins.");
+  }
+  const written = await store.put(key, text, { onlyIf: { absent: true } });
+  if (written === null) {
+    const raced = await store.get(key);
+    if (!raced || await raced.text() !== text) {
+      throw new FileOpError("CONFLICT", "That plugin release changed during installation.");
+    }
+  }
+}
 
 /* -------------------------------------------------------------------------- */
 /*                               authorization                                */
@@ -664,6 +1774,35 @@ export function scopeForRole(role: WorkspaceRole): Scope {
  * it from the session — the same arrangement `storage.applyBinding` uses, and
  * safe for the same reason: an internal function is unreachable from any
  * client, so there is nobody who could pass a forged one.
+ *
+ * ## Where the pinned context gets in, and why it is only here
+ *
+ * `@context-lc` is readable by every account without a membership row
+ * (`lib/pinnedContext.ts`). This function is the one door into the bucket for
+ * the console, so it is the one place that needs to know — and the whole of the
+ * grant is the `minimum === "member"` branch below.
+ *
+ * **The `minimum` is what makes this safe, and it is worth being explicit about
+ * why.** Every caller states the least role its operation needs, and the ones
+ * that ask for `member` are exactly the reads: `listFiles`, `readNote`,
+ * `syncManifest`, `readNotes`, `searchContext`, `folderPaths`, `notePaths`,
+ * and the per-context leg of `searchContexts`.
+ * Everything that changes a byte asks for `editor` or `owner` and therefore
+ * goes to `requireWorkspaceRole`, which knows nothing about the pin and throws
+ * `WORKSPACE_NOT_FOUND` for somebody with no row — so a pinned reader is
+ * refused a write here by the same code that refuses a stranger, rather than by
+ * a second check that could be forgotten.
+ *
+ * The scope is `team`, from `scopeForRole("member")` like any other member, so
+ * the pin cannot surface a note held private in that workspace.
+ *
+ * **What this does not open.** `requireWorkspaceAccess` itself is untouched, so
+ * the member list, audit, billing, the storage binding, grants, shares, groups
+ * and invitations all still refuse a pinned reader. Blended search is untouched
+ * too: `searchContexts` only ever authorizes contexts `searchableContextsFor`
+ * already returned, and that is driven off real memberships, so the pinned
+ * context is not swept into everybody's cross-context search — which would have
+ * pointed every account's search at one bucket.
  */
 export const authorizeFileAccess = internalQuery({
   args: {
@@ -674,8 +1813,55 @@ export const authorizeFileAccess = internalQuery({
   returns: v.object({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
     scope: v.union(v.literal("private"), v.literal("team")),
+    /**
+     * The `@name` rules this caller reaches, from live membership.
+     *
+     * Beside `scope` rather than folded into it, because a name is not a tier:
+     * `Scope` stays two-valued in both engines and in every grant, and a name
+     * widens what a `team` caller may reach one rule at a time. See
+     * `lib/clearance.ts`.
+     */
+    grantedNames: v.array(v.string()),
+    /**
+     * The caller's own `@name` — their personal workspace's slug — for the
+     * line `activity.md` writes about what they did.
+     *
+     * Display text and nothing else: every authorization decision above reads
+     * the membership row. `null` for an account with no personal context,
+     * which is not a state the product produces but is one a self-hosted
+     * deployment can, and a line reading "Someone revised" is better than one
+     * naming an id.
+     */
+    actorName: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, args) => {
+    if (args.minimum === "member") {
+      // Tried before the membership read rather than after a caught failure:
+      // `requireWorkspaceAccess` throws the same error for "not a member" and
+      // "no such workspace", so catching it would mean guessing which one this
+      // was. Asking the narrower question first needs no guess.
+      if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+        /*
+          A PINNED CONTEXT REACHES NO NAMED RULE, AND THAT IS DELIBERATE.
+
+          The pin is *reach* rather than membership — its own decision says so
+          — and `grantedNamesFor` answers from `workspaceMembers`, which a
+          pinned reader has no row in. So they read at `team` and a folder
+          named to a group is absent, which is the same answer they get for a
+          private one. Widening this would mean deciding that a pin confers
+          group membership, which nobody has decided and which no audit row
+          would record.
+        */
+        return {
+          role: PINNED_CONTEXT_ROLE,
+          scope: scopeForRole(PINNED_CONTEXT_ROLE),
+          grantedNames: [],
+          // A pinned reader is read-only, so there is nothing for a name to
+          // appear beside. See `personalNameFor`.
+          actorName: null,
+        };
+      }
+    }
     const access =
       args.minimum === "member"
         ? await requireWorkspaceAccess(ctx, args.workspaceId, args.actorUserId)
@@ -688,9 +1874,51 @@ export const authorizeFileAccess = internalQuery({
     return {
       role: access.membership.role,
       scope: scopeForRole(access.membership.role),
+      grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
+      /*
+        Resolved only for a caller who can change something.
+
+        This query is on the path of every file read, and a name is used by
+        exactly one thing: the line `activity.md` writes about a change. The
+        five operations that record one all ask for `editor` or `owner`
+        (`writeNote`, `moveEntry`, `archiveEntry`, and the two visibility
+        actions), and every read asks for `member` — so the tier is already
+        the question "could this call write", and a second flag saying the
+        same thing would be a second thing to keep in step.
+      */
+      actorName:
+        args.minimum === "member" ? null : await personalNameFor(ctx, args.actorUserId),
     };
   },
 });
+
+/**
+ * A person's name across every context: their personal workspace's slug.
+ *
+ * Walked rather than indexed, and bounded by how many contexts somebody owns
+ * — one for almost everybody, and the first row is theirs. Called only from
+ * the write tiers above, never on a read.
+ *
+ * The same answer the gateway's `personalNameFor` gives an AI client, computed
+ * from the same two facts — a workspace they own, of kind `personal` — so one
+ * person reads as one name whichever hand made the change. Two different names
+ * for the same person in one list is the bug this shape exists to prevent.
+ */
+async function personalNameFor(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<string | null> {
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const membership of memberships) {
+    if (membership.role !== "owner") continue;
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (workspace?.kind === "personal" && workspace.slug) return `@${workspace.slug}`;
+  }
+  return null;
+}
 
 /* -------------------------------------------------------------------------- */
 /*                            the credential barrier                          */
@@ -712,6 +1940,23 @@ export const runFileOperation = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     scope: v.union(v.literal("private"), v.literal("team")),
+    /**
+     * The `@name` rules this caller answers to, resolved by
+     * `authorizeFileAccess` from live membership.
+     *
+     * Optional because a scheduled pass — a projection link, an index sweep —
+     * re-enters this action with no caller at all, and the honest clearance
+     * for nobody is no names. Every such pass runs `scope`-blind or at the
+     * owner's `private`, so none of them loses anything by it.
+     */
+    grantedNames: v.optional(v.array(v.string())),
+    /**
+     * Who to name in `activity.md`, from `authorizeFileAccess`.
+     *
+     * Optional because a scheduled pass has no caller, and those record
+     * nothing anyway — see `executeOperation`'s `actor` parameter.
+     */
+    actorName: v.optional(v.union(v.string(), v.null())),
     operation: operationValidator,
   },
   returns: operationResultValidator,
@@ -845,11 +2090,89 @@ export const runFileOperation = internalAction({
       }
     }
 
-    const credential: GatewayCredential | null = await ctx.runAction(
-      internal.functions.storage.getBindingForGateway,
-      { workspaceId: args.workspaceId },
-    );
+    if (args.operation.kind === "googleGmailBackfill") {
+      return await runGoogleGmailBackfill(
+        ctx,
+        args.workspaceId,
+        args.operation.runId,
+      );
+    }
+
+    /*
+     * A FORWARD SYNC PASS ASKS THE ROW BEFORE IT ASKS FOR A CREDENTIAL.
+     *
+     * Same ordering, same reason, as the projection pass above. The sweep that
+     * scheduled this holds no decision and ran minutes ago; in between, the
+     * account can have been disconnected, its product turned off, or its grant
+     * refused by Google. Asking first means none of those decrypt a customer's
+     * storage secret on the way to doing nothing.
+     *
+     * A `null` job means there is no connection row to report against at all,
+     * so there is also no claim to release.
+     */
+    let forwardSyncJob: ForwardSyncJob = null;
+    if (args.operation.kind === "googleForwardSync") {
+      forwardSyncJob = await ctx.runQuery(
+        internal.functions.googleSync.googleForwardSyncJob,
+        { workspaceId: args.workspaceId, connectionId: args.operation.connectionId },
+      );
+      if (forwardSyncJob === null) {
+        /*
+         * No row this workspace owns — it was deleted, or the pair of
+         * arguments does not agree (see `googleForwardSyncJob`). Nothing is
+         * written, and in particular the *other* context's row is not: a
+         * mismatched pair that released somebody else's claim and pushed their
+         * next sync out would be a cross-tenant write, small but real.
+         */
+        return {
+          kind: "googleForwardSync",
+          connectionId: args.operation.connectionId,
+          status: "skipped",
+          daysTouched: 0,
+          bytesWritten: 0,
+          cursorAdvanced: false,
+          gapDetected: false,
+          truncated: false,
+        };
+      }
+      if (forwardSyncJob.kind === "skip") {
+        return await releaseForwardSync(
+          ctx,
+          args.operation.connectionId,
+          forwardSyncJob.reason,
+        );
+      }
+    }
+
+    let credential: GatewayCredential | null;
+    try {
+      credential = await ctx.runAction(internal.functions.storage.getBindingForGateway, {
+        workspaceId: args.workspaceId,
+      });
+    } catch {
+      if (args.operation.kind === "googleForwardSync") {
+        return await failForwardSync(
+          ctx,
+          args.operation.connectionId,
+          "STORAGE_UNUSABLE",
+          "This context's bucket configuration could not be used. Reconnect storage.",
+        );
+      }
+      throw new ConvexError({
+        code: "STORAGE_UNUSABLE",
+        message:
+          "This context's bucket configuration could not be used. Reconnect storage.",
+      });
+    }
     if (credential === null) {
+      if (args.operation.kind === "googleForwardSync") {
+        return await failForwardSync(
+          ctx,
+          args.operation.connectionId,
+          "STORAGE_NOT_CONNECTED",
+          "This context has no bucket connected yet. Connect storage before syncing Google.",
+        );
+      }
       throw new ConvexError({
         code: "STORAGE_NOT_CONNECTED",
         message:
@@ -891,6 +2214,14 @@ export const runFileOperation = internalAction({
       // The constructor's message can quote the endpoint the customer typed.
       // Nothing it says helps here, and re-throwing it would put provider text
       // in front of the user with no way to know what else is in it.
+      if (args.operation.kind === "googleForwardSync") {
+        return await failForwardSync(
+          ctx,
+          args.operation.connectionId,
+          "STORAGE_UNUSABLE",
+          "This context's bucket configuration could not be used. Reconnect storage.",
+        );
+      }
       throw new ConvexError({
         code: "STORAGE_UNUSABLE",
         message:
@@ -898,13 +2229,42 @@ export const runFileOperation = internalAction({
       });
     }
 
+    if (args.operation.kind === "googleForwardSync" && forwardSyncJob?.kind === "run") {
+      return await runGoogleForwardSync(ctx, store, forwardSyncJob);
+    }
+
+    let wroteActivity: { teamVisible: boolean } | null = null;
     const result = await executeOperation(
       store,
-      args.scope,
+      clearanceOf(args.scope, args.grantedNames ?? []),
       args.operation as FileOperation,
       Date.now(),
       projection,
+      // A person acting in the console, for the activity file. `client` is
+      // null and stays null: the console is their own hand, and "@seyi's
+      // Context" would be the product claiming to be a third party.
+      args.actorName === undefined || args.actorName === null
+        ? null
+        : { name: args.actorName, client: null },
+      (landed) => {
+        wroteActivity = landed;
+      },
     );
+    /*
+      Stamped after the operation, once, and never inside it: the store is the
+      customer's bucket and this is a row in ours, so a failure here must not
+      look like a failed save. `markWorkspaceActivity` is monotonic, so a
+      late-landing stamp cannot walk the dot backwards.
+    */
+    if (wroteActivity !== null) {
+      await ctx
+        .runMutation(internal.functions.files.markWorkspaceActivity, {
+          workspaceId: args.workspaceId,
+          at: Date.now(),
+          teamVisible: (wroteActivity as { teamVisible: boolean }).teamVisible,
+        })
+        .catch(() => {});
+    }
 
     /*
      * WHAT A PROJECTION PASS LEARNED, WRITTEN WHERE A PERSON CAN SEE IT.
@@ -984,7 +2344,128 @@ export const runFileOperation = internalAction({
         });
       }
     }
+    if (args.operation.kind === "migrateStorage" && result.kind === "storageMigrated") {
+      /*
+        WHAT THE BUCKET SAID, WRITTEN DOWN WHERE A QUERY CAN REACH IT.
+
+        The bucket stays authoritative — `migrateStorageLayout` keeps its own
+        state under `.context/` and short-circuits on `complete`. This is the
+        copy the console reads, and it is recorded on **every** pass rather
+        than only at the end, so an owner watching a long migration sees
+        `copying` rather than nothing at all.
+
+        Before this, nothing outside the bucket knew the migration had ever
+        run. The console's offer to run it was therefore answered by a flag on
+        one device, and came back on the next browser and the next phone for a
+        bucket already migrated — which is the nag this is here to end.
+      */
+      await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+        workspaceId: args.workspaceId,
+        state: result.state,
+      });
+      const continuing =
+        (args.operation.cleanup && result.state === "cleaning") ||
+        (!args.operation.cleanup && result.state === "copying");
+      if (continuing) {
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: args.workspaceId,
+          scope: "private",
+          operation: {
+            kind: "migrateStorage",
+            cleanup: args.operation.cleanup,
+          },
+        });
+      } else if (!args.operation.cleanup && result.state === "copied") {
+        await ctx.scheduler.runAfter(
+          STORAGE_LAYOUT_ROLLBACK_MS + 5_000,
+          internal.functions.files.runFileOperation,
+          {
+            workspaceId: args.workspaceId,
+            scope: "private",
+            operation: { kind: "migrateStorage", cleanup: true },
+          },
+        );
+      }
+    }
+    if (args.operation.kind === "readStorageLayout" && result.kind === "storageLayoutRead") {
+      /*
+        THE QUESTION NOBODY WAS ASKING.
+
+        `migrateStorage` records what the bucket said, but only a context that
+        ran the migration *after* that recording existed ever had anything
+        recorded. Every context migrated before it kept a `complete` in its own
+        bucket and an empty column here, and the console reads an empty column
+        as "nobody has run this" — so it offered the update again on every
+        device, for ever, to the people who had already run it.
+
+        This is the same write from the other direction: ask, and write down
+        the answer, without running anything. `observed: false` is not an
+        answer — a bucket that would not talk to us teaches us nothing, and
+        recording a timestamp for it would claim otherwise and close the offer
+        on a context that may genuinely still need it.
+      */
+      if (result.observed) {
+        await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+          workspaceId: args.workspaceId,
+          ...(result.state === null ? {} : { state: result.state }),
+        });
+      }
+    }
     return result;
+  },
+});
+
+/**
+ * Refresh the bucket's observed capabilities, then start the resumable copy.
+ *
+ * Kept internal and reached only through the scheduler: verification decrypts
+ * the binding, so its result must never flow back through a public action.
+ */
+export const runStorageLayoutMigration = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+  },
+  returns: storageMigrationResultValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => {
+    const verification = await ctx.runAction(
+      internal.functions.provisioning.verifyStorageBinding,
+      args,
+    );
+    if (
+      !verification.verified ||
+      verification.conditionalCreate !== true ||
+      verification.conditionalWrite !== true
+    ) {
+      /*
+        A refusal is an answer, and it is the one most worth remembering: a
+        bucket that cannot do conflict-safe writes will never run this, so
+        offering it again is offering something that cannot happen. Recorded
+        here rather than in `runFileOperation` because this arm never reaches
+        it — the operation is not attempted at all.
+      */
+      await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+        workspaceId: args.workspaceId,
+        state: "unsupported",
+      });
+      return {
+        kind: "storageMigrated",
+        state: "unsupported",
+        objectsCopied: 0,
+        objectsVerified: 0,
+        objectsDeleted: 0,
+        conflicts: 0,
+        error: "migration requires conflict-safe storage writes",
+      };
+    }
+    return (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: { kind: "migrateStorage", cleanup: false },
+    })) as Extract<OperationResult, { kind: "storageMigrated" }>;
   },
 });
 
@@ -1006,6 +2487,814 @@ function timeoutFetch(
   return globalThis.fetch(input, timeout ? { ...init, signal: timeout } : init);
 }
 
+/* -------------------------------------------------------------------------- */
+/*                    the forward sync pass, one connection                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What `googleSync.googleForwardSyncJob` answered.
+ *
+ * Written out rather than inferred because the inference would run through
+ * `internal.functions.googleSync`, which is the cycle every annotated handler
+ * in this file exists to avoid.
+ */
+type ForwardSyncJob =
+  | null
+  | { kind: "skip"; reason: string }
+  | {
+      kind: "run";
+      connectionId: Id<"googleConnections">;
+      product: "gmail";
+      address: string;
+      mailboxSlug: string;
+      destinationFolder: string;
+      folders: ("inbox" | "sent")[];
+      quotaBytes: number;
+      bytesAlreadyUsed: number;
+      attachmentMode: "metadata-only" | "store";
+      attachmentRetentionDays?: number | "forever";
+      historyId?: string;
+    }
+  | {
+      kind: "run";
+      connectionId: Id<"googleConnections">;
+      product: "calendar";
+      address: string;
+      destinationFolder: string;
+      syncToken?: string;
+      lastFullSyncDate?: string;
+      contributorSourceIds: Id<"googleConnections">[];
+    }
+  | {
+      kind: "run";
+      connectionId: Id<"googleConnections">;
+      product: "chat";
+      address: string;
+      destinationFolder: string;
+      nonceSeed: string;
+      workspaceNonceSeed: string;
+      cursors: Record<string, string>;
+      spaceSettings: Record<string, "included" | "excluded" | "paused">;
+      contributorSourceIds: Id<"googleConnections">[];
+    };
+
+type ForwardSyncResult = Extract<OperationResult, { kind: "googleForwardSync" }>;
+
+/**
+ * Nothing to do, and the claim released.
+ *
+ * A skipped pass must leave `lastSyncAt` alone — a connection that has never
+ * synced and one whose pass was skipped are the same connection, and making
+ * the second look synced is precisely the confusion this whole loop exists to
+ * remove.
+ */
+async function releaseForwardSync(
+  ctx: ActionCtx,
+  connectionId: Id<"googleConnections">,
+  reason: string | undefined,
+): Promise<ForwardSyncResult> {
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId,
+    status: "skipped",
+    errorCode: reason,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId,
+    status: "skipped",
+    daysTouched: 0,
+    bytesWritten: 0,
+    cursorAdvanced: false,
+    gapDetected: false,
+    truncated: false,
+    errorCode: reason,
+  };
+}
+
+/** A pass that could not run, recorded where the owner can read it. */
+async function failForwardSync(
+  ctx: ActionCtx,
+  connectionId: Id<"googleConnections">,
+  errorCode: string,
+  error: string,
+): Promise<ForwardSyncResult> {
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId,
+    status: "failed",
+    errorCode,
+    error,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId,
+    status: "failed",
+    daysTouched: 0,
+    bytesWritten: 0,
+    cursorAdvanced: false,
+    gapDetected: false,
+    truncated: false,
+    errorCode,
+  };
+}
+
+const GMAIL_RATE_LIMIT_REASONS = new Set([
+  "dailyLimitExceeded",
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+]);
+
+class CalendarTimezoneMismatchError extends Error {
+  constructor() {
+    super("Calendar accounts sharing a destination use different timezones");
+    this.name = "CalendarTimezoneMismatchError";
+  }
+}
+
+/**
+ * Turn whatever went wrong into a code and a sentence a person can act on.
+ *
+ * Trimmed from the classifier #388 removed with the historical backfill: the
+ * retry ladder went with it (a forward pass is retried by the sweep on its own
+ * interval, with `SYNC_FAILURE_BACKOFF_MS` as the floor), but the
+ * classification did not, because "Google refused this account" and "Google
+ * was briefly unavailable" are still different sentences to show somebody.
+ */
+function classifyForwardSyncError(error: unknown): { code: string; message: string } {
+  if (error instanceof CalendarTimezoneMismatchError) {
+    return {
+      code: "CALENDAR_TIMEZONE_MISMATCH",
+      message: "Calendar accounts sharing this folder use different timezones. Choose separate folders for them.",
+    };
+  }
+  if (error instanceof CalendarContributionConflictError) {
+    return {
+      code: "CALENDAR_SYNC_CONFLICT",
+      message: "Calendar changed during this pass. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof CalendarPaginationError) {
+    return {
+      code: "CALENDAR_PAGINATION_STALLED",
+      message: "Google Calendar returned a repeating page. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof CalendarApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused access to Calendar. Reconnect the account and approve Calendar access.",
+      };
+    }
+    if (error.status === 429) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited Calendar. The next scheduled pass will try again.",
+      };
+    }
+    return {
+      code: "GOOGLE_UNAVAILABLE",
+      message: "Google Calendar did not answer reliably. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof ChatContributionConflictError) {
+    return {
+      code: "CHAT_SYNC_CONFLICT",
+      message: "Google Chat changed during this pass. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof ChatPaginationError) {
+    return {
+      code: "CHAT_PAGINATION_STALLED",
+      message: "Google Chat returned a repeating page. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof ChatApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused access to Chat. Reconnect the account and approve Chat access.",
+      };
+    }
+    if (error.status === 429) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited Chat. The next scheduled pass will try again.",
+      };
+    }
+    return {
+      code: "GOOGLE_UNAVAILABLE",
+      message: "Google Chat did not answer reliably. The next scheduled pass will try again.",
+    };
+  }
+  if (error instanceof GmailApiError) {
+    const reason = typeof error.reason === "string" ? error.reason : undefined;
+    const googleStatus = typeof error.googleStatus === "string" ? error.googleStatus : undefined;
+    if (
+      error.status === 429 ||
+      (error.status === 403 &&
+        (GMAIL_RATE_LIMIT_REASONS.has(reason ?? "") || googleStatus === "RESOURCE_EXHAUSTED"))
+    ) {
+      return {
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited this mailbox. The next scheduled pass will try again.",
+      };
+    }
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused access to this mailbox. Reconnect the account and approve Gmail access.",
+      };
+    }
+    if (error.status >= 500) {
+      return {
+        code: "GOOGLE_UNAVAILABLE",
+        message: "Google did not answer reliably. The next scheduled pass will try again.",
+      };
+    }
+    return {
+      code: `GMAIL_HTTP_${error.status}`,
+      message: `Gmail answered with ${error.status}. The next scheduled pass will try again.`,
+    };
+  }
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
+    return {
+      code: "GOOGLE_SYNC_TIMEOUT",
+      message: "Gmail or storage took too long. The next scheduled pass resumes from the same place.",
+    };
+  }
+  return {
+    code: "GOOGLE_SYNC_FAILED",
+    message: "This mailbox did not sync. The next scheduled pass resumes from the same place.",
+  };
+}
+
+async function writeSharedCalendarDay(
+  store: FileStore,
+  path: string,
+  text: string | null,
+): Promise<{ wrote: boolean; bytes: number }> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const existing = await store.get(path);
+    const existingText = existing === null ? null : await existing.text();
+
+    if (existingText !== null && !isCalendarDayNote(existingText)) {
+      if (text === null) return { wrote: false, bytes: 0 };
+      throw new Error("Calendar cannot replace a note the owner wrote in its destination folder");
+    }
+    if (text === null) {
+      if (existing === null) return { wrote: false, bytes: 0 };
+      const deleted = await store.delete(path, {
+        onlyIf: { etagMatches: existing.etag },
+      });
+      if (deleted !== null) return { wrote: true, bytes: 0 };
+      continue;
+    }
+    if (existingText === text) return { wrote: false, bytes: 0 };
+    const written = await store.put(path, text, {
+      onlyIf:
+        existing === null
+          ? { absent: true }
+          : { etagMatches: existing.etag },
+    });
+    if (written !== null) {
+      return { wrote: true, bytes: new TextEncoder().encode(text).byteLength };
+    }
+  }
+  throw new CalendarContributionConflictError();
+}
+
+async function runGoogleCalendarForwardSync(
+  ctx: ActionCtx,
+  store: FileStore,
+  job: Extract<ForwardSyncJob, { kind: "run"; product: "calendar" }>,
+  accessToken: string,
+): Promise<ForwardSyncResult> {
+  if (store.capabilities?.conditionalWrite !== true) {
+    throw new Error("Shared Calendar sync requires storage with conditional writes");
+  }
+  const calendarStore = store as unknown as Parameters<typeof persistCalendarContribution>[0]["store"];
+  const previous = await loadCalendarContribution({
+    store: calendarStore,
+    sourceId: job.connectionId,
+  });
+  const now = new Date().toISOString();
+  const provider = await syncCalendarAccount({
+    connection: {
+      workspaceId: "private",
+      account: job.address,
+      calendarId: "primary",
+      timezone: previous?.timezone,
+      destinationFolder: job.destinationFolder,
+      accessToken,
+      syncToken: job.syncToken ?? null,
+      lastFullSyncDate: job.lastFullSyncDate ?? null,
+      eventCache: previous?.eventCache ?? new Map(),
+    },
+    store: calendarStore,
+    fetchImpl: timeoutFetch,
+    now,
+    materialize: false,
+  });
+  if (provider.skipped || !provider.syncToken || !provider.lastFullSyncDate) {
+    throw new Error("Google Calendar did not return a resumable cursor");
+  }
+
+  await persistCalendarContribution({
+    store: calendarStore,
+    sourceId: job.connectionId,
+    contribution: {
+      account: job.address,
+      timezone: provider.timezone,
+      destinationFolder: job.destinationFolder,
+      eventCache: provider.eventCache,
+    },
+  });
+  const contributions = await loadActiveCalendarContributions({
+    store: calendarStore,
+    sourceIds: job.contributorSourceIds,
+  });
+  const timezones = new Set(contributions.map((contribution) => contribution.timezone));
+  if (timezones.size !== 1) throw new CalendarTimezoneMismatchError();
+  const timezone = contributions[0]!.timezone;
+  const merged = mergeEventCaches(
+    contributions.map((contribution) => contribution.eventCache),
+  );
+  const nonceSeed = fnv1a64(
+    [...job.contributorSourceIds].map(String).sort().join("\0"),
+  );
+
+  let daysTouched = 0;
+  let bytesWritten = 0;
+  for (const date of provider.datesTouched) {
+    const events = projectDay(merged, date);
+    const path = calendarDayNotePath(
+      { date },
+      { folder: job.destinationFolder },
+    );
+    const text = events.length
+      ? renderCalendarDay({
+          date,
+          timezone,
+          events,
+          nonce: `calendar:${nonceSeed}:${date}`,
+          now,
+          origin: "calendar-sync",
+        })
+      : null;
+    const written = await writeSharedCalendarDay(store, path, text);
+    if (written.wrote) {
+      daysTouched += 1;
+      bytesWritten += written.bytes;
+    }
+  }
+
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId: job.connectionId,
+    product: "calendar",
+    status: "synced",
+    calendarSyncToken: provider.syncToken,
+    calendarLastFullSyncDate: provider.lastFullSyncDate,
+    daysTouched,
+    bytesWritten,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId: job.connectionId,
+    status: "synced",
+    daysTouched,
+    bytesWritten,
+    cursorAdvanced: provider.syncToken !== job.syncToken,
+    gapDetected: false,
+    truncated: false,
+  };
+}
+
+async function runGoogleChatForwardSync(
+  ctx: ActionCtx,
+  store: FileStore,
+  job: Extract<ForwardSyncJob, { kind: "run"; product: "chat" }>,
+  accessToken: string,
+): Promise<ForwardSyncResult> {
+  if (store.capabilities === undefined) {
+    throw new Error("Google Chat sync requires declared storage capabilities");
+  }
+  // `FileStore` is the deliberately narrow view used by file operations and
+  // omits `StoredObject.arrayBuffer`; every adapter returned by
+  // `storeForBinding` implements the full ContextStore contract that the
+  // shared communications helpers accept. Keep the cast at this one adapter
+  // boundary rather than widening every ordinary file operation.
+  const chatStore = store as unknown as Parameters<typeof writeContactDraft>[0];
+  const result = await syncGoogleChat({
+    listSpaces: ({ pageToken }: { pageToken?: string }) =>
+      listSpacesPage({ fetchImpl: timeoutFetch, accessToken, pageToken }),
+    listMessages: ({
+      spaceName,
+      sinceCreateTime,
+      pageToken,
+    }: {
+      spaceName: string;
+      sinceCreateTime: string;
+      pageToken?: string;
+    }) =>
+      listMessagesPage({
+        fetchImpl: timeoutFetch,
+        accessToken,
+        spaceName,
+        sinceCreateTime,
+        pageToken,
+      }),
+    connection: {
+      account: job.address,
+      nonceSeed: job.nonceSeed,
+      cursors: job.cursors,
+      spaceSettings: job.spaceSettings,
+      destinationFolder: job.destinationFolder,
+    },
+  });
+
+  /*
+   * Commit this account's provider result before reading the shared view.
+   * The manifest-last contribution store means an interrupted pass is never
+   * visible as a complete account slice, and loading every active source
+   * fails closed if a sibling has not completed its first pass yet.
+   */
+  await persistChatContribution({
+    store: chatStore,
+    sourceId: job.connectionId,
+    contribution: result.contribution,
+  });
+  const contributions = await loadActiveChatContributions({
+    store: chatStore,
+    sourceIds: job.contributorSourceIds,
+  });
+  /*
+    Placed against the bucket after rendering: a Chat day this workspace
+    already holds a flat note for keeps it, and only a day never written
+    before is filed under its month. `apps/mcp/src/communications/dayPlacement.js`
+    holds the argument — a day that is regenerated on every pass and changes
+    folders under itself exists twice, under one date.
+  */
+  const notes = await placeDayParts(
+    chatStore,
+    renderSharedGoogleChat({
+      contributions,
+      nonceSeed: job.workspaceNonceSeed,
+    }),
+  );
+
+  let daysTouched = 0;
+  let bytesWritten = 0;
+  for (const part of notes) {
+    const written = await writeDayPart(chatStore, part);
+    if (written.wrote) {
+      daysTouched += 1;
+      bytesWritten += written.bytes;
+    }
+  }
+
+  for (const draft of result.contactDrafts) {
+    const written = await writeContactDraft(chatStore, draft, {
+      remainingQuotaBytes: Number.MAX_SAFE_INTEGER - bytesWritten,
+    });
+    if (written.quotaExceeded) {
+      throw new Error("Google Chat Contact exceeded the bounded sync write budget");
+    }
+    if (written.wrote) bytesWritten += written.bytes;
+  }
+
+  /*
+   * The cursor is the commit record. It moves last, after the shared daily
+   * notes and organic Contacts have all settled, so a failed write makes the
+   * next pass ask Google the same question again instead of losing content.
+   */
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId: job.connectionId,
+    product: "chat",
+    status: "synced",
+    chatCursors: result.cursors,
+    daysTouched,
+    bytesWritten,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId: job.connectionId,
+    status: "synced",
+    daysTouched,
+    bytesWritten,
+    cursorAdvanced: JSON.stringify(result.cursors) !== JSON.stringify(job.cursors),
+    gapDetected: false,
+    truncated: false,
+  };
+}
+
+/**
+ * ONE FORWARD PASS: advance this connection's cursor, write whatever changed.
+ *
+ * Forward-only, per #388 and `docs/decisions/communications.md`. Three shapes:
+ *
+ *  - **No cursor yet.** The connection was bound before a baseline could be
+ *    read, so one is taken now from `users.getProfile` and stored. Nothing is
+ *    fetched: forward-only means the mail from before this moment is not this
+ *    loop's to collect.
+ *  - **A cursor.** `history.list` from it, rebuild every day a changed message
+ *    landed on from Gmail's live state, store the new cursor.
+ *  - **An expired cursor.** Gmail's 404 comes back as `gapDetected` rather
+ *    than an error. The documented recovery was a reconcile over the backfill
+ *    window, which forward-only does not have — so the cursor is re-baselined
+ *    and the gap is recorded on the row as a failure a person can read.
+ *
+ * **The cursor is never advanced past mail that was not written.** A quota
+ * ceiling reached mid-pass, or anything thrown, leaves `historyId` exactly
+ * where it was, so the next pass asks Gmail the same question again. Advancing
+ * it would be the one bug in this file that loses somebody's mail silently.
+ */
+async function runGoogleForwardSync(
+  ctx: ActionCtx,
+  store: FileStore,
+  job: Extract<ForwardSyncJob, { kind: "run" }>,
+): Promise<ForwardSyncResult> {
+  try {
+    /*
+     * Inside the try, deliberately. Minting can *throw* as well as answer
+     * `null` — a deployment with no Google client id configured, an envelope
+     * that will not open — and a throw that escapes this function leaves the
+     * scheduler holding the failure and the row holding its claim, so the
+     * connection goes quiet for fifteen minutes with nothing on it to say why.
+     */
+    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+      connectionId: job.connectionId,
+    });
+    if (minted === null) {
+      // `mintGoogleAccessToken` has already marked the row
+      // `reconnect_required` if Google refused the grant outright; this
+      // records the pass itself.
+      return await failForwardSync(
+        ctx,
+        job.connectionId,
+        "GOOGLE_RECONNECT_REQUIRED",
+        "Google needs to be reconnected before this mailbox can sync.",
+      );
+    }
+
+    if (job.product === "chat") {
+      return await runGoogleChatForwardSync(ctx, store, job, minted.accessToken);
+    }
+    if (job.product === "calendar") {
+      return await runGoogleCalendarForwardSync(ctx, store, job, minted.accessToken);
+    }
+
+    if (job.historyId === undefined) {
+      const historyId = await getProfileHistoryId({
+        fetchImpl: timeoutFetch,
+        accessToken: minted.accessToken,
+      });
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "synced",
+        historyId,
+        daysTouched: 0,
+        bytesWritten: 0,
+        // A cursor, not a sync: this pass read no mail, and the console must
+        // be able to say so rather than showing a mailbox that looks current.
+        baseline: true,
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "synced",
+        daysTouched: 0,
+        bytesWritten: 0,
+        cursorAdvanced: true,
+        gapDetected: false,
+        truncated: false,
+      };
+    }
+
+    const result = await runIncrementalSync({
+      store,
+      fetchImpl: timeoutFetch,
+      accessToken: minted.accessToken,
+      mailboxSlug: job.mailboxSlug,
+      address: job.address,
+      folders: job.folders,
+      startHistoryId: job.historyId,
+      folder: job.destinationFolder,
+      // The same nonce the backfill used, so a day rewritten by either path
+      // keeps its message anchors — see `packages/communications/src/note.js`.
+      nonce: `gmail:${job.connectionId}`,
+      /*
+       * NO `now`, AND THAT IS THE WHOLE POINT OF A LOOP THAT REPEATS.
+       *
+       * `renderDay` defaults `updated` to the latest message's own `sentAt`
+       * precisely so that re-rendering an unchanged day is byte-identical, and
+       * `syncOneDay` forwards whatever `now` a caller passes straight through
+       * to it. The backfill removed by #388 passed a wall clock, which was
+       * survivable for a one-shot import and is not for a pass that runs every
+       * few minutes: every touched day would get a new `updated`, a new write,
+       * and a new etag, forever — churn wearing the costume of sync activity.
+       * Attachment retention is measured against a real wall clock inside
+       * `syncOneDay` regardless, so nothing here loses a clock it needed.
+       */
+      quotaBytes: job.quotaBytes,
+      bytesAlreadyUsed: job.bytesAlreadyUsed,
+      attachmentMode: job.attachmentMode,
+      attachmentRetentionDays: job.attachmentRetentionDays,
+    });
+
+    if (result.gapDetected) {
+      const historyId = await getProfileHistoryId({
+        fetchImpl: timeoutFetch,
+        accessToken: minted.accessToken,
+      });
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "synced",
+        historyId,
+        daysTouched: 0,
+        bytesWritten: 0,
+        gapDetected: true,
+        // Re-baselining reads nothing either, for the same reason.
+        baseline: true,
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "synced",
+        daysTouched: 0,
+        bytesWritten: 0,
+        cursorAdvanced: true,
+        gapDetected: true,
+        truncated: false,
+      };
+    }
+
+    if (result.quotaExceeded) {
+      // Whatever was written stays written and is counted; the cursor does
+      // not move, so the days this pass could not afford are asked for again
+      // once the connection has room.
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        errorCode: "MAIL_QUOTA_EXCEEDED",
+        error: "This connection reached its storage quota before the pass finished.",
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        cursorAdvanced: false,
+        gapDetected: false,
+        truncated: result.truncated === true,
+        errorCode: "MAIL_QUOTA_EXCEEDED",
+      };
+    }
+
+    if (result.truncated === true && result.historyId === undefined) {
+      /*
+       * PAGED, BUT WITH NO SAFE PLACE TO RESUME.
+       *
+       * Gmail may return pages that contain no records for the requested
+       * `messageAdded` history type while still returning a next page token.
+       * If fifty such pages exhaust this pass's bound, there is no history
+       * record id to persist. Marking the row as catching up would leave the
+       * cursor unchanged and make the next sweep repeat the exact same fifty
+       * pages forever. Fail visibly and honor the retry ladder instead.
+       */
+      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
+        error: "Google returned more mailbox history but no safe resume point. The next scheduled pass will try again.",
+      });
+      return {
+        kind: "googleForwardSync",
+        connectionId: job.connectionId,
+        status: "failed",
+        daysTouched: result.daysTouched.length,
+        bytesWritten: result.bytesWritten,
+        cursorAdvanced: false,
+        gapDetected: false,
+        truncated: true,
+        errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
+      };
+    }
+
+    /*
+     * A WALK THAT RAN OUT OF PAGES IS NOT A FINISHED SYNC.
+     *
+     * `history.list` hands back the mailbox's *current* head on every page, so
+     * a truncated walk that stored it would say "caught up" while holding only
+     * the first pages — and everything behind them would be skipped forever,
+     * with no gap signalled and the row reading `active`. `runIncrementalSync`
+     * reports the truncation and offers the last record it actually walked
+     * instead; the cursor moves there, and `catchUp` keeps this connection due
+     * so the next pass drains further rather than waiting out its interval.
+     */
+    const truncated = result.truncated === true;
+    await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId: job.connectionId,
+      status: "synced",
+      historyId: result.historyId,
+      daysTouched: result.daysTouched.length,
+      bytesWritten: result.bytesWritten,
+      catchUp: truncated,
+    });
+    return {
+      kind: "googleForwardSync",
+      connectionId: job.connectionId,
+      status: "synced",
+      daysTouched: result.daysTouched.length,
+      bytesWritten: result.bytesWritten,
+      cursorAdvanced: result.historyId !== undefined,
+      gapDetected: false,
+      truncated,
+    };
+  } catch (error) {
+    // The first account in a multi-account workspace can finish before a
+    // sibling has ever stored its contribution. That is an expected warm-up
+    // state, not an outage: keep this account's cursor in place, release the
+    // claim, and let the sibling's own due pass fill the missing slice.
+    if (
+      error instanceof ChatContributionIncompleteError ||
+      error instanceof CalendarContributionIncompleteError
+    ) {
+      return await releaseForwardSync(
+        ctx,
+        job.connectionId,
+        job.product === "calendar"
+          ? "CALENDAR_WAITING_FOR_ACCOUNT"
+          : "CHAT_WAITING_FOR_ACCOUNT",
+      );
+    }
+    const { code, message } = classifyForwardSyncError(error);
+    // Structured, and carrying no mail: an identifier, a code, and the name of
+    // whatever was thrown.
+    console.log(
+      JSON.stringify({
+        event: "google.forward_sync_failed",
+        connectionId: job.connectionId,
+        product: job.product,
+        errorCode: code,
+        errorName: error instanceof Error ? error.name : typeof error,
+        gmailStatus: error instanceof GmailApiError ? error.status : undefined,
+      }),
+    );
+    return await failForwardSync(ctx, job.connectionId, code, message);
+  }
+}
+
+async function runGoogleGmailBackfill(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  runId: Id<"googleSyncRuns">,
+): Promise<Extract<OperationResult, { kind: "googleSyncRun" }>> {
+  const job = await ctx.runQuery(internal.functions.googleConnect.googleGmailBackfillForRun, {
+    workspaceId,
+    runId,
+  });
+  if (job === null) {
+    return {
+      kind: "googleSyncRun",
+      runId,
+      status: "complete",
+      totalUnits: 0,
+      completedUnits: 0,
+      itemsFound: 0,
+      daysWithMail: 0,
+      bytesWritten: 0,
+      continue: false,
+    };
+  }
+
+  await ctx.runMutation(internal.functions.googleConnect.stopGoogleGmailBackfillRun, {
+    workspaceId,
+    runId,
+    errorCode: "GOOGLE_GMAIL_BACKFILL_DISABLED",
+    message: "Historical Gmail imports are disabled. This account will sync new mail from its current position.",
+  });
+  return {
+    kind: "googleSyncRun",
+    runId,
+    status: "failed",
+    totalUnits: job.totalUnits,
+    completedUnits: job.completedUnits,
+    itemsFound: 0,
+    daysWithMail: 0,
+    bytesWritten: 0,
+    continue: false,
+  };
+}
+
 /**
  * Dispatch, and turn a `FileOpError` into a `ConvexError` the console can
  * branch on.
@@ -1016,7 +3305,12 @@ function timeoutFetch(
  */
 export async function executeOperation(
   store: FileStore,
-  scope: Scope,
+  /**
+   * What this caller is cleared for: their tier, and the `@name` rules they
+   * answer to. One value rather than a `Scope` plus a name set, because a site
+   * that was not updated must not compile — see `lib/clearance.ts`.
+   */
+  clearance: Clearance,
   operation: FileOperation,
   now: number = Date.now(),
   /**
@@ -1030,16 +3324,388 @@ export async function executeOperation(
    * projection whose row said there was nothing to do.
    */
   projection: ProjectionClient | null = null,
+  /**
+   * Who is doing this, for `activity.md`.
+   *
+   * Optional, and absent for every scheduled pass — a projection link, an
+   * index sweep, a sync job. Those write nothing to the activity file anyway:
+   * the actions they perform are not in the substance table, and an entry with
+   * nobody's name on it would be the feed reporting the product to itself.
+   */
+  actor: ActivityActor | null = null,
+  /**
+   * Called when a line actually landed in `activity.md`.
+   *
+   * A callback rather than a field on the result, because every operation's
+   * result shape is a contract with the console and none of them is about
+   * this. The caller uses it to stamp the workspace row, which is what lights
+   * the dot on another context's mark — see `schema.ts`, `activityAt`.
+   *
+   * It is handed the line's tier, because the stamp a non-owner member reads
+   * only moves for a `team` line: `activityAt` alone would tell them the exact
+   * time of a private change the rest of the product refuses them.
+   */
+  onActivity?: (landed: { teamVisible: boolean }) => void,
 ): Promise<OperationResult> {
+  /**
+   * One change, in the activity file, if it is one worth mentioning.
+   *
+   * Awaited rather than fired and forgotten, because a Convex action that
+   * returns with work in flight has no guarantee the work runs — and never
+   * raising, because the footnote must not fail the save. The cost of the
+   * common case is one small `GET`; see `lib/activity.ts`.
+   */
+  const noteActivity = async (
+    action: string,
+    paths: string[],
+    details: Record<string, string | number | boolean | null | undefined> = {},
+  ): Promise<void> => {
+    const landed = await recordActivity(store, { action, paths, details, actor });
+    if (landed !== null) onActivity?.(landed);
+  };
   try {
     switch (operation.kind) {
+      case "pluginInventory": {
+        const inventory = await inventoryPlugins(store) as PluginInventory;
+        return { kind: "pluginInventory", ...inventory };
+      }
+      /*
+        The cheap half, and the one the console may run without being asked.
+
+        `pluginInventory` opens every bundle in `.obsidian/plugins/`, which is
+        why it waits for a press. This reads one small pointer per plugin
+        Context installed and writes nothing, so the screen that manages
+        installs can arrive knowing what is installed — which, until this
+        existed, it did not.
+      */
+      case "pluginManagedList": {
+        const managed = await listManagedInstalls(store) as ManagedInstalls;
+        return { kind: "pluginManagedInstalls", ...managed };
+      }
+      /*
+        The built-in plugins, resolved against this bucket's settings file.
+
+        The catalogue and the resolver are the gateway's — imported here, never
+        reimplemented — for the reason `lib/formOps.ts` gives about the form
+        format: two copies of "which plugins exist and which are on" would let
+        a console and a connected client disagree about the same context, and
+        the disagreement would be invisible until somebody's tool went missing
+        from one of the two.
+      */
+      case "contextPlugins": {
+        return contextPluginsResult(await resolveContextPlugins(store));
+      }
+      case "contextPluginSet": {
+        try {
+          await setPluginEnabled(store, operation.pluginId, operation.enabled);
+        } catch (error) {
+          // A lost conditional write is a conflict, which is what the console
+          // knows how to show; anything else is this bucket refusing, and is
+          // reported as a storage failure rather than as a bad request.
+          const message = error instanceof Error ? error.message : "That could not be saved.";
+          throw new FileOpError(
+            /changed while/.test(message) ? "CONFLICT" : "STORAGE_UNSAFE",
+            message,
+          );
+        }
+        // Re-read rather than assume. The write is the request; the answer is
+        // what the bucket now says, which is the only thing the console should
+        // draw a switch from.
+        return contextPluginsResult(await resolveContextPlugins(store));
+      }
+      case "pluginManagedInstall": {
+        if (
+          store.capabilities?.conditionalWrite !== true ||
+          store.capabilities?.conditionalCreate !== true
+        ) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely install plugins.");
+        }
+        const root = managedPluginRoot(operation.pluginId);
+        const release = `${root}/releases/${managedPluginSegment(operation.version, "version")}`;
+        await putImmutablePluginObject(store, `${release}/manifest.json`, operation.manifestJson);
+        await putImmutablePluginObject(store, `${release}/main.js`, operation.mainJs);
+        const existingStyles = await store.get(`${release}/styles.css`);
+        if (operation.stylesCss === null && existingStyles) {
+          throw new FileOpError("CONFLICT", "That plugin release has unexpected stylesheet bytes.");
+        }
+        if (operation.stylesCss !== null) {
+          await putImmutablePluginObject(store, `${release}/styles.css`, operation.stylesCss);
+        }
+        const pointerKey = `${root}/current.json`;
+        const existing = await store.get(pointerKey);
+        if (existing) {
+          try {
+            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
+            const currentGeneration = managedPointerGeneration(current);
+            if (currentGeneration > operation.lifecycleGeneration) {
+              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+            }
+            if (
+              current.state === "uninstalling" &&
+              currentGeneration === operation.lifecycleGeneration
+            ) {
+              throw new FileOpError("CONFLICT", "That plugin is currently being uninstalled.");
+            }
+          } catch (error) {
+            if (error instanceof FileOpError) throw error;
+          }
+        }
+        const pointer = JSON.stringify({
+          id: operation.pluginId,
+          version: operation.version,
+          repository: operation.repository,
+          lifecycleGeneration: operation.lifecycleGeneration,
+        });
+        const written = await store.put(pointerKey, pointer, {
+          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
+        });
+        if (written === null) {
+          throw new FileOpError("CONFLICT", "The installed plugin changed during installation.");
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.version };
+      }
+      case "pluginManagedUninstall": {
+        const root = managedPluginRoot(operation.pluginId);
+        const pointerKey = `${root}/current.json`;
+        const pointer = await store.get(pointerKey);
+        if (!pointer) throw new FileOpError("FILE_NOT_FOUND", "That managed plugin is not installed.");
+        let current: Record<string, unknown>;
+        try {
+          current = JSON.parse(await pointer.text()) as { id?: unknown; version?: unknown };
+        } catch {
+          throw new FileOpError("CONFLICT", "That managed plugin pointer is invalid.");
+        }
+        if (current.id !== operation.pluginId || current.version !== operation.expectedVersion) {
+          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
+        }
+        if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
+          throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+        }
+        if (store.capabilities?.conditionalDelete !== true) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely uninstall plugins.");
+        }
+        const deleted = await store.delete(pointerKey, { onlyIf: { etagMatches: pointer.etag } });
+        if (deleted === null) {
+          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.expectedVersion };
+      }
+      case "pluginManagedFence": {
+        if (
+          store.capabilities?.conditionalWrite !== true ||
+          store.capabilities?.conditionalCreate !== true
+        ) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely recover plugins.");
+        }
+        const pointerKey = `${managedPluginRoot(operation.pluginId)}/current.json`;
+        const existing = await store.get(pointerKey);
+        if (existing) {
+          try {
+            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
+            if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
+              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+            }
+          } catch (error) {
+            if (error instanceof FileOpError) throw error;
+          }
+        }
+        const fence = JSON.stringify({
+          id: operation.pluginId,
+          state: "recovering",
+          lifecycleGeneration: operation.lifecycleGeneration,
+        });
+        const written = await store.put(pointerKey, fence, {
+          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
+        });
+        if (written === null) {
+          const raced = await store.get(pointerKey);
+          if (!raced || await raced.text() !== fence) {
+            throw new FileOpError("CONFLICT", "Plugin recovery lost a concurrent storage change.");
+          }
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: "" };
+      }
+      case "pluginBundleRead": {
+        const inventory = await inventoryPlugins(store) as PluginInventory;
+        const plugin = inventory.plugins.find((entry) =>
+          entry.id === operation.pluginId && entry.bundleFingerprint === operation.bundleFingerprint
+        );
+        if (!plugin || !plugin.bundleFingerprint) {
+          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
+        }
+        const base = plugin.source === "context"
+          ? `${managedPluginRoot(plugin.id)}/releases/${managedPluginSegment(plugin.version, "version")}`
+          : `.obsidian/plugins/${plugin.folder}`;
+        const manifest = await store.get(`${base}/manifest.json`);
+        const main = await store.get(`${base}/main.js`);
+        if (!manifest || !main) {
+          throw new FileOpError("FILE_NOT_FOUND", "That plugin bundle is incomplete.");
+        }
+        const styles = await store.get(`${base}/styles.css`);
+        const styleIdentity = styles ? `present:${styles.etag}` : "absent";
+        const currentFingerprint = `v2:${[manifest.etag, main.etag, styleIdentity]
+          .map((etag) => encodeURIComponent(etag)).join(":")}`;
+        if (currentFingerprint !== operation.bundleFingerprint) {
+          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
+        }
+        const manifestJson = await manifest.text();
+        const mainJs = await main.text();
+        const stylesCss = styles ? await styles.text() : null;
+        if (manifestJson.length + mainJs.length + (stylesCss?.length ?? 0) > MAX_PLUGIN_BUNDLE_BYTES) {
+          throw new FileOpError("PLUGIN_TOO_LARGE", "That plugin bundle is too large to load.");
+        }
+        return {
+          kind: "pluginBundle",
+          pluginId: plugin.id,
+          version: plugin.version,
+          bundleFingerprint: operation.bundleFingerprint,
+          manifestJson,
+          mainJs,
+          stylesCss,
+        };
+      }
+      case "pluginSettingsRead": {
+        const object = await store.get(pluginSettingsKey(operation.pluginId));
+        if (!object) return { kind: "pluginSettings", json: "{}", etag: null };
+        return { kind: "pluginSettings", json: await object.text(), etag: object.etag };
+      }
+      case "pluginSettingsWrite": {
+        const key = pluginSettingsKey(operation.pluginId);
+        const existing = await store.get(key);
+        if (operation.expectedEtag === null ? existing !== null : existing?.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "Plugin settings changed while they were being edited.",
+            existing?.etag,
+          );
+        }
+        const onlyIf: { etagMatches?: string; absent?: true } = existing
+          ? { etagMatches: existing.etag }
+          : { absent: true as const };
+        const written = (existing || store.capabilities?.conditionalCreate === true)
+          ? await store.put(key, operation.json, { onlyIf })
+          : await store.put(key, operation.json);
+        if (written === null) {
+          const current = await store.get(key);
+          throw new FileOpError(
+            "CONFLICT",
+            "Plugin settings changed while they were being edited.",
+            current?.etag,
+          );
+        }
+        return { kind: "pluginSettings", json: operation.json, etag: written.etag };
+      }
+      case "pluginRename": {
+        const source = await store.get(operation.from);
+        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
+        if (source.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "That file changed somewhere else while the plugin was using it.",
+            source.etag,
+          );
+        }
+        const moved = await movePath(store, {
+          from: operation.from,
+          to: operation.to,
+          clearance,
+          now,
+          expectedEtag: operation.expectedEtag,
+          requireAtomic: true,
+        });
+        return { kind: "moved", ...moved };
+      }
+      case "pluginDelete": {
+        const source = await store.get(operation.path);
+        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
+        if (source.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "That file changed somewhere else while the plugin was using it.",
+            source.etag,
+          );
+        }
+        const deleted = await deletePath(store, {
+          path: operation.path,
+          confirmation: DELETE_CONFIRMATION,
+          clearance,
+          expectedEtag: operation.expectedEtag,
+        });
+        return { kind: "deleted", ...deleted };
+      }
       case "list": {
-        const listing = await listFolder(store, { path: operation.path, scope });
+        const listing = await listFolder(store, { path: operation.path, clearance });
         return { kind: "listing", ...listing };
       }
       case "read": {
-        const file = await readFile(store, { path: operation.path, scope });
+        const file = await readFile(store, {
+          path: operation.path,
+          clearance,
+          ...(operation.forward === undefined ? {} : { forward: operation.forward }),
+        });
         return { kind: "file", ...file };
+      }
+      case "forward": {
+        /*
+          DELIBERATELY UNFILTERED, AND SAFE ONLY BECAUSE OF WHERE IT GOES.
+
+          This answers "where did this path go" without asking `canSee` about
+          either end, which would be wrong if the answer were ever handed to a
+          caller: a forwarded path is a fact about a note, and where a private
+          note went is not a team reader's business.
+
+          It is never handed to one. `runFileOperation` is internal, the single
+          caller is `readSharedNote`, and everything it does with the answer —
+          the folder bound, then a read at `team` scope through the live
+          `privacy.md` — decides afresh. A path that forwards somewhere the
+          reader may not see comes back as the same `SHARE_UNAVAILABLE` as one
+          that never existed. **Any new caller has to re-argue that**, or ask
+          `canSee` here.
+        */
+        const ledger = await readForwarding(store);
+        return {
+          kind: "forwarded" as const,
+          paths: operation.paths.map((path) => forwardPath(ledger, path)),
+        };
+      }
+      case "manifest": {
+        const manifest = await syncManifestOp(store, {
+          clearance,
+          ...(operation.cursor === undefined ? {} : { cursor: operation.cursor }),
+        });
+        return { kind: "manifest", ...manifest };
+      }
+      case "readMany": {
+        const results = await readFiles(store, { paths: operation.paths, clearance });
+        return {
+          kind: "notes",
+          results: results.map((result) =>
+            result.outcome === "read"
+              ? { ...result, note: { kind: "file" as const, ...result.note } }
+              : result,
+          ),
+        };
+      }
+      case "clearVault": {
+        const cleared = await clearVaultBatch(store, operation.countOnly);
+        return { kind: "vaultCleared", ...cleared };
+      }
+      case "ensurePrivacy": {
+        try {
+          const reset = await resetPrivacyManifest(store, { clearance, now });
+          return { kind: "privacyReset", ...reset };
+        } catch (error) {
+          if (error instanceof FileOpError && error.code === "PRIVACY_MANIFEST_USABLE") {
+            return {
+              kind: "privacyReset",
+              path: PRIVACY_KEY,
+              folders: [],
+              backedUpTo: null,
+              partial: false,
+            };
+          }
+          throw error;
+        }
       }
       case "search": {
         const results = await searchNotes(
@@ -1047,7 +3713,7 @@ export async function executeOperation(
           {
             query: operation.query,
             prefix: operation.prefix,
-            scope,
+            clearance,
             limit: operation.limit,
             refreshOnMiss: operation.refreshOnMiss,
           },
@@ -1056,7 +3722,7 @@ export async function executeOperation(
         return { kind: "searchResults", ...results };
       }
       case "notePaths": {
-        const found = await notePathIndex(store, scope);
+        const found = await notePathIndex(store, clearance);
         return { kind: "notePaths", paths: found?.paths ?? null };
       }
       case "projectIndex": {
@@ -1091,62 +3757,218 @@ export async function executeOperation(
           path: operation.path,
           text: operation.text,
           expectedEtag: operation.expectedEtag,
-          scope,
+          clearance,
           now,
         });
-        return { kind: "written", ...written };
+        /*
+          A note carrying a form block gets that form's response file created
+          here, on the **author's** write, because the author holds write access
+          and the submitter may not — see `ensureFormResponseFiles`.
+
+          After the note's own write and never before it, and its failures are
+          swallowed rather than raised: the note is the customer's content and
+          is already in the bucket. A response file that could not be seeded is
+          a form that is not collecting yet, and re-raising here would report a
+          save that succeeded as a save that failed.
+        */
+        const forms = await ensureFormResponseFiles(store, {
+          text: operation.text,
+          notePath: written.path,
+        }).catch(() => ({ created: [], occupied: [] }));
+        await noteActivity(
+          operation.expectedEtag === undefined ? "file.create" : "file.write",
+          [written.path],
+          { content_bytes: written.bytes },
+        );
+        return { kind: "written", ...written, forms };
+      }
+      case "form": {
+        /*
+          The same switch the gateway applies to `submit_form`, applied to the
+          console's own path into the same file.
+
+          Both, or the promise beside the switch is false. The gateway refuses
+          the four form tools when the Markdown forms plugin is off; a console
+          that went on writing rows into the same response file would make
+          "forms are off in this context" a statement about connected AI
+          clients only, which is not what the row says and not what an owner
+          pressing it meant.
+        */
+        await requireContextPlugin(store, "context-forms", "Markdown forms");
+        const applied = await runFormAction(store, {
+          clearance,
+          path: operation.path,
+          formId: operation.formId,
+          actor: { name: operation.actorName, role: operation.actorRole },
+          action: operation.action,
+        });
+        return { kind: "formApplied", ...applied };
       }
       case "removeEncryption": {
         const written = await removeNoteEncryptionOp(store, {
           path: operation.path,
           text: operation.text,
           expectedEtag: operation.expectedEtag,
-          scope,
+          clearance,
         });
-        return { kind: "written", ...written };
+        /*
+          No form seeding on this path, and that is not an omission. Removing a
+          note's encryption replaces ciphertext with the plaintext its owner
+          just decrypted on their device; the response file for any form inside
+          it was seeded when the form was written, and re-running the seed here
+          would create one for a form that has been collecting for months.
+        */
+        return { kind: "written", ...written, forms: { created: [], occupied: [] } };
       }
       case "createFolder": {
-        const created = await createFolder(store, { path: operation.path, scope, now });
+        const created = await createFolder(store, { path: operation.path, clearance, now });
         return { kind: "folderCreated", ...created };
       }
       case "move": {
         const moved = await movePath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
           now,
+          ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
+        });
+        await noteActivity("file.move", [moved.from, moved.to], {
+          count: moved.paths.length,
         });
         return { kind: "moved", ...moved };
+      }
+      case "folderPaths": {
+        const found = await listFolderPaths(store, { clearance });
+        return { kind: "folderPaths", ...found };
+      }
+      case "readActivity": {
+        // The filter is `readActivity`'s, and it takes the caller's clearance
+        // rather than deciding anything here: one viewing layer, used by the
+        // console and the gateway alike.
+        const entries = await readActivity(store, {
+          scope: clearance.scope,
+          names: [...clearance.names],
+        });
+        return { kind: "activity", entries };
+      }
+      case "contextMoveExport": {
+        const exported = await exportContextMoveBatch(store, {
+          from: operation.from,
+          to: operation.to,
+          clearance,
+          skip: operation.skip,
+        });
+        return { kind: "contextMoveExported", ...exported };
+      }
+      case "contextMoveImport": {
+        const landed = await importContextMoveBatch(store, {
+          objects: operation.objects,
+          clearance,
+          ...(operation.root === undefined ? {} : { root: operation.root }),
+        });
+        return { kind: "contextMoveLanded", ...landed };
+      }
+      case "contextMoveDelete": {
+        const removed = await deleteMovedSources(store, { sources: operation.sources });
+        return { kind: "contextMoveRemoved", ...removed };
+      }
+      case "contextMoveFinish": {
+        await clearMovedSourceRules(store, {
+          from: operation.from,
+          survivors: operation.survivors,
+        });
+        return { kind: "contextMoveFinished" };
       }
       case "copy": {
         const copied = await copyPath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
         });
         return { kind: "moved", ...copied };
       }
       case "duplicate": {
-        const copied = await duplicatePath(store, { path: operation.path, scope });
+        const copied = await duplicatePath(store, { path: operation.path, clearance });
         return { kind: "moved", ...copied };
       }
       case "archive": {
-        const moved = await archivePath(store, { path: operation.path, scope, now });
+        const moved = await archivePath(store, {
+          path: operation.path,
+          clearance,
+          now,
+          ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
+        });
+        await noteActivity("file.archive", [moved.from, moved.to], {
+          count: moved.paths.length,
+        });
+        return { kind: "moved", ...moved };
+      }
+      case "trash": {
+        const moved = await trashPath(store, {
+          path: operation.path,
+          clearance,
+          now,
+          ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
+        });
+        return { kind: "moved", ...moved };
+      }
+      case "restoreTrash": {
+        const moved = await restoreTrashedPath(store, {
+          from: operation.from,
+          to: operation.to,
+          clearance,
+        });
         return { kind: "moved", ...moved };
       }
       case "delete": {
         const deleted = await deletePath(store, {
           path: operation.path,
           confirmation: operation.confirmation,
-          scope,
+          clearance,
         });
         return { kind: "deleted", ...deleted };
+      }
+      case "setNoteGroup": {
+        // The same writer as `setVisibility`, with a group in place of a tier:
+        // `fileOps.setVisibility` has taken a `Visibility` since #418 and a
+        // group is one. A separate operation rather than a widened
+        // `setVisibility` because the ARGUMENT validator must stay two-valued —
+        // widening it would make every path that takes a visibility a way to
+        // mint a rule, which is exactly what the gateway refuses AI clients.
+        const result = await setVisibility(store, {
+          path: operation.path,
+          visibility: `@${operation.group}` as Visibility,
+          clearance,
+        });
+        return { kind: "visibility" as const, ...result };
+      }
+      case "setFolderGroup": {
+        // The same writer as `setFolderVisibility`, with a name in place of a
+        // tier: that function has taken a `Visibility` since the group
+        // namespace existed and a name is one, so nothing in the engine was
+        // ever in the way. A separate operation rather than a widened
+        // `setFolderVisibility` for the reason `setNoteGroup` is separate —
+        // the ARGUMENT validator must stay two-valued, or every path that
+        // takes a visibility becomes a way to mint a rule.
+        const result = await setFolderVisibility(store, {
+          path: operation.path,
+          visibility: `@${operation.group}` as Visibility,
+          clearance,
+        });
+        return { kind: "visibility" as const, ...result };
       }
       case "setVisibility": {
         const result = await setVisibility(store, {
           path: operation.path,
           visibility: operation.visibility,
-          scope,
+          clearance,
+        });
+        // The widening only. `recordActivity` re-derives the flag from the
+        // manifest it has just changed, and the shared substance table drops
+        // the other direction: a line saying a note went private would be the
+        // disclosure the change was undoing.
+        await noteActivity("visibility.note", [operation.path], {
+          to: operation.visibility,
         });
         return { kind: "visibility", ...result };
       }
@@ -1154,11 +3976,23 @@ export async function executeOperation(
         const result = await setFolderVisibility(store, {
           path: operation.path,
           visibility: operation.visibility,
-          scope,
+          clearance,
+        });
+        await noteActivity("visibility.folder", [operation.path], {
+          to: operation.visibility,
         });
         return { kind: "visibility", ...result };
       }
       case "writeImage": {
+        /*
+          Deliberately NOT gated on the Images plugin, and the reason is worth
+          keeping: the only caller is `shareCard`, which renders the picture an
+          unfurl shows. Nothing a person would call "uploading an image" reaches
+          here. Gating it would have made an owner turning off an agent's
+          `read_image` silently break their own share links — a switch reaching
+          past what its own row promises, which is the failure `plugins.md`
+          spends a section on.
+        */
         const written = await writeImage(store, {
           leaf: operation.leaf,
           bytes: new Uint8Array(operation.bytes),
@@ -1166,13 +4000,56 @@ export async function executeOperation(
         });
         return { kind: "imageWritten", ...written };
       }
+      case "importVault": {
+        const imported = await importVaultFiles(store, {
+          clearance,
+          files: operation.files.map((file) => ({
+            ...file,
+            bytes: new Uint8Array(file.bytes),
+          })),
+        });
+        return { kind: "vaultImported", ...imported };
+      }
       case "readImage": {
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
       }
       case "resetPrivacy": {
-        const result = await resetPrivacyManifest(store, { scope, now });
+        const result = await resetPrivacyManifest(store, { clearance, now });
         return { kind: "privacyReset", ...result };
+      }
+      case "migrateStorage": {
+        const result = await migrateStorageLayoutOp(store, {
+          cleanup: operation.cleanup,
+          batchSize: 8,
+          now: new Date(now),
+        });
+        return {
+          kind: "storageMigrated",
+          state: result.state,
+          objectsCopied: result.objectsCopied,
+          objectsVerified: result.objectsVerified,
+          objectsDeleted: result.objectsDeleted,
+          conflicts: result.conflicts.length,
+          ...(result.error === undefined ? {} : { error: result.error }),
+        };
+      }
+      case "readStorageLayout": {
+        // One `get` against a single JSON key, plus — only where there is no
+        // state file to read — one `list` per legacy prefix capped at a single
+        // object, because "no state file" is also what a bucket we scaffolded
+        // ourselves looks like and that one has nothing to migrate at all.
+        // Still read-only, and it deliberately does not take the
+        // conditional-write capabilities `migrateStorage` requires: a bucket
+        // that can never run the migration can still say whether it needs one,
+        // and `unsupported` is the migration's refusal, recorded where the
+        // refusal happens.
+        const observation = await readStorageLayoutStateOp(store);
+        return {
+          kind: "storageLayoutRead",
+          observed: observation.observed,
+          state: observation.state,
+        };
       }
     }
   } catch (error) {
@@ -1243,7 +4120,7 @@ type BlendedAnswer = {
     matchCount: number;
     matchCountIsFloor: boolean;
   }[];
-  eligibleCount: number;
+  searchableCount: number;
 };
 
 /**
@@ -1280,13 +4157,61 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> 
  * in the root error boundary with nothing to do about it — see the note at the
  * top of `lib/workspaceAuth.ts`.
  */
-async function callerId(ctx: ActionCtx): Promise<Id<"users">> {
+export async function callerId(ctx: ActionCtx | QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (userId === null) {
     throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
   }
   return userId as Id<"users">;
 }
+
+const durableMoveValidator = v.object({
+  jobId: v.id("gatewayJobs"),
+  status: v.union(
+    v.literal("queued"),
+    v.literal("running"),
+    v.literal("complete"),
+    v.literal("failed"),
+  ),
+  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+  completed: v.optional(v.number()),
+  total: v.optional(v.number()),
+  updatedAt: v.number(),
+});
+
+/**
+ * Recent durable folder moves, owner-only and deliberately path-free.
+ *
+ * A move can name a private folder. Settings needs its state and measured
+ * counts, never the source, destination, marker id, provider error, grant, or
+ * acting client. Completed rows stay visible briefly so 99% does not turn
+ * directly into an empty card before the owner sees the outcome.
+ */
+export const listDurableMoves = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(durableMoveValidator),
+  handler: async (ctx, args) => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const rows = await ctx.db
+      .query("gatewayJobs")
+      .withIndex("by_workspace_updatedAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(20);
+    const completedCutoff = Date.now() - 24 * 60 * 60 * 1_000;
+    return rows
+      .filter((row) => row.status !== "complete" || row.updatedAt >= completedCutoff)
+      .slice(0, 10)
+      .map((row) => ({
+        jobId: row._id,
+        status: row.status,
+        ...(row.progressPhase === undefined ? {} : { phase: row.progressPhase }),
+        ...(row.progressCompleted === undefined ? {} : { completed: row.progressCompleted }),
+        ...(row.progressTotal === undefined ? {} : { total: row.progressTotal }),
+        updatedAt: row.updatedAt,
+      }));
+  },
+});
 
 /** One folder's contents. Any member may read. */
 export const listFiles = action({
@@ -1297,7 +4222,7 @@ export const listFiles = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "listing" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -1305,9 +4230,76 @@ export const listFiles = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "list", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "listing" }>;
+  },
+});
+
+/**
+ * Structured Obsidian plugin compatibility for the first-party console.
+ *
+ * Owner-only because `.obsidian/` is outside the privacy manifest: a member
+ * may read the notes their scope permits, but that says nothing about whether
+ * they may inventory another person's installed software or its settings.
+ * The credential barrier returns only manifest metadata and scan findings;
+ * bundle text and `data.json` never leave it.
+ */
+export const listObsidianPlugins = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: pluginInventoryValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "pluginInventory" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "pluginInventory" },
+    });
+    return result as Extract<OperationResult, { kind: "pluginInventory" }>;
+  },
+});
+
+/**
+ * What Context has installed in this bucket, cheap enough to ask on arrival.
+ *
+ * Owner-only, like `listObsidianPlugins` beside it and for the same reason:
+ * what software a context runs is the owner's to know.
+ *
+ * The console calls this when the plugins pane opens, and it is the only plugin
+ * read that does not wait for a press. It reads one pointer per install, opens
+ * no bundle and writes nothing — `listManagedInstalls` carries the argument for
+ * why that is a different cost from a scan, and what the missing answer cost.
+ */
+export const listManagedPlugins = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: pluginManagedInstallsValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "pluginManagedInstalls" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "pluginManagedList" },
+    });
+    return result as Extract<OperationResult, { kind: "pluginManagedInstalls" }>;
   },
 });
 
@@ -1320,7 +4312,7 @@ export const readNote = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "file" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -1328,9 +4320,95 @@ export const readNote = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
-      operation: { kind: "read", path: args.path },
+      grantedNames,
+      /*
+        A link into the console outlives the path it names. Somebody pastes
+        `?note=2-areas/apps/x.md` into a thread, the folder is renamed to
+        `5-areas`, and the address in the thread is the only copy of it left —
+        no rewrite reaches a chat message. `onMiss` follows the bucket's
+        forwarding ledger once the live path has already missed, so a note
+        that exists where it says wins, and only a dead address is forwarded.
+      */
+      operation: { kind: "read", path: args.path, forward: "onMiss" },
     });
     return result as Extract<OperationResult, { kind: "file" }>;
+  },
+});
+
+/**
+ * One page of everything this caller may see in a context, with versions —
+ * what the offline mirror is built and reconciled from. Any member may call
+ * it, and gets exactly what `listFiles` and `readNote` would show them: the
+ * same clearance, through the same `canSee`. No note is read to produce it.
+ *
+ * Pass `cursor` back to continue; `cursor: null` means the walk is done, and
+ * `truncated: true` means it could not finish, so a path missing from the
+ * pages is not evidence the note was deleted. See `syncManifest` in
+ * `lib/fileOps.ts`, and "The offline mirror is fed by a privacy-filtered
+ * manifest" in `docs/decisions/app-and-console.md`.
+ */
+export const syncManifest = action({
+  args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()) },
+  returns: manifestValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "manifest" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "manifest",
+        ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
+      },
+    });
+    return result as Extract<OperationResult, { kind: "manifest" }>;
+  },
+});
+
+/**
+ * Several notes' markdown at once, for the offline mirror to fill itself. Any
+ * member may read what their scope can see — per path, exactly as `readNote`
+ * decides it, and a refused path does not fail the batch.
+ *
+ * At most `READ_BATCH_PATHS` paths; past `READ_BATCH_BYTES` of note text the
+ * remaining paths come back `deferred`, to be asked for again.
+ */
+export const readNotes = action({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: notesValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "notes" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    // Refused before the barrier rather than inside it, so a request that can
+    // never succeed does not open the bucket's credential to find that out.
+    // `readFiles` refuses it again, for any other caller.
+    if (args.paths.length > READ_BATCH_PATHS) {
+      throw toConvexError(
+        new FileOpError("BATCH_TOO_LARGE", `Read at most ${READ_BATCH_PATHS} notes at a time.`),
+      );
+    }
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readMany", paths: args.paths },
+    });
+    return result as Extract<OperationResult, { kind: "notes" }>;
   },
 });
 
@@ -1356,7 +4434,7 @@ export const searchContext = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "searchResults" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -1364,12 +4442,13 @@ export const searchContext = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "search", query: args.query, prefix: args.prefix },
     })) as Extract<OperationResult, { kind: "searchResults" }>;
 
     // The index this answer read is the index some earlier pass built, and a
     // search does no maintenance of its own — that is what took a console
-    // search over a real brain from twenty-odd seconds to a fraction of one.
+    // search over a real workspace from twenty-odd seconds to a fraction of one.
     // So the answer's own report of how far behind the index is decides
     // whether a pass runs behind it.
     //
@@ -1388,10 +4467,47 @@ export const searchContext = action({
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
         scope,
+        grantedNames,
         operation: { kind: "maintainIndex", passes: INDEX_SYNC_CHAIN },
       });
     }
     return result;
+  },
+});
+
+/**
+ * Every folder this member's scope may see, for a destination picker.
+ *
+ * `member` and above, which is the read this already is — and deliberately
+ * NOT gated on being able to write here. The picker offers a context only
+ * where the mover is at least an `editor`, and that decision belongs where the
+ * list of contexts is, not to a folder listing: an action that refused a
+ * reader would also refuse every other honest use of "what folders are in
+ * @work", starting with the next one.
+ *
+ * Its own action rather than a shape of `listFiles`, because the walk is the
+ * point: one call, one credential, the whole tree. See `listFolderPaths`.
+ */
+export const folderPaths = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: folderPathsValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "folderPaths" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "folderPaths" },
+    });
+    return result as Extract<OperationResult, { kind: "folderPaths" }>;
   },
 });
 
@@ -1414,7 +4530,7 @@ export const notePaths = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "notePaths" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -1422,6 +4538,7 @@ export const notePaths = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "notePaths" },
     });
     return result as Extract<OperationResult, { kind: "notePaths" }>;
@@ -1460,13 +4577,23 @@ export const notePaths = action({
  *
  * ## What it deliberately does not do
  *
- * **It schedules no index maintenance.** `searchContext` does, because a person
- * searching one context is the cheapest possible trigger for catching that
- * context's index up. Multiplying that by the width of a scope would put a full
+ * **It schedules index maintenance for one case only: a context with no index
+ * at all.** `searchContext` schedules a pass behind any lagging index, because
+ * a person searching one context is the cheapest possible trigger for catching
+ * that context up. Multiplying that by the width of a scope would put a full
  * bucket listing per context behind every keystroke on this page, billed to
- * every one of those customers — and it would buy nothing here, because every
- * context in scope has a projection the control plane already calls `ready`,
- * kept current by the gateway riding its own searches.
+ * every one of those customers, so a merely *incomplete* index is left to the
+ * passes that already ride the gateway's own searches.
+ *
+ * A **missing** one is different in kind and is the state this page created for
+ * itself the moment it started searching contexts without a projection: a
+ * context nobody has ever searched directly has no shard index, answers every
+ * query with `indexMissing`, and would report "still being indexed" on this
+ * page forever — a permanent apology that no amount of waiting resolves. So the
+ * first page of a search schedules one chain per such context and no more:
+ * later pages of the same query schedule nothing, and the condition is
+ * self-limiting, because a context that has been indexed once is never
+ * `indexMissing` again.
  *
  * **It logs no query text.** Nothing in this function writes the words
  * somebody typed anywhere: not to audit, not to a structured log, not into the
@@ -1478,8 +4605,8 @@ export const searchContexts = action({
   args: {
     query: v.string(),
     /**
-     * The scope, as workspace ids. Absent or empty means every eligible
-     * context. An id this caller may not search is **dropped**, identically to
+     * The scope, as workspace ids. Absent or empty means every context this
+     * caller can search. An id this caller may not search is **dropped**, identically to
      * one that never existed — see `resolveScope`.
      */
     contexts: v.optional(v.array(v.id("workspaces"))),
@@ -1489,16 +4616,16 @@ export const searchContexts = action({
   returns: blendedResultsValidator,
   handler: async (ctx, args): Promise<BlendedAnswer> => {
     const actorUserId = await callerId(ctx);
-    const eligible = await ctx.runQuery(
+    const searchable = await ctx.runQuery(
       internal.functions.fastSearch.searchableContextsFor,
       { actorUserId },
     );
 
     const query = args.query.trim();
-    const scope = resolveScope(eligible, args.contexts);
+    const scope = resolveScope(searchable, args.contexts);
     if (query === "" || scope.length === 0) {
       // An empty query and an empty scope are both "nothing was asked", and
-      // both answer with an empty page rather than an error. `eligibleCount`
+      // both answer with an empty page rather than an error. `searchableCount`
       // is what lets the page tell the two apart on screen.
       return {
         results: [],
@@ -1506,7 +4633,7 @@ export const searchContexts = action({
         matchCountIsFloor: false,
         cursor: null,
         sources: [],
-        eligibleCount: eligible.length,
+        searchableCount: searchable.length,
       };
     }
 
@@ -1531,7 +4658,7 @@ export const searchContexts = action({
         const settled = await withDeadline(
           (async () => {
             // The one authorization function, per context, per page. The
-            // eligible list already established membership; this re-establishes
+            // searchable list already established membership; this re-establishes
             // it through the same query every other file action uses, so a
             // blended search cannot come to disagree with a single one about
             // what role means what scope.
@@ -1543,23 +4670,38 @@ export const searchContexts = action({
                 minimum: "member" as const,
               },
             );
-            return (await ctx.runAction(internal.functions.files.runFileOperation, {
-              workspaceId: context.workspaceId as Id<"workspaces">,
-              scope: tier,
-              operation: {
-                kind: "search" as const,
-                query,
-                limit: asked,
-                // See `searchNotes`: a fan-out misses in most of its contexts
-                // by construction, and one listing per miss is the cost of a
-                // rule written for a single spinner.
-                refreshOnMiss: false,
+            const answer = (await ctx.runAction(
+              internal.functions.files.runFileOperation,
+              {
+                workspaceId: context.workspaceId as Id<"workspaces">,
+                scope: tier,
+                operation: {
+                  kind: "search" as const,
+                  query,
+                  limit: asked,
+                  // See `searchNotes`: a fan-out misses in most of its contexts
+                  // by construction, and one listing per miss is the cost of a
+                  // rule written for a single spinner.
+                  refreshOnMiss: false,
+                },
               },
-            })) as Extract<OperationResult, { kind: "searchResults" }>;
+            )) as Extract<OperationResult, { kind: "searchResults" }>;
+            // The tier rides back out with the answer so the maintenance pass
+            // below can be scheduled with the scope this search was authorized
+            // at, rather than re-deriving one outside the race — where a second
+            // `authorizeFileAccess` would be a second answer to the same
+            // question.
+            return { answer, tier };
           })(),
           SOURCE_DEADLINE_MS,
         );
-        return { context, offset, asked, settled };
+        return {
+          context,
+          offset,
+          asked,
+          settled: settled === null ? null : settled.answer,
+          tier: settled === null ? null : settled.tier,
+        };
       }),
     );
 
@@ -1615,6 +4757,32 @@ export const searchContexts = action({
       });
     }
 
+    /*
+      The one pass this page schedules — see "what it deliberately does not do".
+
+      A context with no shard index at all answers every query with
+      `indexMissing` and would say "still being indexed" on this page for as
+      long as nobody searched it from somewhere else. One chain per such
+      context, on the first page of a query only, and never for an index that
+      merely lags: that one catches up behind the searches the gateway and the
+      palette already ride.
+
+      **Scheduled, never called** (CLAUDE.md, "Scheduling is not calling"). A
+      `runAction` here would put a full listing of somebody's bucket in front of
+      the person waiting for this page, which is the defect the whole
+      no-maintenance rule exists to avoid.
+    */
+    if (args.cursor === undefined) {
+      for (const { context, settled, tier } of answered) {
+        if (settled === null || tier === null || !settled.indexMissing) continue;
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: context.workspaceId as Id<"workspaces">,
+          scope: tier,
+          operation: { kind: "maintainIndex", passes: INDEX_SYNC_CHAIN },
+        });
+      }
+    }
+
     const page = pageOf(fuse(sources), sources);
     const named = new Map(scope.map((context) => [context.workspaceId, context]));
     return {
@@ -1633,7 +4801,7 @@ export const searchContexts = action({
       matchCountIsFloor,
       cursor: page.next === null ? null : encodeCursor(fingerprint, page.next),
       sources: rows,
-      eligibleCount: eligible.length,
+      searchableCount: searchable.length,
     };
   },
 });
@@ -1658,7 +4826,7 @@ export const writeNote = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "written" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1666,6 +4834,8 @@ export const writeNote = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
+      actorName,
       operation: {
         kind: "write",
         path: args.path,
@@ -1684,6 +4854,799 @@ export const writeNote = action({
       paths: [result.path],
       details: { conflictCheck: result.conflictCheck },
     });
+    return result;
+  },
+});
+
+const MAX_VAULT_IMPORT_BATCH_FILES = 20;
+const MAX_VAULT_IMPORT_BATCH_BYTES = 4_500_000;
+const MAX_VAULT_IMPORT_FILES = 100_000;
+const MAX_VAULT_IMPORT_BATCHES = 5_000;
+const VAULT_FINGERPRINT_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+
+type VaultImportJobStatus = {
+  jobId: Id<"vaultImportJobs">;
+  strategy: "merge" | "folder" | "replace";
+  status: "active" | "paused" | "complete";
+  totalFiles: number;
+  completedFiles: number;
+  createdFiles: number;
+  skippedFiles: number;
+  completedBatches: number[];
+  replacement?: {
+    phase: "counting" | "deleting" | "uploading";
+    totalObjects: number;
+    deletedObjects: number;
+  };
+};
+
+function vaultImportJobStatus(job: Doc<"vaultImportJobs">): VaultImportJobStatus {
+  return {
+    jobId: job._id,
+    strategy: job.strategy,
+    status: job.status,
+    totalFiles: job.totalFiles,
+    completedFiles: job.completedFiles,
+    createdFiles: job.createdFiles,
+    skippedFiles: job.skippedFiles,
+    completedBatches: [...job.completedBatches].sort((left, right) => left - right),
+    ...(job.replacement === undefined ? {} : { replacement: job.replacement }),
+  };
+}
+
+function validateVaultImportPlan(args: {
+  sourceFingerprint: string;
+  totalFiles: number;
+  totalBytes: number;
+  totalBatches: number;
+}): void {
+  if (!VAULT_FINGERPRINT_PATTERN.test(args.sourceFingerprint)) {
+    throw new ConvexError({ code: "IMPORT_PLAN_INVALID", message: "Choose the vault again to start this import." });
+  }
+  if (
+    !Number.isSafeInteger(args.totalFiles) ||
+    args.totalFiles < 1 ||
+    args.totalFiles > MAX_VAULT_IMPORT_FILES ||
+    !Number.isSafeInteger(args.totalBytes) ||
+    args.totalBytes < 0 ||
+    !Number.isSafeInteger(args.totalBatches) ||
+    args.totalBatches < 1 ||
+    args.totalBatches > MAX_VAULT_IMPORT_BATCHES ||
+    args.totalBatches > args.totalFiles
+  ) {
+    throw new ConvexError({ code: "IMPORT_PLAN_INVALID", message: "That vault is too large to import safely." });
+  }
+}
+
+/**
+ * Start or resume the metadata half of a local vault import.
+ *
+ * File bytes remain on the person's device. The row remembers only counts and
+ * completed batch numbers, so a closed tab can reselect the same vault and
+ * avoid sending batches that already finished.
+ */
+/* -------------------------------------------------------------------------- */
+/*                    a pasted image, in and back out again                    */
+/* -------------------------------------------------------------------------- */
+
+/** Sixteen hex characters of SHA-256, which is what names the object. */
+async function contentHash(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 16);
+}
+
+/**
+ * Store an image somebody pasted into a note.
+ *
+ * **Editor or owner**, because this writes to the bucket; `member` is read
+ * access and a paste is not a read. Nothing about the note is consulted: the
+ * caller may already write every note in this context, so gating the *image* on
+ * one particular note would be a check that refuses nothing and implies a
+ * guarantee this does not make.
+ *
+ * The name is ours to choose and not the caller's, which is the security half:
+ * a client-supplied leaf is a path to argue about, and this one is derived from
+ * the bytes. `writeImage` still applies the gateway's own leaf rule to whatever
+ * comes out, so a careless change to the derivation is refused rather than
+ * writing a key `read_image` could never name.
+ */
+export const storeNoteImage = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    bytes: v.bytes(),
+    contentType: v.string(),
+  },
+  returns: v.object({ leaf: v.string() }),
+  handler: async (ctx, args): Promise<{ leaf: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "editor" },
+    );
+    const leaf = pasteImageLeaf({
+      hash: await contentHash(args.bytes),
+      contentType: args.contentType,
+    });
+    await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "writeImage",
+        leaf,
+        bytes: args.bytes,
+        contentType: args.contentType,
+      },
+    });
+    return { leaf };
+  },
+});
+
+/**
+ * Read a pasted image back, for a note that references it.
+ *
+ * **The reference is the gate, and it is the gateway's own.** An image has no
+ * visibility of its own — it borrows the visibility of the notes that point at
+ * it — so the question this asks is the question `read_image` asks: is there a
+ * note *this caller can see* that names this file? The note is read through the
+ * same `read` operation the editor uses, so `canSee` and `privacy.md` answer
+ * exactly once, in the place they already answer for note text.
+ *
+ * A caller who can see no such note gets `FILE_NOT_FOUND` — the same error as
+ * for an image that was never written, so this cannot be used to learn that one
+ * exists. A `member` therefore cannot pull an image out of a private note by
+ * naming its leaf, which is the isolation case worth a test rather than a
+ * comment.
+ *
+ * Deliberately broad about what "references" means: any mention of the leaf
+ * anywhere in the note. These notes are edited in Obsidian, in rclone and by
+ * hand, and the failure mode of a strict rule ("must be a markdown embed") is an
+ * image that silently stops loading in the app after somebody reformatted a
+ * line.
+ */
+export const readNoteImage = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notePath: v.string(),
+    leaf: v.string(),
+  },
+  returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+    );
+    const note = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "read", path: args.notePath },
+    })) as Extract<OperationResult, { kind: "file" }>;
+    if (!note.text.includes(args.leaf)) {
+      throw new ConvexError({
+        code: "FILE_NOT_FOUND",
+        message: "No note you can see references that image.",
+      });
+    }
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readImage", leaf: args.leaf },
+    })) as Extract<OperationResult, { kind: "image" }>;
+    /*
+      The type comes from the extension rather than from the store, because an
+      adapter is not obliged to hand one back and a picture served as
+      `application/octet-stream` is a download rather than an image. The leaf has
+      already been through `readImage`'s own gate by this point, so the extension
+      here is one of the set.
+    */
+    const extension = args.leaf.slice(args.leaf.lastIndexOf(".") + 1).toLowerCase();
+    return {
+      bytes: result.bytes,
+      contentType: extension === "jpg" || extension === "jpeg" ? "image/jpeg" : `image/${extension}`,
+    };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                      a workspace's icon, in and back out                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Store the photo a workspace draws in its mark.
+ *
+ * **Owner**, not editor. `storeNoteImage` takes an editor because a paste is a
+ * write to the bucket and an editor may write to the bucket. This is a write to
+ * the bucket *and* a change to what the workspace looks like on every member's
+ * screen, so it takes the role that owns the other facts about the workspace —
+ * its name, its storage, its members. The stricter of the two checks wins.
+ *
+ * The name is ours and derived from the bytes, for the reason `storeNoteImage`
+ * gives: a client-supplied leaf is a path to argue about. `writeImage` then
+ * applies the gateway's own leaf rule to whatever `workspaceIconLeaf` produced,
+ * so a careless change to the derivation is refused here rather than writing an
+ * object no reader can ever name.
+ *
+ * ## The cap is this feature's, and it is much smaller than the store's
+ *
+ * `writeImage` allows five megabytes, which is right for a picture somebody
+ * wants to look at and wrong for an 18pt square the console draws once per
+ * workspace per paint. `WORKSPACE_ICON_MAX_BYTES` is checked here, before the
+ * bytes reach the bucket, so a caller that is not our picker cannot make every
+ * future context list a download. The picker crops square and compresses long
+ * before this, and this is the backstop for everything that is not the picker.
+ *
+ * The row is patched only after the write lands, by
+ * `recordWorkspaceIconPhoto` — so a failed upload leaves the old icon standing
+ * rather than pointing the workspace at an object that is not there.
+ */
+export const setWorkspaceIconPhoto = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    bytes: v.bytes(),
+    contentType: v.string(),
+  },
+  returns: v.object({ leaf: v.string() }),
+  handler: async (ctx, args): Promise<{ leaf: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "owner" },
+    );
+    /*
+      The type is checked before the hash is taken rather than left to
+      `workspaceIconLeaf`, so the refusal names the actual problem. The two
+      agree because they read the same map out of `@context/shared`.
+    */
+    if (!WORKSPACE_ICON_CONTENT_TYPES.has(args.contentType)) {
+      throw new ConvexError({
+        code: "WORKSPACE_ICON_TYPE",
+        message: "A workspace icon must be a PNG, JPEG or WebP.",
+      });
+    }
+    if (args.bytes.byteLength > WORKSPACE_ICON_MAX_BYTES) {
+      throw new ConvexError({
+        code: "WORKSPACE_ICON_TOO_LARGE",
+        message: `A workspace icon must be at most ${WORKSPACE_ICON_MAX_BYTES} bytes.`,
+      });
+    }
+    const leaf = workspaceIconLeaf({
+      hash: await contentHash(args.bytes),
+      contentType: args.contentType,
+    });
+    await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "writeImage",
+        leaf,
+        bytes: args.bytes,
+        contentType: args.contentType,
+      },
+    });
+    await ctx.runMutation(internal.functions.workspaces.recordWorkspaceIconPhoto, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      leaf,
+    });
+    return { leaf };
+  },
+});
+
+/**
+ * Read a workspace's icon photo back.
+ *
+ * **Note what this does not take: a leaf.** `readNoteImage` takes one and gates
+ * it on a note the caller can see that references it, because an image in the
+ * opaque store borrows its visibility from the notes pointing at it. An icon
+ * has no note, and the wrong way to serve one is to loosen that gate.
+ *
+ * So the caller names a *workspace* and the leaf is read off the row by
+ * `workspaceIconLeaf`, which is an internal query with its own membership
+ * check. There is no argument here through which an object can be named, which
+ * makes this strictly narrower than the note path rather than wider: the set of
+ * objects it can return is at most one per workspace, chosen by that
+ * workspace's owner. A test asserts the argument shape, because "there is no
+ * leaf argument" is the property doing the work and a later convenience
+ * parameter would quietly end it.
+ *
+ * `member` is the floor and it is honest: this picture is drawn in the rail of
+ * everyone who can reach the workspace. A non-member gets the same
+ * `WORKSPACE_NOT_FOUND` as for an id that never existed, so this cannot be used
+ * to learn that a workspace exists.
+ *
+ * A workspace with no icon, or with an emoji, gets `FILE_NOT_FOUND` — the same
+ * absence as a photo that was never written, which is what the console draws a
+ * letter for anyway.
+ */
+export const workspaceIconPhoto = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+    );
+    const leaf = await ctx.runQuery(internal.functions.workspaces.workspaceIconLeaf, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+    });
+    if (leaf === null) {
+      throw new ConvexError({
+        code: "FILE_NOT_FOUND",
+        message: "That workspace has no icon photo.",
+      });
+    }
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readImage", leaf },
+    })) as Extract<OperationResult, { kind: "image" }>;
+    /*
+      From the extension, for the reason `readNoteImage` gives: an adapter is
+      not obliged to hand a type back, and a picture served as
+      `application/octet-stream` is a download rather than an image. The leaf
+      came off our own row and through `readImage`'s gate, so the extension here
+      is one of the three.
+    */
+    const extension = leaf.slice(leaf.lastIndexOf(".") + 1).toLowerCase();
+    return {
+      bytes: result.bytes,
+      contentType: extension === "jpg" ? "image/jpeg" : `image/${extension}`,
+    };
+  },
+});
+
+export const startVaultImport = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    strategy: v.union(v.literal("merge"), v.literal("folder"), v.literal("replace")),
+    confirmation: v.optional(v.string()),
+    sourceFingerprint: v.string(),
+    totalFiles: v.number(),
+    totalBytes: v.number(),
+    totalBatches: v.number(),
+  },
+  returns: vaultImportJobStatusValidator,
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
+    validateVaultImportPlan(args);
+    if (
+      args.strategy === "replace" &&
+      !matchesDestructiveActionAcknowledgement(args.confirmation)
+    ) {
+      throw new ConvexError({
+        code: "IMPORT_REPLACE_CONFIRMATION_REQUIRED",
+        message: "Type “I understand” before replacing this bucket.",
+      });
+    }
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const recent = await ctx.db
+      .query("vaultImportJobs")
+      .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(20);
+    const matching = recent.find(
+      (job) =>
+        job.actorUserId === actorUserId &&
+        job.status !== "complete" &&
+        job.strategy === args.strategy &&
+        job.sourceFingerprint === args.sourceFingerprint &&
+        job.totalFiles === args.totalFiles &&
+        job.totalBytes === args.totalBytes &&
+        job.totalBatches === args.totalBatches,
+    );
+    const now = Date.now();
+    if (matching !== undefined) {
+      if (matching.status !== "active") {
+        await ctx.db.patch(matching._id, { status: "active", updatedAt: now });
+      }
+      return vaultImportJobStatus({ ...matching, status: "active", updatedAt: now });
+    }
+    for (const job of recent) {
+      if (job.actorUserId === actorUserId && job.status === "active") {
+        await ctx.db.patch(job._id, { status: "paused", updatedAt: now });
+      }
+    }
+    const jobId = await ctx.db.insert("vaultImportJobs", {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      strategy: args.strategy,
+      sourceFingerprint: args.sourceFingerprint,
+      totalFiles: args.totalFiles,
+      totalBytes: args.totalBytes,
+      totalBatches: args.totalBatches,
+      completedBatches: [],
+      completedFiles: 0,
+      createdFiles: 0,
+      skippedFiles: 0,
+      ...(args.strategy === "replace" ? {
+        replacement: {
+          phase: "counting" as const,
+          totalObjects: 0,
+          deletedObjects: 0,
+        },
+      } : {}),
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await ctx.db.get(jobId);
+    if (created === null) throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "The import could not start." });
+    return vaultImportJobStatus(created);
+  },
+});
+
+export const recordVaultClearBatch = internalMutation({
+  args: {
+    jobId: v.id("vaultImportJobs"),
+    actorUserId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    sourceFingerprint: v.string(),
+    mode: v.union(v.literal("counted"), v.literal("deleted")),
+    objects: v.number(),
+    complete: v.boolean(),
+  },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const job = await ctx.db.get(args.jobId);
+    if (
+      job === null ||
+      job.workspaceId !== args.workspaceId ||
+      job.actorUserId !== args.actorUserId ||
+      job.sourceFingerprint !== args.sourceFingerprint ||
+      job.strategy !== "replace" ||
+      job.replacement === undefined ||
+      !Number.isSafeInteger(args.objects) ||
+      args.objects < 0
+    ) return null;
+
+    const now = Date.now();
+    if (job.replacement.phase === "counting" && args.mode === "counted") {
+      const replacement = {
+        phase: args.objects === 0 ? "uploading" as const : "deleting" as const,
+        totalObjects: args.objects,
+        deletedObjects: 0,
+      };
+      await ctx.db.patch(job._id, { replacement, status: "active", updatedAt: now });
+      return vaultImportJobStatus({ ...job, replacement, status: "active", updatedAt: now });
+    }
+    if (job.replacement.phase === "deleting" && args.mode === "deleted") {
+      const rawDeleted = job.replacement.deletedObjects + args.objects;
+      const totalObjects = Math.max(job.replacement.totalObjects, rawDeleted);
+      const replacement = {
+        phase: args.complete ? "uploading" as const : "deleting" as const,
+        totalObjects,
+        deletedObjects: args.complete ? totalObjects : rawDeleted,
+      };
+      await ctx.db.patch(job._id, { replacement, status: "active", updatedAt: now });
+      return vaultImportJobStatus({ ...job, replacement, status: "active", updatedAt: now });
+    }
+    return vaultImportJobStatus(job);
+  },
+});
+
+/** Count, then remove, one retryable page of every object in a replacement bucket. */
+export const clearVaultImportBatch = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    jobId: v.id("vaultImportJobs"),
+    sourceFingerprint: v.string(),
+  },
+  returns: vaultImportJobStatusValidator,
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const job = await ctx.runQuery(internal.functions.files.vaultImportJobForBatch, {
+      jobId: args.jobId,
+    }) as Doc<"vaultImportJobs"> | null;
+    if (
+      job === null ||
+      job.workspaceId !== args.workspaceId ||
+      job.actorUserId !== actorUserId ||
+      job.sourceFingerprint !== args.sourceFingerprint ||
+      job.strategy !== "replace" ||
+      job.replacement === undefined
+    ) {
+      throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "That replacement is no longer available." });
+    }
+    if (job.replacement.phase === "uploading") return vaultImportJobStatus(job);
+
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "clearVault", countOnly: job.replacement.phase === "counting" },
+    }) as Extract<OperationResult, { kind: "vaultCleared" }>;
+    const recorded = await ctx.runMutation(internal.functions.files.recordVaultClearBatch, {
+      jobId: args.jobId,
+      actorUserId,
+      workspaceId: args.workspaceId,
+      sourceFingerprint: args.sourceFingerprint,
+      mode: result.mode,
+      objects: result.objects,
+      complete: result.complete,
+    });
+    if (recorded === null) {
+      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
+    }
+    if (result.mode === "deleted" && result.objects > 0) {
+      await ctx.runMutation(internal.functions.audit.recordEvent, {
+        workspaceId: args.workspaceId,
+        actorUserId,
+        action: "vault.replace.clear",
+        paths: [],
+        details: { objectsDeleted: result.objects },
+      });
+    }
+    return recorded;
+  },
+});
+
+/** The latest unfinished import for this owner and workspace, without paths or content. */
+export const latestVaultImportJob = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const recent = await ctx.db
+      .query("vaultImportJobs")
+      .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(20);
+    const job = recent.find((candidate) => candidate.actorUserId === actorUserId && candidate.status !== "complete");
+    return job === undefined ? null : vaultImportJobStatus(job);
+  },
+});
+
+/** Record the local uploader stopping while keeping every completed batch resumable. */
+export const pauseVaultImport = mutation({
+  args: { workspaceId: v.id("workspaces"), jobId: v.id("vaultImportJobs") },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const job = await ctx.db.get(args.jobId);
+    if (job === null || job.workspaceId !== args.workspaceId || job.actorUserId !== actorUserId) return null;
+    if (job.status === "active") await ctx.db.patch(job._id, { status: "paused", updatedAt: Date.now() });
+    return vaultImportJobStatus(job.status === "active" ? { ...job, status: "paused" } : job);
+  },
+});
+
+export const vaultImportJobForBatch = internalQuery({
+  args: { jobId: v.id("vaultImportJobs") },
+  returns: v.union(v.null(), v.any()),
+  handler: async (ctx, args): Promise<Doc<"vaultImportJobs"> | null> => await ctx.db.get(args.jobId),
+});
+
+export const recordVaultImportBatch = internalMutation({
+  args: {
+    jobId: v.id("vaultImportJobs"),
+    actorUserId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    sourceFingerprint: v.string(),
+    batchIndex: v.number(),
+    filesProcessed: v.number(),
+    filesCreated: v.number(),
+    filesSkipped: v.number(),
+  },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const job = await ctx.db.get(args.jobId);
+    if (
+      job === null ||
+      job.workspaceId !== args.workspaceId ||
+      job.actorUserId !== args.actorUserId ||
+      job.sourceFingerprint !== args.sourceFingerprint
+    ) return null;
+    if (job.completedBatches.includes(args.batchIndex)) return vaultImportJobStatus(job);
+    const completedBatches = [...job.completedBatches, args.batchIndex].sort((left, right) => left - right);
+    const completedFiles = job.completedFiles + args.filesProcessed;
+    if (
+      !Number.isSafeInteger(args.batchIndex) ||
+      args.batchIndex < 0 ||
+      args.batchIndex >= job.totalBatches ||
+      !Number.isSafeInteger(args.filesProcessed) ||
+      args.filesProcessed < 1 ||
+      args.filesCreated < 0 ||
+      args.filesSkipped < 0 ||
+      args.filesCreated + args.filesSkipped !== args.filesProcessed ||
+      completedFiles > job.totalFiles
+    ) return null;
+    const complete = completedBatches.length === job.totalBatches && completedFiles === job.totalFiles;
+    const now = Date.now();
+    const patch = {
+      completedBatches,
+      completedFiles,
+      createdFiles: job.createdFiles + args.filesCreated,
+      skippedFiles: job.skippedFiles + args.filesSkipped,
+      status: complete ? "complete" as const : "active" as const,
+      updatedAt: now,
+      ...(complete ? { completedAt: now } : {}),
+    };
+    await ctx.db.patch(job._id, patch);
+    return vaultImportJobStatus({ ...job, ...patch });
+  },
+});
+
+/**
+ * Upload one numbered batch and atomically mark its progress after the bucket
+ * accepts it. Repeating the same number returns the stored result and never
+ * sends those bytes to storage twice.
+ */
+export const importVaultJobBatch = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    jobId: v.id("vaultImportJobs"),
+    sourceFingerprint: v.string(),
+    batchIndex: v.number(),
+    files: v.array(v.object({ path: v.string(), bytes: v.bytes(), contentType: v.string() })),
+  },
+  returns: vaultImportJobStatusValidator,
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
+    if (args.files.length === 0 || args.files.length > MAX_VAULT_IMPORT_BATCH_FILES) {
+      throw new ConvexError({
+        code: "IMPORT_BATCH_INVALID",
+        message: `Upload between 1 and ${MAX_VAULT_IMPORT_BATCH_FILES} files at a time.`,
+      });
+    }
+    const batchBytes = args.files.reduce((total, file) => total + file.bytes.byteLength, 0);
+    if (batchBytes > MAX_VAULT_IMPORT_BATCH_BYTES) {
+      throw new ConvexError({ code: "IMPORT_BATCH_INVALID", message: "That upload batch is too large." });
+    }
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const job = await ctx.runQuery(internal.functions.files.vaultImportJobForBatch, { jobId: args.jobId }) as Doc<"vaultImportJobs"> | null;
+    if (job === null || job.workspaceId !== args.workspaceId || job.actorUserId !== actorUserId) {
+      throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "That import is no longer available." });
+    }
+    if (
+      job.sourceFingerprint !== args.sourceFingerprint ||
+      !Number.isSafeInteger(args.batchIndex) ||
+      args.batchIndex < 0 ||
+      args.batchIndex >= job.totalBatches
+    ) {
+      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
+    }
+    if (job.strategy === "replace" && job.replacement?.phase !== "uploading") {
+      throw new ConvexError({
+        code: "IMPORT_REPLACE_NOT_READY",
+        message: "The existing bucket must finish clearing before files upload.",
+      });
+    }
+    if (job.completedBatches.includes(args.batchIndex)) return vaultImportJobStatus(job);
+    const completedFilesAfterBatch = job.completedFiles + args.files.length;
+    const completedBatchCountAfterBatch = job.completedBatches.length + 1;
+    if (
+      completedFilesAfterBatch > job.totalFiles ||
+      (completedBatchCountAfterBatch === job.totalBatches && completedFilesAfterBatch !== job.totalFiles) ||
+      (completedBatchCountAfterBatch < job.totalBatches && completedFilesAfterBatch >= job.totalFiles)
+    ) {
+      throw new ConvexError({ code: "IMPORT_PLAN_INVALID", message: "Choose the vault again to restart this import." });
+    }
+
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "importVault", files: args.files },
+    })) as Extract<OperationResult, { kind: "vaultImported" }>;
+    if (
+      job.strategy === "replace" &&
+      job.completedBatches.length + 1 === job.totalBatches &&
+      job.completedFiles + args.files.length === job.totalFiles
+    ) {
+      // Idempotent so a retry after storage succeeded but progress recording
+      // failed still restores the private access map before completing.
+      await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope,
+        grantedNames,
+        operation: { kind: "ensurePrivacy" },
+      });
+    }
+    const recorded = await ctx.runMutation(internal.functions.files.recordVaultImportBatch, {
+      jobId: args.jobId,
+      actorUserId,
+      workspaceId: args.workspaceId,
+      sourceFingerprint: args.sourceFingerprint,
+      batchIndex: args.batchIndex,
+      filesProcessed: args.files.length,
+      filesCreated: result.created.length,
+      filesSkipped: result.skipped.length,
+    });
+    if (recorded === null) {
+      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
+    }
+    if (result.created.length > 0) {
+      await ctx.runMutation(internal.functions.audit.recordEvent, {
+        workspaceId: args.workspaceId,
+        actorUserId,
+        action: "vault.import",
+        paths: result.created,
+        details: {
+          filesCreated: result.created.length,
+          filesSkipped: result.skipped.length,
+          bytesCreated: result.bytesCreated,
+          batchIndex: args.batchIndex,
+        },
+      });
+    }
+    return recorded;
+  },
+});
+
+/**
+ * Upload one retryable batch from a locally selected Obsidian vault.
+ *
+ * Owner-only because a vault import can create non-Markdown attachments and a
+ * large path tree. Bytes cross this action directly into the workspace bucket;
+ * the control plane stores only the ordinary audit metadata below.
+ */
+export const importVaultBatch = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    files: v.array(v.object({ path: v.string(), bytes: v.bytes(), contentType: v.string() })),
+  },
+  returns: vaultImportResultValidator,
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "vaultImported" }>> => {
+    if (args.files.length === 0 || args.files.length > MAX_VAULT_IMPORT_BATCH_FILES) {
+      throw new ConvexError({
+        code: "IMPORT_BATCH_INVALID",
+        message: `Upload between 1 and ${MAX_VAULT_IMPORT_BATCH_FILES} files at a time.`,
+      });
+    }
+    const batchBytes = args.files.reduce((total, file) => total + file.bytes.byteLength, 0);
+    if (batchBytes > MAX_VAULT_IMPORT_BATCH_BYTES) {
+      throw new ConvexError({
+        code: "IMPORT_BATCH_INVALID",
+        message: "That upload batch is too large. Choose the vault again to retry in smaller pieces.",
+      });
+    }
+
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "importVault", files: args.files },
+    })) as Extract<OperationResult, { kind: "vaultImported" }>;
+
+    if (result.created.length > 0) {
+      await ctx.runMutation(internal.functions.audit.recordEvent, {
+        workspaceId: args.workspaceId,
+        actorUserId,
+        action: "vault.import",
+        paths: result.created,
+        details: {
+          filesCreated: result.created.length,
+          filesSkipped: result.skipped.length,
+          bytesCreated: result.bytesCreated,
+        },
+      });
+    }
     return result;
   },
 });
@@ -1720,7 +5683,7 @@ export const removeNoteEncryption = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "written" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1728,6 +5691,7 @@ export const removeNoteEncryption = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "removeEncryption",
         path: args.path,
@@ -1757,7 +5721,7 @@ export const createDirectory = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "folderCreated" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1765,6 +5729,7 @@ export const createDirectory = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "createFolder", path: args.path },
     })) as Extract<OperationResult, { kind: "folderCreated" }>;
 
@@ -1780,14 +5745,25 @@ export const createDirectory = action({
 
 /** Move or rename a file or folder. Requires `editor`. */
 export const moveEntry = action({
-  args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    from: v.string(),
+    to: v.string(),
+    /**
+     * The version of the note this move was asked about. The offline queue
+     * sends it, so a rename typed on a train is refused with `CONFLICT` if the
+     * note changed meanwhile rather than carrying somebody's newer text under
+     * a name chosen for something else. See `movePath`.
+     */
+    expectedEtag: v.optional(v.string()),
+  },
   returns: movedValidator,
   handler: async (
       ctx,
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1795,7 +5771,14 @@ export const moveEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
-      operation: { kind: "move", from: args.from, to: args.to },
+      grantedNames,
+      actorName,
+      operation: {
+        kind: "move",
+        from: args.from,
+        to: args.to,
+        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -1818,7 +5801,7 @@ export const copyEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1826,6 +5809,7 @@ export const copyEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "copy", from: args.from, to: args.to },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -1849,7 +5833,7 @@ export const duplicateEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1857,6 +5841,7 @@ export const duplicateEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "duplicate", path: args.path },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -1878,14 +5863,19 @@ export const duplicateEntry = action({
  * because it is not destructive. Requires `editor`.
  */
 export const archiveEntry = action({
-  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The version this archive was asked about. See `moveEntry`. */
+    expectedEtag: v.optional(v.string()),
+  },
   returns: movedValidator,
   handler: async (
       ctx,
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1893,7 +5883,13 @@ export const archiveEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
-      operation: { kind: "archive", path: args.path },
+      grantedNames,
+      actorName,
+      operation: {
+        kind: "archive",
+        path: args.path,
+        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -1902,6 +5898,71 @@ export const archiveEntry = action({
       action: "file.archive",
       paths: [result.from, result.to],
       details: { files: result.paths.length, recoverable: true },
+    });
+    return result;
+  },
+});
+
+/** Move an entry into hidden, recoverable trash. Requires `editor`. */
+export const trashEntry = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The version this delete was asked about. See `moveEntry`. */
+    expectedEtag: v.optional(v.string()),
+  },
+  returns: movedValidator,
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "editor",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "trash",
+        path: args.path,
+        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      },
+    })) as Extract<OperationResult, { kind: "moved" }>;
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "file.archive",
+      paths: [result.from, result.to],
+      details: { files: result.paths.length, recoverable: true, trash: true },
+    });
+    return result;
+  },
+});
+
+/** Restore the exact entry returned by `trashEntry`. Requires `editor`. */
+export const restoreTrashEntry = action({
+  args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
+  returns: movedValidator,
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "editor",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "restoreTrash", from: args.from, to: args.to },
+    })) as Extract<OperationResult, { kind: "moved" }>;
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "file.move",
+      paths: [result.from, result.to],
+      details: { files: result.paths.length, restoredFromTrash: true },
     });
     return result;
   },
@@ -1934,7 +5995,7 @@ export const deleteEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "deleted" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -1942,6 +6003,7 @@ export const deleteEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "delete",
         path: args.path,
@@ -1980,7 +6042,7 @@ export const setNoteVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -1988,6 +6050,8 @@ export const setNoteVisibility = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
+      actorName,
       operation: {
         kind: "setVisibility",
         path: args.path,
@@ -2001,6 +6065,216 @@ export const setNoteVisibility = action({
       action: "visibility.note",
       paths: [result.path],
       details: { visibility: result.visibility, exception: result.exception },
+    });
+    return result;
+  },
+});
+
+/**
+ * Hand one note to a group, by name.
+ *
+ * The share dialog's verb. `setNoteVisibility` takes the two tiers and stays
+ * that way — widening its validator would make every caller that sets a
+ * visibility a way to mint a rule — so pointing a note at a group is its own
+ * action, with its own audit line and its own proof that the group is real.
+ *
+ * **The name is resolved against THIS workspace before anything is written.**
+ * Group names are globally unique but the authority is not: a name that exists
+ * in somebody else's context must be as unusable here as one that exists
+ * nowhere, and `groupByName` answers `null` for both. Writing an unresolvable
+ * name would not leak — the engines read it as reaching nobody — but it would
+ * put a rule in the customer's manifest that no owner can account for.
+ *
+ * Requires `owner`, like every other writer of `privacy.md`.
+ */
+export const setNoteGroup = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The group's full name, with or without its leading `@`. */
+    group: v.string(),
+  },
+  returns: visibilityResultValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+
+    // One resolver for the note and the folder alike, so the two cannot start
+    // answering differently about the same name — which is how a folder
+    // accepts an audience a note refuses, or the reverse. It also taught this
+    // path to accept a person's handle, which it did not before: a rule may
+    // name one person, and requiring a group of one to share with a colleague
+    // was the friction that made the feature unusable.
+    const name = await resolveNamedAudience(ctx, args.workspaceId, args.group);
+
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "setNoteGroup", path: args.path, group: name },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "visibility.note",
+      paths: [result.path],
+      details: { visibility: result.visibility, exception: result.exception },
+    });
+    return result;
+  },
+});
+
+/**
+ * Resolve the name an owner typed to the one that may go in `privacy.md`.
+ *
+ * Two kinds of subject, and the manifest cannot tell them apart — which is the
+ * point. `@atlas-leads` and `@kola` are the same token to the parser, because
+ * usernames, workspace slugs and group names share one global namespace
+ * precisely so an addressing scheme that gates access is never ambiguous.
+ *
+ * **Both are resolved against THIS workspace before anything is written.** A
+ * group name that exists in somebody else's context must be as unusable here as
+ * one that exists nowhere, and a handle must belong to somebody who is actually
+ * a member. Writing an unresolvable name would not leak — `grantedNamesFor`
+ * reads it as reaching nobody — but it would put a rule in the customer's
+ * manifest that no owner can account for, and it would read on screen as though
+ * somebody had been given access.
+ *
+ * One refusal for every way of failing, in the style `resolveAddressedUser`
+ * follows: no such group, a group of another workspace, no such handle, a
+ * handle belonging to a shared context rather than a person, and a person who
+ * is not a member here are all `GROUP_NOT_FOUND`. An owner who could tell them
+ * apart would have an oracle for which names exist on the platform.
+ */
+async function resolveNamedAudience(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  typed: string,
+): Promise<string> {
+  // Tolerated on the way in and stripped once: the console renders the `@`
+  // because that is what the manifest shows, and a caller pasting what they see
+  // should not be a refusal. Stored without it, because the manifest's own
+  // grammar supplies the `@`.
+  const name = typed.trim().replace(/^@+/, "").toLowerCase();
+  const resolved = await ctx.runQuery(internal.functions.files.namedAudience, {
+    workspaceId,
+    name,
+  });
+  if (resolved === null) {
+    throw new ConvexError({
+      code: "GROUP_NOT_FOUND",
+      message: "That is not a group or a member of this context.",
+    });
+  }
+  return resolved;
+}
+
+/**
+ * INTERNAL. The database half of `resolveNamedAudience`.
+ *
+ * Returns the name to store, or `null` for every way of saying no.
+ */
+export const namedAudience = internalQuery({
+  args: { workspaceId: v.id("workspaces"), name: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const group = await ctx.db
+      .query("workspaceGroups")
+      .withIndex("by_name", (q) => q.eq("name", args.name))
+      .unique();
+    if (group !== null) {
+      return group.workspaceId === args.workspaceId ? group.name : null;
+    }
+
+    // Not a group, so it may be a person. `resolveAddressedUser` is the only
+    // thing that decides who a handle belongs to — a `names` claim of
+    // `kind: "user"`, or the sole owner of a PERSONAL workspace with that slug
+    // — and every ambiguity there is already `null`.
+    const userId = await resolveAddressedUser(ctx, { kind: "name", value: args.name });
+    if (userId === null) return null;
+
+    // A rule naming somebody who is not a member reaches nobody, because
+    // `grantedNamesFor` intersects with membership. Refused rather than
+    // written, for the reason `addGroupMember` refuses a stranger: it would sit
+    // in the owner's manifest looking like access somebody had been given.
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", userId),
+      )
+      .unique();
+    return membership === null ? null : args.name;
+  },
+});
+
+/**
+ * Point a FOLDER at a group or a person, which everything inside it follows.
+ *
+ * The console's Share sheet called `setNoteGroup` for a folder too, and that
+ * function runs `fileOps.setVisibility`, which refuses anything that is not
+ * `.md`. So sharing a folder with a group answered "Only markdown notes can
+ * have their own visibility. Set the folder's default instead." — advice that
+ * names the right instrument and cannot be followed, because the control that
+ * sets a folder's default takes the two tiers and has no way to say a name.
+ *
+ * Its own action rather than a third value on `setDirectoryVisibility`, for the
+ * reason `setNoteGroup` is its own action: widening that validator would make
+ * every caller who sets a visibility a way to mint a rule.
+ *
+ * **The audit action is `visibility.folder.named`, not `visibility.folder`, and
+ * that is a decision rather than a spelling.** `visibility.folder` is on
+ * `MEMBER_VISIBLE_DETAIL_ACTIONS`, defended there on the details it carries:
+ * its subject is "one a member already sees first-hand in their own listing".
+ * True of `private` and `team` — a member watching a folder learns its default
+ * changed the moment their listing does. False the moment the value is a name:
+ * the row would hand a member the name of a group they are not in, which
+ * `listGroups` is owner-only to withhold. Splitting the action keeps the gate
+ * purely per-action, which is the shape it was deliberately given.
+ *
+ * Requires `owner`, like every other writer of `privacy.md`.
+ */
+export const setFolderGroup = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The full name, with or without its leading `@`. */
+    group: v.string(),
+  },
+  returns: visibilityResultValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+
+    const name = await resolveNamedAudience(ctx, args.workspaceId, args.group);
+
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "setFolderGroup", path: args.path, group: name },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "visibility.folder.named",
+      paths: [result.path],
+      details: { visibility: result.visibility },
     });
     return result;
   },
@@ -2030,7 +6304,7 @@ export const setDirectoryVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -2038,6 +6312,8 @@ export const setDirectoryVisibility = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
+      actorName,
       operation: {
         kind: "setFolderVisibility",
         path: args.path,
@@ -2077,7 +6353,7 @@ export const resetPrivacy = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "privacyReset" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -2085,6 +6361,7 @@ export const resetPrivacy = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "resetPrivacy" },
     })) as Extract<OperationResult, { kind: "privacyReset" }>;
 
@@ -2103,5 +6380,205 @@ export const resetPrivacy = action({
       },
     });
     return result;
+  },
+});
+
+/**
+ * Start the versioned on-bucket plumbing migration.
+ *
+ * Owner-only because it reorganizes Context's reserved objects, even though it
+ * never names or rewrites a note; the copy phase is resumable and
+ * non-destructive, and `runFileOperation` schedules cleanup only after the
+ * rollback window has elapsed.
+ */
+export const updateStorageLayout = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: storageMigrationResultValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    await ctx.scheduler.runAfter(0, internal.functions.files.runStorageLayoutMigration, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+    });
+    const result: Extract<OperationResult, { kind: "storageMigrated" }> = {
+      kind: "storageMigrated",
+      state: "copying",
+      objectsCopied: 0,
+      objectsVerified: 0,
+      objectsDeleted: 0,
+      conflicts: 0,
+    };
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "storage.layout_migration_requested",
+      paths: [],
+      details: {
+        state: result.state,
+        objectsCopied: result.objectsCopied,
+        objectsVerified: result.objectsVerified,
+        conflicts: result.conflicts,
+      },
+    });
+    return result;
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                  activity                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `activity.md`, read and marked as read.
+ *
+ * Here rather than in a `functions/activity.ts` of its own, for a reason worth
+ * writing down because it will come up again: the generated `api` type is at
+ * TypeScript's instantiation limit, and adding one more top-level function
+ * module pushes every inference in the repository's tests over it — 8
+ * pre-existing `implicitly any` errors become 151, none of them near the
+ * change. The feature is a view over a file, this is the file surface, and a
+ * section is cheaper than the alternative.
+ *
+ * The writing half is `lib/activity.ts`, called from `executeOperation`.
+ */
+/**
+ * Stamp a context as having changed, for the dot on its mark elsewhere.
+ *
+ * Monotonic, and that is the whole of its logic: two writers land lines in one
+ * context — a person in the console and somebody's AI client through the
+ * gateway — and neither knows about the other. A stamp that arrived late and
+ * overwrote a newer one would put the dot out while something newer than the
+ * reader's last visit was still unread.
+ *
+ * Internal: the gateway reaches it through `/gateway/activity`, and the
+ * console through `runFileOperation`. Nothing a client can call.
+ */
+export const markWorkspaceActivity = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    at: v.number(),
+    /**
+     * Whether the line that landed was written at `team` tier.
+     *
+     * Only a `team` line moves `activityTeamAt`, which is the stamp every
+     * member who is not the owner is served. Absent is the safe reading —
+     * private — so an older caller can only ever under-report.
+     */
+    teamVisible: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) return null;
+    // Clamped to now as well as forward-only: a clock ahead of ours must not
+    // park a context permanently in the future, where nothing is ever newer.
+    const at = Math.min(args.at, Date.now());
+    const patch: { activityAt?: number; activityTeamAt?: number } = {};
+    if ((workspace.activityAt ?? 0) < at) patch.activityAt = at;
+    if (args.teamVisible === true && (workspace.activityTeamAt ?? 0) < at) {
+      patch.activityTeamAt = at;
+    }
+    if (patch.activityAt === undefined && patch.activityTeamAt === undefined) return null;
+    await ctx.db.patch(args.workspaceId, patch);
+    return null;
+  },
+});
+
+/**
+ * When this person last looked at this context's activity.
+ *
+ * A query rather than part of the action below, because the unread line has to
+ * move the moment somebody marks it read — and an action's result does not
+ * re-run. The rows are fetched once; where the line sits among them is live.
+ */
+export const activityLastSeen = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.number(), v.null()),
+  handler: async (ctx, args): Promise<number | null> => {
+    const actorUserId = await callerId(ctx);
+    // Refused exactly as every other endpoint here refuses, rather than
+    // answering `null` for a context the caller is not in: the isolation
+    // census in `files.test.ts` compares the *whole* answer against the one a
+    // workspace that never existed gives, and "null" from both would pass that
+    // while still being a second shape of endpoint for anybody to reason about.
+    await requireWorkspaceAccess(ctx, args.workspaceId, actorUserId);
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", actorUserId),
+      )
+      .unique();
+    return membership?.activitySeenAt ?? null;
+  },
+});
+
+/**
+ * Catch up: everything recorded before now is read.
+ *
+ * Only ever moves forward. Two devices open at once, or a stale tab pressing
+ * this a minute late, must not walk the marker backwards and make a member
+ * see yesterday's work as new again.
+ */
+export const markActivitySeen = mutation({
+  args: { workspaceId: v.id("workspaces"), at: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceAccess(ctx, args.workspaceId, actorUserId);
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", actorUserId),
+      )
+      .unique();
+    if (!membership) return null;
+    const at = Math.min(args.at ?? Date.now(), Date.now());
+    if ((membership.activitySeenAt ?? 0) >= at) return null;
+    await ctx.db.patch(membership._id, { activitySeenAt: at });
+    return null;
+  },
+});
+
+/**
+ * The activity this caller may see, newest first.
+ *
+ * An action because it reads the bucket, and the bucket is behind the
+ * credential barrier — the same one every other file read goes through. What
+ * comes back is already filtered: `runFileOperation` applies the caller's own
+ * scope and granted names, so a member never receives an entry about a note
+ * they cannot open, and never a count of the ones they cannot.
+ */
+export const listActivity = action({
+  args: { workspaceId: v.id("workspaces"), limit: v.optional(v.number()) },
+  returns: v.array(activityEntryValidator),
+  // Annotated rather than inferred, for the reason `runFileOperation` gives:
+  // this action calls another function in the same deployment, and leaving the
+  // return to inference makes the generated `api` type recurse through itself.
+  // Unannotated, it costs 143 `implicitly any` errors across tests that have
+  // nothing to do with it — the whole repository's inference, not this file's.
+  handler: async (ctx, args): Promise<ActivityEntry[]> => {
+    const actorUserId: Id<"users"> = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+    );
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readActivity" },
+    });
+    if (result.kind !== "activity") return [];
+    const limit = Math.max(1, Math.min(args.limit ?? 50, 400));
+    return result.entries.slice(0, limit);
   },
 });

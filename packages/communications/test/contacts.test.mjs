@@ -13,7 +13,10 @@ import {
   NOTES_HEADING,
   activityLink,
   canAutoMerge,
+  contactDraftsFromCommunication,
+  contactPathForDraft,
   mergeContacts,
+  mergeContactNote,
   normalizeIdentifier,
   parseContactNote,
   parseContactView,
@@ -75,6 +78,46 @@ export function runContactChecks(check) {
   check("the person's own edit wins a merge", merged.name === "Adam O.");
   check("...and what the import said is recorded rather than dropped", merged.conflicts.some((line) => line.includes("Somewhere Else")));
   check("...and identifiers are unioned without duplicates", merged.identifiers.length === 2);
+  check("...and reprocessing the same message does not duplicate its activity", mergeContacts(adam, adam).activity.length === adam.activity.length);
+
+  // -- organic communication activity ------------------------------------
+  const mailEvent = {
+    channel: "email",
+    account: "owner-at-example-com",
+    messageId: "message-1",
+    threadId: "thread-1",
+    sentAt: "2026-09-07T18:04:11.221Z",
+    subject: "Quarterly numbers",
+    from: { name: "Adam Okonkwo", address: "Adam@Example.net" },
+    to: [{ name: "Owner", address: "owner@example.com" }],
+    body: "hello",
+  };
+  const organic = contactDraftsFromCommunication([mailEvent], { selfAddresses: ["OWNER@example.com"] });
+  check("an email sync derives its sender as a contact", organic.length === 1 && organic[0].name === "Adam Okonkwo");
+  check("the owner's own mailbox is not made into a contact", !organic.some((draft) => draft.name === "Owner"));
+  check("contact activity links to the message in the channel-day note", organic[0].activity[0].path === "0-inbox/email/owner-at-example-com/2026/09/2026-09-07.md" && organic[0].activity[0].anchor.startsWith("msg-"));
+  check("a contact path is stable on the identifier rather than the display name", contactPathForDraft(organic[0]) === contactPathForDraft({ ...organic[0], name: "A new display name" }));
+  const generated = mergeContactNote("", organic[0]);
+  const regenerated = mergeContactNote(generated.text, organic[0]);
+  check("reprocessing the same provider event produces the same contact bytes", regenerated.text === generated.text);
+  const edited = generated.text.replace("## Notes\n\n", "## Notes\n\nCall on Fridays.");
+  check("regeneration preserves the person's own contact notes", mergeContactNote(edited, organic[0]).text.includes("Call on Fridays."));
+
+  const chatDraft = contactDraftsFromCommunication([{
+    ...mailEvent,
+    channel: "google-chat",
+    account: "owner@example.com",
+    from: { name: "Priya", providerUserId: "users/123" },
+    to: [],
+  }])[0];
+  check("Google Chat uses its provider user id when it has no email address", chatDraft.identifiers[0].kind === "provider-user" && contactPathForDraft(chatDraft).includes("provider-user-users-123"));
+  check("Google Chat does not turn the connected user's own provider identity into a contact", contactDraftsFromCommunication([{
+    ...mailEvent,
+    channel: "google-chat",
+    account: "owner@example.com",
+    from: { name: "Owner", providerUserId: "users/me" },
+    to: [],
+  }], { selfProviderUserIds: ["users/me"] }).length === 0);
 
   // -- the page ------------------------------------------------------------
   const page = renderContactNote(adam);
@@ -219,5 +262,55 @@ export function runContactChecks(check) {
   check(
     "a defanged label reads back with no live link syntax in it",
     !parseContactView(attackedPage).activity[0].label.includes("]]") && !parseContactView(attackedPage).activity[0].label.includes("[[")
+  );
+
+  // -- a contact path is chosen by whoever wrote to the owner ---------------
+  //
+  // `contactPathForDraft` derives the key from an identifier a *sender*
+  // supplied, and the scheduled Gmail pass writes there. So the note already
+  // at that key is not necessarily one this package wrote, and replacing it
+  // with a rendered contact page destroys whatever it was. The encrypted case
+  // is the sharp one: ciphertext does not read as a contact page, and
+  // replacing it with plaintext strips the owner's lock off a note and takes
+  // the bytes under it with the write — the exact "it would look like a
+  // successful write" the gateway's `sealNoteContent` refuses.
+  const stranger = {
+    name: "Stranger",
+    identifiers: [{ kind: "email", value: "stranger@example.com" }],
+    activity: [{ date: "2026-09-07", path: "0-inbox/email/x/2026-09-07.md", anchor: "msg-0123456789abcdef", label: "hi", channel: "email" }],
+    updatedAt: "2026-09-07T09:00:00.000Z",
+  };
+  check(
+    "a hand-written note at a contact's key is left alone, not replaced by a generated page",
+    mergeContactNote("# People I owe a reply\n\nkept by hand.\n", stranger) === null
+  );
+  check(
+    "a note this package cannot read as a contact page is never rewritten as plaintext",
+    mergeContactNote("-----BEGIN CONTEXT ENCRYPTED NOTE-----\nopaque\n", stranger) === null
+  );
+  // Frontmatter is not the test — `type: contact` is. A person note the owner
+  // keeps by hand very often carries frontmatter of its own, so a guard that
+  // only asked "does this open with ---" would wave it straight through, and
+  // this is the check that would not notice.
+  check(
+    "an owner's note with frontmatter of its own is not mistaken for a contact page",
+    mergeContactNote('---\ntype: "person"\ntags: [crm]\n---\n\n# Stranger\n\nmine.\n', stranger) === null
+  );
+  check(
+    "an empty key is still a contact page waiting to be written",
+    mergeContactNote("", stranger)?.path === "0-inbox/contacts/email-stranger-example-com.md"
+  );
+  check(
+    "...and a contact page this package did write is still merged into",
+    (() => {
+      const first = mergeContactNote("", stranger);
+      const second = mergeContactNote(first.text, {
+        ...stranger,
+        identifiers: [{ kind: "email", value: "stranger@example.com" }],
+        activity: [{ date: "2026-09-08", path: "0-inbox/email/x/2026-09-08.md", anchor: "msg-0123456789abcdee", label: "again", channel: "email" }],
+        updatedAt: "2026-09-08T09:00:00.000Z",
+      });
+      return second !== null && second.text.includes("2026-09-08") && second.text.includes("2026-09-07");
+    })()
   );
 }

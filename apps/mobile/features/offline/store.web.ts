@@ -32,6 +32,23 @@ import { memoryStore, type KeyValueStore } from "./memory";
  * safe. `outbox.ts` keeps the entry in memory either way and `copy.ts` has a
  * sentence for a queue that could not be written down.
  *
+ * ## And `keys` does not swallow either, for a different reason
+ *
+ * A failed **listing** looks like a failed read and is not one. `get`'s callers
+ * are reads, and "nothing" is an honest cache miss to every one of them.
+ * `keys()` has no read callers at all: `forgetEverything`, `forgetWorkspace`,
+ * `forgetDepartedContexts`, `sweep`, `forgetPlace`, `forgetAllMeetings` and the
+ * verification `forget.ts` performs afterwards are every one of them a *clear*,
+ * and an empty listing does not tell a clear "nothing cached", it tells it
+ * **done**.
+ *
+ * Swallowing one therefore produced the failure `forget.ts` exists to prevent:
+ * signing out with the listing broken removed nothing, re-listed nothing,
+ * concluded that nothing was left, and answered `cleared` — with no warning,
+ * over note bodies still sitting in this origin's `localStorage`. The probe
+ * does not cover it: site data can be blocked, or the bucket filled, after a
+ * probe that succeeded.
+ *
  * ## Why the probe writes rather than feature-detects
  *
  * `typeof window.localStorage !== "undefined"` is true in every one of the
@@ -83,17 +100,15 @@ export function openStore(): KeyValueStore {
         // to tolerate.
       }
     },
+    // Deliberately unguarded too, and for a different reason than `set` —
+    // see the file comment.
     keys: async () => {
-      try {
-        const found: string[] = [];
-        for (let index = 0; index < storage.length; index += 1) {
-          const key = storage.key(index);
-          if (key !== null) found.push(key);
-        }
-        return found;
-      } catch {
-        return [];
+      const found: string[] = [];
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index);
+        if (key !== null) found.push(key);
       }
+      return found;
     },
   };
 }

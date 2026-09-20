@@ -41,6 +41,8 @@ import { createRoot } from "react-dom/client";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
+import { layout } from "../features/design/tokens";
+import { resetReadMode } from "../features/console/files/readMode";
 
 const mockInsets = { top: 59, bottom: 34, left: 0, right: 0 };
 
@@ -124,12 +126,14 @@ const FILE = [
 ].join("\n");
 
 /**
- * The same shape as `FILE`, with a title short enough that it never needs
- * `crumbs.ts`'s width budget to give a folder up — for the tests below whose
- * claim is about a folder segment being *pressable*, not about what happens
- * when the row runs out of room for one. `noteChrome.test.ts`'s own "a deep
- * path elides its middle" test is where that second claim is made, against
- * `FILE`'s own sentence-length title.
+ * The same shape as `FILE`, with a short title — used where a test's claim is
+ * about a folder segment being *pressable* and the title's own length is not
+ * the point. `crumbs.ts` used to have a width budget that would give a folder
+ * up beside a longer title; there is no such budget left to avoid triggering,
+ * but the short fixture stays for tests that have no reason to care what the
+ * title says. `noteChrome.test.ts`'s own "a deep path renders every segment"
+ * test is where `FILE`'s sentence-length title is deliberately used instead,
+ * against the deepest path — nothing elides even there any more.
  */
 const SHORT_FILE = [
   "---",
@@ -182,6 +186,9 @@ function dataWith(
     toggleFolder: () => {},
     selectedPath: path,
     select: () => {},
+    // `useTabs` calls this when the last tab closes — see the last-tab rule at
+    // the foot of that file. A stub missing it is a crash, not a quiet no-op.
+    deselect: () => false,
     editor: { ...emptyEditor, status: "clean", path, baseline: FILE, draft: FILE },
     setDraft: () => {},
     save: () => {},
@@ -219,6 +226,10 @@ function dataWith(
     setSharePreviewTitle: () => {},
     search: undefined,
     ...over,
+  // No move into another context is running. `BrowsePane` reads this on
+  // every render, so a fixture without it crashes the pane rather than
+  // failing the assertion the test was written for.
+  contextMoves: [],
   } as unknown as FileBrowser;
 
   return {
@@ -243,7 +254,7 @@ function dataWith(
       connected: true,
       status: "connected",
       provider: "Cloudflare R2",
-      bucket: "brain",
+      bucket: "notes-bucket",
       endpoint: "https://example.invalid",
       region: "auto",
       accessKey: "EXAMPLEKEY",
@@ -271,7 +282,47 @@ afterEach(() => {
 });
 
 /** A phone. jsdom reports a zero width, which every density test has to stub. */
+/**
+ * Something inside the share sheet.
+ *
+ * `mountConsole`'s own `find` is scoped to the mount container, and the sheet
+ * is a `Modal` — react-native-web portals it to the document, outside that
+ * container. Everything asserted about the sheet therefore goes through here;
+ * a `find` would return `null` for a control that is on screen.
+ */
+const sheet = (testId: string) =>
+  document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+
+/**
+ * A live unlisted link on the note, as the two places that care about one both
+ * see it.
+ *
+ * `openLinkPaths` is *derived* from `shares` in `useFileBrowser`, so setting
+ * only the derived half is a state the real app cannot be in — and the sheet
+ * reads `shares`, which is the source. Both are set here so the fixture stays
+ * a state that can actually occur.
+ */
+const OPEN_LINK = {
+  shareId: "s1",
+  token: "t".repeat(24),
+  recipient: "Anyone with access",
+  audience: "anyone" as const,
+  entryPath: NOTE,
+  titleInPreview: false,
+  createdAt: 0,
+};
+
 function mountConsole(data: ConsoleData, width = 390) {
+  /*
+    Reading mode is module state — `files/readMode.ts` says why it is a bus
+    rather than a route parameter — so a test that turns it on leaves it on for
+    the next one. Reset here rather than in a hook because a fresh mount is
+    exactly the moment the mode should be its default, and every test in this
+    file starts with one. Found the hard way: the editability check below failed
+    in a full run and passed alone, because the test above it had pressed the
+    eye and never let go.
+  */
+  resetReadMode();
   mockData = () => data;
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: width,
@@ -499,25 +550,68 @@ describe("the path bar", () => {
     expect(app.find("breadcrumb-leaf")!.textContent).toBe("index");
   });
 
-  test("a deep path elides its middle and keeps the last segment", () => {
-    /*
-      Nothing here fits without giving something up: four real folder names
-      beside `FILE`'s sentence-length title run well past 390pt, so the row
-      protects the leaf and gives up folders from the *front* — the immediate
-      parent (`a/b/c/d`) is the one worth keeping pressable longest, because it
-      is what "step back" actually reaches, and it is the last one to go.
-    */
+  /**
+   * **The reversal this branch is for.** Four real folder names beside
+   * `FILE`'s sentence-length title run well past 390pt — the exact fixture
+   * that used to fold `a`, `a/b` and `a/b/c` into a `…` and keep only `a/b/c/d`
+   * live. There is no elision to fall back to any more: `NavBand`'s row
+   * scrolls, so every ancestor stays its own pressable segment and the row
+   * simply runs long instead of hiding one.
+   *
+   * SABOTAGE: restored `crumbsFor`'s old `maxFolders`/cap branch. Fails here —
+   * `a`, `a/b` and `a/b/c` would go missing and `breadcrumb-gap` would exist.
+   */
+  test("a deep path renders every segment, in order, with no gap crumb", () => {
     const deep = "a/b/c/d/the-lean-startup.md";
     const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
 
-    expect(app.find("breadcrumb-gap")).not.toBeNull();
-    // The root is folded away first...
-    expect(app.find2("Open a")).toBeNull();
-    expect(app.find2("Open a/b")).toBeNull();
-    expect(app.find2("Open a/b/c")).toBeNull();
-    // ...and the immediate parent is the one still live.
-    expect(app.find2("Open a/b/c/d")).not.toBeNull();
+    expect(app.find("breadcrumb-gap")).toBeNull();
+    for (const folder of ["a", "a/b", "a/b/c", "a/b/c/d"]) {
+      expect(app.find2(`Open ${folder}`)).not.toBeNull();
+    }
     expect(app.find("breadcrumb-leaf")!.textContent).toBe("The storage binding");
+  });
+
+  /**
+   * A path you can only read is a label — every folder segment in that longer
+   * row still has to be a real target, not only a visible one.
+   */
+  test("pressing any segment navigates to that folder", () => {
+    const select = jest.fn(() => true);
+    const deep = "a/b/c/d/the-lean-startup.md";
+    const app = mountConsole(dataWith({ select }, { path: deep, name: "the-lean-startup.md" }));
+
+    app.press(app.find2("Open a/b/c"));
+    expect(select).toHaveBeenCalledWith("a/b/c");
+  });
+
+  /**
+   * **Every folder segment is a real 44pt target**, checked against the box a
+   * browser actually hit-tests rather than a constant fed to a prop that never
+   * reaches it.
+   *
+   * This used to be `hitSlop`, asserted in `breadcrumbPath.test.ts` by holding
+   * the exact object passed to it — the only thing a jsdom test *could* hold,
+   * because react-native-web's `View` drops `hitSlop` from what it forwards to
+   * the DOM before any hit-testing happens. Measured live in a real Chromium
+   * build of this page: pressing a few pixels above a segment's visible box
+   * landed on the row's plain container, never the segment, all the way to the
+   * box's own edge — the slop bought nothing there. `minHeight` is a real
+   * layout property instead, so it is what both platforms actually hit-test
+   * against, and — because it is real — a rendered assertion can finally see
+   * it, here, rather than re-deriving a number `Breadcrumb.tsx` already owns.
+   *
+   * SABOTAGE: `segment`'s `minHeight: layout.minTouchTarget` dropped in
+   * `Breadcrumb.tsx`. Fails here.
+   */
+  test("every folder segment is a real 44pt target, not just a visible one", () => {
+    const deep = "a/b/c/d/the-lean-startup.md";
+    const app = mountConsole(dataWith({}, { path: deep, name: "the-lean-startup.md" }));
+
+    const segment = app.find("breadcrumb-folder-a/b/c");
+    expect(segment).not.toBeNull();
+    const minHeight = Number.parseFloat(getComputedStyle(segment!).minHeight);
+    expect(minHeight).toBeGreaterThanOrEqual(layout.minTouchTarget);
   });
 
   test("the context is a button at the head of the path, not a segment", () => {
@@ -626,6 +720,29 @@ describe("the path bar", () => {
     expect(app.container.textContent).toContain("the-lean-startup");
   });
 
+  /**
+   * **The pointer breadcrumb's own row does not grow to the touch floor.**
+   *
+   * `layout.minTouchTarget` is right for `NavBand`'s row because that row is
+   * already 44 tall — `CurrentContextPill`'s own target holds it there — so a
+   * folder segment growing to match costs nothing visible. The pointer bar
+   * makes no such claim: its row is a plain 22.15pt line, and a folder segment
+   * that grew to 44 there would grow the *row*, not just the target — a real,
+   * visible regression on a surface a mouse, not a thumb, presses.
+   *
+   * SABOTAGE: `minHeight: layout.minTouchTarget` moved from `segmentTouch`
+   * back onto `segment` itself in `Breadcrumb.tsx` — the shape an earlier,
+   * broader version of this fix took. Fails here: the pointer segment's
+   * `minHeight` reads 44 instead of the unset value this asserts against.
+   */
+  test("a pointer layout's folder segment stays its own height, not the touch floor", () => {
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }), 1200);
+    const segment = app.find("breadcrumb-folder-3-resources");
+    expect(segment).not.toBeNull();
+    const minHeight = Number.parseFloat(getComputedStyle(segment!).minHeight || "0");
+    expect(minHeight).toBeLessThan(layout.minTouchTarget);
+  });
+
   test("and a pointer layout mid-switch draws neither the line nor the note's actions", () => {
     /*
       The same seam as the phone's, and it is worth its own case because the
@@ -673,7 +790,9 @@ describe("the top row ends in one group, and it is the note's", () => {
   test("an account, the contexts, and the note's own actions", () => {
     const app = mountConsole(dataWith());
 
-    expect(app.find("account-sign-out")).not.toBeNull();
+    // The slot's own control, not `account-sign-out`: that testID now names a
+    // row inside the menu this trigger opens, not something on screen at rest.
+    expect(app.find("account-menu")).not.toBeNull();
     expect(app.find("context-strip")).not.toBeNull();
     expect(app.find("note-share")).not.toBeNull();
 
@@ -683,6 +802,116 @@ describe("the top row ends in one group, and it is the note's", () => {
     expect(app.find("storage-pill")).toBeNull();
     // And search is on the toolbar, where the thumb is, not doubled up here.
     expect(app.find("frame-search")).toBeNull();
+  });
+
+  /**
+   * THE eye. Reading mode is a control somebody has to find, and "it is in the
+   * trailing group" is exactly the claim that was made about Share once and was
+   * not true of any screen.
+   *
+   * It leads the group rather than following Share: this changes how the note
+   * in front of you is drawn and is undone by pressing it again, Share opens a
+   * sheet that grants somebody access, and the reversible one is the safer
+   * neighbour for a thumb.
+   *
+   * ## Sabotage record
+   *
+   * Dropping the button from `_layout.tsx`: **3** failed here. Leaving it drawn
+   * but never passing `reading` into `NoteEditor`: **1** — the editability
+   * check, which is the one that says the press does anything.
+   */
+  test("the note carries a reading toggle, before Share", () => {
+    const app = mountConsole(dataWith());
+    const eye = app.find("note-read");
+    expect(eye).not.toBeNull();
+    // Before Share in the DOM, which is what "leads the group" means on a row
+    // laid out in order.
+    const share = app.find("note-share");
+    expect(eye!.compareDocumentPosition(share!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  /**
+   * The glyph and the label say the same thing, and the glyph used to say
+   * nothing.
+   *
+   * This was "it names the act, since a glyph cannot" — one eye, whose state
+   * lived in a `selected` accent fill because a single mark cannot draw both
+   * "will hide the markup" and "will bring it back". Two marks can, so the
+   * icon now carries the act and the fill is gone: lighting the *pencil* would
+   * say "pencil mode is on", which is the opposite of what pressing it does.
+   *
+   * `data-icon` is what makes the swap assertable at all — an icon drawn from
+   * `View`s or from a `<Path>` has no text in it, which is the whole reason
+   * `Icon.tsx` puts the name in the DOM.
+   */
+  test("...and the glyph names the act, alongside the label", () => {
+    const app = mountConsole(dataWith());
+    const glyph = () => app.find("note-read")!.querySelector("[data-icon]")!.getAttribute("data-icon");
+
+    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Read this note");
+    expect(glyph()).toBe("eye");
+
+    app.press(app.find("note-read"));
+
+    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
+    expect(glyph()).toBe("pencil");
+  });
+
+  /**
+   * The press has to reach the document, or the eye is decoration.
+   *
+   * `contenteditable` is what `editability` drops, and it is what every other
+   * consequence of read-only hangs off — the paste, drop and cut handlers all
+   * open with the same question. Asserting on it rather than on a class is
+   * asserting on the thing that makes the mode true.
+   */
+  test("...and pressing it stops the note being editable", () => {
+    const app = mountConsole(dataWith());
+    const editable = () =>
+      document.body.querySelector('[contenteditable="true"]') !== null;
+    expect(editable()).toBe(true);
+    app.press(app.find("note-read"));
+    expect(editable()).toBe(false);
+    app.press(app.find("note-read"));
+    expect(editable()).toBe(true);
+  });
+
+  /**
+   * …AND THE NOTE ITSELF MAY ASK, WHICH IS THE SAME MODE FROM THE OTHER END.
+   *
+   * A page built around a ` ```form ` fence is drawn as a fillable form only
+   * while it is read (`formBlock.ts`), so the one kind of page whose purpose is
+   * to be *used* opened as a code fence and every visitor had to find the eye
+   * first. Its author can now say so in the frontmatter.
+   *
+   * This is the claim that the wiring exists at all: `files/viewMode.ts` has
+   * its own suite for the vocabulary and the layering (`noteViewMode.test.ts`),
+   * and all of it is inert if `BrowsePane` never calls the hook. So the
+   * assertion here is the same `contenteditable` the press is asserted on
+   * above, reached without a press.
+   *
+   * ## Sabotage record
+   *
+   * Dropping `useDeclaredView` from `BrowsePane`: **1** failed here — this one,
+   * on its first assertion — and **none** in `noteViewMode.test.ts`, which is
+   * the whole reason this test is in this file as well.
+   */
+  test("a note that declares `view: read` opens read, with no press at all", () => {
+    const declaring = FILE.replace("status: unprocessed", "view: read");
+    const app = mountConsole(
+      dataWith({
+        editor: { ...emptyEditor, status: "clean", path: NOTE, baseline: declaring, draft: declaring },
+      }),
+    );
+
+    expect(document.body.querySelector('[contenteditable="true"]')).toBeNull();
+    // The control agrees with the state rather than lagging it: the way out is
+    // the pencil, because the note is already being read.
+    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
+
+    // And the person outranks the file — the one place a broken fence is fixed.
+    app.press(app.find("note-read"));
+    expect(document.body.querySelector('[contenteditable="true"]')).not.toBeNull();
   });
 
   /**
@@ -708,92 +937,163 @@ describe("the top row ends in one group, and it is the note's", () => {
   });
 
   /**
-   * **A folder and a note are acted on identically now.**
+   * ## The padlock is gone, and every claim it carried moved into the sheet
    *
-   * `FolderView` used to draw its own pair — a "Share…" pill in the heading and
-   * a full-width "Make this folder private" under it — which put the same two
-   * capabilities behind two different sets of controls in two different places,
-   * and on a phone the folder's pair was the first two things on the screen.
-   * The group in the top bar is the one answer for both.
+   * The trailing group used to hold two icons. They were two controls for one
+   * question — and they overlapped on the dangerous state: the padlock's third
+   * position minted exactly the share row the sheet's own "Create link"
+   * minted. Worse, most notes sit at `team` already by folder inheritance, so
+   * a note was **one tap on an unlabelled 20pt icon** away from a link that
+   * needs no account, with the glyph changing to a globe as the only feedback.
+   *
+   * `scope.ts` is untouched — it is still the pure model of what the positions
+   * are and how to move between them, and `setScope` is still the single point
+   * every surface goes through. Only the control driving it changed, so the
+   * tests below are the same claims re-asked where they now live: a named
+   * segmented control inside the share sheet.
    */
-  test("a folder gets the same two actions, in the same group", () => {
+  test("a folder is acted on through the same one button", () => {
     const app = mountConsole(
       dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
     );
     expect(app.find("note-share")).not.toBeNull();
-    expect(app.find("note-visibility")).not.toBeNull();
+    // The padlock is gone for a folder too — there is only ever one icon now.
+    expect(app.find("note-visibility")).toBeNull();
   });
 
-  test("the lock draws the state it is in, and names the state it moves to", () => {
-    // Two different things on purpose, and the disagreement is the point: the
-    // icon is looked at and says what is true, the label is read aloud before
-    // the press and says what will happen. See `ICON_NAMES`.
+  /**
+   * **A folder has three positions now, and that is a change rather than a
+   * relaxation.** This asserted the opposite, on the ground that
+   * `createLinkShare` was note-only and a third position would be a press that
+   * always fails. A folder link exists: it reaches the folder's whole subtree,
+   * mirroring Drive and Dropbox, and it is stricter than either because every
+   * path is still re-derived through the live `privacy.md` at `team` scope
+   * rather than inherited from the folder.
+   *
+   * The press no longer always fails, so the control no longer hides it.
+   */
+  test("a folder's sheet offers the public-link position too", () => {
+    const app = mountConsole(
+      dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
+    );
+    app.press(app.find("note-share"));
+    expect(sheet("share-audience-private")).not.toBeNull();
+    expect(sheet("share-audience-team")).not.toBeNull();
+    expect(sheet("share-audience-anyone")).not.toBeNull();
+  });
+
+  /**
+   * THE WORDS REACH THE SCREEN, NOT JUST THE MODULE.
+   *
+   * `audienceWords.test.ts` proves what the sentences say; this proves the
+   * sheet is the thing saying them. The two halves are worth keeping apart:
+   * the vocabulary changed underneath a dialog that went on rendering, and
+   * every existing test passed either way because none of them read a label.
+   *
+   * "Everyone in @…" rather than "Workspace" is the whole point — a set the
+   * reader can check against the People list, instead of a word naming a set
+   * that exists nowhere.
+   */
+  test("the sheet names the context rather than saying `team`", () => {
+    const app = mountConsole(dataWith());
+    app.press(app.find("note-share"));
+    const team = sheet("share-audience-team")!;
+    expect(team.getAttribute("aria-label")).toMatch(/^Everyone in @/);
+    expect(team.getAttribute("aria-label")).not.toMatch(/workspace/i);
+    expect(sheet("share-audience-private")!.getAttribute("aria-label")).toBe("Restricted");
+  });
+
+  /**
+   * What the icon could only imply, the control says. A padlock has to be
+   * decoded; a marked position is read.
+   */
+  test("the sheet names every position and marks the one it is in", () => {
     const shared = mountConsole(dataWith());
-    const lock = shared.find("note-visibility")!;
-    expect(lock.getAttribute("aria-label")).toBe("Make a link anyone can open");
-    expect(lock.querySelector('[data-icon="lockOpen"]')).not.toBeNull();
+    shared.press(shared.find("note-share"));
+    expect(sheet("share-audience-team")!.getAttribute("aria-checked")).toBe("true");
+    expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("false");
 
     const priv = mountConsole(dataWith({}, { visibility: "private", inherited: "private" }));
-    const shut = priv.find("note-visibility")!;
-    expect(shut.getAttribute("aria-label")).toBe("Share this with your team");
-    expect(shut.querySelector('[data-icon="lock"]')).not.toBeNull();
+    priv.press(priv.find("note-share"));
+    expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("true");
   });
 
-  test("pressing it asks the server to move the scope, once", () => {
-    // Asserted on the *call*, not on what the screen then shows: the console
-    // does not move a visibility optimistically, so a test that read the icon
-    // afterwards would pass on a button wired to nothing.
-    //
-    // A team note's next position is the link anybody can open — the middle of
-    // the three — so this also pins that the widening step is the one taken
-    // rather than the close.
+  /**
+   * Asserted on the *call*, not on what the screen then shows: the console does
+   * not move a visibility optimistically, so a test reading the control
+   * afterwards would pass on a segment wired to nothing.
+   */
+  test("pressing a position asks the server to move the scope, once", () => {
     const moved: unknown[] = [];
     const app = mountConsole(
       dataWith({ setScope: (...args: unknown[]) => moved.push(args) } as never),
     );
-    app.press(app.find("note-visibility"));
+    app.press(app.find("note-share"));
+    app.press(sheet("share-audience-private"));
+    expect(moved).toEqual([[NOTE, "file", "team", "private"]]);
+  });
+
+  /**
+   * **The step the padlock used to take on one unlabelled tap.**
+   *
+   * The whole reason this control moved. Narrowing is immediate — a dialog
+   * that asks before making something *more* private teaches people to dismiss
+   * it unread, which is the habit that then costs them the one that mattered —
+   * but publishing asks, in words, and nothing is minted until it is answered.
+   */
+  test("going public asks first, and mints nothing until it is answered", () => {
+    const moved: unknown[] = [];
+    const app = mountConsole(
+      dataWith({ setScope: (...args: unknown[]) => moved.push(args) } as never),
+    );
+    app.press(app.find("note-share"));
+    app.press(sheet("share-audience-anyone"));
+
+    // Asked, and NOT done.
+    expect(sheet("share-confirm-public")).not.toBeNull();
+    expect(moved).toEqual([]);
+
+    app.press(sheet("share-confirm-public-yes"));
     expect(moved).toEqual([[NOTE, "file", "team", "anyone"]]);
   });
 
   /**
-   * The third position, and the one property this screen must not get wrong:
-   * a globe means a link that works, so it is drawn from the share row AND the
-   * manifest together. `scopeOf` is where that rule lives; this is the wiring.
+   * The one property this screen must not get wrong: a live link means the
+   * `anyone` position is the true one, and it is drawn from the share row AND
+   * the manifest together. `scopeOf` is where that rule lives; this is the
+   * wiring.
    */
-  test("a note with a live open link draws the globe and closes on a press", () => {
-    const moved: unknown[] = [];
+  test("a note with a live open link reads as the link position", () => {
     const app = mountConsole(
-      dataWith({
-        openLinkPaths: new Set([NOTE]),
-        setScope: (...args: unknown[]) => moved.push(args),
-      } as never),
+      dataWith({ openLinkPaths: new Set([NOTE]), shares: [OPEN_LINK] } as never),
+      390,
     );
-    const globe = app.find("note-visibility")!;
-    expect(globe.getAttribute("aria-label")).toBe("Make this private");
-    expect(globe.querySelector('[data-icon="globe"]')).not.toBeNull();
-
-    app.press(globe);
-    expect(moved).toEqual([[NOTE, "file", "anyone", "private"]]);
+    app.press(app.find("note-share"));
+    expect(sheet("share-audience-anyone")!.getAttribute("aria-checked")).toBe("true");
   });
 
-  test("…and a private note with a stale link row still draws the padlock", () => {
+  test("…and a private note with a stale link row still reads as private", () => {
     // The link grants nothing over a private note — the server re-derives
-    // visibility from the live manifest on every read — so a globe here would
-    // tell somebody they had published something they had not.
+    // visibility from the live manifest on every read — so reading as `anyone`
+    // here would tell somebody they had published something they had not.
     const app = mountConsole(
-      dataWith({ openLinkPaths: new Set([NOTE]) } as never, {
+      dataWith({ openLinkPaths: new Set([NOTE]), shares: [OPEN_LINK] } as never, {
         visibility: "private",
         inherited: "private",
       }),
     );
-    expect(app.find("note-visibility")!.querySelector('[data-icon="lock"]')).not.toBeNull();
+    app.press(app.find("note-share"));
+    expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("true");
+    expect(sheet("share-audience-anyone")!.getAttribute("aria-checked")).toBe("false");
   });
 
-  test("and the lock is absent for anybody the server would refuse", () => {
+  test("the audience control is absent — not dimmed — for anybody the server would refuse", () => {
     const member = mountConsole(dataWith({ canSetVisibility: false }));
-    expect(member.find("note-visibility")).toBeNull();
-    // The positive control, the same one Share's test uses: the note opened.
-    expect(member.find("note-inline-title")).not.toBeNull();
+    member.press(member.find("note-share"));
+    expect(sheet("share-audience")).toBeNull();
+    // The positive control: the sheet did open, so this cannot pass by mounting
+    // nothing at all.
+    expect(sheet("share-access")).not.toBeNull();
   });
 
   test("nor for `privacy.md`, which is the access map itself", () => {
@@ -801,10 +1101,11 @@ describe("the top row ends in one group, and it is the note's", () => {
       dataWith({}, { path: "privacy.md", name: "privacy.md", readOnly: true }),
     );
     expect(app.find("note-inline-title")).not.toBeNull();
+    // Share is absent, so there is no sheet and therefore no audience control:
+    // `privacy.md` *is* the access map, and a control offering to change its
+    // visibility would be offering to edit the file that decides everybody
+    // else's.
     expect(app.find("note-share")).toBeNull();
-    // The lock too: `privacy.md` *is* the access map, so a control offering to
-    // change its visibility would be offering to edit the file that decides
-    // everybody else's.
     expect(app.find("note-visibility")).toBeNull();
   });
 });
@@ -814,7 +1115,7 @@ describe("the top row ends in one group, and it is the note's", () => {
  *
  * This block was `the file tree ends in a vault switcher`, and it asserted
  * Obsidian's block: the context's name with a chevron and a gear, a row of five
- * icon verbs, and one muted line reading `R2 · brain · 1 note, 0 folders`. Its
+ * icon verbs, and one muted line reading `R2 · notes-bucket · 1 note, 0 folders`. Its
  * three tests opened `frame-drawer-toggle` first, because all of it lived
  * inside the file tree, and the file tree was a drawer.
  *
@@ -879,7 +1180,7 @@ describe("the tree's foot became the context root page's foot", () => {
     // One muted line: the binding, then what has been read of the tree. No
     // index figure, because this fixture's `fastSearch.status` is `null` —
     // "not answered yet" — and an absence is never drawn as a zero.
-    expect(app.find("context-foot")!.textContent).toBe("R2 · brain · 1 note, 0 folders");
+    expect(app.find("context-foot")!.textContent).toBe("R2 · notes-bucket · 1 note, 0 folders");
   });
 
   test("a pointer layout draws no context foot", () => {

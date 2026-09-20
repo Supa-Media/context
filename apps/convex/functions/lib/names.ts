@@ -11,6 +11,8 @@
  * `@name` prefix.
  */
 
+import { VENDORED_BLOCKLIST } from "./reservedNames.generated";
+
 /** Shortest allowed name. Two characters, so `@lk` and `@ab` are claimable. */
 export const NAME_MIN_LENGTH = 2;
 
@@ -134,7 +136,123 @@ const MAIL_ROLE_NAMES = [
  */
 export const RFC2142_MANDATORY_NAMES: readonly string[] = ["postmaster", "abuse"];
 
-export const RESERVED_NAMES: ReadonlySet<string> = new Set([
+/**
+ * Reserved as a *handle*, and deliberately fine as a group label.
+ *
+ * These read as us — or as a role, or as a promise this product makes — only
+ * when they stand alone at the top of the namespace. A group name is always
+ * stored as `<workspace-slug>-<label>`, so `@supa-owners` is a group inside a
+ * context somebody already has to be a member of, and refusing it would cost
+ * the natural name for the most obvious group there is. See
+ * `RESERVED_GROUP_LABELS` below for which half of the list a label is held to.
+ */
+const TOP_LEVEL_ONLY_NAMES: readonly string[] = [
+  /* ---------------------------------------------------------------------- *
+   *            names this product in particular must not hand out            *
+   * ---------------------------------------------------------------------- */
+
+  // The plural of a reserved word. `brain`/`brains` and `workspace`/
+  // `workspaces` are reserved as pairs above; `context` was not, and
+  // `@contexts` reads as the product's own index of them.
+  "contexts",
+
+  // The three roles `workspaceMembers.role` is written in. `@owner` in a
+  // context list — or in a form's `by` column beside a real person — is the
+  // cheapest impersonation this namespace offers, and none of the three was
+  // covered by the vendored lists.
+  "owner",
+  "owners",
+  "editor",
+  "editors",
+  "member",
+  "members",
+
+  /*
+    NEVER RESERVE A NAME YOU INTEND TO HOLD.
+
+    `supa`, `supa-media` and `context-lc` are deliberately **absent** from this
+    list, and the reason is worth stating because each looks like it belongs
+    here. `checkAvailability` runs `validateName` and there is no bypass — not
+    for an admin, not for a seeding script, not for us. A reserved name is
+    refused for everyone, so reserving the handle of a context we actually run
+    means we could never recreate it after a delete or a migration.
+
+    What protects a name we hold is holding it: the row in `names` is what makes
+    it unavailable. The lookalikes and compounds below are the ones worth
+    reserving, because nobody legitimate is ever going to want them.
+  */
+
+  // Spellings of `@context-lc`, the context pinned into every account's list.
+  // A handle that reads as it is a handle that reads as us.
+  "contextlc",
+  "context-app",
+  "contextapp",
+  "getcontext",
+  "get-context",
+  "the-context",
+  "thecontext",
+  "mycontext",
+  "my-context",
+  "context-hq",
+  "contexthq",
+
+  /*
+    LOOKALIKES OF THAT CONTEXT, WHICH `RESERVED_LABEL_FORM` CANNOT SEE.
+
+    That check catches a homograph smuggled in from outside the charset. These
+    are inside it: in the system UI face, digit `1` and letter `l` are one
+    glyph, so `@context-1c` beside `@context-lc` is indistinguishable.
+
+    Named entries rather than a rule, deliberately. The general fix is skeleton
+    matching — fold `1`→`l`, `0`→`o`, drop hyphens, compare — and it changes
+    what `validateName` *means* rather than what it knows, so it can refuse a
+    name somebody already holds. It is its own change, and `docs/decisions/`
+    records it as owed.
+  */
+  "context-1c",
+  "context1c",
+  "context-ic",
+  "contextic",
+
+  // Compounds that read as a staffed channel. The bare words (`support`,
+  // `help`, `team`, `admin`, `security`, `billing`) are reserved above; the
+  // compound with the product name is the form a phishing handle takes.
+  "context-team",
+  "context-support",
+  "context-help",
+  "context-admin",
+  "context-security",
+  "context-billing",
+  "context-staff",
+  "context-official",
+  "official-context",
+
+  // Promises of this product specifically. `export` most of all: the export
+  // path is what non-negotiable #1 rests on, and `@export` reads as ours.
+  "export",
+  "exports",
+  "import",
+  "imports",
+  "credential",
+  "credentials",
+  "secret",
+  "secrets",
+  "keys",
+  // `share` is vendored; its plural is not, and a share link is a capability
+  // this product mints.
+  "shares",
+];
+
+/**
+ * The names this product decided on, one at a time, each with its reason.
+ *
+ * Separate from the vendored blocklist because the two answer different
+ * questions and one caller needs only this half: a **group label** is held to
+ * these and not to the bulk — see `RESERVED_GROUP_LABELS`.
+ */
+const PRODUCT_RESERVED_NAMES: readonly string[] = [
+
+
   ...MAIL_ROLE_NAMES,
   // Routing / infrastructure
   "api",
@@ -151,6 +269,10 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   // handle was also a mailbox sharing a name with one of our own endpoints.
   // `t` and `.well-known` need no entry: the first is too short for a name and
   // the second has a character this namespace does not allow.
+  // The agent turn runs at `/agent` on the gateway, on exactly the terms
+  // `meetings` below records: claimed as a handle it is a context nobody can
+  // address by name, and `agent@` the company's own domain besides.
+  "agent",
   "granola-webhook",
   "mcp",
   // Meeting ingestion runs at `/meetings/sessions` on the gateway. Claimed as a
@@ -158,6 +280,14 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   // because ingestion is on the apex, `meetings@` the company's own domain: the
   // mailbox every device that records a meeting looks like it is talking to.
   "meetings",
+  // The presence socket runs at `/presence` on the gateway, on exactly the
+  // terms `agent` and `meetings` above record. Claimed as a handle it is a
+  // context nobody can address by name — and, because ingestion is on the
+  // apex, `presence@` the company's own domain besides. `names.test.ts` is
+  // what caught this: `session.js`'s own comment already claimed the name was
+  // "in the control plane's RESERVED_NAMES beside it" one commit before it
+  // was, which is the shape of drift this list exists to refuse.
+  "presence",
   "oauth",
   "static",
   "status",
@@ -196,10 +326,19 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "root",
   "security",
   "system",
-  // Product vocabulary (see CLAUDE.md, "Vocabulary"): a person's personal
-  // context is a "brain", a shared one is a "workspace" (already reserved
-  // above). Claimable, `brain@context.lc` would receive mail people believed
-  // was going to the product, and `@brain/...` would read as a product path.
+  // **Retired product vocabulary, permanently reserved.** "Brain" was the
+  // user-facing word for a personal context until the owner retired it
+  // (2026-09-13, docs/decisions/vocabulary-and-workspaces.md); every context
+  // is a workspace now, and "workspace" is reserved above.
+  //
+  // Retiring the word makes these *more* important to hold, not less. The
+  // reservation was never about vocabulary: ingestion is on the apex, so a
+  // claimable `brain@context.lc` would receive mail people believed was going
+  // to the product, and `@brain/...` would read as a product path rather than
+  // a person's. People go on saying a retired word for years after the copy
+  // stops — an address does not stop being believable because a heading
+  // changed. Freeing these would hand an impersonation handle to whoever
+  // claimed it first. They stay, and `names.test.ts` holds them.
   "brain",
   "brains",
   // On-bucket layout words, so a name can never be confused for a folder.
@@ -222,7 +361,61 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "archive",
   "history",
   "audit",
+];
+
+/**
+ * Every name that cannot be claimed at the top of the namespace.
+ *
+ * Three sources, in the order they are argued below: the vendored public
+ * blocklists, the names decided here, and the ones that are only a hazard as a
+ * handle rather than as a group label.
+ *
+ * ## The blocklists are taken whole
+ *
+ * `PRODUCT_RESERVED_NAMES` above was decided here, one name at a time, each
+ * with the reason it is there. That is the right way to decide and a bad way to
+ * cover: measured against the two lists most services vendor, it held 66 of 834
+ * applicable entries. The rest are names somebody else already got wrong first
+ * — `wpad`, `null`, `sudo`, `paypal`, `autodiscover` — and rediscovering them
+ * one incident at a time is the thing a blocklist exists to prevent.
+ *
+ * Taken as a whole rather than pruned. Pruning is re-deciding 834 times on a
+ * judgement already made, and the names it buys back are ones nobody is owed.
+ * The cost is real and small: `@test`, `@demo`, `@beta`, every HTTP status code
+ * and a pile of SSH cipher names stop being claimable.
+ *
+ * Regenerate with `node scripts/build-reserved-names.mjs`, which records each
+ * source's version and digest in the generated file.
+ */
+export const RESERVED_NAMES: ReadonlySet<string> = new Set([
+  ...VENDORED_BLOCKLIST,
+  ...PRODUCT_RESERVED_NAMES,
+  ...TOP_LEVEL_ONLY_NAMES,
 ]);
+
+/**
+ * The half of the reserved list a **group label** is held to.
+ *
+ * `buildGroupName` checks the label a person types, and has since the group
+ * namespace existed: the comment on its own test says why — "`workspace`,
+ * `brain` and friends are a mail-interception control, and the label is the
+ * half a person types". That reasoning is intact and this keeps it.
+ *
+ * What it excludes is everything that is only a hazard *at the top of the
+ * namespace*:
+ *
+ *  - the **vendored blocklist**, which is a list of things that collide with
+ *    routes, hostnames and error pages — `wpad`, `404`, `staff`, `beta`. A
+ *    group is stored as `<slug>-<label>` and is never any of those.
+ *  - **`TOP_LEVEL_ONLY_NAMES`**, for the reason stated there.
+ *
+ * Without the split, adding the blocklist silently took `@supa-owners` and
+ * `@publicworship-staff` away — real group names, refused because a word inside
+ * them is a bad *handle*. The assembled name is still checked against the whole
+ * of `RESERVED_NAMES` in `buildGroupName`, which is the check that matches what
+ * actually gets stored and addressed.
+ */
+export const RESERVED_GROUP_LABELS: ReadonlySet<string> = new Set(PRODUCT_RESERVED_NAMES);
 
 /** Why a candidate name was rejected. Stable codes — clients map these to copy. */
 export type NameRejection =
@@ -281,7 +474,15 @@ const RESERVED_LABEL_FORM = /^..--/;
  * Availability is NOT checked here — that needs the database. A `true` result
  * means "well-formed and not reserved", nothing more.
  */
-export function validateName(raw: string): NameValidation {
+export function validateName(
+  raw: string,
+  /**
+   * Which reserved set to hold the candidate to. Defaults to all of them; the
+   * only caller that narrows it is `buildGroupName`, and `RESERVED_GROUP_LABELS`
+   * states why a label is a different question from a handle.
+   */
+  options: { reserved?: ReadonlySet<string> } = {},
+): NameValidation {
   const normalized = normalizeName(raw);
 
   if (normalized.length < NAME_MIN_LENGTH) {
@@ -299,7 +500,7 @@ export function validateName(raw: string): NameValidation {
   if (RESERVED_LABEL_FORM.test(normalized)) {
     return { ok: false, reason: "reserved_label_form", normalized };
   }
-  if (RESERVED_NAMES.has(normalized)) {
+  if ((options.reserved ?? RESERVED_NAMES).has(normalized)) {
     return { ok: false, reason: "reserved", normalized };
   }
   return { ok: true, normalized };
@@ -323,4 +524,97 @@ export function describeRejection(reason: NameRejection): string {
     case "taken":
       return "That name is already taken.";
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              group names                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The longest a group's full name may be.
+ *
+ * A group is `<workspace slug>-<label>`, so it can be two 32-character halves
+ * and the joining hyphen. It is capped separately from `NAME_MAX_LENGTH`
+ * because the 32 there exists for things that must survive a DNS label and a
+ * mail local-part, and a group is neither: it is never a capture address (only
+ * a *personal* context has one) and never a subdomain. It shares the namespace
+ * because it shares the `@name` syntax, which is a collision concern, not a
+ * length one.
+ *
+ * It matches `GROUP_SCOPE_PATTERN` in the privacy engines, which accept
+ * `@` plus 2-65 characters. The two are the same rule stated in two places
+ * that cannot import each other, and `__tests__/groupNames.test.ts` pins them
+ * together.
+ */
+export const GROUP_NAME_MAX_LENGTH = NAME_MAX_LENGTH * 2 + 1;
+
+/**
+ * Build and validate a group's full name from its workspace and a label.
+ *
+ * **The prefix is structural, not a convention.** Group names live in the one
+ * global namespace usernames and workspace slugs share — `@kola` is a person
+ * and `@supa-leads` is a group, and a privacy rule names either with the same
+ * token — so an unprefixed group name would let one workspace claim `@leads`
+ * out from under everybody, and a workspace could mint a name inside another's
+ * space. Deriving it here, from the workspace's own slug, is what makes
+ * "@supa-* belongs to supa" true rather than hoped for; no caller passes the
+ * prefix in.
+ *
+ * The LABEL is validated as a name in its own right — charset, reserved words,
+ * the IDNA label form — because everything those rules protect against is
+ * still reachable through the half a person types. The assembled name is then
+ * length-checked as a whole.
+ */
+export function buildGroupName(
+  workspaceSlug: string,
+  rawLabel: string,
+): NameValidation {
+  /*
+    The label is held to `RESERVED_GROUP_LABELS` rather than to the whole list —
+    see that export. `validateName` would apply all of it, including the
+    vendored blocklist, which is about names at the top of the namespace and
+    takes `owners` and `staff` with it.
+
+    Shape first, from the same function, so charset, length and the IDNA form
+    are answered in exactly one place.
+  */
+  const label = validateName(rawLabel, { reserved: RESERVED_GROUP_LABELS });
+  if (!label.ok) return label;
+
+  const slug = normalizeName(workspaceSlug);
+  // A workspace whose own slug is malformed cannot mint anything. Reachable
+  // only from damaged data, and refusing is the direction that cannot produce
+  // a name nobody can account for.
+  if (!ALLOWED_CHARS.test(slug) || slug.length === 0) {
+    return { ok: false, reason: "invalid_characters", normalized: slug };
+  }
+
+  const normalized = `${slug}-${label.normalized}`;
+  if (normalized.length > GROUP_NAME_MAX_LENGTH) {
+    return { ok: false, reason: "too_long", normalized };
+  }
+  // Re-checked on the assembled name rather than trusted from the halves: the
+  // join introduces a `--` that neither half had, which is the IDNA reserved
+  // form and therefore a homograph vector. A one-character slug and a label
+  // opening with a hyphen cannot both pass on their own, but the rule is
+  // asserted on what actually gets stored.
+  if (RESERVED_LABEL_FORM.test(normalized)) {
+    return { ok: false, reason: "reserved_label_form", normalized };
+  }
+  if (RESERVED_NAMES.has(normalized)) {
+    return { ok: false, reason: "reserved", normalized };
+  }
+  return { ok: true, normalized };
+}
+
+/**
+ * The label half of a stored group name, for display beside its workspace.
+ *
+ * Returns the whole name when it does not carry the expected prefix, which is
+ * the honest answer for a row from another workspace or from before a rename:
+ * showing a truncated name would be worse than showing the full one.
+ */
+export function groupLabelOf(workspaceSlug: string, groupName: string): string {
+  const prefix = `${normalizeName(workspaceSlug)}-`;
+  return groupName.startsWith(prefix) ? groupName.slice(prefix.length) : groupName;
 }

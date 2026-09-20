@@ -1,0 +1,95 @@
+name: Deploy Sentry Inbox (production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/sentry-worker/**"
+      - ".github/workflows/deploy-sentry-worker.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-sentry-inbox-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: node infra/sentry-worker/test/worker.test.mjs
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/sentry-worker..." --frozen-lockfile
+
+      - name: Verify required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SENTRY_WEBHOOK_CLIENT_SECRET: ${{ secrets.SENTRY_WEBHOOK_CLIENT_SECRET }}
+          CONTEXT_MCP_REFRESH_TOKEN: ${{ secrets.CONTEXT_MCP_REFRESH_TOKEN }}
+          CONTEXT_MCP_CLIENT_ID: ${{ secrets.CONTEXT_MCP_CLIENT_ID }}
+          CONTEXT_MCP_ENDPOINT: ${{ secrets.CONTEXT_MCP_ENDPOINT }}
+          SENTRY_PROJECT_SLUG: ${{ secrets.SENTRY_PROJECT_SLUG }}
+          SENTRY_INCIDENT_PREFIX: ${{ secrets.SENTRY_INCIDENT_PREFIX }}
+          SENTRY_INBOX_URL: ${{ secrets.SENTRY_INBOX_URL }}
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID SENTRY_WEBHOOK_CLIENT_SECRET CONTEXT_MCP_REFRESH_TOKEN CONTEXT_MCP_CLIENT_ID CONTEXT_MCP_ENDPOINT SENTRY_PROJECT_SLUG SENTRY_INCIDENT_PREFIX SENTRY_INBOX_URL; do
+            if [ -z "${!name:-}" ]; then
+              echo "ERROR: missing required production secret '$name'."
+              exit 1
+            fi
+          done
+
+      - name: Deploy worker
+        working-directory: infra/sentry-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
+
+      - name: Sync worker secrets
+        working-directory: infra/sentry-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SENTRY_WEBHOOK_CLIENT_SECRET: ${{ secrets.SENTRY_WEBHOOK_CLIENT_SECRET }}
+          CONTEXT_MCP_REFRESH_TOKEN: ${{ secrets.CONTEXT_MCP_REFRESH_TOKEN }}
+          CONTEXT_MCP_CLIENT_ID: ${{ secrets.CONTEXT_MCP_CLIENT_ID }}
+          CONTEXT_MCP_ENDPOINT: ${{ secrets.CONTEXT_MCP_ENDPOINT }}
+          SENTRY_PROJECT_SLUG: ${{ secrets.SENTRY_PROJECT_SLUG }}
+          SENTRY_INCIDENT_PREFIX: ${{ secrets.SENTRY_INCIDENT_PREFIX }}
+        run: |
+          set -euo pipefail
+          for name in SENTRY_WEBHOOK_CLIENT_SECRET CONTEXT_MCP_REFRESH_TOKEN CONTEXT_MCP_CLIENT_ID CONTEXT_MCP_ENDPOINT SENTRY_PROJECT_SLUG SENTRY_INCIDENT_PREFIX; do
+            printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
+          done
+
+      - name: Verify public route
+        env:
+          SENTRY_INBOX_URL: ${{ secrets.SENTRY_INBOX_URL }}
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$SENTRY_INBOX_URL")"
+          [ "$code" = "405" ] || { echo "ERROR: Sentry route returned $code, expected 405 for GET."; exit 1; }

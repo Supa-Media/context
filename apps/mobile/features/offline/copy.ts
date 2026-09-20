@@ -1,4 +1,5 @@
 import type { OutboxCounts } from "./outbox";
+import type { MirrorStatus } from "./mirrorStatus";
 
 /**
  * What a person is told about the connection, the queue, and a conflict.
@@ -61,6 +62,13 @@ export interface SyncFacts {
    * (`StorageSummary.conditionalWrite`). `undefined` while it is loading.
    */
   conditionalWrite?: boolean;
+  /**
+   * How much of this context is on the device — the offline mirror's own
+   * account (`mirrorStatus.ts`), worded by `mirrorCopy.ts`. Absent where there
+   * is no mirror to speak of: the landing page's demo, and the moment before
+   * the first status has been read.
+   */
+  mirror?: MirrorStatus;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -78,11 +86,22 @@ function plural(n: number, one: string, many: string): string {
  */
 export function connectionLine(facts: SyncFacts): { text: string; detail: string } | null {
   if (facts.reachability !== "offline") return null;
+  /*
+    What can be read offline is no longer "notes you have opened before" once
+    the mirror holds the whole context, and saying the smaller thing about a
+    device holding everything undersells the one fact somebody on a train
+    needs. Anything short of `synced` keeps the old, still-true sentence; the
+    mirror's own line says how much is missing.
+  */
+  const reach =
+    facts.mirror?.state === "synced"
+      ? "Every note in this context is on this device, so you can read and edit any of them."
+      : "You can read notes you have opened before and keep editing them.";
   return {
     text: "Offline",
     detail: facts.durable
-      ? "You can read notes you have opened before and keep editing them. Saves are queued here and sent when you are back."
-      : "You can read notes you have opened before and keep editing them. Saves are queued for this session only — closing the app loses them.",
+      ? `${reach} Saves are queued here and sent when you are back.`
+      : `${reach} Saves are queued for this session only — closing the app loses them.`,
   };
 }
 
@@ -155,10 +174,36 @@ function queuedDetail(facts: SyncFacts): string {
  * line, and the wording is pinned by a test rather than living inside a
  * component nobody renders in CI.
  */
-export function signOutWarning(counts: OutboxCounts): string | null {
+export function signOutWarning(
+  counts: OutboxCounts,
+  /**
+   * Meetings with audio kept on this phone that has not been transcribed yet
+   * (`meetings/capture/spool.ts`). Sign-out wipes the spool with everything
+   * else, and a meeting's audio is the one thing on the device that cannot be
+   * typed again — it was the reason the spool exists at all. Optional so a
+   * caller that has no spool to ask (a test of the notes half) reads as zero.
+   */
+  meetingAudio = 0,
+): string | null {
   const waiting = counts.pending + counts.conflicted + counts.rejected;
-  if (waiting === 0) return null;
-  return `${plural(waiting, "note has", "notes have")} edits that have not reached your bucket. Signing out discards them.`;
+  const parts: string[] = [];
+  if (waiting > 0) {
+    parts.push(
+      /*
+        "Changes", not "edits": the queue holds renames, moves, deletes and new
+        folders too, and a sign-out throws those away exactly as it throws away
+        typing. A count that said "notes have edits" about a rename would be a
+        number the person could not match to anything they did.
+      */
+      `${plural(waiting, "change has", "changes have")} not reached your bucket. Signing out discards ${waiting === 1 ? "it" : "them"}.`,
+    );
+  }
+  if (meetingAudio > 0) {
+    parts.push(
+      `${meetingAudio} ${meetingAudio === 1 ? "meeting's audio has" : "meetings' audio has"} not been transcribed yet — signing out deletes it from this phone.`,
+    );
+  }
+  return parts.length === 0 ? null : parts.join(" ");
 }
 
 /**

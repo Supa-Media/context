@@ -83,7 +83,7 @@ export function runCalendarMeetingLinkChecks(check) {
   const candidates = candidatesFromDay(day);
   check("cancelled instances are never offered as a match candidate", candidates.length === 1 && candidates[0].title === "Standup");
   check("the candidate's anchor is the real eventAnchor, so a match points at a real heading", candidates[0].anchor === eventAnchor(day.events[0]));
-  check("the candidate's path is the real calendar day path", candidates[0].path === "0-inbox/calendar/2026-09-07.md");
+  check("the candidate's path is the real calendar day path", candidates[0].path === "0-inbox/calendar/2026/09/2026-09-07.md");
   check("an empty or malformed day produces no candidates rather than throwing", candidatesFromDay(null).length === 0 && candidatesFromDay({}).length === 0);
 
   // -- attachEventLink / readEventLink: the patch that actually lands the link

@@ -20,10 +20,11 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import * as fileFunctions from "../functions/files";
 import type { Id } from "../_generated/dataModel";
 import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
+import { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -42,6 +43,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 /**
@@ -73,9 +75,9 @@ interface Fixture {
  * exercised here is the real one.
  */
 async function fixture(
-  options: MemoryS3Options & { conditionalWrite?: boolean } = {},
+  options: MemoryS3Options & { conditionalWrite?: boolean; conditionalCreate?: boolean } = {},
 ): Promise<Fixture> {
-  const { conditionalWrite = true, ...bucketOptions } = options;
+  const { conditionalWrite = true, conditionalCreate = true, ...bucketOptions } = options;
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
   const editor = await createUser(t, "editor@example.invalid");
@@ -111,7 +113,11 @@ async function fixture(
       bucket: FAKE_STORAGE.bucket,
       accessKeyId: FAKE_STORAGE.accessKeyId,
       encryptedSecretAccessKey,
-      capabilities: { conditionalWrite },
+      capabilities: {
+        conditionalWrite,
+        conditionalCreate,
+        conditionalDelete: true,
+      },
       status: "connected" as const,
       lastVerifiedAt: Date.now(),
       boundBy: owner,
@@ -161,6 +167,148 @@ async function danglingWorkspaceId(t: TestConvex): Promise<Id<"workspaces">> {
 /* -------------------------------------------------------------------------- */
 
 describe("an owner can edit their context", () => {
+  test("migrates only reserved system objects and leaves notes untouched", async () => {
+    const f = await fixture();
+    f.backend.seed(".audit/legacy-events.jsonl", "legacy audit");
+    const notesBefore = Object.fromEntries(
+      Object.entries(f.backend.snapshot()).filter(([key]) => !key.startsWith(".")),
+    );
+
+    const result = await asUser(f.t, f.owner).action(
+      api.functions.files.updateStorageLayout,
+      { workspaceId: f.workspaceId },
+    );
+
+    expect(result.state).toBe("copying");
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (f.backend.snapshot()[".context/audit/legacy-events.jsonl"] !== undefined) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      await f.t.finishInProgressScheduledFunctions();
+    }
+    expect(f.backend.snapshot()[".context/audit/legacy-events.jsonl"]).toBe("legacy audit");
+    expect(f.backend.snapshot()[".audit/legacy-events.jsonl"]).toBe("legacy audit");
+    expect(
+      Object.fromEntries(
+        Object.entries(f.backend.snapshot()).filter(([key]) => !key.startsWith(".")),
+      ),
+    ).toEqual(notesBefore);
+
+    const events = await asUser(f.t, f.owner).query(api.functions.audit.listEvents, {
+      workspaceId: f.workspaceId,
+    });
+    expect(
+      events.find((event) => event.action === "storage.layout_migration_requested")?.paths,
+    ).toEqual([]);
+
+    /*
+      AND THE OUTCOME IS WRITTEN SOMEWHERE A QUERY CAN READ IT.
+
+      The bucket has always known — `migrateStorageLayout` keeps its state
+      under `.context/` and short-circuits on `complete`. Nothing outside it
+      did, so the console could not tell a bucket that still needs this from
+      one migrated last week, and the offer was answered by a flag on one
+      device: it came back on the next browser, for a workspace already
+      migrated. This is the half that travels with the workspace.
+    */
+    const binding = await asUser(f.t, f.owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId: f.workspaceId },
+    );
+    // Whatever the passes above reached — the point is that the row is no
+    // longer silent, not which of the six words it landed on.
+    expect(binding?.storageLayoutState).toBeDefined();
+    expect(binding?.storageLayoutAt).toBeGreaterThan(0);
+  });
+
+  /**
+   * Let the observation the mutation queued actually run, and hand back what
+   * it recorded.
+   *
+   * `observeStorageLayout` schedules rather than probes — a public function
+   * that opened a credential would have `runFileOperation` in its own call
+   * graph — so the answer arrives a scheduler hop later and the binding is
+   * where it lands. Polled rather than slept on: the hop is immediate in
+   * practice, and a fixed sleep is how this file would get slow.
+   */
+  async function observedLayout(f: Fixture): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await f.t.finishInProgressScheduledFunctions();
+      const checked = await f.t.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("storageBindings")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+            .unique()
+        )?.storageLayoutCheckedAt,
+      );
+      // `t.run`'s result crosses a serialization boundary, where an absent
+      // optional field arrives as `null` rather than `undefined`.
+      if (typeof checked === "number") return;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  }
+
+  /*
+    AND A BUCKET THAT WAS BORN ON THE LAYOUT IS TOLD SO, HAVING RUN NOTHING.
+
+    This is the whole chain the owner's console runs on its first load —
+    mutation, scheduler, file operation, the gateway's own read, the recorded
+    answer — for the case that used to come out wrong. "No migration state
+    file" was read as "nobody has migrated this", which is true of a context we
+    scaffolded ourselves and beside the point: it has never held a `.audit/` or
+    a `.history/`, so there has never been anything here to migrate. Every new
+    workspace was offered a one-time storage update minutes after it was
+    created.
+
+    The fixture's bucket is exactly that bucket: notes, `index.md`,
+    `privacy.md`, and no plumbing of any generation.
+  */
+  test("a bucket born on the layout answers 'already current', having run nothing", async () => {
+    const f = await fixture();
+    const before = f.backend.snapshot();
+
+    expect(
+      await asUser(f.t, f.owner).mutation(api.functions.storage.observeStorageLayout, {
+        workspaceId: f.workspaceId,
+      }),
+    ).toEqual({ queued: true });
+    await observedLayout(f);
+
+    const binding = await asUser(f.t, f.owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId: f.workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBe("complete");
+    // Asking is a question, not a checkpoint: nothing was copied, written or
+    // deleted to find that out.
+    expect(f.backend.snapshot()).toEqual(before);
+  });
+
+  test("and one with pre-v1 plumbing in it still has the migration to run", async () => {
+    /*
+      The sabotage guard for the case above. Answering `complete` for a bucket
+      that still holds legacy objects retires the offer with work behind it —
+      pre-v1 plumbing left where no screen mentions it, dual reads carrying it
+      for ever, and nothing anywhere saying so.
+    */
+    const f = await fixture();
+    f.backend.seed(".history/1-projects/shared.md.2026-01-01.md", "an old version");
+
+    await asUser(f.t, f.owner).mutation(api.functions.storage.observeStorageLayout, {
+      workspaceId: f.workspaceId,
+    });
+    await observedLayout(f);
+
+    const binding = await asUser(f.t, f.owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId: f.workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBeUndefined();
+    // Asked, though — which is what tells the console this is the real "nobody
+    // has run it" rather than a question nobody has put.
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+  });
+
   test("lists a folder", async () => {
     const f = await fixture();
     const listing = await asUser(f.t, f.owner).action(api.functions.files.listFiles, {
@@ -219,7 +367,11 @@ describe("an owner can edit their context", () => {
       api.functions.files.createDirectory,
       { workspaceId: f.workspaceId, path: "1-projects/plans" },
     );
-    expect(f.backend.snapshot()[created.readme]).toContain("# plans");
+    // The placeholder, named for the prefix it holds open. Its wording is
+    // `fileOps.test.ts`'s to pin; what this end-to-end path checks is that the
+    // action wrote the key at all.
+    expect(created.readme).toBe("1-projects/plans/README.md");
+    expect(f.backend.snapshot()[created.readme]).toContain("Folder placeholder.");
   });
 
   test("pastes a copy at an explicit destination", async () => {
@@ -245,6 +397,1535 @@ describe("an owner can edit their context", () => {
     );
     expect(result.exception).toBe(true);
     expect(f.backend.snapshot()[PRIVACY_KEY]).toContain("1-projects/shared.md: private");
+  });
+});
+
+describe("Obsidian plugin inventory", () => {
+  test("returns structured compatibility data to an owner without changing the bucket", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({
+        id: "highlightr-plugin",
+        name: "Highlightr",
+        version: "1.2.2",
+        author: "Example Author",
+        minAppVersion: "1.0.0",
+        description: "Highlight text",
+      }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const before = f.backend.snapshot();
+
+    const result = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+
+    expect(result).toMatchObject({
+      available: true,
+      found: 1,
+      scanned: 1,
+      truncated: false,
+      counts: { runs: 1 },
+      plugins: [{
+        source: "obsidian",
+        folder: "highlightr-plugin",
+        id: "highlightr-plugin",
+        name: "Highlightr",
+        version: "1.2.2",
+        bundleFingerprint: expect.stringMatching(/^v2:/),
+        verdict: "runs",
+        reason: "no-calls-outside-the-sandbox-found",
+      }],
+    });
+    expect(result.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(f.backend.snapshot()).toEqual(before);
+  });
+
+  test("is owner-only and keeps a non-member indistinguishable from a missing workspace", async () => {
+    const f = await fixture();
+    const editorError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const missingId = await danglingWorkspaceId(f.t);
+    const stranger = asUser(f.t, f.stranger);
+    const existingError = await captureError(() => stranger.action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    const missingError = await captureError(() => stranger.action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: missingId },
+    ));
+    expect(errorShape(existingError)).toBe(errorShape(missingError));
+    expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
+  });
+
+  /*
+    THE BUG THIS ANSWERS, STATED AS A SCENARIO.
+
+    Install a plugin. Close the app. Open it again. Until this existed the
+    plugins pane rested at "Read the plugins in this bucket" and the registry
+    beside it, with no inventory to compare against, offered Install on the row
+    that was already installed — so it got installed again, and the report that
+    came back was "installs do not persist". They always had; nothing ever read
+    them back without being asked.
+
+    So the property is not "the pointer is in the bucket" — the install test
+    below already proves that. It is that the question can be ANSWERED without
+    running the scan, because the scan is what nobody had run.
+  */
+  test("what is installed can be read back without running a scan", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".context/plugins/virtual-linker/current.json",
+      JSON.stringify({ id: "virtual-linker", version: "1.0.0", repository: "example/virtual-linker" }),
+    );
+    f.backend.seed(
+      ".context/plugins/virtual-linker/releases/1.0.0/manifest.json",
+      JSON.stringify({ id: "virtual-linker", name: "Virtual Linker", version: "1.0.0" }),
+    );
+    f.backend.seed(
+      ".context/plugins/virtual-linker/releases/1.0.0/main.js",
+      'const { Plugin } = require("obsidian"); class V extends Plugin {}',
+    );
+    // Somebody else's plugin, in the directory Context reads and never writes.
+    // It is not something Context installed and must not be reported as one.
+    f.backend.seed(
+      ".obsidian/plugins/dataview/manifest.json",
+      JSON.stringify({ id: "dataview", name: "Dataview", version: "0.5.0" }),
+    );
+    f.backend.seed(".obsidian/plugins/dataview/main.js", "module.exports = class {};");
+
+    const installed = await asUser(f.t, f.owner).action(api.functions.files.listManagedPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(installed.available).toBe(true);
+    expect(installed.installs).toEqual([
+      { id: "virtual-linker", version: "1.0.0", repository: "example/virtual-linker" },
+    ]);
+
+    // Owner-only, and a non-member cannot tell this context from one that does
+    // not exist — the same shape `listObsidianPlugins` keeps two tests up.
+    const missingId = await danglingWorkspaceId(f.t);
+    const stranger = asUser(f.t, f.stranger);
+    const existingError = await captureError(() => stranger.action(
+      api.functions.files.listManagedPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    const missingError = await captureError(() => stranger.action(
+      api.functions.files.listManagedPlugins,
+      { workspaceId: missingId },
+    ));
+    expect(errorShape(existingError)).toBe(errorShape(missingError));
+    expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
+    const memberError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.files.listManagedPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    expect(errorCode(memberError)).toBe("INSUFFICIENT_ROLE");
+  });
+
+  test("installs, updates, loads, and uninstalls an official plugin without touching Obsidian", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/virtual-linker/manifest.json",
+      JSON.stringify({ id: "virtual-linker", name: "Obsidian copy", version: "0.9.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/virtual-linker/main.js",
+      'const { Plugin } = require("obsidian"); class Old extends Plugin {}',
+    );
+    const storageFetch = f.backend.fetchImpl;
+    let version = "1.0.0";
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      );
+      if (url.href.includes("obsidian-releases/HEAD/community-plugins.json")) {
+        return new Response(JSON.stringify([{
+          id: "virtual-linker",
+          name: "Virtual Linker",
+          author: "Example",
+          description: "Links notes",
+          repo: "example/virtual-linker",
+        }]));
+      }
+      if (url.href.includes("example/virtual-linker/HEAD/manifest.json")) {
+        return new Response(JSON.stringify({ id: "virtual-linker", version }));
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/manifest.json")) {
+        return new Response(JSON.stringify({ id: "virtual-linker", name: "Virtual Linker", version }));
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/main.js")) {
+        return new Response(`const { Plugin } = require("obsidian"); class V${version.replaceAll(".", "")} extends Plugin {}`);
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/styles.css")) {
+        return new Response(".virtual-linker { color: blue; }");
+      }
+      return await storageFetch(input, init);
+    });
+
+    const search = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.searchCommunityPlugins,
+      { workspaceId: f.workspaceId, query: "virtual" },
+    );
+    expect(search).toMatchObject([{ id: "virtual-linker", repository: "example/virtual-linker" }]);
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.installCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+    });
+    let inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    expect(inventory.plugins).toHaveLength(1);
+    expect(inventory.plugins[0]).toMatchObject({
+      source: "context",
+      id: "virtual-linker",
+      version: "1.0.0",
+      verdict: "runs",
+    });
+    const firstFingerprint = inventory.plugins[0].bundleFingerprint!;
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+      bundleFingerprint: firstFingerprint,
+      capabilities: ["vault:read"],
+      networkHosts: [],
+    });
+    const loaded = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "virtual-linker",
+        bundleFingerprint: firstFingerprint,
+      },
+    );
+    expect(loaded).toMatchObject({ version: "1.0.0", mainJs: expect.stringContaining("class V100") });
+    const request = {
+      version: 1,
+      requestId: "at_most_once",
+      operation: { kind: "vault.read", path: "1-projects/shared.md" },
+    };
+    expect(await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+      runtimeToken: loaded.runtimeToken,
+      request,
+    })).toMatchObject({ ok: true });
+    expect(await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+      runtimeToken: loaded.runtimeToken,
+      request,
+    })).toMatchObject({ ok: false, error: { code: "REQUEST_REPLAYED" } });
+
+    version = "1.1.0";
+    const bindingId = await f.t.run(async (ctx) => (await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+      .unique())!._id);
+    await f.t.run((ctx) => ctx.db.patch(bindingId, {
+      capabilities: { conditionalWrite: true, conditionalCreate: false, conditionalDelete: true },
+    }));
+    const failedUpdate = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.installCommunityPlugin,
+      { workspaceId: f.workspaceId, pluginId: "virtual-linker" },
+    ));
+    expect(errorCode(failedUpdate)).toBe("STORAGE_UNSAFE");
+    expect((await asUser(f.t, f.owner).query(api.functions.obsidianPlugins.listPluginGrants, {
+      workspaceId: f.workspaceId,
+    }))[0].status).toBe("revoked");
+    const revokedSession = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_failed_update",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(revokedSession)).toBe("PLUGIN_SESSION_INVALID");
+    await f.t.run((ctx) => ctx.db.patch(bindingId, {
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+    }));
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.installCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+    });
+    inventory = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(inventory.plugins[0].version).toBe("1.1.0");
+    expect(inventory.plugins[0].bundleFingerprint).not.toBe(firstFingerprint);
+    expect((await asUser(f.t, f.owner).query(api.functions.obsidianPlugins.listPluginGrants, {
+      workspaceId: f.workspaceId,
+    }))[0].status).toBe("revoked");
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.uninstallCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+      bundleFingerprint: inventory.plugins[0].bundleFingerprint!,
+    });
+    const after = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(after.plugins[0]).toMatchObject({ source: "obsidian", version: "0.9.0" });
+    expect(f.backend.snapshot()).not.toHaveProperty(".context/plugins/virtual-linker/current.json");
+    expect(f.backend.snapshot()).toHaveProperty(
+      ".context/plugins/virtual-linker/releases/1.1.0/main.js",
+    );
+    expect(f.backend.snapshot()).toHaveProperty(".obsidian/plugins/virtual-linker/main.js");
+  });
+
+  /*
+    THE ONE THING AN OWNER MAY NOT AUTHORIZE AWAY.
+
+    Decided by the owner, 2026-09-16: enabling a plugin over your own workspace
+    is your call, the same trust you already place in Context — but a plugin
+    enabled in one workspace may never reach another, because the people in that
+    other one authorized nothing.
+
+    It holds by construction rather than by policy, and that is the part worth a
+    test: `executePluginRequest` takes a runtime token and a request, and the
+    request has **no workspace argument**. The server derives the workspace from
+    the session the token hashes to. So there is no message plugin code can send
+    that names somewhere else — and this proves it against the shape that would
+    matter, two workspaces owned by the same person, each on its own bucket.
+
+    Same owner on purpose. A stranger being refused proves the membership check;
+    it says nothing about whether an authorized token stays where it was issued,
+    which is the actual question here.
+  */
+  test("a plugin's token reaches exactly one workspace", async () => {
+    const f = await fixture();
+
+    // A second workspace of the owner's, on its own bucket, holding a note
+    // whose path does not exist in the first.
+    const elsewhere = await createWorkspace(f.t, f.owner, "other-context");
+    const otherBucket = memoryS3("other-bucket");
+    otherBucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    otherBucket.seed("1-projects/only-over-here.md", `# Elsewhere\n\n${SECRET_BODY_MARKER}\n`);
+    const first = f.backend.fetchImpl;
+    // One socket, two buckets: each stub 404s a bucket that is not its own, so
+    // whichever binding the server actually used is the one that answers.
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const response = await first(input, init);
+      return response.status === 404 ? await otherBucket.fetchImpl(input, init) : response;
+    });
+    await f.t.run(async (ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId: elsewhere,
+        provider: FAKE_STORAGE.provider,
+        endpoint: FAKE_STORAGE.endpoint,
+        region: FAKE_STORAGE.region,
+        bucket: "other-bucket",
+        accessKeyId: FAKE_STORAGE.accessKeyId,
+        encryptedSecretAccessKey: await encryptSecret(
+          FAKE_STORAGE.secretAccessKey,
+          requireKeyset(),
+          { workspaceId: elsewhere },
+        ),
+        capabilities: { conditionalWrite: true },
+        status: "connected" as const,
+        lastVerifiedAt: Date.now(),
+        boundBy: f.owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({ id: "highlightr-plugin", name: "Highlightr", version: "1.2.2" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const inventory = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    const bundleFingerprint = inventory.plugins[0].bundleFingerprint!;
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint,
+      capabilities: ["vault:read"],
+      networkHosts: [],
+    });
+    const { runtimeToken } = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      { workspaceId: f.workspaceId, pluginId: "highlightr-plugin", bundleFingerprint },
+    );
+
+    // The positive companion first: the token does work, in the workspace it
+    // was issued for. Without this the refusal below passes on a broken build.
+    expect(
+      await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "own_workspace",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      }),
+    ).toMatchObject({ ok: true, result: { kind: "file", text: "# Shared\n" } });
+
+    // And the note that exists only in the other workspace is not reachable —
+    // by the owner of both, holding a live token, over a granted capability.
+    const across = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "across_workspaces",
+          operation: { kind: "vault.read", path: "1-projects/only-over-here.md" },
+        },
+      },
+    );
+    expect(across).toMatchObject({ ok: false });
+    expect(JSON.stringify(across)).not.toContain(SECRET_BODY_MARKER);
+  });
+
+  test("an owner grants capabilities to the exact bundle that was checked", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({ id: "highlightr-plugin", name: "Highlightr", version: "1.2.2" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const approved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "metadata:read"],
+        networkHosts: [],
+      },
+    );
+    let runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
+    expect(approved).toMatchObject({
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      status: "active",
+      capabilities: ["metadata:read", "vault:read"],
+    });
+
+    const grants = await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listPluginGrants,
+      { workspaceId: f.workspaceId },
+    );
+    expect(grants).toEqual([approved]);
+
+    const read = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_1",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    );
+    expect(read).toMatchObject({
+      version: 1,
+      requestId: "read_1",
+      ok: true,
+      result: { kind: "file", text: "# Shared\n" },
+    });
+    const denied = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "write_1",
+          operation: { kind: "vault.create", path: "1-projects/plugin.md", text: "# Plugin\n" },
+        },
+      },
+    );
+    expect(denied).toMatchObject({ ok: false, error: { code: "CAPABILITY_DENIED" } });
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      capabilities: [
+        "vault:read",
+        "vault:write",
+        "vault:rename",
+        "vault:delete",
+        "settings:read",
+        "settings:write",
+      ],
+      networkHosts: [],
+    });
+    runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
+    const loaded = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: { version: 1, requestId: "settings_1", operation: { kind: "settings.load" } },
+      },
+    );
+    expect(loaded).toMatchObject({
+      ok: true,
+      result: { kind: "pluginSettings", json: "{}", etag: null },
+    });
+    const saved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "settings_2",
+          operation: { kind: "settings.save", json: "{\"color\":\"yellow\"}", expectedEtag: null },
+        },
+      },
+    );
+    expect(saved).toMatchObject({
+      ok: true,
+      result: { kind: "pluginSettings", json: "{\"color\":\"yellow\"}" },
+    });
+    expect(f.backend.snapshot()).not.toHaveProperty(".obsidian/plugins/highlightr-plugin/data.json");
+    expect(f.backend.snapshot()).toHaveProperty(".context/plugins/highlightr-plugin/data.json");
+
+    const created = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "create_1",
+          operation: { kind: "vault.create", path: "1-projects/plugin.md", text: "# Plugin\n" },
+        },
+      },
+    );
+    if (!created.ok) throw new Error("expected plugin create to succeed");
+    const createdEtag = (created.result as { etag: string }).etag;
+    const conflict = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "modify_bad",
+          operation: {
+            kind: "vault.modify",
+            path: "1-projects/plugin.md",
+            text: "changed",
+            expectedEtag: "stale",
+          },
+        },
+      },
+    );
+    expect(conflict).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    const modified = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "modify_1",
+          operation: {
+            kind: "vault.modify",
+            path: "1-projects/plugin.md",
+            text: "changed",
+            expectedEtag: createdEtag,
+          },
+        },
+      },
+    );
+    if (!modified.ok) throw new Error("expected plugin modify to succeed");
+    const modifiedEtag = (modified.result as { etag: string }).etag;
+    const renamed = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "rename_1",
+          operation: {
+            kind: "vault.rename",
+            from: "1-projects/plugin.md",
+            to: "1-projects/plugin-renamed.md",
+            expectedEtag: modifiedEtag,
+          },
+        },
+      },
+    );
+    expect(renamed).toMatchObject({ ok: true, result: { kind: "moved" } });
+    const renamedRead = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_renamed",
+          operation: { kind: "vault.read", path: "1-projects/plugin-renamed.md" },
+        },
+      },
+    );
+    if (!renamedRead.ok) throw new Error("expected renamed plugin file to be readable");
+    const deleted = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "delete_1",
+          operation: {
+            kind: "vault.delete",
+            path: "1-projects/plugin-renamed.md",
+            expectedEtag: (renamedRead.result as { etag: string }).etag,
+          },
+        },
+      },
+    );
+    expect(deleted).toMatchObject({ ok: true, result: { kind: "deleted" } });
+    await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.reportRuntimeStatus, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      status: "loaded",
+      attempts: 1,
+    });
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listRuntimeStates,
+      { workspaceId: f.workspaceId },
+    )).toMatchObject([{ pluginId: "highlightr-plugin", status: "loaded", attempts: 1 }]);
+
+    const stopped = await asUser(f.t, f.owner).mutation(
+      api.functions.obsidianPlugins.stopPlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    );
+    expect(stopped).toMatchObject({ status: "blocked", errorCode: "OWNER_DISABLED" });
+    const stoppedToken = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_stop",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(stoppedToken)).toBe("PLUGIN_SESSION_INVALID");
+    runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
+    const editorStop = await captureError(() => asUser(f.t, f.editor).mutation(
+      api.functions.obsidianPlugins.stopPlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    ));
+    expect(errorCode(editorStop)).toBe("INSUFFICIENT_ROLE");
+    expect(await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_editor_stop",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    )).toMatchObject({ ok: true });
+
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Changed extends Plugin {}',
+    );
+    const changedInventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    expect(changedInventory.plugins[0].bundleFingerprint).not.toBe(fingerprint);
+    expect(await f.t.query(internal.functions.obsidianPlugins.resolveActiveGrant, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: changedInventory.plugins[0].bundleFingerprint!,
+    })).toBeNull();
+
+    await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.revokePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+    });
+    expect((await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listPluginGrants,
+      { workspaceId: f.workspaceId },
+    ))[0].status).toBe("revoked");
+    expect((await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listRuntimeStates,
+      { workspaceId: f.workspaceId },
+    ))[0]).toMatchObject({ status: "blocked", errorCode: "GRANT_REVOKED" });
+    const revokedToken = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_revoke",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(revokedToken)).toBe("PLUGIN_SESSION_INVALID");
+  });
+
+  /**
+   * `metadata:read` MEANS METADATA, WHICH IS WHAT THE CONSENT SCREEN PROMISED.
+   *
+   * The approval dialog offers two separate rows, and a person is asked to
+   * decide on each:
+   *
+   *   vault:read      "Read your notes — open the Markdown of any note in this
+   *                    context that you can see."
+   *   metadata:read   "Read links and tags — frontmatter, headings, tags and
+   *                    the links between notes."
+   *
+   * The second is offered as the *lesser* of the two, and somebody who grants
+   * it while declining the first has said, in as many words, that this plugin
+   * may not read their notes. So the test is not "does `metadata.get` work" —
+   * it is whether the distinction the person was shown is the distinction the
+   * gateway enforces.
+   *
+   * `metadata.get` resolves to a full `read` of the note and shapes the
+   * response with `extractFields`, whose fields are `title`, `headings`,
+   * `tags`, `links` — and `body`, which is the whole note minus its
+   * frontmatter and heading lines. Spread into the response, that hands the
+   * Markdown to a grant that was explicitly refused it.
+   *
+   * SABOTAGE: restore `body` to the `metadata.get` response and the marker
+   * assertion below reddens on its own; the shape assertion stays green, which
+   * is why both are here.
+   */
+  test("a plugin granted metadata:read and refused vault:read cannot read a note's body", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/tagwrangler/manifest.json",
+      JSON.stringify({ id: "tagwrangler", name: "Tag Wrangler", version: "0.5.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/tagwrangler/main.js",
+      'const { Plugin } = require("obsidian"); class TagWrangler extends Plugin {}',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    // The whole point: metadata:read alone. No vault:read.
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "tagwrangler",
+      bundleFingerprint: fingerprint,
+      capabilities: ["metadata:read"],
+      networkHosts: [],
+    });
+    const { runtimeToken } = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      { workspaceId: f.workspaceId, pluginId: "tagwrangler", bundleFingerprint: fingerprint },
+    );
+
+    // Reading the note outright is refused, which is the grant working.
+    const refused = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_denied",
+          operation: { kind: "vault.read", path: "2-areas/private-note.md" },
+        },
+      },
+    );
+    expect(refused).toMatchObject({ ok: false, error: { code: "CAPABILITY_DENIED" } });
+
+    const metadata = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "metadata_1",
+          operation: { kind: "metadata.get", path: "2-areas/private-note.md" },
+        },
+      },
+    );
+    expect(metadata).toMatchObject({ ok: true });
+
+    // The note's body must not have come back by the other door.
+    expect(JSON.stringify(metadata)).not.toContain(SECRET_BODY_MARKER);
+
+    // And the metadata the capability *does* promise is still delivered, so
+    // this is a narrowing rather than a removal. Stated as an exact key set:
+    // a future field is a decision somebody makes here, not one that arrives.
+    const result = (metadata as { result: Record<string, unknown> }).result;
+    expect(Object.keys(result).sort()).toEqual(
+      ["etag", "headings", "links", "path", "tags", "title"],
+    );
+    expect(result.title).toBe("Private");
+  });
+
+
+  test("only an owner can grant a plugin and a blocked bundle cannot be granted", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/shell/manifest.json",
+      JSON.stringify({ id: "shell", name: "Shell", version: "1.0.0" }),
+    );
+    f.backend.seed(".obsidian/plugins/shell/main.js", 'require("child_process")');
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const editorError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "shell",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+      },
+    ));
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const blockedError = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "shell",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+      },
+    ));
+    expect(errorCode(blockedError)).toBe("PLUGIN_NOT_RUNNABLE");
+  });
+
+  test("network authority is limited to reviewed hosts and every hop uses public-only egress", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/web/manifest.json",
+      JSON.stringify({ id: "web", name: "Web", version: "1.0.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/web/main.js",
+      'requestUrl("https://api.example.com/items"); requestUrl("https://redirect.example/items")',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const widened = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["evil.example"],
+      },
+    ));
+    expect(errorCode(widened)).toBe("INVALID_NETWORK_GRANT");
+
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.pluginRuntimeCapabilities,
+      { workspaceId: f.workspaceId },
+    )).toEqual({ egress: false });
+    vi.stubEnv("PLUGIN_EGRESS_URL", "https://egress.example.invalid");
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.pluginRuntimeCapabilities,
+      { workspaceId: f.workspaceId },
+    )).toEqual({ egress: false });
+    vi.unstubAllEnvs();
+
+    const unavailable = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["API.EXAMPLE.COM"],
+      },
+    ));
+    expect(errorCode(unavailable)).toBe("NETWORK_EGRESS_UNAVAILABLE");
+
+    vi.stubEnv("PLUGIN_EGRESS_URL", "https://egress.example.invalid");
+    vi.stubEnv("PLUGIN_EGRESS_SECRET", "test-egress-secret");
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.pluginRuntimeCapabilities,
+      { workspaceId: f.workspaceId },
+    )).toEqual({ egress: true });
+
+    const storageFetch = f.backend.fetchImpl;
+    const egressCalls: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      );
+      if (url.hostname !== "egress.example.invalid") return await storageFetch(input, init);
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-egress-secret");
+      const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      egressCalls.push(request);
+      expect(request).not.toHaveProperty("workspaceId");
+      expect(request).not.toHaveProperty("pluginId");
+      if (request.url === "https://api.example.com/redirect") {
+        return Response.json({
+          ok: true,
+          status: 302,
+          headers: [{ name: "location", value: "https://redirect.example/private" }],
+          bodyBase64: "",
+        });
+      }
+      if (request.url === "https://redirect.example/private") {
+        return Response.json({
+          ok: false,
+          error: { code: "NETWORK_PRIVATE_ADDRESS_DENIED", message: "private" },
+        }, { status: 403 });
+      }
+      return Response.json({
+        ok: true,
+        status: 200,
+        headers: [
+          { name: "content-type", value: "application/json" },
+          { name: "set-cookie", value: "must-not-cross" },
+        ],
+        bodyBase64: btoa("{\"ok\":true}"),
+      });
+    });
+
+    const approved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["api.example.com", "redirect.example"],
+      },
+    );
+    expect(approved.networkHosts).toEqual(["api.example.com", "redirect.example"]);
+    const loaded = await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.loadPluginBundle, {
+      workspaceId: f.workspaceId,
+      pluginId: "web",
+      bundleFingerprint: fingerprint,
+    });
+    const success = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "network_ok",
+          operation: { kind: "network.request", url: "https://api.example.com/items", method: "GET", headers: [] },
+        },
+      },
+    );
+    expect(success).toMatchObject({ ok: true, result: { status: 200 } });
+    if (!success.ok) throw new Error("network request should succeed");
+    expect((success.result as { bodyBase64: string }).bodyBase64)
+      .toBe(btoa('{"ok":true}'));
+    expect(success.result).not.toHaveProperty("body");
+    expect((success.result as { headers: Array<{ name: string }> }).headers)
+      .not.toContainEqual(expect.objectContaining({ name: "set-cookie" }));
+
+    const deniedHost = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "network_denied_host",
+          operation: { kind: "network.request", url: "https://evil.example/items", method: "GET", headers: [] },
+        },
+      },
+    );
+    expect(deniedHost).toMatchObject({ ok: false, error: { code: "NETWORK_HOST_DENIED" } });
+
+    const privateRedirect = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "network_private_redirect",
+          operation: { kind: "network.request", url: "https://api.example.com/redirect", method: "GET", headers: [] },
+        },
+      },
+    );
+    expect(privateRedirect).toMatchObject({
+      ok: false,
+      error: { code: "NETWORK_PRIVATE_ADDRESS_DENIED" },
+    });
+    expect(egressCalls.map((call) => call.url)).toEqual([
+      "https://api.example.com/items",
+      "https://api.example.com/redirect",
+      "https://redirect.example/private",
+    ]);
+  });
+
+  test("a lifecycle generation prevents review and runtime issuance from racing bundle changes", async () => {
+    const f = await fixture();
+    const pluginId = "race-safe";
+    const fingerprint = "v2:reviewed-bundle";
+    const reviewedGeneration = await f.t.query(
+      internal.functions.obsidianPlugins.snapshotLifecycle,
+      { workspaceId: f.workspaceId, pluginId },
+    );
+    expect(reviewedGeneration).toBe(0);
+
+    const generation = await f.t.mutation(internal.functions.obsidianPlugins.recordLifecycle, {
+      workspaceId: f.workspaceId,
+      actorUserId: f.owner,
+      pluginId,
+      version: "1.0.0",
+      action: "installing",
+    });
+    const staleReview = await captureError(() => f.t.mutation(
+      internal.functions.obsidianPlugins.persistGrant,
+      {
+        workspaceId: f.workspaceId,
+        actorUserId: f.owner,
+        pluginId,
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+        expectedLifecycleGeneration: reviewedGeneration,
+      },
+    ));
+    expect(errorCode(staleReview)).toBe("PLUGIN_LIFECYCLE_CHANGED");
+    const midLifecycleReview = await captureError(() => f.t.query(
+      internal.functions.obsidianPlugins.snapshotLifecycle,
+      { workspaceId: f.workspaceId, pluginId },
+    ));
+    expect(errorCode(midLifecycleReview)).toBe("PLUGIN_LIFECYCLE_BUSY");
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.recoverPluginLifecycle, {
+      workspaceId: f.workspaceId,
+      pluginId,
+      confirmation: "RECOVER_PLUGIN",
+    });
+    const staleWriter = await captureError(() => f.t.action(
+      internal.functions.files.runFileOperation,
+      {
+        workspaceId: f.workspaceId,
+        scope: "private",
+        operation: {
+          kind: "pluginManagedInstall",
+          pluginId,
+          version: "1.0.0",
+          repository: "example/race-safe",
+          manifestJson: JSON.stringify({ id: pluginId, version: "1.0.0" }),
+          mainJs: "class RaceSafe {}",
+          stylesCss: null,
+          lifecycleGeneration: generation,
+        },
+      },
+    ));
+    expect(errorCode(staleWriter)).toBe("CONFLICT");
+    expect(await f.t.query(internal.functions.obsidianPlugins.snapshotLifecycle, {
+      workspaceId: f.workspaceId,
+      pluginId,
+    })).toBe(generation + 1);
+    expect(f.backend.snapshot()[".context/plugins/race-safe/current.json"]).toContain(
+      `"lifecycleGeneration":${generation + 1}`,
+    );
+  });
+});
+
+describe("Obsidian vault import", () => {
+  test("requires the destructive acknowledgement before a replacement job exists", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const args = {
+      workspaceId: f.workspaceId,
+      strategy: "replace" as const,
+      sourceFingerprint: "vault-replace-confirmation",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    };
+
+    for (const confirmation of [undefined, "I understand this", "understand"]) {
+      const error = await captureError(() => owner.mutation(
+        api.functions.files.startVaultImport,
+        { ...args, confirmation },
+      ));
+      expect(errorCode(error)).toBe("IMPORT_REPLACE_CONFIRMATION_REQUIRED");
+    }
+
+    const jobs = await f.t.run((ctx) => ctx.db.query("vaultImportJobs").collect());
+    expect(jobs).toEqual([]);
+
+    for (const [index, confirmation] of [
+      "I understand",
+      "i understand",
+      "I UNDERSTAND",
+      "I Understand",
+      "  I understand  ",
+    ].entries()) {
+      const accepted = await owner.mutation(api.functions.files.startVaultImport, {
+        ...args,
+        confirmation,
+        sourceFingerprint: `vault-replace-confirmation-${index}`,
+      });
+      expect(accepted.strategy).toBe("replace");
+    }
+  });
+
+  test("clears every bucket object in a resumable owner-only phase before replacement uploads", async () => {
+    const f = await fixture();
+    f.backend.seed(".audit/legacy-events.jsonl", "legacy audit");
+    f.backend.seed(".context/audit/events.jsonl", "audit");
+    f.backend.seed(".context/recover/privacy.md", "old privacy");
+    f.backend.seed("attachment.png", new Uint8Array([1, 2, 3]));
+    for (let index = 0; index < 205; index += 1) {
+      f.backend.seed(`archive/note-${String(index).padStart(3, "0")}.md`, `${index}`);
+    }
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "replace",
+      confirmation: "I understand",
+      sourceFingerprint: "vault-replace-resumable",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    });
+
+    expect(job.replacement).toEqual({
+      phase: "counting",
+      totalObjects: 0,
+      deletedObjects: 0,
+    });
+
+    const unauthorized = await captureError(() => asUser(f.t, f.stranger).action(
+      api.functions.files.clearVaultImportBatch,
+      { workspaceId: f.workspaceId, jobId: job.jobId, sourceFingerprint: "vault-replace-resumable" },
+    ));
+    expect(errorCode(unauthorized)).toBe("WORKSPACE_NOT_FOUND");
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(215);
+
+    const counted = await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    expect(counted.replacement).toEqual({
+      phase: "deleting",
+      totalObjects: 215,
+      deletedObjects: 0,
+    });
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(215);
+
+    const firstPage = await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    expect(firstPage.replacement).toEqual({
+      phase: "deleting",
+      totalObjects: 215,
+      deletedObjects: 100,
+    });
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(115);
+
+    await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    const cleared = await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    expect(cleared.replacement).toEqual({
+      phase: "uploading",
+      totalObjects: 215,
+      deletedObjects: 215,
+    });
+    expect(f.backend.snapshot()).toEqual({});
+
+    const complete = await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+      batchIndex: 0,
+      files: [{
+        path: "new.md",
+        bytes: new TextEncoder().encode("new").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+    expect(complete.status).toBe("complete");
+    expect(f.backend.snapshot()["new.md"]).toBe("new");
+    expect(f.backend.snapshot()[PRIVACY_KEY]).toContain("default_visibility: private");
+  });
+
+  test("refuses replacement file bytes until the bucket-clearing phase finishes", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "replace",
+      confirmation: "I understand",
+      sourceFingerprint: "vault-replace-ordering",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    });
+
+    const error = await captureError(() => owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-ordering",
+      batchIndex: 0,
+      files: [{ path: "new.md", bytes: new TextEncoder().encode("new").buffer, contentType: "text/markdown" }],
+    }));
+
+    expect(errorCode(error)).toBe("IMPORT_REPLACE_NOT_READY");
+    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+    expect(f.backend.snapshot()["new.md"]).toBeUndefined();
+  });
+
+  test("persists resumable progress and counts a retried batch only once", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-1",
+      totalFiles: 2,
+      totalBytes: 12,
+      totalBatches: 2,
+    });
+    const batch = {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-fingerprint-1",
+      batchIndex: 0,
+      files: [{
+        path: "Imported/one.md",
+        bytes: new TextEncoder().encode("# One\n").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    };
+
+    const first = await owner.action(api.functions.files.importVaultJobBatch, batch);
+    const retry = await owner.action(api.functions.files.importVaultJobBatch, batch);
+
+    expect(first).toMatchObject({
+      status: "active",
+      completedFiles: 1,
+      totalFiles: 2,
+      createdFiles: 1,
+      skippedFiles: 0,
+      completedBatches: [0],
+    });
+    expect(retry).toEqual(first);
+    expect(f.backend.snapshot()["Imported/one.md"]).toBe("# One\n");
+
+    const durable = await owner.query(api.functions.files.latestVaultImportJob, {
+      workspaceId: f.workspaceId,
+    });
+    expect(durable).toMatchObject({
+      jobId: job.jobId,
+      status: "active",
+      completedFiles: 1,
+      totalFiles: 2,
+    });
+  });
+
+  test("resumes the same selected vault and completes after the missing batch", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const args = {
+      workspaceId: f.workspaceId,
+      strategy: "folder" as const,
+      sourceFingerprint: "vault-fingerprint-2",
+      totalFiles: 2,
+      totalBytes: 12,
+      totalBatches: 2,
+    };
+    const started = await owner.mutation(api.functions.files.startVaultImport, args);
+    await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: started.jobId,
+      sourceFingerprint: args.sourceFingerprint,
+      batchIndex: 0,
+      files: [{
+        path: "Imports/Vault/one.md",
+        bytes: new TextEncoder().encode("one").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+
+    await owner.mutation(api.functions.files.pauseVaultImport, {
+      workspaceId: f.workspaceId,
+      jobId: started.jobId,
+    });
+    const resumed = await owner.mutation(api.functions.files.startVaultImport, args);
+    expect(resumed).toMatchObject({
+      jobId: started.jobId,
+      status: "active",
+      completedFiles: 1,
+      completedBatches: [0],
+    });
+
+    const complete = await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: started.jobId,
+      sourceFingerprint: args.sourceFingerprint,
+      batchIndex: 1,
+      files: [{
+        path: "Imports/Vault/two.md",
+        bytes: new TextEncoder().encode("two").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+    expect(complete).toMatchObject({
+      status: "complete",
+      completedFiles: 2,
+      totalFiles: 2,
+      completedBatches: [0, 1],
+    });
+  });
+
+  test("keeps another user from seeing or advancing a vault import job", async () => {
+    const f = await fixture();
+    const job = await asUser(f.t, f.owner).mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-private",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    });
+
+    const queryError = await captureError(() =>
+      asUser(f.t, f.stranger).query(api.functions.files.latestVaultImportJob, {
+        workspaceId: f.workspaceId,
+      }),
+    );
+    const batchError = await captureError(() =>
+      asUser(f.t, f.stranger).action(api.functions.files.importVaultJobBatch, {
+        workspaceId: f.workspaceId,
+        jobId: job.jobId,
+        sourceFingerprint: "vault-fingerprint-private",
+        batchIndex: 0,
+        files: [{
+          path: "private.md",
+          bytes: new TextEncoder().encode("no").buffer,
+          contentType: "text/markdown; charset=utf-8",
+        }],
+      }),
+    );
+    expect(errorCode(queryError)).toBe("WORKSPACE_NOT_FOUND");
+    expect(errorCode(batchError)).toBe("WORKSPACE_NOT_FOUND");
+    expect(f.backend.snapshot()["private.md"]).toBeUndefined();
+  });
+
+  test("rejects a mismatched resume plan before any local bytes reach storage", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-mismatch",
+      totalFiles: 1,
+      totalBytes: 6,
+      totalBatches: 1,
+    });
+
+    const error = await captureError(() => owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-fingerprint-mismatch",
+      batchIndex: 0,
+      files: [
+        {
+          path: "one.md",
+          bytes: new TextEncoder().encode("one").buffer,
+          contentType: "text/markdown; charset=utf-8",
+        },
+        {
+          path: "two.md",
+          bytes: new TextEncoder().encode("two").buffer,
+          contentType: "text/markdown; charset=utf-8",
+        },
+      ],
+    }));
+
+    expect(errorCode(error)).toBe("IMPORT_PLAN_INVALID");
+    expect(f.backend.snapshot()["one.md"]).toBeUndefined();
+    expect(f.backend.snapshot()["two.md"]).toBeUndefined();
+  });
+
+  test("preserves Markdown and attachment paths without retaining their bytes in Convex", async () => {
+    const f = await fixture();
+    const markdown = new TextEncoder().encode("# Imported\n\n![[diagram.png]]\n");
+    const image = new Uint8Array([137, 80, 78, 71]);
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-no-content",
+      totalFiles: 2,
+      totalBytes: markdown.byteLength + image.byteLength,
+      totalBatches: 1,
+    });
+
+    const result = await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-fingerprint-no-content",
+      batchIndex: 0,
+      files: [
+        {
+          path: "Imported/Note.md",
+          bytes: markdown.buffer,
+          contentType: "text/markdown; charset=utf-8",
+        },
+        {
+          path: "Imported/diagram.png",
+          bytes: image.buffer,
+          contentType: "image/png",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ status: "complete", createdFiles: 2, completedFiles: 2 });
+    expect(f.backend.snapshot()["Imported/Note.md"]).toContain("# Imported");
+    expect([...f.backend.bytesOf("Imported/diagram.png")!]).toEqual([...image]);
+
+    const database = await f.t.run(async (ctx) => {
+      const tables = ["auditEvents", "storageBindings", "vaultImportJobs", "workspaces", "users"] as const;
+      return JSON.stringify(await Promise.all(tables.map((table) => ctx.db.query(table).collect())));
+    });
+    expect(database).not.toContain("# Imported");
+    expect(database).not.toContain("137,80,78,71");
+  });
+
+  test("is create-only, so retrying cannot overwrite a file that already exists", async () => {
+    const f = await fixture();
+    const result = await asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+      workspaceId: f.workspaceId,
+      files: [{
+        path: "index.md",
+        bytes: new TextEncoder().encode("# Replacement\n").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+
+    expect(result.created).toEqual([]);
+    expect(result.skipped).toEqual(["index.md"]);
+    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+  });
+
+  // The create-only claim above is tested against a backend that honours the
+  // precondition. `initialCapabilities()` starts every binding at
+  // `conditionalWrite: false` — "B2 and arbitrary S3-compatible endpoints do
+  // not reliably [support it]" — and every other conditional write in
+  // `fileOps.ts` reads `store.capabilities` before relying on one. An importer
+  // that sends the precondition and trusts the answer, on a binding recorded as
+  // not having proven it, is the exact failure the probe exists to prevent:
+  // "a lost write with no error, which is the one failure mode a notes product
+  // cannot have" — here, during onboarding, over the customer's own vault.
+  test("does not lose an existing file on a backend whose conditional writes were never proven", async () => {
+    const f = await fixture({ conditionalWrite: false, ignoreIfMatch: true });
+    const result = await asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+      workspaceId: f.workspaceId,
+      files: [{
+        path: "index.md",
+        bytes: new TextEncoder().encode("# Replacement\n").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+
+    expect(result.created).toEqual([]);
+    expect(result.skipped).toEqual(["index.md"]);
+    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+  });
+
+  test("is owner-only and refuses Obsidian or Context hidden state", async () => {
+    const f = await fixture();
+    const file = {
+      path: "notes/new.md",
+      bytes: new TextEncoder().encode("# no\n").buffer,
+      contentType: "text/markdown; charset=utf-8",
+    };
+    const editorError = await captureError(() =>
+      asUser(f.t, f.editor).action(api.functions.files.importVaultBatch, {
+        workspaceId: f.workspaceId,
+        files: [file],
+      }),
+    );
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const hiddenError = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+        workspaceId: f.workspaceId,
+        files: [{ ...file, path: ".obsidian/plugins.json" }],
+      }),
+    );
+    expect(errorCode(hiddenError)).toBe("PATH_INVALID");
+    expect(f.backend.snapshot()[".obsidian/plugins.json"]).toBeUndefined();
   });
 });
 
@@ -274,6 +1955,13 @@ describe("read access and write access are different grants", () => {
       }),
     );
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+
+    const migrationError = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.updateStorageLayout, {
+        workspaceId: f.workspaceId,
+      }),
+    );
+    expect(errorCode(migrationError)).toBe("INSUFFICIENT_ROLE");
     expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
   });
 
@@ -624,6 +2312,315 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
 });
 
 /* -------------------------------------------------------------------------- */
+/*                         what the offline mirror is fed                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `syncManifest` and `readNotes` through the real actions, the real
+ * `S3Store` and the real authorization. `offlineSync.test.ts` proves the
+ * operations against a bucket; this proves the tier the action hands them is
+ * the caller's, and that the answers are the same ones `listFiles` and
+ * `readNote` give.
+ */
+describe("the offline mirror sees exactly what its reader may", () => {
+  test("an owner's manifest and a member's differ by exactly the private half", async () => {
+    const f = await fixture();
+    await share(f);
+    const owner = await asUser(f.t, f.owner).action(api.functions.files.syncManifest, {
+      workspaceId: f.workspaceId,
+    });
+    const member = await asUser(f.t, f.reader).action(api.functions.files.syncManifest, {
+      workspaceId: f.workspaceId,
+    });
+
+    expect(owner.entries.map((entry) => entry.path).sort()).toEqual(
+      // `activity.md` is here because the writes above produced one, and it is
+      // the owner's: it is a note at the root of their own bucket, so the
+      // mirror carries it and the activity page works on a plane. The member's
+      // manifest below is the other half of that — it is private, so it is
+      // absent there, with no gap where it would have been.
+      [
+        "1-projects/README.md",
+        "1-projects/shared.md",
+        "2-areas/README.md",
+        "2-areas/private-note.md",
+        ACTIVITY_PATH,
+        "index.md",
+        PRIVACY_KEY,
+      ].sort(),
+    );
+    expect(member.entries.map((entry) => entry.path)).toEqual([
+      "1-projects/README.md",
+      "1-projects/shared.md",
+    ]);
+    expect(member).toMatchObject({ kind: "manifest", cursor: null, truncated: false });
+
+    // Not the path, not the etag, not the size — nothing that says it exists.
+    const hidden = owner.entries.find((entry) => entry.path === "2-areas/private-note.md")!;
+    const rendered = JSON.stringify(member);
+    expect(rendered).not.toContain("private-note");
+    expect(rendered).not.toContain(`"${hidden.etag}"`);
+    expect(rendered).not.toContain(PRIVACY_KEY);
+  });
+
+  test("a manifest's etag is the one readNote returns, so a sync can skip what it already has", async () => {
+    const f = await fixture();
+    await share(f);
+    const as = asUser(f.t, f.reader);
+    const manifest = await as.action(api.functions.files.syncManifest, { workspaceId: f.workspaceId });
+    for (const entry of manifest.entries) {
+      const read = await as.action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: entry.path,
+      });
+      expect(entry.etag).toBe(read.etag);
+    }
+  });
+
+  test("a batch answers each path as readNote would, and a hidden note as a missing one", async () => {
+    const f = await fixture();
+    await share(f);
+    const as = asUser(f.t, f.reader);
+    const batch = await as.action(api.functions.files.readNotes, {
+      workspaceId: f.workspaceId,
+      paths: ["1-projects/shared.md", "2-areas/private-note.md", "2-areas/no-such-note.md"],
+    });
+
+    expect(batch.results[0]).toEqual({
+      path: "1-projects/shared.md",
+      outcome: "read",
+      note: await as.action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: "1-projects/shared.md",
+      }),
+    });
+    const { path: _hiddenPath, ...hidden } = batch.results[1]!;
+    const { path: _absentPath, ...absent } = batch.results[2]!;
+    expect(hidden).toEqual(absent);
+    expect(hidden).toMatchObject({ outcome: "error", code: "FILE_NOT_FOUND" });
+
+    // And word for word what readNote throws for the same path.
+    const single = await captureError(() =>
+      as.action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: "2-areas/private-note.md",
+      }),
+    );
+    expect(hidden).toMatchObject({
+      code: errorCode(single),
+      message: (single as { data: { message: string } }).data.message,
+    });
+    expect(JSON.stringify(batch)).not.toContain(SECRET_BODY_MARKER);
+  });
+
+  test("the owner's batch reads the note the member's was refused", async () => {
+    const f = await fixture();
+    await share(f);
+    const batch = await asUser(f.t, f.owner).action(api.functions.files.readNotes, {
+      workspaceId: f.workspaceId,
+      paths: ["2-areas/private-note.md"],
+    });
+    expect(batch.results[0]).toMatchObject({ outcome: "read" });
+    expect(JSON.stringify(batch)).toContain(SECRET_BODY_MARKER);
+  });
+
+  test("an oversized batch is refused with a code the client can act on, before the bucket is asked", async () => {
+    const f = await fixture();
+    const before = f.backend.requests.length;
+    const error = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.readNotes, {
+        workspaceId: f.workspaceId,
+        paths: Array.from({ length: 51 }, (_, index) => `1-projects/n${index}.md`),
+      }),
+    );
+    expect(errorCode(error)).toBe("BATCH_TOO_LARGE");
+    expect(f.backend.requests.length).toBe(before);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                    the audit trail is inside that boundary                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE ATTACK: RECOVER A HIDDEN NOTE'S PATH FROM THE AUDIT TRAIL.
+ *
+ * Everything above proves the file APIs hold the line — a `team`-scoped member
+ * cannot read, list, or infer a private note. `listEvents` is readable by every
+ * member of the same workspace and used to hand them the path anyway, three
+ * different ways, for a note whose folder listing correctly comes back empty.
+ *
+ * Attacker and victim share ONE database and ONE workspace on purpose. A
+ * fixture that puts them in separate ones proves nothing: the refusal would
+ * then come from the row not existing rather than from the gate.
+ */
+describe("a member cannot recover a hidden path out of the audit trail", () => {
+  const HIDDEN = "2-areas/acquisition-of-acme.md";
+  const SIBLING = "2-areas/acquisition-of-acme-terms.md";
+
+  /**
+   * A private folder holding two notes, touched by the owner in the ways that
+   * write a path onto the trail: created, and re-classified.
+   */
+  async function attackFixture() {
+    const f = await fixture();
+    await share(f);
+    const owner = asUser(f.t, f.owner);
+
+    await owner.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: HIDDEN,
+      text: "# Acme\n",
+    });
+    await owner.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: SIBLING,
+      text: "# Terms\n",
+    });
+    await owner.action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: HIDDEN,
+      visibility: "private",
+    });
+    return f;
+  }
+
+  async function memberSees(f: Fixture): Promise<string> {
+    const rows = await asUser(f.t, f.reader).query(
+      api.functions.audit.listEvents,
+      { workspaceId: f.workspaceId, limit: 100 },
+    );
+    return JSON.stringify(rows);
+  }
+
+  /**
+   * The premise. If the member could list the folder, nothing below is a leak.
+   */
+  test("the member's own listing of that folder is empty", async () => {
+    const f = await attackFixture();
+    const listing = await asUser(f.t, f.reader).action(
+      api.functions.files.listFiles,
+      { workspaceId: f.workspaceId, path: "2-areas" },
+    );
+    expect(listing.entries).toEqual([]);
+  });
+
+  /**
+   * `file.create` and `visibility.note` both name the note, and the second one
+   * labels it `visibility: "private"` -- so before the gate the member did not
+   * merely learn a path, they learned it was a path kept from them.
+   */
+  test("the trail does not hand over the path it was created under", async () => {
+    const f = await attackFixture();
+    expect(await memberSees(f)).not.toContain(HIDDEN);
+  });
+
+  /**
+   * The worst of the three. `deleteEntry` on a folder records
+   * `keysUnder(...)` expanded at the *actor's* clearance, so an owner deleting
+   * a private folder used to write every private note in it onto a row the
+   * member reads.
+   */
+  test("nor every private sibling out of a folder delete", async () => {
+    const f = await attackFixture();
+    await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
+      workspaceId: f.workspaceId,
+      path: "2-areas",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    const dump = await memberSees(f);
+    expect(dump).not.toContain(HIDDEN);
+    expect(dump).not.toContain(SIBLING);
+  });
+
+  /**
+   * The owner is the reason this is a gate and not a schema change: the record
+   * itself is unchanged, and the person with `private` clearance still reads
+   * all of it.
+   */
+  test("the owner's own view of the same trail is complete", async () => {
+    const f = await attackFixture();
+    const rows = await asUser(f.t, f.owner).query(
+      api.functions.audit.listEvents,
+      { workspaceId: f.workspaceId, limit: 100 },
+    );
+    expect(JSON.stringify(rows)).toContain(HIDDEN);
+    expect(rows.every((row) => row.pathsWithheld === false)).toBe(true);
+  });
+
+  /**
+   * THE HALF OF THE TRAIL A MEMBER KEEPS.
+   *
+   * Withholding every path from a non-owner would have been simpler and would
+   * have taken this with it — "what did my own client just do in my name" is
+   * a member's main reason to open the trail, and those paths are ones the
+   * member supplied, expanded at the member's own clearance.
+   */
+  test("a member still reads the paths of what they did themselves", async () => {
+    const f = await attackFixture();
+    await asUser(f.t, f.editor).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/editor-wrote-this.md",
+      text: "# Mine\n",
+    });
+    const rows = await asUser(f.t, f.editor).query(
+      api.functions.audit.listEvents,
+      { workspaceId: f.workspaceId, limit: 100 },
+    );
+    const mine = rows.find((row) => row.actorUserId === f.editor);
+    expect(mine?.pathsWithheld).toBe(false);
+    expect(mine?.paths).toEqual(["1-projects/editor-wrote-this.md"]);
+    // And the owner's rows in the very same response are still closed.
+    expect(
+      rows.filter((row) => row.actorUserId === f.owner).every((row) => row.pathsWithheld),
+    ).toBe(true);
+  });
+
+  /**
+   * THE SECOND-ORDER LEAK: A REDACTION THAT VARIES IS ITSELF A SIGNAL.
+   *
+   * `pathsWithheld` is computed from the reader alone, never from the row, so
+   * a withheld row that named two private notes and a withheld row that named
+   * nothing at all come back byte-identical. Had the flag been raised only
+   * when `paths` was non-empty, a member could have subtracted "rows that
+   * touched something" from "notes I can list" — the same census the note
+   * count is owner-only to prevent, rebuilt out of booleans.
+   *
+   * The two rows are inserted directly, with equal `at` and equal action, so
+   * the only thing that could differ between them is the thing under test.
+   */
+  test("a withheld row is indistinguishable from a row that named nothing", async () => {
+    const f = await fixture();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("auditEvents", {
+        workspaceId: f.workspaceId,
+        actorUserId: f.owner,
+        action: "file.delete",
+        paths: ["2-areas/one.md", "2-areas/two.md"],
+        at: 5_000,
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId: f.workspaceId,
+        actorUserId: f.owner,
+        action: "file.delete",
+        paths: [],
+        at: 5_000,
+      });
+    });
+    const rows = await asUser(f.t, f.reader).query(
+      api.functions.audit.listEvents,
+      { workspaceId: f.workspaceId, limit: 100 },
+    );
+    const pair = rows.filter((row) => row.at === 5_000);
+    expect(pair).toHaveLength(2);
+    // `eventId` is the row's own id and is not derived from its contents.
+    const shape = (row: (typeof pair)[number]) =>
+      JSON.stringify({ ...row, eventId: null });
+    expect(shape(pair[0]!)).toBe(shape(pair[1]!));
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /*                              tenant isolation                              */
 /* -------------------------------------------------------------------------- */
 
@@ -632,11 +2629,55 @@ describe("a stranger cannot reach another workspace's files", () => {
     const f = await fixture();
     const dangling = await danglingWorkspaceId(f.t);
     const as = asUser(f.t, f.stranger);
+    const importJobId = await f.t.run((ctx) =>
+      ctx.db.insert("vaultImportJobs", {
+        workspaceId: f.workspaceId,
+        actorUserId: f.owner,
+        strategy: "merge",
+        sourceFingerprint: "vault-isolation",
+        totalFiles: 1,
+        totalBytes: 3,
+        totalBatches: 1,
+        completedBatches: [],
+        completedFiles: 0,
+        createdFiles: 0,
+        skippedFiles: 0,
+        status: "active",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
 
     const calls: Array<(workspaceId: Id<"workspaces">) => Promise<unknown>> = [
       (workspaceId) => as.action(api.functions.files.listFiles, { workspaceId, path: "" }),
+      // `.obsidian/` is outside the privacy manifest entirely, so the plugin
+      // inventory must establish ownership before its fixed read path opens.
+      (workspaceId) =>
+        as.action(api.functions.files.listObsidianPlugins, { workspaceId }),
+      // The cheap half of the same read, and the same reasoning: it opens keys
+      // under `.context/plugins/`, which no privacy manifest governs, so
+      // ownership is established before the fixed path is built.
+      (workspaceId) =>
+        as.action(api.functions.files.listManagedPlugins, { workspaceId }),
       (workspaceId) =>
         as.action(api.functions.files.readNote, { workspaceId, path: "1-projects/shared.md" }),
+      // The offline mirror's two reads. A manifest that answered an empty list
+      // for another tenant's context, instead of this refusal, would be an
+      // oracle of a different shape: "empty" for a real context and "not
+      // found" for an invented one.
+      (workspaceId) => as.action(api.functions.files.syncManifest, { workspaceId }),
+      // The activity file's three doors. Reading the list is a bucket read;
+      // the other two only touch the membership row, and refuse in the same
+      // shape rather than answering `null` for somebody else's context.
+      (workspaceId) => as.action(api.functions.files.listActivity, { workspaceId }),
+      (workspaceId) => as.query(api.functions.files.activityLastSeen, { workspaceId }),
+      (workspaceId) =>
+        as.mutation(api.functions.files.markActivitySeen, { workspaceId }),
+      (workspaceId) =>
+        as.action(api.functions.files.readNotes, {
+          workspaceId,
+          paths: ["1-projects/shared.md"],
+        }),
       (workspaceId) =>
         as.action(api.functions.files.writeNote, {
           workspaceId,
@@ -654,6 +2695,46 @@ describe("a stranger cannot reach another workspace's files", () => {
           text: "x",
         }),
       (workspaceId) =>
+        as.action(api.functions.files.importVaultBatch, {
+          workspaceId,
+          files: [{
+            path: "imported.md",
+            bytes: new TextEncoder().encode("# Imported\n").buffer,
+            contentType: "text/markdown; charset=utf-8",
+          }],
+        }),
+      (workspaceId) =>
+        as.mutation(api.functions.files.startVaultImport, {
+          workspaceId,
+          strategy: "merge",
+          sourceFingerprint: "vault-isolation",
+          totalFiles: 1,
+          totalBytes: 3,
+          totalBatches: 1,
+        }),
+      (workspaceId) =>
+        as.query(api.functions.files.latestVaultImportJob, { workspaceId }),
+      (workspaceId) =>
+        as.mutation(api.functions.files.pauseVaultImport, { workspaceId, jobId: importJobId }),
+      (workspaceId) =>
+        as.action(api.functions.files.importVaultJobBatch, {
+          workspaceId,
+          jobId: importJobId,
+          sourceFingerprint: "vault-isolation",
+          batchIndex: 0,
+          files: [{
+            path: "imported.md",
+            bytes: new TextEncoder().encode("# Imported\n").buffer,
+            contentType: "text/markdown; charset=utf-8",
+          }],
+        }),
+      (workspaceId) =>
+        as.action(api.functions.files.clearVaultImportBatch, {
+          workspaceId,
+          jobId: importJobId,
+          sourceFingerprint: "vault-isolation",
+        }),
+      (workspaceId) =>
         as.action(api.functions.files.moveEntry, { workspaceId, from: "a.md", to: "b.md" }),
       (workspaceId) =>
         as.action(api.functions.files.copyEntry, { workspaceId, from: "a.md", to: "b.md" }),
@@ -661,6 +2742,14 @@ describe("a stranger cannot reach another workspace's files", () => {
         as.action(api.functions.files.duplicateEntry, { workspaceId, path: "a.md" }),
       (workspaceId) =>
         as.action(api.functions.files.archiveEntry, { workspaceId, path: "a.md" }),
+      (workspaceId) =>
+        as.action(api.functions.files.trashEntry, { workspaceId, path: "a.md" }),
+      (workspaceId) =>
+        as.action(api.functions.files.restoreTrashEntry, {
+          workspaceId,
+          from: ".context/trash/stamp/a.md",
+          to: "a.md",
+        }),
       (workspaceId) =>
         as.action(api.functions.files.createDirectory, { workspaceId, path: "a" }),
       (workspaceId) =>
@@ -693,10 +2782,86 @@ describe("a stranger cannot reach another workspace's files", () => {
       // cross-tenant risk: a stranger asking for another workspace's note
       // paths must get `WORKSPACE_NOT_FOUND`, never a real (even empty) list.
       (workspaceId) => as.action(api.functions.files.notePaths, { workspaceId }),
+      // The same shape one level up: every FOLDER this caller can see, for the
+      // "move into another context" picker. A folder name is itself private —
+      // `1-projects/acme-acquisition` names a deal — so handing a stranger an
+      // empty list rather than a refusal would still be an existence oracle
+      // they could walk one guess at a time.
+      (workspaceId) => as.action(api.functions.files.folderPaths, { workspaceId }),
+      // Counts and phase reveal less than a path, but the existence of a long
+      // move is still activity in another tenant and therefore owner-only.
+      (workspaceId) => as.query(api.functions.files.listDurableMoves, { workspaceId }),
       // Owner-only, and absent here since it was written. The one exit from a
       // broken `privacy.md`, so reaching it across tenants would rewrite
       // somebody else's access map to all-private.
       (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
+      (workspaceId) => as.action(api.functions.files.updateStorageLayout, { workspaceId }),
+      // Owner-only, and a writer of `privacy.md` like the two visibility
+      // setters beside it. The group name resolves against the workspace the
+      // caller names, so reaching this across tenants would point somebody
+      // else's note at a group — and the refusal has to come from the
+      // workspace check ahead of that resolution, not from the group lookup,
+      // or a stranger learns which names exist by the shape of the error.
+      (workspaceId) =>
+        as.action(api.functions.files.setNoteGroup, {
+          workspaceId,
+          path: "1-projects/shared.md",
+          group: "@supa-leads",
+        }),
+      // The folder-shaped sibling, on the same terms. It resolves a name
+      // against this workspace too — and now resolves a PERSON's handle as
+      // well as a group, so the refusal ahead of that resolution is also what
+      // stops a stranger asking whether a given handle is a member here.
+      (workspaceId) =>
+        as.action(api.functions.files.setFolderGroup, {
+          workspaceId,
+          path: "1-projects",
+          group: "@supa-leads",
+        }),
+      /*
+        Pasting an image into somebody else's bucket. Editor-level, so what a
+        stranger meets is the membership refusal — and the key is derived from
+        the bytes rather than supplied, so there is no path to guess either.
+      */
+      (workspaceId) =>
+        as.action(api.functions.files.storeNoteImage, {
+          workspaceId,
+          bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+          contentType: "image/png",
+        }),
+      /*
+        And reading one back out. There is a second gate behind this one — the
+        note that references the image has to be one the caller can see — and
+        what belongs here is the first: a stranger never reaches the gate at all.
+      */
+      (workspaceId) =>
+        as.action(api.functions.files.readNoteImage, {
+          workspaceId,
+          notePath: "1-projects/a.md",
+          leaf: "paste-abcd1234.png",
+        }),
+      /*
+        Setting somebody else's workspace's icon photo. Owner-level — stricter
+        than the paste above, because it writes bytes *and* changes what every
+        member of that workspace sees — so a stranger meets the membership
+        refusal before any of that.
+      */
+      (workspaceId) =>
+        as.action(api.functions.files.setWorkspaceIconPhoto, {
+          workspaceId,
+          bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+          contentType: "image/png",
+        }),
+      /*
+        And reading one back. **This is the endpoint with no object argument**
+        — the leaf comes off the workspace row, which is what stops it being a
+        general reader of the opaque image store (`workspaceIcon.test.ts` makes
+        that case in full). Here it is the plainer question: a stranger naming
+        a real workspace must not be able to tell it from one that never
+        existed, and an icon is a picture every *member* is shown, which is
+        exactly the kind of endpoint that gets a looser gate by accident.
+      */
+      (workspaceId) => as.action(api.functions.files.workspaceIconPhoto, { workspaceId }),
     ];
 
     /**
@@ -839,7 +3004,52 @@ describe("a stranger cannot reach another workspace's files", () => {
 /*                                  conflicts                                 */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Stand in for somebody creating `key` in the round trip between `writeNote`'s
+ * existence read and its put: the first GET of it finds nothing, and by the
+ * time the PUT arrives their note is there.
+ */
+function raceCreate(f: Fixture, key: string, theirs: string): void {
+  let raced = false;
+  vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+    const response = await f.backend.fetchImpl(input, init);
+    const url = new URL(typeof input === "string" ? input : String(input));
+    if (!raced && (init?.method ?? "GET") === "GET" && url.pathname.endsWith(`/${key}`)) {
+      raced = true;
+      f.backend.seed(key, theirs);
+    }
+    return response;
+  });
+}
+
 describe("a stale save is a conflict, never a silent overwrite", () => {
+  test("a create that lost a race to somebody else's is a conflict, and theirs survives", async () => {
+    const f = await fixture();
+    raceCreate(f, "1-projects/new.md", "# Theirs\n");
+    const error = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+        workspaceId: f.workspaceId,
+        path: "1-projects/new.md",
+        text: "# Mine\n",
+      }),
+    );
+    expect(errorCode(error)).toBe("CONFLICT");
+    expect((error as { data: { currentEtag?: string } }).data.currentEtag).toBe(
+      f.backend.objects.get("1-projects/new.md")!.etag,
+    );
+    expect(f.backend.snapshot()["1-projects/new.md"]).toBe("# Theirs\n");
+  });
+
+  test("a create on a bucket that never proved create-only writes says it was a read-compare", async () => {
+    const f = await fixture({ conditionalCreate: false });
+    const written = await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/new.md",
+      text: "# Mine\n",
+    });
+    expect(written.conflictCheck).toBe("read-compare");
+  });
+
   test("the conflict reaches the client with the current etag", async () => {
     const f = await fixture();
     const as = asUser(f.t, f.owner);
@@ -867,6 +3077,69 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
     expect(data.currentEtag).toBeTruthy();
     expect(data.message).toMatch(/changed somewhere else/);
     expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Theirs\n");
+  });
+
+  /*
+    The offline queue's rename, move and delete: each sent with the version it
+    was asked about, through the same actions an online press uses.
+    `offlineFileOps.test.ts` has the rules; this is that they reach the client.
+  */
+  test("a queued rename or delete of a note that changed is a conflict with the current etag", async () => {
+    const f = await fixture();
+    const as = asUser(f.t, f.owner);
+    const read = await as.action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/shared.md",
+    });
+    await as.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: read.path,
+      text: "# Theirs\n",
+      expectedEtag: read.etag,
+    });
+
+    for (const attempt of [
+      () => as.action(api.functions.files.moveEntry, {
+        workspaceId: f.workspaceId,
+        from: read.path,
+        to: "1-projects/renamed.md",
+        expectedEtag: read.etag,
+      }),
+      () => as.action(api.functions.files.trashEntry, {
+        workspaceId: f.workspaceId,
+        path: read.path,
+        expectedEtag: read.etag,
+      }),
+      () => as.action(api.functions.files.archiveEntry, {
+        workspaceId: f.workspaceId,
+        path: read.path,
+        expectedEtag: read.etag,
+      }),
+    ]) {
+      const error = await captureError(attempt);
+      expect(errorCode(error)).toBe("CONFLICT");
+      expect((error as { data: { currentEtag?: string } }).data.currentEtag).toBe(
+        f.backend.objects.get("1-projects/shared.md")!.etag,
+      );
+    }
+    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Theirs\n");
+    expect(f.backend.snapshot()["1-projects/renamed.md"]).toBeUndefined();
+  });
+
+  test("a queued rename at the version it was asked about lands, and says the note's new etag", async () => {
+    const f = await fixture();
+    const as = asUser(f.t, f.owner);
+    const read = await as.action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/shared.md",
+    });
+    const moved = await as.action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: read.path,
+      to: "1-projects/renamed.md",
+      expectedEtag: read.etag,
+    });
+    expect(moved.etag).toBe(f.backend.objects.get("1-projects/renamed.md")!.etag);
   });
 
   test("a backend that ignores If-Match still reports it, and the write says how it was checked", async () => {
@@ -1236,5 +3509,134 @@ describe("visibility is a clearance decision, and clearance belongs to the owner
       { workspaceId: f.workspaceId, path: "2-areas", visibility: "team" },
     );
     expect(result.visibility).toBe("team");
+  });
+});
+
+/**
+ * A PASTED IMAGE BORROWS ITS VISIBILITY FROM THE NOTES THAT NAME IT.
+ *
+ * `attachments/` is a visible folder — that is the point of it, so an embed
+ * resolves in Obsidian — and a visible folder is one whose keys a member can
+ * *guess*. An image has no row in `privacy.md` and cannot have one (non-
+ * negotiable #5 keeps `Scope` two-valued and about notes), so the only honest
+ * question is the gateway's: is there a note THIS CALLER CAN SEE that names this
+ * file?
+ *
+ * The case with teeth is the last one: a `member` naming the exact key of an
+ * image that only a private note references. The key is in their own bucket and
+ * the bytes are one HTTP call away for the owner — what stops them is this gate,
+ * and nothing else does.
+ */
+describe("reading a pasted image", () => {
+  /** Put `text` at `path`, passing the etag the note already has. */
+  async function rewrite(f: Fixture, path: string, text: string): Promise<void> {
+    const existing = await asUser(f.t, f.owner).action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path,
+    });
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path,
+      text,
+      expectedEtag: existing.etag,
+    });
+  }
+
+  /** Store an image as the owner, and answer with the leaf it landed at. */
+  async function pasted(f: Fixture): Promise<string> {
+    const stored = await asUser(f.t, f.owner).action(api.functions.files.storeNoteImage, {
+      workspaceId: f.workspaceId,
+      bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer,
+      contentType: "image/png",
+    });
+    return stored.leaf;
+  }
+
+  test("the owner reads back the bytes a note of theirs references", async () => {
+    const f = await fixture();
+    const leaf = await pasted(f);
+    await rewrite(f, "1-projects/shared.md", `# Shared\n\n![[${leaf}|320]]\n`);
+    const read = await asUser(f.t, f.owner).action(api.functions.files.readNoteImage, {
+      workspaceId: f.workspaceId,
+      notePath: "1-projects/shared.md",
+      leaf,
+    });
+    expect(new Uint8Array(read.bytes)).toEqual(
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    );
+    expect(read.contentType).toBe("image/png");
+  });
+
+  test("a note that does not name it does not open it", async () => {
+    const f = await fixture();
+    const leaf = await pasted(f);
+    const error = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.files.readNoteImage, {
+        workspaceId: f.workspaceId,
+        notePath: "1-projects/shared.md",
+        leaf,
+      }),
+    );
+    expect(errorCode(error)).toBe("FILE_NOT_FOUND");
+  });
+
+  test("a member cannot reach an image only a private note references", async () => {
+    const f = await fixture();
+    await share(f);
+    const leaf = await pasted(f);
+    await rewrite(f, "2-areas/private-note.md", `# Private\n\n![[${leaf}]]\n`);
+
+    // Naming the private note is the same absence as naming a note that never
+    // existed: the read operation refuses it before the reference is even
+    // considered.
+    const throughTheNote = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.readNoteImage, {
+        workspaceId: f.workspaceId,
+        notePath: "2-areas/private-note.md",
+        leaf,
+      }),
+    );
+    // And naming a note they CAN see does not help, because that note does not
+    // reference the image. This is the guess the visible folder makes possible
+    // and the gate is what refuses it.
+    const throughAVisibleNote = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.readNoteImage, {
+        workspaceId: f.workspaceId,
+        notePath: "1-projects/shared.md",
+        leaf,
+      }),
+    );
+    expect(errorCode(throughTheNote)).toBe("FILE_NOT_FOUND");
+    expect(errorCode(throughAVisibleNote)).toBe("FILE_NOT_FOUND");
+    // The owner, whose note it is, still reads it — so the refusals above are
+    // the gate and not a broken write.
+    const owner = await asUser(f.t, f.owner).action(api.functions.files.readNoteImage, {
+      workspaceId: f.workspaceId,
+      notePath: "2-areas/private-note.md",
+      leaf,
+    });
+    expect(owner.bytes.byteLength).toBe(8);
+  });
+
+  test("a member may not paste at all, because writing is a separate grant", async () => {
+    const f = await fixture();
+    const error = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.storeNoteImage, {
+        workspaceId: f.workspaceId,
+        bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+        contentType: "image/png",
+      }),
+    );
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+  });
+
+  test("the same bytes pasted twice are one object in the bucket", async () => {
+    const f = await fixture();
+    const first = await pasted(f);
+    const second = await pasted(f);
+    expect(second).toBe(first);
+    expect(
+      [...f.backend.objects.keys()].filter((key) => key.includes("paste-")).length,
+    ).toBe(1);
   });
 });

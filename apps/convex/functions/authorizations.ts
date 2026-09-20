@@ -57,7 +57,7 @@ import { hashToken } from "./lib/crypto";
 import { AUTHORIZATION_TTL_MS, randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
-import { decideMachineApproval } from "./lib/machineGrant";
+import { DESKTOP_SOFTWARE_ID, decideMachineApproval } from "./lib/machineGrant";
 import { getMembership, requireWorkspaceAccess } from "./lib/workspaceAuth";
 import {
   SCOPE_PRIVATE,
@@ -781,6 +781,112 @@ export const applyOwnMachineApproval = internalMutation({
       state: request.state,
       workspaceSlug: resolved.slug,
     };
+  },
+});
+
+/**
+ * The most machines "Your devices" ever has to show. See `MAX_GRANTS_RETURNED`
+ * in `grants.ts` for the same reasoning applied here.
+ *
+ * Exported so the test that proves which 50 survive a cap does not hardcode
+ * the number twice.
+ */
+export const MAX_MACHINES_RETURNED = 50;
+
+/**
+ * This person's own approved machines — "Your devices" in account settings.
+ *
+ * **Account-scoped, not workspace-scoped, and on purpose.** A machine grant is
+ * `oauthGrants.userId`, never a workspace's — the same person's laptop can hold
+ * a grant into more than one context, and the settings surface this powers is
+ * about the person, not about whichever context happens to be open. It used to
+ * be answered by drawing `ThisMachineCard` inside *workspace* settings, which
+ * put a person's own device where every other member of that workspace could
+ * see it. This is the fix: scoped to `requireAuthId`'s own identity, on the
+ * same auth path every other query in this file uses, and to nothing wider.
+ *
+ * **Narrowed to the desktop shell's own grants**, not every client this person
+ * has ever connected — `listGrants` in `grants.ts` already answers "every AI
+ * app", and a laptop is a different question with a different answer shape
+ * (what it may *capture*, not what scopes an arbitrary MCP client holds). The
+ * filter is `oauthClients.softwareId === DESKTOP_SOFTWARE_ID`, the same
+ * client-asserted flag `decideMachineApproval` reads — client-asserted is
+ * still the right bound here: the worst a forged software id buys is
+ * appearing in this person's *own* devices list, never another person's, and
+ * never anything this query would act on.
+ *
+ * **Exactly what the section needs, nothing a caller could use to enumerate
+ * anybody else's machines**: a name (`oauthClients.clientName`, "Context on
+ * <hostname>" — the same string the audit trail already carries), when it was
+ * approved (`oauthGrants.createdAt` — a grant is created at the moment it is
+ * approved, and never touched again), what it may capture (the visibility
+ * tier the grant's scopes record), and the grant id `revokeGrant` already
+ * takes to cut it off. No `workspaceId`, no `clientId`, no other member of the
+ * workspace the grant reaches — none of that is on the row this section draws,
+ * and none of it leaves this function.
+ */
+export const listMyMachines = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      grantId: v.id("oauthGrants"),
+      name: v.string(),
+      approvedAt: v.number(),
+      tier: v.union(v.literal("team"), v.literal("private")),
+    }),
+  ),
+  handler: async (ctx) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+
+    // `by_user` is keyed on the caller's own id, resolved above and nowhere
+    // else — there is no argument on this query a caller could use to ask for
+    // somebody else's rows. That is the whole of the isolation this function
+    // provides, and `__tests__/listMyMachines.test.ts` sabotages exactly this
+    // line to prove it is load-bearing.
+    //
+    // `.order("desc")` is not decoration: Convex's default is ascending by
+    // `_creationTime`, so a bare `.take()` here would keep the *oldest*
+    // `MAX_MACHINES_RETURNED` grants this person ever received — every AI
+    // client, every workspace, revoked rows included, since nothing sweeps
+    // `oauthGrants`. Past that cap this is an auditing screen whose whole job
+    // is showing what can *currently* capture into someone's contexts; a cap
+    // that silently hides the machine approved five minutes ago in favour of
+    // one revoked years ago is the wrong failure direction. Ordering first
+    // means the 50 rows below the cap are already the 50 most recent, so
+    // nothing downstream has to re-sort them back into that order.
+    const grants = await ctx.db
+      .query("oauthGrants")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(MAX_MACHINES_RETURNED);
+
+    const machines: {
+      grantId: Id<"oauthGrants">;
+      name: string;
+      approvedAt: number;
+      tier: "team" | "private";
+    }[] = [];
+    for (const grant of grants) {
+      // A revoked grant is a machine that no longer reaches anything — it
+      // belongs in the audit trail, not in a list somebody reads to decide
+      // what still can.
+      if (grant.status !== "active") continue;
+      const client = await ctx.db
+        .query("oauthClients")
+        .withIndex("by_clientId", (q) => q.eq("clientId", grant.clientId))
+        .unique();
+      if (client === null || client.softwareId !== DESKTOP_SOFTWARE_ID) continue;
+      machines.push({
+        grantId: grant._id,
+        name: client.clientName,
+        approvedAt: grant.createdAt,
+        tier: visibilityTierOf(grant.scopes),
+      });
+    }
+    // No re-sort: `grants` already arrived newest-first from `.order("desc")`
+    // above, and filtering a handful of rows out of an already-ordered list
+    // cannot reorder the ones that remain.
+    return machines;
   },
 });
 

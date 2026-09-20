@@ -1,4 +1,24 @@
-# Production health check + auto-redeploy.
+# Production health check + auto-redeploy — INERT, and has never run.
+#
+# Read this before trusting the name: `convex-url` below is still the
+# scaffolder's `YOUR-DEPLOYMENT` placeholder and the `schedule:` is still
+# commented out, so this workflow has never executed once. It monitors nothing
+# today. It is left in place because the auto-redeploy path it wires up is
+# worth having, not because it is doing anything.
+#
+# Two separate things are missing, and only one of them is a chore:
+#
+#   1. A real deployment URL. A `*.convex.cloud` hostname is an account
+#      identifier, which `scripts/check-no-identifiers.mjs` refuses in this
+#      public tree — so it has to arrive as a repository secret, and adding one
+#      is the owner's to do, not an agent's.
+#   2. A decision about auto-redeploy. Redeploying in response to an outage of
+#      unknown cause can reapply a bad deploy on a loop.
+#
+# What this one would have watched is also not the plane that fails most
+# visibly: it pings a Convex query, while the endpoint every customer
+# configured in every AI client is the gateway Worker. `gateway-health.yml`
+# watches that, needs no secret, and runs on a schedule today.
 #
 # `workflow_call` workflows can't own a `schedule:`, so this thin caller owns
 # the cron and calls the framework's reusable health-check workflow, which

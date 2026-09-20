@@ -292,7 +292,7 @@ describe("where a remembered place sends somebody", () => {
      *
      * A cold launch asks the device before the workspace list has landed, and
      * `wait` paints nothing — so the console drew its rail, with the person's
-     * own brain selected in it, around an empty pane and held it there for as
+     * own workspace selected in it, around an empty pane and held it there for as
      * long as an `AsyncStorage` read took. A bridge is slowest at exactly the
      * moment this runs.
      *

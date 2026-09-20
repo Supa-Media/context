@@ -47,6 +47,7 @@ import {
 } from "../features/console/encryption/passphraseOps";
 import {
   decryptWithPassphrase,
+  encryptForPassphrase,
   isEncryptedNote,
   isPassphraseNote,
   parseEncryptedNote,
@@ -294,6 +295,97 @@ describe("a full cycle, and what it sends", () => {
         { workspaceId: WORKSPACE, writer, derive: fakeDerive },
       ),
     ).rejects.toThrow(/not protected by a passphrase/);
+  });
+});
+
+describe("key cleanup on failed operations", () => {
+  const kdf: KdfDescriptor = {
+    id: "argon2id",
+    v: 0x13,
+    m: 64,
+    t: 1,
+    p: 1,
+    salt: "ABEiM0RVZneImaq7zN3u_w",
+  };
+  const rejectingWriter: NoteWriter = {
+    async write() {
+      throw new Error("write failed");
+    },
+  };
+  const cleared = (bytes: Uint8Array) => Array.from(bytes).every((byte) => byte === 0);
+
+  it("clears a newly derived key when protecting fails to write", async () => {
+    const derived = new Uint8Array(32).fill(11);
+    await expect(
+      protectNote(
+        { path: "a.md", plaintext: PLAINTEXT, etag: null, passphrase: PASSPHRASE },
+        { workspaceId: WORKSPACE, writer: rejectingWriter, derive: () => derived },
+      ),
+    ).rejects.toThrow("write failed");
+    expect(cleared(derived)).toBe(true);
+  });
+
+  it("clears a derived key when unlock authentication fails", async () => {
+    const correct = fakeDerive(PASSPHRASE, kdf);
+    const stored = await encryptForPassphrase(PLAINTEXT, {
+      workspaceId: WORKSPACE,
+      kek: correct,
+      kdf,
+    });
+    const wrong = new Uint8Array(32).fill(12);
+    await expect(
+      unlockNote(
+        { stored, passphrase: PASSPHRASE },
+        { workspaceId: WORKSPACE, writer: rejectingWriter, derive: () => wrong },
+      ),
+    ).rejects.toThrow(/did not open/);
+    expect(cleared(wrong)).toBe(true);
+  });
+
+  it("clears both derived keys when a passphrase change fails to write", async () => {
+    const original = fakeDerive(PASSPHRASE, kdf);
+    const stored = await encryptForPassphrase(PLAINTEXT, {
+      workspaceId: WORKSPACE,
+      kek: original,
+      kdf,
+    });
+    const current = fakeDerive(PASSPHRASE, kdf);
+    const next = new Uint8Array(32).fill(13);
+    await expect(
+      changePassphrase(
+        {
+          path: "a.md",
+          stored,
+          etag: null,
+          currentPassphrase: PASSPHRASE,
+          newPassphrase: NEW_PASSPHRASE,
+        },
+        {
+          workspaceId: WORKSPACE,
+          writer: rejectingWriter,
+          derive: (passphrase) => (passphrase === PASSPHRASE ? current : next),
+        },
+      ),
+    ).rejects.toThrow("write failed");
+    expect(cleared(current)).toBe(true);
+    expect(cleared(next)).toBe(true);
+  });
+
+  it("clears the derived key after removing a passphrase, even when writing fails", async () => {
+    const original = fakeDerive(PASSPHRASE, kdf);
+    const stored = await encryptForPassphrase(PLAINTEXT, {
+      workspaceId: WORKSPACE,
+      kek: original,
+      kdf,
+    });
+    const derived = fakeDerive(PASSPHRASE, kdf);
+    await expect(
+      removePassphrase(
+        { path: "a.md", stored, etag: null, passphrase: PASSPHRASE },
+        { workspaceId: WORKSPACE, writer: rejectingWriter, derive: () => derived },
+      ),
+    ).rejects.toThrow("write failed");
+    expect(cleared(derived)).toBe(true);
   });
 });
 

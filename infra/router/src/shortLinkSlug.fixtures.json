@@ -1,0 +1,31 @@
+{
+  "comment": "Short-link names, run by BOTH copies of the shape rule: infra/router/src/preview.ts#shortLinkFrom and apps/convex/functions/lib/shareSlug.ts#shortLinkSlugFrom. Neither is trusted to match a comment. `claimable` is narrower than `parses`: a reserved word is a well-formed address that no row can hold, and the router deliberately does not know which words those are.",
+  "cases": [
+    { "segment": "intake", "parses": true, "claimable": true },
+    { "segment": "a", "parses": true, "claimable": true },
+    { "segment": "2026-intake", "parses": true, "claimable": true },
+    { "segment": "book-a-call", "parses": true, "claimable": true },
+    { "segment": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "parses": true, "claimable": true },
+    { "segment": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "parses": false, "claimable": false },
+    { "segment": "", "parses": false, "claimable": false },
+    { "segment": "-intake", "parses": false, "claimable": false },
+    { "segment": "intake-", "parses": false, "claimable": false },
+    { "segment": "Intake", "parses": false, "claimable": false },
+    { "segment": "INTAKE", "parses": false, "claimable": false },
+    { "segment": "my intake", "parses": false, "claimable": false },
+    { "segment": "intake.md", "parses": false, "claimable": false },
+    { "segment": "intake_form", "parses": false, "claimable": false },
+    { "segment": "..", "parses": false, "claimable": false },
+    { "segment": "%2e%2e", "parses": false, "claimable": false },
+    { "segment": "café", "parses": false, "claimable": false },
+    { "segment": "settings", "parses": true, "claimable": false },
+    { "segment": "billing", "parses": true, "claimable": false },
+    { "segment": "mcp", "parses": true, "claimable": false },
+    { "segment": "s", "parses": true, "claimable": false },
+    { "segment": "1-projects", "parses": true, "claimable": false },
+    { "segment": "0-inbox", "parses": true, "claimable": false },
+    { "segment": "index", "parses": true, "claimable": false },
+    { "segment": "privacy", "parses": true, "claimable": false },
+    { "segment": "todo", "parses": true, "claimable": false }
+  ]
+}

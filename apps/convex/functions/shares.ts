@@ -56,9 +56,10 @@
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuthId } from "@supa-media/convex/auth";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import {
   action,
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -71,6 +72,10 @@ import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
 import { findName } from "./lib/nameClaims";
 import { isProductMandatedPath } from "./lib/scaffold";
+import { shortLinkSlugFrom, shortLinkSlugRejection } from "./lib/shareSlug";
+import { DEFAULT_COLLECT_CAP, collectCapFrom } from "./lib/collectLimits";
+import { APP_ORIGIN_ENV_VAR } from "./lib/gatewayAuth";
+import { SHARE_ROUTE, shareSegment } from "@context/shared";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -342,6 +347,53 @@ type PathCheck =
   | { ok: true; path: string }
   | { ok: false; code: "PATH_INVALID" | "PATH_NOT_SHAREABLE"; message: string };
 
+/**
+ * The path a **folder** link may point at.
+ *
+ * Not `checkSharePath` with the `.md` test removed: a folder and an
+ * extensionless file are the same string, which `checkTeamSharePath` already
+ * records as the reason "note or folder" was never implementable from a path.
+ * So the *caller* declares which it meant and this checks the rest — and the
+ * declaration is proved against the bucket by the listing probe in
+ * `createLinkShare` before any row is written.
+ *
+ * The root is refused. A link over `""` is a link to the whole context, which
+ * is not a folder share with a wide reach but a different product — and every
+ * bound below is expressed relative to a prefix that a root would make empty.
+ */
+function checkFolderSharePath(input: string): PathCheck {
+  const path = normalizePath(input);
+  if (path === null || path === "") {
+    return { ok: false, code: "PATH_INVALID", message: "That path is not valid." };
+  }
+  if (isPlumbing(path)) {
+    return {
+      ok: false,
+      code: "PATH_NOT_SHAREABLE",
+      message:
+        "That folder is part of how this context works, not a folder of notes. It cannot be shared.",
+    };
+  }
+  return { ok: true, path };
+}
+
+/**
+ * Is `path` inside the folder this share is rooted at?
+ *
+ * **The trailing slash is the whole function.** `startsWith(folder)` hands over
+ * `1-projects/transition-old` to a link minted on `1-projects/transition` —
+ * a different folder whose name merely begins with the shared one's, which is
+ * the kind of near-miss that reads correct and leaks a sibling. Equality is
+ * allowed separately so the folder itself can be listed.
+ *
+ * Both sides arrive through `normalizePath`, so a dot-segment climb has already
+ * been resolved or refused before this is asked; this is the bound, not the
+ * sanitiser.
+ */
+function withinSharedFolder(folder: string, path: string): boolean {
+  return path === folder || path.startsWith(`${folder}/`);
+}
+
 function checkSharePath(input: string): PathCheck {
   const path = normalizePath(input);
   if (path === null) {
@@ -489,6 +541,24 @@ const shareSummary = v.object({
   entryPath: v.string(),
   titleInPreview: v.boolean(),
   previewTitle: v.optional(v.string()),
+  /**
+   * The short link's name, or absent for a share that has only its token.
+   *
+   * Owner-only like `token` beside it, and for the same reason: this is the
+   * other half of the link the owner already holds. The console needs it to
+   * draw what was claimed, and to stop a second row claiming it.
+   */
+  slug: v.optional(v.string()),
+  /**
+   * Whether this link **takes answers** to a form on what it points at.
+   *
+   * Reported to the owner because it is the one thing about a link they have
+   * to be able to see: every other share row hands out a read, and this one
+   * hands out a write from people with no account. A share list that drew a
+   * collect link exactly like a read link would be the console being quiet
+   * about the only case where non-negotiable #5's exception has teeth.
+   */
+  collecting: v.boolean(),
   createdBy: v.id("users"),
   createdAt: v.number(),
   expiresAt: v.optional(v.number()),
@@ -665,7 +735,36 @@ export const createTeamShare = mutation({
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+    return await mintTeamShare(ctx, { ...args, actorUserId: userId });
+  },
+});
 
+/**
+ * The body of `createTeamShare`, with the acting identity passed in.
+ *
+ * Extracted so the gateway can mint the same row for an agent that asked for a
+ * link. **The split is auth from work, and nothing else moved**: the public
+ * mutation above resolves a browser session, the gateway's route resolves an
+ * access token to a grant and a role, and both arrive here having proved
+ * `owner` in this workspace. A second copy of the minting — supersession,
+ * capacity, the audit line, the card render — is the thing that would drift,
+ * so there is one.
+ *
+ * It takes `actorUserId` and never reads a session, which is what makes it
+ * safe to call from both: an identity that is passed in is one the caller had
+ * to establish, rather than one this function could be talked into.
+ */
+async function mintTeamShare(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    path: string;
+    titleInPreview?: boolean;
+    actorUserId: Id<"users">;
+  },
+): Promise<{ token: string }> {
+  {
+    const userId = args.actorUserId;
     const pathCheck = checkTeamSharePath(args.path);
     if (!pathCheck.ok) throw pathRejection(pathCheck);
 
@@ -739,8 +838,8 @@ export const createTeamShare = mutation({
 
     await scheduleCardRender(ctx, shareId);
     return { token };
-  },
-});
+  }
+}
 
 /**
  * Mint an unlisted link over one note. Owner-only.
@@ -773,7 +872,28 @@ export const createLinkShare = action({
   args: {
     workspaceId: v.id("workspaces"),
     path: v.string(),
+    /**
+     * What `path` is. Absent means a note, which is every caller that existed
+     * before folder links and the shape this action has always had.
+     *
+     * Declared rather than sniffed, because a folder and an extensionless file
+     * are the same string — and proved against the bucket below before a row is
+     * written, so a caller cannot mint a folder share over a note by saying so.
+     */
+    kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
     titleInPreview: v.optional(v.boolean()),
+    /**
+     * `collect` makes this a link that takes answers to a form on the note.
+     * Absent means `read`, which is what every link has ever been.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /**
+     * The most answers this link will take, 1 to `MAX_COLLECT_CAP`. Absent, or
+     * outside that range, leaves `DEFAULT_COLLECT_CAP` standing — never
+     * "unlimited", which is the one reading that turns a typo into an open
+     * door.
+     */
+    collectCap: v.optional(v.number()),
   },
   returns: v.object({
     token: v.string(),
@@ -803,6 +923,81 @@ export const createLinkShare = action({
       workspaceId: args.workspaceId,
       minimum: "owner",
     });
+    return await mintUnlistedLink(ctx, { ...args, actorUserId: userId });
+  },
+});
+
+/**
+ * The body of `createLinkShare`, with the acting identity passed in.
+ *
+ * `mintTeamShare`'s split, applied to the other mint: the public action above
+ * resolves a browser session and clears `owner`, the gateway's route resolves
+ * an access token to a grant that already had to be an owner's, and both
+ * arrive here having proved the same thing. What is below — the courtesy
+ * visibility check, the encryption refusal, the folder probe, the one
+ * credential barrier — is written once.
+ *
+ * `actorUserId` is passed in rather than read, which is what makes it safe to
+ * share: an identity a function is *given* is one its caller had to establish.
+ */
+async function mintUnlistedLink(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    path: string;
+    kind?: "note" | "folder";
+    titleInPreview?: boolean;
+    mode?: "read" | "collect";
+    collectCap?: number;
+    actorUserId: Id<"users">;
+  },
+): Promise<{ token: string; title: string | null }> {
+  {
+    const userId = args.actorUserId;
+
+    /*
+      AN UNSTATED KIND IS RESOLVED FROM THE LIVE ROW, NOT DEFAULTED TO `note`.
+
+      Two console callers re-mint a link without thinking about what it points
+      at: pressing Copy link, and toggling whether the card shows the name.
+      Both call this with a path and nothing else. Defaulting them to `note`
+      made a folder link answer "Only a note can be shared" — and, one refactor
+      further in, would have re-stamped a live folder share to `note` while
+      keeping its token, which breaks every link already sent and reports
+      nothing.
+
+      So "supersede this share" preserves what the share points at. It cannot
+      *create* a folder share by accident: a path with no live row still
+      resolves to `note`, and `checkSharePath` still refuses a folder. Minting
+      one over a folder for the first time still means saying so.
+    */
+    const kind =
+      args.kind ??
+      (await ctx.runQuery(internal.functions.shares.linkShareKind, {
+        workspaceId: args.workspaceId,
+        path: args.path,
+      }));
+
+    /*
+      A COLLECT LINK IS OVER A NOTE, AND THE OWNER IS TOLD AT THE MINT.
+
+      `collect.ts` refuses a folder row anyway — that is the enforcement, and
+      it stays there because it is what an already-written row is judged by.
+      This is the second half of the same rule said at the moment an owner
+      asks for it, so the answer is "a folder cannot collect" rather than a
+      link that looks minted and refuses every stranger who opens it.
+
+      The `kind` read above is what makes this correct on a re-mint: a press of
+      Copy link on a live folder link passes no mode at all and is untouched.
+    */
+    if (kind === "folder" && args.mode === "collect") {
+      throw new ConvexError({
+        code: "COLLECT_NEEDS_A_NOTE",
+        message: "A link that collects answers points at one note, not a folder.",
+      });
+    }
+
+    if (kind === "folder") return await mintFolderLink(ctx, args, userId);
 
     const pathCheck = checkSharePath(args.path);
     if (!pathCheck.ok) throw pathRejection(pathCheck);
@@ -862,12 +1057,130 @@ export const createLinkShare = action({
       workspaceId: args.workspaceId,
       actorUserId: userId,
       path: pathCheck.path,
+      // Stated rather than defaulted: `mintLinkShare` requires it, so this
+      // branch says the thing it has just proved with a read.
+      entryKind: "note",
       ...(args.titleInPreview === undefined
         ? {}
         : { titleInPreview: args.titleInPreview }),
+      ...(args.mode === undefined ? {} : { mode: args.mode }),
+      ...(args.collectCap === undefined ? {} : { collectCap: args.collectCap }),
     });
+  }
+}
+
+/**
+ * What an existing unlisted link over this path points at, or `note`.
+ *
+ * INTERNAL. Only `createLinkShare` calls it, and only when its caller did not
+ * say — see the comment there for why "supersede this share" has to preserve
+ * the kind rather than default it.
+ *
+ * `note` for a path with no live row is the safe answer in both directions: it
+ * cannot create a folder share by accident, and it is what every row written
+ * before folder links existed is.
+ */
+export const linkShareKind = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.literal("note"), v.literal("folder")),
+  handler: async (ctx, args) => {
+    const path = normalizePath(args.path);
+    if (path === null) return "note";
+    const existing = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("entryPath", path)
+          .eq("recipientKind", "anyone")
+          .eq("recipient", ""),
+      )
+      .unique();
+    if (existing === null || !isLive(existing, Date.now())) return "note";
+    return existing.entryKind ?? "note";
   },
 });
+
+/**
+ * Mint a link over a folder, and prove the folder is one first.
+ *
+ * ## Why the probe is a LIST and not a read
+ *
+ * The note path's courtesy check reads the note: a link that silently resolves
+ * to "not available" for everybody who opens it is indistinguishable, from the
+ * owner's side, from having published something. A folder has the same failure
+ * and one more — the path may not be a folder at all — so the probe is the
+ * listing the reader will actually get, at the scope they will actually get it
+ * at.
+ *
+ * `team` scope, not the owner's `private`: the question is what the link's
+ * readers will see. A folder that lists **nothing** at `team` is refused, which
+ * covers a private folder, a folder whose every note is held back, a path that
+ * is really a note, and a path that is not there — all the ways an owner would
+ * otherwise paste a link into a channel and publish an empty room. They are one
+ * refusal because at `team` scope they are genuinely indistinguishable, which is
+ * the same indistinguishability that stops a member enumerating private paths
+ * and is not something to unpick for the owner's convenience.
+ *
+ * And as with every other check here, it is a **courtesy**: the read path
+ * re-derives everything from the live `privacy.md` on every request, because a
+ * folder made private after the link was pasted is exactly the case a
+ * mint-time check cannot see.
+ */
+async function mintFolderLink(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; path: string; titleInPreview?: boolean },
+  userId: Id<"users">,
+): Promise<{ token: string; title: string | null }> {
+  const pathCheck = checkFolderSharePath(args.path);
+  if (!pathCheck.ok) throw pathRejection(pathCheck);
+
+  try {
+    const listing = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "team",
+      operation: { kind: "list", path: pathCheck.path },
+    });
+    if (listing.kind !== "listing" || listing.entries.length === 0) {
+      throw notTeamVisibleFolder();
+    }
+  } catch (error) {
+    // A folder the manifest hides, a folder that is not there, and a note
+    // wearing a folder's argument answer identically at `team` scope. Anything
+    // else — an unreachable bucket, a binding that is gone — is passed through,
+    // because reporting an outage as "not shared" would have an owner
+    // republishing a folder that was never the problem.
+    if (error instanceof ConvexError) throw error;
+    throw error;
+  }
+
+  return await ctx.runMutation(internal.functions.shares.mintLinkShare, {
+    workspaceId: args.workspaceId,
+    actorUserId: userId,
+    path: pathCheck.path,
+    entryKind: "folder",
+    ...(args.titleInPreview === undefined
+      ? {}
+      : { titleInPreview: args.titleInPreview }),
+  });
+}
+
+/**
+ * A folder an unlisted link may not be minted over.
+ *
+ * Its own code beside `PATH_NOT_TEAM_VISIBLE`, worded for the thing the owner
+ * is actually looking at: "share the folder with your team first" is the action,
+ * and naming a folder rather than a note is what stops them hunting for a note
+ * that is not the problem.
+ */
+function notTeamVisibleFolder(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "PATH_NOT_TEAM_VISIBLE",
+    message:
+      "Your team cannot read anything in that folder, so a link cannot either. " +
+      "Share the folder with your team first, then make the link.",
+  });
+}
 
 /**
  * A note an unlisted link may not be minted over, because its readers could not
@@ -929,7 +1242,29 @@ export const mintLinkShare = internalMutation({
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
     path: v.string(),
+    /**
+     * What `path` is. **Required**, and that is the guard rather than a
+     * formality: this mutation supersedes an active row *in place and keeps
+     * its token*, and it re-stamps the row's fields from its arguments. A
+     * defaulted `entryKind` meant any re-mint that did not name the kind
+     * turned a live folder share into a note share without changing its token
+     * — every link already sent stopped reaching the subtree, and nothing
+     * anywhere reported it. Required, so a caller that does not say does not
+     * compile.
+     */
+    entryKind: v.union(v.literal("note"), v.literal("folder")),
     titleInPreview: v.optional(v.boolean()),
+    /**
+     * `collect` makes this a link that takes answers to a form on the note,
+     * from people with no account. Absent means `read`.
+     *
+     * Only ever set on a **note** — `collect.ts` refuses a folder row anyway,
+     * and refusing at the mint too means an owner is told when they ask rather
+     * than when the first stranger tries.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /** See `createLinkShare`. Normalized here, so every caller gets one rule. */
+    collectCap: v.optional(v.number()),
   },
   returns: v.object({
     token: v.string(),
@@ -938,6 +1273,16 @@ export const mintLinkShare = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const chosenTitle = titleFromPath(args.path);
+
+    /*
+      Normalized once, here, and `null` for anything unusable.
+
+      Not an error: an owner or an agent that passed something odd gets a
+      working link on the default ceiling rather than no link — and `null`
+      never means "unlimited", which is the reading that would turn a typo
+      into an open door. See `lib/collectLimits.ts`.
+    */
+    const cap = collectCapFrom(args.collectCap);
 
     /** The title as the row will carry it, which is what the URL may use. */
     const shown = (titleInPreview: boolean, title: string | undefined) =>
@@ -958,6 +1303,23 @@ export const mintLinkShare = internalMutation({
       await ctx.db.patch(existing._id, {
         titleInPreview: args.titleInPreview ?? existing.titleInPreview,
         previewTitle: chosenTitle ?? existing.previewTitle,
+        /*
+          THE MODE IS APPLIED HERE TOO, AND THE FIRST VERSION OF THIS FORGOT.
+
+          This is the branch a *live* link takes when it is re-minted, which is
+          how an owner turns an existing read link into a collect one — and
+          with only the two title fields patched, that press did nothing and
+          said it had worked.
+
+          Unstated preserves, for `linkShareKind`'s reason: pressing Copy link
+          or toggling the card's name re-mints without naming a mode, and
+          defaulting those to `read` would quietly stop a published form taking
+          answers.
+        */
+        mode: args.mode ?? existing.mode,
+        // Same rule: unstated preserves. A Copy link press that reset a busy
+        // form's ceiling to the default would stop it early and say nothing.
+        collectCap: cap ?? existing.collectCap,
       });
       await scheduleCardRender(ctx, existing._id);
       return {
@@ -980,6 +1342,11 @@ export const mintLinkShare = internalMutation({
         token,
         titleInPreview: args.titleInPreview ?? true,
         previewTitle: chosenTitle ?? undefined,
+        // Superseding preserves the mode when the caller did not say, for the
+        // reason `linkShareKind` preserves the kind: pressing Copy link on a
+        // collect link must not quietly turn it back into a read link.
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+        ...(cap === null ? {} : { collectCap: cap }),
         createdBy: args.actorUserId,
         createdAt: now,
         revokedAt: undefined,
@@ -988,6 +1355,7 @@ export const mintLinkShare = internalMutation({
       shareId = await ctx.db.insert("noteShares", {
         workspaceId: args.workspaceId,
         entryPath: args.path,
+        entryKind: args.entryKind,
         // Nobody to name, and nobody to sign in. One field carries the
         // audience — see the schema.
         recipientKind: "anyone",
@@ -997,6 +1365,8 @@ export const mintLinkShare = internalMutation({
         status: "active",
         titleInPreview: args.titleInPreview ?? true,
         previewTitle: chosenTitle ?? undefined,
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+        ...(cap === null ? {} : { collectCap: cap }),
         createdAt: now,
       });
     }
@@ -1006,7 +1376,11 @@ export const mintLinkShare = internalMutation({
       actorUserId: args.actorUserId,
       action: "share.link.created",
       paths: [args.path],
-      details: { audience: "anyone" },
+      details: {
+        audience: "anyone",
+        entryKind: args.entryKind,
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+      },
     });
 
     await scheduleCardRender(ctx, shareId);
@@ -1105,6 +1479,9 @@ export const listShares = query({
         entryPath: row.entryPath,
         titleInPreview: row.titleInPreview,
         previewTitle: row.previewTitle,
+        slug: row.slug,
+        // Absent means `read`, which is every row written before collect mode.
+        collecting: row.mode === "collect",
         createdBy: row.createdBy,
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
@@ -1170,6 +1547,787 @@ export const revokeShare = mutation({
  * was already dead. Same trade `resolveInvitationForCaller` documents — the
  * timing difference is only reachable by somebody already holding a real token.
  */
+/* -------------------------------------------------------------------------- */
+/* Short links: the same share row, reached by a name somebody can say         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Claim or release the name in `context.lc/@seyi/intake`. Owner-only.
+ *
+ * ## What this does and does not change
+ *
+ * It adds a second **locator** for a share that already exists. The row is
+ * unchanged, its token still works, revoking it still kills both addresses at
+ * once, and the read path below resolves a slug to this row and then runs the
+ * same `authorizeShareRead` every other reader runs. Nothing here widens what
+ * the share reaches or who may read it.
+ *
+ * What it does change is who can *arrive*. A token is 32 random bytes handed
+ * to somebody; a slug can also be typed by a stranger who guessed it. For an
+ * `anyone` row, arriving is the whole of the authorization — so claiming a
+ * slug on one is publishing that note to whoever guesses the word. That is the
+ * product the owner asked for, it is said in the console before the button,
+ * and it is why this is its own deliberate step rather than something
+ * `createLinkShare` does on the way past.
+ *
+ * ## Uniqueness is a read, because Convex has no unique index
+ *
+ * One live row per `(workspaceId, slug)`, checked through `by_workspace_slug`
+ * before the patch. Two owners of one context racing for the same word can
+ * both pass that read — the loser overwrites, and the link the winner already
+ * pasted stops resolving to their note and starts resolving to somebody
+ * else's. So the read is narrowed to *live* rows and the patch refuses when it
+ * finds one that is not this share: the race window is one transaction, which
+ * Convex serialises, so the check and the write are in the same mutation and
+ * there is no window at all. This comment exists because "check then write" in
+ * two mutations is the shape that would look equivalent and would not be.
+ *
+ * A revoked row's slug is free, deliberately. The alternative is a name an
+ * owner has permanently spent on their own context.
+ */
+export const setShareSlug = mutation({
+  args: {
+    shareId: v.id("noteShares"),
+    /** The name to claim, or `null` to give it back. */
+    slug: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+
+    // `revokeShare`'s ordering, and for its reason: a caller who is not a
+    // member of this share's context is told the share does not exist rather
+    // than that they lack a role.
+    const share = await ctx.db.get(args.shareId);
+    if (share === null || share.status !== "active") throw shareNotFound();
+    const membership = await getMembership(ctx, share.workspaceId, userId);
+    if (membership === null) throw shareNotFound();
+    await requireWorkspaceRole(ctx, share.workspaceId, userId, "owner");
+
+    if (args.slug === null) {
+      if (share.slug !== undefined) {
+        await ctx.db.patch(share._id, { slug: undefined });
+        await recordAudit(ctx, {
+          workspaceId: share.workspaceId,
+          actorUserId: userId,
+          action: "share.slug.released",
+          paths: [share.entryPath],
+          details: { slug: share.slug },
+        });
+      }
+      return null;
+    }
+
+    const slug = args.slug.trim().toLowerCase();
+    const rejection = shortLinkSlugRejection(slug);
+    if (rejection !== null) {
+      throw new ConvexError({ code: "SLUG_REJECTED", message: rejection });
+    }
+
+    const now = Date.now();
+    const holder = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", share.workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const taken = holder.find(
+      (row) => row._id !== share._id && row.status === "active" && isLive(row, now),
+    );
+    if (taken !== undefined) {
+      throw new ConvexError({
+        code: "SLUG_TAKEN",
+        message: "That name already points at another link in this context.",
+      });
+    }
+
+    await ctx.db.patch(share._id, { slug });
+    await recordAudit(ctx, {
+      workspaceId: share.workspaceId,
+      actorUserId: userId,
+      action: "share.slug.claimed",
+      paths: [share.entryPath],
+      details: { slug, audience: share.recipientKind },
+    });
+    return null;
+  },
+});
+
+/**
+ * Turn a link's answer-taking on or off, without re-minting it.
+ *
+ * ## Why this is its own mutation rather than `createLinkShare` with a mode
+ *
+ * `createLinkShare` supersedes: it can mint, and on a live row it patches. An
+ * owner flipping a switch is neither minting nor superseding — and routing a
+ * toggle through a *creation* path is how a press of "off" ends up handing
+ * somebody a new token for a link they had already sent.
+ *
+ * ## Only an `anyone` link over a note
+ *
+ * The same two rules `collect.ts` enforces on an already-written row and
+ * `mintUnlistedLink` enforces at the mint, said a third time at the third
+ * door — because a rule enforced in two of the three places a row can be
+ * written is a rule with one way around it. A members link has readers with
+ * accounts; a folder link reaches a subtree.
+ *
+ * The refusal order is `revokeShare`'s: a caller who is not a member of this
+ * share's context is told the share does not exist rather than that they lack
+ * a role.
+ */
+export const setShareCollecting = mutation({
+  args: { shareId: v.id("noteShares"), collecting: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+
+    const share = await ctx.db.get(args.shareId);
+    if (share === null || share.status !== "active") throw shareNotFound();
+    const membership = await getMembership(ctx, share.workspaceId, userId);
+    if (membership === null) throw shareNotFound();
+    await requireWorkspaceRole(ctx, share.workspaceId, userId, "owner");
+
+    if (args.collecting) {
+      if (share.recipientKind !== "anyone") {
+        throw new ConvexError({
+          code: "COLLECT_NEEDS_A_LINK",
+          message: "Only a link anyone can open takes answers; a workspace link already has readers with accounts.",
+        });
+      }
+      if ((share.entryKind ?? "note") !== "note") {
+        throw new ConvexError({
+          code: "COLLECT_NEEDS_A_NOTE",
+          message: "A link that collects answers points at one note, not a folder.",
+        });
+      }
+    }
+
+    const mode = args.collecting ? "collect" : "read";
+    if ((share.mode ?? "read") === mode) return null;
+    await ctx.db.patch(share._id, { mode });
+    await recordAudit(ctx, {
+      workspaceId: share.workspaceId,
+      actorUserId: userId,
+      // Turning answer-taking on is a publication decision, so it gets its own
+      // line in the trail rather than riding on `share.link.created`.
+      action: args.collecting ? "share.collect.opened" : "share.collect.closed",
+      paths: [share.entryPath],
+      details: { audience: share.recipientKind },
+    });
+    return null;
+  },
+});
+
+/**
+ * The token a short link names, or `null`. INTERNAL.
+ *
+ * **The token is never returned to a browser.** A caller who guessed a slug is
+ * a caller the owner may not have meant, and handing them the bearer value of
+ * an `anyone` share would let them keep it after the slug was released — a
+ * capability outliving the address it was published at. So this is internal,
+ * `readShortLink` below consumes it in the same request, and what the client
+ * gets back is the note or a refusal, never the credential.
+ *
+ * Absence is uniform: an unclaimed handle, an unclaimed slug, a revoked row
+ * and an expired one all answer `null`.
+ */
+export const shortLinkToken = internalQuery({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const slug = shortLinkSlugFrom(args.slug.toLowerCase());
+    if (slug === null) return null;
+
+    const name = await findName(ctx, args.handle.replace(/^@/, "").toLowerCase());
+    const workspaceId = name?.workspaceId;
+    if (workspaceId === undefined) return null;
+
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const now = Date.now();
+    const live = rows.find((row) => row.status === "active" && isLive(row, now));
+    return live?.token ?? null;
+  },
+});
+
+/**
+ * Read what a short link points at: `readSharedNote`, addressed by name.
+ *
+ * It resolves the slug and then calls that action, rather than reimplementing
+ * it. Every rule about what a share reaches, who may read it, how a folder
+ * lists and how a link out of the entry note is bounded lives there, and a
+ * second copy reachable by a *guessable* address is precisely the copy that
+ * would drift in the wrong direction.
+ *
+ * A slug that resolves to nothing refuses exactly as an unknown token does, so
+ * "never claimed", "released" and "revoked" are one answer.
+ */
+export const readShortLink = action({
+  args: {
+    handle: v.string(),
+    slug: v.string(),
+    /** Omit for the entry note. Anything else must be linked from it. */
+    path: v.optional(v.string()),
+  },
+  returns: v.object({
+    path: v.string(),
+    text: v.union(v.string(), v.null()),
+    kind: v.union(v.literal("note"), v.literal("folder")),
+    entries: v.array(
+      v.object({
+        path: v.string(),
+        name: v.string(),
+        kind: v.union(v.literal("file"), v.literal("folder")),
+      }),
+    ),
+    entryPath: v.string(),
+    links: v.array(v.string()),
+    openToAnyone: v.boolean(),
+    collecting: v.boolean(),
+    editableInContext: v.union(v.string(), v.null()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    path: string;
+    text: string | null;
+    kind: "note" | "folder";
+    entries: { path: string; name: string; kind: "file" | "folder" }[];
+    entryPath: string;
+    links: string[];
+    openToAnyone: boolean;
+    collecting: boolean;
+    editableInContext: string | null;
+  }> => {
+    const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
+      handle: args.handle,
+      slug: args.slug,
+    });
+    if (token === null) throw shareUnavailable();
+
+    return await ctx.runAction(api.functions.shares.readSharedNote, {
+      token,
+      ...(args.path === undefined ? {} : { path: args.path }),
+    });
+  },
+});
+
+/**
+ * The card a short link unfurls with: a title, or nothing.
+ *
+ * ## Why a guessable address may carry a title here
+ *
+ * `Link previews reveal nothing about a context` still holds for every path it
+ * was written about, and this is the same second rule `shareNotePreview`
+ * already lives under: a card may name something when the probe space is one
+ * the **owner** chose. `/@seyi/intake` is not `/@seyi/1-projects` — there is no
+ * list of likely slugs, because a slug exists only where an owner typed it,
+ * and `shortLinkSlugRejection` refuses every name this product writes so the
+ * guessable ones cannot be claimed at all.
+ *
+ * It is also the whole point of the feature. A short link is for pasting into
+ * a signature, a channel, a slide; a link that unfurls as bare branding does
+ * not get clicked, and a share nobody opens is a share that did not happen.
+ *
+ * Everything the note-preview rule pays for, this pays too:
+ *
+ *  - **The title is never read from the note.** It is the row's own
+ *    `previewTitle`, owner-chosen or derived from the filename, so no crawler
+ *    ever causes a GET against the customer's bucket.
+ *  - **Every absence is one absence.** Unknown handle, unclaimed slug, revoked
+ *    row, expired row, title switched off, title that normalised to nothing —
+ *    all `{ title: null }`, which renders the generic card byte for byte.
+ *  - **The shape is checked before the lookup**, so hammering `/@name/<junk>`
+ *    costs a regex.
+ *
+ * And it carries the cost that cannot be taken back, stated plainly because an
+ * owner claiming a memorable name is the most likely person to forget it:
+ * a card that has already unfurled somewhere is cached by the platform that
+ * unfurled it, and revoking cannot reach it. Revocation is enforced at the
+ * destination, where it is immediate and complete.
+ */
+export const previewForShortLink = query({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.object({ title: v.union(v.string(), v.null()) }),
+  handler: async (ctx, args) => {
+    const nothing = { title: null };
+
+    const slug = shortLinkSlugFrom(args.slug.toLowerCase());
+    if (slug === null) return nothing;
+
+    const name = await findName(ctx, args.handle.replace(/^@/, "").toLowerCase());
+    const workspaceId = name?.workspaceId;
+    if (workspaceId === undefined) return nothing;
+
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const now = Date.now();
+    const live = rows.find((row) => row.status === "active" && isLive(row, now));
+    if (live === undefined || live.titleInPreview !== true) return nothing;
+    /*
+     * **`anyone`, and only `anyone`.** `titleInPreview` defaults to `true` on
+     * every row `createShare` writes as well, and those are addressed to a
+     * `@name` or an email — named people, which is the whole of what `team`
+     * means. That default was unreachable before there were short links: such a
+     * row answered to its 64-hex token and nothing else, so no stranger could
+     * ask for its title. A slug is an owner-chosen word at a guessable address,
+     * and `setShareSlug` does not ask what the row's audience is, so the same
+     * default became answerable with no session at all.
+     *
+     * Refused here rather than in `setShareSlug`, because a memorable address
+     * for a link shared with named people is a reasonable thing to want and
+     * still works — its readers sign in and `readSharedNote` authorises them
+     * exactly as before. It is the *title* that must not travel to somebody who
+     * is not on the list. A crawler's unfurl cannot be revoked once it is
+     * cached, so this is decided in the direction that cannot be taken back.
+     */
+    if (live.recipientKind !== "anyone") return nothing;
+
+    const title = normalizePreviewTitle(live.previewTitle ?? "");
+    return { title: title === null ? null : title };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/* The gateway's half: an agent asking for a link, and getting the URL        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The URL a link is at, built here rather than by whoever asked.
+ *
+ * **An agent that assembled its own would be guessing**, which is the whole
+ * complaint this feature answers: `/s/` versus `/share/`, the readable slug or
+ * not, the origin of a self-hosted deployment. The console already builds it
+ * from `@context/shared`; so does this, from the same function.
+ *
+ * `null` when `APP_ORIGIN` is unset or is not https. A self-hosted deployment
+ * that has not told us where it is served from cannot be handed a URL, and
+ * inventing one would send somebody's colleague to a domain we picked. The
+ * caller reports the path instead, and says why.
+ */
+function shareUrlsFor(
+  row: { token: string; previewTitle?: string; titleInPreview: boolean; slug?: string },
+  handle: string | null,
+): { url: string | null; shortUrl: string | null; path: string } {
+  // The title only decorates the URL where the owner left it on the card: the
+  // URL travels further than the card does, so a setting that hides the name
+  // has to hide it here too. `shareUrlFor` in the console is the same rule.
+  const title = row.titleInPreview ? (row.previewTitle ?? null) : null;
+  const path = `${SHARE_ROUTE}/${shareSegment(row.token, title)}`;
+  const shortPath =
+    row.slug === undefined || handle === null ? null : `/@${handle}/${row.slug}`;
+
+  const origin = process.env[APP_ORIGIN_ENV_VAR];
+  if (typeof origin !== "string" || origin.length === 0) {
+    return { url: null, shortUrl: null, path };
+  }
+  let base: URL;
+  try {
+    base = new URL(origin);
+  } catch {
+    return { url: null, shortUrl: null, path };
+  }
+  if (base.protocol !== "https:") return { url: null, shortUrl: null, path };
+  const root = base.origin;
+  return {
+    url: `${root}${path}`,
+    shortUrl: shortPath === null ? null : `${root}${shortPath}`,
+    path,
+  };
+}
+
+/** One row, as every gateway link route reports it. */
+interface GatewayLink {
+  shareId: Id<"noteShares">;
+  url: string | null;
+  shortUrl: string | null;
+  path: string;
+  audience: "name" | "email" | "members" | "anyone";
+  entryPath: string;
+  slug: string | null;
+  /** Whether this link takes answers to a form, rather than only showing it. */
+  collecting: boolean;
+  /** Answers taken so far, and the ceiling. Both `null` on a read link. */
+  collected: number | null;
+  collectCap: number | null;
+  createdAt: number;
+}
+
+/** What every gateway link route answers with, for one row. */
+const gatewayLinkSummary = v.object({
+  shareId: v.id("noteShares"),
+  /**
+   * The whole URL, or `null` on a deployment that has not set `APP_ORIGIN`.
+   *
+   * The *URL*, never the token: the point of this route is that nothing
+   * downstream assembles one. `path` is what a self-hosted deployment gets
+   * instead, so the answer is still usable by somebody who knows their own
+   * origin — and the agent is told to say so rather than guess.
+   */
+  url: v.union(v.string(), v.null()),
+  shortUrl: v.union(v.string(), v.null()),
+  path: v.string(),
+  audience: v.union(
+    v.literal("name"),
+    v.literal("email"),
+    v.literal("members"),
+    v.literal("anyone"),
+  ),
+  entryPath: v.string(),
+  slug: v.union(v.string(), v.null()),
+  /**
+   * Whether this link takes answers, rather than only showing what it points
+   * at.
+   *
+   * Reported on every link route so that an agent listing a context's links
+   * can tell the two apart without a second call — and so that "make the
+   * intake form live" and "did it work" are the same shape of answer.
+   */
+  collecting: v.boolean(),
+  /**
+   * How many answers have come through, and the most that will.
+   *
+   * Reported so that "how many people have filled it in" and "is it about to
+   * stop" are one call rather than a trip to the console. `null` on a link
+   * that collects nothing, because zero of zero reads as a broken form.
+   */
+  collected: v.union(v.number(), v.null()),
+  collectCap: v.union(v.number(), v.null()),
+  createdAt: v.number(),
+});
+
+/**
+ * Mint a link for an agent, and hand back the URL. INTERNAL.
+ *
+ * Everything about *what a share is* happens in `mintTeamShare` and
+ * `mintUnlistedLink`, which the console's own buttons call. This adds three
+ * things and no fourth:
+ *
+ *  - the gateway's owner clearance, which is where the access token is spent;
+ *  - the optional short name, claimed through the same `setShareSlug` rules
+ *    the console claims one through — including the refusal on a name this
+ *    product writes;
+ *  - the URL, built from `@context/shared` so nothing downstream guesses.
+ *
+ * **The short name is claimed after the row exists, and a refusal does not
+ * un-mint it.** The link is real and usable at its token either way, so the
+ * honest answer is the link plus the reason the name was refused — rather than
+ * throwing away a working share because a word was taken.
+ */
+export const gatewayCreateLink = internalAction({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    path: v.string(),
+    audience: v.union(v.literal("members"), v.literal("anyone")),
+    kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
+    short: v.optional(v.string()),
+    titleInPreview: v.optional(v.boolean()),
+    /**
+     * `collect` makes this a link that takes answers to a form on the note,
+     * from people with no account at all. Absent means `read`.
+     *
+     * Only meaningful with `audience: "anyone"` — a members link already has
+     * readers with sessions, and a form on one is answered under their own
+     * handle through `submit_form`. Passing it with `members` is ignored
+     * rather than refused, because the link that results is the correct one.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /** See `createLinkShare`. Out of range leaves the default standing. */
+    collectCap: v.optional(v.number()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      link: gatewayLinkSummary,
+      /** Why the short name was not claimed, or `null`. */
+      shortRefused: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ link: GatewayLink; shortRefused: string | null } | null> => {
+    const cleared = await ctx.runQuery(
+      internal.functions.controlPlane.ownerClearanceForGateway,
+      {
+        hashedAccessToken: args.hashedAccessToken,
+        expectedWorkspaceId: args.expectedWorkspaceId,
+      },
+    );
+    if (cleared === null) return null;
+
+    if (args.audience === "anyone") {
+      await ctx.runAction(internal.functions.shares.gatewayMintUnlisted, {
+        workspaceId: cleared.workspaceId,
+        actorUserId: cleared.actorUserId,
+        path: args.path,
+        ...(args.kind === undefined ? {} : { kind: args.kind }),
+        ...(args.titleInPreview === undefined
+          ? {}
+          : { titleInPreview: args.titleInPreview }),
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+        ...(args.collectCap === undefined ? {} : { collectCap: args.collectCap }),
+      });
+    } else {
+      await ctx.runMutation(internal.functions.shares.gatewayMintTeam, {
+        workspaceId: cleared.workspaceId,
+        actorUserId: cleared.actorUserId,
+        path: args.path,
+        ...(args.titleInPreview === undefined
+          ? {}
+          : { titleInPreview: args.titleInPreview }),
+      });
+    }
+
+    return await ctx.runMutation(internal.functions.shares.gatewayNameAndDescribe, {
+      workspaceId: cleared.workspaceId,
+      actorUserId: cleared.actorUserId,
+      path: args.path,
+      audience: args.audience,
+      ...(args.short === undefined ? {} : { short: args.short }),
+    });
+  },
+});
+
+/** `mintUnlistedLink` for a cleared gateway caller. INTERNAL. */
+export const gatewayMintUnlisted = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    path: v.string(),
+    kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
+    titleInPreview: v.optional(v.boolean()),
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    collectCap: v.optional(v.number()),
+  },
+  returns: v.object({ token: v.string(), title: v.union(v.string(), v.null()) }),
+  handler: async (ctx, args): Promise<{ token: string; title: string | null }> =>
+    await mintUnlistedLink(ctx, args),
+});
+
+/** `mintTeamShare` for a cleared gateway caller. INTERNAL. */
+export const gatewayMintTeam = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    path: v.string(),
+    titleInPreview: v.optional(v.boolean()),
+  },
+  returns: v.object({ token: v.string() }),
+  handler: async (ctx, args) => await mintTeamShare(ctx, args),
+});
+
+/**
+ * Claim the short name if one was asked for, then describe the row. INTERNAL.
+ *
+ * One mutation for both because they are one transaction's worth of work and
+ * because the description has to be of the row *after* the name landed — a
+ * two-call version would return a `shortUrl` of `null` for a name it had just
+ * claimed, which is the kind of wrong that reads as a bug in the name rather
+ * than in the reporting.
+ */
+export const gatewayNameAndDescribe = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    path: v.string(),
+    audience: v.union(v.literal("members"), v.literal("anyone")),
+    short: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({ link: gatewayLinkSummary, shortRefused: v.union(v.string(), v.null()) }),
+  ),
+  // Annotated rather than inferred, like `readSharedNote`: a function that
+  // calls another in the same deployment is the inference cycle that degrades
+  // the whole generated `api` to `any`, and the symptom is implicit-any errors
+  // in unrelated test files.
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ link: GatewayLink; shortRefused: string | null } | null> => {
+    const path = normalizePath(args.path);
+    if (path === null) return null;
+
+    const row = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("entryPath", path)
+          .eq("recipientKind", args.audience)
+          .eq("recipient", ""),
+      )
+      .unique();
+    if (row === null || row.status !== "active") return null;
+
+    let shortRefused: string | null = null;
+    if (args.short !== undefined) {
+      const slug = args.short.trim().toLowerCase();
+      const rejection = shortLinkSlugRejection(slug);
+      if (rejection !== null) {
+        shortRefused = rejection;
+      } else {
+        const now = Date.now();
+        const holders = await ctx.db
+          .query("noteShares")
+          .withIndex("by_workspace_slug", (q) =>
+            q.eq("workspaceId", args.workspaceId).eq("slug", slug),
+          )
+          .collect();
+        const taken = holders.find(
+          (other) => other._id !== row._id && other.status === "active" && isLive(other, now),
+        );
+        if (taken !== undefined) {
+          shortRefused = "That name already points at another link in this context.";
+        } else {
+          await ctx.db.patch(row._id, { slug });
+          row.slug = slug;
+          await recordAudit(ctx, {
+            workspaceId: args.workspaceId,
+            actorUserId: args.actorUserId,
+            action: "share.slug.claimed",
+            paths: [path],
+            details: { slug, audience: row.recipientKind, via: "gateway" },
+          });
+        }
+      }
+    }
+
+    const handle = await workspaceHandle(ctx, args.workspaceId);
+    const urls = shareUrlsFor(row, handle);
+    return {
+      link: {
+        shareId: row._id,
+        url: urls.url,
+        shortUrl: urls.shortUrl,
+        path: urls.path,
+        audience: row.recipientKind,
+        entryPath: row.entryPath,
+        slug: row.slug ?? null,
+        collecting: row.mode === "collect",
+        collected: row.mode === "collect" ? (row.collectCount ?? 0) : null,
+        collectCap: row.mode === "collect" ? (row.collectCap ?? DEFAULT_COLLECT_CAP) : null,
+        createdAt: row.createdAt,
+      },
+      shortRefused,
+    };
+  },
+});
+
+/** Every live link in this context, for an agent that asked. INTERNAL. */
+export const gatewayListLinks = internalQuery({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(v.null(), v.array(gatewayLinkSummary)),
+  handler: async (ctx, args): Promise<GatewayLink[] | null> => {
+    const cleared = await ctx.runQuery(
+      internal.functions.controlPlane.ownerClearanceForGateway,
+      {
+        hashedAccessToken: args.hashedAccessToken,
+        expectedWorkspaceId: args.expectedWorkspaceId,
+      },
+    );
+    if (cleared === null) return null;
+
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_status", (q) =>
+        q.eq("workspaceId", cleared.workspaceId).eq("status", "active"),
+      )
+      .take(MAX_SHARES_RETURNED);
+    const handle = await workspaceHandle(ctx, cleared.workspaceId);
+
+    return rows
+      .filter((row) => isLive(row, now))
+      .map((row) => {
+        const urls = shareUrlsFor(row, handle);
+        return {
+          shareId: row._id,
+          url: urls.url,
+          shortUrl: urls.shortUrl,
+          path: urls.path,
+          audience: row.recipientKind,
+          entryPath: row.entryPath,
+          slug: row.slug ?? null,
+          collecting: row.mode === "collect",
+          collected: row.mode === "collect" ? (row.collectCount ?? 0) : null,
+          collectCap:
+            row.mode === "collect" ? (row.collectCap ?? DEFAULT_COLLECT_CAP) : null,
+          createdAt: row.createdAt,
+        };
+      });
+  },
+});
+
+/**
+ * Take a link back on an agent's say-so. INTERNAL.
+ *
+ * Addressed by `shareId`, which is what `gatewayListLinks` hands out — never
+ * by token, because an agent holding a token it was given by a person is not
+ * the same as an agent whose own grant covers the context, and only the second
+ * gets to revoke. The row's workspace is compared against the cleared one, so
+ * an id from another context is one refusal and not an oracle.
+ */
+export const gatewayRevokeLink = internalMutation({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.string(),
+    shareId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const cleared = await ctx.runQuery(
+      internal.functions.controlPlane.ownerClearanceForGateway,
+      {
+        hashedAccessToken: args.hashedAccessToken,
+        expectedWorkspaceId: args.expectedWorkspaceId,
+      },
+    );
+    if (cleared === null) return false;
+
+    const shareId = ctx.db.normalizeId("noteShares", args.shareId);
+    if (shareId === null) return false;
+    const row = await ctx.db.get(shareId);
+    if (row === null || row.status !== "active") return false;
+    // The cleared workspace, never the row's: an id from another context must
+    // answer exactly as an invented one does.
+    if (row.workspaceId !== cleared.workspaceId) return false;
+
+    await ctx.db.patch(row._id, { status: "revoked", revokedAt: Date.now() });
+    await recordAudit(ctx, {
+      workspaceId: cleared.workspaceId,
+      actorUserId: cleared.actorUserId,
+      action: "share.revoked",
+      paths: [row.entryPath],
+      details: {
+        recipient: describeAudience(row.recipientKind, row.recipient),
+        via: "gateway",
+      },
+    });
+    return true;
+  },
+});
+
+/** The context's own handle, for the short half of a URL. */
+async function workspaceHandle(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<string | null> {
+  const workspace = await ctx.db.get(workspaceId);
+  return workspace?.slug ?? null;
+}
+
 export const resolveShare = query({
   args: { token: v.string() },
   returns: v.union(
@@ -1371,6 +2529,23 @@ export const authorizeShareRead = internalQuery({
       workspaceId: v.id("workspaces"),
       entryPath: v.string(),
       /**
+       * Whether `entryPath` is one note or a folder whose subtree this reaches.
+       *
+       * Defaulted to `note` where the row has no field, which is every row
+       * written before folder links: a share's reach must never depend on a
+       * backfill having run, and the direction this must fail is "an old row
+       * reaches one note", never "an old row reaches a subtree".
+       */
+      entryKind: v.union(v.literal("note"), v.literal("folder")),
+      /**
+       * Whether this link is taking answers to a form on what it points at.
+       *
+       * Reported rather than inferred downstream: the viewer draws a form on
+       * the strength of it, and the read path *narrows* on it — see the
+       * traversal bound, which a collect link does not get.
+       */
+      collecting: v.boolean(),
+      /**
        * Whether this share needs no session at all.
        *
        * Reported rather than inferred downstream, because the viewer has a
@@ -1432,6 +2607,12 @@ export const authorizeShareRead = internalQuery({
       shareId: share._id,
       workspaceId: share.workspaceId,
       entryPath: share.entryPath,
+      // Absent means a note. Defaulted here, at the one place every reader
+      // goes through, rather than at each call site — a call site that forgot
+      // would widen an old row from one note to a subtree.
+      entryKind: share.entryKind ?? "note",
+      // Absent means `read`, which is every row written before collect mode.
+      collecting: share.mode === "collect",
       openToAnyone: share.recipientKind === "anyone",
       editableInContext,
     };
@@ -1485,7 +2666,34 @@ export const readSharedNote = action({
   },
   returns: v.object({
     path: v.string(),
-    text: v.string(),
+    /**
+     * The note's markdown, or `null` for a folder.
+     *
+     * One action answers both because a reader arrives holding **only a
+     * token** — they cannot know which kind they have until we tell them, so a
+     * separate `readSharedFolder` would need them to guess and retry, and the
+     * wrong guess is an error message that differs by kind. One round trip,
+     * one refusal.
+     */
+    text: v.union(v.string(), v.null()),
+    /** `note` or `folder`, so the viewer knows which half of this is filled. */
+    kind: v.union(v.literal("note"), v.literal("folder")),
+    /**
+     * What is directly inside, when `path` is a folder. Empty for a note.
+     *
+     * **One level, not the whole subtree flattened.** The reader navigates in,
+     * which is what Drive and Dropbox do and what keeps a large folder from
+     * becoming one enormous response. The *reach* is still the whole subtree —
+     * any path under the root opens — and that is decided by the bound, not by
+     * what a listing happens to contain.
+     */
+    entries: v.array(
+      v.object({
+        path: v.string(),
+        name: v.string(),
+        kind: v.union(v.literal("file"), v.literal("folder")),
+      }),
+    ),
     /** The entry note this share is rooted at, so the viewer can offer a way back. */
     entryPath: v.string(),
     /** Paths the viewer may follow from here — the entry note's links, resolved. */
@@ -1501,6 +2709,16 @@ export const readSharedNote = action({
      * private when it is not.
      */
     openToAnyone: v.boolean(),
+    /**
+     * Whether this link is taking answers to a form on this note.
+     *
+     * The viewer draws the form on the strength of it. It is reported rather
+     * than inferred from the note's own text, because a note carrying a form
+     * block is not the same thing as a link its owner published to collect
+     * through — and drawing a Send button on a link that will refuse is worse
+     * than not drawing one.
+     */
+    collecting: v.boolean(),
     /**
      * Where this note can be **edited**, for a reader whose own membership
      * already lets them — `@slug`, or `null` for everybody else.
@@ -1523,10 +2741,13 @@ export const readSharedNote = action({
     args,
   ): Promise<{
     path: string;
-    text: string;
+    text: string | null;
+    kind: "note" | "folder";
+    entries: { path: string; name: string; kind: "file" | "folder" }[];
     entryPath: string;
     links: string[];
     openToAnyone: boolean;
+    collecting: boolean;
     editableInContext: string | null;
   }> => {
     // The session is read, not required, and the order is the whole change. A session
@@ -1555,9 +2776,76 @@ export const readSharedNote = action({
       throw shareUnavailable();
     }
 
-    const requested =
-      args.path === undefined ? grant.entryPath : normalizePath(args.path);
-    if (requested === null) throw anonymousSafe(actorUserId, shareUnavailable());
+    const asked = args.path === undefined ? grant.entryPath : normalizePath(args.path);
+    if (asked === null) throw anonymousSafe(actorUserId, shareUnavailable());
+
+    /*
+      A SHARE FOLLOWS THE NOTE, NOT THE PATH IT WAS MINTED ON.
+
+      The row stores `entryPath` because that is what the owner pointed at. A
+      note is not a string, though: it gets renamed, tidied into another
+      folder, archived — and a link already pasted into a thread is one nobody
+      can rewrite. So both halves are resolved through the bucket's forwarding
+      ledger before anything else happens, and everything below works in live
+      paths: the folder bound, the traversal comparison, the reads.
+
+      **Ledger first, live path second, and that order is the security half.**
+      A link minted on `1-projects/foo.md` names *that note*. Checking the live
+      path first would hand the link to whatever note happens to sit there now
+      — a different author's note inheriting an audience they never chose, and
+      the owner of the original with no way to see it had happened. Resolving
+      first means a share either reaches the note it was minted on or reaches
+      nothing.
+
+      It cannot widen: every read below still goes through `runFileOperation`
+      at `team` scope with no granted names, re-derived from the live
+      `privacy.md`. A note forwarded into a private folder is as absent as it
+      would be if the reader had asked for its current path.
+
+      One extra operation per share read, and it is deliberate. `shares.ts`
+      decides the folder bound before spending a GET, so a bound checked
+      against a stale prefix while the read forwarded to a live one would be
+      two answers to one question. See the `forward` operation in `files.ts`.
+    */
+    const live = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: grant.workspaceId,
+      scope: "team",
+      operation: { kind: "forward", paths: [grant.entryPath, asked] },
+    });
+    const [entryPath, requested] =
+      live.kind === "forwarded" ? live.paths : [grant.entryPath, asked];
+    const shareGrant = { ...grant, entryPath };
+
+    /*
+      A FOLDER SHARE IS BOUNDED BY ITS PREFIX, AND NOTHING ELSE AUTHORIZES A HOP.
+
+      A note share's traversal is its entry note's own links, depth one. A
+      folder has no such natural edge, so the bound is the folder itself: a
+      reader may reach what is under it and may not reach anything else. That
+      is checked HERE, before a single byte of the customer's bucket is spent,
+      so a path outside the folder costs no GET and no LIST and cannot be told
+      apart from a path inside it that does not exist.
+
+      `withinSharedFolder` and not `startsWith(entryPath)` — the trailing slash
+      is what stops `1-projects/transition-old` being handed to a link minted
+      on `1-projects/transition`. `requested` has already been through
+      `normalizePath`, so a dot-segment climb is resolved or refused before it
+      arrives; this is the bound, not the sanitiser.
+
+      Everything past the bound is the ordinary engine: `runFileOperation` at
+      `team` scope with no granted names, re-derived from the live `privacy.md`
+      on every request. So a note held back by name, a subfolder made private,
+      and a note pointed at a group are all absent — a folder link publishes a
+      narrowing of what the folder already said, never a widening of it, which
+      is where this is deliberately stricter than Drive's inherit-unless-
+      restricted model.
+    */
+    if (grant.entryKind === "folder") {
+      if (!withinSharedFolder(entryPath, requested)) {
+        throw anonymousSafe(actorUserId, shareUnavailable());
+      }
+      return await readWithinSharedFolder(ctx, shareGrant, requested, actorUserId);
+    }
 
     // The entry note is read on every request. It is what step 3 is checked
     // against, and — for a linked target — it is the only thing that authorizes
@@ -1567,13 +2855,29 @@ export const readSharedNote = action({
     const entry = await readThroughShare(
       ctx,
       grant.workspaceId,
-      grant.entryPath,
+      entryPath,
       actorUserId,
       grant.openToAnyone,
     );
-    const links = linkedNotePaths(entry.text, grant.entryPath);
+    const links = linkedNotePaths(entry.text, entryPath);
 
-    if (requested !== grant.entryPath) {
+    if (requested !== entryPath) {
+      /*
+        A COLLECT LINK SERVES ONE NOTE AND NOTHING ELSE.
+
+        Not even the note's own links, which every read link gets. A collect
+        link is published so that strangers can answer a form; browsing is not
+        what it is for, and the note a form sits on is exactly the note whose
+        links most often include **the answers file it collects into**. Serving
+        that through the link that fills it would hand every respondent
+        everybody else's answers — a disclosure that depends on where an owner
+        happened to put a cross-reference.
+
+        Bounded here rather than by parsing the block and refusing that one
+        path: a rule that lists what is forbidden is a rule with a gap in it,
+        and "the entry note, full stop" has none.
+      */
+      if (grant.collecting) throw anonymousSafe(actorUserId, shareUnavailable());
       // `SHARE_TRAVERSAL_DEPTH` is 1: the entry note's own links and nothing
       // further. See the constant.
       if (!links.includes(requested)) throw anonymousSafe(actorUserId, shareUnavailable());
@@ -1587,23 +2891,131 @@ export const readSharedNote = action({
       return {
         path: requested,
         text: target.text,
-        entryPath: grant.entryPath,
+        kind: "note" as const,
+        entries: [],
+        entryPath,
         links,
         openToAnyone: grant.openToAnyone,
+        collecting: grant.collecting,
         editableInContext: grant.editableInContext,
       };
     }
 
     return {
-      path: grant.entryPath,
+      path: entryPath,
       text: entry.text,
-      entryPath: grant.entryPath,
+      kind: "note" as const,
+      entries: [],
+      entryPath,
       links,
       openToAnyone: grant.openToAnyone,
+      collecting: grant.collecting,
       editableInContext: grant.editableInContext,
     };
   },
 });
+
+/**
+ * Serve one path inside a shared folder: a listing, or a note.
+ *
+ * The caller has already proved `requested` is inside the folder. What is left
+ * is to decide which of the two it is, and the honest way is to **ask the
+ * engine** rather than to guess from the path — `1-projects/transition` is a
+ * folder here and an extensionless file elsewhere, which is the same reason the
+ * share row stores its kind.
+ *
+ * A listing is tried first and a read second, and the order matters for what a
+ * failure looks like: both answer through `runFileOperation` at `team` scope,
+ * so a path that is neither — private, held back, gone, plumbing — comes back
+ * from whichever ran last as the one refusal every other miss gets. Nothing
+ * here distinguishes "not a folder" from "not allowed", and it must not: a
+ * reader who could tell them apart would be enumerating somebody's bucket one
+ * path at a time.
+ *
+ * **Plumbing never appears and never opens.** `listFolder` drops it and
+ * `canSee` refuses it, so `.history/` inside a shared folder is absent for the
+ * same reason it is absent everywhere — this adds no second rule that could
+ * disagree with the first.
+ */
+async function readWithinSharedFolder(
+  ctx: ActionCtx,
+  grant: {
+    workspaceId: Id<"workspaces">;
+    entryPath: string;
+    openToAnyone: boolean;
+    collecting: boolean;
+    editableInContext: string | null;
+  },
+  requested: string,
+  actorUserId: Id<"users"> | null,
+): Promise<{
+  path: string;
+  text: string | null;
+  kind: "note" | "folder";
+  entries: { path: string; name: string; kind: "file" | "folder" }[];
+  entryPath: string;
+  links: string[];
+  openToAnyone: boolean;
+  collecting: boolean;
+  editableInContext: string | null;
+}> {
+  const shared = {
+    entryPath: grant.entryPath,
+    links: [],
+    openToAnyone: grant.openToAnyone,
+    collecting: grant.collecting,
+    editableInContext: grant.editableInContext,
+  };
+
+  // A note, if it is one. Tried first because it is the cheaper answer and the
+  // commoner request: a reader clicks a note far more often than a folder.
+  if (requested.toLowerCase().endsWith(".md")) {
+    const note = await readThroughShare(
+      ctx,
+      grant.workspaceId,
+      requested,
+      actorUserId,
+      grant.openToAnyone,
+    );
+    return { path: requested, text: note.text, kind: "note", entries: [], ...shared };
+  }
+
+  let listing;
+  try {
+    listing = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: grant.workspaceId,
+      scope: "team",
+      operation: { kind: "list", path: requested },
+    });
+  } catch {
+    // A folder this scope cannot open answers not-found, which is the same
+    // answer a folder that does not exist gets — by design, so that a prefix
+    // cannot become a way to ask whether a hidden folder has anything in it.
+    throw anonymousSafe(actorUserId, shareUnavailable());
+  }
+  if (listing.kind !== "listing") throw anonymousSafe(actorUserId, shareUnavailable());
+
+  /*
+    AN EMPTY FOLDER IS NOT A REFUSAL, AND THE ROOT IS THE CASE THAT PROVES IT.
+
+    A subfolder whose every note is private lists nothing, and so does one that
+    genuinely holds nothing. Serving both as an empty listing is the same
+    indistinguishability the rest of this path keeps — refusing on emptiness
+    would tell a reader that a folder they can see the name of has something
+    inside it they may not read.
+  */
+  return {
+    path: requested,
+    text: null,
+    kind: "folder",
+    entries: listing.entries.map((entry: { path: string; name: string; kind: string }) => ({
+      path: entry.path,
+      name: entry.name,
+      kind: entry.kind === "folder" ? ("folder" as const) : ("file" as const),
+    })),
+    ...shared,
+  };
+}
 
 /**
  * The refusal a caller with no session gets, whatever they presented.
@@ -1841,7 +3253,7 @@ export const previewForNote = query({
     //
     // Folders were refused wholesale for a real reason: `applyStructure` writes
     // `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `4-archive` into
-    // every brain this product creates, so five guesses per handle were enough
+    // every workspace this product creates, so five guesses per handle were enough
     // to learn which of them their owner had team-linked, and to be handed its
     // title and a live token, unauthenticated.
     //
@@ -1856,14 +3268,14 @@ export const previewForNote = query({
     // Stated precisely, because an earlier version of this comment overstated
     // the leak: a live `noteShares` row is still required below, so this was
     // never a bare handle-existence oracle. What it published was which of a
-    // brain's scaffolded paths its owner had team-linked.
+    // workspace's scaffolded paths its owner had team-linked.
     const path = normalizePath(args.path);
     if (path === null || isPlumbing(path)) return nothing;
 
     // **One list, and it is the whole rule now.**
     //
     // `isProductMandatedPath` names every path this product writes, which is
-    // more than what a fresh brain arrives with: the five PARA folders,
+    // more than what a fresh workspace arrives with: the five PARA folders,
     // `index.md`, `privacy.md`, a `README.md` in each folder and `todo.md` at
     // the root — plus the folders the gateway creates LATER, where
     // `save_context` files a session and where a capture lands under its

@@ -165,7 +165,7 @@ export async function runEncryptionRotationChecks(check) {
     controlPlane.addWorkspace("ws_rot", "rot", {
       provider: "r2-binding",
       bindingName: "BUCKET_ROT",
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
       encryptionKey: { current: "k1", keys: { k1: KEY_1 } },
     });

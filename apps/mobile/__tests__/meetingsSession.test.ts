@@ -1,4 +1,4 @@
-import { describe, expect, test } from "@jest/globals";
+import { describe, expect, jest, test } from "@jest/globals";
 import { MEETING_TRANSITIONS, PROTOCOL_VERSION } from "../features/meetings/protocol";
 import {
   acceptsTranscript,
@@ -308,6 +308,53 @@ describe("the reducer refuses rather than guessing", () => {
       const isTerminal = MEETING_TRANSITIONS[state].length === 0;
       expect(acceptsTranscript(state)).toBe(!isTerminal);
     }
+  });
+
+  /**
+   * ...AND THE TEST ABOVE CANNOT FAIL TODAY, WHICH IS WHY THIS ONE EXISTS.
+   *
+   * Both sides of it read the same table, and `complete`/`empty` are exactly
+   * the states the old hand-written denylist named — so reverting
+   * `acceptsTranscript` to that denylist leaves it green, which the change
+   * that derived it reported honestly as a **zero-failure** sabotage row. A
+   * guard nobody has checked is not a guard, so this checks the *derivation*
+   * rather than its current output: a third terminal state is added to a copy
+   * of the table, and the answer for it has to come out of the table rather
+   * than out of a list of two names somebody typed. Reverting the source now
+   * fails here, because a denylist has never heard of this state.
+   */
+  test("acceptsTranscript reads the table, rather than agreeing with today's copy of it", () => {
+    jest.isolateModules(() => {
+      jest.doMock("../features/meetings/protocol", () => {
+        const actual =
+          jest.requireActual<typeof import("../features/meetings/protocol")>(
+            "../features/meetings/protocol",
+          );
+        return {
+          ...actual,
+          /*
+            One more terminal state, reached from `finalizing` like the two
+            that are already there — the shape `docs/decisions/meetings.md`
+            says this table only grows in. Nothing can leave it, so nothing
+            folded into it could ever be written out.
+          */
+          MEETING_TRANSITIONS: {
+            ...actual.MEETING_TRANSITIONS,
+            finalizing: [...actual.MEETING_TRANSITIONS.finalizing, "abandoned"],
+            abandoned: [],
+          },
+        };
+      });
+      const { acceptsTranscript: derived } =
+        /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+        require("../features/meetings/session") as typeof import("../features/meetings/session");
+
+      expect(derived("abandoned" as unknown as MeetingState)).toBe(false);
+      // And the states either side of it still answer what they always did.
+      expect(derived("recording")).toBe(true);
+      expect(derived("complete")).toBe(false);
+    });
+    jest.dontMock("../features/meetings/protocol");
   });
 
   test("resuming something already recording changes nothing about it", () => {

@@ -27,6 +27,30 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Anything needed before this table can be read cannot live in it
 - Usage is counted, never logged
 - Version history is the customer's object versioning, not a copy we keep
+- Managed storage: a bucket we run, in an account that holds nothing else
+- One managed account per deployment, never shared
+- A migration pass is walked in waves, and an unchanged object is read twice
+- The migration's outcome is recorded, because an offer nobody can answer is a nag
+- Absent meant two things, and the bucket is asked which
+- A bucket born on the layout has nothing to migrate, and is not asked to
+- A move between two contexts is three calls, not one function holding two keys
+- The model key is a fourth credential route, not a fifth sibling on the binding
+- A moved note leaves a forwarding address, and it is a trail rather than an index
+- A live editing room holds note text, and the enumeration does not list it
+
+## [Premium, Stripe, and the promise money may not touch](./billing.md)
+
+- A plan belongs to a workspace, never to a person
+- Two entitlements, one price
+- What a plan may never decide
+- Three values, three different places, and the split is load-bearing
+- The checkout is two round trips, and it cannot be one
+- The workspace is never read out of an event
+- The signature is the whole security of the webhook
+- The API version pins outbound calls and nothing else
+- A third route factory, and why it is enumerated separately
+- Storage we run is offered wherever a context is made, personal or shared
+- What is deliberately not built
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 
@@ -37,6 +61,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A third-party OAuth callback carries a secret the browser kept, not just `state`
 - The same derived-subjects shape closes a teardown gap, not just a binding gap
 - One connection reaches every context its person belongs to
+- One context is pinned for everybody, and the pin is reach rather than membership
 - A grant is one person's tooling, and the refusal follows the listing
 - An invitation is addressed to a string, and its token is stored in the clear
 - An invitation is delivered, and the delivery is scheduled rather than sent
@@ -45,6 +70,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The two onboarding gates ask two different questions
 - …and a third question nobody was asking: how do you get one?
 - The hook is a capture-only OAuth client, and that is the whole design
+- A workspace's name can be given back, and only its owner can give it
+- The covered-context set is a reach, not an identity
 
 ## [Privacy, visibility, and sharing](./privacy-and-sharing.md)
 
@@ -54,12 +81,18 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An unlisted share is the third audience, and it is one row rather than a tier
 - `privacy.md` is generated, and the console can generate a fresh one
 - The visibility tier is displayed, never stored
-- The audit trail's `details` are allow-listed, and its `paths` are not gated at all
+- The audit trail's `details` are allow-listed
+- A row's paths are the reader's own clearance, or the reader's own hands
 - A privacy decision is folded, and the fold only ever narrows
 - A shared workspace scaffolds `team`, and that is not a widening
 - `index.md` is opened by name, because no folder rule reaches the root
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
+- A note carried into another context lands at the narrower of the two ends
+- A share follows the note, not the path it was minted on
+- A short link is a second locator, never a second tier
+- A collect link is a write path, and the only one with no account behind it
+- The switch that hands out a write sits under the link, and says so
 
 ## [Per-note encryption](./encryption.md)
 
@@ -87,7 +120,31 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Authority is decided once, never per protocol era
 - An absent `Origin` is allowed; `null` is not
 - Orientation is the front door, and `index.md` is the part we do not generate
+- Recency ranks attention, and automated capture is collapsed, not excluded
 - `search` and `fetch` exist because ChatGPT's chats can call nothing else
+- The advertised `inputSchema` is enforced, and it is enforced in one place
+- Reach is described from the clamp that will decide it, on both surfaces
+- The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
+- Presence is a read that happens to be a socket
+- Phase 2: the room carries the document, and what that spends
+- A drawing merges by element, and by Excalidraw's own rules
+
+## [Markdown forms](./forms.md)
+
+- Responses live in a sister file, not on the form's own page
+- The block declares the path, never the visibility
+- Layout is declared, not derived
+- The gateway renders every row, and therefore parses every row
+- A `member` may submit, and that is the only write they get
+- You can only delete what you can see
+- Changing layout under existing responses is a breaking change
+- The response file is created by the author, never by the first submission
+- A form that does not parse is inert, never half-working
+- Forms need conditional writes, and say so when they cannot have them
+- The response table scrolls sideways, and never truncates an answer
+- The gateway writes the block too, not only the row
+- A form on a share page draws itself, and is the page's one write
+- What is deliberately not built
 
 ## [Search and the derived index](./search.md)
 
@@ -97,6 +154,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The manifest is the query surface, and the diff moved out from under it
 - The console searches through the gateway's search, not a copy of it
 - A database we own holds a copy of somebody's notes only where they asked
+- A name already taken in our own account is this context's database
 - The gateway writes the projection, so the credential rides on the binding
 - Progress is reported to the control plane, which owns the row
 - The backfill percentage is derived, and inherits the census's owner-only gate
@@ -112,6 +170,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note is the unit of the index, except when it is bundled mail
 - The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
 - A shed index must say so to the caller it happened to, not only to the operator
+- With no connection, search reads the copy on the device, and says so
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -122,21 +181,32 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every react-native-web `View` is a stacking context, so a `zIndex` is local
 - There are two palettes, and a screen may not hold either one
 - The web shell is `public/index.html`, because `+html.tsx` is a static-rendering file
+- Hue is meaning in this product, so the palette rations it
+- Nine sizes, two densities, and no literal font size anywhere
+- One interface face, and `display` kept as a role with no face of its own
 - A long press has two signals, because the platform is watching the finger too
 - An absence is a claim, and a claim needs an answer
 - A launch is not a screen, and an empty list is not an empty account
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
+- A cold start with no network is the case the offline layer was built for
+- A reconnection empties every queue, not the one on screen
+- The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
+- Every note on the device: the mirror
+- On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
+- A folder's placeholder is not a row
 - A phone gets a path bar, which is half of the line that was deleted
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
 - Making a workspace is its own flow, not onboarding with a flag
-- Two name fields for a workspace, one for a brain
+- Two name fields for a shared workspace, one for a personal one
 - The layout presets are company-shaped, and PARA is not the default
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
-- The rail splits on kind, and ownership is a mark on one row
+- The rail is one list, with the personal workspace pinned to the top
+- The rail folds into the switcher, and the column it occupied goes to the note
+- The workspaces come back as a row at the foot of the tree, not as a column
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
@@ -146,12 +216,35 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The communications console reads through `FileBrowser`, not a new tool
 - A note's anchor is a query parameter, not a URL fragment
 - A message body is rendered, never linkified
+- A diagram lives in the note, and the browser is the only thing that makes it safe
+- A phone gets Recent, because it could never get a second tab
+- A connected account is one card, and its consequence is armed
+- Reading mode is the whole rule for a block that replaces its own source
+- A grid is edited in place, and the unit that reveals is the cell
+- A control on a table belongs to the row or the column it acts on
+- A note may declare the mode it opens in, and the person still outranks it
+- The note is a measured column, and the demo note stopped faking one
+- The staff console is shaped for ten customers, and its figures count rows
+- A sort number is filing, so the console draws the name and keeps the number
+- A folder row says what differs, so `0-inbox` gets no count
+- "Move to…" is one dialog, and the other context is a destination rather than a mode
+- Settings is seven rows, and a row has to earn its place
+- A pasted image is a width in the note and a file in the bucket, and nothing else
+- A status wears a chip; a band is for what you have not been told
+- A workspace can wear a face, and the letter is what it falls back to
+- The allowed-sender list stays beside the address it gates
+- The tree is drawn from the press, and `privacy.md` is what it may not guess
+- What the sidebar can do to a folder, the listing can do to it too
+- Nothing is named before it is written, and the phone's `+` is the only key
+- A phone can ask its context a question, and could not before
+- The feed is a file, and the console is a viewing layer over it
 
 ## [Meetings](./meetings.md)
 
 - One file per meeting, and `read_meeting` is what that costs
 - A meeting note is a note, and `privacy.md` decides it with no bypass
 - Nothing joins the call
+- A browser records the whole call only if somebody hands it the call
 - Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 - The cloud path knows _who_ is asking, opaquely, and the ceiling is the control plane's
 - The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at
@@ -159,7 +252,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Pressing Record is the same yes, and the blocklist sees less of it
 - A microphone is never opened for a meeting nothing will transcribe
 - A chunk of audio is a whole file, and every recorder cuts on the same clock
+- The device is never waiting on the network, and a backlog is dropped rather than kept (amended: kept)
+- Audio nobody has transcribed yet is kept on the device
 - A client-supplied id is bounded where it enters, not where it lands
+- The folder is a setting; the question is not
 - The recorder is one interface with two implementations, and nothing above it knows which
 - The watch is a remote control, never a recorder
 - Detection judgement is a pure function, and the desktop app only collects evidence
@@ -178,7 +274,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A session that captured nothing is not filed
 - A segment id names its own meeting, and both sides check it
 - The phone had one barrier where the desktop has four, and both halves are named
+- The count is a kind, not a number, and every one of these guards reads an id
 - A refusal is shown with the reason the gateway gave for it
+- The seventh key became a row in the `+`, and the route it guarded did not move
 - The engine's own evidence travels to the recorder, because a Worker's log is
   not a place a person can read
 - A build is what shipped, not what merged — two "the fix did not work" reports
@@ -200,8 +298,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Contacts: one page per person, and a merge never rewrites history
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
+- The forward sync loop: a pull, on a floor of five minutes
 - What is deliberately not built
 - iMessage reads `chat.db` in place, through the one binary every Mac already has
+- The destination rule is shared, so the field can say something before Save
 
 ## [The desktop shell](./desktop.md)
 
@@ -224,6 +324,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One meeting is one credential, and on a Mac it is the machine's
 - The microphone is asked for just-in-time, and never a dialog that points at the wrong place
 - What is deliberately not built
+- The console reserves the space, the shell places the buttons
+- The band's other two payers, and the shell half finally wired
+- The band moves into the bar
 
 ## [Updating the Mac without shipping a Mac](./desktop-updates.md)
 
@@ -240,8 +343,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What would make this a bad idea, argued as if we were not going to do it
 - What is deliberately not built
 
-## [Obsidian plugins](./obsidian-plugins.md)
+## [Plugins](./plugins.md)
 
+- A Context plugin is Obsidian's manifest with one extra key, and no bundle
+- The switch lives in the bucket, in two lists rather than one
+- A switch removes a capability and never a protection
+- The switch is enforced twice, because the listing is cached
+- The owner authorizes a plugin over their own workspace; the workspace is the wall
+- A read cap is about our memory, never about their storage
+- What may never be a plugin
+- A base class is a load-bearing export, so the dialog was built rather than stubbed
+- A member the shim lacks is a limitation, except when it is extended
+- And a switch has to actually do something
+- A vault copy and a managed install are one plugin, and the duplicate is not created
+- One panel, one box, and the registry is still a deliberate press
+- What is deliberately not built, for Context plugins
 - The bucket is the vault, so compatibility starts as a duty not to break things
 - A compatibility verdict is a floor, and the code is shaped to keep it one
 - Curation changes the label and never the sandbox
@@ -249,14 +365,49 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One unreadable plugin costs one verdict, never the report
 - The read path cannot be aimed
 - What is deliberately not built
+- Drawings: read the file, describe it, and refuse to write over it
+- The guard is the load-bearing half, and describing created the need for it
+- Everything degrades to "we could not read it", never to a refusal
+- The render is true, not hand-drawn, and that is the trade
+- The drawing editor is a page, because a dynamic import is not a lazy chunk
+- The page never sees the customer's Markdown
+- Fonts are served from our own origin, and that is not a preference
+- A drawing is named by its file, never by `# Excalidraw Data`
+- A bare `%%` ends a section, and that rule has one definition
+- A file that does not exist yet is scaffolded, once, and edited ever after
+- The editor is cached by a worker scoped to its own directory
+- The message check is an identity check, not an origin check
+- A list of what the shim is missing cannot be written by hand
+- A base class has to be real, and a real dialog is text in one direction
+- The only check that has ever caught a plugin not loading
+- What is installed is a different question from what runs, and a cheaper one
+- A settings pane is described, never forwarded
+- The open note is an editor a plugin can write into, while its work is running
+- A press that does nothing is a bug, even when nothing is broken
+- A check that reads React state from inside `onEvent` is not a check
+- A plugin's `fetch` goes through the grant, and the CSP still denies the frame
+- A plugin's suggestions cross the `WebView` bridge, and the guest asks nothing until told there is somebody to ask
+- A plugin row answers "is it on"; everything else is one press away
+- The section is hidden, the machinery is not
 
 ## [Testing and guards](./testing.md)
 
 - A guard nobody has checked is not a guard
+- A fake models the platform only where somebody has already been surprised by it
+- Two offline claims rest on stores no test in this repository has ever talked to
+- A gate that only speaks at release is a gate that speaks too late
+- A hand-scan is not a fix for something that has already recurred
+- An invisible character in source is a fixture nobody can review
+- WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
+- A surface no browser can open is a surface no test is looking at
+- An unauthenticated probe is not a health check for an authenticated endpoint
+- The socket is proven by hand, and CI does not cover it
+- One thing an agent writes to a canvas still reaches one screen
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 
 - Vocabulary
+- "Brain" is retired, and stays reserved
 - The workspace model (build this now, it's cheap)
 - Deliberately not yet
 

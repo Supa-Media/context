@@ -8,7 +8,7 @@ import { useColors } from "../../../features/design/theme";
  * that group's layout, which sends a signed-out visitor to `/login` carrying
  * the attempted href. A second check here would be a second copy of a rule that
  * has one correct implementation, and the onboarding gate in that same layout
- * must not fire for this route either — somebody who owns a brain already and
+ * must not fire for this route either — somebody who owns a workspace already and
  * is making a workspace is not a person with nothing.
  *
  * So this does one job: give the route a stack and paint the same dark ground

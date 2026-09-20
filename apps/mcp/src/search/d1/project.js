@@ -151,10 +151,23 @@ export function upsertStatements(path, projected) {
     },
   ];
 
-  const table = FTS_TABLE[projected.note.visibility];
-  // An unknown visibility is a programming error, and the safe failure is to
-  // index nothing rather than to guess a table — guessing `team` publishes a
-  // private note's vocabulary to every member of the context.
+  // A group rule is narrower than `team` and wider than `private`, and there
+  // are two tables. It goes in the PRIVATE one: `tablesForTier` gives a
+  // private-tier caller both tables and a team-tier caller only the team one,
+  // so this keeps a group note out of every team caller's corpus statistics —
+  // which is the whole reason the split exists — while leaving the owner the
+  // fast path over their own notes. The alternative, indexing it nowhere, is
+  // what the caller used to do by skipping it entirely, and that left the
+  // note's old team-tier rows standing forever.
+  const table =
+    FTS_TABLE[projected.note.visibility] ??
+    (typeof projected.note.visibility === "string" && projected.note.visibility.startsWith("@")
+      ? FTS_TABLE.private
+      : undefined);
+  // An unknown visibility is still a programming error, and the safe failure is
+  // to index nothing rather than to guess a table — guessing `team` publishes a
+  // private note's vocabulary to every member of the context. The two DELETEs
+  // above have already run, so such a note is removed rather than stranded.
   if (table === undefined) return statements;
 
   for (const chunk of projected.chunks) {

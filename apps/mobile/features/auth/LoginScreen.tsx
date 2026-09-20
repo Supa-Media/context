@@ -6,12 +6,12 @@ import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { landAfterSignIn } from "./landing";
 import { LANDING_ROUTE, safeNextRoute } from "./redirect";
-import { normalizeSignInEmail } from "./email";
+import { normalizeSignInEmail, signInProviderForEmail } from "./email";
 
 /**
  * Email OTP sign-in, styled to the console's palette.
@@ -46,7 +46,8 @@ export function LoginScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await signIn("email", { email: normalizeSignInEmail(email) });
+      const normalized = normalizeSignInEmail(email);
+      await signIn(signInProviderForEmail(normalized), { email: normalized });
       setStep("verify");
     } catch {
       setError("Couldn't send your code. Check the address and try again.");
@@ -59,8 +60,9 @@ export function LoginScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await signIn("email", {
-        email: normalizeSignInEmail(email),
+      const normalized = normalizeSignInEmail(email);
+      await signIn(signInProviderForEmail(normalized), {
+        email: normalized,
         code: code.trim(),
       });
       // A real navigation on the web, not a client-side replace — see
@@ -113,7 +115,7 @@ export function LoginScreen() {
             },
           ]}
         >
-          {step === "request" ? "Sign in or create your brain" : "Check your email"}
+          {step === "request" ? "Sign in or create your workspace" : "Check your email"}
         </Text>
 
         <Text variant="heroSub" style={styles.sub}>
@@ -226,8 +228,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sub: {
     marginTop: 14,
-    fontSize: 16,
-    lineHeight: leading(16, 1.55),
+    fontSize: t.body,
+    lineHeight: leading(t.body, 1.55),
   },
   card: {
     marginTop: 28,

@@ -68,10 +68,33 @@ const DEVICES: ReadonlyArray<{ width: number; what: string }> = [
   { width: 320, what: "iPhone SE 1st gen, and any browser window this narrow" },
 ];
 
-/** The worst case the console can build: six note verbs and one destination. */
+/**
+ * The worst case, as a probe of `BottomBar` rather than a description of the
+ * console's own row.
+ *
+ * The console built exactly this once — six note verbs, a rule, and a seventh
+ * key that opened the microphone — and it is the arrangement the bug was found
+ * in, so it stays here as the shape the geometry has to survive. The row the
+ * console builds *today* is `CONSOLE_KEYS` below: the microphone key went when
+ * the `+` beside it grew a menu, and seven keys are one press away from coming
+ * back the next time somebody adds a destination.
+ */
 const KEYS = 7;
 /** One rule, before the seventh key. */
 const RULES = 1;
+
+/**
+ * And what the console actually draws now: back, forward, search, `+`, recent,
+ * save. No rule, because the rule existed to separate the six note verbs from
+ * the one key that left the note, and that key is gone — *"we no longer need a
+ * dedicated mic button on the bottom row, just a plus button that opens
+ * different options"*.
+ *
+ * Asserted separately from `KEYS` on purpose. Pointing the console's own tests
+ * at the seven-key probe is how "how many keys does the product draw" stops
+ * being a question this file answers.
+ */
+const CONSOLE_KEYS = 6;
 
 /* -------------------------------------------------------------------------- */
 
@@ -87,6 +110,19 @@ jest.mock("expo-router", () => ({
 
 jest.mock("@convex-dev/auth/react", () => ({
   useAuthActions: () => ({ signOut: async () => {} }),
+}));
+
+/*
+  The console layout mints this app's gateway grant through `useAgentEngine`,
+  which is the first thing in it to reach `convex/react` directly — everything
+  else goes through `useLiveConsoleData`, mocked below. The action is never
+  called here: `VoiceButton` is what would call it, and nothing in this file
+  asks the agent anything.
+*/
+jest.mock("convex/react", () => ({
+  useAction: () => async () => {
+    throw new Error("not used in this test");
+  },
 }));
 
 jest.mock("../features/console/useLiveConsoleData", () => ({
@@ -335,8 +371,8 @@ function mockConsoleData(): never {
     expanded: new Set<string>(),
     toggleFolder: () => {},
     // Deliberately `null` while the editor holds a path: `useTabs` opens its
-    // strip off `editor.path`, so this is the seven-key row — back, forward,
-    // search, new, tabs, save, meeting — without mounting CodeMirror into
+    // strip off `editor.path`, so this is the console's whole row — back,
+    // forward, search, `+`, recent, save — without mounting CodeMirror into
     // jsdom, which is a different test's business entirely.
     selectedPath: null,
     select: () => {},
@@ -645,19 +681,29 @@ describe("the rendered row, solved", () => {
 
 describe("the console's own bottom row", () => {
   /**
-   * **Seven keys, and the seventh is the meeting key.**
+   * **Six keys, no rule, and no microphone.**
    *
-   * `expect(toolbar()).toHaveLength(6)` was deleted with no replacement when
-   * the row grew, so nothing asserted how many keys are on it or what the last
-   * one is. The count is the whole of the width problem — six fit at 375 and
-   * seven do not — and the position is the whole of the separator's argument:
-   * six verbs that act on the note, then a rule, then one destination that
-   * leaves it.
+   * `expect(toolbar()).toHaveLength(6)` was deleted with no replacement when the
+   * row grew a seventh key, so nothing asserted how many keys are on it or what
+   * they are — and the count is the whole of the width problem, because six fit
+   * at 375 and seven do not.
+   *
+   * The seventh was a microphone that opened the meeting sheet, and it is gone:
+   * *"we no longer need a dedicated mic button on the bottom row, just a plus
+   * button that opens different options"*. Recording a meeting is a row in the
+   * sheet the `+` raises now, so what the row lost is a key rather than a
+   * capability — and the separator went with it, since it existed to mark the
+   * boundary between the verbs and that one destination.
+   *
+   * **The `+` is unconditional, where it used to depend on `canEdit`.** The
+   * sheet it raises offers a reader a meeting and no files, which is where the
+   * read-only rule now lives; dropping the key outright would take meeting
+   * capture off every context somebody was invited into.
    *
    * Asserted against the real row rather than a fixture, because `BottomBar`
-   * deliberately does not know what its last key opens; the layout does.
+   * deliberately does not know what its keys open; the layout does.
    */
-  test("is seven keys, and the meeting key is the seventh", () => {
+  test("is six keys, ending at Save, with no separator and no microphone", () => {
     const container = mountConsole(390);
     const row = [...need(container, "bottom-bar").children] as HTMLElement[];
 
@@ -666,17 +712,12 @@ describe("the console's own bottom row", () => {
       "bottom-bar-forward",
       "bottom-bar-search",
       "bottom-bar-new",
-      "bottom-bar-tabs",
+      "bottom-bar-recent",
       "bottom-bar-save",
-      "bottom-bar-separator",
-      "bottom-bar-meeting",
     ]);
 
-    // Seven targets, not eight children: the rule is not a key.
-    expect(row.filter((node) => node.dataset.testid !== "bottom-bar-separator")).toHaveLength(KEYS);
-    expect(need(container, "bottom-bar-meeting").getAttribute("aria-label")).toBe(
-      "Record a meeting",
-    );
+    expect(row).toHaveLength(CONSOLE_KEYS);
+    expect(need(container, "bottom-bar-new").getAttribute("aria-label")).toBe("Create");
 
     drop();
   });
@@ -692,7 +733,7 @@ describe("the console's own bottom row", () => {
     const container = mountConsole(width);
     const solved = solveBar(need(container, "bottom-bar"), width);
 
-    expect(solved.targets).toHaveLength(KEYS);
+    expect(solved.targets).toHaveLength(CONSOLE_KEYS);
     for (const size of solved.targets) {
       expect(size).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET - 1e-9);
     }

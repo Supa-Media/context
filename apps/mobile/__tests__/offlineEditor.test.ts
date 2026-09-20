@@ -8,7 +8,7 @@ import {
   saveButton,
   type EditorState,
 } from "../features/console/files/editor";
-import { statusSegments } from "../features/console/files/status";
+import { saveChip, statusSegments } from "../features/console/files/status";
 import { restoreFor } from "../features/offline/restore";
 import { emptyOutbox, enqueue, markConflict, markRejected } from "../features/offline/outbox";
 import type { OpenNote } from "../features/console/files/types";
@@ -45,6 +45,18 @@ function segments(state: EditorState, sync?: Parameters<typeof statusSegments>[0
   return statusSegments({ editor: state, storageLabel: null, now: 0, sync });
 }
 
+/**
+ * The save claim, which the top bar draws and the strip no longer does.
+ *
+ * Same words, same tones, same `StatusSegment` shape — see `status.ts`'s
+ * `saveChip` for why it moved out of the row. The cases below are about *what
+ * a queued draft and a cached body are allowed to be called*, and that is
+ * unchanged by which surface says it.
+ */
+function save(state: EditorState) {
+  return saveChip({ editor: state, now: 0 });
+}
+
 const byId = (list: ReturnType<typeof segments>, id: string) => list.find((s) => s.id === id);
 
 /* -------------------------------------------------------------------------- */
@@ -63,10 +75,10 @@ describe("a save that was written down instead of written", () => {
     );
 
     expect(queued.status).toBe("queued");
-    const save = byId(segments(queued), "save")!;
-    expect(save.text).toBe("Queued");
-    expect(save.tone).toBe("warn");
-    expect(save.detail).toContain("written down");
+    const chip = save(queued)!;
+    expect(chip.text).toBe("Queued");
+    expect(chip.tone).toBe("warn");
+    expect(chip.detail).toContain("written down");
   });
 
   test("typing more does not turn it back into unsaved changes", () => {
@@ -139,14 +151,14 @@ describe("a note read off the device", () => {
       notice: "Showing the copy on this device, read 2 hours ago.",
     });
 
-    const save = byId(segments(cached), "save")!;
-    expect(save.text).toBe("Cached copy");
-    expect(save.tone).toBe("warn");
-    expect(save.detail).toContain("2 hours ago");
+    const chip = save(cached)!;
+    expect(chip.text).toBe("Cached copy");
+    expect(chip.tone).toBe("warn");
+    expect(chip.detail).toContain("2 hours ago");
   });
 
   test("a note read from the bucket is still just saved", () => {
-    expect(byId(segments(opened()), "save")).toEqual({
+    expect(save(opened())).toEqual({
       id: "save",
       text: "Saved",
       tone: "quiet",

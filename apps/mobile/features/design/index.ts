@@ -50,7 +50,7 @@ export type { PillTone } from "./components/Pill";
 export { Dot } from "./components/Dot";
 export type { DotTone } from "./components/Dot";
 export { CopyField } from "./components/CopyField";
-export { Field, FieldGrid, Check, Hint } from "./components/Field";
+export { Field, FieldList, Check, Hint } from "./components/Field";
 export type { FieldSpec } from "./components/Field";
 export { TextField, ChoiceGroup, FormError, Notice } from "./components/Input";
 export type { TextFieldProps, ChoiceOption } from "./components/Input";

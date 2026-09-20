@@ -78,3 +78,11 @@
  * where the rule now lives.
  */
 export { normalizeEmail as normalizeSignInEmail } from "@context/shared";
+
+export const PRODUCTION_TEST_EMAIL = "agentseyi@agentmail.to";
+export const TEST_EMAIL_PROVIDER_ID = "test-email";
+
+/** Client routing only; the provider repeats the exact check server-side. */
+export function signInProviderForEmail(email: string): "email" | "test-email" {
+  return email === PRODUCTION_TEST_EMAIL ? TEST_EMAIL_PROVIDER_ID : "email";
+}

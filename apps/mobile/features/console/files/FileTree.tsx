@@ -2,10 +2,12 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { radii } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
+import type { SyncMark } from "./pendingMarks";
 import { useRowInteractions } from "./rowInteractions";
+import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import type { TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
@@ -84,6 +86,8 @@ export function FileTree({
   onMenu,
   drag,
   dropTarget = null,
+  pendingStateFor,
+  markedPaths,
 }: {
   rows: readonly TreeRow[];
   /**
@@ -102,6 +106,21 @@ export function FileTree({
   drag?: TreeDragHandlers;
   /** The row under a drag, washed to say the drop would land there. */
   dropTarget?: string | null;
+  /**
+   * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
+   * Absent on a console with no offline layer, which marks nothing.
+   */
+  pendingStateFor?: (path: string) => SyncMark | null;
+  /**
+   * Rows with something new under them, from `activity.markedRows`.
+   *
+   * Paths rather than a predicate, because the rule that decides them is about
+   * the tree as a whole — a note gets the dot when every folder above it is
+   * open, and the nearest closed folder gets it otherwise — and a per-row
+   * question cannot see that. Absent on a console with no activity yet, which
+   * marks nothing.
+   */
+  markedPaths?: ReadonlySet<string>;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -129,6 +148,8 @@ export function FileTree({
             onMenu={onMenu}
             drag={drag}
             isDropTarget={dropTarget === row.path}
+            sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
+            marked={markedPaths?.has(row.path) ?? false}
           />
         );
       })}
@@ -163,6 +184,8 @@ function FileRow({
   onMenu,
   drag,
   isDropTarget,
+  sync,
+  marked,
 }: {
   row: TreeRow;
   /**
@@ -178,6 +201,10 @@ function FileRow({
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   drag?: TreeDragHandlers;
   isDropTarget: boolean;
+  /** This note's edit is not in the bucket yet. `null` for one that is. */
+  sync: SyncMark | null;
+  /** Something under this row changed since this person last caught up. */
+  marked: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -202,8 +229,29 @@ function FileRow({
       style={[styles.row, isDropTarget && styles.rowDrop]}
       ref={interactions.ref as never}
     >
+      {/*
+        THE SELECTED ROW'S ACCENT BAR.
+
+        A 2×14 stub at the row's leading edge, at the column's own margin
+        rather than at the name's indent, so every selected row marks the same
+        vertical line however deep it sits. That is the whole reason it is
+        drawn here, on the row, instead of as a left border on `PressRow`: a
+        border would move inward with `paddingLeft` and a file five levels down
+        would mark a different line than its folder.
+
+        It replaces tinting the label: selection used to be `accentDim` behind
+        `accentText`, which recoloured the *name* — and a tree is a list of
+        names, so the one you have open was the one drawn in a different hue
+        from every other. The canvas keeps the name in `text` and moves the
+        accent out of it.
+      */}
+      {row.selected ? <View style={styles.selectedBar} aria-hidden /> : null}
       <PressRow
-        accessibilityLabel={describeRow(row)}
+        accessibilityLabel={
+          marked
+            ? `${withSyncMark(describeRow(row), sync)}, new`
+            : withSyncMark(describeRow(row), sync)
+        }
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
         radius={radii.sm}
@@ -229,18 +277,37 @@ function FileRow({
           {row.kind === "folder" ? (
             <Icon
               name={row.expanded ? "chevronDown" : "chevronRight"}
-              size={12}
-              color={colors.muted}
+              size={10}
+              color={colors.chromeMuted}
             />
           ) : null}
         </View>
         <Text
           variant="tree"
           numberOfLines={1}
-          style={row.selected ? styles.nodeSelectedLabel : undefined}
+          style={[styles.label, row.selected && styles.nodeSelectedLabel]}
         >
           {row.label}
         </Text>
+        {/*
+          After the name and inside the row, so it reads as a fact about this
+          note rather than as one more trailing marker. The visibility word is
+          outside the pressable because pressing it changes something; this
+          changes nothing, and pressing it should open the note like the rest
+          of the row. See `SyncMarkDot` for the shape.
+        */}
+        {sync === null ? null : <SyncMarkDot mark={sync} />}
+        {/*
+          The activity mark: 5pt of petrol at the trailing edge, and the whole
+          of what this feature adds to the tree.
+
+          Inside the pressable, like the sync dot and for the same reason: it
+          changes nothing and pressing it should open the row. After the sync
+          dot because the two answer different questions and the order is the
+          order of urgency — "your edit has not landed" is about you and now,
+          "somebody else changed this" is about them and earlier.
+        */}
+        {marked ? <View style={styles.newDot} aria-hidden /> : null}
       </PressRow>
 
       <VisibilityControl
@@ -252,9 +319,9 @@ function FileRow({
   );
 }
 
-/** The mockup's indent: 8pt of leading padding, 13pt more per level. */
+/** The canvas's indent: 8pt of leading padding, 12pt more per level. */
 function indentFor(depth: number): number {
-  return 8 + 13 * depth;
+  return 8 + 12 * depth;
 }
 
 function noopPath(_path: string): void {}
@@ -313,7 +380,18 @@ function VisibilityControl({
     no such panel any more (see the file header), so there is one presentation.
   */
   const body = (
-    <Text variant="treeMeta" style={styles.markerLabel} numberOfLines={1}>
+    /*
+      `team` carries its own colour; `private` does not.
+
+      Down a column of grey names, a second grey word is furniture. The canvas
+      gives the one marker that widens who can read a note a hue of its own, and
+      leaves `private` — which narrows it, and is the safe direction — quiet.
+    */
+    <Text
+      variant="treeMeta"
+      style={[styles.markerLabel, row.marker === "team" && styles.markerTeam]}
+      numberOfLines={1}
+    >
       {row.marker}
     </Text>
   );
@@ -365,7 +443,40 @@ function describeRow(row: TreeRow): string {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", borderRadius: radii.sm, position: "relative" },
+  /*
+    `height` rather than the node's vertical padding.
+
+    The row was 13pt of label with 5pt above and below, which lands at 30 and
+    drifts the moment the label's leading changes. The canvas draws 28, flat,
+    and a tree is the one place in the product where twenty rows of the same
+    height is the whole visual argument — so the height is the row's own and
+    the padding inside it is horizontal only.
+  */
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 28,
+    marginBottom: 1,
+    borderRadius: radii.sm,
+    position: "relative",
+  },
+
+  /** See its use site. `left: 8` is the column's margin, not the row's indent. */
+  selectedBar: {
+    position: "absolute",
+    /*
+      Above the row's own pressable, which is a *later* sibling in the tree and
+      would otherwise paint over it — an absolutely positioned element with no
+      stacking context of its own still follows document order.
+    */
+    zIndex: 1,
+    left: 8,
+    top: 7,
+    width: 2,
+    height: 14,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
+  },
   /**
    * The row a drop would land in.
    *
@@ -379,16 +490,35 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   node: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 5,
+    gap: 6,
+    alignSelf: "stretch",
     paddingRight: 8,
     borderRadius: radii.sm,
   },
   nodeGrow: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   nodeHover: { backgroundColor: colors.surface3 },
-  nodeSelected: { backgroundColor: colors.accentDim },
-  nodeSelectedLabel: { color: colors.accentText },
-  chevron: { width: 12, alignItems: "center", justifyContent: "center" },
+  /** A neutral lift, not an accent wash — the bar carries the accent. */
+  nodeSelected: { backgroundColor: colors.rowSelected },
+  /** The name you are reading is the emphasised one: weight, not hue. */
+  nodeSelectedLabel: { color: colors.text, fontWeight: "500" },
+  chevron: { width: 10, alignItems: "center", justifyContent: "center" },
+  /** Shrinks before the sync mark after it does — a long name ellipsises, the mark stays. */
+  label: { flexShrink: 1, minWidth: 0 },
+
+  /**
+   * Something under this row is new to you.
+   *
+   * 5pt, petrol, and never a number. A count here would have to be a count of
+   * things the reader may not all be able to see, and the one honest number —
+   * the one in the foot line — is already one press away.
+   */
+  newDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    marginLeft: space.x2,
+    backgroundColor: colors.accent,
+  },
 
   /**
    * The trailing metadata's box.
@@ -408,4 +538,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   markerHover: { backgroundColor: colors.surface3 },
   markerLabel: { color: colors.muted },
+  markerTeam: { color: colors.markTeam },
 });

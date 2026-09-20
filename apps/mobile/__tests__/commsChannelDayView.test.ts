@@ -39,6 +39,10 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
   const noop = () => {};
   return {
     canEdit: false,
+    submitForm: async () => ({ ok: true, message: "Sent." }),
+    loadImage: async () => null,
+    say: () => {},
+    storeImage: async () => ({ error: "no" }),
     contextId: "w1",
     loading: false,
     busy: false,
@@ -49,6 +53,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     selectedPath: null,
     opening: null,
     select: () => true,
+    navigations: 0,
     deselect: () => true,
     search: async () => ({
       hits: [],
@@ -60,7 +65,11 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     editor: emptyEditor,
     setDraft: noop,
     save: noop,
+    onExternalWrite: noop,
+    onSaved: () => () => {},
     flushAutosave: () => false,
+    discardLocalCopies: noop,
+    encryptedElsewhere: noop,
     useTheirs: noop,
     keepMine: noop,
     conflict: null,
@@ -76,13 +85,22 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     paste: noop,
     copyTo: noop,
     createNote: noop,
+    createDrawing: noop,
     createFolder: noop,
+    createUntitled: noop,
     rename: noop,
     move: noop,
+    moveDestinations: [],
+    destinationFolders: async () => ({ folders: [], truncated: false }),
+    moveToContext: noop,
+    contextMoves: [],
+    resumeContextMove: noop,
+    dismissContextMove: noop,
     duplicate: noop,
     archive: noop,
     destroy: noop,
     setVisibility: noop,
+    shareWithGroup: () => {},
     setScope: noop,
     openLinkPaths: new Set<string>(),
     linkPaths: [],
@@ -93,6 +111,8 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     shares: undefined,
     share: async () => ({ ok: false, message: null }),
     revokeShare: noop,
+    setShareSlug: async () => true,
+    setShareCollecting: async () => true,
     setSharePreviewTitle: noop,
     copyShareLink: async () => ({ ok: false, message: null }),
     ensureListing: noop,
@@ -121,7 +141,11 @@ describe("ChannelDayView", () => {
     jest.restoreAllMocks();
   });
 
-  function mount(files: FileBrowser, anchor: string | null): HTMLElement {
+  function mount(
+    files: FileBrowser,
+    anchor: string | null,
+    path = "0-inbox/email/name-at-example-com/2026/09/2026-09-07.md",
+  ): HTMLElement {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root: Root = createRoot(container);
@@ -135,6 +159,7 @@ describe("ChannelDayView", () => {
           channel: "email",
           account: "name-at-example-com",
           date: "2026-09-07",
+          path,
           files,
           anchor,
         }),
@@ -142,6 +167,30 @@ describe("ChannelDayView", () => {
     });
     return container;
   }
+
+  test("a legacy flat day is read from the path that was selected", async () => {
+    const requested: string[] = [];
+    const legacy = "0-inbox/email/name-at-example-com/2026-09-07.md";
+    const readRaw: FileBrowser["readRaw"] = async (path) => {
+      requested.push(path);
+      return {
+        text: [
+          "---",
+          'type: "channel-day"',
+          "parts: 1",
+          "---",
+          "",
+          "# 2026-09-07",
+        ].join("\n"),
+        etag: "e1",
+      };
+    };
+
+    mount(browser(readRaw), null, legacy);
+    await flushMicrotasks();
+
+    expect(requested).toEqual([legacy]);
+  });
 
   test("a hostile `parts` claim in part 1's frontmatter does not fetch every part it names", async () => {
     // Part 1's own note is a message this scope can genuinely see; its

@@ -141,10 +141,48 @@ export function atName(slug: string): string {
 /**
  * The rail's status pip for a context. Storage that has never verified, or has
  * an error, is the thing worth surfacing at a glance.
+ *
+ * **`undefined` is `warn` here, and that is right for a context you are in**:
+ * the console subscribes to a binding for every context this person is a member
+ * of, so "no answer" means the binding is missing or unverified rather than
+ * unasked. See `contextToneFor` for the one context where that inference does
+ * not hold.
  */
 export function contextTone(storageStatus: string | undefined): "ok" | "warn" | "crit" {
   if (storageStatus === undefined) return "warn";
   if (storageStatus === "connected") return "ok";
   if (storageStatus === "error") return "crit";
   return "warn";
+}
+
+/**
+ * The pip a rail row actually gets, which is `contextTone` except on the pinned
+ * context, where it is `neutral`.
+ *
+ * **The pinned context is the one row with no binding subscription behind it**
+ * — `getStorageBinding` goes through `requireWorkspaceAccess` and there is no
+ * membership row, so `useLiveConsoleData` deliberately does not ask. Feeding
+ * that silence to `contextTone` reads it as "no binding" and returns `warn`,
+ * which in the rail is an amber alarm meaning *this context's bucket is in
+ * trouble* — drawn permanently, on somebody else's workspace, to every account
+ * on the platform. The pip would have been wrong in the one direction a status
+ * light must never be wrong in: alarming about nothing, forever, on a row the
+ * person cannot act on.
+ *
+ * `neutral` is the honest answer twice over. Nothing was asked, so nothing is
+ * known — and whether our bucket is reachable is not a fact this reader is
+ * entitled to in the first place.
+ *
+ * A pure function rather than a branch inside the hook, and not for tidiness:
+ * `capabilities.ts` records that a full sabotage sweep of the console found
+ * **every** guard expressed as a pure module held and every guard expressed
+ * inside a hook missed. This one was found by reading the diff rather than by a
+ * test, which is the same lesson arriving the slow way.
+ */
+export function contextToneFor(options: {
+  storageStatus: string | undefined;
+  pinned?: boolean;
+}): "ok" | "warn" | "crit" | "neutral" {
+  if (options.pinned === true) return "neutral";
+  return contextTone(options.storageStatus);
 }

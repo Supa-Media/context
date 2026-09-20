@@ -8,6 +8,7 @@ import {
   loginHref,
   resolveAuthRoute,
   resolveProtectedRoute,
+  resolveRootRoute,
   safeNextRoute,
 } from "../features/auth/redirect";
 
@@ -35,6 +36,78 @@ describe("protected routes", () => {
     expect(resolveProtectedRoute({ isLoading: true, isAuthenticated: true })).toEqual({
       action: "wait",
     });
+  });
+
+  /**
+   * `isLoading` is not "the token is being read off the device" — that part is
+   * local. It is "the socket has not answered", so with no network it never
+   * ends and this gate rendered `null` for as long as the app stayed open. A
+   * relaunch on a train was an app that would not start, on a device holding a
+   * complete offline copy of the notes somebody wanted to read.
+   */
+  test("renders offline for a device that remembers a session", () => {
+    expect(resolveProtectedRoute(loading, null, true)).toEqual({ action: "render" });
+  });
+
+  /**
+   * And the bound on it. The caller only passes `true` when it is offline *and*
+   * something was written down, and sign-out clears that — so a signed-out
+   * device waits exactly as it did before. The default matters as much as the
+   * behaviour: every existing caller and test gets today's answer without
+   * saying anything.
+   */
+  test("a device that remembers nothing waits, as it always did", () => {
+    expect(resolveProtectedRoute(loading, null, false)).toEqual({ action: "wait" });
+    expect(resolveProtectedRoute(loading)).toEqual({ action: "wait" });
+  });
+
+  /**
+   * A remembered session is not a claim about *who*. Once the server has
+   * answered, its answer decides — a signed-out visitor is still sent to sign
+   * in, remembered rows or not, and the sign-out that produced that state has
+   * already cleared them.
+   */
+  test("it never overrides a server answer", () => {
+    expect(resolveProtectedRoute(signedOut, null, true)).toEqual({
+      action: "redirect",
+      href: LOGIN_ROUTE,
+    });
+  });
+});
+
+/**
+ * `/` on a phone, which is where every native launch lands. The remembered
+ * session above was unreachable from a cold start because this gate sat in
+ * front of it with a bare `wait`: offline `isLoading` never ends, so `/`
+ * rendered `null` forever and the phone showed a blank ground, however many
+ * times it was relaunched.
+ */
+describe("the root route on a phone", () => {
+  test("sends a remembered session to the console while the server has not answered", () => {
+    expect(resolveRootRoute(loading, false, true)).toEqual({
+      action: "redirect",
+      href: CONSOLE_ROUTE,
+    });
+  });
+
+  test("a device that remembers nothing waits, as it always did", () => {
+    expect(resolveRootRoute(loading, false, false)).toEqual({ action: "wait" });
+    expect(resolveRootRoute(loading, false)).toEqual({ action: "wait" });
+  });
+
+  test("it never overrides a server answer", () => {
+    expect(resolveRootRoute(signedOut, false, true)).toEqual({
+      action: "redirect",
+      href: LOGIN_ROUTE,
+    });
+    expect(resolveRootRoute(signedIn, false, true)).toEqual({
+      action: "redirect",
+      href: CONSOLE_ROUTE,
+    });
+  });
+
+  test("the web keeps its landing page either way", () => {
+    expect(resolveRootRoute(loading, true, true)).toEqual({ action: "render" });
   });
 });
 
@@ -93,7 +166,7 @@ describe("safeNextRoute", () => {
 describe("landing call to action", () => {
   test("invites a visitor to create a context", () => {
     expect(landingCtaHref(signedOut)).toBe(LOGIN_ROUTE);
-    expect(landingCtaLabel(signedOut)).toBe("Create your brain");
+    expect(landingCtaLabel(signedOut)).toBe("Create your workspace");
   });
 
   test("offers a signed-in visitor their console instead", () => {

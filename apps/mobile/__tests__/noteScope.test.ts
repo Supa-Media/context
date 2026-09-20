@@ -9,14 +9,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import {
-  SCOPE_ICON,
-  nextScope,
-  scopeActionLabel,
-  scopeOf,
-  stepsTo,
-  type NoteScope,
-} from "../features/console/files/scope";
+import { scopeOf, stepsTo, type NoteScope } from "../features/console/files/scope";
 
 describe("what the control shows", () => {
   test("the manifest decides the first two", () => {
@@ -40,62 +33,40 @@ describe("what the control shows", () => {
   });
 });
 
-describe("where a press goes", () => {
-  test("the cycle widens one step at a time and closes in one", () => {
-    expect(nextScope("private")).toBe("team");
-    expect(nextScope("team")).toBe("anyone");
-    expect(nextScope("private")).not.toBe("anyone");
-    expect(nextScope("anyone")).toBe("private");
-  });
-
-  test("three presses return to where they started", () => {
-    const scopes: NoteScope[] = ["private", "team", "anyone"];
-    for (const start of scopes) {
-      expect(nextScope(nextScope(nextScope(start)))).toBe(start);
-    }
+/**
+ * THE CYCLE IS GONE, AND WHAT IT PROTECTED IS NOT.
+ *
+ * `nextScope`, `SCOPE_ICON` and `scopeActionLabel` modelled a padlock that
+ * cycled private → team → a link anybody can open. That control left the top
+ * bar when the audience moved into the share sheet as named positions; the
+ * functions stayed behind, imported by nothing but the tests that described
+ * them. Deleted rather than deprecated.
+ *
+ * The property they were carrying is still real and is asserted where it now
+ * lives: **no single press takes a note from private to a public link.**
+ * `stepsTo` is the model the sheet drives, and reaching `anyone` from
+ * `private` is two steps there — the manifest write and then the link — so the
+ * sheet cannot offer it as one action, and `AudienceControl` additionally
+ * confirms the public step in words.
+ */
+describe("publishing is never one step from private", () => {
+  test("private to a public link is two steps, not one", () => {
+    expect(stepsTo("private", "anyone")).toEqual([
+      { kind: "visibility", to: "team" },
+      { kind: "openLink", on: true },
+    ]);
   });
 
   /**
-   * The accident worth making impossible: one press from a private note to a
-   * link anybody can open. The cycle passes through `team`, so publishing to
-   * the internet is always at least two deliberate presses from a state the
-   * icon has been showing.
+   * A folder has no third position, and not as a policy choice made in the
+   * console: `createLinkShare` is note-only, so a control drawing one would be
+   * a press that always fails. `AudienceControl` reads `canOpenLink` for this.
    */
-  test("no single press takes a private note to a public link", () => {
-    expect(nextScope("private")).not.toBe("anyone");
-  });
-
-  /**
-   * A folder keeps its two positions, and not as a policy choice made in the
-   * console: `createLinkShare` is note-only, so a third position on a folder
-   * would be a press that always fails.
-   */
-  test("a folder cycles between two positions", () => {
-    expect(nextScope("private", false)).toBe("team");
-    expect(nextScope("team", false)).toBe("private");
-  });
-});
-
-describe("the icon draws the state a note is in", () => {
-  test("shut for private, open for team, a globe for a link", () => {
-    expect(SCOPE_ICON.private).toBe("lock");
-    expect(SCOPE_ICON.team).toBe("lockOpen");
-    expect(SCOPE_ICON.anyone).toBe("globe");
-  });
-
-  test("…while the label names where the press goes", () => {
-    // Deliberately disagreeing: the icon is looked at, the label is read aloud
-    // before the press. See `ICON_NAMES`.
-    expect(scopeActionLabel(nextScope("private"))).toBe("Share this with your team");
-    expect(scopeActionLabel(nextScope("team"))).toBe("Make a link anyone can open");
-    expect(scopeActionLabel(nextScope("anyone"))).toBe("Make this private");
-  });
-
-  test("every position has both", () => {
-    for (const scope of ["private", "team", "anyone"] as NoteScope[]) {
-      expect(SCOPE_ICON[scope]).toBeTruthy();
-      expect(scopeActionLabel(scope)).toBeTruthy();
-    }
+  test("closing all the way takes the link back first", () => {
+    expect(stepsTo("anyone", "private")).toEqual([
+      { kind: "openLink", on: false },
+      { kind: "visibility", to: "private" },
+    ]);
   });
 });
 

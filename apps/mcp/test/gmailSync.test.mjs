@@ -18,6 +18,10 @@
 //   sanitizeAttachmentFilename stops stripping "/" (no basename) -> 5 checks failed
 //   resolveDayAttachments does not check `manifest.resolved` first
 //     (always re-fetches)                                        -> 4 checks failed
+//   listAllHistory reports the mailbox head after hitting maxPages
+//     instead of the last record it walked                       -> 4 checks failed
+//   writeDayPart puts unconditionally where the store cannot do
+//     a conditional write (no read-compare first)                -> 2 checks failed
 
 import {
   GMAIL_ATTACHMENT_MAX_BYTES,
@@ -375,6 +379,105 @@ export async function runGmailSyncChecks(check) {
   check("history.list pagination is followed and every added id collected", historyResult.messageIds.has("h1") && historyResult.messageIds.has("h2"));
   check("the cursor advances to the LAST page's historyId", historyResult.historyId === "1600");
 
+  /*
+    A WALK THAT RAN OUT OF PAGES MUST SAY SO, AND MUST NOT HAND BACK THE HEAD.
+
+    `history.list` returns the MAILBOX'S CURRENT `historyId` on every page, not
+    a per-page cursor. So a walk that stops at `maxPages` and reports that value
+    is reporting "you are caught up" while holding only the first N pages —
+    everything after them is skipped forever, silently, with no gap signalled.
+    A mailbox that has been quiet for weeks and then gets a first pass is
+    exactly where this bites.
+
+    What it hands back instead is the last *history record's* own id, which is
+    a valid `startHistoryId` for the next call and covers precisely the records
+    this walk actually collected. That is what makes a truncated pass make
+    progress rather than repeating itself.
+  */
+  /*
+    IDEMPOTENCE IS NOT A PROPERTY OF R2. It has to hold on the backends this
+    repository already says cannot do a conditional write, because a loop that
+    runs every few minutes against one of those is where rewriting an unchanged
+    day forever actually costs somebody money.
+  */
+  const plainStore = createMemoryStore({ conditionalWrite: false });
+  const plainPart = {
+    path: "0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md",
+    text: "# a day\n",
+  };
+  const firstPlainWrite = await writeDayPart(plainStore, plainPart);
+  const secondPlainWrite = await writeDayPart(plainStore, plainPart);
+  check("a first write lands on a store with no conditional write", firstPlainWrite.wrote === true);
+  check(
+    "...and re-writing the identical day there writes nothing, same as on R2",
+    secondPlainWrite.wrote === false,
+  );
+
+  const truncatedGmail = createFixtureGmail({
+    messages: [],
+    history: {
+      pages: [
+        { history: [{ id: "1100", messagesAdded: [{ message: { id: "t1" } }] }], historyId: "9999" },
+        { history: [{ id: "1200", messagesAdded: [{ message: { id: "t2" } }] }], historyId: "9999" },
+        { history: [{ id: "1300", messagesAdded: [{ message: { id: "t3" } }] }], historyId: "9999" },
+      ],
+    },
+  });
+  const truncatedResult = await listAllHistory({
+    fetchImpl: truncatedGmail.fetchImpl,
+    accessToken: "tok",
+    startHistoryId: "1000",
+    maxPages: 2,
+  });
+  check("a history walk that hit its page limit reports truncation", truncatedResult.truncated === true);
+  check(
+    "...and hands back the last record it actually walked, never the mailbox head",
+    truncatedResult.lastRecordId === "1200" && truncatedResult.historyId === "9999",
+  );
+  check(
+    "...having collected only the ids from the pages it did walk",
+    truncatedResult.messageIds.has("t1") &&
+      truncatedResult.messageIds.has("t2") &&
+      !truncatedResult.messageIds.has("t3"),
+  );
+
+  const untruncatedResult = await listAllHistory({
+    fetchImpl: truncatedGmail.fetchImpl,
+    accessToken: "tok",
+    startHistoryId: "1000",
+    maxPages: 50,
+  });
+  check("a walk that reached the end reports no truncation", untruncatedResult.truncated === false);
+  check("...and only then is the mailbox head the right place to resume", untruncatedResult.historyId === "9999");
+
+  const truncatedSyncGmail = createFixtureGmail({
+    messages: [],
+    history: {
+      pages: [
+        { history: [{ id: "1100", messagesAdded: [] }], historyId: "9999" },
+        { history: [{ id: "1200", messagesAdded: [] }], historyId: "9999" },
+        { history: [{ id: "1300", messagesAdded: [] }], historyId: "9999" },
+      ],
+    },
+  });
+  const truncatedSync = await runIncrementalSync({
+    store: createMemoryStore(),
+    fetchImpl: truncatedSyncGmail.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "person-at-example-invalid",
+    address: "person@example.invalid",
+    folders: ["inbox"],
+    startHistoryId: "1000",
+    nonce: "n",
+    quotaBytes: 1_000_000,
+    maxHistoryPages: 2,
+  });
+  check("an incremental sync tells its caller the walk was truncated", truncatedSync.truncated === true);
+  check(
+    "...and offers the record boundary as the cursor rather than the head",
+    truncatedSync.historyId === "1200",
+  );
+
   // -- rendering one day ---------------------------------------------------------
 
   const emptyDayParts = renderDay({ mailboxSlug: "person-at-example-invalid", address: "person@example.invalid", date: "2026-09-07", events: [], nonce: "n" });
@@ -389,7 +492,7 @@ export async function runGmailSyncChecks(check) {
     now: "2026-09-07T12:00:00.000Z",
   });
   check("a day with events writes exactly one part when under the split threshold", oneDayParts.length === 1);
-  check("the path is under the mailbox's own folder, by slug", oneDayParts[0].path === "0-inbox/email/person-at-example-invalid/2026-09-07.md");
+  check("the path is under the mailbox's own folder, by slug, and under the day's month", oneDayParts[0].path === "0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
   const parsedNote = parseChannelDayNote(oneDayParts[0].text);
   check("the rendered note's frontmatter carries the real ADDRESS, not the slug", parsedNote.frontmatter.account === "person@example.invalid");
   check("the message the day was built from is present in the rendered note", parsedNote.messages.length === 1);
@@ -397,7 +500,7 @@ export async function runGmailSyncChecks(check) {
   // -- writing through the store --------------------------------------------------
 
   const writeStore = createMemoryStore();
-  const part = { path: "0-inbox/email/x/2026-09-07.md", text: "hello" };
+  const part = { path: "0-inbox/email/x/2026/09/2026-09-07.md", text: "hello" };
   const first = await writeDayPart(writeStore, part);
   check("a first write of a new path writes", first.wrote === true);
   const second = await writeDayPart(writeStore, part);
@@ -411,7 +514,7 @@ export async function runGmailSyncChecks(check) {
   check("a store without conditionalWrite still writes, unconditionally", nonConditionalResult.wrote === true);
 
   const alwaysConflictStore = {
-    capabilities: { conditionalWrite: true },
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     get: async () => ({ etag: "e1", text: async () => "old" }),
     put: async () => null,
   };
@@ -482,12 +585,46 @@ export async function runGmailSyncChecks(check) {
   };
   const firstSync = await syncDayFromGmail(dayOptions);
   check("syncing a day writes exactly the messages that landed that day", firstSync.partsWritten === 1 && firstSync.bytesWritten > 0);
-  const dayNote = await dayStore.get("0-inbox/email/person-at-example-invalid/2026-09-07.md");
+  const dayNote = await dayStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
   const dayNoteParsed = parseChannelDayNote(await dayNote.text());
   check("the OTHER day's message is not in this day's note", dayNoteParsed.messages.length === 2);
+  const contactPaths = (await dayStore.list({ prefix: "0-inbox/contacts/" })).objects.map((item) => item.key);
+  check("Gmail sync organically creates one contact per correspondent", contactPaths.length === 2);
+  const firstContact = await dayStore.get(contactPaths[0]);
+  check("a Gmail-derived contact links to its daily note and never copies the message body", (await firstContact.text()).includes("[[0-inbox/email/person-at-example-invalid/2026/09/2026-09-07#msg-") && !(await firstContact.text()).includes("\nfirst\n"));
 
   const resync = await syncDayFromGmail(dayOptions);
   check("RE-RUNNING THE SAME DAY CHANGES NO BYTES — idempotent upsert by message id", resync.bytesWritten === 0);
+
+  /*
+    A BUCKET SYNCED BEFORE THE DATED TREE, SYNCED AGAIN AFTER IT.
+
+    The dated tree is forward-only, so a day whose note is already flat has to
+    go on being that note. Written end to end rather than only against
+    `placeDayParts` because the failure this guards is not a wrong return
+    value, it is a day that quietly exists twice — the flat copy frozen at
+    whatever the last pass before the deploy wrote, the dated copy growing,
+    and both parsing as 2026-09-07.
+  */
+  const legacyStore = createMemoryStore();
+  const legacyPath = "0-inbox/email/person-at-example-invalid/2026-09-07.md";
+  await legacyStore.put(legacyPath, "---\ntype: channel-day\n---\n\n# 2026-09-07\n");
+  const legacySync = await syncDayFromGmail({ ...dayOptions, store: legacyStore });
+  check("a day already filed flat is written flat, not moved into the tree", legacySync.partsWritten === 1);
+  check(
+    "...so the day exists once, where it always was",
+    (await legacyStore.get(legacyPath)) !== null &&
+      (await legacyStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md")) === null,
+  );
+  check(
+    "...and it is the day's real messages that landed in it, not the placeholder",
+    parseChannelDayNote(await (await legacyStore.get(legacyPath)).text()).messages.length === 2,
+  );
+  await syncDayFromGmail({ ...dayOptions, store: legacyStore, date: "2026-09-08" });
+  check(
+    "...while a day the same bucket has NOT seen is filed under its month — the switch is per day, not per bucket",
+    (await legacyStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md")) !== null,
+  );
 
   // -- backfill across a window, quota-bound ----------------------------------------
 
@@ -512,9 +649,10 @@ export async function runGmailSyncChecks(check) {
   });
   check("backfill processes every day in the window, active or not", backfillResult.daysProcessed === 3);
   check("...but only writes a note for the days that actually had mail", backfillResult.daysWithMail === 2);
+  check("...and reports the number of emails found", backfillResult.itemsFound === 2);
   check(
     "the inactive day in the middle really did not get a file",
-    (await backfillStore.get("0-inbox/email/p-at-example-invalid/2026-09-02.md")) === null,
+    (await backfillStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-02.md")) === null,
   );
 
   const tinyBackfillStore = createMemoryStore();
@@ -591,6 +729,23 @@ export async function runGmailSyncChecks(check) {
   });
   check("no new mail is a normal, empty answer — not a gap", emptyHistoryResult.gapDetected === false && emptyHistoryResult.daysTouched.length === 0);
 
+  const emptyPagedHistory = createFixtureGmail({
+    messages: [],
+    history: { pages: Array.from({ length: 51 }, () => ({ historyId: "999999" })) },
+  });
+  const emptyPagedResult = await runIncrementalSync({
+    store: createMemoryStore(),
+    fetchImpl: emptyPagedHistory.fetchImpl,
+    accessToken: "tok",
+    mailboxSlug: "p-at-example-invalid",
+    address: "p@example.invalid",
+    folders: ["inbox", "sent"],
+    startHistoryId: "1000",
+    nonce: "n",
+    quotaBytes: 1_000_000,
+  });
+  check("a truncated history walk with no record ids has no safe resume cursor", emptyPagedResult.truncated === true && emptyPagedResult.historyId === undefined);
+
   // Full reconcile: after a gap, the documented fallback is `runBackfill` over
   // the connection's window — prove it actually recovers the messages a
   // reconcile exists to catch.
@@ -608,6 +763,7 @@ export async function runGmailSyncChecks(check) {
     quotaBytes: 1_000_000,
   });
   check("a full reconcile after a gap recovers every day in the window", reconcileResult.daysWithMail === 2);
+  check("...and reports the number of emails recovered", reconcileResult.itemsFound === 2);
 
   // -- attachments: fetched into the bucket, retained on a timer ----------------
   //
@@ -626,7 +782,7 @@ export async function runGmailSyncChecks(check) {
       date: "2026-09-07",
       contentHash: "abc123",
       filename: "../../../etc/passwd",
-    }).startsWith("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/abc123-"),
+    }).startsWith("0-inbox/email/p-at-example-invalid/attachments/2026/09/07/abc123-"),
   );
   check(
     "...and the sanitized name itself carries no '..' segment",
@@ -643,7 +799,7 @@ export async function runGmailSyncChecks(check) {
   check(
     "wikilink-syntax characters are stripped from the filename — the path is embedded in [[path|label]] verbatim",
     (() => {
-      const safe = sanitizeAttachmentFilename("evil]] and [[.audit/x|y#z.pdf");
+      const safe = sanitizeAttachmentFilename("evil]] and [[.context/audit/x|y#z.pdf");
       return !/[[\]|#]/.test(safe);
     })()
   );
@@ -658,7 +814,7 @@ export async function runGmailSyncChecks(check) {
         "../../../etc/passwd",
         "..\\..\\windows\\config",
         "/etc/passwd",
-        "evil]] and [[.audit/x|y#z",
+        "evil]] and [[.context/audit/x|y#z",
         "..",
         ".",
         "",
@@ -726,11 +882,31 @@ export async function runGmailSyncChecks(check) {
   check("the attachment's bytes actually landed at the content-hashed path", storedAttachment !== null);
   check("...with the exact bytes Gmail served", storedAttachment !== null && (await storedAttachment.text()) === "pdf-bytes!!");
 
-  const dayNoteAfterFetch = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md");
+  const dayNoteAfterFetch = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const dayNoteText = dayNoteAfterFetch ? await dayNoteAfterFetch.text() : "";
   check(
     "the channel-day note LINKS to the fetched attachment",
     dayNoteText.includes(`[[${expectedAttachmentPath}|report.pdf]]`),
+  );
+
+  const customFolderGmail = createFixtureGmail({
+    messages: attachmentMessages,
+    attachmentContents: { "att1/ATT-1": "pdf-bytes!!" },
+  });
+  const customFolderStore = createMemoryStore();
+  await syncDayFromGmail({
+    ...fetchDayOptions,
+    store: customFolderStore,
+    fetchImpl: customFolderGmail.fetchImpl,
+    folder: "2-areas/communications/supa-mail",
+  });
+  check(
+    "a mailbox destination folder moves the day note",
+    (await customFolderStore.get("2-areas/communications/supa-mail/2026/09/2026-09-07.md")) !== null,
+  );
+  check(
+    "...and moves the attachment manifest beside that mailbox destination",
+    (await customFolderStore.get("2-areas/communications/supa-mail/attachments/.manifest.json")) !== null,
   );
 
   const attachmentCallCountAfterFirstFetch = attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length;
@@ -771,7 +947,7 @@ export async function runGmailSyncChecks(check) {
     "A RE-SYNC AFTER EXPIRY DOES NOT RE-FETCH — the manifest remembers this attachment is gone",
     attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length === attachmentCallCountAfterFirstFetch,
   );
-  const noteAfterExpiry = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md");
+  const noteAfterExpiry = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const noteTextAfterExpiry = noteAfterExpiry ? await noteAfterExpiry.text() : "";
   check(
     "the note's link is rewritten to name and size only once expired",
@@ -993,10 +1169,10 @@ export async function runGmailSyncChecks(check) {
       assertSafeKey(path);
       const segments = path.split("/");
       return (
-        segments.length === 6 &&
+        segments.length === 8 &&
         segments[0] === "0-inbox" &&
-        decodeURIComponent(segments[5]).includes("../../privacy.md") === true &&
-        path.startsWith("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/")
+        decodeURIComponent(segments[7]).includes("../../privacy.md") === true &&
+        path.startsWith("0-inbox/email/p-at-example-invalid/attachments/2026/09/07/")
       );
     })(),
   );
@@ -1039,7 +1215,7 @@ export async function runGmailSyncChecks(check) {
         filename: `${"A".repeat(5000)}.pdf`,
       });
       assertSafeKey(path);
-      return sanitizeAttachmentFilename(`${"A".repeat(5000)}.pdf`).length === 150 && path.split("/").length === 6;
+      return sanitizeAttachmentFilename(`${"A".repeat(5000)}.pdf`).length === 150 && path.split("/").length === 8;
     })(),
   );
 
@@ -1094,7 +1270,7 @@ export async function runGmailSyncChecks(check) {
   async function resolveOneUndeclaredAttachment({ byteCount, remainingQuotaBytes }) {
     const written = [];
     const store = {
-      capabilities: { conditionalWrite: true },
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       async get() {
         return null;
       },
@@ -1190,6 +1366,30 @@ export async function runGmailSyncChecks(check) {
       !(messageGetError instanceof GmailHistoryExpiredError) &&
       messageGetError.status === 404,
   );
+  const rateLimitedFetch = async () =>
+    jsonResponse(
+      {
+        error: {
+          code: 403,
+          status: "RESOURCE_EXHAUSTED",
+          errors: [{ reason: "userRateLimitExceeded" }],
+        },
+      },
+      403,
+    );
+  let rateLimitError = null;
+  try {
+    await getMessage({ fetchImpl: rateLimitedFetch, accessToken: "tok", id: "stopped" });
+  } catch (error) {
+    rateLimitError = error;
+  }
+  check(
+    "a structured Gmail 403 keeps Google's safe reason so the worker can tell quota from auth refusal",
+    rateLimitError instanceof GmailApiError &&
+      rateLimitError.status === 403 &&
+      rateLimitError.reason === "userRateLimitExceeded" &&
+      rateLimitError.googleStatus === "RESOURCE_EXHAUSTED",
+  );
   let historyPageError = null;
   try {
     await listAllHistory({ fetchImpl: notFoundFetch, accessToken: "tok", startHistoryId: "1" });
@@ -1250,7 +1450,7 @@ export async function runGmailSyncChecks(check) {
     vanishingThrew === null && vanishingResult !== null && vanishingResult.partsWritten === 1,
   );
   const vanishingNote = await (
-    await vanishingStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md")
+    await vanishingStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md")
   ).text();
   check(
     "...and the day is written from what Gmail still has",
@@ -1498,7 +1698,7 @@ export async function runGmailSyncChecks(check) {
   check(
     "...and its bytes are fetched into the bucket like any other attachment",
     (await inlineStore.get(
-      `0-inbox/email/p-at-example-invalid/attachments/2026-09-07/${inlineHash}-signature.png`,
+      `0-inbox/email/p-at-example-invalid/attachments/2026/09/07/${inlineHash}-signature.png`,
     )) !== null,
   );
 

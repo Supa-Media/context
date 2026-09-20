@@ -4,9 +4,10 @@ import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
-import { leading, radii } from "../design/tokens";
+import { leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { canReload, reloadApp } from "./reload";
+import { reportError, trackEvent } from "../observability/client";
 
 /**
  * The one thing standing between a thrown render and a blank dark page.
@@ -64,6 +65,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    reportError(error, {
+      componentStack: info.componentStack,
+      mechanism: "react.error_boundary",
+    });
     this.props.onError?.(error, info);
   }
 
@@ -75,6 +80,7 @@ export class ErrorBoundary extends Component<Props, State> {
       <ErrorScreen
         error={error}
         onRetry={() => {
+          trackEvent("error_boundary_retried");
           this.setState({ error: null });
         }}
       />
@@ -126,7 +132,10 @@ export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => v
                 label="Reload"
                 variant="ghost"
                 style={styles.reload}
-                onPress={reloadApp}
+                onPress={() => {
+                  trackEvent("error_boundary_reloaded");
+                  reloadApp();
+                }}
                 testID="error-reload"
               />
             ) : null}
@@ -149,12 +158,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   mark: { alignSelf: "flex-start", marginBottom: 30 },
   markSuffix: { color: colors.muted },
   title: {
-    fontSize: 28,
-    lineHeight: leading(28, 1.1),
+    fontSize: t.title,
+    lineHeight: leading(t.title, 1.1),
     fontWeight: "500",
     color: colors.text,
   },
-  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
   detail: {
     marginTop: 22,
     paddingVertical: 12,

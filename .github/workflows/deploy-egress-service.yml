@@ -1,0 +1,193 @@
+# Deploy and live-probe the stateless public-only plugin egress service.
+# The address is deliberately absent from this public repository; production
+# and Convex both receive it through PLUGIN_EGRESS_URL.
+name: Deploy Plugin Egress Service (production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/egress-service/**"
+      - ".github/workflows/deploy-egress-service.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-plugin-egress-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  WORKER_NAME: context-public-egress
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/egress-service..." --frozen-lockfile
+      - working-directory: infra/egress-service
+        run: pnpm typecheck
+      - working-directory: infra/egress-service
+        run: pnpm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify required deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID PLUGIN_EGRESS_SECRET; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required production secret '$var'."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
+
+      - name: Verify workflow and container config agree
+        run: |
+          set -euo pipefail
+          config=infra/egress-service/wrangler.jsonc
+          grep -qE "^\s*\"name\"\s*:\s*\"$WORKER_NAME\"" "$config"
+          grep -qE '"class_name"\s*:\s*"EgressContainer"' "$config"
+          grep -qE '"new_sqlite_classes"\s*:\s*\["EgressContainer"\]' "$config"
+          test -f infra/egress-service/Dockerfile
+
+      # Wrangler uploads the Worker before it configures the container image.
+      # Prove the token can reach Containers first, so a missing permission
+      # fails before production is left with a new script and no backing image.
+      - name: Verify Cloudflare Containers permission
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if ! curl -fsS --max-time 30 \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/containers/me" \
+            -o /dev/null; then
+            echo "ERROR: CLOUDFLARE_API_TOKEN needs Account > Containers > Edit for this account."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter "./infra/egress-service..." --frozen-lockfile
+
+      - name: Deploy container and ingress Worker
+        working-directory: infra/egress-service
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy
+
+      - name: Sync the service credential
+        working-directory: infra/egress-service
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$PLUGIN_EGRESS_SECRET" | pnpm exec wrangler secret put EGRESS_SERVICE_SECRET
+
+      # The first deployment creates this Worker, so its URL cannot already be
+      # a required input. Derive the account-specific workers.dev address from
+      # Cloudflare after deploy without printing it. Once PLUGIN_EGRESS_URL is
+      # provisioned, disagreement fails closed instead of probing one service
+      # while Convex calls another.
+      - name: Resolve deployed Worker address
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CONFIGURED_PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            -o /tmp/plugin-egress-subdomain.json
+          deployed_url="$(node -e '
+            const fs = require("node:fs");
+            const value = JSON.parse(fs.readFileSync("/tmp/plugin-egress-subdomain.json", "utf8"));
+            if (value.success !== true || typeof value.result?.subdomain !== "string" || value.result.subdomain === "") process.exit(1);
+            process.stdout.write(`https://${process.env.WORKER_NAME}.${value.result.subdomain}.workers.dev`);
+          ')"
+          echo "::add-mask::$deployed_url"
+          configured="${CONFIGURED_PLUGIN_EGRESS_URL%/}"
+          if [ -n "$configured" ] && [ "$configured" != "$deployed_url" ]; then
+            echo "ERROR: PLUGIN_EGRESS_URL does not name the Worker this job deployed."
+            exit 1
+          fi
+          printf 'DEPLOYED_PLUGIN_EGRESS_URL=%s\n' "$deployed_url" >> "$GITHUB_ENV"
+          rm -f /tmp/plugin-egress-subdomain.json
+
+      # A green upload is not a working egress path. This authenticated probe
+      # wakes the deployed container, resolves example.com inside it, rejects
+      # non-public answers, connects to the selected IP with SNI, and completes
+      # a TLS request. Every property is required for the job to pass.
+      - name: Probe DNS-pinned public TLS egress
+        env:
+          PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+        run: |
+          set -euo pipefail
+          base="${DEPLOYED_PLUGIN_EGRESS_URL%/}"
+          code=""
+          for attempt in $(seq 1 12); do
+            code="$(curl -sS -o /tmp/plugin-egress-health.json -w '%{http_code}' \
+              --max-time 30 -H "Authorization: Bearer $PLUGIN_EGRESS_SECRET" \
+              "$base/health" || true)"
+            [ "$code" = "200" ] && break
+            echo "Attempt $attempt returned HTTP $code; waiting for container rollout."
+            sleep 10
+          done
+          if [ "$code" != "200" ]; then
+            echo "ERROR: deployed egress health probe returned HTTP $code, expected 200."
+            exit 1
+          fi
+          node -e '
+            const fs = require("node:fs");
+            let value;
+            try { value = JSON.parse(fs.readFileSync("/tmp/plugin-egress-health.json", "utf8")); } catch {}
+            if (!value || value.ok !== true || value.dns !== true || value.tls !== true || value.pinned !== true) {
+              console.error("ERROR: health must prove {ok,dns,tls,pinned} are all true.");
+              process.exit(1);
+            }
+            console.log("OK: deployed container resolved, pinned, and completed public TLS egress.");
+          '
+          rm -f /tmp/plugin-egress-health.json
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Plugin egress deploy"
+            echo ""
+            echo "- Container and ingress Worker: \`$WORKER_NAME\`"
+            echo "- Holds no storage credential and receives no workspace, user, or plugin identity."
+            echo "- Live probe requires DNS resolution, public-address validation, IP-pinned TLS with SNI, and a completed request."
+            echo "- Deployment address is derived from Cloudflare for the live probe; when configured, the production secret must match it exactly."
+            echo "- Commit: \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

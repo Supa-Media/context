@@ -47,7 +47,7 @@ import {
  * each surface already has: `consoleChrome.test.ts` counts the phone console's
  * landmarks and its bottom row, `meetingsFlow.test.ts` presses the sheet's row
  * and follows it to `/meetings`, `meetingsEntry.test.ts` presses the rail's,
- * `railSections.test.ts` holds the rail's groups. What is genuinely new here is
+ * `railGroup.test.ts` holds the rail's groups. What is genuinely new here is
  * the *completeness* claim, which none of those can make.
  *
  * ## The guard's own guard
@@ -157,23 +157,38 @@ const files = routeFiles(APP);
 const routes = files.map(routeFromFile);
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { regionsFor, initialFrame } =
+const { regionsFor, initialFrame, topBarLeadFor } =
   require("../features/app/frame") as typeof import("../features/app/frame");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /**
  * Which densities each region is actually drawn at, read off `frame.ts`.
  *
- * The point is that none of these is a number typed here. `rail` and
- * `bottomBar` are `Regions` keys and are asked directly; `contextStrip` is
- * *the densities the rail is hidden at*, which is the strip's own reason for
- * existing rather than a coincidence — so the day a density gets its rail back,
- * every claim in this registry moves with it instead of quietly becoming false.
+ * The point is that none of these is a number typed here. `bottomBar` is a
+ * `Regions` key and is asked directly; `switcher` and `contextStrip` are the
+ * two arms of `topBarLeadFor`, which is the strip's own reason for existing
+ * rather than a coincidence — the same list of destinations drawn once per
+ * layout — so the day a density changes which one it gets, every claim in this
+ * registry moves with it instead of quietly becoming false.
+ *
+ * **`switcher` replaced `rail`, and the input replaced `Regions.rail`.** The
+ * rail folded into the menu under the workspace's name and the field it was
+ * read from went with it. A rule whose input has been deleted is the rule this
+ * one is descended from: read the note on `a control SwitcherMenu draws is
+ * claimed as the switcher` below.
  */
 const REGION_DENSITIES: Record<ReachabilityRegion, ReadonlySet<ReachabilityDensity>> = {
-  rail: new Set(DENSITIES.filter((d) => regionsFor(d, initialFrame).rail !== "hidden")),
-  contextStrip: new Set(DENSITIES.filter((d) => regionsFor(d, initialFrame).rail === "hidden")),
+  switcher: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "switcher")),
+  contextStrip: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "account")),
   bottomBar: new Set(DENSITIES.filter((d) => regionsFor(d, initialFrame).bottomBar)),
+  /*
+    The pinned account mark, which is the phone's — `topBarLeadFor` answers
+    "account" at exactly the densities that draw it, and it is the same set
+    `contextStrip` reads. Two regions off one answer is right rather than
+    redundant: they are two controls in that corner and either can be deleted
+    without the other.
+  */
+  account: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "account")),
   screen: new Set(DENSITIES),
 };
 
@@ -214,6 +229,7 @@ describe("the guard can see", () => {
     expect(routes).toContain("/connect/dropbox");
     expect(routes).toContain("/note/[...address]");
     expect(routes).toContain("/s/[token]");
+    expect(routes).toContain("/[handle]/[slug]");
     expect(routes).toContain("/+not-found");
     // And the derivation itself, on the two shapes that are easy to get wrong:
     // a group segment is not in the URL, and `index` is its folder.
@@ -230,20 +246,29 @@ describe("the guard can see", () => {
       about an empty set, exactly what `contextMenu.test.ts` recorded.
 
       Stated as: every region in the table is claimed by something, and the two
-      regions that constrain a density — the rail and the strip — are claimed on
-      both sides of the fence they draw.
+      regions that constrain a density — the switcher and the strip — are
+      claimed on both sides of the fence they draw.
     */
     const claimed = new Set<ReachabilityRegion>();
     for (const entry of ROUTE_REACHABILITY) {
       if (!entry.reachable) continue;
       for (const point of entry.from) claimed.add(point.region);
     }
-    expect([...claimed].sort()).toEqual(["bottomBar", "contextStrip", "rail", "screen"]);
+    /*
+      `bottomBar` left this list when the destination sheet did. The phone's
+      meetings key used to raise a sheet with "Past meetings" on it, and that
+      row was the one claim any bottom-row control made; the key records now,
+      and the route to the list moved to the account menu — which is `account`,
+      the region that replaced it here. Every key on that row still navigates,
+      but within the console rather than to a route of its own.
+    */
+    expect([...claimed].sort()).toEqual(["account", "contextStrip", "screen", "switcher"]);
 
     // And the table itself is not empty on either side, which is what makes
     // "claimed at a density this region is not drawn at" a reachable failure.
-    expect([...REGION_DENSITIES.rail]).toEqual(["medium", "wide"]);
+    expect([...REGION_DENSITIES.switcher]).toEqual(["medium", "wide"]);
     expect([...REGION_DENSITIES.contextStrip]).toEqual(["compact"]);
+    expect([...REGION_DENSITIES.account]).toEqual(["compact"]);
     expect([...REGION_DENSITIES.bottomBar]).toEqual(["compact"]);
   });
 });
@@ -275,8 +300,8 @@ describe("every route is reachable, or says why not", () => {
       `wide` is a route a phone cannot find, which is what `/meetings` was, and
       the reason it is stated as a set union rather than as a boolean is that
       the two surfaces that replaced the phone's rail each cover part of the
-      range: the context strip and the bottom row are `compact`, the rail is
-      `medium` and `wide`.
+      range: the context strip and the bottom row are `compact`, the switcher
+      is `medium` and `wide`.
     */
     const missing: string[] = [];
     for (const entry of ROUTE_REACHABILITY) {
@@ -374,10 +399,11 @@ describe("every route is reachable, or says why not", () => {
   test("a claim is made only at the densities its region is drawn at", () => {
     /*
       PR #242's regression, as a rule rather than as a memory, and general
-      rather than a single hardcoded file. `frame.ts` answers `rail: "hidden"`
-      at `compact`, so a compact claim resting on the rail is false the moment
-      it is written — and it was: the rail's `onOpenMeetings` was believed to be
-      the way in "at every density" for as long as the phone had a rail sheet,
+      rather than a single hardcoded file. `frame.ts` answers `account` at
+      `compact`, so a compact claim resting on the switcher is false the moment
+      it is written — and it was, of the rail this replaced: its
+      `onOpenMeetings` was believed to be the way in "at every density" for as
+      long as the phone had a rail sheet,
       and the belief outlived the sheet.
 
       Its first version could not have caught that. It compared claims against
@@ -400,28 +426,34 @@ describe("every route is reachable, or says why not", () => {
     expect(wrong).toEqual([]);
   });
 
-  test("a control the rail draws is claimed as the rail", () => {
+  test("a control SwitcherMenu draws is claimed as the switcher", () => {
     /*
       The other direction, and what stops the region being a word somebody can
-      simply retype. `ConsoleRail.tsx` draws the rail's entries, so a claim
-      whose control lives in it and calls itself `bottomBar` would pass the rule
-      above while being exactly the false claim it exists to catch.
+      simply retype. `SwitcherMenu.tsx` draws every destination the title bar
+      offers, so a claim whose control lives in it and calls itself `bottomBar`
+      would pass the rule above while being exactly the false claim it exists
+      to catch.
 
-      Read off the file rather than off the registry: a control is the rail's if
-      the file that draws it is the rail. `AccountBlock` is also exported from
-      that module and is drawn on the phone's chrome — so if a claim is ever made
-      about it, this is the line that has to be split, deliberately, rather than
-      a rule that quietly stopped applying.
+      Read off the file rather than off the registry: a control is the
+      switcher's if the file that draws it is the switcher.
+
+      **This named `ConsoleRail.tsx` until that file was deleted**, and the
+      rename is the point rather than a tidy-up: the rail folded into this menu
+      and every claim that rested on it moved here, so a rule left pointing at
+      a file that no longer exists would have gone on passing with nothing to
+      check. `AccountBlock` is the split this note reserved — it was exported
+      from the rail's module and is now its own, drawn on the phone's chrome —
+      and it is a separate file, so the line did not have to be split after all.
     */
-    const RAIL = "features/console/ConsoleRail.tsx";
+    const SWITCHER = "features/console/SwitcherMenu.tsx";
     let claims = 0;
     for (const entry of ROUTE_REACHABILITY) {
       if (!entry.reachable) continue;
       for (const point of entry.from) {
-        if (point.control?.file !== RAIL) continue;
+        if (point.control?.file !== SWITCHER) continue;
         claims += 1;
-        expect(`${entry.route}: drawn by the rail, claimed as ${point.region}`).toBe(
-          `${entry.route}: drawn by the rail, claimed as rail`,
+        expect(`${entry.route}: drawn by the switcher, claimed as ${point.region}`).toBe(
+          `${entry.route}: drawn by the switcher, claimed as switcher`,
         );
       }
     }
@@ -439,9 +471,37 @@ describe("every route is reachable, or says why not", () => {
     const exempt = ROUTE_REACHABILITY.filter((entry) => !entry.reachable);
     expect(exempt.map((entry) => entry.route).sort()).toEqual([
       "/+not-found",
+      /*
+        A short link, `/@seyi/intake`. Unreachable from inside the app by
+        construction and for the same reason `/s/[token]` is: it is a URL
+        somebody was handed, and the product that hands it out is the share
+        dialog rather than a rail entry. Reaching it from a menu would mean
+        the app knowing which names exist, which is the listing a share page
+        deliberately does not have.
+      */
+      "/[handle]/[slug]",
       "/admin",
       "/authorize",
       "/connect/dropbox",
+      "/connect/google",
+      /*
+        Connections, whose last door was "Manage sharing…" on a context's
+        right-click menu — a row that answered a per-context question by
+        navigating out of the context, and the owner's call was to take it off.
+        It is a duplicate surface rather than a lost one: `MembersSection` is
+        mounted under Settings → People and the endpoint and connected apps
+        under Settings → AI apps, from the same components.
+      */
+      "/console/connections",
+      /*
+        The map, whose last door was the "Elsewhere in the console" card at the
+        foot of settings — three destinations repeated under all nineteen
+        sections, drawn unconditionally *because* taking it off any one section
+        took the map out of the product. The owner's call was that the map can
+        vanish. It is on this list rather than deleted: the route and the pane
+        still render, and one entry point brings it back.
+      */
+      "/console/map",
       "/e2e-fixture",
       "/invite/[token]",
       "/note/[...address]",

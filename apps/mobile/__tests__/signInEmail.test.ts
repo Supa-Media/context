@@ -1,7 +1,10 @@
 import { describe, expect, test } from "@jest/globals";
 import { normalizeEmail } from "@context/shared";
 
-import { normalizeSignInEmail } from "../features/auth/email";
+import {
+  normalizeSignInEmail,
+  signInProviderForEmail,
+} from "../features/auth/email";
 
 /**
  * The invariant these all serve: whatever a person types, pastes, or lets a
@@ -77,5 +80,12 @@ describe("the address that reaches auth", () => {
     expect(normalizeSignInEmail("ada@example.invalid")).toBe(
       "ada@example.invalid",
     );
+  });
+});
+
+describe("production CUJ provider routing", () => {
+  test("only agentseyi@agentmail.to uses the fixed-code provider", () => {
+    expect(signInProviderForEmail(normalizeSignInEmail(" AgentSeyi@AgentMail.To "))).toBe("test-email");
+    expect(signInProviderForEmail(normalizeSignInEmail("customer@example.com"))).toBe("email");
   });
 });

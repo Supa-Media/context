@@ -1,11 +1,26 @@
+import type { MirrorStatus } from "../offline/mirrorStatus";
+import type { ActivityView } from "./activity/activity";
+import type { AdvancedView } from "./advanced/advanced";
+import type { PluginsView } from "./plugins/plugins";
+import type { ContextPluginsView } from "./plugins/contextPlugins";
+import type { ManagedInstallsView } from "./plugins/managedInstalls";
+import type { GrantsView } from "./plugins/grants";
+import type { BrowseView } from "./plugins/lifecycle";
+import type { RuntimeView } from "./plugins/runtime";
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
+import type {
+  GoogleActions,
+  GoogleConnection,
+} from "./google/GoogleConnectionsCard";
 import type { ViewerIdentity } from "./identity";
 import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
+import type { GroupsView } from "./groups/groups";
 import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
+import type { SharesView } from "./shares/shares";
 import type { ConnectFormValues } from "./storage/connect";
 
 /**
@@ -17,7 +32,16 @@ import type { ConnectFormValues } from "./storage/connect";
  * filled in from `placeholderData.ts`, labelled at the source.
  */
 
-export type StatusTone = "ok" | "warn" | "crit";
+/**
+ * A status pip's tone.
+ *
+ * `neutral` is "nothing is known, and nothing is claimed" — the grey pip, not a
+ * fourth severity. It exists for the pinned context, which has no storage
+ * subscription behind it because it has no membership row; see
+ * `contextToneFor`, which is where the alternative (an amber alarm about
+ * somebody else's bucket, drawn forever) is written down.
+ */
+export type StatusTone = "ok" | "warn" | "crit" | "neutral";
 
 /** One entry in the rail's "Contexts" group. */
 export interface ConsoleContext {
@@ -27,7 +51,71 @@ export interface ConsoleContext {
   displayName: string;
   role: string;
   kind: string;
+  /**
+   * Whether something has changed in this context since this person last
+   * looked at it — the dot on its mark in the switcher row.
+   *
+   * A boolean, decided in one place (`hasNewActivity`) from the two timestamps
+   * the control plane returns, because a rule expressed at three call sites is
+   * a rule three of them can disagree about. `false` for a context nothing has
+   * been recorded in, for one whose reader is caught up, and for the pinned
+   * context, which has no membership row to remember a visit in.
+   */
+  hasNewActivity?: boolean;
   status: StatusTone;
+  /**
+   * What this workspace draws in its mark, when its owner chose something
+   * better than the first letter of its slug.
+   *
+   * A photo is its **leaf**, not its bytes: the picture is in the workspace's
+   * own bucket and `useWorkspaceIcons` fetches and caches it, once per leaf per
+   * session. Putting the bytes on this row would make every console poll carry
+   * a megabyte per workspace.
+   *
+   * Optional, and absent is the letter — which is what every mark drew before
+   * this existed, so the demo console and the landing page's picture of the
+   * rail keep rendering unchanged.
+   */
+  icon?:
+    | { kind: "photo"; leaf: string }
+    | { kind: "emoji"; emoji: string };
+  /**
+   * The layout a setup flow recorded for this context, when one got that far.
+   *
+   * Read in exactly one place — `console/setup.ts`, to decide whether a
+   * *half-written* layout is the console's to finish. `custom` means somebody
+   * named their own folders, and finishing those belongs to the flow that took
+   * them rather than to a card that only knows the standard five.
+   */
+  structureTemplate?: string;
+  /**
+   * Where meetings land in this context, when its owner has chosen one.
+   *
+   * Absent is the default, resolved by `features/meetings/destination.ts`
+   * rather than substituted here — the constant lives beside the rules that
+   * decide whether a folder can be filed into at all, and a second copy on the
+   * console would be a second place for it to drift.
+   */
+  meetingsFolder?: string;
+  /**
+   * True on the pinned context — `@context-lc`, which every account reaches
+   * without being invited (`packages/shared/src/pinnedContext.ts`).
+   *
+   * **Not derivable from anything else on this row.** It looks like an ordinary
+   * `shared`/`member` context and that is exactly what it is not: a shared
+   * context with `member` is one somebody put you in, and this one nobody did.
+   * The difference decides where the row is drawn (last, under a rule), what it
+   * says (read-only, whose it is), which of its verbs exist (Open, and nothing
+   * else), and — the one that is not cosmetic — whether the console fans its
+   * per-workspace subscriptions out over it. `listGrants`, `getStorageBinding`
+   * and `listGoogleConnections` all go through `requireWorkspaceAccess`, which
+   * has no membership row to find, so subscribing on this row means three
+   * failing queries per paint.
+   *
+   * Optional, and absent is false, so the demo console and the landing page's
+   * picture of the rail keep rendering unchanged.
+   */
+  pinned?: boolean;
 }
 
 /**
@@ -111,6 +199,16 @@ export interface ConsoleStorage {
    * binding updates.
    */
   dropboxAccountId?: string;
+  /**
+   * What the verifier found in this bucket, straight from the row.
+   *
+   * Read in exactly one place — `console/setup.ts`, which decides whether an
+   * unfinished context is offered a layout — and read as a value rather than a
+   * closed union for `status`'s reason: a newer deployment can send a word this
+   * bundle has never heard of, and the honest response to one is to offer
+   * nothing rather than to guess.
+   */
+  scaffoldReason?: string;
   /** Real, from the connect-time capability probe. */
   conditionalWrite: boolean;
   /**
@@ -154,6 +252,33 @@ export interface ConsoleStorage {
   noteCount?: number;
   noteCountedAt?: number;
   noteCountTruncated?: boolean;
+  /**
+   * Where the one-time storage-layout migration got to, and when we last
+   * heard — the six words in `functions/lib/storageLayout.ts`.
+   *
+   * **Absent is the load-bearing value.** It means nobody has run it through
+   * us, and it is the only state that still offers to. Every other one is an
+   * answer: under way, done, waiting out the rollback window, needs somebody,
+   * or a bucket that can never run it. Before this field existed the console
+   * had no way to tell the first from the last, so it offered the update to
+   * everybody for ever and the only thing that quietened it was a flag on one
+   * device — which is why the notice came back on the next browser.
+   */
+  layoutState?: "copying" | "copied" | "cleaning" | "conflict" | "unsupported" | "complete";
+  layoutStateAt?: number;
+  /**
+   * Whether the bucket has been **asked** where the migration got to.
+   *
+   * `layoutState` absent was read as "nobody has run it". It never meant that
+   * — it meant nobody had looked, and for every context migrated before that
+   * field existed those are opposite answers. The bucket said `complete`, the
+   * binding said nothing, and the notice came back on every device for exactly
+   * the people who had already run it.
+   *
+   * So the offer needs both: no recorded state, **and** a bucket that has been
+   * asked and said it has never run this.
+   */
+  layoutChecked?: boolean;
   lastError?: string;
   /**
    * The machine-readable companion to `lastError`, from the closed set in
@@ -168,6 +293,8 @@ export interface ConsoleStorage {
    */
   updatedAt: number;
   lastVerifiedAt?: number;
+  /** Storage operated by Context, whose credential cannot be rotated or disconnected here. */
+  managed?: boolean;
 }
 
 /**
@@ -191,6 +318,13 @@ export interface StorageActions {
   reverify: () => Promise<{ queued: boolean; status: string }>;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   disconnect: () => Promise<{ disconnected: boolean }>;
+  /**
+   * Asks the bucket where the storage-layout migration got to, running none of
+   * it. Nobody presses this: the console calls it once for a binding nothing
+   * has asked yet, so a context migrated before that outcome was ever recorded
+   * stops being offered an update it has already had.
+   */
+  observeLayout: () => Promise<{ queued: boolean }>;
 }
 
 export interface ConsoleStat {
@@ -201,6 +335,12 @@ export interface ConsoleStat {
 export interface ConsoleData {
   /** True for the read-only demo on the landing page. */
   demo: boolean;
+  /**
+   * How much of each context is on this device, by workspace id — the offline
+   * mirror's own account of itself (`features/offline/mirrorStatus.ts`). Absent
+   * on a console with no mirror behind it: the landing page's demo.
+   */
+  mirrors?: ReadonlyMap<string, MirrorStatus>;
   /**
    * The signed-in person — never the viewed context. The avatar, and the
    * account block at the foot of the rail, render this and nothing else; only
@@ -219,6 +359,16 @@ export interface ConsoleData {
   invitations?: ReadonlyArray<{ slug: string; token: string }>;
   selectedContextId: string | null;
   selectContext: (id: string) => void;
+  /**
+   * What has changed in the selected context, and how much of it this person
+   * has seen — the file at `activity.md`, read through the privacy filter.
+   *
+   * Optional, and absent on the demo console and on any console with no
+   * control plane behind it. Every surface that draws it treats absence as
+   * "this console has no activity", which is the state the tree's foot line
+   * had before the feature existed: the note count, unchanged.
+   */
+  activity?: ActivityView;
   /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.
@@ -261,6 +411,25 @@ export interface ConsoleData {
   storage: ConsoleStorage | null | undefined;
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
+  googleConnections: GoogleConnection[];
+  googleActions?: GoogleActions;
+  /**
+   * Whether this context has a model key, so anything that would *ask* one can
+   * be offered — or left out.
+   *
+   * Three values, and the third is the one that matters: `undefined` is "the
+   * subscription has not answered", which is not the same as "there is no
+   * key". A control gated on `=== true` is absent for the moment before the
+   * answer lands and then appears; one gated on `!== false` flashes an offer
+   * and takes it away, which is the worse direction for the thing it offers —
+   * a conversation with a model nobody has paid for.
+   *
+   * It is a boolean rather than the connections themselves because nothing
+   * outside the model pane may need which provider or when: the settings pane
+   * asks `listProviders` for that and shows fingerprints. This is one bit, and
+   * a bit is all a menu needs.
+   */
+  modelConnected?: boolean;
   endpoint: string;
   /**
    * The ingestion alias to display when the backend cannot yet answer for it.
@@ -300,6 +469,88 @@ export interface ConsoleData {
    * demo — the same rule as `storageActions`, expressed the same way.
    */
   members: MembersView;
+  /**
+   * Every live link this context's owner has minted over one note, and the
+   * Revoke that takes each one back — see `apps/convex/functions/shares.ts`'s
+   * own module comment for why a share is a standing grant over one note and
+   * never a membership, and `docs/decisions/privacy-and-sharing.md` for the
+   * product argument behind it. `actions` is absent for anyone who is not the
+   * owner of this context, and in the demo — the same rule `StorageActions`
+   * states, because `listShares` and `revokeShare` are both owner-only on the
+   * backend.
+   */
+  shares: SharesView;
+  /**
+   * The named sets of people a folder rule can point at.
+   *
+   * Owner-only, like `shares` — `listGroups` is owner-only on the backend for
+   * the reason the note census is — so this is an empty view with no `actions`
+   * for anybody else rather than a query that refuses.
+   */
+  groups: GroupsView;
+  /**
+   * This context's audit trail, and the owner-only export that keeps
+   * encryption honest about non-negotiable #1 — a customer who revokes our
+   * credential must be able to get the key that opens their own encrypted
+   * notes, not only decrypt with it through us. `keyExport` is absent for
+   * anyone who is not the owner, and in the demo, the same rule `shares`
+   * follows.
+   */
+  advanced: AdvancedView;
+  /**
+   * The Obsidian plugins already in the selected context's bucket.
+   *
+   * A four-member union rather than a list and a flag, because "the console
+   * cannot ask yet" is a real state with its own screen and must not decay into
+   * an empty list — an empty list here is a claim that somebody's vault has no
+   * plugins in it. See `plugins/plugins.ts`, and `plugins/usePlugins.ts` for
+   * why the live console answers `unavailable` today.
+   */
+  plugins: PluginsView;
+  /**
+   * The plugins that ship with Context, and their switches.
+   *
+   * Separate from `plugins` because they are a different kind of fact: no
+   * bundle to read, no verdict to reach, nothing to be unsure about. They are
+   * drawn in one panel with the vault's because they answer one question, and
+   * held apart here because a single type carrying both would be mostly `null`
+   * for whichever half you had.
+   */
+  contextPlugins: ContextPluginsView;
+  /**
+   * What Context has installed in the selected context's bucket.
+   *
+   * A third kind of fact again, and the cheap one: a pointer per install, read
+   * on arrival rather than on a press. `plugins` is the scan and says what each
+   * one can do; this only says what is there — which is the question a person
+   * opening this screen actually has, and the one it could not answer.
+   */
+  pluginInstalls: ManagedInstallsView;
+  /**
+   * What each plugin in the selected context has been allowed to do.
+   *
+   * Separate from `plugins` because the two are answered differently and must
+   * stay so: a grant is a live subscription over control-plane rows, and an
+   * inventory is a scan of the customer's bucket that somebody asks for. Folding
+   * them into one view would drag the expensive half along on every revoke.
+   */
+  pluginGrants: GrantsView;
+  /**
+   * The official registry, and the controls that change what Context manages.
+   *
+   * Separate from `plugins` and `pluginGrants` for the same reason those two are
+   * separate from each other: this one reaches a third party's list over the
+   * network, so nothing about it may ride along with a read of the bucket.
+   */
+  pluginBrowse: BrowseView;
+  /**
+   * What the sandbox host says each plugin is doing.
+   *
+   * The only thing in `ConsoleData` entitled to say a plugin is *running*. A
+   * grant means allowed and an install means present; neither means loaded, and
+   * nothing else in this console may claim otherwise.
+   */
+  pluginRuntime: RuntimeView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**
@@ -332,4 +583,3 @@ export function selectedContext(data: ConsoleData): ConsoleContext | null {
   if (data.selectedContextId === null) return null;
   return data.contexts.find((c) => c.id === data.selectedContextId) ?? null;
 }
-

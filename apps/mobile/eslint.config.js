@@ -166,6 +166,94 @@ module.exports = [
   },
 
   {
-    ignores: ["metro.config.js", "babel.config.js"],
+    /*
+      `public/drawing-assets/**` is the built drawing editor — megabytes of
+      minified dependency code that `scripts/build-drawing-editor.mjs` writes
+      and git ignores. Linting a build artifact reports on somebody else's
+      source: it produced a parse error at column 819713 of a bundle before it
+      was listed here.
+    */
+    ignores: [
+      "metro.config.js",
+      "babel.config.js",
+      "web-build/**",
+      "public/drawing-assets/**",
+      /*
+        And the same argument for the real community-plugin releases
+        `e2e/webkit/fetch-bundles.mjs` downloads: megabytes of somebody else's
+        minified code, git-ignored, and linting it reports on their source. It
+        produced 200 `console is not defined` errors at four-digit column
+        numbers before it was listed here.
+      */
+      "e2e/webkit/bundles/**",
+    ],
+  },
+  {
+    /*
+      The drawing editor's own source. It is a browser ES module bundled by
+      esbuild rather than by Metro — a page of its own, for the reasons
+      `drawingBridge.ts` records — so it is the one thing here that is neither
+      React Native nor CommonJS, and needs `window`, `document` and `URL` to
+      exist. `URL` earns its place rather than being convenience: `assetPath.js`
+      builds the font base from `document.baseURI` with it, because the relative
+      string it replaced was silently resolved against the origin instead.
+    */
+    files: ["drawing-editor/**/*.{js,jsx}"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      parserOptions: { ecmaFeatures: { jsx: true } },
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        console: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
+  {
+    /*
+      And the service worker beside it, which runs in a worker rather than in
+      the page: no `window`, no `document`, and `self` instead. Listed
+      separately rather than folding these globals into the block above,
+      because a page that reached for `caches` or `clients` should still be
+      told it is wrong.
+    */
+    files: ["drawing-editor/sw.js"],
+    languageOptions: {
+      globals: {
+        self: "readonly",
+        caches: "readonly",
+        clients: "readonly",
+        fetch: "readonly",
+        Response: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
+  {
+    /*
+      The console's own app-shell worker, which is a worker for the same
+      reasons and shipped from a different place: `public/` is copied to the
+      output root by `expo export`, and a worker may only claim a scope at or
+      below the directory it is served from — `/sw.js` is what lets it answer a
+      navigation at all.
+
+      Kept as its own block rather than merged with the one above, on the same
+      principle that one gives for not merging with the page: these two workers
+      have different scopes and different jobs, and a rule added for one should
+      have to be added for the other deliberately.
+    */
+    files: ["public/sw.js"],
+    languageOptions: {
+      globals: {
+        self: "readonly",
+        caches: "readonly",
+        clients: "readonly",
+        fetch: "readonly",
+        Response: "readonly",
+        URL: "readonly",
+      },
+    },
   },
 ];

@@ -50,6 +50,11 @@
  * folder and a folder full of notes somebody may not read look identical here,
  * which is the point.
  *
+ * **It does not list the folder's placeholder either.** The `README.md` that
+ * makes the prefix exist is plumbing rather than a note, and a folder holding
+ * nothing else reads as empty here. The filter is `listedEntries`, shared with
+ * the tree so the two cannot come to disagree about what is in a folder.
+ *
  * ## The foot, and why only the root page has one
  *
  * `foot` is where `storage · index · counts` lands on a phone — the line that
@@ -77,15 +82,88 @@
  * binding or a backfill is — the same split `Explorer` made for the same line.
  */
 
+import { Fragment } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { densityFor } from "../../app/frame";
-import { baseName, displayName } from "./paths";
+import { densityFor, noteColumnWidth } from "../../app/frame";
+import type { DragModifier } from "./dnd";
+import { useListingOrder } from "./listingOrder";
+import { baseName, displayName, withoutSortPrefix } from "./paths";
+import type { SyncMark } from "./pendingMarks";
+import { useRightClick } from "./rightClick";
+import { useRowInteractions } from "./rowInteractions";
+import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
+import { listedEntries } from "./tree";
+import { isGroupVisibility } from "./types";
 import type { FileEntry, FolderListing } from "./types";
+
+/**
+ * The folder listing's menu wiring.
+ *
+ * Supplied by the pane rather than built here, for the reason every other
+ * decision in this file is: this component draws a folder and knows nothing
+ * about a `FileBrowser`, a clipboard or who is allowed to do what. Both
+ * handlers report whether they actually opened a menu — see `rightClick.web.ts`
+ * for why the answer is what decides whether the browser's own menu is
+ * suppressed.
+ *
+ * Absent on a read-only console, and the listing then has no gesture at all
+ * rather than one that does nothing.
+ *
+ * ## `onBackground` is still the web's alone; `onRow` is not
+ *
+ * The *background* gesture is a right-click on empty space, which a
+ * touchscreen has no spelling for — `rightClick.ts` is a no-op on native and
+ * this goes on being pointer-only.
+ *
+ * A **row** is the opposite, and this is the half that was missing. The rows
+ * here went through `useRightClick` as well, which meant that on the native
+ * build — where this pane is the *only* browse surface, since there is no file
+ * tree at compact density — a folder or a note had no menu at all. Every verb
+ * the tree offers by long press was unreachable on a phone: rename, move,
+ * duplicate, visibility, archive, delete. They go through `useRowInteractions`
+ * now, which is the same hook the tree's rows use, so the gesture forks per
+ * platform exactly once and the two surfaces cannot drift again.
+ */
+export interface FolderMenu {
+  onRow: (entry: FileEntry, anchor: { x: number; y: number }) => boolean;
+  onBackground: (anchor: { x: number; y: number }) => boolean;
+}
+
+/**
+ * Dragging rows out of, and into, a folder listing.
+ *
+ * The tree has had this since `dnd.ts` was written and the listing never did,
+ * which is the other half of the same complaint: a folder you could reorganise
+ * by dragging while it was a row in the sidebar became inert the moment you
+ * opened it. Same shape as `TreeDragHandlers`, keyed on a `FileEntry` rather
+ * than a `TreeRow` because that is what a listing has — and deliberately not
+ * one type over both, since a `TreeRow` carries `loading` and `empty` kinds
+ * this surface has no rows for.
+ *
+ * The *rules* are not here and are not duplicated: the pane hands both
+ * surfaces to the same `verdictFor`, so a drop this refuses is refused
+ * identically in the tree and a drop it allows lands in the same place.
+ *
+ * Absent on a read-only console, and rows then carry no `draggable` at all —
+ * a row that can be picked up and never dropped is worse than one that cannot
+ * be picked up, because there is nothing on screen to say why.
+ */
+export interface FolderDrag {
+  onDragStart: (path: string) => void;
+  onDragOver: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDragLeave: (path: string) => void;
+  onDrop: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDragEnd: () => void;
+  canDrag: (entry: FileEntry) => boolean;
+  canDrop: (entry: FileEntry) => boolean;
+  /** The row under a drag, washed to say the drop would land there. */
+  target: string | null;
+}
 
 export function FolderView({
   entry,
@@ -94,6 +172,9 @@ export function FolderView({
   contextLabel,
   foot,
   onSelect,
+  menu,
+  drag,
+  pendingStateFor,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -123,6 +204,15 @@ export function FolderView({
    */
   foot?: string;
   onSelect: (path: string) => void;
+  /** Right-click and long press. Absent where there is nothing to offer. */
+  menu?: FolderMenu;
+  /** Pick-up and drop. Absent on a read-only console — see `FolderDrag`. */
+  drag?: FolderDrag;
+  /**
+   * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
+   * Absent on a console with no offline layer, which marks nothing.
+   */
+  pendingStateFor?: (path: string) => SyncMark | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -134,77 +224,187 @@ export function FolderView({
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
   const isTeam = entry.visibility === "team";
-  const rows = listing?.entries ?? [];
+  // A group rule is neither of the two sentences below, and the `private` one
+  // would be the overstatement `privacy/words.ts` forbids — "yours alone" about
+  // a folder two colleagues can read.
+  const groupRule = isGroupVisibility(entry.visibility) ? entry.visibility : null;
+  /*
+    `listedEntries` rather than the listing itself, so this page and the tree
+    agree about what is in a folder — including the folder placeholder, which
+    neither of them draws. See `tree.ts`. No `keep` here: the open thing on
+    this screen is the folder, so there is no note to hold visible.
+
+    `descending` is the *same* answer the tree is drawn with, and that is the
+    point of it coming from `listingOrder.ts` rather than from a prop nobody
+    passed. The sort control lives in the tree's header, and until this the
+    direction it set lived in that component — so sorting Z to A reordered the
+    sidebar and left the very same folder, drawn as a page beside it, still A
+    to Z. "It is the tree, in the other place" is this file's first claim about
+    itself, and the one screen where a person would check it was where it was
+    false.
+  */
+  const descending = useListingOrder();
+  const rows = listedEntries(listing?.entries ?? [], { descending });
+
+  /*
+    The background gesture is on the **whole view**, not on a filler strip under
+    the last row.
+
+    Right-clicking the heading, the visibility line, or the space beside a short
+    name is a right-click on this folder in every file manager there is, and a
+    listing that answered only below its last row would be a target you have to
+    find. Rows stop propagation on a gesture they answer (`rightClick.web.ts`),
+    so a row's own menu still wins where there is one — this catches exactly
+    what is left, which is the folder itself.
+  */
+  const background = useRightClick(menu === undefined ? undefined : menu.onBackground);
 
   return (
-    <View style={[styles.folder, compact && styles.folderCompact]}>
+    <View
+      style={[styles.folder, compact && styles.folderCompact]}
+      ref={background.ref}
+      collapsable={false}
+    >
       {/*
-        The folder names itself the way a note does — an inline title at the top
-        of its own content — rather than under a `FOLDER` eyebrow. The route
-        already said which folder you asked for, so the eyebrow was labelling
-        the obvious in the space where the first row should be.
+        The page, in the note's own column.
+
+        A folder listing is a page in the same frame as a note, and it was laid
+        out by a different rule: rows pinned to the left edge of a 900pt pane
+        with the rest of it empty, beside a note that is a centred measure. The
+        width is `noteColumnWidth` rather than a number of this file's own, so
+        the folder's first character lands exactly where the note's first line
+        starts — which is also where the breadcrumb above both pages is indented
+        to, since `noteGutterFor` is this same centring with the editor's padding
+        named separately.
+
+        It is the *contents* that are centred and not the view: the right-click
+        background is the outer view above, and a folder you can only aim at
+        within the measure would be a target that shrinks as the window grows.
+
+        Inert on a phone, where 342pt of screen is far short of the measure and
+        `folderCompact`'s margin goes on governing — the same floor the editor's
+        `max(0, …)` has.
       */}
-      <View style={styles.head}>
-        <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
-          {baseName(entry.path) || contextLabel}
+      <View style={styles.column} testID="folder-column">
+        {/*
+          The folder names itself the way a note does — an inline title at the top
+          of its own content — rather than under a `FOLDER` eyebrow. The route
+          already said which folder you asked for, so the eyebrow was labelling
+          the obvious in the space where the first row should be.
+
+          `withoutSortPrefix` and not `displayName`: this is a folder, so the
+          sort number goes and the extension rule must not, or a folder somebody
+          called `notes.md` would be titled `notes` on its own page while every
+          row and crumb naming it says `notes.md`.
+        */}
+        <View style={styles.head}>
+          <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
+            {withoutSortPrefix(baseName(entry.path)) || contextLabel}
+          </Text>
+        </View>
+
+        {/*
+          The visibility, as a quiet line rather than a paragraph under a heading.
+
+          It was body copy plus a footnote spelling out what `team` means, under
+          every folder — and the footnote is an explanation of the model, which
+          belongs where somebody has gone looking for it rather than under each of
+          forty listings. What is left says what is true of this folder.
+        */}
+        <Text variant="treeMeta" style={styles.rule}>
+          {groupRule
+            ? `${groupRule} — visible to that group, and to nobody else in this context`
+            : isTeam
+              ? "team — visible to the people you granted access, unless a note is held back"
+              : "private — yours alone, unless a note is shared as an exception"}
         </Text>
-      </View>
 
-      {/*
-        The visibility, as a quiet line rather than a paragraph under a heading.
+        <View style={styles.contents}>
+          {listing === undefined ? (
+            <Text variant="meta" style={styles.aside}>
+              Loading…
+            </Text>
+          ) : rows.length === 0 ? (
+            /*
+              "Nothing you can see", not "nothing here". A member reading a
+              folder whose notes are all private would otherwise be told the
+              folder is empty, which is a different and untrue statement — and
+              the one the visibility rules exist to avoid making.
+            */
+            <Text variant="meta" style={styles.aside}>
+              {canSetVisibility
+                ? "This folder has nothing in it yet."
+                : "Nothing in this folder is shared with you."}
+            </Text>
+          ) : (
+            /*
+              ONE CARD, NOT EIGHT — AND NOT LOOSE ROWS EITHER.
 
-        It was body copy plus a footnote spelling out what `team` means, under
-        every folder — and the footnote is an explanation of the model, which
-        belongs where somebody has gone looking for it rather than under each of
-        forty listings. What is left says what is true of this folder.
-      */}
-      <Text variant="treeMeta" style={styles.rule}>
-        {isTeam
-          ? "team — visible to the people you granted access, unless a note is held back"
-          : "private — yours alone, unless a note is shared as an exception"}
-      </Text>
+              `Phone-Browse.dc.html` draws a grouped list: a single 18pt card
+              holding every row, with a hairline between them inset past the
+              icons. That is the idiom this phone already uses for settings, and
+              `radii.sheet` is documented as "a grouped list card" for exactly
+              it.
 
-      <View style={styles.contents}>
-        {listing === undefined ? (
-          <Text variant="meta" style={styles.aside}>
-            Loading…
+              It does **not** reverse this file's own "it is the tree, in the
+              other place". What that argued against was "full-width grey cards
+              with borders and 10pt of padding" — a card *per row*, eight files
+              rendered as eight form fields. One card containing a list is the
+              opposite move: it is what stops a listing on a phone reading as
+              text floating in a page, which is what it does today.
+
+              Pointer layouts keep the tree's own drawing, because there the
+              tree is on screen beside this and the two really are one thing
+              shown twice.
+            */
+            <View style={compact ? styles.card : undefined}>
+              {rows.map((row, index) => (
+                <Fragment key={row.path}>
+                  {/*
+                    The separator is its own element, not a border on the row.
+
+                    It was `borderTopWidth` plus a `marginLeft` to inset it —
+                    and a margin on a row moves the ROW, so every ruled row sat
+                    16pt to the right of the first one. React Native has no
+                    `::before` to hang an inset rule on, so the rule that is
+                    inset has to be a view that is inset. It also keeps a row's
+                    hover fill full-bleed, which a margin would have notched.
+                  */}
+                  {compact && index > 0 ? <View style={styles.rowRule} /> : null}
+                  <FolderRow
+                    row={row}
+                    onSelect={onSelect}
+                    menu={menu}
+                    drag={drag}
+                    card={compact}
+                    sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
+                  />
+                </Fragment>
+              ))}
+            </View>
+          )}
+          {listing?.truncated ? (
+            <Text variant="treeMeta" style={styles.aside}>
+              This folder has more in it than is shown here.
+            </Text>
+          ) : null}
+        </View>
+
+        {/*
+          The context's own caption, under its listing.
+
+          Below the rows rather than above them, for the reason the tree put it at
+          its foot: it is a caption on what you have just read, and a phone's
+          first screen belongs to the notes rather than to a line about them. It
+          scrolls with the page — this whole view is inside `BrowsePane`'s
+          scroller on a phone — so it costs nothing permanent.
+        */}
+        {foot === undefined ? null : (
+          <Text variant="treeMeta" style={styles.foot} testID="context-foot">
+            {foot}
           </Text>
-        ) : rows.length === 0 ? (
-          /*
-            "Nothing you can see", not "nothing here". A member reading a
-            folder whose notes are all private would otherwise be told the
-            folder is empty, which is a different and untrue statement — and
-            the one the visibility rules exist to avoid making.
-          */
-          <Text variant="meta" style={styles.aside}>
-            {canSetVisibility
-              ? "This folder has nothing in it yet."
-              : "Nothing in this folder is shared with you."}
-          </Text>
-        ) : (
-          rows.map((row) => <FolderRow key={row.path} row={row} onSelect={onSelect} />)
         )}
-        {listing?.truncated ? (
-          <Text variant="treeMeta" style={styles.aside}>
-            This folder has more in it than is shown here.
-          </Text>
-        ) : null}
       </View>
-
-      {/*
-        The context's own caption, under its listing.
-
-        Below the rows rather than above them, for the reason the tree put it at
-        its foot: it is a caption on what you have just read, and a phone's
-        first screen belongs to the notes rather than to a line about them. It
-        scrolls with the page — this whole view is inside `BrowsePane`'s
-        scroller on a phone — so it costs nothing permanent.
-      */}
-      {foot === undefined ? null : (
-        <Text variant="treeMeta" style={styles.foot} testID="context-foot">
-          {foot}
-        </Text>
-      )}
     </View>
   );
 }
@@ -217,22 +417,99 @@ export function FolderView({
  * `FileTree`'s empty box exists. `hitSlop` buys back the 8pt the 36pt row is
  * short of the touch floor: pad the pressable, never the visual.
  */
-function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string) => void }) {
+function FolderRow({
+  row,
+  onSelect,
+  menu,
+  drag,
+  card = false,
+  sync = null,
+}: {
+  row: FileEntry;
+  onSelect: (path: string) => void;
+  menu?: FolderMenu;
+  drag?: FolderDrag;
+  /** Drawn inside the phone's grouped card — see the listing. */
+  card?: boolean;
+  /** This note's edit is not in the bucket yet. `null` for one that is. */
+  sync?: SyncMark | null;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const label = displayName(row.name);
+  /*
+    THE SAME HOOK THE TREE'S ROWS USE, AND FOR THE SAME REASON.
+
+    This used to be `useRightClick`, which is web-only by construction — so on
+    the native build, where this pane is the *only* browse surface, a row had
+    no menu at all and every verb the tree offers by long press was
+    unreachable. `useRowInteractions` is the pair whose native half is
+    `onLongPress` and whose web half binds `contextmenu` *and* the HTML5 drag
+    events, so one call gets this listing the phone's menu and the pointer's
+    pick-up at once, from the file the tree already trusts for both.
+
+    A wrapper `View` rather than a ref on the `PressRow`: react-native-web
+    forwards neither `onContextMenu` nor `draggable`, and reaching the real
+    node through a plain view is the contained way to get at one. The wrapper
+    sets no style, so it adds no box — the row inside keeps its own 36pt pitch.
+  */
+  const interactions = useRowInteractions({
+    path: row.path,
+    // Absent rather than a no-op, which is the fact that stops a right-click
+    // being swallowed by a row with nothing to put in the browser menu's
+    // place. See `rowInteractions.web.ts`.
+    onMenu: menu === undefined ? undefined : (anchor) => menu.onRow(row, anchor),
+    canDrag: drag !== undefined && drag.canDrag(row),
+    canDrop: drag !== undefined && drag.canDrop(row),
+    onDragStart: drag?.onDragStart ?? noopPath,
+    onDragOver: drag?.onDragOver ?? noopDrop,
+    onDragLeave: drag?.onDragLeave ?? noopPath,
+    onDrop: drag?.onDrop ?? noopDrop,
+    onDragEnd: drag?.onDragEnd ?? noopVoid,
+  });
+  const isDropTarget = drag !== undefined && drag.target === row.path;
   return (
+    <View
+      ref={interactions.ref as never}
+      collapsable={false}
+      style={isDropTarget ? [styles.rowDrop, card && styles.rowDropCard] : undefined}
+    >
     <PressRow
       onPress={() => onSelect(row.path)}
-      style={styles.row}
+      style={[styles.row, card && styles.rowCard]}
       hoverStyle={styles.rowHover}
-      radius={radii.md}
+      radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
-      accessibilityLabel={row.kind === "folder" ? `${label}, folder` : label}
+      accessibilityLabel={withSyncMark(row.kind === "folder" ? `${label}, folder` : label, sync)}
       testID="folder-row"
+      // Unconditional: `useRowInteractions` returns nothing to spread when
+      // there is no menu, and one copy of that rule is the point — a second
+      // one here is the copy that would drift. Same call as `FileTree`'s.
+      {...interactions.pressableProps}
     >
+      {/*
+        A GLYPH IN THE CARD, A CHEVRON OUTSIDE IT.
+
+        `Phone-Browse.dc.html` puts an 18pt folder mark at the head of every
+        row, and the reason is not decoration: inside the card the chevron is
+        already **trailing**, where it says "this row goes somewhere". A
+        leading chevron there meant a folder row drew a chevron at each end —
+        two marks with two meanings and one shape — while a file row drew an
+        empty gutter, so a mixed listing said nothing at all about which of its
+        rows were folders. The glyph says it, once, in the slot the board puts
+        it in.
+
+        Outside the card there is no trailing chevron, so the leading one is
+        still the only thing carrying "this is a folder" and it stays.
+      */}
       <View style={styles.chevron}>
-        {row.kind === "folder" ? (
+        {card ? (
+          <Icon
+            name={row.kind === "folder" ? "folder" : "file"}
+            size={16}
+            color={colors.muted}
+          />
+        ) : row.kind === "folder" ? (
           <Icon name="chevronRight" size={15} color={colors.muted} />
         ) : null}
       </View>
@@ -256,14 +533,49 @@ function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string)
         end of every row would be competing with the file name. One rule, two
         marks, and the two are never on screen together.
       */}
+      {/*
+        The sync mark leads the trailing marks, before the exception pip.
+
+        **It is not an exception mark, and it does not dilute that slot's one
+        claim** (see `pip` below): it is a different shape — a ring, or a ringed
+        disc — saying a different thing, and it is transient where the pip is a
+        standing fact. It leads because it is the one of the two a person may
+        have to act on.
+      */}
+      {sync === null ? null : <SyncMarkDot mark={sync} />}
       {row.exception ? (
         <View
-          style={[styles.pip, row.visibility === "team" ? styles.pipTeam : styles.pipPrivate]}
-          accessibilityLabel={row.visibility === "team" ? "shared" : "private"}
+          style={[
+            styles.pip,
+            row.visibility === "team"
+              ? styles.pipTeam
+              : isGroupVisibility(row.visibility)
+                ? styles.pipGroup
+                : styles.pipPrivate,
+          ]}
+          // The label is a claim, and "private" is a false one about a note a
+          // group can read. It names the group instead.
+          accessibilityLabel={
+            row.visibility === "team"
+              ? "shared"
+              : isGroupVisibility(row.visibility)
+                ? `shared with ${row.visibility}`
+                : "private"
+          }
           testID="folder-row-exception"
         />
       ) : null}
+      {/*
+        The trailing chevron the canvas draws, and only inside the card.
+
+        In a grouped list it is the thing that says a row goes somewhere — the
+        leading gutter's chevron says "this is a folder", which is a different
+        claim and is why both exist. Outside the card there is no list edge for
+        it to sit against and the leading one already carries the listing.
+      */}
+      {card ? <Icon name="chevronRight" size={14} color={colors.chromeMuted} /> : null}
     </PressRow>
+    </View>
   );
 }
 
@@ -271,8 +583,43 @@ function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string)
 const ROW_SLOP = layout.explorerRowSlop;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  folder: { gap: space.x2 },
+  /**
+   * `flexGrow` so the listing *is* the pane, not just the rows in it.
+   *
+   * The right-click target is this whole view (see the render), and without
+   * this the view is exactly as tall as its content — so on a folder with three
+   * notes in it the large empty area underneath belonged to the pane rather
+   * than to the folder, and a right-click there went on reaching the browser.
+   * That area is most of the screen on most folders, and it is the obvious
+   * place to aim for "new note here".
+   *
+   * Inert where it should be: on a phone this sits inside `BrowsePane`'s
+   * scroller, whose content container does not stretch its children, so the
+   * page goes on being as long as what is in it.
+   *
+   * On a pointer layout it is inside a scroller too now — `document-scroll`,
+   * which is what lets a fifty-row folder be read past the bottom of the
+   * window. That one's content container carries `flexGrow: 1` so this goes on
+   * growing to the region: without it the background would hug the rows again
+   * and the empty area below them would stop answering a right-click, which is
+   * the thing this style exists for.
+   */
+  folder: { flexGrow: 1 },
+  /*
+    No ground here. It belongs to `BrowsePane`'s listing scroller — this view
+    sits inside that scroller's content, which does not stretch its children, so
+    a background set here stops where the rows do and leaves a seam across the
+    middle of the screen. See that scroller's own note.
+  */
   folderCompact: { paddingHorizontal: layout.readingMargin },
+  /**
+   * The document column: the note's measure, centred in what is left.
+   *
+   * The gap lives here rather than on `folder` because this is the stack of
+   * the page's own parts; `folder` is the region behind it, and its only job
+   * now is to be the thing a right-click lands on. See the render.
+   */
+  column: { gap: space.x2, width: "100%", maxWidth: noteColumnWidth, alignSelf: "center" },
   head: { flexDirection: "row", alignItems: "flex-start", gap: space.x2 },
   title: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   rule: { color: colors.muted },
@@ -302,6 +649,79 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.md,
   },
   rowHover: { backgroundColor: colors.surface3 },
+  /**
+   * Under a drag that would land here. `FileTree`'s own wash, to the pixel.
+   *
+   * On the wrapper the gestures are attached to rather than on the `PressRow`,
+   * so it cannot be overwritten by a hover fill — a pointer holding a drag is
+   * over the row by definition, and the two painting the same box would mean
+   * the drop target is invisible exactly when it matters. It carries the row's
+   * own corner radius because the wrapper has none of its own, and a square
+   * block behind a rounded row is the artefact that gives away a wash drawn in
+   * the wrong place.
+   */
+  rowDrop: { backgroundColor: colors.accentDim, borderRadius: radii.md },
+  /** Square inside the phone's grouped card, whose rows are flush. */
+  rowDropCard: { borderRadius: 0 },
+  /**
+   * The phone's grouped card. See the listing for why it is one card.
+   *
+   * `overflow: "hidden"` so a row's own hover or press fill is clipped by the
+   * card's corners rather than squaring them off — the first and last rows are
+   * the ones that show it, and they are the ones a thumb lands on most.
+   */
+  card: {
+    /*
+      `surface2`, not `surface`.
+
+      The canvas draws a near-white card on a warm grey page. This page is not
+      warm grey — a phone's note ground is `ground`, which in the paper palette
+      IS `surface` (`#FFFDF9` both), so a `surface` card was a card the exact
+      colour of the page behind it: separators and chevrons appeared, the card
+      did not. Measured in the browser, which is the only way that shows.
+
+      `surface2` was the next try and was not enough either: on graphite the
+      page and `surface2` are neighbours, so the card read as a slightly
+      different dark rather than as a card.
+
+      The canvas's answer is not a different card, it is a different *page*.
+      `Phone-Browse.dc.html` grounds the browse screen in `#F4F1EA` — chrome —
+      and draws the card in `#FFFDF9` — page. `Phone-Note.dc.html` keeps the
+      note on the page surface, because a note IS the page. So the two screens
+      have different grounds on purpose, and the pair this codebase already
+      names for exactly that relationship is `chromeSurface` / `pageSurface`:
+      the page is lighter than the chrome around it, in both worlds.
+
+      So the card is `pageSurface` and `BrowsePane`'s listing scroller grounds
+      the screen in `chromeSurface`. A listing is not a document; it is the
+      furniture you pick a document from.
+    */
+    backgroundColor: colors.pageSurface,
+    borderRadius: radii.sheet,
+    overflow: "hidden",
+  },
+  /*
+    Taller inside the card: `layout.explorerRow` is the tree's 36pt pitch,
+    drawn for a 260pt column beside a document. A grouped list on a phone is
+    the screen, and the canvas draws 48 — which is also comfortably over the
+    touch floor, so `hitSlop` stops doing work here.
+  */
+  rowCard: { height: 48, paddingLeft: space.x4, paddingRight: space.x4 },
+  /*
+    The separator, inset past the card's gutter so the rules start where the
+    row's glyph does rather than cutting the whole card into bands — which is
+    what `Phone-Browse.dc.html` draws, and the one thing that makes a card read
+    as a grouped list.
+
+    **The inset was written down here for a while and never applied**: the
+    comment described it while the style had only a `borderTopWidth`, so every
+    rule ran the card's full width. Applying it as `marginLeft` on the row was
+    worse and visibly so — a margin moves the row, so every ruled row sat 16pt
+    right of the first. It is a view between the rows now. Drawn between rather
+    than on the last row, which is the one whose rule would sit on the card's
+    rounded edge.
+  */
+  rowRule: { height: 1, marginLeft: space.x4, backgroundColor: colors.line },
   /** The chevron gutter, so a file's name lines up with a folder's. */
   chevron: { width: 18, alignItems: "center", justifyContent: "center" },
   rowName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },
@@ -313,12 +733,34 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * the least — on a bucket laid out the standard way it is the same word eight
    * times over. A pip reads as "this one differs" at a glance, and carries its
    * meaning in the accessible name for anybody who needs it spelled out.
+   *
+   * **This slot is for exceptions, and that is why there is no count here.**
+   * `Phone-Browse.dc.html` draws a `3` beside `0-inbox` in this position; the
+   * owner declined it on 2026-09-18 — "that is not what the inbox there means"
+   * — and the reason it belongs in this comment rather than only in the design
+   * record is that the slot is the argument. A count is not an exception about
+   * anything, so it would be the first mark here not making the listing's one
+   * claim, and the pip beside it would lose the meaning it has by being the
+   * only thing in the slot. See `docs/decisions/app-and-console.md`, "A folder
+   * row says what differs, so `0-inbox` gets no count".
    */
   pip: { width: 7, height: 7, borderRadius: 4 },
   pipTeam: { backgroundColor: colors.accent },
   pipPrivate: { backgroundColor: colors.muted },
+  /* The violet this palette already defines as "somebody else's access". */
+  pipGroup: { backgroundColor: colors.sharedText },
 
   aside: { paddingVertical: space.x2 },
   /** The caption at the foot of the context's own page. See the file header. */
   foot: { marginTop: space.x4, color: colors.muted },
 });
+
+/*
+  The shapes `useRowInteractions` needs when there is no drag to wire. Spelled
+  out here rather than imported from `FileTree`, whose copies are private to
+  it — three empty functions are cheaper than a shared module, and neither file
+  has an opinion the other could drift from.
+*/
+function noopPath(_path: string): void {}
+function noopDrop(_path: string, _modifiers: readonly DragModifier[]): void {}
+function noopVoid(): void {}

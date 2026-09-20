@@ -1,0 +1,17 @@
+{
+  "name": "@context/egress-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stateless public-only network egress for already-authorized plugin requests.",
+  "scripts": {
+    "test": "vitest run && node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "typescript": "~5.9.2",
+    "vitest": "^2",
+    "wrangler": "^4.124.0"
+  }
+}

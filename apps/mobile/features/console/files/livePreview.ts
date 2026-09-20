@@ -40,10 +40,91 @@
  * without a browser, a renderer, or a mounted editor.
  */
 
-import { EditorState, Range, RangeSet, StateField, type Extension } from "@codemirror/state";
+import {
+  EditorSelection,
+  EditorState,
+  Range,
+  RangeSet,
+  StateEffect,
+  StateField,
+  type Extension,
+  type TransactionSpec,
+} from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { FormWidget, formFences, formHost } from "./formBlock";
+/*
+  Images are a separate module for the reason `formBlock.ts` is one: the grammar
+  and the gestures are testable without a tree, and this file is already the
+  longest in the console. What lands here is only the two things that have to be
+  decided in one place — which lines the reveal rule hides, and that a block
+  widget's range is nobody else's to decorate.
+*/
+import {
+  imageRowDecoration,
+  imageRows,
+  imageHost,
+  imageSelection,
+  type ImageRow,
+} from "./imageBlock";
+/*
+  The gateway's own inverse of what it writes into a response cell. Imported
+  rather than reimplemented for the reason `formBlock.ts`'s header gives about
+  the grammar: a second copy of this is a second answer that can disagree, and
+  the disagreement would show up as a person's submitted text drawn back to them
+  wrong. `forms.js` is pure, zero-dependency, DOM-free JavaScript; three
+  surfaces already reach for it.
+*/
+import { unescapeCell } from "../../../../mcp/src/forms.js";
+/*
+  The writes a drawn grid makes back into the pipes, and nothing else: pure,
+  DOM-free, and the module that holds the promise that there is no serializer
+  here. Separate for the reason `imageBlock.ts` is separate — the interesting
+  cases are in the text, and they are testable without a tree or a browser.
+*/
+import {
+  planAddColumn,
+  planAddRow,
+  planAlignColumn,
+  planCellEdit,
+  planDeleteColumn,
+  planDeleteRow,
+  planDeleteTable,
+  planInsertColumn,
+  planInsertRow,
+  planMoveColumn,
+  planMoveRow,
+  type CellSpan,
+  type TableRegion,
+} from "./tableEdit";
+/*
+  The marker rule, over a plain string. Lifted out of `markdownFormat.ts` so
+  this file can run it against a cell's own text: `markdownFormat` imports this
+  module, so the shared half had to stop living there. See `markerToggle.ts`.
+*/
+import { MARKERS, planToggle, type MarkerName } from "./markerToggle";
+/*
+  The controls a drawn table wears. A separate module for the reason its own
+  header gives: they hang off rows and columns rather than off the table, and
+  what they draw and how a menu behaves is testable without an editor.
+*/
+import {
+  appendButton,
+  closeGridMenu,
+  columnHandle,
+  rowHandle,
+  tableHandle,
+  type GridAction,
+  type GridChromeHost,
+} from "./tableChrome";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
+/*
+  Undo, for the one place the editor's own keymap cannot reach: a keystroke
+  made inside a cell never gets to it (`ignoreEvent`), and the browser's
+  contenteditable history knows nothing about the document. See the cell's
+  keydown handler.
+*/
+import { redo, undo } from "@codemirror/commands";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
@@ -417,7 +498,49 @@ export function frontmatterRange(doc: string): { from: number; to: number } | nu
   return null;
 }
 
+/**
+ * The frontmatter block **and the blank lines it is separated from the note
+ * by**, which is what gets put away while nobody is in it.
+ *
+ * `frontmatterRange` stops at the closing fence, because that is where the
+ * YAML document stops and its own tests hold it there. Hiding exactly that
+ * left a 28pt empty line above the note's title — the separator, still
+ * separating, with nothing left on the other side of it. A blank line after a
+ * fence exists because the fence is there; with the fence gone it is a gap
+ * nobody typed for its own sake.
+ *
+ * Returns `null` for the same documents `frontmatterRange` does. The walk
+ * stops at the first line with anything on it, so a note that is frontmatter
+ * and then blank lines and then nothing gives back the whole document — which
+ * is correct and is the case `openingCaret` clamps.
+ */
+export function frontmatterBlock(doc: string): { from: number; to: number } | null {
+  const front = frontmatterRange(doc);
+  if (front === null) return null;
+
+  let to = front.to;
+  for (let at = to + 1; at <= doc.length; ) {
+    const end = doc.indexOf("\n", at);
+    const lineEnd = end === -1 ? doc.length : end;
+    if (doc.slice(at, lineEnd).trim() !== "") break;
+    to = lineEnd;
+    if (end === -1) break;
+    at = end + 1;
+  }
+  return { from: front.from, to };
+}
+
 const frontmatterLine = Decoration.line({ class: "cm-lp-frontmatter" });
+
+/**
+ * The whole frontmatter block, replaced while nobody is in it.
+ *
+ * `block: true` for `htmlPreviews`' reason: this stands in for whole lines
+ * rather than a run of characters inside one, and `frontmatterRange` only ever
+ * answers a range that starts at the document's first character and ends at
+ * the end of the closing fence — exactly the shape a block decoration needs.
+ */
+const frontmatterHidden = Decoration.replace({ block: true });
 
 /* ---------------------------- lists and tables ---------------------------- */
 
@@ -697,6 +820,1775 @@ export function tableLines(state: EditorState, frontEnd = 0): number[] {
   return lines;
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                  callouts                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One Obsidian callout: a blockquote whose first line opens with `[!type]`.
+ *
+ * ## Why this exists
+ *
+ * Reported with a screenshot of a plugin's output beside the same note in
+ * Obsidian — *"this plugin shows up weird, compare to how it shows up in
+ * obsidian"* — and it was never the plugin. It writes
+ * `> [!bible] [John 3:16 - NIV](…)`, which is an ordinary callout, and this
+ * editor had no idea what one was: `[!bible]` parsed as a shortcut link, its
+ * brackets were hidden like any other `LinkMark`, and the reader was left with
+ * the word `!bible` underlined in blue in front of the reference. Every
+ * `[!note]`, `[!warning]` and `[!tip]` in anybody's vault read the same way; a
+ * plugin is only what finally put one on screen next to its original.
+ *
+ * ## Not in the grammar, so read off the text
+ *
+ * lezer-markdown has no callout node — callouts are Obsidian's extension, not
+ * CommonMark — so this is the same shape as `frontmatterRange` and for the same
+ * stated reason: the tree gives the blockquote, and the first line's text gives
+ * the rest. Matching on the text of a line the tree has already called a
+ * `Blockquote` is what keeps `[!note]` in the middle of a sentence from
+ * becoming a box.
+ *
+ * ## What is deliberately not drawn
+ *
+ * Per-type colours and icons. Obsidian has thirteen of each, and thirteen
+ * palette entries would have to cross the WebView bridge to get here — against
+ * this file's own standing restraint about palette-specific tokens. The icon in
+ * the report's screenshot is not Obsidian's either: it is the plugin's own CSS,
+ * and Context does not load a plugin's stylesheet into the trusted realm.
+ *
+ * Folding is not implemented, and the `+`/`-` that asks for it is consumed as
+ * part of the marker rather than left behind. A callout that will not fold is
+ * legible; half a marker on screen is the bug this whole function is fixing,
+ * one character smaller.
+ */
+export interface Callout {
+  /** Where the `[!type]` marker starts — the callout's first line. */
+  readonly from: number;
+  /** The start of every line in the blockquote, first one first. */
+  readonly lines: readonly number[];
+  /** The type as written, lowercased: `note`, `warning`, `bible`. */
+  readonly type: string;
+  /** The marker and the space after it — what is replaced or hidden. */
+  readonly marker: TextRange;
+  /**
+   * The `>` prefix of each line, which a callout hides and a quote does not.
+   *
+   * This file's `HIDDEN_MARKS` comment is emphatic that `QuoteMark` must never
+   * be hidden — "a blockquote with its `>` removed reflows into the paragraph
+   * above it and the reader cannot see the quote at all" — and that is exactly
+   * right for a quote and exactly wrong for a callout, because the box says the
+   * same thing the `>` was saying. Obsidian hides them for the same reason, and
+   * leaving them in is the last visible difference from the screenshot this
+   * work came from.
+   */
+  readonly marks: readonly TextRange[];
+  /** What the author wrote after the marker, or `null` when they wrote none. */
+  readonly title: string | null;
+}
+
+/**
+ * `[!type]`, optionally `+` or `-`, optionally a title.
+ *
+ * Anchored at the start of the quoted text so a marker further into the line
+ * stays prose — somebody writing *about* a callout inside a quote is not
+ * writing one, and rewriting their sentence into a box would be this editor
+ * editing what it was asked to display.
+ *
+ * The type is `[^\]]+` rather than a list of the thirteen Obsidian knows:
+ * an unknown type is still a callout there, which is exactly why `[!bible]`
+ * worked in the screenshot that started this, and a closed list here would put
+ * this editor back to leaking the marker for every plugin and every vault that
+ * defines one of its own.
+ */
+const CALLOUT_MARKER = /^\[!([^\]\s]+)\]([+-]?)[ \t]*/;
+
+/** Where the `>` markers end and the quoted text begins, on one line. */
+function afterQuoteMarks(text: string): number {
+  let at = 0;
+  while (at < text.length) {
+    const ch = text[at];
+    if (ch === ">" || ch === " " || ch === "\t") at += 1;
+    else break;
+  }
+  return at;
+}
+
+export function callouts(state: EditorState, frontEnd = 0): Callout[] {
+  const found: Callout[] = [];
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "Blockquote") return;
+      /*
+        A nested `> > [!note]` matches too, and is meant to: Obsidian nests
+        callouts and the marker has to come off either way. What it does not get
+        is a second box — these are line decorations, and a line already inside
+        one cannot be inside another. Its title is still styled as a title, so a
+        nested callout reads as a heading inside the outer box rather than as a
+        box this editor cannot draw.
+      */
+      const first = state.doc.lineAt(node.from);
+      const quoted = afterQuoteMarks(first.text);
+      const match = CALLOUT_MARKER.exec(first.text.slice(quoted));
+      if (match === null) return;
+
+      /*
+        Lines that START inside the quote, which is stricter than `tableLines`'
+        walk and has to be. A Blockquote's `to` can sit on the newline that ends
+        its last line, so "stop once this line reaches `to`" lets the blank line
+        after the callout in — and a line decoration there draws an empty row of
+        box under it. Caught in a real engine rather than in jsdom, which lays
+        nothing out and was perfectly happy with three.
+      */
+      const lines: number[] = [];
+      for (let line = first; line.from < node.to; ) {
+        lines.push(line.from);
+        if (line.to >= state.doc.length) break;
+        line = state.doc.lineAt(line.to + 1);
+      }
+
+      const start = first.from + quoted;
+      const rest = first.text.slice(quoted + match[0].length);
+      const marks: TextRange[] = [];
+      for (const from of lines) {
+        const width = afterQuoteMarks(state.doc.lineAt(from).text);
+        if (width > 0) marks.push({ from, to: from + width });
+      }
+      found.push({
+        from: start,
+        lines,
+        type: match[1].toLowerCase(),
+        marker: { from: start, to: start + match[0].length },
+        marks,
+        title: rest.length > 0 ? rest : null,
+      });
+    },
+  });
+  return found;
+}
+
+/**
+ * The type, drawn as the title of a callout the author gave no title.
+ *
+ * Obsidian does the same, and the alternative is worse than it sounds: hiding
+ * the marker on a bare `> [!warning]` leaves an empty `> `, which reads as a
+ * blank first line of the box rather than as its heading.
+ *
+ * Title-cased on the first letter only. `not-a-real-type` stays as it was
+ * written rather than being prettified into something the file does not say —
+ * this is a label for what is in the note, not a name this editor invents.
+ */
+export function calloutLabel(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+export class CalloutTitleWidget extends WidgetType {
+  /**
+   * What the reader sees where the marker was.
+   *
+   * A field rather than something only `toDOM` knows, so the rule is assertable
+   * without a DOM — the rest of this file's tests run against a real tree and no
+   * browser, and a label that could only be checked by rendering would be the
+   * one piece of this feature nothing pinned.
+   */
+  readonly label: string;
+
+  constructor(readonly type: string) {
+    super();
+    this.label = calloutLabel(type);
+  }
+
+  eq(other: CalloutTitleWidget): boolean {
+    return other.type === this.type;
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-lp-callout-type";
+    span.textContent = this.label;
+    return span;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          a table, actually laid out                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One run of text inside a rendered cell, and the classes to draw it in.
+ *
+ * A cell is a list of these rather than a string because a cell is markdown:
+ * `**bold**`, an inline `code` span, a strikethrough. The classes are the same
+ * ones `styleClassFor` hands the rest of the note, so a phrase looks the same
+ * inside a grid as it does in the paragraph above it — one renderer, not two.
+ *
+ * A `\n` in `text` is a **hard break the author asked for** (`<br>`), which is
+ * the only way a newline can reach a cell: a raw one ends the row. The widget
+ * draws it as a line break.
+ */
+export interface CellRun {
+  readonly text: string;
+  /** Space-separated live-preview classes, or `null` for the body face. */
+  readonly className: string | null;
+}
+
+export type { CellSpan };
+
+/** What the delimiter row said about a column, or `null` for the default. */
+export type CellAlign = "left" | "center" | "right" | null;
+
+/** One GFM table, read out of the tree and ready to draw. */
+export interface TableGrid {
+  readonly from: number;
+  readonly to: number;
+  /** The whole table verbatim. What `eq` compares on — see `TableGridWidget`. */
+  readonly source: string;
+  readonly align: readonly CellAlign[];
+  readonly header: ReadonlyArray<readonly CellRun[]>;
+  readonly rows: ReadonlyArray<ReadonlyArray<readonly CellRun[]>>;
+  /**
+   * WHERE EACH DRAWN CELL'S CHARACTERS ARE, which is what makes the grid
+   * editable without a serializer.
+   *
+   * Parallel to `header` and `rows` rather than folded into them, so every
+   * reader of the runs — the widget, and the tests that came before this —
+   * keeps working unchanged. A span is the *raw* range between two
+   * delimiters, padding included: typing in a cell replaces exactly those
+   * characters and touches nothing else in the file. See `tableEdit.ts`.
+   *
+   * `null` where GFM padded a short row out to the header's width: those
+   * columns are drawn but have no characters to edit, and a cell that wrote
+   * to a range it invented would put its text in the row's last real column.
+   */
+  readonly headerSpans: ReadonlyArray<CellSpan | null>;
+  readonly rowSpans: ReadonlyArray<ReadonlyArray<CellSpan | null>>;
+}
+
+/**
+ * The entities `escapeCell` writes, and the numeric forms a person might.
+ *
+ * Deliberately short. This is not an HTML entity table and must not become
+ * one: the job is reading back what the gateway wrote (`&amp;`, `&lt;`,
+ * `&gt;`) plus the handful somebody types by hand. Anything else is left as the
+ * characters the author typed, which is always a defensible thing to draw.
+ */
+const CELL_ENTITIES: ReadonlyMap<string, string> = new Map([
+  ["&amp;", "&"],
+  ["&lt;", "<"],
+  ["&gt;", ">"],
+  ["&quot;", '"'],
+  ["&apos;", "'"],
+  ["&nbsp;", " "],
+]);
+
+function decodeEntity(source: string): string | null {
+  const known = CELL_ENTITIES.get(source.toLowerCase());
+  if (known !== undefined) return known;
+  const numeric = /^&#(x[0-9a-f]+|\d+);$/i.exec(source);
+  if (numeric === null) return null;
+  const digits = numeric[1];
+  const code =
+    digits[0].toLowerCase() === "x" ? Number.parseInt(digits.slice(1), 16) : Number.parseInt(digits, 10);
+  if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff) return null;
+  /*
+    Surrogates are refused explicitly rather than left to throw, because
+    `String.fromCodePoint` does **not** throw for a lone one — it happily
+    returns an unpaired code unit. Drawing `&#xD800;` as itself is the same
+    answer this function gives every entity it does not understand, and is
+    better than putting a half character into the DOM.
+  */
+  if (code >= 0xd800 && code <= 0xdfff) return null;
+  return String.fromCodePoint(code);
+}
+
+/** The one HTML tag a cell may contain that means something here. */
+const BREAK_TAG_RE = /^<br\s*\/?>$/i;
+
+/** `a` and `b` as one class attribute, dropping the empties. */
+function joinClasses(outer: string | null, own: string | null): string | null {
+  if (outer === null) return own;
+  if (own === null) return outer;
+  return `${outer} ${own}`;
+}
+
+/**
+ * A wiki link, drawn as the words rather than as its own brackets.
+ *
+ * `[[note]]` is not a grammar node — the lezer Markdown dialect reads it as an
+ * ordinary `Link` around `[note]` with the outer brackets as plain text, so
+ * hiding the link's own marks (which is right for `[label](url)`) leaves the
+ * reader `[note]`: one bracket at each end and no link. `noteLinks` normally
+ * covers for this by decorating the whole span, and it cannot reach inside a
+ * block widget.
+ *
+ * So the cell finds them itself, the same shape `noteLinksIn` parses, and draws
+ * the alias where there is one. Drawn in the link colour and **not followable**
+ * — the ref that resolves a path against the open note belongs to `noteLinks`
+ * and does not reach here. That is a real gap against the mono-line rendering
+ * this replaces, and it is stated rather than papered over: the link is one
+ * press of the eye away, where it is followable again.
+ */
+const WIKI_LINK_RE = /!?\[\[([^[\]]+)\]\]/g;
+
+/**
+ * One `TableCell` node, as the runs that draw it.
+ *
+ * Built as a per-character map and then merged into runs rather than by walking
+ * children recursively, because the interesting content is **not** a clean
+ * tree: an escape, an entity, a `<br>` and a wiki link each stand for different
+ * text than they are written as, and they nest inside styled spans. A position
+ * map answers "what is drawn here, in what face" once for each of them.
+ *
+ * Four kinds of range stand in for other text, and it is not a coincidence that
+ * the first three are exactly what `apps/mcp/src/forms.js` writes — `forms.js`
+ * escapes every value it puts in a response row:
+ *
+ *  - **`Escape`** — `\|` is how a pipe survives a cell, `\\` a backslash.
+ *    Drawing the backslash would put one in front of every pipe somebody typed.
+ *  - **`HTMLTag`** — `<br>` is how a newline survives one. Every other tag is
+ *    drawn as its own text: this file has no `innerHTML` and is not gaining one.
+ *  - **`Entity`** — `&lt;` is how a `<` survives the above. Decoded *after* the
+ *    break is recognised, which is what keeps somebody who typed a literal
+ *    `<br>` seeing `<br>` — the ordering `escapeCell` sorts its replacements for.
+ *  - **`InlineCode`** — taken whole, and its text run through the gateway's own
+ *    `unescapeCell`. The grammar emits no `Escape`, `Entity` or `HTMLTag` inside
+ *    a code span (CommonMark says its content is literal), so the three rules
+ *    above simply do not fire there and a submitted `` `a|b` `` came back as
+ *    `` `a\|b` ``. GFM unescapes a cell's pipes before inline parsing, so this
+ *    is the spec's answer as well as the round trip's, and using `unescapeCell`
+ *    rather than a second copy of it is what stops the two readers disagreeing.
+ *
+ * Marks are dropped under exactly the rule the rest of the note follows, so a
+ * cell is never the one place `**` shows through.
+ */
+function cellRuns(state: EditorState, cell: SyntaxNode): CellRun[] {
+  const base = cell.from;
+  const text = state.doc.sliceString(cell.from, cell.to);
+  /** The classes covering each character, innermost last. */
+  const classAt: (string | null)[] = new Array<string | null>(text.length).fill(null);
+  /** Pure syntax, drawn as nothing. */
+  const hidden: boolean[] = new Array<boolean>(text.length).fill(false);
+  /** Ranges that stand in for other text, keyed by where they start. */
+  const stands = new Map<number, { to: number; text: string; className: string | null }>();
+  /** Code spans, whose content is literal and so claims its whole range. */
+  const literal: Array<{ from: number; to: number }> = [];
+
+  const paint = (from: number, to: number, className: string): void => {
+    for (let at = from; at < to; at += 1) {
+      classAt[at - base] = joinClasses(classAt[at - base], className);
+    }
+  };
+
+  syntaxTree(state).iterate({
+    from: cell.from,
+    to: cell.to,
+    enter(node) {
+      // Ancestors of the cell overlap the range; they are not in it.
+      if (node.from < cell.from || node.to > cell.to || node.to <= node.from) return;
+
+      if (HIDDEN_MARKS.has(node.name) || isHiddenPlumbing(node.node)) {
+        for (let at = node.from; at < node.to; at += 1) hidden[at - base] = true;
+        return false;
+      }
+
+      const source = state.doc.sliceString(node.from, node.to);
+      const outer = classAt[node.from - base];
+
+      if (node.name === "InlineCode") {
+        literal.push({ from: node.from, to: node.to });
+        /*
+          The marks are the backtick runs at either end; what is between them is
+          the literal content, and `unescapeCell` is the inverse of what wrote it.
+        */
+        const opening = node.node.firstChild;
+        const closing = node.node.lastChild;
+        const innerFrom = opening === null ? node.from : opening.to;
+        const innerTo = closing === null ? node.to : closing.from;
+        stands.set(node.from, {
+          to: node.to,
+          text: unescapeCell(state.doc.sliceString(innerFrom, innerTo)) as string,
+          className: joinClasses(outer, "cm-lp-code"),
+        });
+        return false;
+      }
+      if (node.name === "Escape") {
+        stands.set(node.from, { to: node.to, text: source.slice(1), className: outer });
+        return false;
+      }
+      if (node.name === "HTMLTag") {
+        stands.set(node.from, {
+          to: node.to,
+          text: BREAK_TAG_RE.test(source) ? "\n" : source,
+          className: outer,
+        });
+        return false;
+      }
+      if (node.name === "Entity") {
+        stands.set(node.from, { to: node.to, text: decodeEntity(source) ?? source, className: outer });
+        return false;
+      }
+
+      const own = styleClassFor(node.name);
+      if (own !== null) paint(node.from, node.to, own);
+      return undefined;
+    },
+  });
+
+  /*
+    Wiki links last, and not inside a code span: `` `[[note]]` `` is literal
+    text and the span has already said what it draws. Only a code span blocks
+    one — an `Escape` *inside* the link is how an alias is written in a table
+    cell at all (`[[target\|alias]]`, because a bare pipe would end the cell),
+    so treating any overlapping replacement as a clash would refuse exactly the
+    links that are written correctly.
+  */
+  WIKI_LINK_RE.lastIndex = 0;
+  for (let found = WIKI_LINK_RE.exec(text); found !== null; found = WIKI_LINK_RE.exec(text)) {
+    const from = base + found.index;
+    const to = from + found[0].length;
+    if (literal.some((span) => span.from < to && span.to > from)) continue;
+    /*
+      The alias, which is what a reader is meant to see. Split on the last pipe
+      and then unescape, so the backslash that let the pipe survive the cell is
+      not drawn — the target keeps it, and the target is not what is drawn.
+    */
+    const inside = found[1];
+    const pipe = inside.lastIndexOf("|");
+    const shown = pipe === -1 ? inside : inside.slice(pipe + 1);
+    stands.set(from, {
+      to,
+      text: (unescapeCell(shown) as string).trim(),
+      className: joinClasses(classAt[found.index], "cm-lp-link"),
+    });
+  }
+
+  const raw: CellRun[] = [];
+  const add = (piece: string, className: string | null): void => {
+    if (piece !== "") raw.push({ text: piece, className });
+  };
+  for (let at = 0; at < text.length; ) {
+    const stand = stands.get(base + at);
+    if (stand !== undefined) {
+      add(stand.text, stand.className);
+      at = stand.to - base;
+      continue;
+    }
+    if (hidden[at]) {
+      at += 1;
+      continue;
+    }
+    add(text[at], classAt[at]);
+    at += 1;
+  }
+
+  // Adjacent runs in the same face are one run. Not cosmetic: the widget makes
+  // a span per run, and the loop above emits one per character.
+  const runs: CellRun[] = [];
+  for (const run of raw) {
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last.className === run.className) {
+      runs[runs.length - 1] = { text: last.text + run.text, className: last.className };
+      continue;
+    }
+    runs.push(run);
+  }
+  return runs;
+}
+
+/**
+ * The delimiter row, read for what it is actually for.
+ *
+ * `|:--|:-:|--:|` is not content — it is three column alignments and a count,
+ * and drawing it to a reader (which is what the mono-face pass did) is showing
+ * them the ruler instead of the measurement.
+ */
+export function alignmentsIn(text: string): CellAlign[] {
+  const inner = text.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
+  return inner.split("|").map((part) => {
+    const spec = part.trim();
+    const left = spec.startsWith(":");
+    const right = spec.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
+
+/**
+ * THE COLUMNS OF ONE ROW — AND THE GRAMMAR DOES NOT GIVE YOU THESE.
+ *
+ * The obvious implementation is the `TableCell` children, and it is wrong in
+ * the way that matters most here: **lezer emits no `TableCell` for an empty
+ * cell.** `| 1 |  | 3 |` has two of them, so taking the children shifts every
+ * column to its right — a reader is shown `3` under the header `b`, with no
+ * hint that anything moved. In a form's response table an unanswered optional
+ * field does exactly that to every column after it, which is the feature's own
+ * output silently misattributed.
+ *
+ * So the columns are the gaps *between the delimiters*, which are the `|`
+ * characters and are always in the tree. A gap holds the row's `TableCell` when
+ * there is one and is an empty column when there is not.
+ *
+ * The leading and trailing gaps are dropped only when they are empty, which is
+ * what makes this right for both pipe styles: `| a | b |` opens and closes on a
+ * delimiter and has two columns, and GFM's optional `a | b` has no outer pipes
+ * and also has two.
+ *
+ * Returns one entry per column: the cell's node where there is one and `null`
+ * where the column is empty, and in both cases the gap's own range — which is
+ * what a person editing that column types into. See `TableGrid.headerSpans`.
+ */
+function cellsOf(row: SyntaxNode): Array<{ cell: SyntaxNode | null; span: CellSpan }> {
+  const delimiters: Array<{ from: number; to: number }> = [];
+  const cells: SyntaxNode[] = [];
+  for (let child = row.firstChild; child !== null; child = child.nextSibling) {
+    if (child.name === "TableDelimiter") delimiters.push({ from: child.from, to: child.to });
+    else if (child.name === "TableCell") cells.push(child.node);
+  }
+
+  const gaps: Array<{ from: number; to: number }> = [];
+  let at = row.from;
+  for (const delimiter of delimiters) {
+    gaps.push({ from: at, to: delimiter.from });
+    at = delimiter.to;
+  }
+  gaps.push({ from: at, to: row.to });
+
+  if (gaps.length > 0 && gaps[0].to <= gaps[0].from) gaps.shift();
+  if (gaps.length > 0 && gaps[gaps.length - 1].to <= gaps[gaps.length - 1].from) gaps.pop();
+
+  return gaps.map((gap) => ({
+    cell: cells.find((cell) => cell.from >= gap.from && cell.to <= gap.to) ?? null,
+    span: { from: gap.from, to: gap.to },
+  }));
+}
+
+function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
+  let align: CellAlign[] = [];
+  let header: CellRun[][] | null = null;
+  let headerSpans: CellSpan[] = [];
+  const rows: CellRun[][][] = [];
+  const rowSpans: CellSpan[][] = [];
+
+  const runsOf = (column: { cell: SyntaxNode | null }): CellRun[] =>
+    column.cell === null ? [] : cellRuns(state, column.cell);
+
+  for (let child = table.firstChild; child !== null; child = child.nextSibling) {
+    if (child.name === "TableHeader") {
+      const columns = cellsOf(child);
+      header = columns.map(runsOf);
+      headerSpans = columns.map((column) => column.span);
+      continue;
+    }
+    if (child.name === "TableRow") {
+      const columns = cellsOf(child);
+      rows.push(columns.map(runsOf));
+      rowSpans.push(columns.map((column) => column.span));
+      continue;
+    }
+    /*
+      The delimiter *row*, which is a `TableDelimiter` that is a direct child of
+      the table — the single `|` separators are children of the rows instead, so
+      there is nothing to disambiguate here beyond being on this level.
+    */
+    if (child.name === "TableDelimiter" && align.length === 0) {
+      align = alignmentsIn(state.doc.sliceString(child.from, child.to));
+    }
+  }
+
+  // No header is not a GFM table, whatever else the tree made of it.
+  if (header === null || header.length === 0) return null;
+
+  /*
+    Every row is the header's width. GFM says a short row is padded and a long
+    one is truncated, and the reason to follow it here is structural rather than
+    conformance: a `<tr>` with the wrong number of cells shifts every column to
+    its right for the rest of the table, so one malformed row would misdraw the
+    rows under it rather than itself.
+  */
+  const width = header.length;
+  const shaped = rows.map((row) => {
+    const cells = row.slice(0, width);
+    while (cells.length < width) cells.push([]);
+    return cells;
+  });
+  /*
+    The padding is `null` rather than a range, and that is the whole reason
+    `shapeSpans` is not `shaped` with different contents: a column GFM invented
+    for a short row has no characters in the file, so there is nothing for a
+    keystroke in it to replace. The widget draws it and refuses to edit it.
+  */
+  const shapedSpans = rowSpans.map((row) => {
+    const spans: Array<CellSpan | null> = row.slice(0, width);
+    while (spans.length < width) spans.push(null);
+    return spans;
+  });
+
+  return {
+    from: table.from,
+    to: table.to,
+    source: state.doc.sliceString(table.from, table.to),
+    align,
+    header,
+    rows: shaped,
+    headerSpans,
+    rowSpans: shapedSpans,
+  };
+}
+
+/**
+ * Every table that should be drawn as a grid right now — which is every table.
+ *
+ * **This used to be `state.readOnly`, and nothing else**, the rule the form
+ * block still keeps. The argument was that this file serves "you cannot edit
+ * syntax you cannot see" by revealing markup when the caret touches it, and
+ * that a table cannot do that because the cell you want to edit is the thing
+ * the grid replaced — so a grid that gave way on selection would flicker
+ * between two layouts as somebody arrowed along a row.
+ *
+ * That was right about the flicker and wrong about the unit. Revealing the
+ * *table* is what flickers; revealing the **cell you are in** is the same rule
+ * every heading and every bold phrase in this file already follows, one level
+ * further down. A focused cell shows its own characters and is typed into
+ * directly; every other cell stays drawn. Nothing serializes: the keystroke
+ * replaces the span between two delimiters and the rest of the file is not
+ * read, let alone rewritten — see `tableEdit.ts`, which is where that promise
+ * is kept, and `docs/decisions/app-and-console.md`.
+ *
+ * So a table is a table in both modes, and the difference between them is what
+ * the reader cannot do: a read-only note's cells are not editable, because
+ * `editability` has already taken the caret away and a control that would only
+ * ever fail is not drawn (`imageBlock`'s rule, and the same one).
+ *
+ * ## Except the table the document's own caret is inside
+ *
+ * One reveal survives at the table's own size, and typing a table by hand is
+ * what it is for: the moment `| --- | --- |` is finished the block parses, and
+ * a grid drawn over it would swallow the lines the person is still writing —
+ * measured in a browser, the next two rows landed in a paragraph *under* the
+ * table. That is not the flicker the old rule feared, because a caret in a
+ * cell is **not** a caret in the document: editing a cell leaves
+ * `state.selection` outside the table, so the grid a person is working in
+ * never gives way under them. The document's caret gets inside a table only by
+ * writing one — `atomicRanges` steps over a drawn one — so this is exactly the
+ * case of a table being typed.
+ *
+ * A table that does not start at the margin is left alone, for the reason
+ * `htmlPreviews` gives: a block widget replaces whole lines, and one indented
+ * inside a list item does not occupy them.
+ *
+ * `frontEnd` excludes the frontmatter — see `hangingIndents`.
+ */
+export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
+  const grids: TableGrid[] = [];
+  // The one table that is not drawn, and `writingTable` is the whole rule.
+  const writing = state.field(writingTable, false) ?? null;
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "Table") return;
+      const table = node.node;
+      if (
+        state.doc.lineAt(table.from).from !== table.from ||
+        state.doc.lineAt(table.to).to !== table.to
+      ) {
+        return;
+      }
+      if (writing !== null && writing === table.from) return;
+      const grid = readTable(state, table);
+      if (grid !== null) grids.push(grid);
+    },
+  });
+  return grids;
+}
+
+/**
+ * Where each drawn grid's own state lives between redraws.
+ *
+ * A widget object is thrown away and rebuilt on **every** transaction, and its
+ * DOM is not: `updateDOM` hands the new widget the old element. So anything a
+ * listener needs at event time — which table it belongs to now, which cell was
+ * last in — belongs to the element rather than to the widget that made it. A
+ * handler that closed over `this.grid` would write the state of the keystroke
+ * before last back into the file, which is the bug `ImageRowWidget.rowNow`
+ * exists to avoid, one redraw earlier.
+ *
+ * A `WeakMap` rather than dataset properties because the values are objects,
+ * and because nothing here should put editor state in the DOM where a paste of
+ * the rendered note would carry it away.
+ */
+interface DrawnGrid {
+  grid: TableGrid;
+  canEdit: boolean;
+  /** The last cell focused in this grid, for the controls to act on. */
+  focused: { row: number; column: number } | null;
+}
+const drawnGrids = new WeakMap<HTMLElement, DrawnGrid>();
+
+/** The header row's own row index. Not `0`: that is the first body row. */
+const HEADER_ROW = -1;
+
+/**
+ * A table, drawn as a table — and, while the note can be typed into, edited as
+ * one.
+ *
+ * A real `<table>` rather than a grid of divs, because this is tabular data and
+ * the element carries the row and column relationships to a screen reader for
+ * free — a reader who cannot see the alignment is exactly the one who needs to
+ * be told which header a cell belongs to.
+ *
+ * Nothing here interprets the note as markup: every string reaches the DOM
+ * through `textContent`, the way `FormWidget` does and for the same reason. The
+ * one tag a cell may contain that means something — `<br>` — has already become
+ * a `\n` in `cellRuns`, so the break is drawn by this file rather than parsed
+ * by the browser.
+ *
+ * ## The reveal rule, one level down
+ *
+ * An editable cell is `contenteditable`, and **the cell with focus shows its
+ * own characters** while every other cell stays drawn: `**bold**` in the cell
+ * you are in, **bold** in the one beside it. That is this file's rule about
+ * `## Heading` applied to a unit the size of a cell, and it is what makes the
+ * grid editable without a serializer — the text in the focused cell *is* the
+ * source, so writing it back is a change to one span rather than a rendering
+ * of a model. See `tableEdit.ts`.
+ *
+ * Two consequences worth naming:
+ *
+ *  - **CodeMirror's caret is not in the cell.** The widget's DOM is not the
+ *    document, so focus is in a `contenteditable` element of ours and
+ *    `view.hasFocus` is false while it is there. That is deliberate — it is
+ *    what stops CodeMirror redrawing its own selection over the top — and it
+ *    is why Escape exists below: it hands focus back with the caret after the
+ *    table. It also means the editor's own toolbar commands (bold, a link)
+ *    act on the document rather than on the cell while a cell has focus; the
+ *    characters are right there to type instead, which is the honest half of
+ *    a gap that is stated rather than papered over.
+ *  - **`ignoreEvent` and `ignoreMutation` both say "not yours".** Every event
+ *    inside the grid is the grid's, and every mutation inside it is this
+ *    widget writing to its own DOM. Without the second, CodeMirror reads our
+ *    cell edit as somebody typing into the document and appends the text
+ *    twice.
+ */
+export class TableGridWidget extends WidgetType {
+  /*
+    `canEdit`, not `editable`: `WidgetType` owns `editable` as a getter with no
+    setter, and a field of that name throws on construction and takes the whole
+    note screen down. The full story is in `ImageRowWidget`, which found it.
+  */
+  constructor(
+    private readonly grid: TableGrid,
+    private readonly canEdit: boolean,
+  ) {
+    super();
+  }
+
+  /*
+    Compared on the table's own text. Like `FormWidget.eq` this is load-bearing
+    rather than an optimisation — the decoration set is rebuilt on every
+    transaction, and a widget that reported itself new would have its DOM torn
+    down and rebuilt on every keystroke elsewhere in the note. When it does
+    report itself new, `updateDOM` below keeps the element anyway, because the
+    keystroke that changed the text is usually somebody typing *in* the grid.
+  */
+  eq(other: TableGridWidget): boolean {
+    return other.grid.source === this.grid.source && other.canEdit === this.canEdit;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    /*
+      The scroller is the wrapper rather than the table, so a table wider than
+      the measure scrolls inside its own box. Without it the note itself scrolls
+      sideways, and then every paragraph in the note is dragged off screen by
+      one wide table.
+    */
+    const wrap = document.createElement("div");
+    wrap.className = this.canEdit ? "cm-lp-grid cm-lp-grid-live" : "cm-lp-grid";
+    drawnGrids.set(wrap, { grid: this.grid, canEdit: this.canEdit, focused: null });
+
+    /*
+      The frame is what the controls are positioned against, and it shrinks to
+      the table: pinning them to the scroller instead would leave the add-column
+      button at the right edge of the *measure* on a two-column table, a hand's
+      width from the column it adds to.
+    */
+    const frame = document.createElement("div");
+    frame.className = "cm-lp-grid-frame";
+    frame.append(this.drawTable(view, wrap));
+    if (this.canEdit) frame.append(this.drawAppends(view, wrap));
+    wrap.append(frame);
+    return wrap;
+  }
+
+  /**
+   * The same element, brought up to date — rather than a new one.
+   *
+   * Returning `false` here would be correct and unusable: CodeMirror would
+   * throw the element away and build another, and the `contenteditable` cell
+   * the person is typing in would lose focus and the caret with it on **every
+   * keystroke**, because every keystroke is a document change. So the element
+   * is patched in place, and the one cell that must not be touched is the one
+   * with focus: its DOM already holds what the person just typed, and writing
+   * the document's version of it back would move the caret to the end of the
+   * cell mid-word.
+   *
+   * A change of shape — a row or a column added or taken away — rebuilds the
+   * table inside the *same* wrapper, which is what keeps the listeners' captured
+   * element valid and lets the control that made the change put focus back on a
+   * cell that now exists.
+   */
+  updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    const drawn = drawnGrids.get(dom);
+    const table = dom.querySelector("table");
+    if (drawn === undefined || table === null) return false;
+
+    /*
+      A repaint writes text into cells that are already wired up; it does not
+      wire one up. So anything that changes *which* cells can be typed into is
+      a rebuild: the count of rows and columns, the mode, and the pattern of
+      padded-out columns — a row that gained a real cell while somebody else
+      was editing the file would otherwise stay uneditable until the note was
+      reopened.
+    */
+    const reshaped =
+      drawn.canEdit !== this.canEdit ||
+      drawn.grid.header.length !== this.grid.header.length ||
+      drawn.grid.rows.length !== this.grid.rows.length ||
+      paddingOf(drawn.grid) !== paddingOf(this.grid);
+    drawnGrids.set(dom, { grid: this.grid, canEdit: this.canEdit, focused: drawn.focused });
+
+    if (reshaped) {
+      dom.className = this.canEdit ? "cm-lp-grid cm-lp-grid-live" : "cm-lp-grid";
+      const frame = table.parentElement ?? dom;
+      /*
+        A menu open over a table whose shape has just changed is a menu
+        pointing at a row that may not exist; it is closed with the redraw.
+      */
+      closeGridMenu();
+      frame.replaceChildren(this.drawTable(view, dom));
+      if (this.canEdit) frame.append(this.drawAppends(view, dom));
+      return true;
+    }
+
+    const active = dom.ownerDocument.activeElement;
+    this.eachCell((row, column, runs) => {
+      const cell = cellElement(dom, row, column);
+      if (cell === null || cell === active) return;
+      paintCell(cell, runs, this.grid.align[column] ?? null);
+    });
+    return true;
+  }
+
+  /** Every cell of the grid, header first, in the order they are drawn. */
+  private eachCell(visit: (row: number, column: number, runs: readonly CellRun[]) => void): void {
+    this.grid.header.forEach((runs, column) => visit(HEADER_ROW, column, runs));
+    this.grid.rows.forEach((cells, row) => cells.forEach((runs, column) => visit(row, column, runs)));
+  }
+
+  private drawTable(view: EditorView, wrap: HTMLElement): HTMLElement {
+    const table = document.createElement("table");
+    table.className = "cm-lp-grid-table";
+    const host = this.canEdit ? this.chromeHost(view, wrap) : null;
+
+    const head = document.createElement("thead");
+
+    /*
+      The handles are cells of the table rather than boxes floating over it.
+      A gutter column on the left and a strip across the top mean every handle
+      is laid out by the table itself, beside the row or above the column it
+      acts on, at whatever width that column turned out to be — the
+      alternative is measuring the grid and positioning nine buttons against
+      it, which is wrong for a frame every keystroke rebuilds.
+
+      Only while the note can be edited. A reader's table has no gutter and no
+      strip, so it is exactly the table it always was.
+    */
+    if (host !== null) {
+      const strip = document.createElement("tr");
+      strip.className = "cm-lp-grid-strip";
+      const corner = document.createElement("th");
+      corner.className = "cm-lp-grid-corner";
+      corner.append(tableHandle(host));
+      strip.append(corner);
+      this.grid.header.forEach((_cell, column) => {
+        const slot = document.createElement("th");
+        slot.className = "cm-lp-grid-colslot";
+        slot.dataset.lpColumnHandle = String(column);
+        slot.append(columnHandle(host, column));
+        strip.append(slot);
+      });
+      head.append(strip);
+    }
+
+    const headRow = document.createElement("tr");
+    if (host !== null) headRow.append(gutterCell("th"));
+    this.grid.header.forEach((cell, column) => {
+      headRow.append(this.drawCell(view, wrap, "th", cell, HEADER_ROW, column));
+    });
+    head.append(headRow);
+    table.append(head);
+
+    const body = document.createElement("tbody");
+    this.grid.rows.forEach((row, index) => {
+      const tr = document.createElement("tr");
+      if (host !== null) {
+        const gutter = gutterCell("td");
+        gutter.append(rowHandle(host, index));
+        tr.append(gutter);
+      }
+      row.forEach((cell, column) => {
+        tr.append(this.drawCell(view, wrap, "td", cell, index, column));
+      });
+      body.append(tr);
+    });
+    table.append(body);
+    return table;
+  }
+
+  private drawCell(
+    view: EditorView,
+    wrap: HTMLElement,
+    tag: "th" | "td",
+    runs: readonly CellRun[],
+    row: number,
+    column: number,
+  ): HTMLElement {
+    const cell = document.createElement(tag);
+    cell.dataset.lpRow = String(row);
+    cell.dataset.lpColumn = String(column);
+    paintCell(cell, runs, this.grid.align[column] ?? null);
+
+    /*
+      A column GFM padded into a short row has no characters in the file, so
+      there is nothing for a keystroke in it to replace — see
+      `TableGrid.headerSpans`. Drawn, and not editable, which is the same
+      answer `editability` gives about a control that could only ever fail.
+    */
+    if (this.canEdit && spanOf(this.grid, row, column) !== null) {
+      makeCellEditable(view, wrap, cell, row, column);
+    }
+    return cell;
+  }
+
+
+  /**
+   * The four things a person can do to a table's shape.
+   *
+   * Pinned to the frame and revealed on hover or focus, so an editable table
+   * that nobody is working in looks exactly like the one a reader gets. The two
+   * deletions stay disabled until a cell in *this* grid has been focused,
+   * because "delete row" with no row named has to guess, and the guess is a
+   * row of somebody's note.
+   *
+   * `mousedown` is cancelled on each of them: a press on a button moves focus,
+   * and the cell losing focus is how the widget would forget which row the
+   * person meant a fraction of a second before being asked to delete it.
+   */
+  /**
+   * What the handles ask, answered from the table as it is **now**.
+   *
+   * Never from the grid this widget was built with: a person can press two
+   * menu items before a redraw, and a plan made against the first one's
+   * document would delete a row that has already moved. Same argument as
+   * `ImageRowWidget.rowNow`, and the reason every action re-reads the region.
+   */
+  private chromeHost(view: EditorView, wrap: HTMLElement): GridChromeHost {
+    const now = () => drawnGrids.get(wrap)?.grid ?? this.grid;
+    return {
+      rows: () => now().rows.length,
+      columns: () => now().header.length,
+      align: (column) => now().align[column] ?? null,
+      cellsOfRow: (row) => [...wrap.querySelectorAll<HTMLElement>(`[data-lp-row="${row}"]`)],
+      cellsOfColumn: (column) => [
+        ...wrap.querySelectorAll<HTMLElement>(`[data-lp-column="${column}"]`),
+      ],
+      run: (action) => this.runAction(view, wrap, action),
+    };
+  }
+
+  /**
+   * One thing a person asked of the table's shape, done.
+   *
+   * Every branch ends by putting the caret somewhere sensible, and that is not
+   * a nicety: a structural change is undone with ⌘Z, and ⌘Z goes to whatever
+   * has focus. After a press on a menu item that is the menu, which is gone —
+   * so the grid hands focus to a cell that still exists, or to the note.
+   */
+  private runAction(view: EditorView, wrap: HTMLElement, action: GridAction): void {
+    const region = regionOf(view, wrap);
+    if (region === null || view.state.readOnly) return;
+    const state = view.state;
+
+    switch (action.kind) {
+      case "insert-row": {
+        if (!dispatchPlan(view, planInsertRow(state, region, action.at, action.where))) return;
+        focusCell(wrap, action.where === "below" ? action.at + 1 : action.at, 0, "end");
+        return;
+      }
+      case "delete-row": {
+        if (!dispatchPlan(view, planDeleteRow(state, region, action.at))) return;
+        // The row below took this one's index, or the one above is the last.
+        const rows = drawnGrids.get(wrap)?.grid.rows.length ?? 0;
+        focusCell(wrap, Math.min(action.at, rows - 1), 0, "end");
+        return;
+      }
+      case "move-row": {
+        if (!dispatchPlan(view, planMoveRow(state, region, action.at, action.by))) return;
+        // The caret follows the row rather than staying at the index.
+        focusCell(wrap, action.at + action.by, 0, "end");
+        return;
+      }
+      case "insert-column": {
+        if (!dispatchPlan(view, planInsertColumn(state, region, action.at, action.where))) return;
+        focusCell(wrap, HEADER_ROW, action.where === "right" ? action.at + 1 : action.at, "end");
+        return;
+      }
+      case "delete-column": {
+        if (!dispatchPlan(view, planDeleteColumn(state, region, action.at))) return;
+        const columns = drawnGrids.get(wrap)?.grid.header.length ?? 0;
+        focusCell(wrap, HEADER_ROW, Math.min(action.at, columns - 1), "end");
+        return;
+      }
+      case "move-column": {
+        if (!dispatchPlan(view, planMoveColumn(state, region, action.at, action.by))) return;
+        focusCell(wrap, HEADER_ROW, action.at + action.by, "end");
+        return;
+      }
+      case "align-column": {
+        dispatchPlan(view, planAlignColumn(state, region, action.at, action.align));
+        return;
+      }
+      case "edit-source": {
+        /*
+          The escape hatch, and the one action that writes nothing. The table
+          gives way to its own pipes and the caret goes into them, which is
+          the state `writingTable` already models for a table being typed —
+          so leaving is the same gesture as leaving one you just wrote.
+        */
+        view.focus();
+        view.dispatch({
+          selection: { anchor: Math.min(region.to, view.state.doc.length) },
+          effects: showTableSource(region.from),
+          scrollIntoView: true,
+        });
+        return;
+      }
+      case "delete-table": {
+        const at = region.from;
+        if (!dispatchPlan(view, planDeleteTable(state, region))) return;
+        view.focus();
+        view.dispatch({ selection: { anchor: Math.min(at, view.state.doc.length) } });
+        return;
+      }
+    }
+  }
+
+  /** The two appends, which need no menu to say what they will do. */
+  private drawAppends(view: EditorView, wrap: HTMLElement): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "cm-lp-grid-controls";
+    bar.append(
+      appendButton("Add row at the end", "+ row", () => {
+        const region = regionOf(view, wrap);
+        if (region === null) return;
+        const rows = drawnGrids.get(wrap)?.grid.rows.length ?? this.grid.rows.length;
+        if (!dispatchPlan(view, planAddRow(view.state, region, rows - 1))) return;
+        focusCell(wrap, rows, 0, "end");
+      }),
+      appendButton("Add column at the end", "+ col", () => {
+        const region = regionOf(view, wrap);
+        if (region === null) return;
+        const columns = drawnGrids.get(wrap)?.grid.header.length ?? this.grid.header.length;
+        if (!dispatchPlan(view, planAddColumn(view.state, region, columns - 1))) return;
+        focusCell(wrap, HEADER_ROW, columns, "end");
+      }),
+    );
+    return bar;
+  }
+
+  /**
+   * The grid is going off the screen, so its menus go with it.
+   *
+   * A menu is drawn on the document's body rather than inside the grid, which
+   * is what keeps it out of the scroller that would clip it — and means
+   * nothing removes it when CodeMirror throws the widget away. Scrolling a
+   * table out of the viewport does exactly that, and the menu left behind
+   * would act on a row through a handle that is no longer anywhere.
+   */
+  destroy(): void {
+    closeGridMenu();
+  }
+
+  /*
+    Every event inside the grid is the grid's. CodeMirror's default is to
+    ignore events in a widget already; saying it for all of them is what keeps
+    a click into a cell from also being a click into the document, and a
+    keystroke in a cell from also being one in the note.
+  */
+  ignoreEvent(): boolean {
+    return true;
+  }
+
+  /*
+    And every mutation inside it is this widget writing to its own DOM — a
+    focused cell showing its source, a redraw after a blur. Without this
+    CodeMirror reads those as edits to the document it is displaying and writes
+    them into the file a second time.
+  */
+  ignoreMutation(): boolean {
+    return true;
+  }
+}
+
+/** A cell of the handle gutter: chrome, never content, never editable. */
+function gutterCell(tag: "th" | "td"): HTMLElement {
+  const cell = document.createElement(tag);
+  cell.className = "cm-lp-grid-gutter";
+  return cell;
+}
+
+/**
+ * One cell's drawn content, replacing whatever was in it.
+ *
+ * Outside the widget because two things paint a cell: the draw, and a cell
+ * losing focus — which has to put the *rendering* back where the source was,
+ * and would otherwise need a widget instance it does not have.
+ */
+function paintCell(cell: HTMLElement, runs: readonly CellRun[], align: CellAlign): void {
+  cell.replaceChildren();
+  cell.classList.remove(
+    "cm-lp-grid-empty",
+    "cm-lp-grid-source",
+    "cm-lp-grid-left",
+    "cm-lp-grid-center",
+    "cm-lp-grid-right",
+  );
+  if (align !== null) cell.classList.add(`cm-lp-grid-${align}`);
+
+  if (runs.every((run) => run.text.trim() === "")) {
+    /*
+      A dash rather than nothing — while reading. An empty cell drawn as empty
+      is indistinguishable from a column that failed to render, and a reader has
+      no way to tell which they are looking at. In an editable grid the cell is
+      a box you can click into and the question does not arise, so the dash is
+      dropped there by `livePreviewStyles` rather than typed over.
+    */
+    cell.classList.add("cm-lp-grid-empty");
+    return;
+  }
+
+  for (const run of runs) {
+    // A `\n` is the hard break the author wrote as `<br>`; see `cellRuns`.
+    const pieces = run.text.split("\n");
+    pieces.forEach((piece, index) => {
+      if (index > 0) cell.append(document.createElement("br"));
+      if (piece === "") return;
+      if (run.className === null) {
+        cell.append(document.createTextNode(piece));
+        return;
+      }
+      const span = document.createElement("span");
+      span.className = run.className;
+      span.textContent = piece;
+      cell.append(span);
+    });
+  }
+}
+
+/** Which cells of a grid are padding rather than characters, as a signature. */
+function paddingOf(grid: TableGrid): string {
+  const row = (spans: ReadonlyArray<CellSpan | null>) =>
+    spans.map((span) => (span === null ? "0" : "1")).join("");
+  return [row(grid.headerSpans), ...grid.rowSpans.map(row)].join("/");
+}
+
+/**
+ * ⌘B, IN THE CELL RATHER THAN IN THE DOCUMENT.
+ *
+ * The gap this closes was stated rather than hidden when the grid became
+ * editable, and it is the one people would meet first: focus is in a widget's
+ * own `contenteditable`, so every formatting verb — the keymap's ⌘B, the
+ * phone's Bold key, the right-click menu — acted on the document behind the
+ * table and left the cell alone. "The characters are right there to type
+ * instead" is true and is not an answer for a chord somebody has in their
+ * fingers.
+ *
+ * The decision is `planToggle`'s, unchanged, over the cell's text and the
+ * selection *inside the cell*: the same CommonMark run rule, so `**x**` and
+ * `*x*` compose in a cell exactly as they do in a paragraph. What differs is
+ * where it is applied — the cell holds source while it has focus, so the new
+ * text is written straight back into that one span and the DOM keeps the
+ * selection the plan returned.
+ *
+ * Returns whether a cell took it, so `markdownFormat` can fall through to the
+ * document when no cell has focus.
+ */
+export function toggleMarkerInCell(view: EditorView, before: string, after: string): boolean {
+  const active = view.dom.ownerDocument.activeElement;
+  if (!(active instanceof HTMLElement)) return false;
+  if (!active.classList.contains("cm-lp-grid-cell")) return false;
+  if (!view.dom.contains(active) || view.state.readOnly) return false;
+
+  const wrap = active.closest<HTMLElement>(".cm-lp-grid");
+  if (wrap === null) return false;
+  const row = Number(active.dataset.lpRow);
+  const column = Number(active.dataset.lpColumn);
+  if (!Number.isInteger(row) || !Number.isInteger(column)) return false;
+  const span = cellSpanNow(view, wrap, row, column);
+  if (span === null) return false;
+
+  const text = active.textContent ?? "";
+  const selected = cellSelection(active);
+  if (selected === null) return false;
+
+  const plan = planToggle(text, EditorSelection.range(selected.from, selected.to), before, after);
+  /*
+    Applied here rather than through a transaction on the document: the
+    changes are offsets into the cell's own text, and what reaches the file is
+    one replacement of one span — `planCellEdit`'s rule, and the reason this
+    feature has no serializer.
+  */
+  let next = text;
+  for (const change of [...plan.changes].reverse()) {
+    const spec = change as { from: number; to?: number; insert?: string };
+    next = next.slice(0, spec.from) + (spec.insert ?? "") + next.slice(spec.to ?? spec.from);
+  }
+
+  active.textContent = next;
+  dispatchPlan(view, planCellEdit(view.state, span, next));
+  selectInCell(active, plan.range.from, plan.range.to);
+  return true;
+}
+
+/**
+ * The marker chord a keystroke is, or `null`.
+ *
+ * The same three the editor's keymap binds (`editorSetup.ts`), and the same
+ * reason there is no fourth: every obvious chord for an inline code span is
+ * taken by the browser or by this app.
+ */
+function markerChord(event: KeyboardEvent): MarkerName | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null;
+  const key = event.key.toLowerCase();
+  if (key === "b" && !event.shiftKey) return "bold";
+  if (key === "i" && !event.shiftKey) return "italic";
+  if (key === "x" && event.shiftKey) return "strikethrough";
+  return null;
+}
+
+/** The selection inside a cell, as offsets into its text. */
+function cellSelection(cell: HTMLElement): { from: number; to: number } | null {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return null;
+  const selection = view.getSelection();
+  if (selection === null || selection.rangeCount === 0) return { from: 0, to: 0 };
+  try {
+    const range = selection.getRangeAt(0);
+    if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) return null;
+    const before = cell.ownerDocument.createRange();
+    before.selectNodeContents(cell);
+    before.setEnd(range.startContainer, range.startOffset);
+    const from = before.toString().length;
+    return { from, to: from + range.toString().length };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Type into a cell at its caret, for the keys that mean text rather than a
+ * command — Shift-Enter, and a paste.
+ */
+function insertInCell(cell: HTMLElement, text: string): void {
+  const view = cell.ownerDocument.defaultView;
+  const selection = view?.getSelection?.() ?? null;
+  /*
+    The end of the cell when there is no usable caret *in this cell*. A
+    selection left somewhere else — another cell, a node a redraw removed —
+    is not a caret here, and inserting at it would put the person's break in a
+    table they are not looking at. Found by a jsdom suite where one test's
+    selection outlived its editor, which is the same thing a stale range is in
+    a browser.
+  */
+  const inside =
+    selection !== null &&
+    selection.rangeCount > 0 &&
+    cell.contains(selection.getRangeAt(0).startContainer);
+  if (!inside || selection === null) {
+    cell.textContent = (cell.textContent ?? "") + text;
+    return;
+  }
+  try {
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const node = cell.ownerDocument.createTextNode(text);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch {
+    cell.textContent = (cell.textContent ?? "") + text;
+  }
+}
+
+/** Put a selection back in a cell, by offsets into the text it now holds. */
+function selectInCell(cell: HTMLElement, from: number, to: number): void {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return;
+  const selection = view.getSelection();
+  const node = cell.firstChild;
+  if (selection === null || node === null || node.nodeType !== 3) return;
+  try {
+    const length = node.textContent?.length ?? 0;
+    const range = cell.ownerDocument.createRange();
+    range.setStart(node, Math.min(from, length));
+    range.setEnd(node, Math.min(to, length));
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch {
+    /* A selection this browser will not place is not a reason to lose the edit. */
+  }
+}
+
+/** The span of one drawn cell, or `null` where GFM padded the row out. */
+function spanOf(grid: TableGrid, row: number, column: number): CellSpan | null {
+  const spans = row === HEADER_ROW ? grid.headerSpans : (grid.rowSpans[row] ?? []);
+  return spans[column] ?? null;
+}
+
+/** The cell element at these coordinates, in a grid that is already drawn. */
+function cellElement(wrap: HTMLElement, row: number, column: number): HTMLElement | null {
+  return wrap.querySelector<HTMLElement>(
+    `[data-lp-row="${row}"][data-lp-column="${column}"]`,
+  );
+}
+
+/**
+ * The table this element is drawing, as the document has it **now**.
+ *
+ * Not the grid the widget was built from: a control can be pressed twice
+ * before a redraw, and the second press would plan against the first one's
+ * document. The element's stored grid is replaced by `updateDOM` on every
+ * transaction, so its `from` is where the table is now, and the tree is read
+ * from there.
+ */
+function regionOf(view: EditorView, wrap: HTMLElement): TableRegion | null {
+  const drawn = drawnGrids.get(wrap);
+  if (drawn === undefined) return null;
+  const table = tableNodeAt(view.state, drawn.grid.from);
+  if (table === null) return null;
+  return { from: table.from, to: table.to };
+}
+
+/** The `Table` node that starts at `from`, if the document still has one. */
+function tableNodeAt(state: EditorState, from: number): SyntaxNode | null {
+  if (from < 0 || from > state.doc.length) return null;
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(from, 1);
+  for (; node !== null; node = node.parent) {
+    if (node.name === "Table") return node;
+  }
+  return null;
+}
+
+/** The current source of one cell, by coordinates rather than by captured span. */
+function cellSpanNow(view: EditorView, wrap: HTMLElement, row: number, column: number): CellSpan | null {
+  const drawn = drawnGrids.get(wrap);
+  if (drawn === undefined) return null;
+  const table = tableNodeAt(view.state, drawn.grid.from);
+  if (table === null) return null;
+  const grid = readTable(view.state, table);
+  if (grid === null) return null;
+  return spanOf(grid, row, column);
+}
+
+function dispatchPlan(view: EditorView, plan: TransactionSpec | null): boolean {
+  if (plan === null) return false;
+  if (view.state.readOnly) return false;
+  view.dispatch(plan);
+  return true;
+}
+
+/**
+ * Put the caret in a cell of the grid drawn for the table at `from`.
+ *
+ * The one thing outside this file that has to reach inside a grid: something
+ * that *makes* a table — the size picker's "4 × 3" — has to leave the person
+ * in its first cell, and after this change there is no caret position in the
+ * source for it to use. The table's start is the handle, because that is what
+ * the command that inserted it knows.
+ *
+ * Returns whether a cell took the caret, so a caller can keep whatever it was
+ * doing before when the grid is not there: a read-only note, or a table the
+ * grid refused.
+ */
+export function focusGridCell(
+  view: EditorView,
+  from: number,
+  row: number,
+  column: number,
+): boolean {
+  const wraps = view.dom.querySelectorAll<HTMLElement>(".cm-lp-grid");
+  for (const wrap of wraps) {
+    if (drawnGrids.get(wrap)?.grid.from !== from) continue;
+    return focusCell(wrap, row, column, "end");
+  }
+  return false;
+}
+
+/** Put the caret in a cell of a grid that is on screen. */
+function focusCell(
+  wrap: HTMLElement,
+  row: number,
+  column: number,
+  caret: "start" | "end",
+): boolean {
+  const cell = cellElement(wrap, row, column);
+  if (cell === null || cell.getAttribute("contenteditable") === null) return false;
+  cell.focus();
+  placeCaret(cell, caret);
+  return true;
+}
+
+/**
+ * The caret, at one end of a cell.
+ *
+ * Wrapped in the feature checks rather than assumed: this runs in a WKWebView
+ * and in jsdom, and the unit suite mounts no selection at all. A cell that
+ * could not place its caret is still focused and still typed into — at
+ * whichever end the browser chose — which is worth more than a thrown error
+ * inside a keystroke handler.
+ */
+function placeCaret(cell: HTMLElement, caret: "start" | "end"): void {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return;
+  const selection = view.getSelection();
+  if (selection === null || typeof cell.ownerDocument.createRange !== "function") return;
+  try {
+    const range = cell.ownerDocument.createRange();
+    range.selectNodeContents(cell);
+    range.collapse(caret === "start");
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch {
+    /* A selection this browser will not place is not a reason to lose the key. */
+  }
+}
+
+/** Where the caret is in a cell, as an offset into its text. */
+function caretOffset(cell: HTMLElement): number | null {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return null;
+  const selection = view.getSelection();
+  if (selection === null || selection.rangeCount === 0) return null;
+  try {
+    const range = selection.getRangeAt(0).cloneRange();
+    range.selectNodeContents(cell);
+    range.setEnd(selection.getRangeAt(0).endContainer, selection.getRangeAt(0).endOffset);
+    return range.toString().length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One cell, wired up: focus shows its source, typing writes it back, and the
+ * keys that mean "somewhere else in this table" move rather than being typed.
+ *
+ * The write is `planCellEdit` against the span this cell has **now**, looked
+ * up per event — see `cellSpanNow`. Nothing captured from the draw survives a
+ * keystroke, because a keystroke is a document change and every span after the
+ * caret has moved by the time the next one arrives.
+ */
+function makeCellEditable(
+  view: EditorView,
+  wrap: HTMLElement,
+  cell: HTMLElement,
+  row: number,
+  column: number,
+): void {
+  /*
+    The attribute rather than the property: `contenteditable="true"` is the one
+    value every engine this ships to has always understood, and the property
+    setter is not implemented by the DOM the unit suite runs against.
+    `plaintext-only` would remove the paste handler below and take Firefox
+    before 136 with it.
+  */
+  cell.setAttribute("contenteditable", "true");
+  cell.setAttribute("spellcheck", "false");
+  cell.classList.add("cm-lp-grid-cell");
+
+  const moveTo = (nextRow: number, nextColumn: number, caret: "start" | "end"): boolean =>
+    focusCell(wrap, nextRow, nextColumn, caret);
+
+  /**
+   * Move, stepping over anything that cannot take a caret.
+   *
+   * A column GFM padded into a short row is drawn and not editable, and Tab
+   * landing on one would look exactly like Tab being broken: focus stays where
+   * it was and the key appears to have done nothing. So the move walks on in
+   * the same direction until a cell takes it, or the table runs out.
+   */
+  const moveThrough = (
+    step: (from: { row: number; column: number }) => { row: number; column: number } | null,
+    start: { row: number; column: number },
+    caret: "start" | "end",
+  ): boolean => {
+    let at: { row: number; column: number } | null = step(start);
+    // Bounded by the size of the table: every step moves one cell on.
+    for (let guard = 0; at !== null && guard <= width() * (depth() + 1); guard += 1) {
+      if (moveTo(at.row, at.column, caret)) return true;
+      at = step(at);
+    }
+    return false;
+  };
+
+  const width = (): number => drawnGrids.get(wrap)?.grid.header.length ?? 0;
+  const depth = (): number => drawnGrids.get(wrap)?.grid.rows.length ?? 0;
+
+  /** The cell after this one in reading order, or `null` at the end. */
+  const after = (at: { row: number; column: number }): { row: number; column: number } | null => {
+    if (at.column + 1 < width()) return { row: at.row, column: at.column + 1 };
+    if (at.row + 1 <= depth() - 1) return { row: at.row + 1, column: 0 };
+    return null;
+  };
+  const before = (at: { row: number; column: number }): { row: number; column: number } | null => {
+    if (at.column > 0) return { row: at.row, column: at.column - 1 };
+    if (at.row > HEADER_ROW) return { row: at.row - 1, column: width() - 1 };
+    return null;
+  };
+  const here = (): { row: number; column: number } => ({ row, column });
+  const next = (): { row: number; column: number } | null => after(here());
+  const previous = (): { row: number; column: number } | null => before(here());
+
+  /*
+    `into` is where the caret lands in the new row, and the two callers want
+    different columns: Enter is continuing down a column and stays in it, Tab
+    has just run off the end of the row and starts the next one.
+  */
+  const addRowBelow = (into: number): void => {
+    const region = regionOf(view, wrap);
+    if (region === null) return;
+    if (!dispatchPlan(view, planAddRow(view.state, region, row))) return;
+    moveTo(row + 1, into, "end");
+  };
+
+  cell.addEventListener("focus", () => {
+    const drawn = drawnGrids.get(wrap);
+    if (drawn !== undefined) drawn.focused = { row, column };
+    /*
+      Whatever was being typed is handed over: a caret in a cell is how
+      somebody says they are done writing the pipes. Without this, the table
+      you had just finished typing would still be revealed as source behind the
+      cell you clicked, and the click would land on a grid that is about to
+      disappear. See `writingTable`.
+    */
+    if (!view.state.readOnly && (view.state.field(writingTable, false) ?? null) !== null) {
+      view.dispatch({ effects: stopWritingTable() });
+    }
+    /*
+      THE REVEAL, at the size of a cell. The characters of the cell replace its
+      drawing, so what the person edits is the source and what is written back
+      is the characters they typed — no serializer, which is the whole promise
+      of `tableEdit.ts`. A cell whose source is already what is on screen (most
+      of them: plain text) is left alone, so a click lands the caret where the
+      person aimed it rather than at the end of the word.
+    */
+    const span = cellSpanNow(view, wrap, row, column);
+    if (span === null) return;
+    const source = view.state.doc.sliceString(span.from, span.to).trim();
+    cell.classList.add("cm-lp-grid-source");
+    cell.classList.remove("cm-lp-grid-empty");
+    if ((cell.textContent ?? "") === source) return;
+    cell.textContent = source;
+    placeCaret(cell, "end");
+  });
+
+  cell.addEventListener("blur", () => {
+    cell.classList.remove("cm-lp-grid-source");
+    /*
+      Drawn again from the document rather than from what is in the element:
+      the element holds source and the grid holds a rendering of it, and the
+      one that is true is the file's.
+    */
+    const drawn = drawnGrids.get(wrap);
+    if (drawn === undefined) return;
+    const runs =
+      row === HEADER_ROW ? drawn.grid.header[column] : (drawn.grid.rows[row]?.[column] ?? []);
+    paintCell(cell, runs ?? [], drawn.grid.align[column] ?? null);
+  });
+
+  cell.addEventListener("input", () => {
+    const span = cellSpanNow(view, wrap, row, column);
+    if (span === null) return;
+    dispatchPlan(view, planCellEdit(view.state, span, cell.textContent ?? ""));
+  });
+
+  cell.addEventListener("paste", (event) => {
+    /*
+      Plain text, always. A cell is markdown source while it is focused, and
+      pasted HTML would put elements inside it that `textContent` flattens on
+      the next keystroke — the paste would appear to work and then collapse.
+    */
+    const clipboard = (event as ClipboardEvent).clipboardData;
+    if (clipboard === null || clipboard === undefined) return;
+    event.preventDefault();
+    const text = clipboard.getData("text/plain");
+    if (text === "") return;
+    const document_ = cell.ownerDocument;
+    const selection = document_.defaultView?.getSelection?.() ?? null;
+    if (selection === null || selection.rangeCount === 0) {
+      cell.textContent = (cell.textContent ?? "") + text;
+    } else {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document_.createTextNode(text));
+      range.collapse(false);
+    }
+    const span = cellSpanNow(view, wrap, row, column);
+    if (span === null) return;
+    dispatchPlan(view, planCellEdit(view.state, span, cell.textContent ?? ""));
+  });
+
+  cell.addEventListener("keydown", (event) => {
+    const key = (event as KeyboardEvent).key;
+    const shift = (event as KeyboardEvent).shiftKey;
+
+    /*
+      ⌘B and its two neighbours, handled here rather than by the editor's own
+      keymap. `ignoreEvent` tells CodeMirror that every event inside this
+      widget is the widget's, so the keymap never sees a keystroke made in a
+      cell — which is exactly right for Tab and Enter and leaves the chords
+      with nobody to answer them. The chord table is short and shared
+      (`markerToggle.ts`), so this is one more caller of the same pairs rather
+      than a second spelling of Bold.
+    */
+    const chord = markerChord(event as KeyboardEvent);
+    if (chord !== null) {
+      event.preventDefault();
+      toggleMarkerInCell(view, MARKERS[chord].before, MARKERS[chord].after);
+      return;
+    }
+
+    if (key === "Tab") {
+      event.preventDefault();
+      if (moveThrough(shift ? before : after, here(), "end")) return;
+      /*
+        Tab past the last cell adds a row, which is how a table gets longer
+        without anybody reaching for a control. Shift-Tab past the first one
+        does nothing: there is no row above the header, and adding one would
+        make somebody's header into data.
+      */
+      if (!shift) addRowBelow(0);
+      return;
+    }
+
+    /*
+      ⌘Z, which nothing else would answer. `ignoreEvent` keeps every keystroke
+      made in a cell away from the editor's keymap, and what is left is the
+      browser's own contenteditable history — which would put characters back
+      into this element while the file kept the change. It matters more here
+      than anywhere: the menus delete rows and columns, and undo is the whole
+      of what makes a destructive control safe to press.
+
+      The cell is let go of first. The document is about to become one the
+      grid draws differently, and a focused cell is the one thing a redraw
+      leaves alone.
+    */
+    if ((event as KeyboardEvent).metaKey || (event as KeyboardEvent).ctrlKey) {
+      const lower = key.toLowerCase();
+      const isUndo = lower === "z" && !shift;
+      const isRedo = (lower === "z" && shift) || lower === "y";
+      if (isUndo || isRedo) {
+        event.preventDefault();
+        cell.blur();
+        view.focus();
+        (isUndo ? undo : redo)(view);
+        return;
+      }
+    }
+
+    if (key === "Enter") {
+      event.preventDefault();
+      /*
+        Shift-Enter is a line break inside the cell, which in a table is the
+        `<br>` the cell reader already draws — the only way a cell holds two
+        lines, and otherwise something a person has to know to type.
+      */
+      if (shift) {
+        insertInCell(cell, "<br>");
+        const span = cellSpanNow(view, wrap, row, column);
+        if (span !== null) dispatchPlan(view, planCellEdit(view.state, span, cell.textContent ?? ""));
+        return;
+      }
+      if (row + 1 <= depth() - 1 && moveTo(row + 1, column, "end")) return;
+      addRowBelow(column);
+      return;
+    }
+
+    if (key === "Escape") {
+      /*
+        Out of the grid and back into the note, with the caret after the table
+        — the one gesture that has to exist, because focus in a widget is not
+        focus in the document and nothing else here gives it back.
+      */
+      event.preventDefault();
+      const region = regionOf(view, wrap);
+      cell.blur();
+      view.focus();
+      if (region !== null) {
+        view.dispatch({
+          selection: { anchor: region.to },
+          // The caret lands *at* the table's end, which is a position inside
+          // it as far as `writingTable` is concerned. Saying so explicitly is
+          // what keeps the grid drawn behind the caret that just left it.
+          effects: stopWritingTable(),
+        });
+      }
+      return;
+    }
+
+    if (key === "ArrowUp" || key === "ArrowDown") {
+      event.preventDefault();
+      const to = key === "ArrowUp" ? row - 1 : row + 1;
+      if (to < HEADER_ROW || to > depth() - 1) return;
+      moveTo(to, column, "end");
+      return;
+    }
+
+    /*
+      Left at the start of a cell and right at the end are the other two edges
+      of the same movement — inside the text they are the browser's, which is
+      what makes a cell feel like a text box rather than like a form field.
+    */
+    if (key === "ArrowLeft" || key === "ArrowRight") {
+      const offset = caretOffset(cell);
+      if (offset === null) return;
+      const length = (cell.textContent ?? "").length;
+      if (key === "ArrowLeft" && offset === 0) {
+        if (previous() === null) return;
+        event.preventDefault();
+        moveThrough(before, here(), "end");
+        return;
+      }
+      if (key === "ArrowRight" && offset === length) {
+        if (next() === null) return;
+        event.preventDefault();
+        moveThrough(after, here(), "start");
+      }
+    }
+  });
+}
+
 /**
  * A bullet, drawn in place of the `-` that means it.
  *
@@ -785,6 +2677,246 @@ class TaskWidget extends WidgetType {
   }
 }
 
+
+/* --------------------------- rendered previews ---------------------------- */
+
+/**
+ * The one fence tag this editor draws instead of printing, and the whole of the
+ * convention: no new file format, no frontmatter switch, no per-note setting.
+ *
+ * ```` ```html-preview ```` is opt-in because a plain ```` ```html ```` block is
+ * somebody quoting HTML — a snippet they are debugging, a fragment they are
+ * explaining — and a note that talks about markup must not start executing it.
+ */
+export const HTML_PREVIEW_TAG = "html-preview";
+
+/**
+ * A fence that will be drawn, and the markup it will be drawn from.
+ *
+ * `from`/`to` are the whole fence including both ```` ``` ```` lines, because
+ * that is the range the widget stands in for and the range the caret has to
+ * touch to get the source back.
+ */
+export interface HtmlPreview {
+  readonly from: number;
+  readonly to: number;
+  /** The fence's body, exactly as the file holds it. Never rewritten. */
+  readonly html: string;
+}
+
+/** The first word of a fence's info string, lower-cased, or `null`. */
+function fenceTag(
+  doc: { sliceString: (from: number, to: number) => string },
+  fence: SyntaxNode,
+): string | null {
+  const info = fence.getChild("CodeInfo");
+  if (info === null) return null;
+  const first = doc.sliceString(info.from, info.to).trim().split(/\s+/)[0];
+  return first === undefined || first === "" ? null : first.toLowerCase();
+}
+
+/**
+ * What is between a fence's two ```` ``` ```` lines, read off the text.
+ *
+ * Off the *text* rather than off a `CodeText` child, and that is not
+ * incidental: `FENCE_LANGUAGES` makes the grammar parse the inside of an
+ * `html`, `css` or `js` fence into real nodes, so "the fence's content" is one
+ * leaf for some tags and a subtree for others. A tag that is wired up today is
+ * one dependency bump away from being wired up tomorrow, and a preview that
+ * silently renders half its diagram would be the failure. Two line boundaries
+ * are exact whatever the grammar does inside them.
+ *
+ * An unterminated fence — the state a note is in for as long as somebody is
+ * typing one — has a single `CodeMark`, and its body runs to the end of the
+ * node.
+ */
+function fenceBody(
+  doc: { lineAt: (pos: number) => { from: number; to: number }; length: number; sliceString: (from: number, to: number) => string },
+  fence: SyntaxNode,
+): string {
+  const marks = fence.getChildren("CodeMark");
+  const open = marks[0];
+  if (open === undefined) return "";
+  const start = doc.lineAt(open.from).to + 1;
+  if (start > doc.length) return "";
+  const close = marks.length > 1 ? marks[marks.length - 1] : null;
+  const end = close === null ? fence.to : doc.lineAt(close.from).from - 1;
+  return start >= end ? "" : doc.sliceString(start, end);
+}
+
+/**
+ * Every `html-preview` fence that should be drawn right now.
+ *
+ * Pure over the state, like every other pass in this file, and conditional on
+ * the selection like the mark-hiding is: **a drawn diagram becomes its own
+ * fence again the moment the caret enters it.** That is this file's central
+ * rule — you cannot edit syntax you cannot see — and a diagram is the case
+ * where breaking it would hurt most, because the markup underneath is the only
+ * place the diagram can be changed.
+ *
+ * Two fences are deliberately left as text rather than drawn:
+ *
+ *  - **One that does not start at the margin.** A fence indented inside a list
+ *    item does not occupy whole lines, and a block widget can only replace
+ *    whole lines. An honest code block beats a widget that eats half a list.
+ *  - **One with an empty body.** There is nothing to draw, and a zero-height
+ *    frame is a gap in the note that nothing explains.
+ *
+ * `frontEnd` excludes the frontmatter, for the reason `hangingIndents` states:
+ * metadata is drawn as metadata, and a `---` block that happens to contain a
+ * fence is still YAML.
+ */
+export function htmlPreviews(state: EditorState, frontEnd = 0): HtmlPreview[] {
+  const previews: HtmlPreview[] = [];
+  const selection = revealSelection(state);
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "FencedCode") return;
+      const fence = node.node;
+      if (fenceTag(state.doc, fence) !== HTML_PREVIEW_TAG) return;
+      if (
+        state.doc.lineAt(fence.from).from !== fence.from ||
+        state.doc.lineAt(fence.to).to !== fence.to
+      ) {
+        return;
+      }
+      if (selectionTouches({ from: fence.from, to: fence.to }, selection)) return;
+      const html = fenceBody(state.doc, fence);
+      if (html.trim() === "") return;
+      previews.push({ from: fence.from, to: fence.to, html });
+    },
+  });
+  return previews;
+}
+
+/**
+ * What the frame is allowed to reach, which is nothing.
+ *
+ * The `sandbox` attribute already stops the note being code. This stops it
+ * being a **beacon**: `background:url(https://…)` needs no JavaScript, and a
+ * fetch from a note a stranger emailed you is a read receipt on a document you
+ * did not ask for — it tells the sender the moment you opened it, and which
+ * note. `default-src 'none'` closes that, and `img-src data:` still lets a
+ * diagram carry its own artwork inline. There is no `font-src`: a webfont is a
+ * fetch like any other.
+ */
+const PREVIEW_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
+
+/**
+ * The document the frame is handed, with the fence's markup inside it verbatim.
+ *
+ * **Nothing here filters anything, and that is the design rather than a gap.**
+ * Writing an HTML sanitizer means maintaining a list of tags and attributes
+ * against everyone who has ever found a way past one, and it would buy nothing:
+ * the browser already refuses to run script in a bare-`sandbox` frame, for
+ * free, with no bypass surface of our making. A second mechanism nobody tests
+ * is not defence in depth.
+ *
+ * Exported so its own test can read it without a DOM.
+ *
+ * `color-scheme: light` and a white ground are the one opinion this document
+ * holds, and it is the opposite of the rule the rest of this file follows about
+ * never baking a colour in. The reason is that the host's `--lp-*` custom
+ * properties cannot cross into the frame — a sandboxed document inherits no
+ * cascade from its parent — so a diagram authored against a light ground, which
+ * is every diagram anybody has written so far, would be dark ink on a dark
+ * console. A preview is a drawing with a palette of its own, like an image, and
+ * an image keeps its own background in dark mode too.
+ */
+export function previewDocument(html: string): string {
+  return `<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">
+<style>
+html { color-scheme: light; background: #ffffff; }
+/* The frame is sized by the host and clipped by it; nothing in here scrolls. */
+html, body { margin: 0; padding: 0; overflow: hidden; }
+body { padding: 12px; box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+</style>
+${html}
+`;
+}
+
+/**
+ * A diagram, drawn by the browser, in a frame that cannot run a line of code.
+ *
+ * ## The threat, stated once
+ *
+ * **Anyone can email `<name>@context.lc`** — that is the ingestion design, not
+ * a gap in it. So a note this renders may have been written by a stranger, and
+ * the console it renders in holds a live authenticated Convex connection. The
+ * danger was never HTML or CSS; it is script execution inside that session.
+ *
+ * ## The mitigation is one attribute, and it is the browser's
+ *
+ * A `sandbox` attribute with an empty value denies **everything** the frame
+ * could otherwise do, script execution included. There is no allow-list to keep
+ * current and nothing of ours to get wrong.
+ *
+ *  - **`allow-scripts` is never added.** It would run the note's JavaScript, in
+ *    an opaque origin — which still reaches `fetch`, `postMessage` to the
+ *    parent, and anything the parent listens for.
+ *  - **`allow-same-origin` is never added.** Together with `allow-scripts` the
+ *    two are worse than either: a frame that is same-origin *and* scripted can
+ *    reach `parent.document` and remove its own `sandbox` attribute.
+ *
+ * `__tests__/livePreview.test.ts` asserts on the attribute; `e2e/webkit/`
+ * asserts that a `<script>` in the fence does not run, which is the half jsdom
+ * cannot prove — jsdom does not enforce iframe sandboxing at all, so a green
+ * jsdom test about script execution would be a false green.
+ *
+ * ## Why `pointer-events: none` on the frame
+ *
+ * The frame is a separate document and swallows its own clicks. Without this
+ * there is no pointer route back to the source at all: you could see the
+ * diagram and never click into the fence that draws it, which is precisely the
+ * "an editor that hides syntax you cannot edit" failure this file exists to
+ * avoid. The preview has nothing to interact with anyway — no scripts, and a
+ * link in a bare-sandbox frame cannot navigate.
+ */
+export class HtmlPreviewWidget extends WidgetType {
+  constructor(private readonly html: string) {
+    super();
+  }
+  /*
+    Compared on the markup, and load-bearing rather than an optimisation: the
+    decoration set is rebuilt on every keystroke and every cursor move, and a
+    widget that reported itself new each time would tear the iframe down and
+    reload its document under the reader's eyes several times a second.
+  */
+  eq(other: HtmlPreviewWidget): boolean {
+    return other.html === this.html;
+  }
+  toDOM(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-preview";
+    const frame = document.createElement("iframe");
+    frame.className = "cm-lp-preview-frame";
+    /*
+      The empty string is the value that denies everything. `setAttribute` with
+      "" rather than a property assignment, because `frame.sandbox = ""` writes
+      through a `DOMTokenList` and reads back as an empty list that is easy to
+      mistake for an absent attribute in a test. The attribute is the security
+      model; it is set in the plainest way there is.
+    */
+    frame.setAttribute("sandbox", "");
+    frame.setAttribute("srcdoc", previewDocument(this.html));
+    // A frame with no title is an unlabelled region to a screen reader, and
+    // there is nothing inside this one it could read out instead.
+    frame.setAttribute("title", "Rendered preview");
+    frame.setAttribute("loading", "lazy");
+    wrap.append(frame);
+    return wrap;
+  }
+  /* A click on the preview should place the caret, which is what reveals it. */
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
 /**
  * Tick and untick a checkbox by pressing it.
  *
@@ -853,12 +2985,270 @@ function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
  * position, which is why styles and hides are collected separately and
  * concatenated rather than pushed as they are found.
  */
+/**
+ * Is somebody working in this document?
+ *
+ * Not "does it have the keyboard", which is what this was first written as and
+ * is the wrong question by a hair that costs a feature. Focus is a fact about
+ * the DOM and it moves for reasons that have nothing to do with editing: a
+ * right-click menu is a React popover, and opening one blurs the editor.
+ *
+ * Measured in Chromium: right-click → Bold inserted the `**` correctly, and the
+ * note redrew with every mark hidden, so Bold looked like it had done nothing.
+ * `runMenuAction` calls `view.focus()` immediately after the command and
+ * `document.activeElement` really was `.cm-content` — a blur transaction simply
+ * arrived last. Chasing that ordering is a losing game; every popover, toolbar
+ * and side panel this product grows would be another round of it.
+ *
+ * So the field is engagement, and it is one-way within a document:
+ *
+ *  - `false` when a note is **put on screen** — `replaceDocument` says so
+ *    explicitly, which is the whole state this exists to draw.
+ *  - `true` the moment somebody clicks into the text or changes it
+ *    (`select.pointer`, `input`, `delete`) or focuses the editor at all.
+ *  - and it does not go back on blur. Reaching for a menu is not leaving.
+ *
+ * A `StateEffect` and a field rather than reading `view.hasFocus`, because
+ * `decorationsFor` is a pure function of `EditorState` and that is what makes
+ * it testable at all.
+ */
+/**
+ * THE TABLE SOMEBODY IS TYPING, WHICH IS THE ONE THAT IS NOT DRAWN.
+ *
+ * Found in a browser and by nothing else: a table becomes a table the moment
+ * `| - | - |` parses, which is in the *middle* of typing the delimiter row.
+ * The grid was drawn over the two lines, the caret was left at the end of a
+ * line that is no longer on screen, and the rest of what the person typed went
+ * in somewhere they could not see. Measured: `| --- | --- |` finished as
+ * `-- |` on its own line with a two-column grid above it.
+ *
+ * So one table gives way, and it is identified rather than inferred from where
+ * the caret is. Position alone cannot answer this: a caret at the end of the
+ * delimiter row and a caret parked there by Escape are the same number, and
+ * they want opposite answers.
+ *
+ * - A **document change** with the caret in a table says that table is being
+ *   written. That is the keystroke case and nothing else produces it, because
+ *   `atomicRanges` means the caret cannot walk into a drawn one.
+ * - A **selection that leaves it** puts it back. Clicking away, arrowing out,
+ *   anything deliberate.
+ * - An **effect** puts it back explicitly, for the two gestures that hand the
+ *   table over rather than leave it: Escape out of a cell, and a cell taking
+ *   focus.
+ *
+ * Arrowing *within* the source keeps it revealed, which is the same courtesy
+ * every other construct in this file extends to the thing you are editing.
+ */
+const setWritingTable = StateEffect.define<number | null>();
+
+/** Stop revealing the source of whatever table was being written. */
+export function stopWritingTable() {
+  return setWritingTable.of(null);
+}
+
+/**
+ * Show one table as its own pipes, because somebody asked to edit it as text.
+ *
+ * The same state a table being typed is in, reached deliberately from the
+ * table's own menu. It is the escape hatch for everything the controls have
+ * no verb for, and without it a drawn table is a block a person cannot get
+ * inside: `atomicRanges` keeps the caret out, so there would be no way to
+ * repair a table the grid draws but nobody meant.
+ */
+export function showTableSource(from: number) {
+  return setWritingTable.of(from);
+}
+
+/**
+ * Whether the caret is *in* a table rather than beside it.
+ *
+ * Asymmetric, and both halves were found by a test rather than reasoned out.
+ * The first character is where arriving from above leaves you and where
+ * `openingCaret` parks, so a caret there is before the table. The last is
+ * where the keystroke that made these lines a table leaves you, so a caret
+ * there is in it.
+ */
+function inTable(head: number, table: { from: number; to: number }): boolean {
+  return head > table.from && head <= table.to;
+}
+
+/** The `Table` node covering `pos`, ends included. */
+function tableAround(state: EditorState, pos: number): { from: number; to: number } | null {
+  for (const side of [-1, 1] as const) {
+    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, side);
+    for (; node !== null; node = node.parent) {
+      if (node.name === "Table") return { from: node.from, to: node.to };
+    }
+  }
+  return null;
+}
+
+export const writingTable = StateField.define<number | null>({
+  create: () => null,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setWritingTable)) return effect.value;
+    }
+    if (transaction.state.readOnly) return null;
+
+    if (transaction.docChanged) {
+      /*
+        The caret after the change, not before it: the character just typed is
+        what may have made these lines a table, and the node is read from the
+        state that has it.
+
+        Two conditions beyond "a table is there", and each answers a case that
+        got this wrong. The change has to **touch the table**, or an edit
+        somewhere else in the note would reveal a table the caret happens to
+        sit at the start of — `openingCaret` parks at the first line, which on
+        plenty of notes is a table's own first character. And the caret has to
+        be **past** that first character: arriving at a table from above is
+        being beside it, while the end of its last line is where the keystroke
+        that made it one leaves you.
+      */
+      const head = transaction.state.selection.main.head;
+      const table = tableAround(transaction.state, head);
+      if (
+        table !== null &&
+        inTable(head, table) &&
+        transaction.changes.touchesRange(table.from, table.to) !== false
+      ) {
+        return table.from;
+      }
+    }
+
+    const at = value === null ? null : transaction.changes.mapPos(value, -1);
+    if (at === null) return null;
+    if (!transaction.selection && !transaction.docChanged) return at;
+
+    const table = tableAround(transaction.state, at);
+    if (table === null) return null;
+    return inTable(transaction.state.selection.main.head, table) ? table.from : null;
+  },
+});
+
+const setEditorEngaged = StateEffect.define<boolean>();
+
+/**
+ * Engage or disengage the document. Exported for its two callers:
+ * `replaceDocument`, which closes the gate on every note it opens, and
+ * `livePreview.test.ts`, which has no view to click in.
+ */
+export function engageEditor(engaged: boolean) {
+  return setEditorEngaged.of(engaged);
+}
+
+/** Starts closed: a document that has just been put on screen is untouched. */
+export const editorEngaged = StateField.define<boolean>({
+  create: () => false,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setEditorEngaged)) return effect.value;
+    }
+    /*
+      A pointer selection is a click inside the text; `input` and `delete` are
+      edits, including the ones a menu command dispatches. None of them is
+      `replaceDocument` opening a note, which carries no user event and closes
+      the gate explicitly anyway.
+    */
+    if (
+      transaction.isUserEvent("select.pointer") ||
+      transaction.isUserEvent("input") ||
+      transaction.isUserEvent("delete")
+    ) {
+      return true;
+    }
+    return value;
+  },
+});
+
+/**
+ * The selection the reveal rule may act on.
+ *
+ * NOTHING REVEALS IN A DOCUMENT NOBODY CAN TYPE INTO. Markup comes back when
+ * the caret enters it, because you cannot edit syntax you cannot see. A
+ * read-only document has no caret to enter anything with — `editability` drops
+ * `contenteditable` — but `state.selection` is still a range at 0, so the
+ * note's first construct would draw its own asterisks at a reader who cannot
+ * act on them, and an HTML preview at the top of a note would sit there as its
+ * own source.
+ *
+ * So read-only is an empty selection, which is the same sentence the reveal
+ * rule already makes: reveal for editing, and there is no editing. One
+ * condition covers reading mode, `privacy.md` and an encrypted envelope, and it
+ * is `state.readOnly` rather than a flag of this extension's own so there is
+ * nothing for the two to disagree about.
+ *
+ * Both callers take it from here rather than each mapping the ranges, because
+ * the two are one rule: `htmlPreviews` withdrawing a preview while
+ * `decorationsFor` keeps the markup hidden is a half-revealed note.
+ *
+ * ## AND NOTHING REVEALS IN A DOCUMENT NOBODY HAS TOUCHED
+ *
+ * The same sentence, one step weaker, and it is the half that was missing. A
+ * caret exists the moment the document does — at 0, or wherever
+ * `replaceDocument` put it — whether or not anybody has gone near the editor.
+ * So a note *opened* rather than edited drew the markup of whichever construct
+ * the caret happened to land in, at a reader who had not touched anything.
+ *
+ * That is not hypothetical and it is how this was found: `openingCaret` puts
+ * the caret past the frontmatter, which is the first line of the writing — and
+ * on a note that opens with `# Title`, which is most of them, the page's title
+ * rendered as `# Title` with the hash showing. The canvas draws it clean, and
+ * so does every editor with a live preview: markup comes back **where you are
+ * working**, and a person who has not touched the note is not working
+ * anywhere.
+ *
+ * `editorEngaged` is what that reads, and its own comment argues why it is
+ * engagement rather than DOM focus — the short version being that a right-click
+ * menu blurs the editor and Bold would have appeared to do nothing.
+ *
+ * A state with no such field — every direct `decorationsFor` call in the unit
+ * suite, and any configuration that does not install `livePreview` — reveals
+ * as it always did. The gate is something the extension opts into, so a test
+ * that builds a bare `EditorState` to ask what a construct looks like still
+ * gets an answer about the construct.
+ */
+function revealSelection(state: EditorState): Array<{ from: number; to: number }> {
+  if (state.readOnly) return [];
+  if ((state.field(editorEngaged, false) ?? true) === false) return [];
+  return state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
+}
+
+/**
+ * The tables a caret steps over, as a range set.
+ *
+ * The frontmatter is excluded the same way `decorationsFor` excludes it, and
+ * for the same reason: nothing in a note's metadata is a table, and a caret
+ * that could not enter the block would be a caret that could not fix it.
+ *
+ * Memoised on the state, because this is a facet CodeMirror reads on **cursor
+ * motion** rather than on a transaction: every arrow key asks it, more than
+ * once, and the honest implementation reads the whole document as a string and
+ * walks the tree. One answer per state is the same work `decorationsFor`
+ * already does once, rather than a document scan per keypress in a long note.
+ */
+const gridRangeCache = new WeakMap<EditorState, RangeSet<Decoration>>();
+
+function gridRanges(state: EditorState): RangeSet<Decoration> {
+  const cached = gridRangeCache.get(state);
+  if (cached !== undefined) return cached;
+  const front = frontmatterRange(state.doc.toString());
+  const ranges = RangeSet.of(
+    tableGrids(state, front === null ? 0 : front.to).map((grid) => ({
+      from: grid.from,
+      to: grid.to,
+      value: Decoration.mark({}),
+    })),
+    true,
+  );
+  gridRangeCache.set(state, ranges);
+  return ranges;
+}
+
 export function decorationsFor(state: EditorState): DecorationSet {
   const tree = syntaxTree(state);
-  const selection = state.selection.ranges.map((range) => ({
-    from: range.from,
-    to: range.to,
-  }));
+  const selection = revealSelection(state);
 
   /*
     Frontmatter is decided from the text, before the tree is consulted, and
@@ -866,7 +3256,15 @@ export function decorationsFor(state: EditorState): DecorationSet {
     The grammar reads the closing `---` as a setext underline, so without this
     a note's metadata is drawn as its largest heading.
   */
-  const front = frontmatterRange(state.doc.toString());
+  const doc = state.doc.toString();
+  const front = frontmatterRange(doc);
+  /*
+    The block plus the blank lines under it — see `frontmatterBlock`. Used for
+    both halves of the fold, so the range that is hidden is the same range that
+    reveals when the caret reaches it: a caret on a blank line that is not on
+    screen would otherwise be a caret nothing could put anywhere.
+  */
+  const frontBlock = frontmatterBlock(doc);
   /*
     Passed to the three list/table passes below rather than recomputed by each
     of them, which is not only tidiness: `frontmatterRange` reads the whole
@@ -875,8 +3273,33 @@ export function decorationsFor(state: EditorState): DecorationSet {
   */
   const frontEnd = front === null ? 0 : front.to;
 
+  /**
+   * Whether the block is on screen at all.
+   *
+   * **It used to always be**, drawn small and dim, and the argument for that
+   * was "metadata a person may need to edit" — which is right about *editing*
+   * and was answering a question nobody asked about *reading*. Measured in
+   * Chromium at 1440×900 against the console's own demo note: `---`,
+   * `updated: 2026-08-26`, `status: active`, `---`, four lines of filing above
+   * the note's own title, on every note anybody had ever filed anything on.
+   * Dim is not the same as out of the way.
+   *
+   * So it follows the rule every other mark in this file follows: hidden while
+   * you are reading, there the moment the selection reaches it. Arrowing up
+   * from the first line, clicking where it is, or a ⌘A all put the caret in
+   * range and the block comes back in full, editable, with its own small-and-
+   * dim styling — which is what keeps the editor the one thing in the product
+   * that can change a note's metadata (`NoteEditor`'s `Properties` is a
+   * reader, and `frontmatter.ts` argues why there is no YAML writer here).
+   *
+   * `selectionTouches` over the whole range rather than per line, because the
+   * block is one object: revealing the two keys and not the fences would be
+   * the half-hidden state this file's own header calls the worst of both.
+   */
+  const frontShown = frontBlock !== null && selectionTouches(frontBlock, selection);
+
   const lines: Range<Decoration>[] = [];
-  if (front !== null) {
+  if (front !== null && frontShown) {
     for (
       let line = state.doc.lineAt(front.from);
       line.from <= front.to;
@@ -903,7 +3326,34 @@ export function decorationsFor(state: EditorState): DecorationSet {
       }).range(indent.from),
     );
   }
+  /*
+    A table is either laid out or left as its own pipes, never both: a line
+    decoration inside a block replacement is a range set describing two
+    different things for the same characters. `tableGrids` is empty unless the
+    note is read-only, so an editable note still gets the mono face on every
+    row, and a read-only one whose table `readTable` refused falls back to it.
+  */
+  /*
+    The callout box. Line decorations, so they join this block rather than the
+    mark pass — and computed here because the marker's own replacement below
+    needs the same list and must not read the tree twice.
+  */
+  const boxes = callouts(state, frontEnd);
+  for (const box of boxes) {
+    box.lines.forEach((from, index) => {
+      lines.push(
+        Decoration.line({
+          class: index === 0 ? "cm-lp-callout cm-lp-callout-head" : "cm-lp-callout",
+        }).range(from),
+      );
+    });
+  }
+
+  const grids = tableGrids(state, frontEnd);
+  const insideGrid = (pos: number): boolean =>
+    grids.some((grid) => pos >= grid.from && pos < grid.to);
   for (const from of tableLines(state, frontEnd)) {
+    if (insideGrid(from)) continue;
     lines.push(Decoration.line({ class: "cm-lp-table" }).range(from));
   }
 
@@ -918,6 +3368,78 @@ export function decorationsFor(state: EditorState): DecorationSet {
     Decoration.mark({ class: "cm-lp-task-done" }).range(range.from, range.to),
   );
 
+  /*
+    A fence tagged `html-preview` is replaced wholesale by the diagram it
+    describes — see `htmlPreviews`. Computed before the two passes below because
+    both of them have to keep out of the range it swallows: a mark decoration or
+    a hidden ```` ``` ```` sitting inside a block replacement is a range set
+    describing two different things for the same characters, and the note that
+    has both is the one that would find out.
+  */
+  const previews = htmlPreviews(state, frontEnd);
+  /*
+    A `form` fence is replaced the same way, and by the same rule about the two
+    passes below keeping out of it — see `formFences`. It is a separate list
+    rather than another kind of `HtmlPreview` because the two are opposites at
+    the point that matters: a diagram is drawn from markup the note supplies and
+    must be sandboxed away from this document, and a form is built from a parsed
+    declaration and has to live *in* it to be usable.
+
+    Empty unless the note is read-only, which is the whole of the reveal rule
+    for forms.
+  */
+  const forms = formFences(state, frontEnd);
+  /*
+    A line that is nothing but image embeds is drawn as the images — see
+    `imageRows`. Third in the list of block replacements and under the same rule
+    as the other two: the passes below keep out of the range it swallows, and it
+    withdraws the moment the selection reaches the line, because a width you
+    cannot see is a width you cannot edit by hand.
+  */
+  /*
+    Images do not follow the reveal rule, which is the one exception in this
+    file and is argued in `imageRows`: the markup of an image is a filename
+    nobody types, and clicking a picture to have it turn back into
+    `![[paste-….png]]` was reported as "really weird" the day it shipped. The
+    toolbar on the selected image is what replaced it.
+  */
+  const rows: ImageRow[] = imageRows(state, frontEnd);
+  const insidePreview = (pos: number): boolean =>
+    previews.some((preview) => pos >= preview.from && pos < preview.to) ||
+    forms.some((form) => pos >= form.from && pos < form.to) ||
+    rows.some((row) => pos >= row.from && pos < row.to) ||
+    insideGrid(pos);
+
+  /*
+    THE MARKERS THIS PASS IS ACTUALLY REPLACING, and why the rest of the file
+    has to keep out of them.
+
+    `[!bible]` is a callout marker to Obsidian and a **shortcut link** to lezer,
+    which is precisely how the reported bug looked the way it did: the brackets
+    were hidden as `LinkMark`s and `!bible` was painted `cm-lp-link`, leaving one
+    blue underlined word in front of the reference. Replacing the marker without
+    taking those out does not fix it, it doubles it — two decorations describing
+    the same characters, which this file warns about for tables and previews and
+    is the same hazard one span wide. Measured: the note came out reading
+    `> hn 3:16 - NIV`, three characters eaten by the overlap.
+
+    Empty for a marker the caret is inside, because that one is not being
+    replaced — it is revealed, and a revealed `[!bible]` should be marked up
+    exactly as the text it is.
+
+    Only the *hides* consult this, not the styles. A first version filtered both
+    and the style half was unobservable: a `Decoration.mark` over a range that a
+    `Decoration.replace` covers has no text left to paint, so `!bible` keeping
+    its `cm-lp-link` class changes nothing anybody can see. Sabotaging it
+    reddened no test, which is this repo's own definition of a guard that is not
+    one, so it came back out.
+  */
+  const hiddenMarkers = boxes
+    .map((box) => box.marker)
+    .filter((marker) => !selectionTouches(marker, selection) && !insidePreview(marker.from));
+  const insideMarker = (pos: number): boolean =>
+    hiddenMarkers.some((marker) => pos >= marker.from && pos < marker.to);
+
   const styles: Range<Decoration>[] = [];
   tree.iterate({
     from: 0,
@@ -929,14 +3451,121 @@ export function decorationsFor(state: EditorState): DecorationSet {
       // Inside the frontmatter the tree is describing a heading that is not
       // one. Drawn plain instead, by the line decoration above.
       if (front !== null && node.from < front.to) return;
+      if (insidePreview(node.from)) return;
       styles.push(Decoration.mark({ class: className }).range(node.from, node.to));
     },
   });
 
   // `hiddenMarkRanges` excludes the frontmatter itself — see its own comment.
-  const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc).map((range) =>
-    hideMark.range(range.from, range.to),
-  );
+  const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc)
+    .filter((range) => !insidePreview(range.from) && !insideMarker(range.from))
+    .map((range) => hideMark.range(range.from, range.to));
+
+  /*
+    The frontmatter block, put away while the caret is elsewhere — see
+    `frontShown` above for why, and `frontmatterHidden` for why it is a block
+    decoration. First in the set because it starts at position 0 and
+    `RangeSet.of` wants document order; everything `hiddenMarkRanges` returned
+    is after `front.to`, which its own comment is about.
+  */
+  if (frontBlock !== null && !frontShown) {
+    hides.unshift(frontmatterHidden.range(frontBlock.from, frontBlock.to));
+  }
+
+  /*
+    `block: true` because this stands in for whole lines rather than for a run
+    of characters inside one — which is also why `htmlPreviews` refuses a fence
+    that does not start at the margin.
+  */
+  for (const preview of previews) {
+    hides.push(
+      Decoration.replace({
+        widget: new HtmlPreviewWidget(preview.html),
+        block: true,
+      }).range(preview.from, preview.to),
+    );
+  }
+
+  /*
+    The host is read off the state rather than passed in, so `decorationsFor`
+    stays a pure function of it — see `formHost`. A surface that configured none
+    yields `null`, and the widget draws with its button disabled.
+  */
+  const host = state.facet(formHost);
+  for (const form of forms) {
+    hides.push(
+      Decoration.replace({
+        widget: new FormWidget(form, host),
+        block: true,
+      }).range(form.from, form.to),
+    );
+  }
+
+  /*
+    The images. `editable` comes off the state's own `readOnly` facet rather
+    than from a second flag: a viewer who may not write the note gets the row
+    drawn and no handles at all, which is `editability`'s rule about a control
+    that would only ever fail.
+  */
+  for (const row of rows) {
+    hides.push(
+      imageRowDecoration(
+        row,
+        state.facet(imageHost),
+        !state.readOnly,
+        state.field(imageSelection, false) ?? null,
+      ).range(row.from, row.to),
+    );
+  }
+
+  /*
+    And the tables, by the same rule about the passes above keeping out of the
+    range a block widget swallows. `tableGrids` has already refused anything
+    that does not occupy whole lines.
+  */
+  for (const grid of grids) {
+    hides.push(
+      Decoration.replace({
+        widget: new TableGridWidget(grid, !state.readOnly),
+        block: true,
+      }).range(grid.from, grid.to),
+    );
+  }
+
+  /*
+    The `[!type]` marker, taken off the screen — the whole of what looked wrong
+    in the report. With a title the author wrote it is hidden outright; without
+    one it is replaced by the type, because hiding it whole would leave an empty
+    `> ` reading as a blank first line rather than as a heading.
+
+    Under the same reveal rule as every other mark here: the caret inside it
+    brings it back, or the type could not be edited. `selectionTouches` is the
+    same predicate `hiddenMarkRanges` uses, so the two cannot disagree about
+    what "inside" means.
+  */
+  for (const box of boxes) {
+    if (insideMarker(box.marker.from)) {
+      hides.push(
+        (box.title === null
+          ? Decoration.replace({ widget: new CalloutTitleWidget(box.type) })
+          : hideMark
+        ).range(box.marker.from, box.marker.to),
+      );
+    }
+    /*
+      And the `>` on each line — per line, not per callout, so the caret on one
+      line does not bring back the quote marks on the four it is not editing.
+      Hidden here rather than by adding `QuoteMark` to `HIDDEN_MARKS`, because
+      that set is global and a plain blockquote must keep its `>`: without it a
+      quote reflows into the paragraph above and stops looking quoted at all.
+      A callout has the box to say so instead.
+    */
+    for (const mark of box.marks) {
+      if (selectionTouches(mark, selection)) continue;
+      if (insidePreview(mark.from)) continue;
+      hides.push(hideMark.range(mark.from, mark.to));
+    }
+  }
 
   /*
     Bullets and checkboxes are replacements rather than styles — the characters
@@ -960,26 +3589,122 @@ export function decorationsFor(state: EditorState): DecorationSet {
 }
 
 /**
- * The extension: recompute on every document or selection change.
+ * The extension: recompute whenever the answer can have changed.
  *
  * A `StateField` rather than a `ViewPlugin` because the decorations depend on
  * the selection, and a view plugin that maps its own decorations through
  * transactions would have to invalidate them on every cursor move anyway —
  * which is the entire workload. Recomputing from the tree is simpler and is
  * what makes `decorationsFor` a pure function worth testing.
+ *
+ * ## The three inputs, and the one that was missed
+ *
+ * `decorationsFor` reads exactly three things out of the state: the document,
+ * the selection, and **`readOnly`**. The first two are what a transaction
+ * obviously carries. The third is configuration, and it changes by a route that
+ * carries neither — `LiveEditor`'s compartment swapping `editability(…)` when
+ * the eye is pressed — so a guard of "document or selection" let the whole of
+ * reading mode go stale.
+ *
+ * On screen that was the bug this comment exists for: **pressing the eye did
+ * nothing until you clicked into the note.** A form fence stayed as its own
+ * source, a table stayed as its pipes, and the markup a reader is not supposed
+ * to see stayed revealed — all of it correct again the instant any click
+ * produced a selection transaction and the cached set was finally thrown away.
+ *
+ * `readOnly` is compared rather than `transaction.reconfigured` being trusted,
+ * and the difference is not pedantry in both directions:
+ *
+ *  - A reconfigure that leaves `readOnly` alone cannot change a decoration, and
+ *    rebuilding the whole set from the tree is the work this field does per
+ *    keystroke. Redoing it for an unrelated facet is waste on the hottest path
+ *    here.
+ *  - More importantly it says *what is actually being watched*. A fourth input
+ *    added to `decorationsFor` later is a line to add here, and a condition
+ *    naming `readOnly` is one somebody reads and notices; `reconfigured` is one
+ *    that looks like it already covers everything and does not.
  */
 export function livePreview() {
   const decorations = StateField.define<DecorationSet>({
     create: (state) => decorationsFor(state),
     update(value, transaction) {
-      if (!transaction.docChanged && !transaction.selection) return value;
+      const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
+      /*
+        Engagement, which is the fourth input and arrives by its own route: a
+        transaction carrying only `setEditorEngaged` changes no document, no
+        selection and no `readOnly`, so without this the whole document would
+        stay as it was drawn when nobody was in it — clicking into a note would
+        put a caret in markup that never came back.
+      */
+      const focusChanged =
+        transaction.startState.field(editorEngaged, false) !==
+        transaction.state.field(editorEngaged, false);
+      /*
+        And the tree, which arrives late on a note of any size. CodeMirror parses
+        the first few thousand characters synchronously and finishes the rest on
+        an idle callback, announcing it with a transaction that carries no
+        document change, no selection and no change of `readOnly` — the third
+        input, by a fourth route. Without this a reader scrolling past roughly
+        the first screen of a long note finds raw markdown below it until a
+        click, which is the same symptom the `readOnly` comparison above was
+        added to kill.
+
+        Identity, not contents: the language state hands back a new `Tree` when
+        it has parsed further, and the same one otherwise.
+      */
+      const treeChanged = syntaxTree(transaction.state) !== syntaxTree(transaction.startState);
+      /*
+        And which image is selected, which arrives by a fifth route and is the
+        reason clicking a picture did nothing at all for a day: `selectImage`
+        carries no document change, no selection, no `readOnly` and no new
+        tree, so this gate held the old decorations and the toolbar was never
+        drawn. The effect was reaching the field; the field was reaching
+        nothing.
+      */
+      const pickChanged =
+        transaction.startState.field(imageSelection, false) !==
+        transaction.state.field(imageSelection, false);
+      if (
+        !transaction.docChanged &&
+        !transaction.selection &&
+        !readOnlyChanged &&
+        !treeChanged &&
+        !focusChanged &&
+        !pickChanged
+      ) {
+        return value;
+      }
       return decorationsFor(transaction.state);
     },
     provide: (field) => EditorView.decorations.from(field),
   });
   // The one place this extension is more than decorations: a drawn checkbox has
   // to answer a press. See `taskToggle`.
-  return [decorations, taskToggle];
+  return [
+    editorEngaged,
+    // The table being typed, which is the only one not drawn as a grid.
+    writingTable,
+    /*
+      A drawn table is one object rather than a run of characters — the same
+      sentence `imageBlock.ts` makes about a row of images, and it matters more
+      here because the grid is drawn while the note is editable: without this,
+      arrowing down into a table walks an invisible caret through three lines of
+      pipes that are not on screen. With it the caret steps over the whole
+      table, and a selection takes it whole, so Backspace deletes the table
+      rather than a character of markup nobody can see.
+    */
+    EditorView.atomicRanges.of((view) => gridRanges(view.state)),
+    /*
+      Focus opens the gate and never closes it — see `editorEngaged`. Tabbing
+      into the editor is somebody arriving to write, and a blur is a popover,
+      not a departure.
+    */
+    EditorView.focusChangeEffect.of((_state, focusing) =>
+      focusing ? setEditorEngaged.of(true) : null,
+    ),
+    decorations,
+    taskToggle,
+  ];
 }
 
 /**
@@ -998,14 +3723,29 @@ export const livePreviewStyles = `
   line-height: 1.3;
 }
 /*
-  Measured off Obsidian mobile rather than chosen: 1.625em, 1.3em and 1.15em
-  against a 16px body. The multiples were 1.7 / 1.4 / 1.2, which is a wider
-  ladder than a document needs and made an H1 the loudest thing on a phone
-  screen that is mostly body text.
+  THE TYPE SCALE, RESTATED AS MULTIPLES OF THE BODY.
+
+  30 / 23 / 19 against a 16px body, which is pointerType's title, h2 and h3
+  exactly -- the scale this product already declares, arrived at here by
+  division rather than by a second opinion.
+
+  It was 1.625 / 1.3 / 1.15, measured off Obsidian mobile, and that was a third
+  ladder: neither the tokens' nor the 1.7 / 1.4 / 1.2 it replaced. Two scales in
+  one application is one of them being wrong wherever they meet, and where they
+  met was the note -- a 30pt title in the tokens, a 26pt one on the page. The
+  design canvas sides with the tokens.
+
+  Literals rather than a custom property because these are ratios to the
+  editor's own font size, which is what em means here. typeScale.test.ts holds
+  them to tokens.ts by reading this file as text.
+
+  (No backticks anywhere in this comment: it is inside a template literal and
+  one would end the string. That is not hypothetical -- writing this comment
+  with them is what broke the build a minute before it was rewritten.)
 */
-.cm-lp-h1 { font-size: 1.625em; }
-.cm-lp-h2 { font-size: 1.3em; }
-.cm-lp-h3 { font-size: 1.15em; }
+.cm-lp-h1 { font-size: 1.875em; }
+.cm-lp-h2 { font-size: 1.4375em; }
+.cm-lp-h3 { font-size: 1.1875em; }
 .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 { font-size: 1.05em; }
 /*
   A note's metadata, drawn as metadata. Not hidden: the buffer is the Markdown,
@@ -1018,6 +3758,19 @@ export const livePreviewStyles = `
   font-size: 0.82em;
   line-height: 1.7;
   color: var(--lp-muted);
+}
+/*
+  A dictated phrase the engine has not settled on yet.
+
+  Grey and italic because that is what "heard, not written" has to look like:
+  the reader has to be able to tell at a glance which words are in their file
+  and which are the machine still thinking. It is a widget, so it is not in
+  the document and cannot be selected, copied or saved — see dictate.ts.
+*/
+.cm-dictation-interim {
+  color: var(--lp-muted);
+  font-style: italic;
+  white-space: pre-wrap;
 }
 .cm-lp-strong { font-weight: 650; color: var(--lp-heading); }
 .cm-lp-em { font-style: italic; }
@@ -1042,7 +3795,78 @@ export const livePreviewStyles = `
 .cm-lp-code-keyword { color: var(--lp-link); }
 .cm-lp-code-string { color: var(--lp-heading); }
 .cm-lp-code-comment { color: var(--lp-muted); font-style: italic; }
+/*
+  A rendered html-preview fence. See HtmlPreviewWidget for what is inside the
+  frame and why nothing inside it can run.
+
+  ## The height is fixed, and that is a gap rather than a choice
+
+  Nothing here can measure the frame. Sizing an iframe to its content means
+  script inside it reporting a height out, and script inside it is the one thing
+  this feature never allows; the frame is also cross-origin by construction, so
+  the host cannot reach in and read it either. So the box is a number, and it
+  errs tall: a diagram drawn short leaves empty space under it, and a diagram
+  drawn tall loses its bottom third. The second is the failure a reader notices.
+
+  ## overflow: hidden is not tidying
+
+  The markup in the fence may have been emailed in by a stranger, and a layout
+  that escapes its box draws over real console UI — a toolbar, a save state, a
+  privacy control. The clip is on the wrapper, so nothing the frame's own CSS
+  does can widen it, and max-height keeps the box inside the viewport on a phone
+  where 620px is most of the screen.
+
+  pointer-events: none on the frame is what lets a click reach the editor and
+  reveal the source. See the widget's comment.
+*/
+.cm-lp-preview {
+  overflow: hidden;
+  margin: 0.5em 0;
+  border: 1px solid var(--lp-code-bg);
+  border-radius: 8px;
+  background: var(--lp-code-bg);
+}
+.cm-lp-preview-frame {
+  display: block;
+  width: 100%;
+  height: 620px;
+  max-height: 80vh;
+  border: 0;
+  pointer-events: none;
+}
 .cm-lp-quote { color: var(--lp-muted); font-style: italic; }
+/*
+  A CALLOUT — an Obsidian blockquote that opens with [!type].
+
+  A box rather than the quote's italic muted run, because that is the whole
+  point of the syntax: the author is setting this apart from the prose around
+  it. The callout's own lines override the quote styling they inherit, since
+  every line of one is also a Blockquote and would otherwise be drawn as an
+  aside inside its own box.
+
+  NO PER-TYPE COLOUR, deliberately, and it is the restraint this file already
+  states about its palette: Obsidian has thirteen callout types and thirteen
+  colours, and each one here would be another --lp-* token crossing the WebView
+  bridge for a distinction the box and the title already carry. The icon in the
+  report that prompted this is not Obsidian's either — it is the plugin's own
+  stylesheet, which Context does not load into the trusted realm.
+
+  The left bar is the one piece of the quote's vocabulary kept, so a callout
+  still reads as a quoted block rather than as a code fence.
+*/
+.cm-lp-callout {
+  background: var(--lp-code-bg);
+  border-left: 3px solid var(--lp-line-strong);
+  color: var(--lp-content);
+  font-style: normal;
+  padding-left: 10px;
+}
+.cm-lp-callout .cm-lp-quote { color: inherit; font-style: inherit; }
+/* Rounded at the ends, so a run of lines reads as one box. */
+.cm-lp-callout-head { border-top-right-radius: 6px; padding-top: 2px; }
+/* The title line carries the weight; the type stands in when there is none. */
+.cm-lp-callout-head .cm-lp-quote { color: var(--lp-heading); font-weight: 600; }
+.cm-lp-callout-type { color: var(--lp-heading); font-weight: 600; font-style: normal; }
 .cm-lp-link { color: var(--lp-link); text-decoration: underline; }
 /*
   A list item's indent is arithmetic rather than taste, and it is not here: the
@@ -1147,14 +3971,909 @@ export const livePreviewStyles = `
   text-decoration-thickness: 1px;
 }
 /*
-  A table is not laid out — the pipes are still the author's — but it is drawn
-  in the mono face, which is what makes the columns of a table that fits line
-  up. See tableLines.
+  AN EDITABLE table is not laid out — the pipes are still the author's — but it
+  is drawn in the mono face, which is what makes the columns of a table that
+  fits line up. A reader gets the grid below instead. See tableLines and
+  tableGrids.
 */
 .cm-lp-table {
   font-family: var(--lp-mono);
   font-size: 0.86em;
 }
 .cm-lp-table-delim { color: var(--lp-muted); }
+/*
+  A TABLE, LAID OUT FOR A READER.
+
+  Hairlines and nothing else: no outer box, no fill, no zebra. A table in a
+  note is part of the document rather than a panel sitting on it, and every
+  edge spent here is an edge competing with the note's own structure. What
+  separates the header from the body is one stronger rule, which is the only
+  place this needs weight.
+
+  The scroller is the wrapper, so a table wider than the measure scrolls in its
+  own box rather than dragging the whole note sideways.
+*/
+.cm-lp-grid {
+  overflow-x: auto;
+  margin: 0.4em 0;
+}
+.cm-lp-grid-table {
+  border-collapse: collapse;
+  /*
+    Sized by its content rather than stretched to the measure. A two-column
+    table pushed to full width puts a hand-span of nothing between the label
+    and its value, which is harder to read than the pipes were.
+  */
+  width: auto;
+  max-width: 100%;
+  font-size: 0.94em;
+  line-height: 1.5;
+  /* Digits in a column line up, which is most of why a column of them exists. */
+  font-variant-numeric: tabular-nums;
+}
+.cm-lp-grid-table th {
+  font-weight: 600;
+  color: var(--lp-heading);
+  text-align: left;
+  padding: 7px 14px 8px;
+  border-bottom: 1px solid var(--lp-line-strong);
+  /*
+    A header is a label, and a label that wraps to two lines over a one-line
+    column is the table drawing attention to its own chrome.
+  */
+  white-space: nowrap;
+}
+.cm-lp-grid-table td {
+  padding: 8px 14px;
+  border-top: 1px solid var(--lp-line);
+  vertical-align: top;
+  color: var(--lp-content);
+}
+/*
+  The outer columns lose their side padding, so the grid's own edges line up
+  with the paragraph above it. Without this a table reads as indented from the
+  text around it by however much cell padding happens to be, which is the one
+  thing that gives away a rendered block as a rendered block.
+*/
+.cm-lp-grid-table tr > :first-child { padding-left: 0; }
+.cm-lp-grid-table tr > :last-child { padding-right: 0; }
+/*
+  Scoped to the table rather than left as bare classes, because the header's
+  own rule above sets text-align and was winning on equal specificity: a
+  column aligned right had right-aligned values under a left-aligned heading,
+  which is not what the delimiter row says and not what any other renderer
+  does with it.
+*/
+.cm-lp-grid-table .cm-lp-grid-left { text-align: left; }
+.cm-lp-grid-table .cm-lp-grid-center { text-align: center; }
+.cm-lp-grid-table .cm-lp-grid-right { text-align: right; }
+/*
+  An empty cell says so. Drawn as nothing it is indistinguishable from a column
+  that failed to render, and a reader cannot tell which they are looking at.
+*/
+.cm-lp-grid-empty::after {
+  content: "—";
+  color: var(--lp-muted);
+}
+/*
+  A TABLE THAT CAN BE TYPED INTO, and the rules that are only true of one.
+
+  The frame shrinks to the table so the controls sit against the columns they
+  add to rather than at the right edge of the measure. Pinned rather than laid
+  out, so a table nobody is working in occupies exactly what a reader's does --
+  the moment the chrome takes room in the flow, an editable note and a read one
+  are two different documents.
+*/
+.cm-lp-grid-frame {
+  position: relative;
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+}
+/*
+  ROOM FOR THE CHROME, which the first version of this deliberately did not
+  reserve -- and looking at it in a browser is what settled the argument. The
+  bar was pinned above the frame with a negative offset so an editable table
+  occupied exactly what a reader's does. In the running app it was drawn over
+  the last line of the paragraph above and then cut in half by this box, whose
+  overflow-x makes overflow-y a clip too. Half a control over somebody's
+  sentence is worse than a table that sits a line lower while it can be edited,
+  so the space is reserved, and only while the grid is live.
+*/
+.cm-lp-grid-live { padding-top: 1.7em; }
+/*
+  AND ROOM ACROSS, for the same reason and found the same way. The frame
+  shrinks to the table, an absolutely positioned box cannot be wider than the
+  box it is positioned in, and a two-column table of single characters is
+  narrower than four buttons -- so in the browser the bar wrapped every label
+  down its own column and drew "+ r o w" on top of "+ c o l". The frame keeps
+  a floor wide enough for the chrome while the grid is live; the table inside
+  it is still sized by its own content.
+*/
+.cm-lp-grid-live .cm-lp-grid-frame { min-width: 12em; }
+/*
+  Something to aim at. An empty cell in an editable grid is a box a person
+  clicks into, and a box with no width cannot be clicked -- while the reader's
+  dash, which exists so an empty cell is not mistaken for a broken one, would
+  be a character they have to delete before typing.
+*/
+.cm-lp-grid-live th, .cm-lp-grid-live td { min-width: 3ch; }
+.cm-lp-grid-live .cm-lp-grid-empty::after { content: ""; }
+.cm-lp-grid-cell:focus {
+  outline: none;
+  /*
+    Inset so it does not move the column: an outline drawn outside the cell
+    shifts every row of the table by a pixel as the caret moves along it.
+  */
+  box-shadow: inset 0 0 0 2px var(--lp-line-strong);
+  border-radius: 2px;
+}
+.cm-lp-grid-controls {
+  position: absolute;
+  /*
+    Inside the padding above rather than outside the box, and against the left
+    edge rather than the right: a table wider than the measure scrolls inside
+    its own box, and chrome pinned to the far edge of a wide one is chrome
+    nobody can reach without scrolling to it first.
+  */
+  top: -1.5em;
+  left: 0;
+  display: flex;
+  gap: 4px;
+  /*
+    Out of the way until wanted. Opacity rather than display, so the buttons
+    keep their size and the bar does not appear to jump into existence.
+  */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.cm-lp-grid-frame:hover .cm-lp-grid-controls,
+.cm-lp-grid-frame:focus-within .cm-lp-grid-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cm-lp-grid-add {
+  font-family: var(--lp-body);
+  white-space: nowrap;
+  font-size: 0.66em;
+  line-height: 1;
+  padding: 3px 6px;
+  color: var(--lp-muted);
+  background: var(--lp-bg);
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cm-lp-grid-add:hover { color: var(--lp-content); }
+/*
+  THE HANDLES, which are cells of the table rather than boxes over it.
+
+  The gutter column and the strip above the header are laid out by the table
+  itself, so a handle is always beside its own row or above its own column at
+  whatever width that column came out. They take room only while the note can
+  be edited, and a reader's table has neither.
+*/
+.cm-lp-grid-gutter, .cm-lp-grid-corner, .cm-lp-grid-colslot {
+  padding: 0 !important;
+  border: none !important;
+  width: 1.2em;
+  vertical-align: middle;
+  text-align: center;
+  background: none;
+}
+.cm-lp-grid-colslot { width: auto; height: 1.1em; }
+.cm-lp-grid-handle {
+  font-family: var(--lp-body);
+  font-size: 0.8em;
+  line-height: 1;
+  padding: 1px 2px;
+  color: var(--lp-muted);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  /*
+    Invisible until the row or column it belongs to is wanted, and *still
+    there*: a handle that is display:none cannot be tabbed to and moves the
+    table every time a pointer crosses it.
+  */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.cm-lp-grid-table tr:hover .cm-lp-grid-handle,
+.cm-lp-grid-strip:hover .cm-lp-grid-handle,
+.cm-lp-grid-frame:focus-within .cm-lp-grid-handle,
+.cm-lp-grid-handle:focus { opacity: 1; }
+.cm-lp-grid-handle:hover { color: var(--lp-content); background: var(--lp-code-bg); }
+/*
+  The row or column a menu is about, said on the table rather than only in the
+  menu's own wording. The control that this replaced acted on a row nobody
+  could see, which is the whole reason the chrome was rewritten.
+*/
+.cm-lp-grid-target { background: var(--lp-focus-ring); }
+.cm-lp-grid-menu {
+  z-index: 40;
+  min-width: 11em;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--lp-bg);
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.14);
+  font-family: var(--lp-body);
+  font-size: 0.8em;
+}
+.cm-lp-grid-menu-item {
+  appearance: none;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--lp-content);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cm-lp-grid-menu-item:hover, .cm-lp-grid-menu-item:focus {
+  background: var(--lp-code-bg);
+  outline: none;
+}
+/* The alignment a column already has, marked rather than repeated elsewhere. */
+.cm-lp-grid-menu-current::after { content: " ✓"; color: var(--lp-muted); }
+.cm-lp-grid-menu-destructive { color: var(--lp-danger); }
+/*
+  A FINGER IS NOT A POINTER, and this chrome is reached by both: the phone
+  cannot hover, so a handle appears with the caret there and is then tapped.
+  At the pointer size that tap target is about ten pixels, which is under
+  every touch floor this app has. Widened where the input is coarse rather
+  than everywhere, because on a desktop the same size would be chrome
+  shouting over the note.
+*/
+@media (pointer: coarse) {
+  .cm-lp-grid-handle { font-size: 1em; padding: 6px; }
+  .cm-lp-grid-gutter, .cm-lp-grid-corner { width: 1.9em; }
+  .cm-lp-grid-menu-item { padding: 11px 12px; }
+  .cm-lp-grid-add { padding: 7px 10px; }
+}
 .cm-lp-rule { color: var(--lp-muted); }
+/*
+  A FORM, DRAWN FROM ITS DECLARATION.
+
+  Every colour here is one of the --lp-* properties the host already sets from
+  the palette in force, so the form follows the theme without this file naming a
+  single value — the rule the rest of these styles follow. --lp-code-bg is the
+  one that does the most work: it is a translucent ink rather than a fixed grey,
+  so it darkens a light ground and lightens a dark one, which is exactly what a
+  field's fill and a card's hairline both want.
+
+  The card is the same object as the note around it rather than a panel floating
+  over it: one hairline, the page's own background, and the reading measure. A
+  raised surface would be a second document inside the note, which is what the
+  diagram frame beside it is and what a form is not.
+*/
+.cm-lp-form {
+  /*
+    A real hairline. This was --lp-code-bg, which is the code fence's FILL:
+    #F5F5F5 on a #FFFFFF ground, so in light mode the card had no visible edge
+    at all and the form read as loose controls dropped into the note. --lp-line
+    is the palette's own separator and is the same value every hairline in the
+    app is drawn in.
+  */
+  border: 1px solid var(--lp-line);
+  /*
+    ONE GUTTER, DECLARED ONCE.
+
+    Every band inside measures its own edge from this, and so does the first and
+    last cell of the response table — which is the only way rows that scroll
+    sideways can line up with a heading that does not. It was 14px written out
+    in four rules and 9 / 11 / 14 vertically in three of them, and no two bands
+    agreeing on where their edge was is the whole of "the spacing looks off".
+
+    Deliberately NOT --lp-form-gutter. In this file --lp-* names a value the
+    host supplies over the bridge, and two tests hold every one of them to
+    themeVars and to the guest's own :root for a reason worth keeping: an
+    undeclared custom property does not fall back, it invalidates the whole
+    declaration that names it. This is a layout constant declared on the only
+    element whose descendants read it, so it is not that kind of property and
+    does not borrow that prefix.
+  */
+  --form-gutter: 14px;
+  /*
+    One radius family — 10 on the card, 8 on the field, 8 on the button. It was
+    12 / 9 / 11, three radii no two of which agreed, which is what made a small
+    card read as three unrelated objects stacked up.
+  */
+  border-radius: 10px;
+  /* The padding belongs to the three bands inside, so their rules can run edge
+     to edge. */
+  overflow: hidden;
+  margin: 0.6em 0;
+  font-family: var(--lp-body);
+  font-size: 0.94em;
+  line-height: 1.45;
+  color: var(--lp-content);
+}
+/*
+  WHAT THIS BOX IS, AND WHERE WHAT YOU TYPE GOES.
+
+  See FormWidget.drawHead. The destination is the half that earns the strip:
+  responses live in a sister note by design, and a reader had no way to learn
+  which one before pressing Submit.
+*/
+.cm-lp-form-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px var(--form-gutter);
+  border-bottom: 1px solid var(--lp-line);
+  background: var(--lp-code-bg);
+}
+.cm-lp-form-kind {
+  font-family: var(--lp-mono);
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+.cm-lp-form-dest { font-size: 0.82em; color: var(--lp-muted); }
+.cm-lp-form-dest-path { font-family: var(--lp-mono); color: var(--lp-content); }
+.cm-lp-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: var(--form-gutter);
+}
+.cm-lp-form-row { display: flex; flex-direction: column; gap: 6px; }
+/* The label and its character count, on one line. */
+.cm-lp-form-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+/*
+  A field's name is its label verbatim, with underscores spaced out. Sentence
+  case is left alone rather than title-cased: the author wrote the name, and a
+  form that renames somebody's field on screen is a form whose error messages
+  are about a field they cannot find.
+*/
+.cm-lp-form-label {
+  /*
+    Small, spaced and upper-case: a field name is a label rather than a
+    sentence, and at 0.85em in sentence case it read as body copy that happened
+    to be grey — the note's own prose and the form's chrome in the same voice.
+    The name itself is still verbatim; see drawField.
+  */
+  font-size: 0.76em;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+/*
+  The word rather than an asterisk. An asterisk has to be learned, is invisible
+  to a screen reader that announces punctuation differently, and at 0.85em is
+  three pixels of ink carrying the difference between a form that submits and
+  one that is refused.
+*/
+.cm-lp-form-required {
+  font-weight: 500;
+  /* Not upper-cased with the name: it is a note about the field, not part of
+     what the field is called. */
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--lp-muted);
+  opacity: 0.85;
+}
+.cm-lp-form-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-family: var(--lp-body);
+  color: var(--lp-content);
+  background: var(--lp-code-bg);
+  /*
+    A real border at rest rather than a transparent one. A filled slab with no
+    edge is a block of colour; the edge is what says "you type in here", and
+    without it the only thing distinguishing a field from a code span was its
+    width.
+  */
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  /* Safari draws its own rounded fill over the one above without this. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cm-lp-form-input::placeholder { color: var(--lp-muted); opacity: 0.7; }
+/* The two controls that are meaningless at full width and a target at 18px. */
+.cm-lp-form-input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--lp-link); }
+.cm-lp-form-input[type="date"], .cm-lp-form-input[type="number"] { width: auto; min-width: 10em; }
+.cm-lp-form-input:focus {
+  outline: none;
+  border-color: var(--lp-link);
+  /*
+    A ring as well as the border. The border alone moves one pixel of colour on
+    focus, which is not enough to find the field you just tabbed to — and this
+    is the control a keyboard user reaches Submit through.
+  */
+  box-shadow: 0 0 0 3px var(--lp-focus-ring);
+}
+textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
+/*
+  Right-aligned under the box it counts, in the muted ink: it is a fact about
+  the room left rather than a message, and reading order should reach the next
+  field before it.
+*/
+.cm-lp-form-count {
+  font-size: 0.76em;
+  color: var(--lp-muted);
+  /* Digits that change under the reader's eye must not move the label. */
+  font-variant-numeric: tabular-nums;
+}
+.cm-lp-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px var(--form-gutter);
+  /* The action is separated from the fields rather than being the next thing
+     in the stack — pressing it is not the same kind of act as filling one in. */
+  border-top: 1px solid var(--lp-line);
+}
+/*
+  The app's primary button, in CSS: the accent fill, white ink, 11px corners and
+  a 15px label. It is the one filled thing in the note, which is what a button
+  in a document should be.
+*/
+.cm-lp-form-submit {
+  font: inherit;
+  font-family: var(--lp-body);
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--lp-link);
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cm-lp-form-submit:focus-visible { outline: 2px solid var(--lp-link); outline-offset: 2px; }
+.cm-lp-form-submit:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-status { font-size: 0.88em; color: var(--lp-muted); }
+.cm-lp-form-status-ok { color: var(--lp-link); font-weight: 600; }
+/*
+  A refusal is drawn in the muted ink at full weight rather than in red. There
+  is no --lp-danger, and inventing a hex here would be the one colour in this
+  file that does not follow the theme — the failure the file's own header names.
+  Weight carries it, and the words carry the rest.
+*/
+.cm-lp-form-status-bad { color: var(--lp-content); font-weight: 600; }
+.cm-lp-form-status-quiet { opacity: 0.75; }
+/*
+  The sister file's rows, as the card's fourth band.
+
+  Its own padding and no margin, because the card is now edge-to-edge bands
+  separated by rules (see .cm-lp-form) rather than one padded box — a margin
+  here would inset the rule and leave the rows flush against the border. The
+  title takes the same small upper-case voice as a field label, so the two
+  headings inside one card agree.
+*/
+/*
+  THE BAND IS PADDED; THE TABLE INSIDE IT IS NOT.
+
+  The heading and the status line carry the card's gutter themselves so the
+  scroll box can run wall to wall. A scroll inset by the card's padding leaves
+  a dead strip on each side that the rows slide *under*, which reads as the
+  table being clipped rather than as there being more of it to the right.
+*/
+.cm-lp-form-responses {
+  border-top: 1px solid var(--lp-line);
+  padding: var(--form-gutter) 0;
+}
+.cm-lp-form-responses-title {
+  font-weight: 600;
+  font-size: 0.76em;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+  margin: 0 var(--form-gutter) 10px;
+}
+.cm-lp-form-responses-status {
+  color: var(--lp-muted);
+  font-size: 0.88em;
+  margin: 0 var(--form-gutter);
+}
+.cm-lp-form-responses-scroll {
+  overflow-x: auto;
+  /*
+    A sideways swipe over the table scrolls the table and stops there. Without
+    this it chains to the page once the last column is reached, which on iOS is
+    the back gesture — leaving the note to read one more column is not a trade
+    anybody is offering.
+  */
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+/*
+  THE TABLE IS AS WIDE AS ITS COLUMNS NEED.
+
+  This was width: 100%, and with seven columns inside a card the width of the
+  reading measure the browser's only move is to shrink every one of them until
+  the whole thing fits: a handle broken across two lines mid-word, a timestamp
+  taking four, one response 190px tall, and every column equally unreadable in
+  service of showing all of them at once.
+
+  max-content asks for the width the columns actually want and lets the box
+  above scroll to the rest of it — which is what Notion does, and what the owner
+  asked for by pointing at it. min-width is the other half: when the columns
+  do NOT need the whole card, the rules still run its full width instead of the
+  table huddling against the left edge.
+*/
+.cm-lp-form-responses-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.cm-lp-form-responses-table th,
+.cm-lp-form-responses-table td {
+  border-bottom: 1px solid var(--lp-line);
+  /*
+    A rule between columns as well as between rows. On a table narrow enough to
+    fit, row rules alone are enough; on one you scroll, the vertical rule is
+    what tells you which column you have arrived at once its heading is off the
+    left edge.
+  */
+  border-right: 1px solid var(--lp-line);
+  padding: 7px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+/* The gutter the band gave up, carried by the columns at each end so the rows
+   line up with the heading above them. */
+.cm-lp-form-responses-table th:first-child,
+.cm-lp-form-responses-table td:first-child { padding-left: var(--form-gutter); }
+/* ...and no rule on the last column, which would otherwise hang in the card's
+   own padding with nothing to its right to separate. */
+.cm-lp-form-responses-table th:last-child,
+.cm-lp-form-responses-table td:last-child {
+  padding-right: var(--form-gutter);
+  border-right: none;
+}
+.cm-lp-form-responses-table th { color: var(--lp-muted); font-size: 0.88em; font-weight: 600; }
+/*
+  AN ANSWER WRAPS; A FACT ABOUT IT DOES NOT.
+
+  Notion clips a cell to one line and gives you the row to open when you need
+  the rest. This table has no row to open, and the answers are the entire point
+  of the feature — a feature request truncated at 40 characters in the list of
+  feature requests is the list not working. So the cap is on the column's
+  *width*, at about a reading measure, and the text wraps inside it.
+*/
+.cm-lp-form-cell-value {
+  /*
+    24em is about one phone-width of column: at this table's size that is 324px
+    against the ~350px a 390pt phone gives the card, so the answer is readable
+    before any sideways scroll and the columns about it are one swipe away.
+
+    The vw term is what makes the swipe DISCOVERABLE. At 24em flat the column
+    filled a phone exactly, the next one started precisely at the card's edge,
+    and a table with more to the right looked identical to one without — the
+    scrollbar that says so on a desktop is a transient overlay on a phone and
+    is not there at rest. Capped a little under the viewport, the next column
+    always peeks, which is the same hint Notion leaves at the right edge. On
+    anything wider than a phone the em term wins and the note keeps its
+    measure.
+  */
+  max-width: min(24em, 72vw);
+  /* A pasted URL or a 40-character token has nowhere to break, and one would
+     otherwise push every column after it off the card on its own. */
+  overflow-wrap: anywhere;
+}
+/*
+  A handle broken across two lines mid-word is the screenshot this came from.
+  A handle, an ISO timestamp and a row of buttons are each one token: wrapping
+  buys nothing and is paid for in the height of every row.
+*/
+.cm-lp-form-cell-meta { white-space: nowrap; }
+.cm-lp-form-cell-at { color: var(--lp-muted); font-variant-numeric: tabular-nums; }
+/*
+  THE VOTES CELL IS ONE LINE, BECAUSE IT SETS EVERY ROW'S HEIGHT.
+
+  The voters and the two buttons were stacked, which made the tallest cell in
+  the table one that holds no answer — every row paid two lines for it whatever
+  it contained. Side by side they cost width instead, and width is the thing
+  this table now has: it scrolls.
+*/
+/* On the text's baseline rather than the buttons' box, so the voters line up
+   with By and At across the row instead of riding half a button lower. */
+.cm-lp-form-votes { display: flex; align-items: baseline; gap: 10px; }
+/*
+  A REFUSAL LANDS HERE, AND A SENTENCE IN A NOWRAP CELL WOULD SET THE TABLE'S
+  WIDTH.
+
+  When a vote is declined the gateway's message replaces the voters (see
+  drawResponses), and when a delete is declined it replaces the button's label.
+  Inside a cell that never wraps, and a table that is now as wide as its widest
+  content, one sentence would push every column to its right off the card and
+  keep them there. So these two — the only places server text reaches a meta
+  column — wrap inside a cap of their own. The buttons beside them still do
+  not: their labels are short and fixed.
+*/
+.cm-lp-form-voters { color: var(--lp-muted); white-space: normal; max-width: 18em; }
+.cm-lp-form-vote-controls { display: flex; gap: 6px; }
+.cm-lp-form-response-controls { display: flex; gap: 6px; }
+/*
+  The row's own buttons, sized as chrome rather than as the content.
+
+  At font: inherit with a 4/8 pad these were body size, and the two in a Votes
+  cell made it taller than the response it belongs to — a whole row of height
+  spent on controls in a table whose job is to be scanned. They are still the
+  full 8mm target on the axis that matters for a thumb.
+*/
+.cm-lp-form-vote,
+.cm-lp-form-response-action {
+  font: inherit;
+  font-size: 0.86em;
+  line-height: 1.35;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 6px;
+  padding: 4px 9px;
+  color: var(--lp-link);
+  background: transparent;
+  cursor: pointer;
+  /*
+    And the labels wrap, inside a cap. Their own are short and fixed, but a
+    declined delete replaces this one with the gateway's refusal — inside a
+    column that never wraps, in a table now as wide as its widest content, one
+    sentence would push every column to its right off the card and keep them
+    there. Same reason, and same shape, as the cap on the voters above.
+  */
+  white-space: normal;
+  max-width: 14em;
+}
+.cm-lp-form-vote:disabled,
+.cm-lp-form-response-action:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-vote-remove { color: var(--lp-muted); }
+.cm-lp-form-delete { color: var(--lp-muted); }
+/*
+  "We can't display because the formatting is off", which is what the owner
+  asked for. Dashed rather than solid so it reads as a gap in the note that
+  something should fill, and muted rather than loud: a form that will not parse
+  is the author's problem to fix and nobody else's to be alarmed by.
+*/
+.cm-lp-form-broken {
+  border-style: dashed;
+  border-color: var(--lp-line-strong);
+  color: var(--lp-muted);
+  /* No head, no fields, no foot — so this one carries its own padding. */
+  padding: 14px;
+}
+.cm-lp-form-broken-title { font-weight: 600; color: var(--lp-content); }
+.cm-lp-form-broken-why { font-family: var(--lp-mono); font-size: 0.85em; margin-top: 4px; }
+.cm-lp-form-hint { font-size: 0.85em; margin-top: 6px; }
+/*
+  IMAGES IN A NOTE — the row, the selected image, and its bar.
+
+  Two things here are not cosmetic. The controls appear on the SELECTED image
+  only, because a picture wearing permanent furniture reads as a form control
+  rather than as a picture; and they are real buttons, so focus-visible keeps
+  them reachable without a pointer. The image is painted on the code wash rather
+  than on nothing, so a PNG with transparency has a ground in dark mode — an
+  image keeps its own background here, the same argument previewDocument makes.
+*/
+.cm-lp-images {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 10px 0;
+  position: relative;
+}
+.cm-lp-image {
+  position: relative;
+  margin: 0;
+  max-width: 100%;
+  min-width: 96px;
+  flex: 0 1 auto;
+}
+/*
+  THE CURSORS ARE THE INSTRUCTIONS.
+
+  Over a writable image the pointer says "you can pick this up" — grab, and
+  grabbing while it is moving. Over the side handles it says "you can pull this
+  wider". Nothing about the picture says "type here", because you cannot.
+*/
+.cm-lp-image-live { cursor: grab; }
+.cm-lp-image-moving { cursor: grabbing; opacity: 0.5; }
+.cm-lp-image-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: var(--lp-code-bg);
+}
+/* A hairline on hover: enough to say the picture is a thing, not a decoration. */
+.cm-lp-image-live:hover .cm-lp-image-img {
+  outline: 1px solid var(--lp-line-strong);
+  outline-offset: 3px;
+}
+.cm-lp-image-on .cm-lp-image-img,
+.cm-lp-image-live.cm-lp-image-on:hover .cm-lp-image-img {
+  outline: 2px solid var(--lp-link);
+  outline-offset: 3px;
+}
+/*
+  The handles. The two side bars are on every writable image and appear under
+  the pointer, because resizing is the commonest thing anybody does to a picture
+  and it should not need a click first; the corners belong to the selected one.
+*/
+.cm-lp-image-handle {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: var(--lp-link);
+  opacity: 0;
+  touch-action: none;
+}
+.cm-lp-image-handle-w,
+.cm-lp-image-handle-e {
+  top: calc(50% - 17px);
+  width: 6px;
+  height: 34px;
+  border-radius: 3px;
+  cursor: ew-resize;
+}
+.cm-lp-image-handle-w { left: -5px; }
+.cm-lp-image-handle-e { right: -5px; }
+.cm-lp-image-handle-nw,
+.cm-lp-image-handle-ne,
+.cm-lp-image-handle-sw,
+.cm-lp-image-handle-se {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+.cm-lp-image-handle-nw { left: -8px; top: -8px; cursor: nwse-resize; }
+.cm-lp-image-handle-ne { right: -8px; top: -8px; cursor: nesw-resize; }
+.cm-lp-image-handle-sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.cm-lp-image-handle-se { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.cm-lp-image-live:hover .cm-lp-image-handle,
+.cm-lp-image-on .cm-lp-image-handle,
+.cm-lp-image-handle:focus-visible {
+  opacity: 1;
+}
+/* A handle under a moving image would be a target chasing the pointer. */
+.cm-lp-image-moving .cm-lp-image-handle { opacity: 0; }
+.cm-lp-image-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  color: var(--lp-content);
+  background: var(--lp-code-bg);
+}
+/*
+  The bar floats above the image it belongs to, which is where the hand already
+  is. It is absolutely positioned so it cannot change the row's height and make
+  the note jump as an image is selected and deselected.
+*/
+.cm-lp-image-bar {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 9px;
+  background: var(--lp-code-bg);
+  white-space: nowrap;
+}
+.cm-lp-image-chip,
+.cm-lp-image-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lp-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cm-lp-image-chip-on,
+.cm-lp-image-tool-on {
+  background: var(--lp-link);
+  color: var(--lp-code-bg);
+  font-weight: 600;
+}
+.cm-lp-image-tool-text {
+  color: var(--lp-content);
+}
+.cm-lp-image-remove {
+  color: var(--lp-heading);
+}
+.cm-lp-image-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--lp-line-strong);
+}
+/* Alt text, in a field that opens under the bar and closes when it is done. */
+.cm-lp-image-alt {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  z-index: 2;
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 9px;
+  background: var(--lp-code-bg);
+}
+.cm-lp-image-alt-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+.cm-lp-image-alt-field {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--lp-content);
+  background: transparent;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+.cm-lp-image-alt-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--lp-muted);
+}
+/*
+  Where the line will land. Drawn in the scroller rather than in the row,
+  because the drop can be anywhere in the note and a caret parented to the image
+  would be clipped by it.
+*/
+.cm-lp-image-caret {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--lp-link);
+  pointer-events: none;
+}
+.cm-lp-image-missing {
+  display: block;
+  font-family: var(--lp-mono);
+  font-size: 0.85em;
+  color: var(--lp-muted);
+  padding: 6px 0;
+}
 `;

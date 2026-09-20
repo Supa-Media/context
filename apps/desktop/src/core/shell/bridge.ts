@@ -58,6 +58,9 @@ import {
   type ConnectionView,
   type DesktopBridge,
   type DesktopCapabilities,
+  type LocalAgentAsk,
+  type LocalAgentReply,
+  type LocalAgentStatus,
   type DesktopShell,
   type DetectionView,
   type ImessageStatus,
@@ -237,6 +240,47 @@ function imessageStatusFrom(payload: unknown): ImessageStatus {
     lastSyncedAt: typeof source.lastSyncedAt === "number" && Number.isFinite(source.lastSyncedAt) ? source.lastSyncedAt : null,
     lastError: sentence(source.lastError),
   };
+}
+
+/**
+ * Whether this machine has a CLI to ask.
+ *
+ * Absent or malformed is `available: false` rather than a throw: the honest
+ * reading of a shell that cannot answer this question is that it has nothing
+ * to offer, and the console then takes the gateway road it would have taken
+ * anyway.
+ */
+function localAgentStatusFrom(payload: unknown): LocalAgentStatus {
+  const source = record(payload);
+  const available = source.available === true;
+  return { available, name: available ? sentence(source.name) : null };
+}
+
+/**
+ * One local turn's outcome.
+ *
+ * Anything that is not recognisably an answer becomes a refusal carrying the
+ * shell's sentence, or a last-resort one of ours — the panel always has
+ * something to render, which is the property `readAnswer` holds on the other
+ * road.
+ */
+function localAgentReplyFrom(payload: unknown): LocalAgentReply {
+  const source = record(payload);
+  const answer = typeof source.answer === "string" ? source.answer : "";
+  if (source.ok === true && answer.trim().length > 0) {
+    return {
+      ok: true,
+      answer,
+      provider: typeof source.provider === "string" ? source.provider : "",
+      steps: Array.isArray(source.steps)
+        ? (source.steps as unknown[])
+            .map((step) => record(step))
+            .filter((step): step is { tool: string; ok?: unknown } => typeof step.tool === "string")
+            .map((step) => ({ tool: step.tool as string, ok: step.ok !== false }))
+        : [],
+    };
+  }
+  return { ok: false, message: sentence(source.message) ?? BRIDGE_MESSAGES.unreachable };
 }
 
 function detectionFrom(payload: unknown): DetectionView {
@@ -548,8 +592,22 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
         ask(ipc, BRIDGE_CHANNELS.imessageStatus, undefined, imessageStatusFrom),
       setEnabled: (enabled: boolean): Promise<void> =>
         ask(ipc, BRIDGE_CHANNELS.imessageSetEnabled, { enabled: enabled === true }, () => undefined),
+      requestFullDiskAccess: (): Promise<void> =>
+        ask(ipc, BRIDGE_CHANNELS.imessageRequestFullDiskAccess, undefined, () => undefined),
       onChange: (handler: (status: ImessageStatus) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.imessageChange, imessageStatusFrom, handler),
+    }),
+    agent: Object.freeze({
+      status: (): Promise<LocalAgentStatus> =>
+        ask(ipc, BRIDGE_CHANNELS.agentStatus, undefined, localAgentStatusFrom),
+      /*
+        The question and the place go over as they were built, and nothing
+        else: there is no credential in this payload and no path from the page
+        to one. The grant the CLI needs is written to a file in the main
+        process, which is the only side that has ever held it.
+      */
+      ask: (request: LocalAgentAsk): Promise<LocalAgentReply> =>
+        ask(ipc, BRIDGE_CHANNELS.agentAsk, request, localAgentReplyFrom),
     }),
   });
 }
