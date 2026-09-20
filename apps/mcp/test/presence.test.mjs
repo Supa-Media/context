@@ -722,6 +722,103 @@ export async function runPresenceChecks(check) {
     else globalThis.WebSocketPair = previousPair;
   }
 
+  /* -------- the retention guard, which is the bound on the second copy ---- */
+
+  /*
+    **A retention policy nobody implemented is not a policy, it is a sentence.**
+    That is this feature's own wording, from the commit that added
+    `dropLogIfEmpty` after review found the header promising a deletion that
+    no code performed. The two checks above it are shape checks — a
+    `dropLogBefore` that took one argument and cleared the whole prefix passes
+    both — so the deletion itself, which is the only thing bounding how long a
+    customer's note text lives in Durable Object storage, had nothing standing
+    on it.
+
+    These drive the real methods against a fake `state`. Neither needs a
+    `WebSocketPair`, which is what kept the rest of this object out of node:
+    `dropLogIfEmpty` reads the socket list and the storage, and `ensureAlarm`
+    reads both and sets an alarm.
+  */
+  const fakeDurableState = (sockets = 0) => {
+    const map = new Map();
+    let alarm = null;
+    return {
+      sockets,
+      map,
+      alarmAt: () => alarm,
+      getWebSockets: () => Array.from({ length: sockets }, (_, i) => ({ id: i })),
+      storage: {
+        async get(key) { return map.get(key); },
+        async put(entries) { for (const [k, v] of Object.entries(entries)) map.set(k, v); },
+        async delete(keys) { for (const k of keys) map.delete(k); },
+        async deleteAll() { map.clear(); alarm = null; },
+        async getAlarm() { return alarm; },
+        async setAlarm(at) { alarm = at; },
+        async list({ prefix = "", end, limit } = {}) {
+          const out = new Map();
+          for (const [k, v] of [...map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+            if (!k.startsWith(prefix)) continue;
+            if (end !== undefined && !(k < end)) continue;
+            out.set(k, v);
+            if (limit !== undefined && out.size >= limit) break;
+          }
+          return out;
+        },
+      },
+    };
+  };
+  const roomOn = (state) => {
+    const room = Object.create(PresenceRoom.prototype);
+    room.state = state;
+    room.env = {};
+    return room;
+  };
+
+  {
+    const empty = fakeDurableState(0);
+    empty.map.set("u:0000000001", "some of the note's text");
+    const dropped = await roomOn(empty).dropLogIfEmpty();
+    check(
+      "the last person leaving takes the room's copy of the note with them",
+      dropped === true && empty.map.size === 0,
+    );
+  }
+
+  {
+    const busy = fakeDurableState(1);
+    busy.map.set("u:0000000001", "some of the note's text");
+    const dropped = await roomOn(busy).dropLogIfEmpty();
+    check(
+      "...and a room with anybody still in it keeps every letter",
+      // The guard, and the direction that matters: deleting the log out from
+      // under a live room is the note's text disappearing mid-sentence for
+      // everybody in it, and the elected writer flushing what is left.
+      dropped === false && busy.map.size === 1,
+    );
+  }
+
+  {
+    const parked = fakeDurableState(0);
+    parked.map.set("u:0000000001", "text nobody is looking at");
+    await roomOn(parked).ensureAlarm();
+    check(
+      "an empty room with a log still wakes, or the text is there for ever",
+      // `ensureAlarm`'s own comment: without the storage check, the last socket
+      // closing cancels the sweep that would have deleted the log. The
+      // deletion above is unreachable if nothing is scheduled to call it.
+      typeof parked.alarmAt() === "number",
+    );
+  }
+
+  {
+    const nothing = fakeDurableState(0);
+    await roomOn(nothing).ensureAlarm();
+    check(
+      "...and one with neither costs nothing, so the check above is not just 'always arm'",
+      nothing.alarmAt() === null,
+    );
+  }
+
   /* ============================== the route ============================== */
 
   const controlPlane = createControlPlaneStub();
