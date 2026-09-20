@@ -73,6 +73,7 @@ import { linkedNotePaths } from "./lib/noteLinks";
 import { findName } from "./lib/nameClaims";
 import { isProductMandatedPath } from "./lib/scaffold";
 import { shortLinkSlugFrom, shortLinkSlugRejection } from "./lib/shareSlug";
+import { DEFAULT_COLLECT_CAP, collectCapFrom } from "./lib/collectLimits";
 import { APP_ORIGIN_ENV_VAR } from "./lib/gatewayAuth";
 import { SHARE_ROUTE, shareSegment } from "@context/shared";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
@@ -871,6 +872,18 @@ export const createLinkShare = action({
      */
     kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
     titleInPreview: v.optional(v.boolean()),
+    /**
+     * `collect` makes this a link that takes answers to a form on the note.
+     * Absent means `read`, which is what every link has ever been.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /**
+     * The most answers this link will take, 1 to `MAX_COLLECT_CAP`. Absent, or
+     * outside that range, leaves `DEFAULT_COLLECT_CAP` standing — never
+     * "unlimited", which is the one reading that turns a typo into an open
+     * door.
+     */
+    collectCap: v.optional(v.number()),
   },
   returns: v.object({
     token: v.string(),
@@ -924,6 +937,8 @@ async function mintUnlistedLink(
     path: string;
     kind?: "note" | "folder";
     titleInPreview?: boolean;
+    mode?: "read" | "collect";
+    collectCap?: number;
     actorUserId: Id<"users">;
   },
 ): Promise<{ token: string; title: string | null }> {
@@ -952,6 +967,25 @@ async function mintUnlistedLink(
         workspaceId: args.workspaceId,
         path: args.path,
       }));
+
+    /*
+      A COLLECT LINK IS OVER A NOTE, AND THE OWNER IS TOLD AT THE MINT.
+
+      `collect.ts` refuses a folder row anyway — that is the enforcement, and
+      it stays there because it is what an already-written row is judged by.
+      This is the second half of the same rule said at the moment an owner
+      asks for it, so the answer is "a folder cannot collect" rather than a
+      link that looks minted and refuses every stranger who opens it.
+
+      The `kind` read above is what makes this correct on a re-mint: a press of
+      Copy link on a live folder link passes no mode at all and is untouched.
+    */
+    if (kind === "folder" && args.mode === "collect") {
+      throw new ConvexError({
+        code: "COLLECT_NEEDS_A_NOTE",
+        message: "A link that collects answers points at one note, not a folder.",
+      });
+    }
 
     if (kind === "folder") return await mintFolderLink(ctx, args, userId);
 
@@ -1019,6 +1053,8 @@ async function mintUnlistedLink(
       ...(args.titleInPreview === undefined
         ? {}
         : { titleInPreview: args.titleInPreview }),
+      ...(args.mode === undefined ? {} : { mode: args.mode }),
+      ...(args.collectCap === undefined ? {} : { collectCap: args.collectCap }),
     });
   }
 }
@@ -1208,6 +1244,17 @@ export const mintLinkShare = internalMutation({
      */
     entryKind: v.union(v.literal("note"), v.literal("folder")),
     titleInPreview: v.optional(v.boolean()),
+    /**
+     * `collect` makes this a link that takes answers to a form on the note,
+     * from people with no account. Absent means `read`.
+     *
+     * Only ever set on a **note** — `collect.ts` refuses a folder row anyway,
+     * and refusing at the mint too means an owner is told when they ask rather
+     * than when the first stranger tries.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /** See `createLinkShare`. Normalized here, so every caller gets one rule. */
+    collectCap: v.optional(v.number()),
   },
   returns: v.object({
     token: v.string(),
@@ -1216,6 +1263,16 @@ export const mintLinkShare = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const chosenTitle = titleFromPath(args.path);
+
+    /*
+      Normalized once, here, and `null` for anything unusable.
+
+      Not an error: an owner or an agent that passed something odd gets a
+      working link on the default ceiling rather than no link — and `null`
+      never means "unlimited", which is the reading that would turn a typo
+      into an open door. See `lib/collectLimits.ts`.
+    */
+    const cap = collectCapFrom(args.collectCap);
 
     /** The title as the row will carry it, which is what the URL may use. */
     const shown = (titleInPreview: boolean, title: string | undefined) =>
@@ -1236,6 +1293,23 @@ export const mintLinkShare = internalMutation({
       await ctx.db.patch(existing._id, {
         titleInPreview: args.titleInPreview ?? existing.titleInPreview,
         previewTitle: chosenTitle ?? existing.previewTitle,
+        /*
+          THE MODE IS APPLIED HERE TOO, AND THE FIRST VERSION OF THIS FORGOT.
+
+          This is the branch a *live* link takes when it is re-minted, which is
+          how an owner turns an existing read link into a collect one — and
+          with only the two title fields patched, that press did nothing and
+          said it had worked.
+
+          Unstated preserves, for `linkShareKind`'s reason: pressing Copy link
+          or toggling the card's name re-mints without naming a mode, and
+          defaulting those to `read` would quietly stop a published form taking
+          answers.
+        */
+        mode: args.mode ?? existing.mode,
+        // Same rule: unstated preserves. A Copy link press that reset a busy
+        // form's ceiling to the default would stop it early and say nothing.
+        collectCap: cap ?? existing.collectCap,
       });
       await scheduleCardRender(ctx, existing._id);
       return {
@@ -1258,6 +1332,11 @@ export const mintLinkShare = internalMutation({
         token,
         titleInPreview: args.titleInPreview ?? true,
         previewTitle: chosenTitle ?? undefined,
+        // Superseding preserves the mode when the caller did not say, for the
+        // reason `linkShareKind` preserves the kind: pressing Copy link on a
+        // collect link must not quietly turn it back into a read link.
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+        ...(cap === null ? {} : { collectCap: cap }),
         createdBy: args.actorUserId,
         createdAt: now,
         revokedAt: undefined,
@@ -1276,6 +1355,8 @@ export const mintLinkShare = internalMutation({
         status: "active",
         titleInPreview: args.titleInPreview ?? true,
         previewTitle: chosenTitle ?? undefined,
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+        ...(cap === null ? {} : { collectCap: cap }),
         createdAt: now,
       });
     }
@@ -1285,7 +1366,11 @@ export const mintLinkShare = internalMutation({
       actorUserId: args.actorUserId,
       action: "share.link.created",
       paths: [args.path],
-      details: { audience: "anyone", entryKind: args.entryKind },
+      details: {
+        audience: "anyone",
+        entryKind: args.entryKind,
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+      },
     });
 
     await scheduleCardRender(ctx, shareId);
@@ -1625,6 +1710,7 @@ export const readShortLink = action({
     entryPath: v.string(),
     links: v.array(v.string()),
     openToAnyone: v.boolean(),
+    collecting: v.boolean(),
     editableInContext: v.union(v.string(), v.null()),
   }),
   handler: async (
@@ -1638,6 +1724,7 @@ export const readShortLink = action({
     entryPath: string;
     links: string[];
     openToAnyone: boolean;
+    collecting: boolean;
     editableInContext: string | null;
   }> => {
     const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
@@ -1790,6 +1877,11 @@ interface GatewayLink {
   audience: "name" | "email" | "members" | "anyone";
   entryPath: string;
   slug: string | null;
+  /** Whether this link takes answers to a form, rather than only showing it. */
+  collecting: boolean;
+  /** Answers taken so far, and the ceiling. Both `null` on a read link. */
+  collected: number | null;
+  collectCap: number | null;
   createdAt: number;
 }
 
@@ -1815,6 +1907,24 @@ const gatewayLinkSummary = v.object({
   ),
   entryPath: v.string(),
   slug: v.union(v.string(), v.null()),
+  /**
+   * Whether this link takes answers, rather than only showing what it points
+   * at.
+   *
+   * Reported on every link route so that an agent listing a context's links
+   * can tell the two apart without a second call — and so that "make the
+   * intake form live" and "did it work" are the same shape of answer.
+   */
+  collecting: v.boolean(),
+  /**
+   * How many answers have come through, and the most that will.
+   *
+   * Reported so that "how many people have filled it in" and "is it about to
+   * stop" are one call rather than a trip to the console. `null` on a link
+   * that collects nothing, because zero of zero reads as a broken form.
+   */
+  collected: v.union(v.number(), v.null()),
+  collectCap: v.union(v.number(), v.null()),
   createdAt: v.number(),
 });
 
@@ -1845,6 +1955,18 @@ export const gatewayCreateLink = internalAction({
     kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
     short: v.optional(v.string()),
     titleInPreview: v.optional(v.boolean()),
+    /**
+     * `collect` makes this a link that takes answers to a form on the note,
+     * from people with no account at all. Absent means `read`.
+     *
+     * Only meaningful with `audience: "anyone"` — a members link already has
+     * readers with sessions, and a form on one is answered under their own
+     * handle through `submit_form`. Passing it with `members` is ignored
+     * rather than refused, because the link that results is the correct one.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /** See `createLinkShare`. Out of range leaves the default standing. */
+    collectCap: v.optional(v.number()),
   },
   returns: v.union(
     v.null(),
@@ -1876,6 +1998,8 @@ export const gatewayCreateLink = internalAction({
         ...(args.titleInPreview === undefined
           ? {}
           : { titleInPreview: args.titleInPreview }),
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+        ...(args.collectCap === undefined ? {} : { collectCap: args.collectCap }),
       });
     } else {
       await ctx.runMutation(internal.functions.shares.gatewayMintTeam, {
@@ -1906,6 +2030,8 @@ export const gatewayMintUnlisted = internalAction({
     path: v.string(),
     kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
     titleInPreview: v.optional(v.boolean()),
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    collectCap: v.optional(v.number()),
   },
   returns: v.object({ token: v.string(), title: v.union(v.string(), v.null()) }),
   handler: async (ctx, args): Promise<{ token: string; title: string | null }> =>
@@ -2012,6 +2138,9 @@ export const gatewayNameAndDescribe = internalMutation({
         audience: row.recipientKind,
         entryPath: row.entryPath,
         slug: row.slug ?? null,
+        collecting: row.mode === "collect",
+        collected: row.mode === "collect" ? (row.collectCount ?? 0) : null,
+        collectCap: row.mode === "collect" ? (row.collectCap ?? DEFAULT_COLLECT_CAP) : null,
         createdAt: row.createdAt,
       },
       shortRefused,
@@ -2054,6 +2183,10 @@ export const gatewayListLinks = internalQuery({
           audience: row.recipientKind,
           entryPath: row.entryPath,
           slug: row.slug ?? null,
+          collecting: row.mode === "collect",
+          collected: row.mode === "collect" ? (row.collectCount ?? 0) : null,
+          collectCap:
+            row.mode === "collect" ? (row.collectCap ?? DEFAULT_COLLECT_CAP) : null,
           createdAt: row.createdAt,
         };
       });
@@ -2328,6 +2461,14 @@ export const authorizeShareRead = internalQuery({
        */
       entryKind: v.union(v.literal("note"), v.literal("folder")),
       /**
+       * Whether this link is taking answers to a form on what it points at.
+       *
+       * Reported rather than inferred downstream: the viewer draws a form on
+       * the strength of it, and the read path *narrows* on it — see the
+       * traversal bound, which a collect link does not get.
+       */
+      collecting: v.boolean(),
+      /**
        * Whether this share needs no session at all.
        *
        * Reported rather than inferred downstream, because the viewer has a
@@ -2393,6 +2534,8 @@ export const authorizeShareRead = internalQuery({
       // goes through, rather than at each call site — a call site that forgot
       // would widen an old row from one note to a subtree.
       entryKind: share.entryKind ?? "note",
+      // Absent means `read`, which is every row written before collect mode.
+      collecting: share.mode === "collect",
       openToAnyone: share.recipientKind === "anyone",
       editableInContext,
     };
@@ -2490,6 +2633,16 @@ export const readSharedNote = action({
      */
     openToAnyone: v.boolean(),
     /**
+     * Whether this link is taking answers to a form on this note.
+     *
+     * The viewer draws the form on the strength of it. It is reported rather
+     * than inferred from the note's own text, because a note carrying a form
+     * block is not the same thing as a link its owner published to collect
+     * through — and drawing a Send button on a link that will refuse is worse
+     * than not drawing one.
+     */
+    collecting: v.boolean(),
+    /**
      * Where this note can be **edited**, for a reader whose own membership
      * already lets them — `@slug`, or `null` for everybody else.
      *
@@ -2517,6 +2670,7 @@ export const readSharedNote = action({
     entryPath: string;
     links: string[];
     openToAnyone: boolean;
+    collecting: boolean;
     editableInContext: string | null;
   }> => {
     // The session is read, not required, and the order is the whole change. A session
@@ -2631,6 +2785,22 @@ export const readSharedNote = action({
     const links = linkedNotePaths(entry.text, entryPath);
 
     if (requested !== entryPath) {
+      /*
+        A COLLECT LINK SERVES ONE NOTE AND NOTHING ELSE.
+
+        Not even the note's own links, which every read link gets. A collect
+        link is published so that strangers can answer a form; browsing is not
+        what it is for, and the note a form sits on is exactly the note whose
+        links most often include **the answers file it collects into**. Serving
+        that through the link that fills it would hand every respondent
+        everybody else's answers — a disclosure that depends on where an owner
+        happened to put a cross-reference.
+
+        Bounded here rather than by parsing the block and refusing that one
+        path: a rule that lists what is forbidden is a rule with a gap in it,
+        and "the entry note, full stop" has none.
+      */
+      if (grant.collecting) throw anonymousSafe(actorUserId, shareUnavailable());
       // `SHARE_TRAVERSAL_DEPTH` is 1: the entry note's own links and nothing
       // further. See the constant.
       if (!links.includes(requested)) throw anonymousSafe(actorUserId, shareUnavailable());
@@ -2649,6 +2819,7 @@ export const readSharedNote = action({
         entryPath,
         links,
         openToAnyone: grant.openToAnyone,
+        collecting: grant.collecting,
         editableInContext: grant.editableInContext,
       };
     }
@@ -2661,6 +2832,7 @@ export const readSharedNote = action({
       entryPath,
       links,
       openToAnyone: grant.openToAnyone,
+      collecting: grant.collecting,
       editableInContext: grant.editableInContext,
     };
   },
@@ -2694,6 +2866,7 @@ async function readWithinSharedFolder(
     workspaceId: Id<"workspaces">;
     entryPath: string;
     openToAnyone: boolean;
+    collecting: boolean;
     editableInContext: string | null;
   },
   requested: string,
@@ -2706,12 +2879,14 @@ async function readWithinSharedFolder(
   entryPath: string;
   links: string[];
   openToAnyone: boolean;
+  collecting: boolean;
   editableInContext: string | null;
 }> {
   const shared = {
     entryPath: grant.entryPath,
     links: [],
     openToAnyone: grant.openToAnyone,
+    collecting: grant.collecting,
     editableInContext: grant.editableInContext,
   };
 

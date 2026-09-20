@@ -770,6 +770,46 @@ const schema = defineSchema({
      * name an owner cannot reuse on their own context.
      */
     slug: v.optional(v.string()),
+    /**
+     * What this link lets somebody do: read what it points at, or answer a
+     * form on it. Absent means `read`, which is every row written before
+     * collect mode and the only thing a link has ever done.
+     *
+     * **`collect` is the first write in this product that is not an
+     * authenticated member.** Every other one resolves a grant or a session to
+     * a person with a handle; this takes an answer from somebody who will
+     * never have an account, which is what an intake form is and is a rule
+     * this field changes rather than a surface it adds.
+     *
+     * What keeps it narrow is enforced in `collect.ts` rather than here, but
+     * the shape is: only on an `anyone` row, only over a note, only into the
+     * response file a form on that note already names, only where that form
+     * takes `member` submissions, and never as a way to *read* the answers.
+     */
+    mode: v.optional(v.union(v.literal("read"), v.literal("collect"))),
+    /**
+     * How many answers this link may take in total, or absent for the default.
+     *
+     * An owner's own ceiling on a link they published. A rate limit stops a
+     * flood; this stops a slow drip that fills a bucket over a week, and it is
+     * per link rather than per context so that taking one down is not the only
+     * lever.
+     */
+    collectCap: v.optional(v.number()),
+    /**
+     * Answers taken through this link so far, counted here rather than by
+     * reading the responses file.
+     *
+     * The file is the canonical record and this is a counter beside it, which
+     * is the one shape that would normally be wrong — two copies of one truth.
+     * It is right here because the alternative is opening the customer's
+     * bucket to decide whether to refuse, which means an unauthenticated
+     * caller can make us spend a GET on their quota by posting garbage. The
+     * counter is the cheap gate; the file stays the record, and a counter that
+     * drifts low costs at most a few answers over the cap rather than
+     * anything unrecoverable.
+     */
+    collectCount: v.optional(v.number()),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   })

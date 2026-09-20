@@ -1258,6 +1258,20 @@ export async function runFormChecks(check) {
         "...whose id came from the note's own filename rather than being asked for",
         block?.config?.responses === "3-resources/intake-responses.md"
       );
+      check(
+        "...and points the agent at the link a form without accounts needs",
+        /create_link with mode=collect/.test(made.text)
+      );
+      const editorsOnly = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/staff-only.md",
+        submit: "editor",
+        fields: [{ name: "x", type: "line", max: 5 }],
+      });
+      check(
+        "a form only editors may answer is not offered a link, because one would not work",
+        !editorsOnly.isError && !/create_link with mode=collect/.test(editorsOnly.text)
+      );
+
       const named = await call(env, EDITOR_TOKEN, "create_form", {
         path: "3-resources/named.md",
         id: "client-intake",
