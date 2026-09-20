@@ -317,12 +317,23 @@ export class PresenceRoom {
       /*
         A joiner asking the room's peers what it is missing.
 
-        Relayed as an ordinary `y` frame, because on the receiving side it is
-        one: a sync-protocol message the peer's document answers. Not appended
-        to the log — see `decodeClientFrame` — and deliberately above the write
-        gate, because asking is a read.
+        **Relayed under its own name, never as a `y`.** It is deliberately
+        above the write gate, because asking is a read and a read-only member
+        holds exactly that. What follows from the same fact is that its payload
+        arrives from somebody who may not edit — and this room cannot check
+        what is in it, because it holds no Yjs and the bytes are opaque here by
+        design.
+
+        Relabelling it `y` erased the one distinction the receiving client has
+        to go on. A peer reads a `y` with the sync protocol's own reader, which
+        chooses between answering and *applying* on a type byte inside the
+        payload — so an ask carrying an update was an edit by a member the
+        write gate had just refused. Keeping the type is what lets the client
+        answer it without applying it: see `readSyncAsk`.
+
+        Not appended to the log either — see `decodeClientFrame`.
       */
-      this.broadcast({ t: "y", d: decoded.msg.d }, ws);
+      this.broadcast({ t: "ask", d: decoded.msg.d }, ws);
       return;
     }
 

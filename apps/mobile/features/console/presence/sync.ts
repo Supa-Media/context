@@ -101,6 +101,49 @@ export function readSyncMessage(payload: string, doc: Y.Doc, origin: unknown): S
 }
 
 /**
+ * Answer a peer's question, and refuse to be edited by it.
+ *
+ * **The whole of the read/write split on this channel, and the reason it is a
+ * separate function.** An `ask` carries a state vector, which is a question.
+ * `readSyncMessage` answers a question *and* applies an update, choosing
+ * between them on a type byte inside the payload — and the payload is supplied
+ * entirely by whoever sent the frame. The gateway cannot narrow that: it holds
+ * no Yjs by design and the bytes are opaque to it, so a read-only member's
+ * `ask` reaches this client with the same shape a writer's edit has.
+ *
+ * So the refusal is here, where the types are known. Anything that is not a
+ * SyncStep1 is ignored, and a SyncStep1 cannot modify a document by
+ * construction — `readSyncStep1` reads a state vector and writes a reply,
+ * touching nothing.
+ */
+export function readSyncAsk(payload: string, doc: Y.Doc): SyncOutcome {
+  let decoder: decoding.Decoder;
+  try {
+    decoder = decoding.createDecoder(fromBase64(payload));
+  } catch {
+    return { kind: "ignored" };
+  }
+
+  try {
+    // Read the type before anything acts on it. `readSyncMessage` reads the
+    // same byte and then dispatches on it; the point here is to dispatch on
+    // nothing but SyncStep1.
+    if (decoding.readVarUint(decoder) !== syncProtocol.messageYjsSyncStep1) {
+      return { kind: "ignored" };
+    }
+    const encoder = encoding.createEncoder();
+    // Writes its own SyncStep2 header, exactly as the library's own reader
+    // does. Nothing here applies an update, because this branch cannot.
+    syncProtocol.readSyncStep1(decoder, encoder, doc);
+    return encoding.length(encoder) > 1
+      ? { kind: "reply", payload: toBase64(encoding.toUint8Array(encoder)) }
+      : { kind: "ignored" };
+  } catch {
+    return { kind: "ignored" };
+  }
+}
+
+/**
  * A caret, as a position that survives other people's edits.
  *
  * An offset is a number into a document that is changing underneath it: a peer

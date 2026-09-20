@@ -78,6 +78,7 @@ export type ServerFrame =
   /** One edit from somebody else, to apply to the shared document. */
   /** One Yjs sync-protocol message, relayed from another client. */
   | { t: "y"; d: string }
+  | { t: "ask"; d: string }
   /** The document so far, replayed because this client just joined. */
   | { t: "sync"; updates: string[] }
   /** The room is asking this client to send a compacted snapshot. */
@@ -188,6 +189,12 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
   }
   if (frame.t === "leave") {
     return typeof frame.id === "string" ? { t: "leave", id: frame.id } : null;
+  }
+  if (frame.t === "ask") {
+    // Relayed under its own name rather than as a `y`. See `readSyncAsk`: the
+    // sender of an ask may not hold write authority, so what arrives here must
+    // stay distinguishable from an edit all the way to where it is read.
+    return typeof frame.d === "string" && frame.d.length > 0 ? { t: "ask", d: frame.d } : null;
   }
   if (frame.t === "y") {
     return typeof frame.d === "string" && frame.d.length > 0 ? { t: "y", d: frame.d } : null;

@@ -52,6 +52,12 @@ import {
   mergeExternalText,
   seedSharedDoc,
 } from "../features/console/presence/sharedDoc";
+import {
+  encodeSyncStep1,
+  encodeUpdate,
+  readSyncAsk,
+  readSyncMessage,
+} from "../features/console/presence/sync";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -522,5 +528,83 @@ describe("presence cannot break the editor", () => {
     view.dispatch({ changes: { from: 5, insert: "!" }, selection: { anchor: 6 } });
     expect(seen.at(-1)).toEqual([6, 6]);
     view.destroy();
+  });
+});
+
+/* --------------------- an ask is a question, never an edit ----------------- */
+
+describe("a read-only peer's ask cannot edit this document", () => {
+  /*
+    The room lets an `ask` past its write gate on purpose: asking what a note
+    says is a read, and a `member` of somebody else's context holds exactly
+    that. It cannot check what is inside one — the gateway holds no Yjs and the
+    payload is opaque bytes there by design.
+
+    So the payload arrives from somebody who may not edit, and the refusal has
+    to be here. `readSyncMessage` is the wrong reader for it: it chooses
+    between answering and applying on a type byte *inside the payload*, and the
+    sender supplies the payload. `readSyncAsk` dispatches on nothing but
+    SyncStep1, which cannot modify a document by construction.
+  */
+
+  test("an ask carrying an update leaves the document exactly as it was", () => {
+    /*
+      The attacker is a member of the room, so their document is already in
+      sync with everybody's — which is what makes their update applicable at
+      all. A first attempt at this built the forged update from a document
+      seeded independently, and Yjs correctly buffered it as depending on
+      history the target had never seen. That version passed the refusal below
+      and its own non-vacuity check failed, which is the only reason it was not
+      written up as a proof.
+    */
+    let forged: Uint8Array | null = null;
+    const attacker = createSharedDoc({ onLocalUpdateBytes: (update) => (forged = update) });
+    seedSharedDoc(attacker, "the owner's text");
+
+    // Two peers, synced from the attacker exactly as joining the room syncs
+    // them. They differ only in how the forged frame reaches them.
+    const victim = createSharedDoc({ onLocalUpdate: () => {} });
+    const bystander = createSharedDoc({ onLocalUpdate: () => {} });
+    const state = attacker.snapshot();
+    victim.applyRemote(state);
+    bystander.applyRemote(state);
+    expect(victim.markdown()).toBe("the owner's text");
+
+    attacker.text.insert(0, "INJECTED ");
+    expect(forged).not.toBeNull();
+    const payload = encodeUpdate(forged as unknown as Uint8Array);
+
+    // Through the ask door — the one the room leaves open to a member with no
+    // write authority — it is refused.
+    const outcome = readSyncAsk(payload, victim.doc);
+    expect(outcome.kind).toBe("ignored");
+    expect(victim.markdown()).toBe("the owner's text");
+
+    // Non-vacuity, and the proof the refusal is refusing something real: the
+    // same bytes read as an edit DO rewrite the note.
+    readSyncMessage(payload, bystander.doc, "remote");
+    expect(bystander.markdown()).toContain("INJECTED");
+
+    attacker.destroy();
+    victim.destroy();
+    bystander.destroy();
+  });
+
+  test("...and a genuine question is still answered", () => {
+    // Non-vacuity. Without this, a `readSyncAsk` that ignored everything would
+    // pass the check above and silently break a reader's ability to sync.
+    const holder = createSharedDoc({ onLocalUpdate: () => {} });
+    seedSharedDoc(holder, "the owner's text");
+    const empty = createSharedDoc({ onLocalUpdate: () => {} });
+
+    const answer = readSyncAsk(encodeSyncStep1(empty.doc), holder.doc);
+    expect(answer.kind).toBe("reply");
+
+    if (answer.kind === "reply") {
+      readSyncMessage(answer.payload, empty.doc, "remote");
+      expect(empty.markdown()).toBe("the owner's text");
+    }
+    holder.destroy();
+    empty.destroy();
   });
 });

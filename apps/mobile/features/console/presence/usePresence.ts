@@ -40,7 +40,13 @@ import {
   syncFrame,
   type PresenceMember,
 } from "./protocol";
-import { cursorPosition, encodeSyncStep1, encodeUpdate, readSyncMessage } from "./sync";
+import {
+  cursorPosition,
+  encodeSyncStep1,
+  encodeUpdate,
+  readSyncAsk,
+  readSyncMessage,
+} from "./sync";
 import {
   createSharedDoc,
   electWriter,
@@ -302,9 +308,33 @@ export function usePresence(options: {
         const frame = decodeServerFrame(event.data);
         if (!frame) return;
 
+        if (frame.t === "ask") {
+          /*
+            A peer asking what it is missing, and it may be a peer with no
+            write authority at all — asking is a read.
+
+            So it is read by `readSyncAsk`, which answers a SyncStep1 and
+            ignores everything else. Routed through `readSyncMessage` instead —
+            which is what relaying an ask as a `y` amounted to — the payload's
+            own type byte would decide, and a read-only member could put an
+            update in an ask and have every peer apply it. The gateway cannot
+            tell the two apart: it holds no Yjs and the bytes are opaque there.
+          */
+          const answer = readSyncAsk(frame.d, document.doc);
+          if (answer.kind === "reply") {
+            try {
+              live.send(syncFrame(answer.payload));
+            } catch {
+              // They will ask again on their next reconnect.
+            }
+          }
+          return;
+        }
+
         if (frame.t === "y") {
-          // A reply is produced when a peer asked what we have; sending it is
-          // how a late joiner gets filled in by whoever is already here.
+          // An edit from a peer the room let past its write gate. A reply is
+          // produced when the payload is itself a question, which is how a
+          // peer that asked over the `y` channel still gets filled in.
           const outcome = readSyncMessage(frame.d, document.doc, REMOTE_ORIGIN);
           if (outcome.kind === "reply") {
             try {

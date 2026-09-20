@@ -636,7 +636,30 @@ export async function runPresenceChecks(check) {
       // Asking is a read, and a member holds exactly that. Routing this through
       // the edit frame — which it was — left a reader unable to sync from
       // anybody, dependent on whatever the room's log happened to still hold.
-      relayed.some((frame) => frame.t === "y" && frame.d === "QUJD"),
+      relayed.some((frame) => frame.t === "ask" && frame.d === "QUJD"),
+    );
+    check(
+      "...and it never arrives wearing an edit's name",
+      /*
+        **This check replaced one that asserted the opposite**, and the swap is
+        the finding. The relay used to relabel an ask as a `y`, which reads as
+        harmless — on the receiving side it is a sync-protocol message either
+        way — and is not, because it erases the only distinction the receiver
+        has.
+
+        A peer reads a `y` with the sync protocol's own reader, which chooses
+        between *answering* a question and *applying* an update on a type byte
+        inside the payload. The payload comes from whoever sent the frame, and
+        the ask door is deliberately open to members with no write authority.
+        So an ask carrying an update was an edit by somebody the write gate had
+        refused one line earlier — reaching every other editor in the room and,
+        through the elected writer, the customer's bucket.
+
+        This room cannot narrow it: it holds no Yjs and the bytes are opaque
+        here by design. Keeping the type is the whole fix, and the other half
+        is the client reading an ask with a step1-only reader.
+      */
+      !relayed.some((frame) => frame.t === "y"),
     );
     check(
       "...and the question is never written to the room's log",
