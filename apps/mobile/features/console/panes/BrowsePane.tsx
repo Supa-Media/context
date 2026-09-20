@@ -1619,6 +1619,14 @@ export function BrowsePane({
           onShare={(recipient) => files.share(sharing, recipient)}
           onCopyLink={files.copyShareLink}
           onRevoke={(shareId) => files.revokeShare(shareId)}
+          /*
+            The short link's claim control, and it was missing here while it
+            was wired in `Explorer` — so on the pointer console the block never
+            drew at all and the feature was, on the surface people actually
+            use, absent. Exactly the failure this pane's own test file was
+            written about: correct in the component, unreachable on a screen.
+          */
+          onSetSlug={(shareId, slug) => files.setShareSlug(shareId, slug)}
           onSetPreviewTitle={(share, on) =>
             files.setSharePreviewTitle(sharing, share, on)
           }
