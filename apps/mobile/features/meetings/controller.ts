@@ -557,10 +557,25 @@ export class MeetingsController {
       if (!isLive(record.session.state)) continue;
       const at_ = new Date(at).toISOString();
 
-      if (hasNothingCaptured(record.session)) {
-        // Mirrors `end()`: nothing here was ever going to be a note, whatever
-        // interrupted it, so it is `empty` rather than a `failed` this device
-        // will only ever offer a Retry that cannot succeed.
+      /*
+        Mirrors `end()`, **including the half of its question that is not
+        about the session**: nothing here was ever going to be a note, so it
+        is `empty` rather than a `failed` this device will only ever offer a
+        Retry that cannot succeed.
+
+        `hasNothingCaptured` alone is not that question. A meeting recorded
+        entirely offline has no transcript — no chunk has reached a
+        transcriber — and often no typed notes, because the person was
+        listening; everything it has is audio on disk. `empty` is terminal,
+        so calling it empty here would refuse every word that audio comes
+        back as, which is exactly the bug `end()` carries its own kept count
+        for. The counts are taken by `configure` before this runs, for
+        `recoverStaleFinalizes`' sake, and they answer this too.
+      */
+      if (
+        hasNothingCaptured(record.session) &&
+        (this.snapshot.audio[record.session.id]?.kept ?? 0) === 0
+      ) {
         this.apply(record.session.id, { type: "end", at: at_ });
         this.apply(record.session.id, { type: "empty", at: at_, reason: INTERRUPTED_EMPTY_REASON });
         continue;

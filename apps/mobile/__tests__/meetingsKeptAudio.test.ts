@@ -225,6 +225,47 @@ describe("the note waits for its audio", () => {
     ]);
     expect(spool.list()).toEqual([]);
   });
+
+  /*
+    AND THE SAME KILL WITH NOBODY TYPING IS STILL NOT AN EMPTY MEETING.
+
+    The test above types a line before the crash, so `hasNothingCaptured` is
+    false and the question never comes up. A meeting recorded entirely
+    offline is the case where it does: no transcript, because no chunk has
+    been through a transcriber yet, and no typed notes, because the person
+    was listening rather than writing. Everything it has is on disk.
+
+    `empty` is terminal, so calling it empty here would refuse every word
+    that audio later comes back as — the same bug `end()` carries its own
+    kept-audio guard for, and its comment names. Recovery at launch is a
+    second caller asking the same question, so it needs the same second
+    half of it: nothing captured **and** no audio kept.
+  */
+  test("a meeting killed with only its audio is failed, not called empty", async () => {
+    const store = memoryStore();
+    const first = await harness({ store });
+    offline(first.controller, true);
+    const id = await first.controller.start({ title: "Nobody typed" });
+    keep(id, 1);
+    await settle();
+    // The process dies mid-meeting. Nothing typed, nothing transcribed.
+    first.controller.reset();
+    setCaptureOffline(false);
+
+    const second = await harness({ store });
+    await settle();
+
+    const record = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).not.toBe("empty");
+    // Failed, which still takes words — so the audio lands rather than being
+    // refused by a session nothing can leave.
+    expect(record.session.state).toBe("failed");
+    expect(record.session.transcript.map((s) => s.id)).toEqual([
+      `${chunkIdFor(id, 0)}-0`,
+      `${chunkIdFor(id, 0)}-1`,
+    ]);
+    expect(spool.list()).toEqual([]);
+  });
 });
 
 describe("what survives a relaunch", () => {

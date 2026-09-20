@@ -3908,15 +3908,42 @@ came through — the ordinary end of a meeting, or a relaunch that finds one
 still open — and `INTERRUPTED_RECORDING_REASON` is left to say what remains
 true of it: a session that captured *something* before the device restarted.
 
-**What is not changed.** `hasNothingCaptured` still means exactly what it
-always has — no transcript, no typed notes — and no code path that had a
-retry worth making loses it: a `failed` session with real content still gets
-`INTERRUPTED_RECORDING_REASON` and its Retry, unchanged. The finalize deadline
-(`checkFinalizeTimeout`, `FINALIZE_TIMEOUT_MS`) is untouched; this is a
-different caller of `fail`, and `recoverStaleFinalizes` was not audited to
-need the same check because a session that reached `finalizing` at all had a
-`start`/`resume` behind it and `pendingSteps` would already have queued real
-content ahead of any finalize.
+**`hasNothingCaptured` is not the whole question, and the fold has to ask the
+other half.** It reads the session — no transcript, no typed notes — and a
+meeting recorded entirely offline satisfies it while holding everything it
+has on disk: no chunk has reached a transcriber yet, and the person was
+listening rather than typing. `empty` is terminal, so folding such a session
+to `empty` refuses every word that audio later comes back as, which is
+precisely why `end()` asks `hasNothingCaptured` **and** whether the spool is
+holding anything for this meeting before it folds. Recovery at launch is a
+second caller of the same question and needs the same second half of it;
+counting only the session is a guard holding the right rule against the wrong
+field. The counts are already taken by `configure` before recovery runs — for
+`recoverStaleFinalizes`, which needs them for its own reason — so this costs
+nothing but the condition. **The test that fails if it is reversed** is `a
+meeting killed with only its audio is failed, not called empty` in
+`apps/mobile/__tests__/meetingsKeptAudio.test.ts`, beside the typed-a-line
+case it was hiding behind.
+
+`markSyncFailed`'s copy is the one place that still asks the session alone,
+and it is left that way deliberately: `record.ts` is pure and holds no view
+of the spool, threading one in to reach a backstop behind two folds that
+already check it buys a sentence, not a word of transcript. The residue is
+therefore exact and small — a meeting whose only audio has been *set aside*
+after three refusals is not `audioHeld`, so it can still reach this path and
+be told "nothing was captured" while a chunk of it sits on the device. The
+screen says otherwise right beside it (`endedAudioLine` counts set-aside
+audio), and the state it is in is not terminal, so nothing is lost; it is a
+wrong sentence, not a wrong fold. Worth fixing the day `record.ts` has a
+reason to know about audio, and not before.
+
+**What is not changed.** No code path that had a retry worth making loses it:
+a `failed` session with real content still gets `INTERRUPTED_RECORDING_REASON`
+and its Retry, unchanged. The finalize deadline (`checkFinalizeTimeout`,
+`FINALIZE_TIMEOUT_MS`) is untouched; this is a different caller of `fail`, and
+`recoverStaleFinalizes` was not audited to need the same check because a
+session that reached `finalizing` at all had a `start`/`resume` behind it and
+`pendingSteps` would already have queued real content ahead of any finalize.
 
 The checks are `six failed reconnections on a meeting with nothing in it
 never say 'try again'` and `six failed reconnections park a meeting and say
