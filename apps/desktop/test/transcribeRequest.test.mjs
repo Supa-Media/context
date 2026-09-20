@@ -235,9 +235,16 @@ export async function runTranscribeRequestChecks(check) {
     number is `null` — "the engine did not say" — never `0`, which would read
     as a measurement of silence that nobody made.
 
+    The three checks below read through `?.` rather than `.`, which is the
+    difference between a measurement and a crash: a `speechEvidence` this app
+    stopped reading is `null`, and `null.keptNoSpeechMax` throws out of the
+    whole file — taking every check after it with it, unrun and uncounted. A
+    sabotage has to come back as a number of failures or it is not a sabotage
+    record, so these fail instead of exploding.
+
     SABOTAGE, each one edit to `main/transcribe.ts`:
-      `speechEvidence` dropped from the answer                   2 FAIL
-      `body.speechEvidence` forwarded whole                      1 FAIL
+      `speechEvidence` dropped from the answer                   3 FAIL
+      `body.speechEvidence` forwarded whole                      2 FAIL
       an unreadable reading defaulted to 0                       1 FAIL
   */
   {
@@ -267,15 +274,16 @@ export async function runTranscribeRequestChecks(check) {
     const answer = await transcribeChunk(connection(), request, impl);
     check(
       "the engine's own evidence comes back for the recorder to log",
-      answer.speechEvidence.keptNoSpeechMax === 0.58 && answer.speechEvidence.segments === 3,
+      answer.speechEvidence?.keptNoSpeechMax === 0.58 && answer.speechEvidence?.segments === 3,
     );
     check(
       "...with what the engine did not state left null rather than filled in",
-      answer.speechEvidence.durationAfterVad === null,
+      answer.speechEvidence !== null && answer.speechEvidence.durationAfterVad === null,
     );
     check(
       "...AND NOTHING THIS APP DID NOT ASK FOR, WHICH IS WHERE TEXT WOULD RIDE",
-      !("transcript" in answer.speechEvidence) &&
+      answer.speechEvidence !== null &&
+        !("transcript" in answer.speechEvidence) &&
         Object.values(answer.speechEvidence).every(
           (value) => value === null || typeof value === "number",
         ),
