@@ -36,6 +36,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A move between two contexts is three calls, not one function holding two keys
 - The model key is a fourth credential route, not a fifth sibling on the binding
 - A moved note leaves a forwarding address, and it is a trail rather than an index
+- A live editing room holds note text, and the enumeration does not list it
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
