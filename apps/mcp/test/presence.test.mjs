@@ -507,8 +507,10 @@ export async function runPresenceChecks(check) {
   const fakeRoomRuntime = () => {
     const open = [];
     const stored = new Map();
+    let alarm = null;
     return {
       open,
+      alarmAt: () => alarm,
       state: {
         acceptWebSocket: (ws) => open.push(ws),
         getWebSockets: () => [...open],
@@ -519,11 +521,13 @@ export async function runPresenceChecks(check) {
           async put(entries) {
             for (const [key, value] of Object.entries(entries)) stored.set(key, value);
           },
-          async list({ prefix = "", end } = {}) {
+          async list({ prefix = "", end, limit } = {}) {
             const hits = [...stored.entries()]
               .filter(([key]) => key.startsWith(prefix) && (end === undefined || key < end))
               .sort(([a], [b]) => a.localeCompare(b));
-            return new Map(hits);
+            // `limit` is honoured because `ensureAlarm` passes one, and a fake
+            // that ignored it would be testing a call the runtime does not make.
+            return new Map(typeof limit === "number" ? hits.slice(0, limit) : hits);
           },
           async delete(keys) {
             for (const key of keys) stored.delete(key);
@@ -531,9 +535,11 @@ export async function runPresenceChecks(check) {
           async deleteAll() {
             stored.clear();
           },
-          async setAlarm() {},
+          async setAlarm(at) {
+            alarm = at;
+          },
           async getAlarm() {
-            return null;
+            return alarm;
           },
         },
       },
@@ -644,6 +650,35 @@ export async function runPresenceChecks(check) {
       // that reported "dropped" every time would stop sweeping a room that
       // still had members arriving.
       (await retiringRoom.dropLogIfEmpty()) === false,
+    );
+
+    /*
+      **And the sweep that performs the deletion stays scheduled.**
+
+      `dropLogIfEmpty` is only ever called from `alarm()`, so a guard that
+      deletes correctly and is never invoked bounds nothing. `ensureAlarm`'s
+      own comment says the storage check is not redundant — without it the last
+      socket closing cancels the sweep, and the note's content sits in Durable
+      Object storage with nothing scheduled to remove it.
+    */
+    const emptying = fakeRoomRuntime();
+    const emptyingRoom = new PresenceRoom(emptying.state, {});
+    await emptyingRoom.appendUpdate("QUJD");
+    await emptyingRoom.ensureAlarm();
+    check(
+      "an empty room that still holds a note keeps its sweep scheduled",
+      typeof emptying.alarmAt() === "number",
+    );
+
+    const nothingLeft = fakeRoomRuntime();
+    const nothingLeftRoom = new PresenceRoom(nothingLeft.state, {});
+    await nothingLeftRoom.ensureAlarm();
+    check(
+      "...and a room with nobody in it and nothing stored schedules nothing",
+      // Non-vacuity for the check above, and the reason the storage check is a
+      // branch rather than an unconditional arm: a room nobody opened must be
+      // evicted rather than woken forever.
+      nothingLeft.alarmAt() === null,
     );
 
     /* ------------------ asking peers what you are missing ---------------- */

@@ -280,35 +280,69 @@ describe("what the room sends, the client reads", () => {
       gate had just waved through, and every peer would apply it and the
       elected writer would flush it to the bucket. Non-negotiable #4 says write
       access is never implied by read.
+
+      ## The attacker is synced first, and that is the whole test
+
+      The first version of this built the forged update from an independently
+      seeded document — and Yjs correctly buffered it as depending on history
+      the victim had never seen, so the victim's text was unchanged *whatever
+      read it*. The refusal was being proved against an inert payload: it would
+      have passed a fix that did nothing. (It reported `applied` and changed
+      nothing, which is exactly how that hides.)
+
+      A member of a room is not in that position. They hold the document,
+      because the room gave it to them — that is what read access is. So the
+      attacker is synced from the victim the way joining a room syncs you, and
+      the forged bytes are then genuinely applicable. `landsOn` below proves it
+      by applying the same bytes through the edit reader and watching the note
+      change.
     */
     const victim = createSharedDoc({});
     seedSharedDoc(victim, "somebody's real work");
 
-    // What a read-only member would smuggle: not a state vector, an edit.
-    const attacker = createSharedDoc({});
-    seedSharedDoc(attacker, "somebody's real work");
+    /** A client that has joined the room and been handed the document. */
+    const joined = (onLocalUpdateBytes?: (bytes: Uint8Array) => void) => {
+      const peer = createSharedDoc(onLocalUpdateBytes ? { onLocalUpdateBytes } : {});
+      const asked = readSyncMessage(encodeSyncStep1(peer.doc), victim.doc, "remote");
+      expect(asked.kind).toBe("reply");
+      if (asked.kind === "reply") readSyncMessage(asked.payload, peer.doc, "remote");
+      expect(peer.markdown()).toBe("somebody's real work");
+      return peer;
+    };
+
+    // What a read-only member would smuggle: not a state vector, an edit —
+    // made against history they legitimately hold.
     let update: Uint8Array | null = null;
-    const armed = createSharedDoc({
-      onLocalUpdateBytes: (bytes) => {
-        update = bytes;
-      },
+    const attacker = joined((bytes) => {
+      update = bytes;
     });
-    seedSharedDoc(armed, "somebody's real work");
-    armed.text.insert(0, "INJECTED ");
+    attacker.text.insert(0, "INJECTED ");
     expect(update).not.toBeNull();
     const smuggled = encodeUpdate(update!);
 
     // The room would accept this frame — asking needs no write authority.
     expect(decodeClientFrame(askFrame(smuggled)).ok).toBe(true);
 
-    // And the reader on the far side refuses to apply it.
-    const outcome = answerStateVector(smuggled, victim.doc);
-    expect(outcome.kind).toBe("ignored");
-    expect(victim.markdown()).toBe("somebody's real work");
+    /*
+      Non-vacuity, and the reason this test is worth anything: the same bytes,
+      read as an edit, *do* rewrite the note. Against a second client in the
+      same room, so the victim itself is left for the refusal below.
+    */
+    const landsOn = joined();
+    readSyncMessage(smuggled, landsOn.doc, "remote");
+    expect(landsOn.markdown()).toBe("INJECTED somebody's real work");
 
-    // Non-vacuity: the same reader answers a real state vector, so "ignored"
-    // above is a fact about the payload and not about a function that refuses
-    // everything.
+    // And the reader on the ask frame refuses to apply them. The *text* is
+    // asserted first on purpose: that is the property, and a reader that
+    // reports the wrong outcome while leaving the note alone is a smaller
+    // problem than one that reports the right outcome and rewrites it.
+    const outcome = answerStateVector(smuggled, victim.doc);
+    expect(victim.markdown()).toBe("somebody's real work");
+    expect(outcome.kind).toBe("ignored");
+
+    // The other half: a genuine question is still answered, so a read-only
+    // member can still sync. A refusal that refused everything would pass the
+    // check above and break the feature.
     const empty = createSharedDoc({});
     const answer = answerStateVector(encodeSyncStep1(empty.doc), victim.doc);
     expect(answer.kind).toBe("reply");

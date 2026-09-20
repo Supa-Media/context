@@ -1522,9 +1522,17 @@ Nobody has priced it.
 **The test that fails if the bound is reversed** is in
 `apps/mcp/test/presence.test.mjs`: the last socket leaving takes the log with
 it, a room with anybody still in it keeps every letter, and an empty room that
-still holds a log keeps its alarm armed. Before those, the retention guard was
-implemented and stood on nothing — the checks beside it asserted a function's
-*arity*, which a deletion that cleared the whole prefix would have passed.
+still holds a log keeps its alarm armed — with a room holding neither as the
+non-vacuity half, since an `ensureAlarm` that always armed would pass the third
+alone. Before those, the retention guard was implemented and stood on nothing —
+the checks beside it asserted a function's *arity*, which a deletion that
+cleared the whole prefix would have passed.
+
+The third of those is the one worth naming separately: `dropLogIfEmpty` is only
+ever called from `alarm()`, so a guard that deletes correctly and is never
+scheduled bounds nothing at all. This paragraph described all three before any
+of them existed — they were written against a branch that did not merge — which
+is the same failure it is documenting, one level up. They exist now.
 
 **One thing this work got right that belongs in this file.** The author expected
 to need the gateway's first npm dependency and said they would break the
