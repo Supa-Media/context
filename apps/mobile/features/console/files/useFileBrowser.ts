@@ -716,6 +716,38 @@ export function useFileBrowser(options: {
   }, []);
 
   /*
+    **Who to tell when a save lands, and why it is a subscription.**
+
+    A console save goes through the control plane's own file operation, not
+    through the gateway's `write_note` — so the presence room has no other way
+    to learn that the bucket moved, and every other member of the room keeps
+    the etag their editor opened with. The moment the person who was saving
+    leaves, the next one elected writes against a version two edits old and
+    gets the conflict box this feature exists to delete.
+
+    A subscription rather than a callback passed in, because the socket is
+    opened from this browser's own state (`useNoteRoom` reads
+    `data.files.editor.path`) — handing it back down here would be a cycle. So
+    this emits, and whoever owns a room listens.
+  */
+  const savedListeners = useRef(new Set<(written: { path: string; etag: string }) => void>());
+  const onSaved = useCallback((handler: (written: { path: string; etag: string }) => void) => {
+    savedListeners.current.add(handler);
+    return () => {
+      savedListeners.current.delete(handler);
+    };
+  }, []);
+  const announceSaved = useCallback((written: { path: string; etag: string }) => {
+    for (const handler of [...savedListeners.current]) {
+      try {
+        handler(written);
+      } catch {
+        // A listener that throws must not fail the save that just succeeded.
+      }
+    }
+  }, []);
+
+  /*
     The version each op was sent with, by id — what `rebased` compares the
     editor against. Recorded as ops are sent rather than read off the queue,
     because by the time `onOpDone` runs the drain has already settled the op.
@@ -1898,6 +1930,9 @@ export function useFileBrowser(options: {
           */
           offlineRef.current.forgetDraft(path);
           offlineRef.current.rememberBody({ path, text, etag: result.etag });
+          // And anybody sharing this note right now, so their next save is
+          // checked against the version this one just produced.
+          announceSaved({ path, etag: result.etag });
           /*
             And the queue entry goes with it, if there was one.
 
@@ -1955,7 +1990,7 @@ export function useFileBrowser(options: {
           dispatch({ type: "saveFailed", error: failure });
         });
     },
-    [autosave, refresh, reportRefreshFailure, workspaceId, writeNote],
+    [announceSaved, autosave, refresh, reportRefreshFailure, workspaceId, writeNote],
   );
 
   /**
@@ -3901,6 +3936,7 @@ export function useFileBrowser(options: {
       setDraft,
       save,
       onExternalWrite,
+      onSaved,
       applyPluginNoteWrite,
       flushAutosave,
       discardLocalCopies,

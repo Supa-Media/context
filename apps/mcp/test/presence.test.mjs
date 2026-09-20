@@ -744,6 +744,52 @@ export async function runPresenceChecks(check) {
       (await askingRoom.readLog()).length === 0,
     );
 
+    /* ------------- the bucket moved, and everybody has to know ----------- */
+
+    const savedBefore = readerSocket.sent.length;
+    const savedLogBefore = (await askingRoom.readLog()).length;
+    await askingRoom.webSocketMessage(writerSocket, JSON.stringify({ t: "saved", v: "abc123" }));
+    check(
+      "a save is relayed to the room as the version it produced",
+      /*
+        The console saves through the control plane, not through the gateway's
+        `write_note`, so this frame is the room's only way to learn the bucket
+        moved. Without it every other member keeps the etag their editor opened
+        with, and the moment the person who was saving leaves, the next one
+        elected writes against a version two edits old — the conflict box this
+        whole feature exists to delete, arriving at the one moment presence is
+        supposed to handle smoothly.
+      */
+      readerSocket.frames().slice(savedBefore).some(
+        (frame) => frame.t === "etag" && frame.v === "abc123",
+      ),
+    );
+    check(
+      "...and never written to the log, because a version replays as nothing",
+      (await askingRoom.readLog()).length === savedLogBefore,
+    );
+
+    const forgedBefore = writerSocket.sent.length;
+    await askingRoom.webSocketMessage(readerSocket, JSON.stringify({ t: "saved", v: "deadbeef" }));
+    check(
+      "a member who cannot write cannot announce a version either",
+      // They cannot have saved, and a peer that could name an arbitrary etag
+      // could make everybody else's next save overwrite a version they never
+      // saw — which is the same authority the write gate refuses, reached
+      // through the bookkeeping instead of through the text.
+      writerSocket.sent.length === forgedBefore,
+    );
+
+    check(
+      "a version that is not one is refused rather than relayed",
+      // Short, opaque, and never note text: the shape check is what keeps this
+      // from becoming a channel for anything larger.
+      decodeClientFrame(JSON.stringify({ t: "saved", v: "" })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "saved", v: "a".repeat(200) })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "saved", v: "not an etag" })).ok === false &&
+        decodeClientFrame(JSON.stringify({ t: "saved", v: "abc123" })).ok === true,
+    );
+
     /* ----------------- two people on one canvas -------------------------- */
 
     const drawBefore = writerSocket.sent.length;
@@ -832,7 +878,20 @@ export async function runPresenceChecks(check) {
         writerSocket.frames().slice(writerBeforeNotice).some(
           (frame) => frame.t === "external" && frame.text === "# From an agent\n" && frame.etag === "e2",
         ) &&
-        readerSocket.sent.length === readerBeforeNotice,
+        readerSocket.frames().slice(readerBeforeNotice).every((frame) => frame.t !== "external"),
+    );
+    check(
+      "...while the version goes to everybody, because every save is checked against it",
+      /*
+        Two different facts with two different audiences. Only one client may
+        merge, or the characters arrive once per client. But every client's
+        *next* save is a conditional write against the bucket, and the bucket
+        has just moved — a member told nothing keeps the etag their editor
+        opened with and conflicts the moment they are the one saving.
+      */
+      readerSocket.frames().slice(readerBeforeNotice).some(
+        (frame) => frame.t === "etag" && frame.v === "e2",
+      ),
     );
 
     const readersOnly = fakeRoomRuntime();

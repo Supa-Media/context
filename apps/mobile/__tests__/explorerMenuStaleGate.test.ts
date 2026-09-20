@@ -111,6 +111,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     setDraft: noop,
     save: noop,
     onExternalWrite: noop,
+    onSaved: () => () => {},
     flushAutosave: () => false,
     discardLocalCopies: noop,
     encryptedElsewhere: noop,

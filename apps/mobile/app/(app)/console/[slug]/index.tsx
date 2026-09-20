@@ -132,6 +132,12 @@ export default function ContextBrowseRoute() {
       left rather than the one this editor opened.
     */
     onExternalWrite: data.files.onExternalWrite,
+    /*
+      And the other direction: a save made here, told to the room, because it
+      goes through the control plane rather than the gateway and nothing else
+      would announce it.
+    */
+    onSaved: data.files.onSaved,
   });
 
   return (

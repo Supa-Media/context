@@ -341,6 +341,7 @@ function browser(
     setDraft: noop,
     save: noop,
     onExternalWrite: noop,
+    onSaved: () => () => {},
     flushAutosave: () => false,
     discardLocalCopies: record("discardLocalCopies"),
     encryptedElsewhere: record("encryptedElsewhere"),

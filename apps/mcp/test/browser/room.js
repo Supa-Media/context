@@ -22,7 +22,12 @@ import {
   encodeUpdate,
   readSyncMessage,
 } from "../../../mobile/features/console/presence/sync.ts";
-import { askFrame, decodeServerFrame, syncFrame } from "../../../mobile/features/console/presence/protocol.ts";
+import {
+  askFrame,
+  decodeServerFrame,
+  savedFrame,
+  syncFrame,
+} from "../../../mobile/features/console/presence/protocol.ts";
 
 const REMOTE = Symbol("remote");
 
@@ -34,6 +39,8 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
     frames: 0,
     /** The version a tool's write left behind, once this client merged it. */
     externalEtag: null,
+    /** The version the room last said the bucket is at. */
+    etag: null,
     /** Whether this client is the one elected to save. */
     saver: () => Boolean(state.you) &&
       state.members.some((m) => m.id === state.you && m.canWrite) &&
@@ -75,6 +82,13 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
       state.externalEtag = frame.etag;
       return;
     }
+    if (frame.t === "etag") {
+      // The version the bucket is at now, told to every member — which is what
+      // keeps the next person elected to save from writing against a version
+      // two edits old.
+      state.etag = frame.etag;
+      return;
+    }
     if (frame.t === "join") state.members = [...state.members, frame.member];
     if (frame.t === "leave") state.members = state.members.filter((m) => m.id !== frame.id);
     if (frame.t === "ask") {
@@ -105,6 +119,12 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
     applies whatever the payload's type byte asks for. A read-only member's
     edit reached everybody and the elected writer flushed it to the bucket.
   */
+  /** Announce a save the way the console does after its own write lands. */
+  state.announceSaved = (etag) => {
+    if (socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(savedFrame(etag));
+    return true;
+  };
   state.smuggle = () => {
     if (!lastUpdate || socket.readyState !== WebSocket.OPEN) return false;
     socket.send(askFrame(encodeUpdate(lastUpdate)));

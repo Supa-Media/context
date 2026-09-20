@@ -34,6 +34,7 @@ import {
   byeFrame,
   cursorFrame,
   drawFrame,
+  savedFrame,
   drawSnapshotFrame,
   pointerFrame,
   decodeServerFrame,
@@ -115,6 +116,14 @@ export interface Presence {
    * whole feature exists to remove — reintroduced from the other end.
    */
   canWrite: boolean;
+  /**
+   * Tell the room this client just wrote the note to the bucket at `etag`.
+   *
+   * Safe to call when there is no room: it drops the message. Every other
+   * member moves onto that version, so the next person elected to save is not
+   * writing against a version two edits old.
+   */
+  announceSaved: (etag: string) => void;
   /**
    * The canvas half, present in `drawing` mode and inert otherwise.
    *
@@ -506,6 +515,16 @@ export function usePresence(options: {
           return;
         }
 
+        if (frame.t === "etag") {
+          /*
+            Somebody else saved, or a tool wrote the note. The text is already
+            shared — this is only the version, so the next conditional write
+            from this client is checked against what is in the bucket.
+          */
+          onExternalWrite.current?.({ path, etag: frame.etag });
+          return;
+        }
+
         if (frame.t === "external") {
           /*
             **A tool wrote this note, and this client was asked to merge it.**
@@ -709,6 +728,26 @@ export function usePresence(options: {
     }
   }, []);
 
+  /**
+   * Tell the room this client just wrote the note to the bucket.
+   *
+   * The console saves through the control plane rather than through the
+   * gateway's `write_note`, so this frame is the room's only way to learn that
+   * the bucket moved. Everybody else adopts the version; without it they keep
+   * the etag their editor opened with, and whoever is elected to save next
+   * gets a conflict about a change that is already in their own text.
+   */
+  const announceSaved = useCallback((etag: string) => {
+    const live = socket.current;
+    if (!live || live.readyState !== WebSocket.OPEN) return;
+    try {
+      live.send(savedFrame(etag));
+    } catch {
+      // A peer that misses this conflicts once and resolves it the ordinary
+      // way. There is nothing here worth a retry queue.
+    }
+  }, []);
+
   const drawing = useMemo(
     () => ({
       share: (elements: unknown[]) => {
@@ -767,6 +806,7 @@ export function usePresence(options: {
   return useMemo(
     () => ({
       drawing,
+      announceSaved,
       members: state.stale ? [] : state.members,
       phase: state.phase,
       summary: presenceSummary(state),
@@ -780,6 +820,6 @@ export function usePresence(options: {
       */
       canWrite: electWriter(state.you, state.members),
     }),
-    [state, report, drawing],
+    [state, report, drawing, announceSaved],
   );
 }

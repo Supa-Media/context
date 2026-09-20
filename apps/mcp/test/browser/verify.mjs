@@ -300,6 +300,8 @@ async function main() {
       type: (at, t) => page.evaluate(([a, x]) => window.room.type(a, x), [at, t]),
       disconnect: () => page.evaluate(() => window.room.disconnect()),
       smuggle: () => page.evaluate(() => window.room.smuggle()),
+      etag: () => page.evaluate(() => window.room.etag),
+      announceSaved: (etag) => page.evaluate((v) => window.room.announceSaved(v), etag),
       externalEtag: () => page.evaluate(() => window.room.externalEtag),
       saver: () => page.evaluate(() => window.room.saver()),
     };
@@ -439,6 +441,31 @@ async function main() {
   );
 
   /* ---------------------------------------------------------------- 8 ---- */
+
+  /*
+    **The version, after the person who was saving has gone.**
+
+    A console save goes through the control plane, not through the gateway, so
+    the room learns about it only because the saver says so. Without that, the
+    others keep the etag their editor opened with — and the moment the saver
+    leaves, whoever is elected next writes against a version two edits old and
+    gets the conflict box this whole feature exists to delete.
+  */
+  const announced = await ana.announceSaved("etag-from-a-console-save");
+  // `bo` was deliberately disconnected earlier and never came back — the live
+  // members are the reconnect, the late joiner and the reader.
+  const listening = [reconnected, late, reader];
+  const everybodyMoved = await until(async () => {
+    const seen = await Promise.all(listening.map((one) => one.etag()));
+    return seen.every((etag) => etag === "etag-from-a-console-save");
+  });
+  check(
+    "a save in one browser moves every other browser onto that version",
+    announced && everybodyMoved,
+    everybodyMoved ? "" : JSON.stringify(await Promise.all(listening.map((o) => o.etag()))),
+  );
+
+
 
   const reread = await callTool(READER, "read_note", { path: NOTE });
   const inBucket = textOf(reread);

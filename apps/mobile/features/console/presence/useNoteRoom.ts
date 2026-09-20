@@ -10,6 +10,7 @@
  * presence it feeds would be a cycle.
  */
 
+import { useEffect } from "react";
 import { usePresence, type Presence } from "./usePresence";
 import { isDrawingPath } from "@context/drawings";
 import {
@@ -28,6 +29,8 @@ export function useNoteRoom(options: {
   textForSeed: () => string;
   /** A tool wrote the open note; move this editor onto the version it left. */
   onExternalWrite: (written: { path: string; etag: string | null }) => void;
+  /** Listen for saves this console makes, so the room can be told. */
+  onSaved: (handler: (written: { path: string; etag: string }) => void) => () => void;
 }): { presence: Presence; drawingCollaboration: DrawingCollaboration | undefined } {
   const channel = useDrawingChannel();
   const path = options.notePath;
@@ -60,6 +63,33 @@ export function useNoteRoom(options: {
     onPeerPointers: channel.deliverPeers,
     onDrawingCompact: channel.deliverCompactRequest,
   });
+
+  /*
+    A save this console made, told to the room.
+
+    The other direction from `onExternalWrite`, and the reason both exist: the
+    bucket can move because a tool wrote it (the gateway tells the room) or
+    because somebody here pressed save (nothing else would). Either way every
+    member has to end up on the new version, or the next one elected to save
+    writes against one they never saw.
+
+    Only the note it is for: a save that lands after somebody opened a
+    different note describes a bucket this room is not about.
+  */
+  /*
+    Optional in practice, whatever the type says: the suites that mount this
+    screen stand in for `data.files` with the fields they care about, and a
+    stub without this one is a fixture rather than a bug. It must not take the
+    console down, and a console with nobody else in it loses nothing by it.
+  */
+  const { onSaved } = options;
+  const announceSaved = presence.announceSaved;
+  useEffect(() => {
+    if (typeof onSaved !== "function") return;
+    return onSaved((written) => {
+      if (written.path === path) announceSaved(written.etag);
+    });
+  }, [onSaved, announceSaved, path]);
 
   return {
     presence,
