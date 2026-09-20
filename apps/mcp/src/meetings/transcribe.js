@@ -74,7 +74,7 @@
 
 import { ERRORS } from "../../../../packages/meetings/src/protocol.js";
 import { segmentIdFor } from "../../../../packages/meetings/src/chunks.js";
-import { LIMITS, MeetingRefusal, invalid, updateSession } from "./state.js";
+import { LIMITS, MeetingRefusal, invalid, sessionNotFound, updateSession } from "./state.js";
 
 /**
  * Containers a recorder may send.
@@ -281,11 +281,22 @@ function refusedCount(raw) {
   return Math.floor(value);
 }
 
-function sessionGone() {
-  // The same answer as every other unknown id: one code for "another
-  // workspace's", "never existed" and "deleted". See `ingest.js`'s header.
-  return new MeetingRefusal(404, "forbidden", "no such meeting session in this context");
-}
+/*
+  The same answer as every other unknown id: one code and one sentence for
+  "another workspace's", "never existed", "deleted", and "this connection's
+  tier may not see it".
+
+  `sessionNotFound`'s own header says it is *"spelled once here because
+  `ingest.js` and `updateSession` both have to give it and two spellings
+  would be two answers"* — and this file was the second spelling. The two
+  strings happened to agree, so nothing was disclosed; what did not exist was
+  the thing the sentence claimed, because nothing made them agree and nothing
+  checked that they did. `updateSession` gives this refusal for a session a
+  team-tier caller may not see, and this function gives it for one that is
+  not there, so the two meet on one route and their identity is the whole of
+  the guard against learning which is which. Spelled once now, for real.
+*/
+const sessionGone = sessionNotFound;
 
 /**
  * Read and bound the one body in this gateway that carries audio.

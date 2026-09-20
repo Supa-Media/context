@@ -3376,6 +3376,46 @@ export async function runMeetingChecks(check) {
   );
   check("...so inference cannot be bought without recording anything", transcribeCalls.length === before);
 
+  /*
+    AND THE TWO ANSWERS ARE ONE ANSWER, WHICH IS THE WHOLE OF THE GUARD.
+
+    `canSeeSession`'s own header says a session a team connection may not see
+    is "answered as absent, which is the same 404 another workspace's id
+    gets", and `sessionNotFound`'s says it is "spelled once here because
+    `ingest.js` and `updateSession` both have to give it and two spellings
+    would be two answers." The checks above assert each refusal is *a* 404
+    carrying `meeting_forbidden` — separately, and never against each other —
+    so both would go on passing while the sentence a client actually reads
+    drifted apart, and a team-tier caller holding an id would learn from the
+    prose that a private meeting exists at it. That is the inference
+    `SECURITY.md` counts as a bug, and the identity of these two strings is
+    the only thing standing in front of it.
+
+    So they are compared, rather than described. A team-tier grant is the
+    caller because that is the boundary being tested: `TOKEN_NEIGHBOUR` above
+    is another workspace, which the store refuses by construction, and this
+    one is a caller who *can* reach this context and may not see this session
+    in it.
+  */
+  const hiddenTranscribe = await meetingRequest(
+    transcribing,
+    TOKEN_EDITOR,
+    `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`,
+    { body: chunk() }
+  );
+  check(
+    "a team-tier caller cannot transcribe into a private meeting it may not see",
+    hiddenTranscribe.status === 404 && hiddenTranscribe.body?.error === "meeting_forbidden"
+  );
+  check("...buying no inference on the way", transcribeCalls.length === before);
+  check(
+    "...AND IS TOLD WHAT AN ID THAT NEVER EXISTED IS TOLD, TO THE CHARACTER",
+    typeof unknownSession.body?.error_description === "string" &&
+      hiddenTranscribe.body?.error_description === unknownSession.body.error_description &&
+      hiddenTranscribe.status === unknownSession.status &&
+      hiddenTranscribe.body?.error === unknownSession.body?.error
+  );
+
   const badMime = await meetingRequest(transcribing, TOKEN_OWNER, `/meetings/sessions/${SESSION_TRANSCRIBE}/transcribe`, {
     body: chunk({ mimeType: "application/octet-stream" }),
   });
