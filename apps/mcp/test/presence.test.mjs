@@ -850,6 +850,84 @@ export async function runPresenceChecks(check) {
     else globalThis.WebSocketPair = previousPair;
   }
 
+  /* ------- the sweep that makes the deletion reachable at all ------------- */
+
+  /*
+    **`dropLogIfEmpty` is covered. The thing that calls it is not.**
+
+    Two checks above already prove the deletion: a room somebody is still in
+    keeps its copy, and the last person leaving takes it. Both were measured
+    against this file before this block was written, and both hold — reverting
+    the live-room guard reddens 2, making `dropLogIfEmpty` a no-op reddens 1.
+
+    Reverting `ensureAlarm`'s storage branch reddened **0**.
+
+    That branch is the only reason the deletion is ever reached. Its own
+    comment says so — "without it, the last socket closing cancels the sweep
+    that would have deleted the log" — and with it gone the customer's note
+    text stays in Durable Object storage with nothing scheduled to remove it.
+    A tested deletion that nothing schedules is the same as no deletion, and it
+    is the one bound this design puts on its second durable copy.
+
+    Driven against a fake Durable Object state, because `ensureAlarm` needs
+    only the socket list and the storage — no `WebSocketPair`, which is what
+    has kept this object out of node.
+  */
+  const fakeDurableState = (sockets = 0) => {
+    const map = new Map();
+    let alarm = null;
+    return {
+      map,
+      alarmAt: () => alarm,
+      getWebSockets: () => Array.from({ length: sockets }, (_, i) => ({ id: i })),
+      storage: {
+        async get(key) { return map.get(key); },
+        async put(entries) { for (const [k, v] of Object.entries(entries)) map.set(k, v); },
+        async delete(keys) { for (const k of keys) map.delete(k); },
+        async deleteAll() { map.clear(); alarm = null; },
+        async getAlarm() { return alarm; },
+        async setAlarm(at) { alarm = at; },
+        async list({ prefix = "", end, limit } = {}) {
+          const out = new Map();
+          for (const [k, v] of [...map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+            if (!k.startsWith(prefix)) continue;
+            if (end !== undefined && !(k < end)) continue;
+            out.set(k, v);
+            if (limit !== undefined && out.size >= limit) break;
+          }
+          return out;
+        },
+      },
+    };
+  };
+  const roomOn = (state) => {
+    const room = Object.create(PresenceRoom.prototype);
+    room.state = state;
+    room.env = {};
+    return room;
+  };
+
+  {
+    const parked = fakeDurableState(0);
+    parked.map.set("u:0000000001", "text nobody is looking at");
+    await roomOn(parked).ensureAlarm();
+    check(
+      "an empty room with a log still wakes, or the text is there for ever",
+      typeof parked.alarmAt() === "number",
+    );
+  }
+
+  {
+    const nothing = fakeDurableState(0);
+    await roomOn(nothing).ensureAlarm();
+    check(
+      "...and one with neither costs nothing, so the check above is not just 'always arm'",
+      // Non-vacuity. An `ensureAlarm` that armed unconditionally would pass the
+      // check above and wake an empty object on a timer for ever.
+      nothing.alarmAt() === null,
+    );
+  }
+
   /* ============================== the route ============================== */
 
   const controlPlane = createControlPlaneStub();
