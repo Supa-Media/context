@@ -1158,6 +1158,26 @@ export async function runMeetingChecks(check) {
     "a team-tier connection cannot read a private meeting's session record either",
     memberSessionRead.status === 404 && memberSessionRead.body?.error === "meeting_forbidden"
   );
+  /*
+    AND IT IS TOLD WHAT AN ID NOBODY EVER ISSUED IS TOLD, TO THE BYTE.
+
+    The cross-tenant block further down already compares these two answers —
+    for `TOKEN_NEIGHBOUR`, whose refusal the *store* makes by construction,
+    since another workspace's id is unreachable from this one's bucket. This
+    is the harder half and had only a description: a caller who **can** reach
+    this context, refused by a decision in code (`canSeeSession`), against the
+    same caller asking for an id that was never minted. Their being the same
+    bytes is the whole of the guard, and describing each one separately is
+    what let the same gap sit on the transcribe route until it was measured —
+    diverging the sentence there failed nothing in 4,072 checks.
+  */
+  const memberGhostRead = await meetingRequest(env, TOKEN_MEMBER, `/meetings/sessions/${SESSION_NEVER_ISSUED}`, {
+    method: "GET",
+  });
+  check(
+    "...byte-identical to what it is told about an id nobody ever issued",
+    memberSessionRead.text === memberGhostRead.text && memberSessionRead.status === memberGhostRead.status
+  );
   const memberSessionList = await meetingRequest(env, TOKEN_MEMBER, "/meetings/sessions", { method: "GET" });
   const listedForMember = JSON.stringify(memberSessionList.body ?? {});
   check("and cannot learn the private note's path by listing sessions", !listedForMember.includes(notePath));
@@ -1196,6 +1216,21 @@ export async function runMeetingChecks(check) {
   check(
     "a meeting still recording is not readable by a team-tier connection",
     memberLiveRead.status === 404 && memberLiveRead.body?.error === "meeting_forbidden"
+  );
+  /*
+    The same comparison for the live read, because it takes a different query
+    (`?transcript=true`) down a different branch, and a branch that answers
+    its own way is exactly how one of a pair of refusals drifts.
+  */
+  const memberGhostLiveRead = await meetingRequest(
+    env,
+    TOKEN_MEMBER,
+    `/meetings/sessions/${SESSION_NEVER_ISSUED}?transcript=true`,
+    { method: "GET" }
+  );
+  check(
+    "...and it too is told exactly what an id nobody ever issued is told",
+    memberLiveRead.text === memberGhostLiveRead.text && memberLiveRead.status === memberGhostLiveRead.status
   );
   check(
     "so what was said in the room does not leave it",
