@@ -1538,6 +1538,13 @@ export const gatewayLinksCreate = gatewayRoute(async (ctx, body) => {
   const audience = body.audience === "members" ? "members" : "anyone";
   const kind = body.kind === "folder" ? "folder" : body.kind === "note" ? "note" : undefined;
   const short = stringField(body, "short");
+  // Only the literal. Anything else — absent, misspelled, a truthy object — is
+  // a read link, because "I could not read what you asked for" must never
+  // resolve to the one mode that opens a write path to strangers.
+  const mode = body.mode === "collect" ? "collect" : undefined;
+  // Passed through as a number and normalized by `mintLinkShare`, which is the
+  // one place the range lives. Anything that is not a number is simply absent.
+  const collectCap = typeof body.collectCap === "number" ? body.collectCap : undefined;
   if (accessToken === null || expected === null || path === null) {
     return json({ link: null, shortRefused: null });
   }
@@ -1552,6 +1559,8 @@ export const gatewayLinksCreate = gatewayRoute(async (ctx, body) => {
     ...(typeof body.titleInPreview === "boolean"
       ? { titleInPreview: body.titleInPreview }
       : {}),
+    ...(mode === undefined ? {} : { mode }),
+    ...(collectCap === undefined ? {} : { collectCap }),
   });
   return json({
     link: result?.link ?? null,

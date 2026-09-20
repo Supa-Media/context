@@ -89,6 +89,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Domain-based membership is not built, and would be an invitation, never a grant
 - A note carried into another context lands at the narrower of the two ends
 - A share follows the note, not the path it was minted on
+- A short link is a second locator, never a second tier
+- A collect link is a write path, and the only one with no account behind it
 
 ## [Per-note encryption](./encryption.md)
 
