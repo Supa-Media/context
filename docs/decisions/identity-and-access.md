@@ -1070,3 +1070,60 @@ yet to reverse. What exists is `apps/desktop/test/localAgent.test.mjs` and
 `apps/mobile/__tests__/agentLocalRoute.test.ts`, which hold the local road's own
 guards; the asymmetry above is deliberately *not* asserted anywhere, because
 asserting it would be ratifying it.
+
+## The covered-context set is a reach, not an identity
+
+`session.workspaces` answers "what may this connection address". It is read in
+three places in the gateway and one of them was asking a different question —
+"who is this person" — and getting an answer that happened to be right for
+everybody who had never been let into somebody else's context.
+
+The set is built by `contextsForGrant`: the context the grant was approved
+against first, then that person's other memberships. A personal context is in it
+whenever its owner shared it, because `schema.ts` says a personal workspace "may
+gain more members when that person shares it" — sharing does not change what it
+is. So a guest who connected a client to `/@alice/mcp` has Alice's *personal*
+context at the head of their own covered set, and `find(kind === "personal")`
+returns Alice.
+
+`presenceDisplayName` did exactly that, and labelled the guest's caret `@alice`
+in Alice's own note, where Alice was looking at it. Two things made it worth a
+decision rather than a one-line fix:
+
+- **The correct predicate already existed forty lines away.** `personalNameFor`,
+  which stamps `submitted_by` on a form response, had all three clauses:
+  `kind === "personal" && role === "owner" && slug`. Two functions answering one
+  question is how one of them goes stale without anybody reading it, so there is
+  now one, and presence calls it.
+- **The guard was sited on the wrong channel.** `presence.js` says "a member
+  cannot name itself" and means the socket: nothing a client sends over the wire
+  sets its name. That was true and stayed true. The name still came from a
+  client — asserted at an unauthenticated registration endpoint, or, here, taken
+  from the wrong row of a list the control plane filled in. A sentence about one
+  channel is not a property of the value.
+
+**What `role === "owner"` rests on.** The control plane writes `role: "owner"`
+in exactly one place — `workspaces.create`, for the creator — and an invitation
+can confer `editor` or `member` and nothing else. So one member of a personal
+context is its owner, and that owner is the person its slug names. If a path is
+ever added that promotes somebody to `owner` of a personal context, this
+predicate is one of the things that changes meaning, and it should be found by
+grepping for that literal.
+
+**`kind === "personal"` is load-bearing in the other direction.** Usernames and
+workspace slugs are one global namespace, so a shared context's slug on a caret
+or a signature reads as a person who does not exist. So does `@null`, which is
+why an absent slug falls through to the client's own name rather than being
+interpolated into a handle.
+
+**What a simplification costs.** Matching on `kind` alone is one clause shorter
+and mislabels every guest of every shared personal context as its host —
+silently, to the host. Dropping `kind` labels people with workspace names.
+Dropping the slug check invents a handle out of a missing one.
+
+**The tests that fail if this is reversed** are in
+`apps/mcp/test/presence.test.mjs`: a guest of a personal context carries their
+own handle, a caller who owns a shared context is still named by their personal
+one, and a covered context with no name falls through to the client's. Each was
+measured by reverting one clause; the last two were **0** before their fixtures
+were added, because every fixture in that file was a caller in one context.
