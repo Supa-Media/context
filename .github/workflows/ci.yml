@@ -564,6 +564,71 @@ jobs:
   # unreachable host, a 200 serving an error page, PKCE dropped from the
   # metadata, an unauthenticated 200 from the MCP route — each still produce a
   # problem. No network, no credential, nothing to install.
+  # ── THE BUNDLE THAT SHIPS TO A PHONE IS NOT THE ONE CI WAS BUILDING ─────
+  #
+  # Everything above resolves modules for node (jest) or for a browser (the
+  # web export, the WebKit suite). A phone is a third resolver: Metro picks the
+  # `react-native` export condition, and a dependency can have an entry point
+  # there that exists on npm and cannot be resolved in this tree.
+  #
+  # That is not hypothetical. Live co-editing put Yjs in the console, Yjs
+  # reaches Web Crypto through `lib0/webcrypto`, and lib0's `react-native`
+  # condition requires `isomorphic-webcrypto/src/react-native` — a package
+  # nothing here depends on. Every pull request was green. Every OTA deploy
+  # after the merge failed at `expo export`, for four merges, because the only
+  # thing that builds a native bundle ran *after* the merge button.
+  #
+  # So the deploy's own export runs here, before merging, for both platforms.
+  # It is the same command `deploy-mobile-update.yml` runs, minus the publish:
+  # no EAS credential, no Expo account, nothing sent anywhere. Roughly two
+  # minutes, and it is the only check in this repository that can see a native
+  # resolution failure at all.
+  #
+  # `--dump-assetmap` and `--source-maps` are deliberately left off: this job
+  # asks whether the bundle *builds*, and the deploy asks for the rest.
+  native-bundle:
+    name: The native bundle still builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # Inside the job as a step, never a `paths:` filter on the trigger —
+      # see `editor-webkit` above and `scripts/check-workflow-triggers.mjs`.
+      - name: Does this touch the app or what it bundles?
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            mobile:
+              - "apps/mobile/**"
+              - "packages/**"
+              - "pnpm-lock.yaml"
+              - ".github/workflows/ci.yml"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.changes.outputs.mobile == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.changes.outputs.mobile == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.mobile == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # A syntactically valid, deliberately unreachable host, as `editor-webkit`
+      # uses: nothing in an export dials out, and a missing one would fail the
+      # build for a reason that is not the one this job is asking about.
+      - name: Export the iOS and Android bundles
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
+        run: pnpm exec expo export --platform ios --platform android --output-dir "$RUNNER_TEMP/native-bundle"
+
   gateway-health-assertions:
     name: The gateway monitor can still fail
     runs-on: ubuntu-latest
