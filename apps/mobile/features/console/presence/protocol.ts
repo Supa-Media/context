@@ -39,6 +39,12 @@ export type ServerFrame =
   | { t: "join"; member: PresenceMember }
   | { t: "cursor"; id: string; anchor: number; head: number }
   | { t: "leave"; id: string }
+  /** One edit from somebody else, to apply to the shared document. */
+  | { t: "u"; d: string }
+  /** The document so far, replayed because this client just joined. */
+  | { t: "sync"; updates: string[] }
+  /** The room is asking this client to send a compacted snapshot. */
+  | { t: "compact" }
   | { t: "pong" };
 
 const MAX_OFFSET = 10_000_000;
@@ -132,6 +138,20 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
   if (frame.t === "leave") {
     return typeof frame.id === "string" ? { t: "leave", id: frame.id } : null;
   }
+  if (frame.t === "u") {
+    return typeof frame.d === "string" && frame.d.length > 0 ? { t: "u", d: frame.d } : null;
+  }
+  if (frame.t === "sync") {
+    // Every entry checked, and a bad one dropped rather than failing the whole
+    // replay: a join that lands on *most* of the document and then converges
+    // on the next keystroke is better than one that lands on none of it.
+    if (!Array.isArray(frame.updates)) return null;
+    const updates = frame.updates.filter(
+      (one): one is string => typeof one === "string" && one.length > 0,
+    );
+    return { t: "sync", updates };
+  }
+  if (frame.t === "compact") return { t: "compact" };
   if (frame.t === "pong") return { t: "pong" };
   return null;
 }
@@ -139,6 +159,16 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
 /** The only two frames this client ever sends, besides a parting `bye`. */
 export function cursorFrame(anchor: number, head: number): string {
   return JSON.stringify({ t: "cursor", a: offset(anchor), h: offset(head) });
+}
+
+/** One edit of this editor's, on its way to everybody else. */
+export function updateFrame(base64: string): string {
+  return JSON.stringify({ t: "u", d: base64 });
+}
+
+/** The whole document as one update, when the room asks for a compaction. */
+export function snapshotFrame(base64: string): string {
+  return JSON.stringify({ t: "snap", d: base64 });
 }
 
 export function pingFrame(): string {

@@ -128,6 +128,14 @@ export default function ContextBrowseRoute() {
       data.files.editor.status !== "conflict" &&
       data.files.editor.path !== null &&
       (data.files.editor.path ?? "").endsWith(".md"),
+    /*
+      The note as this device has it, for the one client that seeds the room.
+
+      A function rather than a value: it is read once, by whichever client
+      arrives to an empty room, and passing the draft itself would re-open the
+      socket on every keystroke.
+    */
+    textForSeed: () => data.files.editor.draft,
   });
 
   return (

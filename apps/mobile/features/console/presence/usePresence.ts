@@ -35,8 +35,11 @@ import {
   decodeServerFrame,
   pingFrame,
   presenceSocketUrl,
+  snapshotFrame,
+  updateFrame,
   type PresenceMember,
 } from "./protocol";
+import { createSharedDoc, isWriter, seedSharedDoc, type SharedDoc } from "./sharedDoc";
 import {
   initialPresenceState,
   presenceReducer,
@@ -58,6 +61,23 @@ export interface Presence {
   summary: string;
   /** Tell the room where this editor's caret is. Safe to call on every change. */
   report: (anchor: number, head: number) => void;
+  /**
+   * The document every editor in this room shares, once there is one.
+   *
+   * `null` until the room has answered, and on every surface with no room at
+   * all — the editor then holds its own text exactly as it did before this
+   * feature, which is what makes the whole thing safe to switch off.
+   */
+  shared: SharedDoc | null;
+  /**
+   * Whether this client is the one that writes the merged text to the bucket.
+   *
+   * Exactly one member is, and the rest deliberately leave their local draft
+   * clean so the existing autosave cannot fire for them. Two savers would race
+   * against one etag and conflict with each other, which is the failure this
+   * whole feature exists to remove — reintroduced from the other end.
+   */
+  canWrite: boolean;
 }
 
 /**
@@ -89,6 +109,14 @@ export function usePresence(options: {
   notePath: string | null;
   /** Off for an unsaved draft, a drawing, a locked note, or a folder. */
   enabled: boolean;
+  /**
+   * The note as the bucket has it, for the one client that seeds the room.
+   *
+   * Read through a ref rather than a dependency: it changes on every keystroke
+   * and re-opening the socket for that would reset the room on every letter.
+   * Only the seeding client reads it, and only once.
+   */
+  textForSeed: () => string;
 }): Presence {
   const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
   const [state, dispatch] = useReducer(presenceReducer, initialPresenceState);
@@ -98,6 +126,9 @@ export function usePresence(options: {
   const lastSent = useRef<{ at: number; anchor: number; head: number }>({ at: 0, anchor: -1, head: -1 });
   const pending = useRef<{ anchor: number; head: number } | null>(null);
   const seed = useRef<string | null>(null);
+  const shared = useRef<SharedDoc | null>(null);
+  const textForSeed = useRef(options.textForSeed);
+  textForSeed.current = options.textForSeed;
   if (seed.current === null && typeof window !== "undefined") seed.current = tabSeed();
 
   const { workspaceId, endpoint, notePath, enabled } = options;
@@ -142,6 +173,28 @@ export function usePresence(options: {
     let cancelled = false;
     const path = notePath as string;
     dispatch({ type: "open", notePath: path });
+
+    /*
+      One document per note, created with the room and destroyed with it.
+
+      `onLocalUpdate` fires for this editor's own edits only — an update that
+      arrived from the room is applied with a marker origin and does not come
+      back out — so this is the one place a keystroke becomes a frame, and it
+      does so immediately. Batching here is what would turn "I see the letter
+      appear" into "I see the sentence appear".
+    */
+    const document = createSharedDoc({
+      onLocalUpdate: (update) => {
+        const live = socket.current;
+        if (!live || live.readyState !== WebSocket.OPEN) return;
+        try {
+          live.send(updateFrame(update));
+        } catch {
+          // The edit is still in this document; a reconnect replays it.
+        }
+      },
+    });
+    shared.current = document;
 
     const connect = async (attempt: number) => {
       if (cancelled) return;
@@ -190,7 +243,45 @@ export function usePresence(options: {
         if (cancelled) return;
         const frame = decodeServerFrame(event.data);
         if (!frame) return;
+
+        if (frame.t === "u") {
+          document.applyRemote(frame.d);
+          return;
+        }
+
+        if (frame.t === "sync") {
+          // The document so far. Applied before anything else this client
+          // does, so a person who joined mid-sentence is looking at the same
+          // text as everybody else before their first keystroke.
+          for (const update of frame.updates) document.applyRemote(update);
+          return;
+        }
+
+        if (frame.t === "compact") {
+          try {
+            const live = socket.current;
+            if (live && live.readyState === WebSocket.OPEN) {
+              live.send(snapshotFrame(document.snapshot()));
+            }
+          } catch {
+            // The room asks again in another fifty updates.
+          }
+          return;
+        }
+
         if (frame.t === "welcome") {
+          /*
+            **Seeding, and why only one client may do it.**
+
+            A note starts as text in a bucket and somebody has to put it into
+            the shared document. If two clients do, the note contains it twice.
+            The room admits members one at a time, so "was anybody already
+            here?" has exactly one answer per join: an empty roster and an empty
+            replay means this client is first, and it seeds. Everybody else
+            waits for the replay however fast they were.
+          */
+          if (frame.members.length === 0) seedSharedDoc(document, textForSeed.current());
+
           // Reconnect just before the gateway would close this socket, so the
           // roster never visibly drops. See the header.
           const due = Math.max(frame.reconnectAfterMs - REAUTH_MARGIN_MS, 30_000);
@@ -222,6 +313,8 @@ export function usePresence(options: {
     return () => {
       cancelled = true;
       closeSocket(true);
+      shared.current = null;
+      document.destroy();
     };
     // `mint` is stable from Convex; the rest is the identity of the room.
   }, [active, workspaceId, origin, notePath, mint, closeSocket, clearTimers]);
@@ -270,6 +363,11 @@ export function usePresence(options: {
       phase: state.phase,
       summary: presenceSummary(state),
       report,
+      shared: shared.current,
+      canWrite: isWriter(
+        state.you,
+        state.members.map((one) => one.id),
+      ),
     }),
     [state, report],
   );

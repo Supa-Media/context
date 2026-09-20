@@ -52,6 +52,8 @@ import { TableSizePicker } from "./TableSizePicker.web";
 import { drawInterim, takeBackRun } from "./dictate";
 import { closeFindPanel, findInNote } from "./findInNote";
 import { remoteCarets, setRemoteCarets } from "../presence/remoteCarets";
+import { yCollab } from "y-codemirror.next";
+import type { SharedDoc } from "../presence/sharedDoc";
 import type { PresenceMember } from "../presence/protocol";
 import {
   editability,
@@ -205,6 +207,10 @@ export interface LiveEditorProps {
   presence?: {
     members: PresenceMember[];
     report: (anchor: number, head: number) => void;
+    /** The document this room shares, once it has one. */
+    shared: SharedDoc | null;
+    /** Whether this client is the one that writes to the bucket. */
+    canWrite: boolean;
   };
   /**
    * Scroll the surface this editor is laid out inside, by `delta` points.
@@ -550,6 +556,16 @@ export function LiveEditor({
    */
   const presenceRef = useRef(presence);
   presenceRef.current = presence;
+  /**
+   * Where the shared document is swapped in.
+   *
+   * The editor is built once, at mount, and the room answers a moment later —
+   * so the collaborative binding cannot be in the initial extension list. A
+   * `Compartment` is CodeMirror's own answer to exactly that: an empty slot at
+   * construction, reconfigured when there is something to put in it, with the
+   * selection and the undo history left alone.
+   */
+  const collab = useRef(new Compartment());
   const colors = useColors();
 
   /**
@@ -711,6 +727,21 @@ export function LiveEditor({
       current: {
         onChange: (text: string) => {
           latestValue.current = text;
+          /*
+            **Only the elected writer dirties the local draft.**
+
+            While a room is live every editor in it holds the same text, so if
+            each one marked its own draft unsaved, each one's autosave would
+            fire and they would race against one etag — the collision this
+            whole feature exists to remove, arriving from the other end. One
+            member writes; the rest render.
+
+            `canWrite` is true when there is no room at all, which is what
+            keeps a note nobody else is in behaving exactly as it always did.
+          */
+          if (presenceRef.current && presenceRef.current.shared && !presenceRef.current.canWrite) {
+            return;
+          }
           handlers.current.onChange(text);
         },
         onSave: () => handlers.current.onSave(),
@@ -798,6 +829,8 @@ export function LiveEditor({
           a frame per keystroke of somebody else's typing.
         */
         remoteCarets(),
+        // Empty until the room answers; see the effect below.
+        collab.current.of([]),
         EditorView.updateListener.of((update) => {
           if (!update.selectionSet && !update.docChanged) return;
           const range = update.state.selection.main;
@@ -987,6 +1020,29 @@ export function LiveEditor({
   }, []);
 
   /*
+    The shared document, into the editor.
+
+    Once this is in, CodeMirror's text *is* the shared text: a keystroke here
+    becomes an update that goes to everybody else, and their updates arrive as
+    ordinary transactions. The `value` effect below stops being the authority
+    for this note, which is why it checks for a binding before replacing
+    anything — the two would otherwise fight over the same document and the
+    visible symptom would be your own typing disappearing.
+  */
+  useEffect(() => {
+    const current = view.current;
+    const text = presence?.shared?.text;
+    if (!current) return;
+    current.dispatch({
+      // No cast: `SharedDoc.text` is a `Y.Text`, which is exactly what the
+      // binding takes. The first version of this typed it as `unknown` and
+      // reached for `any` to get past the door, which is a lint error telling
+      // the truth — the type was available the whole time.
+      effects: collab.current.reconfigure(text ? yCollab(text, null) : []),
+    });
+  }, [presence?.shared]);
+
+  /*
     The roster, into the editor.
 
     A `StateEffect` rather than a prop the extension reads, because CodeMirror
@@ -1007,7 +1063,13 @@ export function LiveEditor({
   }, [presence?.members]);
 
   // An authoritative change from outside: a different note opened, a draft
-  // discarded, a conflict resolved. Never the echo of our own typing — that is
+  // discarded, a conflict resolved.
+  //
+  // **Suspended while a shared document is bound.** The room is then the
+  // authority for this note's text, and writing `value` over it would be two
+  // sources fighting for one document — which shows up as your own typing
+  // being replaced a moment after you type it. A different note being opened
+  // tears the binding down first, so that case still arrives here. Never the echo of our own typing — that is
   // what the comparison is for, and without it the caret jumps to the end of
   // the document on every keystroke.
   useEffect(() => {
