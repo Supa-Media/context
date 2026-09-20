@@ -64,6 +64,40 @@ test("resolution is pinned to the connection while TLS and Host use the hostname
   assert.equal(result.status, 200);
 });
 
+test("requests identify Context when a plugin does not supply a user agent", async () => {
+  let headers;
+  const request = makePinnedRequest({
+    resolve: async () => ["93.184.216.34"],
+    connect: async (options) => {
+      headers = options.headers;
+      return response();
+    },
+  });
+
+  await request({ url: "https://example.com/", method: "GET", headers: [] });
+
+  assert.equal(headers["user-agent"], "Context.LC/1.0 (+https://context.lc)");
+});
+
+test("a plugin-supplied user agent is preserved", async () => {
+  let headers;
+  const request = makePinnedRequest({
+    resolve: async () => ["93.184.216.34"],
+    connect: async (options) => {
+      headers = options.headers;
+      return response();
+    },
+  });
+
+  await request({
+    url: "https://example.com/",
+    method: "GET",
+    headers: [{ name: "user-agent", value: "Plugin Client/2.0" }],
+  });
+
+  assert.equal(headers["user-agent"], "Plugin Client/2.0");
+});
+
 test("a second call resolves again, so a redirect hop that becomes private is refused", async () => {
   let resolutions = 0;
   const request = makePinnedRequest({

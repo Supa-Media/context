@@ -6,6 +6,7 @@ import { isPublicAddress } from "./public-address.mjs";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 20_000;
+const DEFAULT_USER_AGENT = "Context.LC/1.0 (+https://context.lc)";
 
 export class EgressError extends Error {
   constructor(code, message) {
@@ -40,7 +41,18 @@ function connectExact(options, body) {
 }
 
 function safeHeaders(input, hostname) {
-  const headers = { host: hostname };
+  /*
+    Node's HTTPS client sends no User-Agent by default. Some public sites serve
+    that anonymous shape a JavaScript client challenge instead of the document
+    the plugin requested; YouVersion is one, so its official plugin receives a
+    200 response that contains no verse and reports an unavailable preview.
+
+    Identify this broker honestly when the plugin did not identify itself.
+    Preserve an explicit plugin value: requestUrl accepts headers, and changing
+    one here would make the egress path differ from the request the owner
+    approved the plugin to make.
+  */
+  const headers = { host: hostname, "user-agent": DEFAULT_USER_AGENT };
   for (const row of input ?? []) {
     const name = String(row?.name ?? "").toLowerCase();
     if (!name || ["host", "connection", "proxy-authorization", "transfer-encoding"].includes(name)) continue;
