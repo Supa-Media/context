@@ -277,6 +277,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The count is a kind, not a number, and every one of these guards reads an id
 - A refusal is shown with the reason the gateway gave for it
 - The seventh key became a row in the `+`, and the route it guarded did not move
+- A permanent, correct refusal is not the same fact as a transient one, and must not share its sentence
 - The engine's own evidence travels to the recorder, because a Worker's log is
   not a place a person can read
 - A build is what shipped, not what merged — two "the fix did not work" reports

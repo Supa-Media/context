@@ -3980,6 +3980,102 @@ real refusal from a console with no controller behind it), and the four states o
 `apps/mobile/__tests__/oneMicrophone.test.ts`, every one of which is unchanged by
 this — which is the point.
 
+## A permanent, correct refusal is not the same fact as a transient one, and must not share its sentence
+
+Verified on hardware: a meeting killed mid-recording with real audio recovers
+on Retry in about seven seconds and files correctly; the same kill with
+nothing captured — no transcript, no typed notes — cannot file, and should
+not. Both are the intended behaviour. What was wrong was what the second one
+was told: `markSyncFailed` parked every record that failed to reach the
+gateway six times behind one sentence — *"This meeting has failed to reach
+your context several times. It is still on this device — try again, or copy
+your notes out."* — regardless of whether the record held anything a retry
+could ever send or a copy could ever find.
+
+Six transient failures is a fact about the **connection**. It says nothing
+about whether *this* meeting has content worth fighting for, and a session
+`hasNothingCaptured` has none: there is no request a retry could make succeed,
+and there are no notes to copy out. Telling somebody to try again for a
+meeting that will never file, or to copy notes that do not exist, is the same
+shape of lying instrument as a level meter that always reads zero — technically
+produced by real code, answering a question nobody asked instead of the one in
+front of them.
+
+**The fix is a classification, not a new behaviour, and `markSyncFailed` now
+makes it explicitly:** the same trigger (`MAX_SYNC_ATTEMPTS` transient
+failures), a different sentence depending on `hasNothingCaptured(record.session)` —
+the honest, permanent "nothing to send and nothing to copy out" for an empty
+session, and the original retry framing — now carrying the refusal's own last
+reason rather than a bare count of attempts — for everything else. This is a
+backstop rather than the primary fix: `end()` and `recoverInterruptedRecordings`
+both keep a session with nothing captured out of the sync queue in the first
+place by folding it straight to `empty`, and `MeetingNoteScreen`'s `Landing`
+checks `session.state === "empty"` before it ever reads `record.rejection` — so
+a session that took either path never reaches this message. It exists for the
+same reason `convexGateway.finalize`'s own defensive `hasNothingCaptured` check
+does: a bug in an earlier step should not turn into a false "try again" here,
+any more than it should turn into a real, empty note in somebody's bucket.
+
+**The primary fix was `recoverInterruptedRecordings`, which had not been taught
+the check `end()` already makes.** A killed-mid-recording session found
+`recording` or `paused` at the next launch was folded to `failed` with
+`INTERRUPTED_RECORDING_REASON` — *"This device restarted while recording, so
+the rest of this meeting was not captured. What was recorded is kept
+below."` — unconditionally, whether or not there was a "rest" or anything "kept
+below". For a recording killed within the first few seconds, before a word was
+typed or transcribed, that sentence asserts content the session never had, and
+`failed` itself reads as transient — Retry is right there — when the true fact
+is permanent: `MEETING_TRANSITIONS` puts `empty` only behind `finalizing`, the
+same two-event path (`end`, then `empty`) `end()` already takes, so this is
+that same path reaching the one caller of `fail` that had been left out of it.
+A session with nothing captured now closes the same way whichever door it
+came through — the ordinary end of a meeting, or a relaunch that finds one
+still open — and `INTERRUPTED_RECORDING_REASON` is left to say what remains
+true of it: a session that captured *something* before the device restarted.
+
+**`hasNothingCaptured` is not the whole question, and the fold has to ask the
+other half.** It reads the session — no transcript, no typed notes — and a
+meeting recorded entirely offline satisfies it while holding everything it
+has on disk: no chunk has reached a transcriber yet, and the person was
+listening rather than typing. `empty` is terminal, so folding such a session
+to `empty` refuses every word that audio later comes back as, which is
+precisely why `end()` asks `hasNothingCaptured` **and** whether the spool is
+holding anything for this meeting before it folds. Recovery at launch is a
+second caller of the same question and needs the same second half of it;
+counting only the session is a guard holding the right rule against the wrong
+field. The counts are already taken by `configure` before recovery runs — for
+`recoverStaleFinalizes`, which needs them for its own reason — so this costs
+nothing but the condition. **The test that fails if it is reversed** is `a
+meeting killed with only its audio is failed, not called empty` in
+`apps/mobile/__tests__/meetingsKeptAudio.test.ts`, beside the typed-a-line
+case it was hiding behind.
+
+`markSyncFailed`'s copy is the one place that still asks the session alone,
+and it is left that way deliberately: `record.ts` is pure and holds no view
+of the spool, threading one in to reach a backstop behind two folds that
+already check it buys a sentence, not a word of transcript. The residue is
+therefore exact and small — a meeting whose only audio has been *set aside*
+after three refusals is not `audioHeld`, so it can still reach this path and
+be told "nothing was captured" while a chunk of it sits on the device. The
+screen says otherwise right beside it (`endedAudioLine` counts set-aside
+audio), and the state it is in is not terminal, so nothing is lost; it is a
+wrong sentence, not a wrong fold. Worth fixing the day `record.ts` has a
+reason to know about audio, and not before.
+
+**What is not changed.** No code path that had a retry worth making loses it:
+a `failed` session with real content still gets `INTERRUPTED_RECORDING_REASON`
+and its Retry, unchanged. The finalize deadline (`checkFinalizeTimeout`,
+`FINALIZE_TIMEOUT_MS`) is untouched; this is a different caller of `fail`, and
+`recoverStaleFinalizes` was not audited to need the same check because a
+session that reached `finalizing` at all had a `start`/`resume` behind it and
+`pendingSteps` would already have queued real content ahead of any finalize.
+
+The checks are `six failed reconnections on a meeting with nothing in it
+never say 'try again'` and `six failed reconnections park a meeting and say
+so, carrying the real reason` in `apps/mobile/__tests__/meetingsSync.test.ts`,
+and `a recording killed within seconds — nothing captured — is empty, not
+failed` in `apps/mobile/__tests__/meetingsController.test.ts`.
+
 ## The engine's own evidence travels to the recorder, because a Worker's log is not a place a person can read
 
 The silence refusal above works and does not finish the job. Measured on the
