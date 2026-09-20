@@ -230,6 +230,30 @@ export function usePresence(options: {
       live.onopen = () => {
         if (cancelled) return;
         dispatch({ type: "connected" });
+
+        /*
+          **Our whole document, on every connect, and why it is not optional.**
+
+          Edits are causally ordered: a client that misses one cannot apply the
+          ones after it, so it stops updating and says nothing about it. That
+          makes a single dropped frame permanent divergence rather than a
+          hiccup — and frames do get dropped, because the send below is inside
+          a `try`.
+
+          An earlier comment on that `catch` claimed "a reconnect replays it".
+          That was wrong: a reconnect replays the *room's* log, which never
+          received the frame that failed to send. This is what actually makes
+          it true. A snapshot subsumes every edit this client has ever made, so
+          whatever the room missed it gets now — and sending it is cheap enough
+          to do unconditionally rather than trying to work out whether anything
+          was lost, which is the kind of bookkeeping that is wrong once and
+          then silently wrong forever.
+        */
+        try {
+          live.send(snapshotFrame(document.snapshot()));
+        } catch {
+          // The next reconnect tries again; the document is still here.
+        }
         timers.current.heartbeat = window.setInterval(() => {
           try {
             if (live.readyState === WebSocket.OPEN) live.send(pingFrame());
