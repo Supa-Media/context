@@ -41,7 +41,13 @@ import {
   type PresenceMember,
 } from "./protocol";
 import { cursorPosition, encodeSyncStep1, encodeUpdate, readSyncMessage } from "./sync";
-import { createSharedDoc, isWriter, seedSharedDoc, type SharedDoc } from "./sharedDoc";
+import {
+  createSharedDoc,
+  electWriter,
+  mergeExternalText,
+  seedSharedDoc,
+  type SharedDoc,
+} from "./sharedDoc";
 import {
   initialPresenceState,
   presenceReducer,
@@ -127,6 +133,16 @@ export function usePresence(options: {
    * Only the seeding client reads it, and only once.
    */
   textForSeed: () => string;
+  /**
+   * A tool wrote this note while it was open, and the shared document has just
+   * been merged onto it.
+   *
+   * The etag is what makes this more than a redraw: the bucket has moved, so
+   * the next conditional save from this client must be checked against the
+   * version the tool left behind rather than the one this editor opened. Fired
+   * only on the client the room asked to merge.
+   */
+  onExternalWrite?: (written: { path: string; etag: string | null }) => void;
 }): Presence {
   const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
   const [state, dispatch] = useReducer(presenceReducer, initialPresenceState);
@@ -139,6 +155,8 @@ export function usePresence(options: {
   const shared = useRef<SharedDoc | null>(null);
   const textForSeed = useRef(options.textForSeed);
   textForSeed.current = options.textForSeed;
+  const onExternalWrite = useRef(options.onExternalWrite);
+  onExternalWrite.current = options.onExternalWrite;
   if (seed.current === null && typeof window !== "undefined") seed.current = tabSeed();
 
   const { workspaceId, endpoint, notePath, enabled } = options;
@@ -308,6 +326,35 @@ export function usePresence(options: {
           return;
         }
 
+        if (frame.t === "external") {
+          /*
+            **A tool wrote this note, and this client was asked to merge it.**
+
+            Asked, rather than every client deciding for itself: the same text
+            applied to N copies of the shared document inserts it N times,
+            because each copy generates its own operations for it. The room
+            picks one member — see `presenceRoom.js` — and this is that member.
+
+            `mergeExternalText` is a prefix/suffix diff, so a write that
+            appended a paragraph is an insert at the end rather than a replace
+            of the whole note, and carets and other people's in-flight edits
+            survive it. The resulting update goes out through the ordinary
+            local-update path, so everybody else sees it as an edit.
+          */
+          const held = shared.current;
+          if (held) {
+            try {
+              mergeExternalText(held, frame.text);
+            } catch {
+              // A merge that throws leaves the document as it was, which is
+              // still a document somebody is typing into. The bucket has the
+              // tool's version either way.
+            }
+          }
+          onExternalWrite.current?.({ path, etag: frame.etag });
+          return;
+        }
+
         if (frame.t === "compact") {
           try {
             const live = socket.current;
@@ -437,10 +484,13 @@ export function usePresence(options: {
       summary: presenceSummary(state),
       report,
       shared: shared.current,
-      canWrite: isWriter(
-        state.you,
-        state.members.map((one) => one.id),
-      ),
+      /*
+        Elected over the members the room would accept an edit from, not over
+        everybody in it. A room whose lowest member id belongs to a read-only
+        viewer used to elect that viewer, and then nobody saved: the one client
+        that believed it was saving was the one whose frames the room drops.
+      */
+      canWrite: electWriter(state.you, state.members),
     }),
     [state, report],
   );

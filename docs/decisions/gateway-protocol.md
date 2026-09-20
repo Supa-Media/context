@@ -419,18 +419,17 @@ mechanism: with the dispatch guard gone, the note really is in the bucket.
 ## Presence is a read that happens to be a socket
 
 `GET /presence?note=<path>` opens a WebSocket into a Durable Object holding one
-note's roster: who has it open, and where each caret is. Phase 1 relays carets
-and nothing else — no concurrent merge, no shared document, no change to how a
-note is saved.
+note's roster: who has it open, and where each caret is.
 
-**The room holds no note text, and the route reads none.** A client sends two
-integers and the server relays two integers. That is the whole payload, and it
-is what keeps this feature out of the control-plane argument: nothing here is a
-second place note content sits, so non-negotiable #1 is not approached, let
-alone tested. `decodeClientFrame` drops every field it does not know, so a
-client that puts note text on this channel finds the field simply is not
-carried — asserted in `presence.test.mjs` as "a cursor frame carries offsets and
-nothing else" rather than left to the comment above it.
+Phase 1 relayed carets and nothing else. **Phase 2, below, spends that**: the
+room now carries the document too. Everything in this section that is still
+true is still here; the sentence that stopped being true is marked where it was.
+
+~~**The room holds no note text, and the route reads none.**~~ True of Phase 1
+and no longer true — see *Phase 2* below for what replaced it and what it cost.
+`decodeClientFrame` still drops every field it does not know, so a *caret* frame
+still carries offsets and nothing else, asserted in `presence.test.mjs` rather
+than left to a comment.
 
 **The Durable Object has no storage.** The roster is rebuilt on every wake from
 `getWebSockets()` and each socket's attachment, so there is nothing to migrate,
@@ -480,10 +479,134 @@ first version of it should under-share.
 
 The simplification to resist is letting the room hold the document "just for the
 session" — it is the shortest path to real co-editing and it converts every
-sentence above into a different product. That is Phase 2, it is
-[a decision of its own](../../1-projects/backlog/), and it starts by saying
-which of these properties it is spending. The tests that fail if this is
-reversed are in `apps/mcp/test/presence.test.mjs`: "a cursor frame carries
-offsets and nothing else", "another workspace's token addresses its own room,
-never the first's", "a private note and a missing note refuse identically" and
-"a client's own member header is overwritten, not honoured".
+sentence above into a different product. That is Phase 2, below, and it says
+which of these properties it spent. The tests that fail if the Phase 1
+properties are reversed are in `apps/mcp/test/presence.test.mjs`: "a cursor
+frame carries offsets and nothing else", "another workspace's token addresses
+its own room, never the first's", "a private note and a missing note refuse
+identically" and "a client's own member header is overwritten, not honoured".
+
+## Phase 2: the room carries the document, and what that spends
+
+Carets alone made the collision *visible* and no less painful — you watched
+somebody type into the paragraph you were editing and then you both got a
+conflict. So the room now relays edits, and two people in a note merge instead
+of colliding. This is the property being bought, and it is worth saying plainly
+what it costs, because Phase 1's headline sentence was "the room holds no note
+text".
+
+**Yjs, over the protocol Yjs already has.** The first version of this was a
+hand-rolled exchange in which every client sent its whole document on connect
+and the room replaced its history with what arrived — so the second person to
+open a note replaced the first person's work with their own empty document, and
+the elected writer flushed that emptiness to the bucket. It is the worst bug
+this feature has had and it was introduced as a fix for a smaller one. What
+replaced it is `y-protocols/sync`: a client announces a state *vector* (what it
+already has), anybody holding more answers with exactly the difference, and an
+empty document has nothing to send that could delete anything. Convergence is
+the CRDT's, not ours.
+
+**The gateway still decodes nothing, and still has zero dependencies.** Updates
+are opaque base64 in and opaque base64 out; the room checks shape and size and
+relays. `apps/mcp` imports no Yjs and no npm package at all — the merge runs in
+the clients, which is also what keeps a self-hosted gateway a plain Worker.
+
+**Three decisions belong to the room, because no client can make them.**
+Everything a client could get wrong about a room, it has: each of these was a
+bug first.
+
+- *Who seeds the document.* A note starts as text in a bucket and exactly one
+  client must put it there — two and the note contains itself twice, none and
+  the shared document starts empty and gets saved over the customer's note. The
+  client used to ask whether the roster in its own welcome was empty, and a
+  welcome's roster always contains the member it was sent to. So `welcome.seed`
+  is the room's answer, and the room is the only party holding both halves of
+  it: whether anybody else is seated, and whether the replay it is about to
+  send already carries the text.
+- *Who saves.* One member flushes the merged text to the bucket on a debounce;
+  the rest do not save at all. The election is the lowest member id **among the
+  members the room would accept an edit from** — so the roster carries write
+  authority, resolved from each caller's grant by the route. Without that half
+  a room whose lowest id belonged to a read-only viewer elected that viewer,
+  and then nobody saved.
+- *Who merges a write that came from outside.* See external edits, below.
+
+**Write authority is checked on the frame, by the server.** Opening the socket
+needs read — you have to see a note to watch somebody edit it — and changing it
+needs write. A `member` of a shared context holds exactly the first, so their
+edit frames are dropped by the room rather than trusted and relayed. That is
+non-negotiable #4 on this channel, and "a read-only member's edit never reaches
+anybody else" is demonstrated in two real browsers, not only asserted.
+
+Asking is not editing, and has its own frame. A state vector goes up as `ask`
+rather than as an edit: it is relayed to peers, never written to the log, and
+needs no write authority — so a read-only member can ask what the note says
+rather than depending on whatever the log happens to still hold.
+
+### Temporary state, durable recovery, and the bucket
+
+Four things hold a note, and their order matters:
+
+1. **The bucket is canonical.** Markdown in the customer's own storage, exactly
+   as before. Nothing below is ever the only copy of anything.
+2. **The shared document is live state**, in each client's memory, converging
+   over the socket. It exists while somebody has the note open.
+3. **The room's log is durable recovery, and the shortest-lived copy in the
+   system.** Durable Object storage holds the updates the room relayed, so
+   somebody joining mid-sentence lands on the text everybody else can see and a
+   hibernated room does not lose ten minutes of typing. It is append-only —
+   nothing but a confirmed checkpoint deletes from it — and it is deleted
+   outright when the last person leaves. **This is the one place note content is
+   durable outside the customer's bucket**, it is a derivative under
+   non-negotiable #3's terms rather than an exception to them, and the retention
+   policy is code (`dropLogIfEmpty`) rather than a sentence.
+4. **The elected writer flushes** the merged text back to the bucket on a
+   debounce and on ⌘S, as an ordinary conditional write.
+
+### External edits
+
+An MCP client writing a note somebody has open is the case this product is for:
+the agent that saves what a session decided, into a note somebody is reading.
+After the write lands in the bucket, the gateway tells that note's room, and
+**one** member merges it into the shared document — every client merging the
+same text would insert those characters once per client, because each copy
+generates its own operations for them. The room picks the merger the same way
+it picks a seeder: the lowest id among the members it would accept an edit
+from. The merge is a prefix/suffix diff, so a write that appended a paragraph
+is an insert rather than a whole-document replace, and carets and in-flight
+typing survive it.
+
+The notice carries the new etag, and the merging client adopts it — otherwise
+its next save is a conflict raised about a change already present in the text
+being saved, which is the exact experience this feature exists to remove.
+
+None of it is a guarantee. A room nobody is in drops the notice; a room in
+which nobody may write has nobody who can merge and drops it too. Those clients
+see the write at their next reconnect, within the five-minute reauthorization
+window. The bucket had the change before the room heard about it.
+
+**Edits made outside the product — Obsidian, rclone, an S3 client — are
+deliberately not covered.** There is no event to hang a notice on, and inventing
+one would mean polling the bucket. Those land the way they always have: the next
+read shows them, and a conflicting save raises a conflict.
+
+### What this is verified by, and what that is worth
+
+The unit suites run offline against stubs: `apps/mcp/test/presence.test.mjs`
+covers the room, the route and the frame grammar, including a fake of the
+Durable Object runtime so the `welcome` frame itself is under test;
+`apps/mobile/__tests__/presenceContract.test.ts` runs frames between the
+gateway's real module and the client's real module, because every other test on
+either side passes with a stub of the other.
+
+That is not enough, and this feature is the proof: the seeding bug survived a
+full green suite in both halves and died to two browsers in under a second.
+`apps/mcp/test/browser/verify.mjs` drives two Chromium contexts against
+`wrangler dev` running the real gateway with real Durable Objects, over real
+WebSockets, against a control plane served over real HTTP, with the note and
+its folder rule created through the product's own MCP tools. It is run by hand
+rather than in CI — it needs a Worker runtime and a browser — and results from
+it are reported as what they are: a live demonstration, distinct from a suite.
+
+The simplification to resist now is trusting the suites. A property of this
+feature that has not been watched happen in two windows is not known to hold.

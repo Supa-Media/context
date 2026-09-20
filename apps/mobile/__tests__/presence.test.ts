@@ -47,6 +47,7 @@ import {
 } from "../features/console/presence/remoteCarets";
 import {
   createSharedDoc,
+  electWriter,
   isWriter,
   mergeExternalText,
   seedSharedDoc,
@@ -63,7 +64,15 @@ import { EditorView } from "@codemirror/view";
  * a real document.
  */
 function member(over: Partial<PresenceMember> = {}): PresenceMember {
-  return { id: "m1", name: "@ana", color: "#8b5cf6", anchor: "p:0", head: "p:0", ...over };
+  return {
+    id: "m1",
+    name: "@ana",
+    color: "#8b5cf6",
+    anchor: "p:0",
+    head: "p:0",
+    canWrite: true,
+    ...over,
+  };
 }
 
 /** Reads the offset back out of a stand-in position. */
@@ -437,6 +446,30 @@ describe("the shared document", () => {
     // m2 left; m3 takes over off the very next roster, with no gap.
     expect(isWriter("m3", ["m9"])).toBe(true);
     expect(isWriter(null, ["m1"])).toBe(false);
+  });
+
+  test("the election skips members the room would refuse an edit from", () => {
+    /*
+      A room whose lowest member id belongs to a read-only viewer used to elect
+      that viewer, and then nobody saved at all: the one client that believed
+      it was saving was the one whose frames the room drops. Both halves are
+      checked, because leaving either out reintroduces it.
+    */
+    const viewer = { id: "m1", canWrite: false };
+    const editor = { id: "m2", canWrite: true };
+    const later = { id: "m9", canWrite: true };
+
+    expect(electWriter("m2", [viewer, editor, later])).toBe(true);
+    expect(electWriter("m1", [viewer, editor, later])).toBe(false);
+    expect(electWriter("m9", [viewer, editor, later])).toBe(false);
+
+    // A read-only member alone in a room elects nobody, rather than itself
+    // against an empty field.
+    expect(electWriter("m1", [viewer])).toBe(false);
+
+    // And when the only editor leaves, the next one takes over off the very
+    // next roster.
+    expect(electWriter("m9", [viewer, later])).toBe(true);
   });
 });
 

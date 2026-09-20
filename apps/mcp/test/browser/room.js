@@ -10,14 +10,30 @@
  * test in the repo reaches. The editor binding is covered by jsdom tests that
  * mount the real `LiveEditor`.
  */
-import { createSharedDoc, seedSharedDoc } from "../../../mobile/features/console/presence/sharedDoc.ts";
+import {
+  createSharedDoc,
+  isWriter,
+  mergeExternalText,
+  seedSharedDoc,
+} from "../../../mobile/features/console/presence/sharedDoc.ts";
 import { encodeSyncStep1, encodeUpdate, readSyncMessage } from "../../../mobile/features/console/presence/sync.ts";
 import { askFrame, decodeServerFrame, syncFrame } from "../../../mobile/features/console/presence/protocol.ts";
 
 const REMOTE = Symbol("remote");
 
 window.joinRoom = ({ gateway, token, note, seedWith }) => {
-  const state = { text: () => doc.markdown(), members: [], connected: false, frames: 0 };
+  const state = {
+    text: () => doc.markdown(),
+    members: [],
+    connected: false,
+    frames: 0,
+    /** The version a tool's write left behind, once this client merged it. */
+    externalEtag: null,
+    /** Whether this client is the one elected to save. */
+    saver: () => Boolean(state.you) &&
+      state.members.some((m) => m.id === state.you && m.canWrite) &&
+      isWriter(state.you, state.members.filter((m) => m.canWrite).map((m) => m.id)),
+  };
   const doc = createSharedDoc({
     onLocalUpdateBytes: (update) => {
       if (socket && socket.readyState === WebSocket.OPEN) {
@@ -42,6 +58,13 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
       state.members = frame.members;
       // The room's decision, not this client's. See `protocol.ts`.
       if (frame.seed && seedWith) seedSharedDoc(doc, seedWith);
+      return;
+    }
+    if (frame.t === "external") {
+      // The room asked this client, and only this client, to merge a write
+      // that came from a tool. See `presenceRoom.js`.
+      mergeExternalText(doc, frame.text);
+      state.externalEtag = frame.etag;
       return;
     }
     if (frame.t === "join") state.members = [...state.members, frame.member];

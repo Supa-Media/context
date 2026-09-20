@@ -174,17 +174,43 @@ function createRoomNamespaceStub() {
     },
     get(id) {
       return {
-        async fetch(request) {
+        async fetch(request, init) {
+          // A notice from a tool arrives as a POST with a body rather than as
+          // an upgrade, so the stub records the body where there is one.
+          const asRequest = request instanceof Request ? request : new Request(request, init);
           calls.push({
             name: id.name,
-            member: request.headers.get("x-presence-member"),
-            url: request.url,
+            member: asRequest.headers.get("x-presence-member"),
+            url: asRequest.url,
+            body: asRequest.method === "POST" ? await asRequest.text() : null,
           });
           return new Response("joined", { status: 200 });
         },
       };
     },
   };
+}
+
+/** One MCP tool call, so the write path can be checked against the room. */
+async function callTool(env, token, name, args = {}) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
+    }),
+    env,
+    ctx,
+  );
+  const body = await response.json();
+  await settle();
+  return body?.result?.content?.[0]?.text ?? "";
 }
 
 async function presenceRequest(env, token, query, init = {}) {
@@ -375,10 +401,23 @@ export async function runPresenceChecks(check) {
     roster(room).every((member) => member.seen === undefined),
   );
   check(
-    "the roster carries id, name, colour and caret",
+    "the roster carries id, name, colour, caret and whether this member may edit",
+    // An exact key list rather than a subset check: the point of this one is
+    // that nothing *else* gets onto the wire, and `w` is on it deliberately —
+    // every client elects a peer to save the merged text, and the election has
+    // to land on somebody the room would accept an edit from.
     roster(room).every(
-      (member) => Object.keys(member).sort().join(",") === "a,color,h,id,name",
+      (member) => Object.keys(member).sort().join(",") === "a,color,h,id,name,w",
     ),
+  );
+  check(
+    "...and says so from the grant the route resolved, not from anything a client sent",
+    // `admit` is called by the room shell with what the route decided. A member
+    // seated without that decision is read-only, which is the safe default: an
+    // election that skips somebody costs one save cycle, and one that includes
+    // somebody the room refuses costs every save.
+    admit(createRoom(), { id: "mw", name: "@w", canWrite: true, now: 1 }).member.w === true &&
+      admit(createRoom(), { id: "mr", name: "@r", now: 1 }).member.w === false,
   );
 
   const moved = applyCursor(room, "m1", { t: "cursor", a: 5, h: 9 }, 2_000);
@@ -605,6 +644,67 @@ export async function runPresenceChecks(check) {
       // it conveys no text to anybody replaying the room later and still counts
       // towards the compaction threshold.
       (await askingRoom.readLog()).length === 0,
+    );
+
+    /* ------------ a tool wrote the note somebody has open ---------------- */
+
+    const external = async (room, body) =>
+      room.fetch(
+        new Request("https://presence.invalid/external", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+
+    const writerBeforeNotice = writerSocket.sent.length;
+    const readerBeforeNotice = readerSocket.sent.length;
+    const delivered = await external(askingRoom, { text: "# From an agent\n", etag: "e2" });
+    check(
+      "a tool's write is handed to exactly one member, who may edit",
+      // Not broadcast: every client merging the same text into its own copy of
+      // the shared document would insert those characters once per client,
+      // because each copy generates its own operations for them. And not to
+      // the reader, whose merge the room would refuse — which would hand the
+      // note's new text to the one member guaranteed not to be able to share
+      // it.
+      (await delivered.json()).delivered === true &&
+        writerSocket.frames().slice(writerBeforeNotice).some(
+          (frame) => frame.t === "external" && frame.text === "# From an agent\n" && frame.etag === "e2",
+        ) &&
+        readerSocket.sent.length === readerBeforeNotice,
+    );
+
+    const readersOnly = fakeRoomRuntime();
+    const readersOnlyRoom = new PresenceRoom(readersOnly.state, {});
+    try {
+      await readersOnlyRoom.fetch(
+        new Request("https://presence.invalid/presence", {
+          headers: {
+            Upgrade: "websocket",
+            "x-presence-member": JSON.stringify({ name: "@r", colorSeed: null, canWrite: false }),
+          },
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+    }
+    const nobody = await external(readersOnlyRoom, { text: "# From an agent\n", etag: "e3" });
+    check(
+      "a room in which nobody may edit is told, and drops the notice",
+      // A real state rather than an error: those clients see the write at
+      // their next reconnect, and the canonical copy was in the bucket before
+      // this room heard about it at all.
+      (await nobody.json()).delivered === false &&
+        readersOnly.open[0].frames().every((frame) => frame.t !== "external"),
+    );
+
+    const malformed = await external(askingRoom, { etag: "e4" });
+    check(
+      "a notice with no text is refused rather than merged as an empty note",
+      // `mergeExternalText` against "" deletes everything. A frame this room
+      // does not understand must never be able to mean that.
+      malformed.status === 400,
     );
 
     const writerFramesBeforeEdit = writerSocket.sent.length;
@@ -947,6 +1047,38 @@ export async function runPresenceChecks(check) {
       // A WebSocket handshake is not subject to CORS, so a page on any origin
       // could otherwise open this and read every frame in the room.
       badOrigin.status === 403,
+    );
+
+    /* -- a tool's write reaches the room for that note --------------------- */
+
+    const writesBefore = rooms.calls.length;
+    const written = await callTool(env, TEAM_TOKEN, "write_note", {
+      path: "1-projects/roadmap.md",
+      content: "the roadmap, for everyone here\n\nand a line an agent added\n",
+      summary: "an agent writing a note somebody has open",
+    });
+    const notice = rooms.calls.slice(writesBefore).find((call) => call.body !== null);
+    check(
+      "a tool's write tells the room for that note, in that workspace",
+      // The room key is derived from the session's own workspace and the path
+      // that was written — the same derivation the socket route uses, so a
+      // notice can never land in another tenant's room.
+      written.startsWith("written:") &&
+        notice?.name === roomKey("ws_presence", "1-projects/roadmap.md"),
+    );
+    check(
+      "...and carries the text it stored and the version it produced",
+      // The etag is the half that makes this more than a redraw: whoever merges
+      // it saves next against the version the tool left, rather than raising a
+      // conflict about a change already in the text being saved.
+      (() => {
+        const body = JSON.parse(notice?.body ?? "null");
+        return (
+          body?.text === "the roadmap, for everyone here\n\nand a line an agent added\n" &&
+          typeof body.etag === "string" &&
+          body.etag.length > 0
+        );
+      })(),
     );
 
     /* -- a deployment without the binding degrades honestly ---------------- */

@@ -74,6 +74,14 @@ export const CLOSE_REAUTHORIZE = 4001;
 /** The close code for "you are not welcome here", which a client must not retry. */
 export const CLOSE_REFUSED = 4003;
 
+/** A small JSON answer, since this object has no access to the worker's. */
+function json(body) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 export class PresenceRoom {
   constructor(state, env) {
     this.state = state;
@@ -90,6 +98,51 @@ export class PresenceRoom {
    * sends arrives over the socket, below, where it is treated as hostile.
    */
   async fetch(request) {
+    /*
+      **A tool wrote this note. One member is asked to merge it.**
+
+      Reachable only from inside this worker — a Durable Object is not
+      addressable from the internet — so the sole caller is the gateway, which
+      has just authorized and completed a write to exactly this note in exactly
+      this workspace. Nothing here re-authorizes, for the same reason the
+      socket route's `x-presence-member` header is trusted: there is no other
+      way in.
+
+      The text goes to **one** socket, not all of them. Every client applying
+      the same text to its own copy of the shared document would insert those
+      characters once per client, because each copy generates its own
+      operations for them. So the room picks the member who may actually have
+      a merge accepted — write authority, lowest id, the same rule the clients
+      use to choose who saves — and everybody else receives the merge as the
+      ordinary edit it becomes.
+    */
+    if (new URL(request.url).pathname === "/external") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      let notice;
+      try {
+        notice = await request.json();
+      } catch {
+        return new Response(null, { status: 400 });
+      }
+      if (!notice || typeof notice.text !== "string") {
+        return new Response(null, { status: 400 });
+      }
+      const merger = this.mergerSocket();
+      if (!merger) return json({ delivered: false });
+      try {
+        merger.send(
+          JSON.stringify({
+            t: "external",
+            text: notice.text,
+            etag: typeof notice.etag === "string" ? notice.etag : null,
+          }),
+        );
+      } catch {
+        return json({ delivered: false });
+      }
+      return json({ delivered: true });
+    }
+
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected a websocket upgrade", { status: 426 });
     }
@@ -111,6 +164,7 @@ export class PresenceRoom {
       id,
       name: intent.name,
       colorSeed: intent.colorSeed,
+      canWrite: intent.canWrite === true,
       now,
     });
     if (!seated.ok) {
@@ -446,12 +500,41 @@ export class PresenceRoom {
         id: attachment.id,
         name: attachment.name,
         color: attachment.color,
+        w: attachment.canWrite === true,
         a: attachment.a ?? 0,
         h: attachment.h ?? 0,
         seen: attachment.seen ?? 0,
       });
     }
     return room;
+  }
+
+  /**
+   * The one member asked to merge a write that came from outside the room.
+   *
+   * Write authority first, because a merge from a socket that cannot write is
+   * refused by `webSocketMessage` and would be a merge that silently reached
+   * nobody — the room would have handed the note's new text to the one client
+   * guaranteed not to be able to share it. Then the lowest member id, so the
+   * choice is stable across notices and matches the rule the clients already
+   * use to elect whoever saves.
+   *
+   * Null when nobody in the room may write, which is a real state and not an
+   * error: those clients see the change at their next reconnect.
+   */
+  mergerSocket() {
+    let best = null;
+    let bestId = null;
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = ws.deserializeAttachment();
+      if (!attachment || attachment.canWrite !== true) continue;
+      if (typeof attachment.id !== "string") continue;
+      if (bestId === null || attachment.id < bestId) {
+        best = ws;
+        bestId = attachment.id;
+      }
+    }
+    return best;
   }
 
   broadcast(message, except) {
@@ -543,5 +626,12 @@ export class PresenceRoom {
 
 /** What a peer is told about another member. Never the heartbeat clock. */
 function publicMember(member) {
-  return { id: member.id, name: member.name, color: member.color, a: member.a, h: member.h };
+  return {
+    id: member.id,
+    name: member.name,
+    color: member.color,
+    w: member.w === true,
+    a: member.a,
+    h: member.h,
+  };
 }

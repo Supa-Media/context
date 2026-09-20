@@ -38,6 +38,16 @@ export interface PresenceMember {
    */
   anchor: string | null;
   head: string | null;
+  /**
+   * Whether the room would accept an edit from this member.
+   *
+   * Every client elects one peer to write the merged text back to the bucket,
+   * and the election has to land on somebody the room will actually relay
+   * edits from — otherwise a room whose lowest member id belongs to a
+   * read-only viewer elects that viewer and nobody saves at all. Comes off the
+   * grant at the gateway, never off the client.
+   */
+  canWrite: boolean;
 }
 
 export type ServerFrame =
@@ -72,6 +82,14 @@ export type ServerFrame =
   | { t: "sync"; updates: string[] }
   /** The room is asking this client to send a compacted snapshot. */
   | { t: "compact" }
+  /**
+   * A tool wrote this note, and this client is the one asked to merge it.
+   *
+   * Sent to exactly one member — see `presenceRoom.js` — because every client
+   * merging the same text would insert it once per client. Everybody else
+   * receives the result as an ordinary edit.
+   */
+  | { t: "external"; text: string; etag: string | null }
   | { t: "pong" };
 
 
@@ -124,6 +142,10 @@ function member(value: unknown): PresenceMember | null {
     color: color(raw.color),
     anchor: position(raw.a),
     head: position(raw.h),
+    // Absent reads as "cannot write", which is the safe way to be wrong: an
+    // election that skips somebody costs a save nobody makes until the next
+    // roster, and one that includes somebody the room refuses costs every save.
+    canWrite: raw.w === true,
   };
 }
 
@@ -181,6 +203,16 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
     return { t: "sync", updates };
   }
   if (frame.t === "compact") return { t: "compact" };
+  if (frame.t === "external") {
+    // A missing text is not an empty note: it is a frame this client does not
+    // understand, and merging "" would delete somebody's work.
+    if (typeof frame.text !== "string") return null;
+    return {
+      t: "external",
+      text: frame.text,
+      etag: typeof frame.etag === "string" ? frame.etag : null,
+    };
+  }
   if (frame.t === "pong") return { t: "pong" };
   return null;
 }

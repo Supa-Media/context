@@ -299,6 +299,8 @@ async function main() {
       append: (t) => page.evaluate((x) => window.room.append(x), t),
       type: (at, t) => page.evaluate(([a, x]) => window.room.type(a, x), [at, t]),
       disconnect: () => page.evaluate(() => window.room.disconnect()),
+      externalEtag: () => page.evaluate(() => window.room.externalEtag),
+      saver: () => page.evaluate(() => window.room.saver()),
     };
   };
 
@@ -362,6 +364,86 @@ async function main() {
     after === before && !after.includes("SHOULD NOT"),
     after === before ? "" : "the reader's text arrived",
   );
+
+  /* ---------------------------------------------------------------- 6 ---- */
+
+  // An MCP client writes the note while three browsers have it open. This is
+  // the case the product is for: the agent that saves what a session decided,
+  // into a note somebody is reading.
+  const agentText = `${await ana.text()}written by an agent, not a browser\n`;
+  const agentWrote = await callTool(BO, "write_note", {
+    path: NOTE,
+    content: agentText,
+    summary: "an agent writing a note three people have open",
+  });
+  const agentEtag = textOf(agentWrote).match(/etag ([a-f0-9]+)/)?.[1] ?? null;
+  const sawAgent = await until(async () => {
+    const a = await ana.text();
+    const b = await reconnected.text();
+    return a === b && a.includes("written by an agent");
+  });
+  check(
+    "a write from an MCP client appears live in every browser",
+    sawAgent,
+    sawAgent ? "" : JSON.stringify((await ana.text()).slice(-60)),
+  );
+
+  const merger = await Promise.all([ana, reconnected, late, reader].map((one) => one.externalEtag()));
+  check(
+    "...merged by exactly one of them, who was told the version it produced",
+    // Not every client: the same text applied to four copies of the shared
+    // document would insert it four times. And never the read-only member,
+    // whose merge the room would refuse.
+    merger.filter((etag) => etag !== null).length === 1 &&
+      merger[3] === null &&
+      merger.some((etag) => etag === agentEtag),
+  );
+
+  /* ---------------------------------------------------------------- 7 ---- */
+
+  // The elected saver writes the merged text back, conditionally, at the
+  // version the agent left. This is the save path: if the etag had not moved
+  // with the agent's write, this is exactly where it would be a conflict.
+  const savers = await Promise.all([ana, reconnected, late, reader].map((one) => one.saver()));
+  check(
+    "exactly one browser is elected to save, and it is not the read-only one",
+    savers.filter(Boolean).length === 1 && savers[3] === false,
+  );
+
+  const merged = await ana.text();
+  const saved = await callTool(ANA, "write_note", {
+    path: NOTE,
+    content: merged,
+    expected_etag: agentEtag,
+    summary: "the elected saver flushing the merged document",
+  });
+  check(
+    "the merged document saves over the agent's version without a conflict",
+    !saved?.isError,
+    textOf(saved).slice(0, 140),
+  );
+
+  /* ---------------------------------------------------------------- 8 ---- */
+
+  const reread = await callTool(READER, "read_note", { path: NOTE });
+  const inBucket = textOf(reread);
+  check(
+    "the bucket holds everybody's work: both browsers, the agent, and the seed",
+    inBucket.includes("ana was here") &&
+      inBucket.includes("bo was here") &&
+      inBucket.includes("written while bo was away") &&
+      inBucket.includes("written by an agent") &&
+      inBucket.includes("first line"),
+    inBucket.includes("written by an agent") ? "" : JSON.stringify(inBucket.slice(0, 200)),
+  );
+
+  // A browser that reloads is a browser that joins an existing room, so this
+  // is the log replay rather than the bucket — but the two now agree, which is
+  // the property that matters after a save.
+  const reloaded = await open(BO);
+  await until(() => reloaded.connected());
+  const reloadedText = await until(async () => (await reloaded.text()) === merged);
+  check("a reloaded browser lands on the same document", reloadedText);
 
   await browser.close();
   stopWorker();

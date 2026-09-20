@@ -136,6 +136,17 @@ export default function ContextBrowseRoute() {
       socket on every keystroke.
     */
     textForSeed: () => data.files.editor.draft,
+    /*
+      An MCP client wrote this note while it was open.
+
+      Presence has already merged that write into the shared document — the
+      room asked exactly one member to, so it is in the text everybody sees.
+      What is left is the bookkeeping: the bucket has moved, so the next save
+      from this client is checked against the version the tool left rather than
+      the one this editor opened, which would otherwise be a conflict raised
+      about a change already present in the text being saved.
+    */
+    onExternalWrite: data.files.onExternalWrite,
   });
 
   return (

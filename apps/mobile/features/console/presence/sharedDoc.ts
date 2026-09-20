@@ -190,6 +190,36 @@ export function mergeExternalText(shared: SharedDoc, incoming: string): boolean 
  * When that person leaves, the next-lowest takes over on the very next roster
  * the room sends, so there is no gap where nobody is saving.
  */
+/**
+ * The one member of a room that saves, chosen from the roster.
+ *
+ * Two halves, and leaving either out has been a bug:
+ *
+ *  - **Only members the room would accept an edit from are candidates.** The
+ *    election used to run over everybody, so a room whose lowest member id
+ *    belonged to a read-only viewer elected that viewer — and then nobody
+ *    saved at all, because the one client that believed it was saving was the
+ *    one whose frames the room drops.
+ *  - **You are only a candidate if you are one of them.** `isWriter` adds you
+ *    to the list it sorts, so a read-only member alone in a room would
+ *    otherwise elect itself against an empty field.
+ *
+ * Pure, and exported, because this is the kind of decision that reads as
+ * obviously right inside a `useMemo` and is obviously wrong the moment it is
+ * written down beside a read-only member.
+ */
+export function electWriter(
+  you: string | null,
+  members: { id: string; canWrite: boolean }[],
+): boolean {
+  if (you === null) return false;
+  if (!members.some((one) => one.id === you && one.canWrite)) return false;
+  return isWriter(
+    you,
+    members.filter((one) => one.canWrite).map((one) => one.id),
+  );
+}
+
 export function isWriter(you: string | null, memberIds: string[]): boolean {
   if (you === null) return false;
   const all = [...memberIds, you].sort();

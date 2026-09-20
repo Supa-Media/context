@@ -234,6 +234,22 @@ export type EditorAction =
    * carried (`from`): an editor that has since moved on keeps its own.
    */
   | { type: "rebased"; from: string | null; etag: string }
+  /**
+   * A tool wrote this note while somebody had it open, and the shared document
+   * has already been merged onto what it wrote.
+   *
+   * Only the etag moves. The draft is deliberately left alone: it is the
+   * merged text, which is what the next save should write, and it is not the
+   * bucket's version, so the baseline does not move with it either — a note
+   * that still differs from the bucket is still unsaved, and saying otherwise
+   * would leave the merge sitting in a browser with nothing to flush it.
+   *
+   * Unguarded on the previous version, unlike `rebased`: the write happened
+   * somewhere else and this client has no claim about which version it
+   * replaced — only that the bucket is now at this one and the shared document
+   * has been reconciled with it. Applied only on the note it names.
+   */
+  | { type: "externalWrite"; path: string; etag: string }
   | { type: "discarded" };
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -291,6 +307,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
     case "rebased":
       if (state.path === null || state.etag !== action.from) return state;
+      return { ...state, etag: action.etag };
+
+    case "externalWrite":
+      // A conflict is a decision the person has been asked for, and a merge
+      // that arrived behind it does not answer that question — moving the etag
+      // under an open conflict would let "keep mine" quietly win a race it was
+      // never shown.
+      if (state.path !== action.path || state.status === "conflict") return state;
       return { ...state, etag: action.etag };
 
     case "edited": {

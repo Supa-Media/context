@@ -173,6 +173,9 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       editor,
       setDraft: noop,
       save: noop,
+      // The demo console has no gateway, so no room, so nothing outside it
+      // ever writes the note it is showing.
+      onExternalWrite: noop,
       // A picture of the console, with no bucket behind it: there is never
       // anything pending, so the honest answer is "nothing was written".
       flushAutosave: () => false,

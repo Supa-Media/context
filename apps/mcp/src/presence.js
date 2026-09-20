@@ -9,25 +9,37 @@
  * fix: a room per note, a member per open editor, and a caret offset that moves
  * as somebody types.
  *
- * **No note text passes through here, and none ever should.** A client sends
- * two integers; the server relays two integers. That is not an optimisation, it
- * is what keeps this feature on the safe side of non-negotiable #1 without
- * arguing about it: the gateway already carries note content per request, and a
- * presence room deliberately adds no second place where it sits. When somebody
- * proposes merging edits through this channel, that is a different feature with
- * a different decision behind it (`docs/decisions/gateway-protocol.md`), and it
- * starts by admitting that this line is being crossed.
+ * ## Note text DOES pass through here now, and that was a decision
  *
- * ## The server cannot check an offset, and says so rather than pretending
+ * This module was built on "a client sends two integers; the server relays two
+ * integers", and that sentence is no longer true. Concurrent editing merges
+ * documents, and a document is text — so edits, snapshots and a tool's write
+ * all cross this channel, and the room's log holds them for as long as the
+ * room exists. The old comment promised a line this feature has since walked
+ * over, which is worse than no comment, so here is the line as it actually
+ * stands:
  *
- * A caret at offset 900 in a 400-character note is nonsense, and this module
- * cannot tell: it has never seen the note and is not going to read it to find
- * out. So offsets are bounded for sanity (`MAX_OFFSET`) and clamped to the
- * document by the *client* that draws them. A peer sending garbage offsets can
- * therefore make its own caret appear in a silly place in somebody else's
- * editor, and can do nothing else — no crash, no exception, no read. That is
- * the honest trade, and `clampToDocument` on the client is the half that makes
- * it harmless.
+ *  - **The room never decodes any of it.** Updates are opaque base64 in and
+ *    opaque base64 out; the room checks shape and size and relays. It cannot
+ *    read a note and has no code that could start.
+ *  - **The log is the shortest-lived copy in the system**, dropped when the
+ *    room empties, and it is a derivative of a bucket that already holds the
+ *    canonical note. Non-negotiable #3's terms, not an exception to them.
+ *  - **The bucket stays canonical.** Nothing here is the only copy of
+ *    anything, and the elected writer flushes the merged text back.
+ *
+ * `docs/decisions/gateway-protocol.md` carries the argument and what it costs.
+ *
+ * ## The server cannot check a caret, and says so rather than pretending
+ *
+ * A caret is an encoded *relative* position now rather than an integer offset,
+ * because an offset names a place in a document that is moving underneath it.
+ * Either way this module cannot check it: it has never seen the note and is
+ * not going to read one to find out. So a caret is bounded for size and shape
+ * and resolved by the *client* that draws it — a position that does not
+ * resolve is not drawn at all. A peer sending nonsense can therefore make its
+ * own caret disappear, and can do nothing else: no crash, no exception, no
+ * read.
  *
  * ## A member cannot name itself
  *
@@ -327,7 +339,7 @@ export function createRoom() {
  * Returns the member, or a refusal. The caller supplies `id` and `name`; see
  * the header for why a client may supply neither.
  */
-export function admit(room, { id, name, colorSeed, now }) {
+export function admit(room, { id, name, colorSeed, canWrite, now }) {
   if (room.members.has(id)) return { ok: false, reason: "duplicate_id" };
   if (room.members.size >= MAX_MEMBERS_PER_ROOM) return { ok: false, reason: "room_full" };
   const member = {
@@ -339,6 +351,22 @@ export function admit(room, { id, name, colorSeed, now }) {
     // apparently leaving and a differently-coloured stranger arriving. A seed
     // long enough to be a payload is ignored rather than trusted.
     color: colorFor(usableSeed(colorSeed) ?? id),
+    /*
+      **Whether this member's edits would be accepted, on the roster.**
+
+      Not a decoration: every client elects one of its peers to write the
+      merged text back to the bucket, and that election has to land on
+      somebody whose writes the room will actually relay. Without this it ran
+      over the whole roster, so a room whose lowest member id belonged to a
+      read-only viewer elected that viewer — and then nobody saved, because
+      the one client that believed it was saving was the one the room refuses
+      edits from.
+
+      Decided by the route from the caller's grant and role and carried here;
+      never claimed by a client. It tells peers only who may edit a note they
+      can all already see.
+    */
+    w: canWrite === true,
     a: 0,
     h: 0,
     seen: now,
@@ -394,6 +422,7 @@ export function roster(room) {
     id: member.id,
     name: member.name,
     color: member.color,
+    w: member.w === true,
     a: member.a,
     h: member.h,
   }));

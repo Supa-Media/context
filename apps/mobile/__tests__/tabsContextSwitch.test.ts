@@ -114,6 +114,7 @@ function browser(
     editor: openPath === null ? emptyEditor : { ...emptyEditor, status: "clean", path: openPath },
     setDraft: noop,
     save: noop,
+    onExternalWrite: noop,
     flushAutosave: () => false,
     discardLocalCopies: noop,
     encryptedElsewhere: noop,
