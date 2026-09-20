@@ -132,6 +132,13 @@ export class PresenceRoom {
     // rather than on `this`.
     server.serializeAttachment({
       ...seated.member,
+      /*
+        Write authority, decided by the route from the caller's grant and role
+        and carried here. Never taken from the client: a socket that could
+        assert its own write access would make the scope check theatre.
+      */
+      canWrite: intent.canWrite === true,
+      eligibleToCompact: false,
       deadline: now + PRESENCE_SOCKET_MAX_MS,
     });
     this.state.acceptWebSocket(server);
@@ -164,6 +171,19 @@ export class PresenceRoom {
     const log = await this.readLog();
     if (log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
 
+    /*
+      This socket has now been handed everything the room holds, so a snapshot
+      from it later is a complete state and is safe to compact against.
+      A socket that joined before some entry cannot vouch for the entries it
+      never saw, and the room will not delete anything on its word.
+    */
+    server.serializeAttachment({
+      ...seated.member,
+      canWrite: intent.canWrite === true,
+      eligibleToCompact: true,
+      deadline: now + PRESENCE_SOCKET_MAX_MS,
+    });
+
     await this.ensureAlarm();
 
     return new Response(null, { status: 101, webSocket: client });
@@ -195,6 +215,25 @@ export class PresenceRoom {
       return;
     }
 
+    /*
+      **Write authority is checked on the frame, by the server.**
+
+      The route authorizes a *read* to open this socket, which is right — you
+      have to be able to see a note to watch somebody edit it. It is not
+      authority to change it. Without this line a `member` with read-only
+      access could send edits that every other client would apply and the
+      elected writer would flush to the bucket, which is non-negotiable #4
+      exactly: "write access to somebody else's context is never implied by
+      read".
+
+      Refused silently rather than with an error: a client that should not be
+      writing is either broken or hostile, and neither is owed a diagnostic.
+      Their own editor still shows their own typing; it simply reaches nobody.
+    */
+    if ((decoded.msg.t === "u" || decoded.msg.t === "snap") && !attachment.canWrite) {
+      return;
+    }
+
     if (decoded.msg.t === "u") {
       /*
         One keystroke, on its way to everybody else.
@@ -211,12 +250,28 @@ export class PresenceRoom {
     }
 
     if (decoded.msg.t === "snap") {
-      // A compacted state from a client, replacing everything before it. Taken
-      // on trust as *bytes* and on nobody's word as *content*: the room cannot
-      // tell a good snapshot from a bad one, so what protects the document is
-      // that the bucket holds the last flushed text and every other client
-      // still holds its own copy.
-      await this.replaceLog(decoded.msg.d);
+      /*
+        **A snapshot appends. It does not replace, and it never did safely.**
+
+        The first version of this called `replaceLog`, and every client sent a
+        snapshot on connect — so the second person to open a note replaced the
+        room's whole history with their own *empty* document and destroyed what
+        the first person had written. The elected writer would then have
+        flushed that empty text to the bucket. It is the worst bug in this
+        feature's history and it was introduced by a fix for a smaller one.
+
+        So: snapshots are ordinary entries in an append-only log. A snapshot is
+        a complete state, so replaying it followed by later updates converges
+        to the same document either way — appending costs storage and is
+        incapable of losing text, while replacing is one bad frame away from
+        losing all of it.
+
+        Compaction is the *room's* decision, never a client's, and it is
+        handled in `checkpoint` below where eligibility is checked.
+      */
+      if (!attachment.canWrite) return;
+      this.broadcast({ t: "u", d: decoded.msg.d }, ws);
+      await this.appendUpdate(decoded.msg.d, { checkpoint: attachment.eligibleToCompact === true });
       return;
     }
 
@@ -289,25 +344,28 @@ export class PresenceRoom {
     return [...stored.values()];
   }
 
-  async appendUpdate(update) {
+  /**
+   * Add one entry to the log.
+   *
+   * `checkpoint` says this entry is a complete state from a client the room
+   * knows has seen everything before it, so everything before it can go. That
+   * is the only path by which anything is ever deleted from the log, and the
+   * delete happens *after* the write, so a failure between them leaves a
+   * longer log rather than a shorter one.
+   */
+  async appendUpdate(update, { checkpoint = false } = {}) {
     const seq = ((await this.state.storage.get("seq")) ?? 0) + 1;
-    await this.state.storage.put({ [`u:${String(seq).padStart(9, "0")}`]: update, seq });
-    if (seq % 50 === 0) await this.askForSnapshotIfLong();
+    const key = `u:${String(seq).padStart(9, "0")}`;
+    await this.state.storage.put({ [key]: update, seq });
+    if (checkpoint) await this.dropLogBefore(key);
+    else if (seq % 50 === 0) await this.askForSnapshotIfLong();
   }
 
-  /**
-   * Replace the whole log with one compacted state.
-   *
-   * The delete and the write are one `transaction`, so a room that dies midway
-   * cannot come back holding neither — which would be an empty document handed
-   * to the next person who opens the note.
-   */
-  async replaceLog(snapshot) {
-    await this.state.storage.transaction(async (txn) => {
-      const existing = await txn.list({ prefix: "u:" });
-      await txn.delete([...existing.keys()]);
-      await txn.put({ "u:000000001": snapshot, seq: 1 });
-    });
+  /** Everything before a confirmed checkpoint, which is now redundant. */
+  async dropLogBefore(key) {
+    const existing = await this.state.storage.list({ prefix: "u:", end: key });
+    if (existing.size === 0) return;
+    await this.state.storage.delete([...existing.keys()]);
   }
 
   /**

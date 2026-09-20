@@ -1328,6 +1328,20 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
     JSON.stringify({
       name: presenceDisplayName(session),
       colorSeed: url.searchParams.get("seed"),
+      /*
+        **Whether this caller may change the note, decided here and only here.**
+
+        Opening the socket needs read: you have to be able to see a note to
+        watch somebody edit it. Changing it needs write, and the two are not
+        the same question — non-negotiable #4 says write access to somebody
+        else's context is never implied by read, and a `member` of a shared
+        context holds exactly that shape of grant.
+
+        Resolved from the already-clamped scope set, so a role that cannot
+        write cannot acquire it here, and sent to the room rather than trusted
+        from the client.
+      */
+      canWrite: hasScope(session, SCOPE_WRITE),
     }),
   );
   return await room.fetch(new Request(request.url, { method: "GET", headers }));

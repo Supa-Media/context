@@ -78,6 +78,7 @@
  */
 
 import worker from "../src/index.js";
+import { PresenceRoom } from "../src/presenceRoom.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -385,6 +386,27 @@ export async function runPresenceChecks(check) {
     overflow.ok === false && overflow.reason === "room_full",
   );
 
+  /* --------- the two failures that stopped this being merged ------------- */
+
+  check(
+    "a snapshot is an ordinary log entry, because replacing was catastrophic",
+    // The worst bug in this feature's history: every client sent a snapshot on
+    // connect and the room replaced its whole history with it, so the second
+    // person to open a note wiped what the first had written and the elected
+    // writer flushed the empty text to the bucket. The room no longer has a
+    // function that can replace the log at all, which is the check: a removed
+    // capability cannot be reintroduced by accident.
+    typeof PresenceRoom.prototype.replaceLog === "undefined",
+  );
+  check(
+    "the room can only ever delete log entries before a confirmed checkpoint",
+    // The one deletion path, and it takes a key to stop before rather than
+    // clearing a prefix. A version of this that dropped the whole prefix would
+    // be the replace bug wearing a different name.
+    typeof PresenceRoom.prototype.dropLogBefore === "function" &&
+      PresenceRoom.prototype.dropLogBefore.length === 1,
+  );
+
   /* ============================== the route ============================== */
 
   const controlPlane = createControlPlaneStub();
@@ -557,6 +579,43 @@ export async function runPresenceChecks(check) {
         JSON.parse(rooms.calls.at(-1)?.member || "null")?.name === "Someone's Claude",
     );
     check("the colour seed is carried through", member?.colorSeed === "tab-a");
+
+    /* -- read opens the socket; write is a separate question --------------- */
+
+    const readerToken = `cat_presence_reader_${"0".repeat(13)}`;
+    await controlPlane.addGrant({
+      accessToken: readerToken,
+      workspaceId: "ws_presence",
+      role: "member",
+      scopes: ["context:read"],
+      clientId: "mcp_client_presence_reader",
+      userId: "user_presence_reader",
+    });
+
+    const readerJoins = await presenceRequest(env, readerToken, "?note=1-projects/roadmap.md");
+    check(
+      "a read-only connection may still open the socket",
+      // Watching somebody edit is a read. Refusing this would make presence a
+      // write feature, which is not what it is.
+      readerJoins.status === 200,
+    );
+    const readerMember = JSON.parse(rooms.calls.at(-1)?.member || "null");
+    check(
+      "...and is marked as unable to write, by the server",
+      // Non-negotiable #4: write access to somebody else's context is never
+      // implied by read. Without this the room applies a reader's edits and
+      // the elected writer flushes them to the owner's bucket.
+      readerMember?.canWrite === false,
+    );
+
+    await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md");
+    const editorMember = JSON.parse(rooms.calls.at(-1)?.member || "null");
+    check(
+      "an editor connection is marked as able to write",
+      // Non-vacuity: if `canWrite` were false for everybody the check above
+      // would pass while the feature did nothing at all.
+      editorMember?.canWrite === true,
+    );
 
     /* -- a client cannot name itself --------------------------------------- */
 
