@@ -41,6 +41,14 @@ jobs:
       EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
       EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
       EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
+      # The site key for the human check in front of a collect link — the
+      # public half of the pair whose secret half `deploy-convex.yml` pushes.
+      # Public by construction: it is in the markup of every page that runs the
+      # widget. Here rather than committed because this repository is, and
+      # `CLAUDE.md` keeps account identifiers out of it. Absent is a working
+      # state and a deliberate one: the form says it is not taking answers,
+      # which is the same thing the control plane says with no secret set.
+      EXPO_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.EXPO_PUBLIC_TURNSTILE_SITE_KEY }}
       # Build-only source-map credentials; none has an EXPO_PUBLIC_ prefix.
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}

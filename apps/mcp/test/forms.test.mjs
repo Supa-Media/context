@@ -544,6 +544,88 @@ export async function runFormChecks(check) {
     );
   }
 
+  /*
+    A CHECKBOX ANSWER'S WORDS ARE THE ONES THE FILE HOLDS.
+
+    Nothing anywhere tested a checkbox field, and the gap hid a bug in the one
+    place it mattered: the answer went through `parseBool`, which reads the
+    form *declaration*'s vocabulary (`required: true`), while the responses
+    file stores `yes`/`no` and the console's own widget submits `yes`/`no`.
+    Every form carrying a checkbox was unanswerable from the console, refused
+    with a sentence naming two words nothing in the product shows.
+
+    So both pairs are accepted and one pair is stored, and the round trip —
+    submit, render, read back, resubmit — is what these check rather than the
+    single hop that happened to work.
+  */
+  {
+    const config = parseFormBlocks(
+      [
+        "```form",
+        "id: nda",
+        "responses: 3-resources/nda-responses.md",
+        "layout: table",
+        "fields:",
+        "  - { name: who, type: line, max: 40, required: true }",
+        "  - { name: agreed, type: checkbox }",
+        "```",
+      ].join("\n")
+    )[0].config;
+
+    const stored = validateSubmission(config, { who: "Jordan", agreed: "yes" });
+    check("a checkbox accepts the word the file holds", stored.error === undefined);
+    check("...and stores it as that word", stored.values?.agreed === "yes");
+
+    const declared = validateSubmission(config, { who: "Jordan", agreed: "true" });
+    check("...and the declaration's word too, meaning the same thing", declared.values?.agreed === "yes");
+    check(
+      "...with no/false both landing on no",
+      validateSubmission(config, { who: "J", agreed: "no" }).values?.agreed === "no" &&
+        validateSubmission(config, { who: "J", agreed: "false" }).values?.agreed === "no"
+    );
+    check(
+      "...and an actual boolean, which is what a JSON client sends",
+      validateSubmission(config, { who: "J", agreed: true }).values?.agreed === "yes"
+    );
+    check(
+      "...case and padding are the person's typing, not a different answer",
+      validateSubmission(config, { who: "J", agreed: " YES " }).values?.agreed === "yes"
+    );
+    check(
+      "a word that is neither is refused, and the refusal names the words it takes",
+      /must be yes or no/.test(validateSubmission(config, { who: "J", agreed: "maybe" }).error || "")
+    );
+
+    // The round trip: what the renderer wrote is what the validator accepts.
+    const written = renderResponsesFile(config, [
+      { id: "r-0000000a", by: "@maya", at: "2026-09-08T09:00Z", values: stored.values, votes: [] },
+    ]);
+    const readBack = parseResponsesFile(written, config);
+    check("the rendered answer parses back", readBack.error === undefined);
+    check(
+      "...and resubmitting exactly what came out of the file is accepted",
+      validateSubmission(config, readBack.responses[0].values).error === undefined
+    );
+
+    // And the declaration's own keys are UNCHANGED: `yes` is an answer's word,
+    // never a block grammar word, and widening that would change a stable
+    // storage format rather than fix a bug.
+    check(
+      "`edit_own: yes` is still not a form",
+      parseFormBlocks(
+        [
+          "```form",
+          "id: x",
+          "responses: r.md",
+          "edit_own: yes",
+          "fields:",
+          "  - { name: a, type: line, max: 5 }",
+          "```",
+        ].join("\n")
+      )[0].error !== undefined
+    );
+  }
+
   /* ===================== permissions, through the worker =================== */
 
   const controlPlane = createControlPlaneStub();
@@ -1258,6 +1340,20 @@ export async function runFormChecks(check) {
         "...whose id came from the note's own filename rather than being asked for",
         block?.config?.responses === "3-resources/intake-responses.md"
       );
+      check(
+        "...and points the agent at the link a form without accounts needs",
+        /create_link with mode=collect/.test(made.text)
+      );
+      const editorsOnly = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/staff-only.md",
+        submit: "editor",
+        fields: [{ name: "x", type: "line", max: 5 }],
+      });
+      check(
+        "a form only editors may answer is not offered a link, because one would not work",
+        !editorsOnly.isError && !/create_link with mode=collect/.test(editorsOnly.text)
+      );
+
       const named = await call(env, EDITOR_TOKEN, "create_form", {
         path: "3-resources/named.md",
         id: "client-intake",

@@ -249,6 +249,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       // did reach it would show the field keeping what was typed, which is
       // the honest outcome of a claim that did not happen.
       setShareSlug: async () => false,
+      setShareCollecting: async () => false,
       /*
         The landing page's console has no bucket and no clipboard promise to
         make. `false` is the honest answer and the one the dialog reads: it

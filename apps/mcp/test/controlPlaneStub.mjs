@@ -160,6 +160,9 @@ export function createControlPlaneStub(options = {}) {
       audience: row.audience,
       entryPath: row.entryPath,
       slug: row.slug,
+      collecting: row.mode === "collect",
+      collected: row.mode === "collect" ? (row.collected ?? 0) : null,
+      collectCap: row.mode === "collect" ? (row.collectCap ?? 500) : null,
       createdAt: row.createdAt,
     };
   }
@@ -611,6 +614,21 @@ export function createControlPlaneStub(options = {}) {
           status: "active",
           createdAt: 1,
         };
+        // Applied on a re-mint too, and preserved when unstated — the real
+        // `mintLinkShare` does both, and a stub that only set it on creation
+        // would hide the bug that branch already had once.
+        if (body.mode !== undefined) row.mode = body.mode;
+        // The real `mintLinkShare` normalizes and keeps `null` meaning "the
+        // default stands", never "unlimited". The stub agrees so that a
+        // gateway test cannot pass against a laxer rule than production's.
+        if (
+          typeof body.collectCap === "number" &&
+          Number.isInteger(body.collectCap) &&
+          body.collectCap >= 1 &&
+          body.collectCap <= 10000
+        ) {
+          row.collectCap = body.collectCap;
+        }
         links.set(row.shareId, row);
 
         let shortRefused = null;

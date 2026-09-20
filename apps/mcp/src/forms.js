@@ -417,6 +417,34 @@ function parseBool(value) {
   return null;
 }
 
+/**
+ * A checkbox ANSWER's two words — which are not the block grammar's two words.
+ *
+ * `parseBool` reads the form *declaration*: `required: true`, `edit_own:
+ * false`. That vocabulary is a stable storage format and is deliberately not
+ * widened here.
+ *
+ * A checkbox answer is a different value in a different file. It is **stored**
+ * as `yes`/`no` — that is what `renderResponsesFile` writes and what somebody
+ * reads in the answers note — so `yes`/`no` is what it must accept. It did
+ * not: `validateSubmission` sent the answer through `parseBool`, which knows
+ * only `true`/`false`, while the console's own form widget submits `yes`/`no`.
+ * Every form carrying a checkbox was therefore unanswerable from the console,
+ * with a refusal naming two words nothing in the product shows.
+ *
+ * Both pairs are accepted, because an answer that came back out of the file
+ * and an answer typed as `true` are both somebody meaning the same thing, and
+ * the round trip through the responses file has to close.
+ */
+function parseAnswerBool(value) {
+  if (value === true || value === false) return value;
+  if (typeof value !== "string") return null;
+  const word = value.trim().toLowerCase();
+  if (word === "true" || word === "yes") return true;
+  if (word === "false" || word === "no") return false;
+  return null;
+}
+
 /* ---------------------------- submitted values --------------------------- */
 
 /**
@@ -455,8 +483,8 @@ export function validateSubmission(config, values) {
 function normalizeValue(field, supplied) {
   switch (field.type) {
     case "checkbox": {
-      const parsed = parseBool(typeof supplied === "string" ? supplied.toLowerCase() : supplied);
-      if (parsed === null) return { error: `"${field.name}" must be true or false` };
+      const parsed = parseAnswerBool(supplied);
+      if (parsed === null) return { error: `"${field.name}" must be yes or no` };
       return { value: parsed ? "yes" : "no" };
     }
     case "number": {

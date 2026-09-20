@@ -510,6 +510,7 @@ describe("the unlisted link has a control of its own", () => {
     entryPath: NOTE,
     titleInPreview: true,
     previewTitle: "Plan",
+    collecting: false,
     createdAt: 1,
   };
 
@@ -574,6 +575,57 @@ describe("the unlisted link has a control of its own", () => {
     expect(
       document.body.querySelector('[data-testid="share-short-link-name"]'),
     ).not.toBeNull();
+  });
+
+  /**
+   * ANSWER-TAKING, ON THE SCREEN IT IS SWITCHED ON FROM.
+   *
+   * The short link's field shipped unreachable for exactly this reason: the
+   * dialog drew the block, `Explorer` wired it, and this pane — the one the
+   * pointer console actually renders — passed every other handler and not the
+   * new one. A component test cannot see that, because it supplies the prop
+   * itself. This switch is the one control on the screen that hands out a
+   * WRITE, so it gets the check the last one had to earn.
+   */
+  test("the answer-taking switch is reachable from the pane, not just from the dialog", async () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    await act(async () => {});
+
+    expect(document.body.querySelector('[data-testid="share-collect-row"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="share-collect-switch"]')).not.toBeNull();
+  });
+
+  test("...and pressing it asks for that row, with the state it is going to", async () => {
+    const asked: unknown[] = [];
+    const pane = paneRoot();
+    pane.render(
+      dataWith({
+        shares: [openShare],
+        setShareCollecting: async (shareId: string, on: boolean) => {
+          asked.push([shareId, on]);
+          return true;
+        },
+      } as never),
+    );
+    press("browse-share");
+    await act(async () => {});
+    press("share-collect-switch");
+    await act(async () => {});
+    expect(asked).toEqual([["s-open", true]]);
+  });
+
+  test("...and it says what it hands out before it is pressed", async () => {
+    // Everything else on this screen gives somebody a read. This one lets a
+    // stranger with no account append to a file in the owner's own bucket, and
+    // that has to be on the screen rather than in a help page.
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    await act(async () => {});
+    const row = document.body.querySelector('[data-testid="share-collect-row"]');
+    expect(row?.textContent).toContain("without an account");
   });
 
   test("with no link yet, there is no row at all — nothing here creates one", () => {

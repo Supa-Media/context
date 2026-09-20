@@ -59,6 +59,7 @@ const openShare: NoteShare = {
   token: "b".repeat(64),
   recipient: "Anyone with the link",
   audience: "anyone",
+  collecting: false,
   entryPath: NOTE,
   titleInPreview: true,
   previewTitle: "Plan",

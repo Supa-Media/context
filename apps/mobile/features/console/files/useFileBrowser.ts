@@ -3573,6 +3573,36 @@ export function useFileBrowser(options: {
     [runShare, setShareSlugMutation],
   );
 
+  const setShareCollectingMutation = useMutation(api.functions.shares.setShareCollecting);
+
+  /**
+   * Turn a link's answer-taking on or off.
+   *
+   * A toggle, not a re-mint: `createLinkShare` supersedes, and routing this
+   * through a creation path is how a press of "off" hands somebody a new token
+   * for a link they had already sent. The server refuses a members link and a
+   * folder link with its own sentence, which is what this reports — nothing
+   * here decides who may collect.
+   *
+   * Answers whether it landed, like `setShareSlug` beside it and for the same
+   * reason: the notice is behind the modal, so a switch that flipped back has
+   * to be able to flip back.
+   */
+  const setShareCollecting = useCallback(
+    (shareId: string, collecting: boolean): Promise<boolean> =>
+      runShare(
+        () =>
+          setShareCollectingMutation({
+            shareId: shareId as Id<"noteShares">,
+            collecting,
+          }),
+        collecting
+          ? "This link now takes answers. Anyone holding it can fill in the form without an account."
+          : "This link no longer takes answers. It still opens the note.",
+      ),
+    [runShare, setShareCollectingMutation],
+  );
+
   const revokeShare = useCallback(
     (shareId: string) => {
       void runShare(
@@ -3951,6 +3981,7 @@ export function useFileBrowser(options: {
       share,
       revokeShare,
       setShareSlug,
+      setShareCollecting,
       setSharePreviewTitle,
       ensureListing,
       readRaw,
@@ -4028,6 +4059,7 @@ export function useFileBrowser(options: {
       share,
       revokeShare,
       setShareSlug,
+      setShareCollecting,
       toasts,
       setSharePreviewTitle,
       copyShareLink,

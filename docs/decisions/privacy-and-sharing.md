@@ -1562,3 +1562,122 @@ refuse again.
 unbounded, which is the combination `Link previews reveal nothing about a
 context` exists for. What changed is a second segment that only exists because
 somebody typed it.
+
+### A collect link is a write path, and the only one with no account behind it
+
+Non-negotiable #5 says a link an owner mints and can revoke is the single
+exception to "`team` never means public", and everything built on it so far has
+been a *read*. A collect link is the same row with `mode: "collect"` and it is
+not a read: a stranger with no session, no handle and no invitation appends to a
+file in somebody's bucket. That is what an intake form *is* — the feature is
+worthless if the people filling it in need accounts — and it is worth writing
+down exactly how far it goes, because "the owner published a URL" is the whole
+authorization.
+
+**It is a mode on the share row, not a third audience and not a word in
+`privacy.md`.** `Scope` stays two-valued. The row is still minted by an owner,
+still revoked by the same `revokeShare`, still resolved by the same
+`authorizeShareRead`, and still re-derived through the live `privacy.md`. What
+`collect` adds is one verb at one place, and nothing about who can *see*
+anything changes.
+
+**Only an `anyone` row, only over a note.** A `members` link already has readers
+with sessions, and a form on one is answered under their own handle through
+`submitForm` — collect mode would be a worse version of a thing that exists.
+A folder link reaches a subtree, and collecting through one would publish every
+form beneath it on the strength of one decision. Both are refused twice: at the
+mint, so an owner is told when they ask, and at `collectTarget`, because an
+already-written row is what the read path has to judge.
+
+**It serves one note and not even that note's links.** Every read link gets the
+entry note's own links at depth 1. A collect link gets none — and the reason is
+specific rather than cautious: the note a form sits on is exactly the note whose
+links most often include *the answers file it collects into*, so the ordinary
+traversal would hand every respondent everybody else's answers, on the strength
+of where an owner happened to put a cross-reference. Bounded as "the entry note,
+full stop" rather than by refusing the responses path, because a rule that lists
+what is forbidden is a rule with a gap in it.
+
+**What it writes can never authorise anything.** The answer is stamped
+`via @seyi/intake` — the *link*, read out of the row, never out of an argument.
+That stamp holds a space, which `names.ts` forbids in a handle, so no person can
+ever be called it and no link can be mistaken for a person. It is also *shared*
+by every stranger who used the link, which is #748's `by: null` collision with a
+different constant in the middle — so `assertMayChange` refuses any change to a
+row whose `by` is a stamp. An answer sent through a link is final, the page says
+so before it is sent, and only an editor (who could rewrite the whole file with
+`writeNote` anyway) can remove one.
+
+**The human check fails closed, and that is the production branch.** With no
+`TURNSTILE_SECRET_KEY`, a challenge that did not pass, or a verifier that could
+not be reached, the submission is refused. A route whose defence disappears when
+its key goes missing is a route with no defence — and it is exactly the moment
+somebody is most likely to be probing it. The corollary is that collect mode
+ships dark: the code is complete and refuses, and the feature turns on when the
+key is set. Only the token and the secret are sent to Cloudflare — never the
+workspace, the note, the answers, the link, or the visitor's IP, which is the
+one field that would make this a disclosure about a person.
+
+**A cap on the row, spent before the write.** A published URL with no ceiling is
+somebody's storage quota with extra steps. The count lives on the share row
+rather than being read out of the responses file, which is two copies of one
+truth and normally wrong — it is right here because the alternative is opening
+the customer's bucket to decide whether to refuse, which lets an unauthenticated
+caller spend a GET on their quota by posting garbage. The slot is taken
+*before* the write, so two submissions racing cannot each decide there was room;
+a failed write costs one slot out of hundreds, which is the direction to err in.
+
+**And a cancelled context stops taking them.** Cancelling makes a context
+read-only, and a live collect link is a write path into one that stopped taking
+writes. Only *managed* storage is affected — a customer's own bucket keeps
+working with their own credentials whatever we think of their card, because
+revoking our access is their lever and not ours.
+
+**What a "simplification" would cost.** Dropping the stamp rule and comparing
+`by` to the actor's name lets any stranger edit any other stranger's answer
+through the same link. Letting a collect link traverse like a read link
+discloses the answers file. Accepting a submission when the challenge cannot run
+turns a published form into an open write endpoint the first time a key is
+rotated. Counting from the file instead of the row hands an unauthenticated
+caller a lever on the customer's bill. Each has a test in
+`apps/convex/__tests__/collectMode.test.ts`, and each was sabotaged to confirm
+the test fails — including one guard that was **removed** because sabotage
+proved it unreachable, which is why the *shape* of `linkStamp` is now pinned on
+its own.
+
+### The switch that hands out a write sits under the link, and says so
+
+Collect mode arrived as a mode on a share row that only an agent could set. An
+owner could therefore hold a link that takes answers from strangers and see, in
+their own console, a row indistinguishable from every read link they have ever
+minted. That is the console being quiet about the only case where
+non-negotiable #5's exception has teeth, so `collecting` is now on every share
+row the owner is shown, and there is a switch.
+
+**Under the link, not beside the audience control.** The audience control
+decides who can *reach* the note; this decides what they can *do* once they are
+there, and it only exists once a link does. A fourth position on a control
+about reach would make "published" and "writable" one idea, and they are not.
+
+**A toggle, never a re-mint.** `setShareCollecting` is its own mutation because
+`createLinkShare` supersedes — it can mint, and on a live row it patches — and
+routing a switch through a creation path is how a press of "off" ends up
+handing somebody a new token for a link they had already sent. The token is
+untouched either way, so a link already pasted goes on working.
+
+**The third door on the same two rules.** Only an `anyone` row, only over a
+note. `collect.ts` enforces that on an already-written row and `mintUnlistedLink`
+enforces it at the mint; a rule enforced at two of the three places a row can
+be written is a rule with one way around it. The switch is simply not drawn
+where the server would refuse, which is the console's standing rule about
+controls that are going to fail.
+
+**Turning it on is its own line in the audit trail.** `share.collect.opened`
+rather than a detail on `share.link.created`, because "when did this start
+taking answers" is a question the trail has to be able to answer on its own.
+
+**And the copy is a guard.** Everything else in that dialog gives somebody a
+read; this lets a stranger with no account append to a file in the owner's
+bucket. The row says who can send, that nobody can read the answers through the
+link, and that an answer cannot be taken back — in the same breath as the
+switch, not in a help page.

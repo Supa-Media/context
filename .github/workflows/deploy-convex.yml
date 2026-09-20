@@ -154,6 +154,13 @@ jobs:
           # reach a decrypted credential. Absent refuses every delivery, which is
           # the only safe direction — never "allow".
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          # The human check in front of collect links — the one write in this
+          # product with no account behind it. Absent is a working state and a
+          # deliberate one: `lib/turnstile.ts` refuses every submission rather
+          # than waving it through, so a deployment that never sets this simply
+          # does not take answers from strangers. That is also what makes the
+          # feature safe to ship before the key exists.
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -170,7 +177,8 @@ jobs:
                      TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
                      PLUGIN_EGRESS_URL PLUGIN_EGRESS_SECRET \
                      MANAGED_R2_ACCOUNT_ID \
-                     STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET; do
+                     STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
+                     TURNSTILE_SECRET_KEY; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.

@@ -90,6 +90,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Domain-based membership is not built, and would be an invitation, never a grant
 - A note carried into another context lands at the narrower of the two ends
 - A share follows the note, not the path it was minted on
+- A short link is a second locator, never a second tier
+- A collect link is a write path, and the only one with no account behind it
+- The switch that hands out a write sits under the link, and says so
 
 ## [Per-note encryption](./encryption.md)
 
@@ -139,6 +142,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A form that does not parse is inert, never half-working
 - Forms need conditional writes, and say so when they cannot have them
 - The response table scrolls sideways, and never truncates an answer
+- The gateway writes the block too, not only the row
+- A form on a share page draws itself, and is the page's one write
 - What is deliberately not built
 
 ## [Search and the derived index](./search.md)

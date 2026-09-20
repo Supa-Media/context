@@ -3783,7 +3783,10 @@ function baseToolDefinitions() {
         "audience=members needs a live membership. Pass short to also claim a memorable address " +
         "under their handle, context.lc/@name/<short> — say first that a short name is guessable " +
         "by anyone who types it, which is the point of having one and is not true of the long " +
-        "link. Owner-only, revocable, and it publishes nothing a link did not already publish.",
+        "link. Pass mode=collect to make it a link that TAKES ANSWERS to a form on the note, from " +
+        "people with no account — that is how a published intake form gets filled in, and it is " +
+        "the only write in this product with no account behind it. Owner-only, revocable, and it " +
+        "publishes nothing a link did not already publish.",
       inputSchema: {
         type: "object",
         properties: {
@@ -3805,6 +3808,18 @@ function baseToolDefinitions() {
             description:
               "A memorable name under their handle: lowercase letters, digits and hyphens. Refused for a name Context writes into every workspace, or one already taken here — the link still works, and you are told why the name did not.",
           },
+          mode: {
+            type: "string",
+            enum: ["read", "collect"],
+            description:
+              "read shows what the link points at. collect ALSO takes answers to a form on that note from people with no account, which is what makes a published intake form work — it needs audience=anyone and one note, never a folder. Tell them plainly: strangers can send answers, nobody can read the answers through the link, and an answer sent that way is final. Defaults to read.",
+          },
+          collect_cap: {
+            type: "integer",
+            minimum: 1,
+            description:
+              "With mode=collect, the most answers this link will take before it stops — 1 to 10000, and 500 if you leave it. It is what stands between a published URL and their whole storage quota, so raise it because they asked for a bigger form, never to be helpful. A number outside the range leaves the default standing rather than failing the mint.",
+          },
           title_in_preview: {
             type: "boolean",
             description:
@@ -3819,8 +3834,8 @@ function baseToolDefinitions() {
     {
       name: "list_links",
       description:
-        "Every live link in this context: what it opens, who it is for, and its URL. Answers " +
-        "\"what have I published\" without opening the console.",
+        "Every live link in this context: what it opens, who it is for, whether it is taking " +
+        "answers, and its URL. Answers \"what have I published\" without opening the console.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -7036,6 +7051,8 @@ async function toolCreateLink(store, scope, args) {
     ...(typeof args.title_in_preview === "boolean"
       ? { titleInPreview: args.title_in_preview }
       : {}),
+    ...(args.mode === "collect" ? { mode: "collect" } : {}),
+    ...(typeof args.collect_cap === "number" ? { collectCap: args.collect_cap } : {}),
   });
   if (result === null) {
     return toolError(
@@ -7057,6 +7074,24 @@ async function toolCreateLink(store, scope, args) {
         : "Anyone holding this link can open it without an account — and a short name is " +
             "guessable by anyone who types it, which is what makes it worth having and is not " +
             "true of the long link."
+    );
+  }
+  /*
+    Said on the mint, not left to the agent's memory of the schema.
+
+    A collect link is the only thing in this product a stranger can WRITE
+    through, and the three facts below are the ones an owner has to hear before
+    they paste it anywhere: answers arrive from people nobody can name, nobody
+    can read the answers through it, and there is a ceiling. An agent that
+    pastes a URL without saying so has published a write endpoint on somebody's
+    behalf and told them it was a link.
+  */
+  if (link.collecting) {
+    lines.push(
+      "This link TAKES ANSWERS. Tell them, in your own words, all three: anyone holding it can " +
+        "send an answer to the form without an account and without being named; nobody can read " +
+        "the answers through it, so an answer is final once sent; and it stops on its own at " +
+        `${link.collectCap ?? "its"} answers, which collect_cap changes.`
     );
   }
   return toolText(lines.join("\n"));
@@ -7108,6 +7143,12 @@ function describeLink(link) {
           : link.audience
     }`
   );
+  if (link.collecting) {
+    lines.push(
+      `taking answers: yes — a form on this note, from anyone (${link.collected ?? 0} of ` +
+        `${link.collectCap ?? "?"} so far)`
+    );
+  }
   lines.push(`id: ${link.shareId}`);
   return lines.join("\n");
 }
@@ -7245,7 +7286,22 @@ async function toolCreateForm(store, scope, rules, overrides, args) {
       `\nsubmitting: ${parsed[0].config.submit} and above` +
       (parsed[0].config.layout === "table"
         ? "\nlayout: table — one row per answer, so keep paragraph fields few"
-        : "\nlayout: sections — one heading per answer")
+        : "\nlayout: sections — one heading per answer") +
+      /*
+        The next step, said here rather than left to the agent to know.
+
+        A form is only half of "collect this from people": the other half is a
+        link they can be sent, and an agent that does not know `create_link`
+        takes one is an agent that writes the block and stops. Said as the
+        option it is — plenty of forms are for people who already have accounts
+        — and only for a form that takes `member` answers, because a form
+        restricted to editors cannot be answered through a link at all.
+      */
+      (parsed[0].config.submit === "member"
+        ? "\n\nTo let people WITHOUT an account fill this in, call create_link with " +
+          "mode=collect on this note. Without one, only people who can already see this " +
+          "context can answer."
+        : "")
   );
 }
 

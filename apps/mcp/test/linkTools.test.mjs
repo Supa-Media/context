@@ -225,6 +225,80 @@ export async function runLinkToolChecks(check) {
     });
     check("a name Context writes into every workspace is refused", /reserved for Context/.test(reserved.text));
 
+    /* ------------------------------ collect mode --------------------------- */
+
+    /*
+      A COLLECT LINK IS THE ONLY WRITE IN THIS PRODUCT WITH NO ACCOUNT BEHIND IT.
+
+      What is checked here is the gateway's half: the argument reaches the
+      control plane as `mode`, what comes back says the link takes answers, and
+      the agent is handed the three sentences it has to pass on. Whether the
+      row is honoured is `collectMode.test.ts`'s, where the real mint is.
+    */
+    const collecting = await call(env, OWNER_TOKEN, "create_link", {
+      path: "1-projects/clients.md",
+      mode: "collect",
+    });
+    check("an owner can mint a link that takes answers", !collecting.isError);
+    check(
+      "...and the mode reached the control plane rather than being dropped",
+      controlPlane.calls.some(
+        (entry) => entry.path === "/gateway/links/create" && entry.body?.mode === "collect",
+      ),
+    );
+    check("...and the link says it is taking answers", /taking answers: yes/.test(collecting.text));
+    check(
+      "...and the agent is told strangers need no account and are not named",
+      /without an account and without being named/.test(collecting.text),
+    );
+    check(
+      "...that nobody reads the answers through it, so an answer is final",
+      /nobody can read .* through it/.test(collecting.text) && /final once sent/.test(collecting.text),
+    );
+    check("...and the number it stops at", /stops on its own at 500 answers/.test(collecting.text));
+
+    const plain = await call(env, OWNER_TOKEN, "create_link", { path: "1-projects/plain.md" });
+    check(
+      "an ordinary link says none of that, because it takes nothing",
+      !/taking answers/.test(plain.text) && !/TAKES ANSWERS/.test(plain.text),
+    );
+
+    // Anything that is not the literal is a READ link. A misspelling must not
+    // land on the one mode that opens a write path to strangers.
+    const misspelled = await call(env, OWNER_TOKEN, "create_link", {
+      path: "1-projects/typo.md",
+      mode: "Collect",
+    });
+    check(
+      "a mode that is not the literal is an ordinary link",
+      !/taking answers/.test(misspelled.text),
+    );
+
+    const capped = await call(env, OWNER_TOKEN, "create_link", {
+      path: "1-projects/big-intake.md",
+      mode: "collect",
+      collect_cap: 2000,
+    });
+    check("an owner's own ceiling is carried", /of 2000 so far/.test(capped.text));
+    check("...and the agent is told the number it will stop at", /stops on its own at 2000/.test(capped.text));
+
+    // A cap past the maximum is not an error and does not remove the ceiling:
+    // the default stands, which is the only direction a typo may go.
+    const silly = await call(env, OWNER_TOKEN, "create_link", {
+      path: "1-projects/silly.md",
+      mode: "collect",
+      collect_cap: 5_000_000,
+    });
+    check("a cap past the maximum leaves the default standing", /of 500 so far/.test(silly.text));
+    check("...and still mints a working link", /link: https:\/\//.test(silly.text));
+
+    const withCollecting = await call(env, OWNER_TOKEN, "list_links");
+    check(
+      "the listing tells the two apart",
+      /taking answers: yes/.test(withCollecting.text) &&
+        (withCollecting.text.match(/taking answers: yes/g) ?? []).length === 3,
+    );
+
     /* ----------------------------- who may mint ---------------------------- */
 
     const memberList = await rpc(env, MEMBER_TOKEN, "tools/list");

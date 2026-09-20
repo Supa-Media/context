@@ -83,9 +83,30 @@ function roleAtLeast(held: WorkspaceRole, required: string): boolean {
 
 /** Who is acting, as a form records and authorizes them. */
 export interface FormActor {
-  /** Their username, with the `@`. Stamped on the row; never taken from input. */
+  /**
+   * Their username, with the `@` — or, for an answer sent through a collect
+   * link, the link itself. Stamped on the row; never taken from input.
+   */
   name: string;
   role: WorkspaceRole;
+}
+
+/**
+ * What an answer sent through a collect link is stamped with.
+ *
+ * Readable, because an owner reading their own answers needs to know which
+ * came from a stranger and through which link — and **unusable as an
+ * identity**, because it holds a space and a slash, which `names.ts` forbids
+ * in a handle (`[a-z0-9][a-z0-9-]{0,62}`). So no person can ever be stamped
+ * with one, and no link can be mistaken for a person.
+ */
+export function linkStamp(handle: string, slug: string | null): string {
+  return slug === null ? `via a link to @${handle}` : `via @${handle}/${slug}`;
+}
+
+/** Whether a stamp names a link rather than a person. See `linkStamp`. */
+export function isLinkStamp(by: string): boolean {
+  return by.startsWith("via ");
 }
 
 export interface FormAnswer {
@@ -404,6 +425,37 @@ function assertMayChange(
   verb: "edit" | "delete",
 ): void {
   if (roleAtLeast(actor.role, "editor")) return;
+  /*
+    A LINK'S STAMP AUTHORISES NOTHING, INCLUDING FOR THE LINK.
+
+    An answer sent through a collect link is stamped with the link, and that
+    stamp is **shared** by every stranger who used it. `assertMayChange`
+    authorises by comparing `response.by` to `actor.name`, so without this a
+    stranger would match every other stranger's answer through the same link —
+    #748's finding with a different constant in the middle. That one closed a
+    `by: null` collision where two people with no handle matched each other.
+
+    **This was two checks and is one.** The other read `actor.viaLink === true`
+    — a flag threaded from `collect.ts` — and sabotaging it failed nothing: a
+    link actor's *name* is always a link stamp, so this line already catches
+    it, and a link acting on a person's row is caught by the equality below. A
+    guard nobody can reach is not a guard, so the flag and its plumbing went.
+
+    What that leaves load-bearing is the **shape of the stamp**: `linkStamp`
+    must never produce something a username could be. `names.ts` claims
+    `[a-z0-9][a-z0-9-]{0,62}`, the stamp holds a space, and `collectMode.test.ts`
+    pins it rather than trusting this sentence.
+
+    An editor is unaffected — they may already rewrite the whole file with
+    `writeNote` — and that is the only way an answer sent through a link is
+    ever changed or removed.
+  */
+  if (isLinkStamp(response.by)) {
+    throw refuse(
+      "FORM_FORBIDDEN",
+      "An answer sent through a link cannot be changed or withdrawn by whoever sent it. An editor of this context can.",
+    );
+  }
   if (response.by !== actor.name) {
     throw refuse("FORM_FORBIDDEN", `That response is ${response.by}'s, not yours.`);
   }
