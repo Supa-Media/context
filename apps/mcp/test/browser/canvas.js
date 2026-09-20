@@ -24,6 +24,7 @@ import {
   pointerFrame,
 } from "../../../mobile/features/console/presence/protocol.ts";
 import { decodeElements, encodeElements } from "../../../../packages/drawings/src/collab.js";
+import { parseDrawing } from "../../../../packages/drawings/src/excalidraw.js";
 
 const CHANNEL = "context.drawing.v1";
 
@@ -34,6 +35,9 @@ window.joinCanvas = ({ gateway, token, note }) => {
     elements: [],
     /** Peers whose pointer we have seen, by member id. */
     peers: [],
+    /** The version a tool's write left behind, and the room's latest. */
+    externalEtag: null,
+    etag: null,
     you: null,
     members: [],
     shared: 0,
@@ -97,6 +101,27 @@ window.joinCanvas = ({ gateway, token, note }) => {
     if (message.t === "leave") {
       state.members = state.members.filter((one) => one.id !== message.id);
       pointers.delete(message.id);
+      return;
+    }
+    if (message.t === "external") {
+      /*
+        A tool wrote this drawing. The console parses the file back into
+        elements — a tool writes a `.excalidraw.md` as a file, which is the
+        only shape `write_note` has — and hands them to the page exactly like a
+        peer's change. `usePresence` does the same; this stands in for it.
+      */
+      const parsed = parseDrawing(message.text, note);
+      const elements = parsed.elements ?? [];
+      state.externalEtag = message.etag;
+      if (elements.length > 0) {
+        state.received += elements.length;
+        toPage({ type: "remote", elements });
+      }
+      return;
+    }
+    if (message.t === "etag") {
+      // The version the bucket is at now, told to every member.
+      state.etag = message.etag;
       return;
     }
     if (message.t === "draw") {

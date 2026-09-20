@@ -521,6 +521,45 @@ async function main() {
     JSON.stringify(await ana.ids()),
   );
 
+  /* ------------------------------------------------------------- 6b ---- */
+
+  /*
+    **An agent writing the drawing, while three browsers have it open.**
+
+    A tool writes a `.excalidraw.md` as a file — the only shape `write_note`
+    has — so the console parses it back into elements and hands them on like a
+    peer's change. Before this the canvas adopted the version and showed none
+    of it: the etag moved, the drawing did not, and the next save wrote the old
+    shapes over the agent's.
+  */
+  const agentElements = [
+    ...(await ana.live()),
+    {
+      ...seededElements[0],
+      id: "drawn-by-an-agent",
+      x: 400,
+      y: 400,
+      version: 2,
+      versionNonce: 909,
+      index: "a5",
+    },
+  ];
+  const agentBody = serializeDrawing(nextBody ?? body, agentElements, { files: ATTACHMENT });
+  const agentWrote = await callTool(BO, "write_note", {
+    path: NOTE,
+    content: agentBody ?? "",
+    summary: "an agent drawing on a canvas three people have open",
+  });
+  const agentLanded = await until(
+    async () => (await ana.ids()).includes("drawn-by-an-agent"),
+    { timeout: 25_000 },
+  );
+  check(
+    "a shape written by an MCP client appears on the open canvas",
+    agentBody !== null && !agentWrote?.isError && agentLanded,
+    agentLanded ? "" : `${textOf(agentWrote).slice(0, 100)} ids ${JSON.stringify(await ana.ids())}`,
+  );
+
   /* ---------------------------------------------------------------- 7 ---- */
   const seenPeers = await until(async () => (await bo.peers()).length > 0, { timeout: 25_000 });
   check(
