@@ -42,8 +42,17 @@ breaking one, stop and say so rather than working around it.
    bucket holding one workspace can be handed over, and a shared bucket with a
    prefix per customer can only ever be exported from — so managed buckets are
    one per workspace, named from the immutable workspace id, in a Cloudflare
-   account that holds customer data — those buckets, and the per-context
-   search databases — and nothing of ours. A store's per-account resource
+   account that holds customer data — those buckets, the per-context search
+   databases, and a live note's in-flight keystrokes while people are typing
+   it together — and nothing of ours. That third one was added deliberately
+   (decided by the owner, 2026-09-20) rather than discovered: two people
+   editing one note need a shared place for characters that are seconds old,
+   and there is no version of that feature without one. It is bounded, and the
+   bounds are the reason it is allowed — one room per note, append-only,
+   deleted when the last person leaves, never the only copy of anything, and
+   the flush to the bucket is continuous. See
+   [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
+   A store's per-account resource
    ceiling is therefore a constraint on the product, not a detail: R2 allows a
    million buckets, and anything low forces prefix tenancy and ends the exit
    promise with it.

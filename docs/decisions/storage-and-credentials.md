@@ -1482,7 +1482,30 @@ writer flushes it. That is the one place note content is durable outside the
 customer's bucket, it is what lets everybody's letters reach everybody, and it
 is dropped when the room empties."*
 
-**It cites non-negotiable #3. The binding citation is #2.** #3 says a derivative
+**Decided by the owner, 2026-09-20: the enumeration changes, not the design.**
+Non-negotiable #2 now names a live note's in-flight keystrokes alongside the
+buckets and the search databases. The reasoning below stands as the record of
+what was weighed; what follows is which way it went and why the alternative was
+not taken.
+
+Two people typing in one note need a shared place for characters that are
+seconds old, and there is no version of that feature without one — so the
+choice was never "log or no log", it was "say so, or hold it somewhere that
+loses work". The in-memory option priced below keeps the sentence shorter at
+the cost of losing unflushed characters whenever a room is evicted
+mid-sentence, which is a worse thing to explain to somebody than one more line
+in an enumeration. The enumeration exists so that a customer asking what of
+theirs we hold gets a complete answer; extending it is what keeps that true.
+
+**What stays load-bearing** is every bound below, because they are the reason
+this is a third category and not an open door: one room per note, append-only,
+deleted when the last person leaves, replayed only to a socket that passed
+`canSee`, and never the only copy of anything. Remove any of them and the
+sentence in #2 stops being honest, which is a different decision from this one
+and has to be taken deliberately.
+
+**The original argument, kept.** It cites non-negotiable #3. The binding
+citation is #2. #3 says a derivative
 must be *"rebuildable from the files, never the only copy of anything"*, and for
 a few hundred milliseconds between a keystroke and its flush the log **is** the
 only copy of those characters — which is not a derivative at all. But the
