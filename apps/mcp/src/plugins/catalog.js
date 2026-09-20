@@ -120,10 +120,10 @@ export const CONTEXT_PLUGINS = Object.freeze([
     name: "Markdown forms",
     description:
       "A ```form block in a note collects answers into a sister note — bug reports, requests, sign-ups, votes — from people who cannot write notes.",
-    tools: ["submit_form", "update_submission", "retract_submission", "vote_form"],
+    tools: ["create_form", "submit_form", "update_submission", "retract_submission", "vote_form"],
     surfaces: ["Notes", "Editor"],
     offMeans:
-      "No new answers are taken: the four form tools disappear from connected clients, and the console refuses a submission too. Every form block and every response file is left exactly as it is, and turning it back on takes answers again.",
+      "No new forms and no new answers: the five form tools disappear from connected clients, and the console refuses a submission too. Every form block and every response file is left exactly as it is, and turning it back on takes answers again.",
   }),
   contextPlugin({
     id: "images",

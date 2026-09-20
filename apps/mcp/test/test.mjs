@@ -425,7 +425,7 @@ check(
 check(
   "the call to action comes before any of the rules",
   instructionsFlat.indexOf("CALL `orient` FIRST") <
-    instructionsFlat.indexOf("FOUR RULES") &&
+    instructionsFlat.indexOf("FIVE RULES") &&
     instructionsFlat.indexOf("CALL `orient` FIRST") < 500
 );
 const noteRes = await worker.fetch(
@@ -452,8 +452,10 @@ const tools = await rpc("priv-token", "tools/list");
 // a write over one note's own bytes and, like `set_visibility` beside it, a
 // personal connection's. 35 adds the owner-only storage-layout migration. 37
 // with `list_contacts` and `read_contact` — the same pair a layer further
-// over, over the people those days were with rather than the days.
-check("38 tools listed", tools.result?.tools.length === 38);
+// over, over the people those days were with rather than the days. 39 with
+// `create_form`: the four form tools answer a form and none of them made one,
+// so a form was a feature an agent had to already know the block syntax of.
+check("39 tools listed", tools.result?.tools.length === 39);
 check(
   "storage migration is advertised only to an owner-tier connection",
   tools.result.tools.some((tool) => tool.name === "migrate_storage_layout") &&
@@ -611,12 +613,12 @@ check(
 await contextStore.put(enablementKey, "{ half a file");
 check(
   "a settings file that does not parse leaves every tool where it was",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 38
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 39
 );
 await contextStore.delete(enablementKey);
 check(
   "and removing the file restores the full listing",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 38
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 39
 );
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
@@ -1330,7 +1332,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 38);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 39);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1556,7 +1558,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 38
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 39
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(

@@ -418,7 +418,7 @@ export async function runContextPluginChecks(check) {
   );
   check(
     "an on plugin names the tools it is the reason for",
-    rendered.includes("tools: submit_form")
+    rendered.includes("tools: create_form")
   );
   check(
     "and a caller that passes none gets exactly the report it got before",

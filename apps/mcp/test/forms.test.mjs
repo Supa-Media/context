@@ -78,6 +78,7 @@ import {
   newResponseId,
   parseFormBlocks,
   parseResponsesFile,
+  renderFormBlock,
   renderResponsesFile,
   responseStamp,
   validateSubmission,
@@ -300,6 +301,59 @@ export async function runFormChecks(check) {
     const unclosed = parseFormBlocks("```form\nid: a\n");
     check("an unclosed form fence is an error, not a block read to the end of the note", unclosed[0]?.error === "the form block is never closed");
   }
+
+  /* ------------- writing a block, which is the half that was missing ------- */
+  //
+  // `create_form` exists because an agent asked for "an intake form" had to
+  // know this grammar by heart and hand-write it through `write_note`. The
+  // tool holds the same line the four submission tools hold — no argument
+  // reaches a file as text — which means the block is *rendered*, and a
+  // renderer that can be talked into emitting a second key is the same
+  // injection this file already tests for on the response side.
+  {
+    const config = parseFormBlocks(BUGS_NOTE)[0].config;
+    const rendered = renderFormBlock(config);
+    check("a parsed form renders back to a block", typeof rendered.text === "string");
+    const reparsed = parseFormBlocks(rendered.text)[0];
+    check(
+      "...that parses to the same config",
+      JSON.stringify(reparsed?.config) === JSON.stringify(config)
+    );
+    check(
+      "...and renders identically the second time, which is what create_form checks",
+      renderFormBlock(reparsed.config).text === rendered.text
+    );
+
+    const select = (options) =>
+      renderFormBlock({ ...config, fields: [{ name: "x", type: "select", options }] });
+    check(
+      "an option holding a comma is refused, because the list is split on commas first",
+      /comma or a square bracket/.test(select(["a, b"]).error || "")
+    );
+    check(
+      "...and one holding a square bracket, which would end the list early",
+      /comma or a square bracket/.test(select(["a]b"]).error || "")
+    );
+    // An option that OPENS with a quote is the fixture that decides the
+    // quoting, and the only one: the scanner unquotes a list entry only when
+    // it starts with `"`, so every other awkward character round-trips bare
+    // and a "simplification" that emitted everything bare would pass without
+    // this line — and turn this option into "the list has an unclosed quote".
+    check(
+      "an option that starts with a quote survives the round trip rather than breaking the list",
+      parseFormBlocks(select(['"as sent" to me']).text)[0]?.config?.fields?.[0]?.options?.[0] ===
+        '"as sent" to me'
+    );
+    check(
+      "a line break in a value cannot forge a second key",
+      /line break/.test(renderFormBlock({ ...config, responses: "a.md\nid: other" }).error || "")
+    );
+    check(
+      "a form with no fields is refused rather than rendered empty",
+      /at least one field/.test(renderFormBlock({ ...config, fields: [] }).error || "")
+    );
+  }
+
 
   {
     // A note may legitimately contain other fenced blocks, including one that
@@ -1100,6 +1154,115 @@ export async function runFormChecks(check) {
       check("...and its own", after.includes("mine, written over theirs"));
       const cfg = parseFormBlocks(REQUESTS_NOTE)[0].config;
       check("...in a file that still parses", !parseResponsesFile(after, cfg).error);
+    }
+
+    /* -- (10) create_form, which makes one from fields rather than markdown -- */
+    //
+    // The authority is unchanged: this is `write_note` with a block it rendered
+    // itself, so an editor may call it and nobody below may. What is new is the
+    // refusal to overwrite, and it is the one that would hurt — a tool called
+    // "create" that replaced somebody's note would take their answers with it.
+
+    {
+      const made = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/intake.md",
+        title: "New project intake",
+        intro: "Everything I need before a first call.",
+        fields: [
+          { name: "who", type: "line", max: 120, required: true },
+          { name: "kind", type: "select", options: ["Brand film", "Event coverage"] },
+          { name: "brief", type: "text", max: 4000 },
+        ],
+      });
+      check("create_form writes the note", !made.isError);
+      check(
+        "...and the answers note beside it, in the same call",
+        typeof bucket.text("3-resources/intake-responses.md") === "string"
+      );
+      check(
+        "...and says where the answers land and who can read them",
+        /answers go to: 3-resources\/intake-responses\.md \(team\)/.test(made.text)
+      );
+      const note = bucket.text("3-resources/intake.md") || "";
+      check("...with the author's own prose above the block", note.startsWith("# New project intake"));
+      const block = parseFormBlocks(note)[0];
+      check("...and a block this gateway parses back", block?.config?.id === "intake");
+      check(
+        "...whose id came from the note's own filename rather than being asked for",
+        block?.config?.responses === "3-resources/intake-responses.md"
+      );
+      const named = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/named.md",
+        id: "client-intake",
+        fields: [{ name: "x", type: "line", max: 5 }],
+      });
+      check(
+        "...and an id the caller does name is honoured rather than silently ignored",
+        !named.isError && parseFormBlocks(bucket.text("3-resources/named.md") || "")[0]?.config?.id === "client-intake"
+      );
+
+      const answered = await call(env, MEMBER_TOKEN, "submit_form", {
+        path: "3-resources/intake.md",
+        values: pairs({ who: "Jordan", kind: "Brand film" }),
+      });
+      check("a member can answer the form it made", !answered.isError);
+
+      const again = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/intake.md",
+        fields: [{ name: "x", type: "line", max: 5 }],
+      });
+      check("create_form never overwrites a note that exists", again.isError && /already exists/.test(again.text));
+      check(
+        "...so the note it would have replaced still carries the form it was made with",
+        parseFormBlocks(bucket.text("3-resources/intake.md") || "")[0]?.config?.fields?.length === 3
+      );
+      check(
+        "...and the answer already filed is still there",
+        (bucket.text("3-resources/intake-responses.md") || "").includes("Jordan")
+      );
+
+      const onItself = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/self.md",
+        responses: "3-resources/self.md",
+        fields: [{ name: "x", type: "line", max: 5 }],
+      });
+      check(
+        "a form may not collect into its own page, which is where the whole design starts",
+        onItself.isError && /note of their own/.test(onItself.text)
+      );
+
+      const reserved = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/reserved.md",
+        fields: [{ name: "votes", type: "line", max: 5 }],
+      });
+      check(
+        "a field named after a column this gateway writes is refused by the same parser as ever",
+        reserved.isError && /is a column this gateway writes/.test(reserved.text)
+      );
+      check(
+        "...and a refused form writes nothing at all",
+        bucket.text("3-resources/reserved.md") === undefined
+      );
+
+      const uncapped = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/uncapped.md",
+        fields: [{ name: "x", type: "line" }],
+      });
+      check("a line field with no cap is refused, naming the fix", uncapped.isError && /needs max/.test(uncapped.text));
+
+      const byMember = await call(env, MEMBER_TOKEN, "create_form", {
+        path: "3-resources/by-member.md",
+        fields: [{ name: "x", type: "line", max: 5 }],
+      });
+      check(
+        "a member may answer a form and may not make one: this is a note write",
+        byMember.isError && bucket.text("3-resources/by-member.md") === undefined
+      );
+      const byReadOnly = await call(env, READONLY_TOKEN, "create_form", {
+        path: "3-resources/by-readonly.md",
+        fields: [{ name: "x", type: "line", max: 5 }],
+      });
+      check("and a read-only grant may not either", byReadOnly.isError);
     }
 
     /* -- (10) a store that cannot do conditional writes ---------------------- */

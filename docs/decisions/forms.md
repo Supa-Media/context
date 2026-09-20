@@ -333,3 +333,64 @@ The tests are in `apps/mobile/__tests__/formBlock.test.ts` under "the response
 table is read across, not crushed". jsdom does not lay out, so they hold the
 DOM classes and the declarations that produce the layout; the layout itself was
 read off renders in Chromium at 390pt and 760pt.
+
+## The gateway writes the block too, not only the row
+
+Decided 2026-09-20, building out "ask your agent to make you a form".
+
+Four tools answered a form and none of them made one. An agent asked for a
+client intake form had to know the block's keys by heart, that `max` is
+mandatory on a `line`, that `layout` is declared rather than inferred, and that
+the answers live in a sister note — and then hand-write all of it through
+`write_note`. That is a feature nobody discovers, which is the same as a
+feature nobody has. `create_form` takes fields and a policy and writes the
+block itself.
+
+**It takes no Markdown, for the reason the four submission tools take none.**
+"The gateway renders every row, and therefore parses every row" is what makes
+this feature safe to offer to people who cannot write notes; a tool that took
+the block as text would be `write_note` wearing a policy argument. So
+`renderFormBlock` is the inverse of `parseFormBody`, and what it renders is
+parsed back before anything is written — one parser, one answer about what a
+form means.
+
+**The renderer refuses rather than escapes.** A form block is line-oriented and
+its field entries are comma-delimited, so some strings cannot be written into
+one at all: a newline anywhere, or a comma or square bracket inside a select
+option, which `parseInlineMap` splits on before it considers quoting. A
+renderer that dropped or re-encoded those would be writing a form the author
+did not ask for, and the author is about to hand it to strangers.
+
+**An option that opens with a quote is the fixture that decides the quoting.**
+The scanner unquotes a list entry only when it starts with `"`, so every other
+awkward character survives bare — which means a "simplification" emitting
+everything bare passes every other test and turns that one option into "the
+list has an unclosed quote". It is in `forms.test.mjs` for that reason, the way
+a literal `<br>` is there for the unescape scan.
+
+**There is no runtime re-render check, and that is a finding rather than an
+omission.** One was written — render, parse, re-render, compare — and
+sabotaging it failed nothing: the renderer refuses everything a block cannot
+carry and the parser refuses everything else, so no input reaches it. A guard
+nobody has checked is not a guard, so the property moved to where it can be
+proved, as a round-trip assertion over hostile fixtures.
+
+**`create_form` never overwrites.** It is `write_note` with a block it rendered
+itself, so visibility, the team-publish confirmation, the encryption rule, the
+etag and the creation of the empty response file are all that function's and
+are not restated. The single thing it does differently is refuse a path that
+already holds a note: a tool called "create" that replaced somebody's note
+would take the answers already filed against it with them. The refusal sits
+after the team-scope permission checks, all of which answer identically whether
+or not anything is there, so it is not a second existence oracle.
+
+**What it reports back is where the answers land and who can read them**, read
+from the manifest rather than assumed. An agent that inferred "private,
+because the form is private" would be telling somebody their client intake is
+confidential while the folder default says otherwise.
+
+Still not built, and deliberately: nothing here lets a person without an
+account answer a form. A collect link, an owner-chosen short link, and the
+tools that mint one are the subject of the UX pass this section was written
+beside, and each of them changes a rule in `privacy-and-sharing.md` rather than
+adding to this one.
