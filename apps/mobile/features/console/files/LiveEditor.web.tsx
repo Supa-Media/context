@@ -51,7 +51,7 @@ import { insertTable, MARKERS, toggleWrap } from "./markdownFormat";
 import { TableSizePicker } from "./TableSizePicker.web";
 import { drawInterim, takeBackRun } from "./dictate";
 import { closeFindPanel, findInNote } from "./findInNote";
-import { remoteCarets, setRemoteCarets } from "../presence/remoteCarets";
+import { remoteCarets, reportSelection, setRemoteCarets } from "../presence/remoteCarets";
 import type { PresenceMember } from "../presence/protocol";
 import {
   editability,
@@ -798,11 +798,7 @@ export function LiveEditor({
           a frame per keystroke of somebody else's typing.
         */
         remoteCarets(),
-        EditorView.updateListener.of((update) => {
-          if (!update.selectionSet && !update.docChanged) return;
-          const range = update.state.selection.main;
-          presenceRef.current?.report(range.anchor, range.head);
-        }),
+        reportSelection(() => presenceRef.current?.report),
       ],
     });
 

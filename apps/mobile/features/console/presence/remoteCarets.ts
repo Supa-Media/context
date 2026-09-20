@@ -232,6 +232,36 @@ const caretTheme = EditorView.baseTheme({
   },
 });
 
+/**
+ * This editor's own caret, going out to the room.
+ *
+ * Here rather than inline in `LiveEditor.web.tsx` for one reason: it runs
+ * inside the update cycle, so it has to be impossible for it to throw, and a
+ * guard that cannot be reached by a test is a guard nobody has checked. As an
+ * exported extension it can be dispatched into a real `EditorState` with a
+ * reporter that throws, and the document asserted to have changed anyway.
+ *
+ * `selectionSet || docChanged` rather than every update: a repaint, a scroll
+ * and a remote caret all produce updates, and reporting on those would send a
+ * frame for every keystroke of somebody else's typing.
+ */
+export function reportSelection(getReporter: () => Reporter | undefined): Extension {
+  return EditorView.updateListener.of((update: ViewUpdate) => {
+    if (!update.selectionSet && !update.docChanged) return;
+    const range = update.state.selection.main;
+    try {
+      getReporter()?.(range.anchor, range.head);
+    } catch {
+      // The room loses this position and the next movement replaces it. Nothing
+      // about the document, the draft or the save path reads this call, so a
+      // socket in a state nobody predicted costs a caret rather than the note.
+    }
+  });
+}
+
+/** Told where this editor's caret is. Never told what is in the document. */
+export type Reporter = (anchor: number, head: number) => void;
+
 /** The whole extension, for `editorExtensions` to include. */
 export function remoteCarets(): Extension {
   return [caretState, caretDecorations, caretLabelTimer, caretTheme];
