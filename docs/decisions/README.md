@@ -396,6 +396,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
 - A surface no browser can open is a surface no test is looking at
 - An unauthenticated probe is not a health check for an authenticated endpoint
+- The socket is proven by hand, and CI does not cover it
+- One thing an agent writes to a canvas still reaches one screen
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 

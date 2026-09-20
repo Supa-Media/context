@@ -489,3 +489,69 @@ Reversing this means an incident that reads a 401 as health. The
 table above is reproducible in one node script against `src/index.js`; if a
 future `enforceOrigin` stops refusing an unlisted origin, the second row goes
 `401` and the control is gone with no test and no probe saying so.
+
+### The socket is proven by hand, and CI does not cover it
+
+Live co-editing is the feature in this repository with the widest gap between
+what its suites assert and what has to be true. The suites are good and they
+are not enough, and the record of that is not an opinion:
+
+| Bug | Suites at the time | Found by |
+| --- | --- | --- |
+| Nobody ever seeded the shared document | green, both halves | two browsers, in seconds |
+| The room's replay was lost into an iframe that had not booted | green, four suites | two browsers |
+| A save never told the room, so the next saver conflicted | green | reading the code against what was asked for |
+| A tool's version reached members who never got its text | green | adversarial review |
+
+Every one of those fixtures was written from the same assumption as the code it
+was testing, which is exactly the failure a unit test cannot see. So there are
+two harnesses that run **by hand**, not in CI:
+
+- `apps/mcp/test/browser/verify.mjs` — two Chromium contexts against
+  `wrangler dev` with real Durable Objects, real WebSockets, a control plane
+  over real HTTP, and the note created through the product's own MCP tools.
+- `apps/mcp/test/browser/verifyDrawing.mjs` — the same, loading the real
+  Excalidraw editor in both browsers and drawing with real mouse and keyboard.
+  Needs `node scripts/build-drawing-editor.mjs` first.
+
+**They are not in CI because they need a Worker runtime and a browser**, and
+nobody has priced that job. That is a choice, not an oversight, and this
+paragraph exists so the next person does not read a green suite as covering the
+socket, the gateway and the save path. **A green CI run says nothing about
+whether two people can type in one note.** If you change anything under
+`src/presence*.js`, `features/console/presence/`, or the drawing bridge, run
+both harnesses and say in the pull request what they reported — the numbers in
+this repository's presence PRs are there because they were run, not inferred.
+
+Every check in them has been sabotaged individually: the line removed, the
+harness re-run, and exactly the expected check turned red. A harness nobody has
+sabotaged is the same shape of nothing as a guard nobody has checked.
+
+**Closing it ends in a merge either way.** Running them in CI needs a job that
+boots `workerd` and Playwright — perhaps twenty minutes of setup and a slower
+pipeline — and the alternative is this paragraph, which is the option taken.
+Reversing *that* means deleting this section, at which point the harnesses look
+like dead code and get removed by the next person tidying up.
+
+### One thing an agent writes to a canvas still reaches one screen
+
+Recorded here rather than deferred silently, because it is a known limitation
+with a known fix and no owner yet.
+
+When a tool writes a `.excalidraw.md`, the room hands the text to one member,
+which parses it into elements and reconciles them — and the editor page marks
+them as already-sent so it does not echo them back, which is the loop guard
+that keeps two peers from trading the same shape forever. The consequence is
+that the agent's drawing reaches exactly that one screen. Everybody else sees
+it at their next reload.
+
+That is now *safe* — #769 stopped the version travelling to members who never
+got the text, so the others keep their old etag and are asked rather than
+silently overwritten. It is not yet *good*: the better answer is for that
+member to re-share the elements, which is not a loop, because they came from
+the gateway and no peer will echo them. Two lines in the console's `external`
+handler, and the version could then travel to the whole room again.
+
+It is not built because it is a design change to a path that three defects have
+already come out of, and it wants a browser run of its own rather than a
+confident edit at the end of a long session.
