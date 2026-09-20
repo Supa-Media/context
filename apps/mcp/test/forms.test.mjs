@@ -88,6 +88,7 @@ const EDITOR_TOKEN = `cat_forms_editor_${"0".repeat(15)}`;
 const MEMBER_TOKEN = `cat_forms_member_${"0".repeat(15)}`;
 const READONLY_TOKEN = `cat_forms_readonly_${"0".repeat(13)}`;
 const OUTSIDER_TOKEN = `cat_forms_outsider_${"0".repeat(13)}`;
+const NAMELESS_TOKEN = `cat_forms_nameless_${"0".repeat(13)}`;
 
 const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
@@ -577,6 +578,32 @@ export async function runFormChecks(check) {
       userId: "user_out",
       alsoMemberOf: [{ workspaceId: "ws_out", role: "owner" }],
     });
+    /*
+      A caller the control plane gave no handle for — and the ONE dimension
+      every other grant in this file holds constant.
+
+      `ws_forms` is `kind: "shared"`, and the loop below it exists so that
+      "every caller has a username to be recorded under", as its own comment
+      says. Each grant above therefore carries an `alsoMemberOf` naming a
+      personal context its person owns, and `personalNameFor` always answers.
+      This one covers the shared context and nothing else, so it answers `null`
+      — what a stale grant, a self-hosted deployment, or a person past
+      `contextsForGrant`'s fifty-context cap looks like.
+
+      It still reaches the form tools, which is the point: the grant asked for
+      write and the role is non-empty, so `participatesInForms` is true and the
+      write gate's exemption lets it straight through to
+      `mutateFormResponses`.
+    */
+    await controlPlane.addGrant({
+      accessToken: NAMELESS_TOKEN,
+      workspaceId: "ws_forms",
+      role: "member",
+      scopes: ["context:read", "context:write"],
+      clientId: "mcp_client_forms_nameless",
+      userId: "user_nameless",
+      alsoMemberOf: [],
+    });
 
     const env = {
       CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -680,6 +707,42 @@ export async function runFormChecks(check) {
     check(
       "...and nothing of theirs reaches the file",
       !(bucket.text("3-resources/bugs.responses.md") || "").includes("from a read-only client")
+    );
+
+    /*
+      THE NAME FLOOR, WHICH NOTHING CHECKED.
+
+      `mutateFormResponses` refuses before anything else when the caller has no
+      handle, and `FORM_TOOLS`' own docblock leans on it by name — a listing
+      branch is unnecessary, it argues, because such a connection's submissions
+      are the ones "`mutateFormResponses` then refuses for want of a name".
+      Deleting that refusal reddened **nothing** across the whole gateway suite,
+      because every grant in this file was given a personal context of its own.
+
+      What the floor prevents is not a missing byline. A response is stamped
+      `by: actor.name`, and `mayChangeResponse` lets a non-editor act on a
+      response when `response.by === actor.name`. With the floor gone, two
+      different people with no handle would both stamp `by: null` and both match
+      each other's rows — one identity for everybody who has none, each able to
+      edit and retract the others' answers — a missing identity used as an
+      identity, which is the same mistake as reading a name off a context the
+      caller does not own.
+    */
+    const namelessSubmit = await call(env, NAMELESS_TOKEN, "submit_form", {
+      path: "3-resources/bugs.md",
+      values: pairs({ summary: "from a caller with no handle" }),
+    });
+    check(
+      "a caller with no handle is refused, because a response records who",
+      namelessSubmit.isError === true && /username/i.test(namelessSubmit.text)
+    );
+    check(
+      "...and nothing of theirs reaches the file",
+      !(bucket.text("3-resources/bugs.responses.md") || "").includes("from a caller with no handle")
+    );
+    check(
+      "...and no row in it is attributed to nobody",
+      !/· *(null|undefined) *·/.test(bucket.text("3-resources/bugs.responses.md") || "")
     );
 
     const staffAttempt = await call(env, MEMBER_TOKEN, "submit_form", {
