@@ -1127,3 +1127,22 @@ own handle, a caller who owns a shared context is still named by their personal
 one, and a covered context with no name falls through to the client's. Each was
 measured by reverting one clause; the last two were **0** before their fixtures
 were added, because every fixture in that file was a caller in one context.
+
+**The timing is the argument, so it is recorded rather than left to be
+inferred.** The route this was in shipped at 23:57 and deployed; the defect was
+found and fixed at 02:07, two hours and ten minutes later. In between, it was
+not a latent edge — every guest of every shared personal context who opened a
+note was sitting in it under the host's own handle, and the person most likely
+to see that was the host. The pull request that shipped the route was careful,
+self-reviewed, and green on a suite that grew by 24 checks; it kept a sabotage
+row at **0** *as a finding*, which is the discipline working. None of that
+reached this function, because every fixture in its suite was a caller in
+exactly one context, and a predicate about *which* of several contexts names a
+person cannot be wrong in a world with one.
+
+So: **a new route gets an adversarial pass before it is called done, not after
+it is deployed.** The specific thing that pass must do here, and the thing a
+green suite cannot do for it, is vary the *shape of the caller* — more than one
+covered context, a role that is not `owner`, a personal context belonging to
+somebody else — because a fixture with one of everything makes every
+"which one" bug invisible and every assertion about it look true.
