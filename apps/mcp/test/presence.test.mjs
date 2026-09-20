@@ -847,6 +847,94 @@ export async function runPresenceChecks(check) {
       })(),
     );
 
+    /*
+      AND ONLY THE CLIENT THE ROOM HANDED THE WRITE TO MAY REPORT IT.
+
+      The boolean says *that* a caret is the agent's and the room supplies
+      *which* agent — so no peer can move a named member's caret. That closes
+      the spoof at the id and leaves the other half open: the frame carries no
+      id, so any socket may send it, and the room drew whatever arrived.
+
+      Within the idle window after a tool's write, that let **any** member
+      place the agent's caret anywhere in the document, in everybody's window.
+      A read-only one included: `cursor` is deliberately ungated, because
+      watching somebody edit is a read — so the one member the room refuses
+      every edit from could still point a named agent at text it never wrote.
+
+      The room already knows who it gave the write to. That is the party whose
+      report means anything, and it is now the only one accepted.
+    */
+    const notMergerBefore = writerSocket.sent.length;
+    await askingRoom.webSocketMessage(
+      readerSocket,
+      JSON.stringify({ t: "cursor", a: "c3Bvb2Y", h: "c3Bvb2Y", agent: true }),
+    );
+    check(
+      "a member the room did not hand the write to cannot report the agent's caret",
+      writerSocket
+        .frames()
+        .slice(notMergerBefore)
+        .every((frame) => !(frame.t === "cursor" && frame.id === seated?.member?.id)),
+    );
+    check(
+      "...and a read-only member cannot either, though its own caret still moves",
+      /*
+        The pair that makes the rule the right one rather than merely strict:
+        a reader is still present, still draws a caret, and still cannot speak
+        for the agent. Refusing every cursor from a reader would pass the check
+        above and delete presence for the people it is most for.
+      */
+      await (async () => {
+        const before = writerSocket.sent.length;
+        await askingRoom.webSocketMessage(
+          readerSocket,
+          JSON.stringify({ t: "cursor", a: "b3du", h: "b3du" }),
+        );
+        return writerSocket
+          .frames()
+          .slice(before)
+          .some((frame) => frame.t === "cursor" && frame.id !== seated?.member?.id);
+      })(),
+    );
+
+    /*
+      AND THE CANVAS HALF OF THE SAME RULE, WHICH HAD NO CHECK AT ALL.
+
+      Measured: reverting the pointer path alone, and leaving the caret path
+      fixed, reddened **0**. The agent's pointer is the same claim in the other
+      shape — a boolean, no id, the room supplying the name — and a canvas is
+      the half this feature calls a real hole, so it gets the same pair.
+    */
+    const pointerBefore = writerSocket.sent.length;
+    await askingRoom.webSocketMessage(
+      readerSocket,
+      JSON.stringify({ t: "pointer", x: 10, y: 20, s: [], agent: true }),
+    );
+    check(
+      "a member the room did not hand the write to cannot report the agent's pointer",
+      writerSocket
+        .frames()
+        .slice(pointerBefore)
+        .every((frame) => !(frame.t === "pointer" && frame.id === seated?.member?.id)),
+    );
+    check(
+      "...while its own pointer still reaches the room",
+      // The control, for the same reason as the caret's: refusing every
+      // pointer from a reader would pass the check above and delete the thing
+      // presence is for.
+      await (async () => {
+        const before = writerSocket.sent.length;
+        await askingRoom.webSocketMessage(
+          readerSocket,
+          JSON.stringify({ t: "pointer", x: 11, y: 21, s: [] }),
+        );
+        return writerSocket
+          .frames()
+          .slice(before)
+          .some((frame) => frame.t === "pointer" && frame.id !== seated?.member?.id);
+      })(),
+    );
+
     const noAgent = fakeRoomRuntime();
     const noAgentRoom = new PresenceRoom(noAgent.state, {});
     await joinTo(noAgentRoom, "@alone", true);
@@ -884,9 +972,21 @@ export async function runPresenceChecks(check) {
       etag: "t1",
       actor: { id: "fedcba9876543210", name: "A Coding Agent" },
     });
+    /*
+      **Reported from the socket the room handed the write to, not from
+      whichever one is first in the list.**
+
+      Only that client may report an agent caret, so a test that picks a socket
+      arbitrarily is asserting this property on a coin flip: the election runs
+      over the lowest of two server-minted ids, which flips between runs. The
+      browser harness in this pull request was corrected for exactly that; the
+      unit tests are corrected here for the same reason, so each one proves the
+      thing it names — staleness, clearing, suppression — rather than the
+      reporter rule by accident.
+    */
     const freshBefore = staleRuntime.open.map((ws) => ws.sent.length);
     await staleRoom.webSocketMessage(
-      staleRuntime.open[0],
+      staleRoom.mergerSocket(),
       JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
     );
     check(
@@ -902,7 +1002,7 @@ export async function runPresenceChecks(check) {
     staleRoom.agent.at -= MEMBER_IDLE_MS + 1;
     const staleBefore = staleRuntime.open.map((ws) => ws.sent.length);
     await staleRoom.webSocketMessage(
-      staleRuntime.open[0],
+      staleRoom.mergerSocket(),
       JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
     );
     check(
@@ -956,7 +1056,7 @@ export async function runPresenceChecks(check) {
 
     const spoofBefore = savingRuntime.open.map((ws) => ws.sent.length);
     await savingRoom.webSocketMessage(
-      savingRuntime.open[0],
+      savingRoom.mergerSocket(),
       JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
     );
     check(
@@ -993,7 +1093,7 @@ export async function runPresenceChecks(check) {
     });
     const afterSave = mixedRuntime.open.map((ws) => ws.sent.length);
     await mixedRoom.webSocketMessage(
-      mixedRuntime.open[0],
+      mixedRoom.mergerSocket(),
       JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
     );
     check(

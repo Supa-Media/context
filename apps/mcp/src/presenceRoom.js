@@ -180,7 +180,30 @@ export class PresenceRoom {
       if (agentId && seatedClients.has(actor.id)) {
         this.agent = null;
       } else if (agentId) {
-        this.agent = { id: agentId, at: Date.now() };
+        /*
+          **And the room records which client it handed the write to.**
+
+          The caret is reported by a client, with a boolean and no id, so the
+          room supplies the id — which closes the spoof at *which* member and
+          leaves *who may speak* open. Any socket could send the frame, and the
+          room drew whatever arrived: within the idle window, every member of
+          the room could place a named agent's caret anywhere in the document,
+          in everybody's window. A read-only one included, because `cursor` is
+          deliberately ungated — watching somebody edit is a read — so the one
+          member the room refuses every edit from could still point an agent at
+          text it never wrote.
+
+          Only the client the write was given to knows where it landed, which
+          is the sentence this feature was built on. Recorded here rather than
+          re-derived later: the election can change between the write and the
+          caret, and the honest claim is about the client that merged *this*
+          write, not whoever happens to be elected when the frame arrives.
+        */
+        this.agent = {
+          id: agentId,
+          at: Date.now(),
+          reporter: merger ? (merger.deserializeAttachment()?.id ?? null) : null,
+        };
         this.broadcast({
           t: "join",
           member: {
@@ -536,9 +559,10 @@ export class PresenceRoom {
       ws.serializeAttachment({ ...attachment, seen: now });
       if (decoded.msg.agent === true) {
         // The agent's pointer on a canvas, reported by the client that merged
-        // its write. Same rule as the caret above: the room owns the id, and
-        // only for as long as the write it came from is recent.
-        if (!this.currentAgent(now)) return;
+        // its write. Same three rules as the caret below: the room owns the
+        // id, only the client it handed the write to may report, and only for
+        // as long as that write is recent.
+        if (!this.reportsForAgent(attachment, now)) return;
         this.broadcast({
           t: "pointer",
           id: this.agent.id,
@@ -567,10 +591,11 @@ export class PresenceRoom {
         A caret reported on the agent's behalf by the client that merged its
         write. The room supplies the id — see `decodeClientFrame` — so a client
         can say "this one is the agent's" and cannot say *which* member any
-        caret belongs to. Sent to the reporter too, because unlike its own
-        caret this is one it should be drawing.
+        caret belongs to; and the room checks that this is the client it handed
+        that write to, so a peer cannot say it at all. Sent to the reporter
+        too, because unlike its own caret this is one it should be drawing.
       */
-      if (!this.currentAgent(now)) return;
+      if (!this.reportsForAgent(attachment, now)) return;
       touch(room, attachment.id, now);
       this.broadcast({ t: "cursor", id: this.agent.id, a: decoded.msg.a, h: decoded.msg.h });
       return;
@@ -744,6 +769,29 @@ export class PresenceRoom {
       return null;
     }
     return this.agent;
+  }
+
+  /**
+   * Whether this socket may report where the agent's caret is.
+   *
+   * Two questions, and the feature's own sentence is the second one: *"the
+   * client the room asked to merge is the only party that knows where the
+   * change landed."* The room handed that write to exactly one socket and
+   * wrote down which; anybody else reporting is claiming knowledge they were
+   * never given.
+   *
+   * Without it the frame is unauthenticated in the direction that matters. It
+   * carries no id, so the room supplies one — but any socket could send it,
+   * and `cursor` is ungated on purpose, so a **read-only** member could place
+   * a named agent's caret anywhere in the document for everybody in the room.
+   * Nothing is read and nothing is written; what is forged is attribution, in
+   * the one feature whose whole purpose is saying who changed what.
+   */
+  reportsForAgent(attachment, now) {
+    const agent = this.currentAgent(now);
+    if (!agent) return null;
+    if (!agent.reporter || agent.reporter !== attachment.id) return null;
+    return agent;
   }
 
   mergerSocket() {
