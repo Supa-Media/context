@@ -816,3 +816,64 @@ through an API. It needs `node scripts/build-drawing-editor.mjs` first.
 
 The simplification to resist now is trusting the suites. A property of this
 feature that has not been watched happen in two windows is not known to hold.
+
+## A new argument reaches a client that a new tool cannot
+
+`create_link` and `create_form` shipped and, for some connected clients, did
+not exist. Not a bug in either: a client caches `tools/list` and re-fetches on
+its own schedule — some not for a long time — and a tool it has not re-fetched
+cannot be called by name. The first report was a connected assistant saying, in
+as many words, "Missing: `create_link` and `create_form`."
+
+**Nothing on the server can fix that.** The mechanism the specification
+provides is `notifications/tools/list_changed`, which this server does not
+offer (see `protocol.js`) and which in any case needs the client to be holding
+a stream. `ttlMs` on `tools/list` bounds it for a client on the modern
+revision; the four legacy revisions carry no such field. A tool *result* cannot
+change a tool list either, so no amount of prose in `orient` makes an absent
+tool callable.
+
+**An argument is not subject to any of that.** `toolArgumentRefusal` validates
+against the schema this server advertises *now*, never against the client's
+copy, so a client may pass an argument it has never seen advertised — it only
+has to be told the argument exists, which a tool description and `orient` can
+do on every call. `write_note` is in every client's list and has been from the
+beginning.
+
+So capability that has to reach every client goes on an existing tool:
+
+- **`write_note` already made forms** and nobody had said so. It parses the
+  block, refuses one that does not, and creates the answers note — all of it
+  shipped before `create_form` did. What was missing was the grammar, which no
+  tool description carried, so an agent without `create_form` could not write a
+  block it had never been shown. The grammar is now in `write_note`'s own
+  description. That was a documentation gap wearing a missing-tool costume.
+- **`write_note` gained `share`**, which mints the link for the note it just
+  wrote. One enum of three plain words — `members`, `anyone`, `collect` —
+  mapped to the row's (audience, mode) pair in exactly one function.
+  `create_link` keeps the two axes apart because a share row genuinely has
+  both; an agent working from a description rather than a schema needs one
+  word, and `collect` is the one that makes a published intake form work.
+
+**The note is never lost to a refused link.** Minting is the owner's and
+writing is an editor's, so an editor who asks for both gets the write and a
+named refusal for the link. Returning an error would throw away a note that is
+already stored, and leave the caller unable to tell "nothing happened" from
+"everything happened but the link". Sabotaging that line failed **nothing**
+until a test existed for a caller who may write and may not mint — which is the
+case the rule is entirely about, and the one the first draft of the tests
+missed.
+
+**What this costs.** `write_note` is not private-tier-only, so a team
+connection is now shown a `share` argument it can never use — the thing
+`PRIVATE_TIER_ONLY_TOOLS` exists to avoid for whole tools. Accepted, and
+bounded: `orient` tells a team connection in words that share is not theirs to
+pass, and the server refuses it with a sentence rather than silence. The
+alternative is varying an advertised schema by tier, which is a second place
+for authority to be decided, and this file already says there are two.
+
+**`set_visibility` was the other candidate and is refused.** A link is not a
+third value of `Scope`; non-negotiable #5 is explicit that it is a share row
+and never a word in `privacy.md`. Teaching every connected agent that
+"published" is a visibility tier would undo that distinction in the one place
+it is most load-bearing, whatever the implementation did underneath.

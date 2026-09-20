@@ -3434,7 +3434,12 @@ function baseToolDefinitions() {
         "it. Use it when a decision is made, a constraint is discovered, a preference is stated, " +
         "or a fact emerges that the user should never have to repeat to the next agent; prefer " +
         "improving the note that already covers the topic over adding a near-duplicate. " +
-        "Folder rules are defaults; visibility is enforced by the private privacy.md manifest, never by frontmatter. New personal writes default private; new team writes default team; updates preserve existing visibility. A personal connection may explicitly publish one note as team even inside a private-default folder by passing visibility=team and confirm_team_publish=true.",
+        "Folder rules are defaults; visibility is enforced by the private privacy.md manifest, never by frontmatter. New personal writes default private; new team writes default team; updates preserve existing visibility. A personal connection may explicitly publish one note as team even inside a private-default folder by passing visibility=team and confirm_team_publish=true. " +
+        "\n\nTHIS TOOL ALSO MAKES FORMS AND PUBLISHES NOTES, so you never need a separate tool for either. " +
+        "A form is a fenced ```form block in the content; writing the note validates it and creates the answers note in the same call, and a block that does not parse is refused with the line that is wrong. The block is:\n" +
+        "```form\nid: intake\nresponses: 1-projects/intake-responses.md\nlayout: table\nsubmit: member\nedit_own: true\nvotes: off\nfields:\n  - { name: who, type: line, max: 120, required: true }\n  - { name: brief, type: text, max: 2000 }\n```\n" +
+        "id is a short lowercase name; responses is a note of its OWN, never this one; layout is table or sections; submit is the lowest role that may answer (member, editor or owner — use member for anything a link should collect); votes is named or off. Field types are line, text, select, number, date and checkbox; line and text need max, select needs options: [A, B]. Who may READ the answers is the responses note's own visibility, so say where it lands before you make it. " +
+        "Then pass share to hand out a link to it — see that argument.",
       inputSchema: {
         type: "object",
         properties: {
@@ -3458,6 +3463,17 @@ function baseToolDefinitions() {
               "would want to know (\"recorded the folder rename and the paths it broke\"), never " +
               "what the tool call already says (\"updated a note\"). Omit it for a change nobody " +
               "else needs to hear about.",
+          },
+          share: {
+            type: "string",
+            enum: ["members", "anyone", "collect"],
+            description:
+              "Also publish this note, in the same call. members needs a live membership, so a link that leaks opens nothing. anyone opens with no account. collect is anyone AND takes answers to a form on this note from people with no account — that is how a published intake form gets filled in, and it is the only write in this product with no account behind it. Owner-only: a writer who is not the owner still gets their note, and is told the link was refused. Omit it to publish nothing.",
+          },
+          share_short: {
+            type: "string",
+            description:
+              "With share, a memorable name under their handle: context.lc/@name/<short>, lowercase letters, digits and hyphens. Say first that a short name is guessable by anyone who types it, which is the point of having one and is not true of the long link. A name that is taken or reserved does not lose the link — you are told why it was refused.",
           },
         },
         required: ["path", "content"],
@@ -3880,7 +3896,9 @@ function baseToolDefinitions() {
         "who cannot write notes at all. You pass fields and a policy, never markdown; the gateway " +
         "writes the block and creates the empty answers note in the same call, and tells you who " +
         "can read it. Who may read the answers is that note's own visibility, so say where it lands " +
-        "before you make it.",
+        "before you make it. Convenience rather than the only way: write_note takes a form block " +
+        "directly and its description carries the grammar, which is what to use if this tool is " +
+        "not in your list.",
       inputSchema: {
         type: "object",
         properties: {
@@ -6079,7 +6097,12 @@ function scopeInfoText(scope, rules, reach = null) {
       "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
     "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
       "A link you add to a note can widen one already sent, because such a link also serves what the note links to. " +
-      "Personal reviewers can process queued proposals."
+      "Personal reviewers can process queued proposals." +
+      "\n\n## Forms and links, on write_note\n" +
+      "A fenced ```form block in a note IS a form: writing the note validates it and creates its answers note in the same call. write_note's own description carries the block's grammar. " +
+      "Pass share=anyone, share=members or share=collect on the same write_note call to hand out a link to it — share=collect is what lets people with NO account fill in the form — and share_short for a memorable address under this handle. " +
+      "These are arguments rather than separate tools on purpose: a client that has not re-fetched its tool list cannot call a new tool, but it can always pass a new argument. " +
+      ""
     );
   }
 
@@ -6098,7 +6121,11 @@ function scopeInfoText(scope, rules, reach = null) {
     "Archive paths never encode visibility. Exact archive visibility is enforced through privacy.md. " +
     "A note reads as team, or it does not; what holds a note back is not disclosed here. " +
     "The owner may separately have handed out an unlisted link to a note; you are not told which. " +
-    "A link you add to a note can widen one already sent, because such a link also serves what the note links to."
+    "A link you add to a note can widen one already sent, because such a link also serves what the note links to." +
+    "\n\n## Forms and links, on write_note\n" +
+      "A fenced ```form block in a note IS a form: writing the note validates it and creates its answers note in the same call. write_note's own description carries the block's grammar. " +
+    "Handing out a link is the context owner's, so write_note's share argument is not yours to pass here." +
+    ""
   );
 }
 
@@ -6736,10 +6763,69 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
     ...forms.created.map((responses) => `response file created: ${responses}`),
     ...forms.occupied.map((detail) => `form not collecting yet: ${detail}`),
   ];
+  const shareLines = await shareWrittenNote(store, path, args);
   return toolText(
     `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
-      (formLines.length ? `\n${formLines.join("\n")}` : "")
+      (formLines.length ? `\n${formLines.join("\n")}` : "") +
+      (shareLines.length ? `\n${shareLines.join("\n")}` : "")
   );
+}
+
+/**
+ * `write_note`'s `share`, and why publishing lives on the write tool at all.
+ *
+ * ## A new ARGUMENT reaches a client that a new TOOL cannot
+ *
+ * `create_link` and `create_form` are tools, and a tool is only callable once
+ * the client has re-fetched `tools/list`. Clients cache that listing and
+ * refresh on their own schedule — some not for a long time — so for them those
+ * two names simply do not exist, and no prose makes an absent tool callable.
+ *
+ * An argument is different. `toolArgumentRefusal` validates against the schema
+ * **this server advertises now**, never against the client's copy, so a client
+ * may pass `share` before it has ever seen it advertised — it only has to be
+ * told the argument exists, which `orient` and this tool's own description do.
+ * `write_note` is in every client's list and has been from the beginning.
+ *
+ * That is the whole reason this is here rather than only in `create_link`:
+ * the two halves of "make me a form and publish it" have to be reachable
+ * through a tool nobody's cache can be missing.
+ *
+ * ## The note is never lost to a refused link
+ *
+ * Minting is the owner's and writing is an editor's, so an editor who asks for
+ * both gets the write and a refusal for the link. Returning an error would
+ * throw away a note that was correctly written and already stored — the caller
+ * would have no way to tell "nothing happened" from "everything happened but
+ * the link", and the honest answer is both outcomes, named.
+ *
+ * ## Three words, mapped to two axes in one place
+ *
+ * A share row has an audience and a mode, and `create_link` keeps them apart
+ * because they are genuinely different questions. Here one enum of three plain
+ * words is what an agent can use without reading a schema it may not have, and
+ * `collect` expands to the pair in exactly this function.
+ */
+async function shareWrittenNote(store, path, args) {
+  const want = args.share;
+  if (want !== "members" && want !== "anyone" && want !== "collect") return [];
+
+  const calls = store?.links;
+  if (!calls) {
+    return ["the note was written; links are not available on this deployment, so none was minted."];
+  }
+
+  const minted = await mintAndDescribe(calls, {
+    path,
+    audience: want === "members" ? "members" : "anyone",
+    // Stated rather than defaulted: `write_note` writes a note, so a link over
+    // it is always a note link. A folder cannot arrive here at all.
+    kind: "note",
+    ...(want === "collect" ? { mode: "collect" } : {}),
+    ...(typeof args.share_short === "string" ? { short: args.share_short } : {}),
+  });
+  if (!minted.ok) return [`the note was written, but ${minted.error}`];
+  return minted.lines;
 }
 
 /* --------------------------------- forms ---------------------------------- */
@@ -7064,7 +7150,7 @@ async function toolCreateLink(store, scope, args) {
   const path = normalizePath(args.path);
   if (!path) return toolError("path must be a note or folder path in this context");
 
-  const result = await calls.create({
+  const minted = await mintAndDescribe(calls, {
     path,
     audience: args.audience === "members" ? "members" : "anyone",
     ...(args.kind === undefined ? {} : { kind: args.kind }),
@@ -7075,11 +7161,32 @@ async function toolCreateLink(store, scope, args) {
     ...(args.mode === "collect" ? { mode: "collect" } : {}),
     ...(typeof args.collect_cap === "number" ? { collectCap: args.collect_cap } : {}),
   });
+  return minted.ok ? toolText(minted.lines.join("\n")) : toolError(minted.error);
+}
+
+/**
+ * Mint one link and say what it hands out. Shared by `create_link` and by
+ * `write_note`'s `share`.
+ *
+ * Factored the moment there were two callers, and the reason is the sentences
+ * rather than the request: **what an owner is told about a link is part of
+ * what the link is.** A second caller that minted the same row and printed its
+ * own shorter summary would be publishing a write endpoint on somebody's
+ * behalf while saying less about it than the first caller does.
+ *
+ * Answers `{ ok: false, error }` rather than a tool result, because one caller
+ * refuses the whole call on a failed mint and the other has already written a
+ * note and must report the refusal beside it.
+ */
+async function mintAndDescribe(calls, request) {
+  const result = await calls.create(request);
   if (result === null) {
-    return toolError(
-      "that link cannot be minted. Minting is the context owner's, the path has to be a note " +
-        "or folder the workspace can already read, and an encrypted note is never linkable."
-    );
+    return {
+      ok: false,
+      error:
+        "that link cannot be minted. Minting is the context owner's, the path has to be a note " +
+        "or folder the workspace can already read, and an encrypted note is never linkable.",
+    };
   }
 
   const { link, shortRefused } = result;
@@ -7115,7 +7222,7 @@ async function toolCreateLink(store, scope, args) {
         `${link.collectCap ?? "its"} answers, which collect_cap changes.`
     );
   }
-  return toolText(lines.join("\n"));
+  return { ok: true, lines };
 }
 
 async function toolListLinks(store, scope) {
@@ -7319,9 +7426,9 @@ async function toolCreateForm(store, scope, rules, overrides, args) {
         restricted to editors cannot be answered through a link at all.
       */
       (parsed[0].config.submit === "member"
-        ? "\n\nTo let people WITHOUT an account fill this in, call create_link with " +
-          "mode=collect on this note. Without one, only people who can already see this " +
-          "context can answer."
+        ? "\n\nTo let people WITHOUT an account fill this in, publish it: create_link with " +
+          "mode=collect on this note, or — if create_link is not in your tool list — write_note " +
+          "with share=collect. Without one, only people who can already see this context can answer."
         : "")
   );
 }

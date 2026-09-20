@@ -299,6 +299,146 @@ export async function runLinkToolChecks(check) {
         (withCollecting.text.match(/taking answers: yes/g) ?? []).length === 3,
     );
 
+    /* ------------------- publishing without the link tools ----------------- */
+
+    /*
+      THE WHOLE POINT OF THIS BLOCK: A CLIENT WITH A STALE TOOL LIST.
+
+      `create_link` and `create_form` are new. A connected client caches
+      `tools/list` and re-fetches on its own schedule, so for some clients they
+      do not exist yet and cannot be called — the name is not in the list, and
+      no amount of prose makes an absent tool callable.
+
+      `write_note` is in every client's list, has been from the beginning, and
+      already parses a form block and creates its answers file. So the two
+      halves of "make me a form and publish it" are reachable through it: the
+      block is ordinary Markdown, and `share` mints the link.
+
+      An ARGUMENT survives a stale list where a TOOL does not: arguments are
+      validated against the schema this server advertises now, never against
+      the client's copy, so a client may pass `share` before it has ever seen
+      it advertised.
+    */
+
+    const published = await call(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/intake.md",
+      content: "# Intake\n\nTell me about the project.\n",
+      share: "anyone",
+    });
+    check("write_note can publish the note it just wrote", !published.isError);
+    check("...and the note landed", /written: 1-projects\/intake\.md/.test(published.text));
+    check("...and the URL came back, not a token", /link: https:\/\/\S+\/s\/\S+/.test(published.text));
+    check(
+      "...and it says the reader needs no account",
+      /without an account/.test(published.text),
+    );
+
+    const namedShare = await call(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/named-share.md",
+      content: "# Named\n",
+      share: "anyone",
+      share_short: "Signup",
+    });
+    check("a short name can be claimed on the same call", namedShare.text.includes("/@seyi/signup"));
+
+    const membersShare = await call(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/members-only.md",
+      content: "# Members\n",
+      share: "members",
+    });
+    check(
+      "share=members mints the workspace link, not the open one",
+      membersShare.text.includes("members of this context"),
+    );
+
+    /*
+      `collect` is one word rather than an audience plus a mode.
+
+      `create_link` keeps the two axes apart because a share row has both. Here
+      one enum of three plain words is what an agent can use without reading a
+      schema it may not have, and the mapping to (audience, mode) is made in
+      exactly one place.
+    */
+    const collectWrite = await call(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/collect-form.md",
+      content: [
+        "# Intake",
+        "",
+        "```form",
+        "id: intake",
+        "responses: 1-projects/collect-form-responses.md",
+        "layout: table",
+        "submit: member",
+        "fields:",
+        "  - { name: who, type: line, max: 120, required: true }",
+        "```",
+        "",
+      ].join("\n"),
+      share: "collect",
+    });
+    check("share=collect publishes a form for people with no account", !collectWrite.isError);
+    check(
+      "...and the answers file was created by the same call",
+      /response file created: 1-projects\/collect-form-responses\.md/.test(collectWrite.text),
+    );
+    check("...and the link says it takes answers", /taking answers: yes/.test(collectWrite.text));
+    check(
+      "...and the agent is told to pass on what a collect link hands out",
+      /without an account and without being named/.test(collectWrite.text),
+    );
+
+    const plainWrite = await call(env, OWNER_TOKEN, "write_note", {
+      path: "1-projects/unshared.md",
+      content: "# Private thought\n",
+    });
+    check(
+      "a write that did not ask to share mints nothing",
+      !plainWrite.isError && !/link: https/.test(plainWrite.text),
+    );
+
+    /*
+      THE NOTE IS NEVER LOST TO A REFUSED SHARE.
+
+      A read-only grant cannot mint. The write it asked for is a separate
+      authority that it also does not have, so this one refuses outright — but
+      the case that matters is the *writer who is not an owner*, below, where
+      the note must land and only the link is refused.
+    */
+    const memberShare = await call(env, MEMBER_TOKEN, "write_note", {
+      path: "1-projects/member-write.md",
+      content: "# From a member\n",
+      share: "anyone",
+    });
+    check("a member cannot publish through write_note either", memberShare.isError);
+
+    /*
+      THE CASE THAT MATTERS: A CALLER WHO MAY WRITE AND MAY NOT MINT.
+
+      This grant writes — it is shown `write_note` — and reads at team tier, so
+      the control plane refuses it a link. Returning an error would throw away
+      a note that was correctly written and is already stored, and the caller
+      would have no way to tell "nothing happened" from "everything happened
+      but the link". Both outcomes, named, is the only honest answer.
+
+      Sabotaging the refusal line failed NOTHING until this existed, which is
+      the whole reason it is here.
+    */
+    const writerNotOwner = await call(env, TEAM_TIER_TOKEN, "write_note", {
+      path: "1-projects/writer-not-owner.md",
+      content: "# Written but not published\n",
+      share: "anyone",
+    });
+    check("a writer who is not the owner still gets their note", !writerNotOwner.isError);
+    check(
+      "...and the write is reported as having happened",
+      /written: 1-projects\/writer-not-owner\.md/.test(writerNotOwner.text),
+    );
+    check(
+      "...and the refused link is reported beside it, not swallowed",
+      /the note was written, but/.test(writerNotOwner.text),
+    );
+    check("...and no URL is invented for it", !/link: https/.test(writerNotOwner.text));
+
     /* ----------------------------- who may mint ---------------------------- */
 
     const memberList = await rpc(env, MEMBER_TOKEN, "tools/list");
