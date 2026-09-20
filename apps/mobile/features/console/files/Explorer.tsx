@@ -1195,6 +1195,7 @@ export function ExplorerDialogs({
           onShare={(recipient) => files.share(dialog.path, recipient)}
           onCopyLink={files.copyShareLink}
           onRevoke={(shareId) => files.revokeShare(shareId)}
+          onSetSlug={(shareId, slug) => files.setShareSlug(shareId, slug)}
           onSetPreviewTitle={(share, on) =>
             files.setSharePreviewTitle(dialog.path, share, on)
           }

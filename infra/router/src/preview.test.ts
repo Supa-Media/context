@@ -17,9 +17,12 @@ import {
   shareTokenFrom,
   consoleNoteFrom,
   previewForNote,
+  shortLinkFrom,
+  previewForShortLink,
 } from "./preview";
 import { route } from "./route";
 import shareSegmentCases from "./shareSegment.fixtures.json";
+import shortLinkSlugCases from "./shortLinkSlug.fixtures.json";
 
 /** Render whatever a crawler asking for `pathname` would be sent. */
 function previewHtml(pathname: string): string {
@@ -1073,5 +1076,81 @@ describe("a title from upstream is stripped, not only shortened", () => {
   it("cleans before it bounds, so padding cannot push the title past the cut", () => {
     const padded = `${ZWSP.repeat(60)}Chapter transition`;
     expect(previewForShare(padded).title).toBe("Chapter transition — Context");
+  });
+});
+
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * SHORT LINKS — `/@seyi/intake`
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe("a short link's address", () => {
+  it("a handle and a name parse", () => {
+    expect(shortLinkFrom(new URL("https://context.lc/@seyi/intake"))).toEqual({
+      handle: "seyi",
+      slug: "intake",
+    });
+    expect(shortLinkFrom(new URL("https://context.lc/@seyi/intake/"))).toEqual({
+      handle: "seyi",
+      slug: "intake",
+    });
+  });
+
+  it.each([
+    ["https://context.lc/@seyi", "the handle alone, which stays frozen"],
+    ["https://context.lc/seyi/intake", "no @, so it is an ordinary page"],
+    ["https://context.lc/@seyi/intake/extra", "a third segment"],
+    ["https://context.lc/@Seyi/intake", "an uppercase handle never claimed"],
+    ["https://context.lc/@seyi/Intake", "an uppercase name never claimed"],
+    ["https://context.lc/@seyi/../etc/passwd", "traversal"],
+    ["https://context.lc/@seyi/%2e%2e", "encoded traversal"],
+    ["https://context.lc/@/intake", "no handle at all"],
+  ])("%s is not a short link (%s)", (href: string) => {
+    expect(shortLinkFrom(new URL(href))).toBeNull();
+  });
+
+  /**
+   * The shape rule lives twice — here and in the control plane, which this
+   * package cannot import from. Both copies run this corpus, so they are
+   * compared against the same cases rather than against a comment.
+   *
+   * `claimable` is deliberately NOT checked here: the router does not know
+   * which words are reserved, and should not. A reserved word is a
+   * well-formed address that resolves to nothing upstream, which is one place
+   * deciding rather than two.
+   */
+  it("the shape agrees with the control plane's copy, case for case", () => {
+    for (const item of shortLinkSlugCases.cases) {
+      const url = new URL(`https://context.lc/@seyi/${item.segment}`);
+      expect(
+        shortLinkFrom(url) !== null,
+        `${JSON.stringify(item.segment)} parses`,
+      ).toBe(item.parses);
+    }
+    expect(shortLinkSlugCases.cases.length).toBeGreaterThan(20);
+    expect(shortLinkSlugCases.cases.some((item) => item.parses)).toBe(true);
+    expect(shortLinkSlugCases.cases.some((item) => !item.parses)).toBe(true);
+  });
+});
+
+describe("what a short link unfurls with", () => {
+  it("the note's name", () => {
+    const meta = previewForShortLink("New project intake");
+    expect(meta.title).toBe("New project intake — Context");
+  });
+
+  it("and no card image, because the image is addressed by a capability", () => {
+    // A short link may sit over an `anyone` share, where the token IS the
+    // authorization. `/share/short` returns no token, and this asserts the
+    // consequence rather than trusting the upstream to keep withholding it.
+    expect(previewForShortLink("New project intake").imageUrl).toBe(
+      GENERIC_PREVIEW.imageUrl,
+    );
+  });
+
+  it("every absence is the generic card, byte for byte", () => {
+    for (const title of [null, undefined, "", "   "]) {
+      expect(previewForShortLink(title)).toEqual(GENERIC_PREVIEW);
+    }
   });
 });

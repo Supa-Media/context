@@ -56,7 +56,7 @@
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuthId } from "@supa-media/convex/auth";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import {
   action,
   internalMutation,
@@ -71,6 +71,7 @@ import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
 import { findName } from "./lib/nameClaims";
 import { isProductMandatedPath } from "./lib/scaffold";
+import { shortLinkSlugFrom, shortLinkSlugRejection } from "./lib/shareSlug";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -536,6 +537,14 @@ const shareSummary = v.object({
   entryPath: v.string(),
   titleInPreview: v.boolean(),
   previewTitle: v.optional(v.string()),
+  /**
+   * The short link's name, or absent for a share that has only its token.
+   *
+   * Owner-only like `token` beside it, and for the same reason: this is the
+   * other half of the link the owner already holds. The console needs it to
+   * draw what was claimed, and to stop a second row claiming it.
+   */
+  slug: v.optional(v.string()),
   createdBy: v.id("users"),
   createdAt: v.number(),
   expiresAt: v.optional(v.number()),
@@ -1314,6 +1323,7 @@ export const listShares = query({
         entryPath: row.entryPath,
         titleInPreview: row.titleInPreview,
         previewTitle: row.previewTitle,
+        slug: row.slug,
         createdBy: row.createdBy,
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
@@ -1379,6 +1389,271 @@ export const revokeShare = mutation({
  * was already dead. Same trade `resolveInvitationForCaller` documents — the
  * timing difference is only reachable by somebody already holding a real token.
  */
+/* -------------------------------------------------------------------------- */
+/* Short links: the same share row, reached by a name somebody can say         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Claim or release the name in `context.lc/@seyi/intake`. Owner-only.
+ *
+ * ## What this does and does not change
+ *
+ * It adds a second **locator** for a share that already exists. The row is
+ * unchanged, its token still works, revoking it still kills both addresses at
+ * once, and the read path below resolves a slug to this row and then runs the
+ * same `authorizeShareRead` every other reader runs. Nothing here widens what
+ * the share reaches or who may read it.
+ *
+ * What it does change is who can *arrive*. A token is 32 random bytes handed
+ * to somebody; a slug can also be typed by a stranger who guessed it. For an
+ * `anyone` row, arriving is the whole of the authorization — so claiming a
+ * slug on one is publishing that note to whoever guesses the word. That is the
+ * product the owner asked for, it is said in the console before the button,
+ * and it is why this is its own deliberate step rather than something
+ * `createLinkShare` does on the way past.
+ *
+ * ## Uniqueness is a read, because Convex has no unique index
+ *
+ * One live row per `(workspaceId, slug)`, checked through `by_workspace_slug`
+ * before the patch. Two owners of one context racing for the same word can
+ * both pass that read — the loser overwrites, and the link the winner already
+ * pasted stops resolving to their note and starts resolving to somebody
+ * else's. So the read is narrowed to *live* rows and the patch refuses when it
+ * finds one that is not this share: the race window is one transaction, which
+ * Convex serialises, so the check and the write are in the same mutation and
+ * there is no window at all. This comment exists because "check then write" in
+ * two mutations is the shape that would look equivalent and would not be.
+ *
+ * A revoked row's slug is free, deliberately. The alternative is a name an
+ * owner has permanently spent on their own context.
+ */
+export const setShareSlug = mutation({
+  args: {
+    shareId: v.id("noteShares"),
+    /** The name to claim, or `null` to give it back. */
+    slug: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+
+    // `revokeShare`'s ordering, and for its reason: a caller who is not a
+    // member of this share's context is told the share does not exist rather
+    // than that they lack a role.
+    const share = await ctx.db.get(args.shareId);
+    if (share === null || share.status !== "active") throw shareNotFound();
+    const membership = await getMembership(ctx, share.workspaceId, userId);
+    if (membership === null) throw shareNotFound();
+    await requireWorkspaceRole(ctx, share.workspaceId, userId, "owner");
+
+    if (args.slug === null) {
+      if (share.slug !== undefined) {
+        await ctx.db.patch(share._id, { slug: undefined });
+        await recordAudit(ctx, {
+          workspaceId: share.workspaceId,
+          actorUserId: userId,
+          action: "share.slug.released",
+          paths: [share.entryPath],
+          details: { slug: share.slug },
+        });
+      }
+      return null;
+    }
+
+    const slug = args.slug.trim().toLowerCase();
+    const rejection = shortLinkSlugRejection(slug);
+    if (rejection !== null) {
+      throw new ConvexError({ code: "SLUG_REJECTED", message: rejection });
+    }
+
+    const now = Date.now();
+    const holder = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", share.workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const taken = holder.find(
+      (row) => row._id !== share._id && row.status === "active" && isLive(row, now),
+    );
+    if (taken !== undefined) {
+      throw new ConvexError({
+        code: "SLUG_TAKEN",
+        message: "That name already points at another link in this context.",
+      });
+    }
+
+    await ctx.db.patch(share._id, { slug });
+    await recordAudit(ctx, {
+      workspaceId: share.workspaceId,
+      actorUserId: userId,
+      action: "share.slug.claimed",
+      paths: [share.entryPath],
+      details: { slug, audience: share.recipientKind },
+    });
+    return null;
+  },
+});
+
+/**
+ * The token a short link names, or `null`. INTERNAL.
+ *
+ * **The token is never returned to a browser.** A caller who guessed a slug is
+ * a caller the owner may not have meant, and handing them the bearer value of
+ * an `anyone` share would let them keep it after the slug was released — a
+ * capability outliving the address it was published at. So this is internal,
+ * `readShortLink` below consumes it in the same request, and what the client
+ * gets back is the note or a refusal, never the credential.
+ *
+ * Absence is uniform: an unclaimed handle, an unclaimed slug, a revoked row
+ * and an expired one all answer `null`.
+ */
+export const shortLinkToken = internalQuery({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const slug = shortLinkSlugFrom(args.slug.toLowerCase());
+    if (slug === null) return null;
+
+    const name = await findName(ctx, args.handle.replace(/^@/, "").toLowerCase());
+    const workspaceId = name?.workspaceId;
+    if (workspaceId === undefined) return null;
+
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const now = Date.now();
+    const live = rows.find((row) => row.status === "active" && isLive(row, now));
+    return live?.token ?? null;
+  },
+});
+
+/**
+ * Read what a short link points at: `readSharedNote`, addressed by name.
+ *
+ * It resolves the slug and then calls that action, rather than reimplementing
+ * it. Every rule about what a share reaches, who may read it, how a folder
+ * lists and how a link out of the entry note is bounded lives there, and a
+ * second copy reachable by a *guessable* address is precisely the copy that
+ * would drift in the wrong direction.
+ *
+ * A slug that resolves to nothing refuses exactly as an unknown token does, so
+ * "never claimed", "released" and "revoked" are one answer.
+ */
+export const readShortLink = action({
+  args: {
+    handle: v.string(),
+    slug: v.string(),
+    /** Omit for the entry note. Anything else must be linked from it. */
+    path: v.optional(v.string()),
+  },
+  returns: v.object({
+    path: v.string(),
+    text: v.union(v.string(), v.null()),
+    kind: v.union(v.literal("note"), v.literal("folder")),
+    entries: v.array(
+      v.object({
+        path: v.string(),
+        name: v.string(),
+        kind: v.union(v.literal("file"), v.literal("folder")),
+      }),
+    ),
+    entryPath: v.string(),
+    links: v.array(v.string()),
+    openToAnyone: v.boolean(),
+    editableInContext: v.union(v.string(), v.null()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    path: string;
+    text: string | null;
+    kind: "note" | "folder";
+    entries: { path: string; name: string; kind: "file" | "folder" }[];
+    entryPath: string;
+    links: string[];
+    openToAnyone: boolean;
+    editableInContext: string | null;
+  }> => {
+    const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
+      handle: args.handle,
+      slug: args.slug,
+    });
+    if (token === null) throw shareUnavailable();
+
+    return await ctx.runAction(api.functions.shares.readSharedNote, {
+      token,
+      ...(args.path === undefined ? {} : { path: args.path }),
+    });
+  },
+});
+
+/**
+ * The card a short link unfurls with: a title, or nothing.
+ *
+ * ## Why a guessable address may carry a title here
+ *
+ * `Link previews reveal nothing about a context` still holds for every path it
+ * was written about, and this is the same second rule `shareNotePreview`
+ * already lives under: a card may name something when the probe space is one
+ * the **owner** chose. `/@seyi/intake` is not `/@seyi/1-projects` — there is no
+ * list of likely slugs, because a slug exists only where an owner typed it,
+ * and `shortLinkSlugRejection` refuses every name this product writes so the
+ * guessable ones cannot be claimed at all.
+ *
+ * It is also the whole point of the feature. A short link is for pasting into
+ * a signature, a channel, a slide; a link that unfurls as bare branding does
+ * not get clicked, and a share nobody opens is a share that did not happen.
+ *
+ * Everything the note-preview rule pays for, this pays too:
+ *
+ *  - **The title is never read from the note.** It is the row's own
+ *    `previewTitle`, owner-chosen or derived from the filename, so no crawler
+ *    ever causes a GET against the customer's bucket.
+ *  - **Every absence is one absence.** Unknown handle, unclaimed slug, revoked
+ *    row, expired row, title switched off, title that normalised to nothing —
+ *    all `{ title: null }`, which renders the generic card byte for byte.
+ *  - **The shape is checked before the lookup**, so hammering `/@name/<junk>`
+ *    costs a regex.
+ *
+ * And it carries the cost that cannot be taken back, stated plainly because an
+ * owner claiming a memorable name is the most likely person to forget it:
+ * a card that has already unfurled somewhere is cached by the platform that
+ * unfurled it, and revoking cannot reach it. Revocation is enforced at the
+ * destination, where it is immediate and complete.
+ */
+export const previewForShortLink = query({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.object({ title: v.union(v.string(), v.null()) }),
+  handler: async (ctx, args) => {
+    const nothing = { title: null };
+
+    const slug = shortLinkSlugFrom(args.slug.toLowerCase());
+    if (slug === null) return nothing;
+
+    const name = await findName(ctx, args.handle.replace(/^@/, "").toLowerCase());
+    const workspaceId = name?.workspaceId;
+    if (workspaceId === undefined) return nothing;
+
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const now = Date.now();
+    const live = rows.find((row) => row.status === "active" && isLive(row, now));
+    if (live === undefined || live.titleInPreview !== true) return nothing;
+
+    const title = normalizePreviewTitle(live.previewTitle ?? "");
+    return { title: title === null ? null : title };
+  },
+});
+
 export const resolveShare = query({
   args: { token: v.string() },
   returns: v.union(

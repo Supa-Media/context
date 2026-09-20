@@ -42,8 +42,22 @@ const WRITE_MARKERS = [
   "runFileOperation",
 ];
 
-/** The one action the feature may call, and nothing else. */
-const ALLOWED_ACTIONS = ["readSharedNote"];
+/**
+ * The actions the feature may call, and nothing else.
+ *
+ * **Two now, because the page has two addresses.** `/s/<token>` carries the
+ * capability and `/@seyi/intake` carries a name the server resolves to the
+ * same share row — so `readShortLink` is `readSharedNote` reached by a
+ * different address, and it is that action underneath: it resolves the name
+ * and delegates, rather than reimplementing anything about what a share
+ * reaches.
+ *
+ * The list stays a list of *reads*. What this file defends is that a page
+ * somebody arrived at on a link cannot write, and a second read at a second
+ * address does not weaken it — but a third entry that is not a read would,
+ * which is why the names are enumerated rather than matched by a prefix.
+ */
+const ALLOWED_ACTIONS = ["readSharedNote", "readShortLink"];
 
 function sourcesIn(dir: string): { name: string; text: string }[] {
   return readdirSync(dir, { withFileTypes: true })

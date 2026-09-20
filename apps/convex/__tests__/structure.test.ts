@@ -755,6 +755,7 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "sharePreview",
   "shareCard",
   "shareNotePreview",
+  "shareShortLinkPreview",
 ]);
 
 /**
@@ -2494,7 +2495,7 @@ describe("the gateway's HTTP routes", () => {
    * that entry #1 already had — the same discipline `CREDENTIAL_BARRIERS`
    * follows one section above.
    */
-  test("the routes that require no secret are exactly the three share previews", () => {
+  test("the routes that require no secret are exactly the four share previews", () => {
     // `shareCard` joined `sharePreview` when the card moved into the
     // customer's bucket. It discloses strictly less than its neighbour — the
     // same owner-chosen title, as a picture — and is bounded the same way: a
@@ -2514,6 +2515,23 @@ describe("the gateway's HTTP routes", () => {
       // made three times has not had to be made a fourth. The exemption is a
       // pin, not an amnesty, and a route added here still owes it in full.
       "shareNotePreview",
+      // **The fourth, and the first added since the sentence above was
+      // written.** A short link is `/@seyi/intake`, so its argument is
+      // guessable like the third's and bounded the same way: the probe space
+      // is names the *owner* typed, and `shortLinkSlugRejection` refuses every
+      // name this product writes so the guessable ones cannot be claimed.
+      //
+      // It could not be a field on the third: that route's second argument is
+      // a note path and this one's is not a path at all, and one route whose
+      // argument means two things is how a field nobody looked at reaches an
+      // anonymous crawler.
+      //
+      // It is **one** field where the third is three, and the missing one is
+      // the point: `cardToken` is safe there because a team link's token is a
+      // locator, and a short link may sit over an `anyone` share where the
+      // token IS the authorization. So a short link unfurls with a title and
+      // the product's own image, never a per-share card.
+      "shareShortLinkPreview",
     ]);
 
     const source = httpModule().source;
@@ -2643,6 +2661,62 @@ describe("the gateway's HTTP routes", () => {
         body,
         `shareNotePreview must not return ${forbidden}`,
       ).not.toContain(forbidden);
+    }
+  });
+
+  /**
+   * **The fourth route is one field wide, and the field it does not have is
+   * the one that matters.**
+   *
+   * `shareNotePreview` returns a `cardToken` because a team link's token is a
+   * locator: its reader is authorised by membership on every request, so
+   * handing it to a crawler grants nothing. A short link may sit over an
+   * `anyone` share, where possession of the token **is** the authorization —
+   * so the same field here would hand whoever guessed a name a capability that
+   * outlives the name, and keeps working after the slug is released.
+   *
+   * That is why this route returns the title alone, and why the absence is
+   * pinned rather than merely commented: the shape of this addition, a year
+   * from now, is somebody noticing that short links have no card image and
+   * fixing it by copying the field from the route above.
+   */
+  test("the short link's route returns one field, and never the token", () => {
+    const source = httpModule().source;
+    const start = source.indexOf("export const shareShortLinkPreview");
+    expect(
+      start,
+      "shareShortLinkPreview is enumerated but not defined",
+    ).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\n});", start));
+
+    expect(body).toContain("previewForShortLink");
+    expect(
+      body,
+      "shareShortLinkPreview must name its fields, never spread them",
+    ).not.toMatch(/json\(\s*\{?\s*\.\.\.|json\(result\)/);
+
+    for (const keys of unauthenticatedRouteResponses(
+      source,
+      "shareShortLinkPreview",
+    )) {
+      expect(
+        keys,
+        "every shareShortLinkPreview response returns exactly these fields",
+      ).toEqual(["title"]);
+    }
+
+    for (const forbidden of [
+      "cardToken",
+      "token",
+      "workspaceId",
+      "entryPath",
+      "recipient",
+      "createdBy",
+    ]) {
+      expect(
+        body,
+        `shareShortLinkPreview must not return ${forbidden}`,
+      ).not.toContain(`${forbidden}:`);
     }
   });
 

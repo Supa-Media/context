@@ -1496,3 +1496,69 @@ control plane's copy of a path in disagreement with the bucket, which is the
 same mistake as storing visibility there. `shareSurvivesMove.test.ts` fails
 throughout, and `folderLink.test.ts`'s prefix-trap checks are what keep the
 resolution from widening a folder bound.
+
+### A short link is a second locator, never a second tier
+
+`context.lc/@seyi/intake`. Decided with the owner, 2026-09-20, alongside the
+forms work it exists for: a link that goes in an email signature, on a card, or
+into a sentence somebody says out loud.
+
+**It gives up the one property that makes `/s/<64 hex>` safe**, and that is the
+feature rather than a flaw in it. A token is unguessable, so possession implies
+the owner handed it over; a name is typeable, so possession implies only that
+somebody typed it. On an `anyone` share, where possession *is* the
+authorization, claiming a name is publishing that note to whoever guesses the
+word.
+
+So the whole design is about making that the only thing it changes.
+
+- **The row is the share row.** `slug` is a field on `noteShares`. A short link
+  resolves to the same row its token resolves to, is authorised by the same
+  `authorizeShareRead`, is re-derived through the live `privacy.md` on every
+  read, and dies on the same `revokeShare`. There is no second read path, which
+  is why there is no second place for one to drift.
+- **The token never reaches the browser.** `shortLinkToken` is an
+  `internalQuery` and `readShortLink` consumes it in the same request. A client
+  that was handed it could keep it after the name was released — a capability
+  outliving the address it was published at — so what comes back is the note or
+  a refusal, never the credential. `ShareScreen` takes an address, not a token,
+  and builds every onward URL and the sign-in `next` from it.
+- **Claiming is its own deliberate step**, not something minting a link does on
+  the way past, and the console says the cost in the same breath: *a short link
+  is memorable, which means guessable.* On a `members` link that sentence is
+  **not** drawn — a guessed name opens nothing there, and a dialog that warns
+  on both is one people learn to dismiss.
+- **A name the product writes cannot be claimed.** `shortLinkSlugRejection`
+  refuses `isProductMandatedPath` as both the folder and the file, plus a short
+  reserved list for words the console may want under a handle. Today notes live
+  at `/console/@name?note=…` and there is no collision to have; `CLAUDE.md`
+  keeps the door open for `@name/1-projects/foo.md` as sugar, and a slug claimed
+  now would have to be taken from somebody to open it.
+- **One live row per `(workspace, slug)`**, checked through `by_workspace_slug`
+  in the same mutation that writes — Convex serialises it, so there is no
+  window. A revoked row frees its name, because the alternative is a word an
+  owner has permanently spent on their own context.
+
+**The card names the note, and this is the fourth unauthenticated route.** The
+list in `structure.test.ts` called itself "a pin, not an amnesty", and the
+argument is made again here rather than inherited: the probe space is names the
+*owner* typed, there is no list of likely slugs, and the guessable ones cannot
+be claimed. It is **one** field where `/share/note` is three, and the missing
+one is the point — `cardToken` is safe there because a team link's token is a
+locator, and it would be a capability here. A short link therefore unfurls with
+a title and the product's own image, never a per-share card. The cost is the
+one every card carries and cannot take back: a card already unfurled is cached
+by the platform that unfurled it. Revocation is enforced at the destination,
+where it is immediate and complete.
+
+**The shape rule now lives in four places** — the control plane, the edge
+router, the app's route, and the console's field — because none of them can
+import the others and each wants to refuse before a round trip.
+`shortLinkSlug.fixtures.json` is what holds them together: all three of the
+first are run against it, and the fourth refuses nothing the server does not
+refuse again.
+
+**`/@seyi` itself is unchanged and still frozen.** A handle is guessable *and*
+unbounded, which is the combination `Link previews reveal nothing about a
+context` exists for. What changed is a second segment that only exists because
+somebody typed it.
