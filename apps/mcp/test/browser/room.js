@@ -16,7 +16,12 @@ import {
   mergeExternalText,
   seedSharedDoc,
 } from "../../../mobile/features/console/presence/sharedDoc.ts";
-import { encodeSyncStep1, encodeUpdate, readSyncMessage } from "../../../mobile/features/console/presence/sync.ts";
+import {
+  answerStateVector,
+  encodeSyncStep1,
+  encodeUpdate,
+  readSyncMessage,
+} from "../../../mobile/features/console/presence/sync.ts";
 import { askFrame, decodeServerFrame, syncFrame } from "../../../mobile/features/console/presence/protocol.ts";
 
 const REMOTE = Symbol("remote");
@@ -34,8 +39,11 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
       state.members.some((m) => m.id === state.you && m.canWrite) &&
       isWriter(state.you, state.members.filter((m) => m.canWrite).map((m) => m.id)),
   };
+  /** The last edit this client made, kept so the reader can try to smuggle it. */
+  let lastUpdate = null;
   const doc = createSharedDoc({
     onLocalUpdateBytes: (update) => {
+      lastUpdate = update;
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(syncFrame(encodeUpdate(update)));
       }
@@ -69,6 +77,11 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
     }
     if (frame.t === "join") state.members = [...state.members, frame.member];
     if (frame.t === "leave") state.members = state.members.filter((m) => m.id !== frame.id);
+    if (frame.t === "ask") {
+      // Answered, never applied. See `answerStateVector`.
+      const answer = answerStateVector(frame.d, doc.doc);
+      if (answer.kind === "reply") socket.send(syncFrame(answer.payload));
+    }
     if (frame.t === "y") {
       const outcome = readSyncMessage(frame.d, doc.doc, REMOTE);
       if (outcome.kind === "reply") socket.send(syncFrame(outcome.payload));
@@ -83,6 +96,20 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
 
   state.type = (at, text) => doc.text.insert(at, text);
   state.append = (text) => doc.text.insert(doc.text.length, text);
+  /*
+    Put this client's own edit on the `ask` frame — the one the room lets past
+    its write gate, because asking what a note says is a read.
+
+    This is the attack, run for real rather than described: before the fix the
+    room relayed an `ask` as a `y`, and every peer read it with a reader that
+    applies whatever the payload's type byte asks for. A read-only member's
+    edit reached everybody and the elected writer flushed it to the bucket.
+  */
+  state.smuggle = () => {
+    if (!lastUpdate || socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(askFrame(encodeUpdate(lastUpdate)));
+    return true;
+  };
   state.disconnect = () => socket.close();
   window.room = state;
   return state;

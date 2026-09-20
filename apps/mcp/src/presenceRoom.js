@@ -323,12 +323,24 @@ export class PresenceRoom {
       /*
         A joiner asking the room's peers what it is missing.
 
-        Relayed as an ordinary `y` frame, because on the receiving side it is
-        one: a sync-protocol message the peer's document answers. Not appended
-        to the log — see `decodeClientFrame` — and deliberately above the write
-        gate, because asking is a read.
+        **Relayed as an `ask`, and that is the whole of a security fix.** This
+        used to broadcast it as a `y`, on the reasoning that a peer reads both
+        with the same protocol reader — which is exactly the problem: that
+        reader chooses between *answering* and *applying* on a type byte inside
+        the payload, and the payload comes from the sender. So an `ask` holding
+        an ordinary update was an edit by the member whose edits the gate above
+        had just refused, applied by every peer and flushed to the bucket by
+        the elected writer.
+
+        This room cannot tell the two apart and must not learn how: it has no
+        Yjs and the bytes are opaque by design. Keeping the *type* is what lets
+        the client tell them apart, by reading an `ask` with a reader that can
+        only produce an answer (`answerStateVector`).
+
+        Not appended to the log — see `decodeClientFrame` — and deliberately
+        above the write gate, because asking is a read.
       */
-      this.broadcast({ t: "y", d: decoded.msg.d }, ws);
+      this.broadcast({ t: "ask", d: decoded.msg.d }, ws);
       return;
     }
 

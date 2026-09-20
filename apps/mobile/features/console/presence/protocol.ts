@@ -78,6 +78,15 @@ export type ServerFrame =
   /** One edit from somebody else, to apply to the shared document. */
   /** One Yjs sync-protocol message, relayed from another client. */
   | { t: "y"; d: string }
+  /**
+   * A peer asking what it is missing, relayed with its type intact.
+   *
+   * Kept distinct from `y` because the distinction is a security boundary: an
+   * `ask` is allowed past the room's write gate, and a client must therefore
+   * read it with a reader that can only *answer* — never one that would apply
+   * whatever the sender put in the payload. See `answerStateVector`.
+   */
+  | { t: "ask"; d: string }
   /** The document so far, replayed because this client just joined. */
   | { t: "sync"; updates: string[] }
   /** The room is asking this client to send a compacted snapshot. */
@@ -201,6 +210,9 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
   }
   if (frame.t === "y") {
     return typeof frame.d === "string" && frame.d.length > 0 ? { t: "y", d: frame.d } : null;
+  }
+  if (frame.t === "ask") {
+    return typeof frame.d === "string" && frame.d.length > 0 ? { t: "ask", d: frame.d } : null;
   }
   if (frame.t === "sync") {
     // Every entry checked, and a bad one dropped rather than failing the whole

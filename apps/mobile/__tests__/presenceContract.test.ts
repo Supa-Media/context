@@ -41,6 +41,7 @@ import {
   remember,
 } from "@context/drawings";
 import {
+  answerStateVector,
   encodeSyncStep1,
   encodeUpdate,
   readSyncMessage,
@@ -262,6 +263,59 @@ describe("what the room sends, the client reads", () => {
       JSON.stringify({ t: "pointer", id: "m1", x: 12.5, y: -3, s: ["el1"] }),
     );
     expect(relayed).toEqual({ t: "pointer", id: "m1", x: 12.5, y: -3, selected: ["el1"] });
+  });
+
+  test("an ask can be answered and can never apply, whatever it carries", () => {
+    /*
+      THE HOLE THIS CLOSES WAS IN THE SEAM, NOT IN ANY ONE DECISION.
+
+      Every call was right on its own: the room leaves `ask` past the write
+      gate (asking is a read), the gateway holds no Yjs (the bytes are opaque
+      by design), a peer reads a sync message with the protocol's own reader.
+      The defect was that the room relayed an `ask` *as a `y`* — and that
+      reader chooses between answering and **applying** on a type byte inside
+      the payload, which the sender supplies.
+
+      So a read-only member could put an ordinary update on the frame the write
+      gate had just waved through, and every peer would apply it and the
+      elected writer would flush it to the bucket. Non-negotiable #4 says write
+      access is never implied by read.
+    */
+    const victim = createSharedDoc({});
+    seedSharedDoc(victim, "somebody's real work");
+
+    // What a read-only member would smuggle: not a state vector, an edit.
+    const attacker = createSharedDoc({});
+    seedSharedDoc(attacker, "somebody's real work");
+    let update: Uint8Array | null = null;
+    const armed = createSharedDoc({
+      onLocalUpdateBytes: (bytes) => {
+        update = bytes;
+      },
+    });
+    seedSharedDoc(armed, "somebody's real work");
+    armed.text.insert(0, "INJECTED ");
+    expect(update).not.toBeNull();
+    const smuggled = encodeUpdate(update!);
+
+    // The room would accept this frame — asking needs no write authority.
+    expect(decodeClientFrame(askFrame(smuggled)).ok).toBe(true);
+
+    // And the reader on the far side refuses to apply it.
+    const outcome = answerStateVector(smuggled, victim.doc);
+    expect(outcome.kind).toBe("ignored");
+    expect(victim.markdown()).toBe("somebody's real work");
+
+    // Non-vacuity: the same reader answers a real state vector, so "ignored"
+    // above is a fact about the payload and not about a function that refuses
+    // everything.
+    const empty = createSharedDoc({});
+    const answer = answerStateVector(encodeSyncStep1(empty.doc), victim.doc);
+    expect(answer.kind).toBe("reply");
+    if (answer.kind === "reply") {
+      readSyncMessage(answer.payload, empty.doc, "remote");
+      expect(empty.markdown()).toBe("somebody's real work");
+    }
   });
 
   test("who seeds the document is the room's answer, and it survives the wire", () => {

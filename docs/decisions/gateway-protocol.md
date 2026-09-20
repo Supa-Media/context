@@ -592,10 +592,28 @@ edit frames are dropped by the room rather than trusted and relayed. That is
 non-negotiable #4 on this channel, and "a read-only member's edit never reaches
 anybody else" is demonstrated in two real browsers, not only asserted.
 
-Asking is not editing, and has its own frame. A state vector goes up as `ask`
-rather than as an edit: it is relayed to peers, never written to the log, and
-needs no write authority — so a read-only member can ask what the note says
-rather than depending on whatever the log happens to still hold.
+Asking is not editing, and has its own frame **in both directions**. A state
+vector goes up as `ask` rather than as an edit: it is relayed to peers, never
+written to the log, and needs no write authority — so a read-only member can
+ask what the note says rather than depending on whatever the log happens to
+still hold.
+
+**The room relays it as an `ask`, and that is a security boundary rather than
+tidiness.** It first relayed it as a `y`, on the reasoning that a peer reads
+both with the protocol's own reader — which is exactly the problem: that reader
+chooses between *answering* and *applying* on a type byte inside the payload,
+and the payload comes from the sender. So an `ask` carrying an ordinary update
+was an edit by the member the write gate had refused one line earlier, applied
+by every peer and flushed to the bucket by the elected writer. Every individual
+decision was right; the defect lived in the seam, where the relay erased the
+distinction.
+
+The gateway cannot narrow it and must not try: it holds no Yjs, the bytes are
+opaque by design, and teaching it to parse them is the change this whole
+feature exists to avoid. Keeping the *type* end to end is what lets the client
+tell them apart — an `ask` is read by `answerStateVector`, which can only ever
+produce an answer and never touches the document. Demonstrated in two browsers,
+with the old relay put back to prove the check is not vacuous.
 
 ### Temporary state, durable recovery, and the bucket
 

@@ -299,6 +299,7 @@ async function main() {
       append: (t) => page.evaluate((x) => window.room.append(x), t),
       type: (at, t) => page.evaluate(([a, x]) => window.room.type(a, x), [at, t]),
       disconnect: () => page.evaluate(() => window.room.disconnect()),
+      smuggle: () => page.evaluate(() => window.room.smuggle()),
       externalEtag: () => page.evaluate(() => window.room.externalEtag),
       saver: () => page.evaluate(() => window.room.saver()),
     };
@@ -363,6 +364,20 @@ async function main() {
     "a read-only member's edit never reaches anybody else",
     after === before && !after.includes("SHOULD NOT"),
     after === before ? "" : "the reader's text arrived",
+  );
+
+  /*
+    And the same edit on the frame the room deliberately lets past its write
+    gate. Asking what a note says is a read, so `ask` needs no write authority
+    — and the room used to relay it as an edit, which made it one.
+  */
+  const smuggled = await reader.smuggle();
+  await new Promise((r) => setTimeout(r, 2500));
+  const afterSmuggle = await ana.text();
+  check(
+    "...nor does it when they put it on the frame that needs no write access",
+    smuggled && afterSmuggle === before && !afterSmuggle.includes("SHOULD NOT"),
+    smuggled ? "" : "the reader had no edit to smuggle, so this proved nothing",
   );
 
   /* ---------------------------------------------------------------- 6 ---- */

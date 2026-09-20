@@ -43,7 +43,13 @@ import {
   syncFrame,
   type PresenceMember,
 } from "./protocol";
-import { cursorPosition, encodeSyncStep1, encodeUpdate, readSyncMessage } from "./sync";
+import {
+  answerStateVector,
+  cursorPosition,
+  encodeSyncStep1,
+  encodeUpdate,
+  readSyncMessage,
+} from "./sync";
 import { decodeElements, encodeElements } from "@context/drawings";
 import {
   createSharedDoc,
@@ -438,6 +444,27 @@ export function usePresence(options: {
           */
           pointers.current.set(frame.id, { x: frame.x, y: frame.y, selected: frame.selected });
           onPeerPointers.current?.(peersFrom(roster.current, pointers.current));
+          return;
+        }
+
+        if (frame.t === "ask") {
+          /*
+            A peer asking what it is missing — answered, and never applied.
+
+            The room relays this past its write gate, because asking is a read.
+            Reading it with `readSyncMessage` would let the sender decide
+            between "answer me" and "apply this" with a byte inside the
+            payload, which is a read-only member's edit reaching every peer.
+            `answerStateVector` can only produce an answer.
+          */
+          if (!document) return;
+          const answer = answerStateVector(frame.d, document.doc);
+          if (answer.kind !== "reply") return;
+          try {
+            live.send(syncFrame(answer.payload));
+          } catch {
+            // They ask again on their next reconnect.
+          }
           return;
         }
 

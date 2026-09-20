@@ -101,6 +101,58 @@ export function readSyncMessage(payload: string, doc: Y.Doc, origin: unknown): S
 }
 
 /**
+ * Answer a peer's "what am I missing", and **never** apply anything.
+ *
+ * ## The hole this closes, which was in the seam and not in any one decision
+ *
+ * A state vector rides on the `ask` frame, which the room deliberately lets
+ * past the write gate: asking what a note says is a read, and a read-only
+ * member holds exactly that. The room then relayed it to peers *as a `y`*, and
+ * a peer read a `y` with `readSyncMessage` — which chooses between answering
+ * and **applying** on a type byte inside the payload, supplied by the sender.
+ *
+ * So an `ask` carrying an ordinary Yjs update was an edit by the member the
+ * gate had refused one line earlier: applied by every peer and flushed to the
+ * bucket by the elected writer. Non-negotiable #4 says write access is never
+ * implied by read, and that is precisely what the relay handed over.
+ *
+ * The gateway cannot narrow it and should not try — it has no Yjs, the payload
+ * is opaque to it by design, and giving it a parser would be the change this
+ * whole feature was built to avoid. So the *type* is kept end to end instead:
+ * the room relays an `ask` as an `ask`, and an `ask` is read by this function,
+ * which can only ever produce an answer.
+ *
+ * A payload whose first byte is not SyncStep1 is ignored, and the document is
+ * never passed anywhere that could write to it: `readSyncStep1` reads the
+ * sender's state vector and writes the difference into the encoder, and that
+ * is the whole of what it does.
+ */
+export function answerStateVector(payload: string, doc: Y.Doc): SyncOutcome {
+  let decoder: decoding.Decoder;
+  try {
+    decoder = decoding.createDecoder(fromBase64(payload));
+  } catch {
+    return { kind: "ignored" };
+  }
+
+  try {
+    const messageType = decoding.readVarUint(decoder);
+    // Anything else on this frame is a client claiming a capability the frame
+    // does not carry. Dropped silently: it is either broken or hostile, and
+    // neither is owed a diagnostic.
+    if (messageType !== syncProtocol.messageYjsSyncStep1) return { kind: "ignored" };
+    const encoder = encoding.createEncoder();
+    syncProtocol.readSyncStep1(decoder, encoder, doc);
+    if (encoding.length(encoder) > 1) {
+      return { kind: "reply", payload: toBase64(encoding.toUint8Array(encoder)) };
+    }
+    return { kind: "ignored" };
+  } catch {
+    return { kind: "ignored" };
+  }
+}
+
+/**
  * A caret, as a position that survives other people's edits.
  *
  * An offset is a number into a document that is changing underneath it: a peer

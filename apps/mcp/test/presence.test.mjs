@@ -602,6 +602,50 @@ export async function runPresenceChecks(check) {
       thirdWelcome?.seed === false,
     );
 
+    /* --------------- the room's copy of the note goes away --------------- */
+
+    /*
+      **The only bound on the second durable copy, and it had no test.**
+
+      The two checks above pin that `replaceLog` is gone and that
+      `dropLogBefore` takes a key — and a `dropLogBefore` that took one
+      argument and cleared the whole prefix passes both. Neither says anything
+      about the sentence this feature's cost rests on: the log is dropped when
+      the room empties. A retention policy nobody checked is not a policy.
+
+      Driven against the fake runtime, so neither method needs a
+      `WebSocketPair` and the three behaviours are separable.
+    */
+    const retiring = fakeRoomRuntime();
+    const retiringRoom = new PresenceRoom(retiring.state, {});
+    await retiringRoom.appendUpdate("QUJD");
+    await retiringRoom.appendUpdate("ZGVm");
+
+    // Non-vacuity: there is something to drop, and somebody is still here.
+    retiring.open.push(fakeSocket());
+    check(
+      "a room somebody is still in keeps its copy of the note",
+      // The half that matters most: dropping while a socket is open would
+      // delete the document out from under the people editing it, and the
+      // elected writer's next flush would carry the loss to the bucket.
+      (await retiringRoom.dropLogIfEmpty()) === false &&
+        (await retiringRoom.readLog()).length === 2,
+    );
+
+    retiring.open.length = 0;
+    check(
+      "...and drops it once the last person leaves",
+      (await retiringRoom.dropLogIfEmpty()) === true &&
+        (await retiringRoom.readLog()).length === 0,
+    );
+    check(
+      "...and says it did nothing when there was nothing to drop",
+      // The answer the sweep reads to decide whether to keep its alarm: a room
+      // that reported "dropped" every time would stop sweeping a room that
+      // still had members arriving.
+      (await retiringRoom.dropLogIfEmpty()) === false,
+    );
+
     /* ------------------ asking peers what you are missing ---------------- */
 
     const askingRuntime = fakeRoomRuntime();
@@ -636,7 +680,26 @@ export async function runPresenceChecks(check) {
       // Asking is a read, and a member holds exactly that. Routing this through
       // the edit frame — which it was — left a reader unable to sync from
       // anybody, dependent on whatever the room's log happened to still hold.
-      relayed.some((frame) => frame.t === "y" && frame.d === "QUJD"),
+      relayed.some((frame) => frame.t === "ask" && frame.d === "QUJD"),
+    );
+    check(
+      "...and it arrives as an ask, never as an edit",
+      /*
+        **This check replaces one that pinned the bug.**
+
+        It used to assert the relay arrived as `t: "y"`, one line above "an
+        edit from the same read-only member still reaches nobody" — and the
+        first defeated the second. A peer reads a `y` with the protocol's own
+        reader, which chooses between answering and *applying* on a type byte
+        inside the payload that the sender supplies. So an `ask` carrying an
+        ordinary update was an edit by the member the write gate had refused
+        one line earlier, applied by every peer and flushed to the bucket.
+
+        This room cannot tell a state vector from an update and must not learn
+        how: it holds no Yjs and the bytes are opaque by design. Keeping the
+        type is what lets the client tell them apart.
+      */
+      relayed.every((frame) => frame.t !== "y"),
     );
     check(
       "...and the question is never written to the room's log",
