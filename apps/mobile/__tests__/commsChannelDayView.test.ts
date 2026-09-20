@@ -110,6 +110,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     share: async () => ({ ok: false, message: null }),
     revokeShare: noop,
     setShareSlug: async () => true,
+    setShareCollecting: async () => true,
     setSharePreviewTitle: noop,
     copyShareLink: async () => ({ ok: false, message: null }),
     ensureListing: noop,

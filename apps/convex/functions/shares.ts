@@ -549,6 +549,16 @@ const shareSummary = v.object({
    * draw what was claimed, and to stop a second row claiming it.
    */
   slug: v.optional(v.string()),
+  /**
+   * Whether this link **takes answers** to a form on what it points at.
+   *
+   * Reported to the owner because it is the one thing about a link they have
+   * to be able to see: every other share row hands out a read, and this one
+   * hands out a write from people with no account. A share list that drew a
+   * collect link exactly like a read link would be the console being quiet
+   * about the only case where non-negotiable #5's exception has teeth.
+   */
+  collecting: v.boolean(),
   createdBy: v.id("users"),
   createdAt: v.number(),
   expiresAt: v.optional(v.number()),
@@ -1470,6 +1480,8 @@ export const listShares = query({
         titleInPreview: row.titleInPreview,
         previewTitle: row.previewTitle,
         slug: row.slug,
+        // Absent means `read`, which is every row written before collect mode.
+        collecting: row.mode === "collect",
         createdBy: row.createdBy,
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
@@ -1636,6 +1648,71 @@ export const setShareSlug = mutation({
       action: "share.slug.claimed",
       paths: [share.entryPath],
       details: { slug, audience: share.recipientKind },
+    });
+    return null;
+  },
+});
+
+/**
+ * Turn a link's answer-taking on or off, without re-minting it.
+ *
+ * ## Why this is its own mutation rather than `createLinkShare` with a mode
+ *
+ * `createLinkShare` supersedes: it can mint, and on a live row it patches. An
+ * owner flipping a switch is neither minting nor superseding — and routing a
+ * toggle through a *creation* path is how a press of "off" ends up handing
+ * somebody a new token for a link they had already sent.
+ *
+ * ## Only an `anyone` link over a note
+ *
+ * The same two rules `collect.ts` enforces on an already-written row and
+ * `mintUnlistedLink` enforces at the mint, said a third time at the third
+ * door — because a rule enforced in two of the three places a row can be
+ * written is a rule with one way around it. A members link has readers with
+ * accounts; a folder link reaches a subtree.
+ *
+ * The refusal order is `revokeShare`'s: a caller who is not a member of this
+ * share's context is told the share does not exist rather than that they lack
+ * a role.
+ */
+export const setShareCollecting = mutation({
+  args: { shareId: v.id("noteShares"), collecting: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+
+    const share = await ctx.db.get(args.shareId);
+    if (share === null || share.status !== "active") throw shareNotFound();
+    const membership = await getMembership(ctx, share.workspaceId, userId);
+    if (membership === null) throw shareNotFound();
+    await requireWorkspaceRole(ctx, share.workspaceId, userId, "owner");
+
+    if (args.collecting) {
+      if (share.recipientKind !== "anyone") {
+        throw new ConvexError({
+          code: "COLLECT_NEEDS_A_LINK",
+          message: "Only a link anyone can open takes answers; a workspace link already has readers with accounts.",
+        });
+      }
+      if ((share.entryKind ?? "note") !== "note") {
+        throw new ConvexError({
+          code: "COLLECT_NEEDS_A_NOTE",
+          message: "A link that collects answers points at one note, not a folder.",
+        });
+      }
+    }
+
+    const mode = args.collecting ? "collect" : "read";
+    if ((share.mode ?? "read") === mode) return null;
+    await ctx.db.patch(share._id, { mode });
+    await recordAudit(ctx, {
+      workspaceId: share.workspaceId,
+      actorUserId: userId,
+      // Turning answer-taking on is a publication decision, so it gets its own
+      // line in the trail rather than riding on `share.link.created`.
+      action: args.collecting ? "share.collect.opened" : "share.collect.closed",
+      paths: [share.entryPath],
+      details: { audience: share.recipientKind },
     });
     return null;
   },

@@ -52,6 +52,16 @@ export interface NoteShare {
    * owner-only and this is the other half of a link they already hold.
    */
   slug?: string;
+  /**
+   * Whether this link **takes answers** to a form on what it points at.
+   *
+   * The one thing about a link an owner has to be able to see: every other
+   * share row hands out a read, and this one hands out a write from people
+   * with no account at all. A list that drew a collect link exactly like a
+   * read link would be the console being quiet about the only case where
+   * non-negotiable #5's exception has teeth.
+   */
+  collecting: boolean;
   createdAt: number;
 }
 

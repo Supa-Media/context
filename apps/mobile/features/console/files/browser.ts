@@ -695,6 +695,16 @@ export interface FileBrowser {
   setShareSlug: (shareId: string, slug: string | null) => Promise<boolean>;
 
   /**
+   * Turn a link's answer-taking on or off, answering whether it landed.
+   *
+   * A toggle, never a re-mint: the token is unchanged, so a link already sent
+   * goes on working either way. Only an `anyone` link over a note may be
+   * switched on, and the server is what refuses the other two — a client that
+   * decided for itself would be a third place for that rule to live.
+   */
+  setShareCollecting: (shareId: string, collecting: boolean) => Promise<boolean>;
+
+  /**
    * Put a link to this note on the clipboard, and say whether it landed.
    *
    * **Minting and copying are one method because they are one press.** They

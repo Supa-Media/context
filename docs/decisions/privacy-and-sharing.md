@@ -1644,3 +1644,40 @@ caller a lever on the customer's bill. Each has a test in
 the test fails — including one guard that was **removed** because sabotage
 proved it unreachable, which is why the *shape* of `linkStamp` is now pinned on
 its own.
+
+### The switch that hands out a write sits under the link, and says so
+
+Collect mode arrived as a mode on a share row that only an agent could set. An
+owner could therefore hold a link that takes answers from strangers and see, in
+their own console, a row indistinguishable from every read link they have ever
+minted. That is the console being quiet about the only case where
+non-negotiable #5's exception has teeth, so `collecting` is now on every share
+row the owner is shown, and there is a switch.
+
+**Under the link, not beside the audience control.** The audience control
+decides who can *reach* the note; this decides what they can *do* once they are
+there, and it only exists once a link does. A fourth position on a control
+about reach would make "published" and "writable" one idea, and they are not.
+
+**A toggle, never a re-mint.** `setShareCollecting` is its own mutation because
+`createLinkShare` supersedes — it can mint, and on a live row it patches — and
+routing a switch through a creation path is how a press of "off" ends up
+handing somebody a new token for a link they had already sent. The token is
+untouched either way, so a link already pasted goes on working.
+
+**The third door on the same two rules.** Only an `anyone` row, only over a
+note. `collect.ts` enforces that on an already-written row and `mintUnlistedLink`
+enforces it at the mint; a rule enforced at two of the three places a row can
+be written is a rule with one way around it. The switch is simply not drawn
+where the server would refuse, which is the console's standing rule about
+controls that are going to fail.
+
+**Turning it on is its own line in the audit trail.** `share.collect.opened`
+rather than a detail on `share.link.created`, because "when did this start
+taking answers" is a question the trail has to be able to answer on its own.
+
+**And the copy is a guard.** Everything else in that dialog gives somebody a
+read; this lets a stranger with no account append to a file in the owner's
+bucket. The row says who can send, that nobody can read the answers through the
+link, and that an answer cannot be taken back — in the same breath as the
+switch, not in a help page.

@@ -37,6 +37,9 @@ const share = (over: Partial<NoteShare> = {}): NoteShare => ({
   entryPath: "1-projects/plan.md",
   titleInPreview: true,
   previewTitle: "Plan",
+  // A read link by default, which every case in this file is about; the
+  // answer-taking half has its own fixtures.
+  collecting: false,
   createdAt: 1,
   ...over,
 });
