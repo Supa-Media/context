@@ -7274,3 +7274,97 @@ The first draft of the fixture data also named three notes in a folder the demo
 tree has never had, so the console drew no dot and the board was reporting on
 itself — the failure that page's own header warns about, reproduced while
 guarding against it.
+
+## A share card wears the app's palette, and leads with the workspace
+
+Decided with the owner, 2026-09-21, from a screenshot of a short link
+unfurling in iMessage and four words: "the app colors and designs have
+changed so we should probably follow suit".
+
+**The card was two design generations behind and nothing could have said so.**
+It drew on `#050506` with a `#3B82F6` accent — the blue-black world and a
+Tailwind default blue — while `apps/mobile/features/design/tokens.ts` had long
+since replaced both with **Graphite and Paper**. That file's own header names
+the reason it did: "a palette assembled from a framework's defaults looks like
+every other application assembled from them". The card was still assembled
+from them, so every link this product minted unfurled in a palette the product
+itself no longer used anywhere. It had also kept Onest, which
+`features/design/fonts.ts` stopped loading.
+
+`apps/convex` cannot import from `apps/mobile`, so the values are restated in
+`lib/cardArt.ts` — and **the restatement is compared against the token file in
+`__tests__/cardArt.test.ts`**, which reads it as text and looks each colour up.
+That is the guard the first drift did not have. Petrol is the only hue on the
+card, which is the token file's rationing rule applied here: petrol means
+"here, active, yours" and is never a status, and a card reports no status.
+
+**One face, and the mono is drawn in it.** The chip and the domain line wanted
+JetBrains Mono, which is a second binary and a second glyph-coverage surface
+for two short Latin strings. `cardCoverage.ts` reads the cmap of whatever font
+it is handed, so one bundled face is one question about tofu rather than two.
+
+### The workspace leads and the domain is a footnote
+
+`context.lc` sat in the position of most emphasis, which made every share look
+like an advertisement for us rather than like somebody's note being handed to
+somebody else. The lockup is now the handle.
+
+**It is drawn only where the link's own address already carries it.** A short
+link has told the crawler `@seyi` before it asked for anything; a token link is
+`/s/<64 hex>` and says nothing about whose context it is, so a handle there
+would be a new fact for everyone the link is ever forwarded to — and
+`privacy-and-sharing.md` has a standing rule that link previews reveal nothing
+about a context. A card cannot be recalled once a platform has copied it, so
+this is decided in the direction that can be widened later. Claiming or
+releasing a slug re-renders the card, because that is the moment the answer
+changes.
+
+### The chip is tied to the listing, not to the row
+
+`NOTE`, `FOLDER` or `FORM`, from the share row and never from the note. The
+folder case is narrowed by `drawnKind`: **a folder with nothing team-visible
+inside it draws as a note, chip included.** The folder mark this chip replaced
+already followed that rule — the mark and the listing appeared together or not
+at all — and a `FOLDER` chip over an otherwise empty card would say "this is a
+folder and there is nothing in it for you", permanently, to everyone the link
+reached. That nearly shipped; `drawnKind` and its test are what stop it.
+
+`FORM` is the one chip whose subtitle differs, and it has to: a collect link
+takes answers from people with no account, so a card telling them to sign in
+would contradict the page it points at.
+
+### What a "simplification" would cost
+
+Each has a test in `__tests__/cardArt.test.ts`, sabotaged to confirm it fails.
+
+- Restating the palette without comparing it to the token file is how the card
+  fell two generations behind in the first place.
+- Tying the chip to the row rather than to the listing discloses an empty
+  folder, in a picture that cannot be taken back.
+- Supplying the handle for every share publishes the workspace on links whose
+  address never did.
+- Drawing the domain unconditionally puts `context.lc` on the card twice,
+  which is what it did when this was written.
+
+### One image, not two
+
+An `og:image` is a single static PNG a crawler fetches once. There is no media
+query and no theme signal, so the card cannot follow the reader's appearance
+the way the app does — Paper exists in the product and cannot ship here, and on
+a white message bubble a `#FFFDF9` card has no edges at all. Graphite holds on
+both. The share *page* is HTML and is a different object; making it follow the
+reader is open and unforeclosed.
+
+### The static card's pipeline is a script now, because the old one was unrunnable
+
+`og-card.source.html`'s comment carried a regeneration command — headless
+Chrome plus ImageMagick — and neither is installed in this repository's own
+environment. A command nobody can run is how a source file and the artefact
+beside it drift into disagreeing, quietly. `infra/router/scripts/render-og-card.mjs`
+uses what the repository already installs, and the first thing it caught was
+itself: rendering against Google Fonts behind a TLS-proxying environment fails
+with `ERR_CERT_AUTHORITY_INVALID`, the page falls back to the system sans, and
+the screenshot **succeeds**. The face is injected from the repository's one
+copy of Instrument Sans instead, and the script asserts `document.fonts.size`
+rather than `document.fonts.check` — which answered `true` with zero faces
+loaded, because it reports whether text can be rendered and a fallback can.

@@ -31,7 +31,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
 import { cardImageLeaf, hashTitle } from "./lib/cardKey";
 import { findName } from "./lib/nameClaims";
@@ -78,6 +78,8 @@ export const renderShareCard = internalAction({
     try {
       bytes = await ctx.runAction(internal.functions.cardRender.renderCard, {
         title: share.title,
+        handle: share.handle,
+        kind: share.kind,
         // **Filtered for the picture only, never for the stored list.** A child
         // the font cannot draw is dropped from the image — the same refusal the
         // title gets, for the same tofu — while the description keeps naming
@@ -145,6 +147,24 @@ export const cardSubject = internalQuery({
       teamLink: v.boolean(),
       /** What is stored now, so a listing that fails leaves it standing. */
       children: v.array(v.string()),
+      /**
+       * The workspace as `@name`, or `null` — and `null` is a decision.
+       *
+       * **The handle is drawn only where the link's own address already
+       * carries it**, which is a short link: `context.lc/@seyi/intake` has told
+       * the crawler the handle before it asked for anything. A token link is
+       * `/s/<64 hex>` and says nothing about whose context it is, so a handle
+       * on that card would be a *new* fact for everybody the link is ever
+       * forwarded to — and `docs/decisions/privacy-and-sharing.md` has a
+       * standing rule that link previews reveal nothing about a context.
+       *
+       * A card cannot be taken back once a platform has copied it, so this is
+       * decided in the direction that can be widened later rather than the one
+       * that cannot be narrowed.
+       */
+      handle: v.union(v.string(), v.null()),
+      /** What the link opens, for the card's chip. Never read from the note. */
+      kind: v.union(v.literal("note"), v.literal("folder"), v.literal("form")),
     }),
   ),
   handler: async (ctx, args) => {
@@ -170,6 +190,15 @@ export const cardSubject = internalQuery({
       entryPath: share.entryPath,
       teamLink: share.recipientKind === "members",
       children: boundPreviewChildren(share.previewChildren ?? []),
+      /*
+        The workspace's slug, and only where this row has a slug of its own.
+        Two different slugs live near each other here: `share.slug` is the
+        short link's name (`intake`) and `workspace.slug` is the handle
+        (`seyi`). It is the *presence of the first* that decides whether the
+        second may be drawn — see the field's own note.
+      */
+      handle: await handleForCard(ctx, share),
+      kind: cardKindOf(share),
     };
   },
 });
@@ -325,6 +354,47 @@ export const cardBytesForToken = internalAction({
     }
   },
 });
+
+/**
+ * The workspace's handle for this card, or `null`.
+ *
+ * Two different slugs live near each other here and they are not
+ * interchangeable: `share.slug` is the short link's name (`intake`) and
+ * `workspace.slug` is the handle (`seyi`). **It is the presence of the first
+ * that decides whether the second may be drawn** — see the field's own note on
+ * `cardSubject`.
+ *
+ * Returned in the `@name` form the card draws, rather than the bare slug the
+ * row stores. `CardFacts.handle` is documented as `@name` and `cardArt.ts`
+ * interpolates it without decoration, so a bare slug here is a card reading
+ * `seyi` — which is not what anybody calls that context, and is the kind of
+ * thing that looks correct in a database and wrong in a picture.
+ */
+async function handleForCard(
+  ctx: { db: { get: (id: Id<"workspaces">) => Promise<Doc<"workspaces"> | null> } },
+  share: Doc<"noteShares">,
+): Promise<string | null> {
+  if (share.slug === undefined) return null;
+  const slug = (await ctx.db.get(share.workspaceId))?.slug;
+  return slug === undefined ? null : `@${slug}`;
+}
+
+/**
+ * What kind of thing a link opens, from the row and only from the row.
+ *
+ * `collect` first, because a collect link is always over a note and would
+ * otherwise read as one — and "FORM" is the only chip whose subtitle differs,
+ * so getting this wrong tells a stranger to sign in to a page built for people
+ * with no account.
+ *
+ * `entryKind` is optional on the table (rows predate it), and an absent one is
+ * a note: that is the same default `collectTarget` applies, rather than a
+ * second answer about what an old row means.
+ */
+function cardKindOf(share: Doc<"noteShares">): "note" | "folder" | "form" {
+  if (share.mode === "collect") return "form";
+  return share.entryKind === "folder" ? "folder" : "note";
+}
 
 /** Where a live share's card lives, or `null`. Never says which reason. */
 export const cardLocation = internalQuery({

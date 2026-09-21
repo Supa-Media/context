@@ -1608,6 +1608,8 @@ export const setShareSlug = mutation({
     if (args.slug === null) {
       if (share.slug !== undefined) {
         await ctx.db.patch(share._id, { slug: undefined });
+        // The handle has to come back off the picture. See the claim branch.
+        await scheduleCardRender(ctx, share._id);
         await recordAudit(ctx, {
           workspaceId: share.workspaceId,
           actorUserId: userId,
@@ -1643,6 +1645,21 @@ export const setShareSlug = mutation({
     }
 
     await ctx.db.patch(share._id, { slug });
+    /*
+      THE CARD IS REDRAWN, BECAUSE WHAT IT MAY SAY JUST CHANGED.
+
+      A card leads with the workspace handle only where the link's own address
+      already carries it — which is to say, only where this row has a slug. So
+      claiming one is the moment a card may gain the handle, and releasing one
+      is the moment it must lose it again.
+
+      The leaf is computed from the token, the title and the children, none of
+      which moved here, so this overwrites the same object rather than
+      orphaning the old one. Scheduled and never awaited: a render that fails
+      leaves the previous card standing, which is the same degrade every other
+      caller of this helper accepts.
+    */
+    await scheduleCardRender(ctx, share._id);
     await recordAudit(ctx, {
       workspaceId: share.workspaceId,
       actorUserId: userId,
@@ -1703,9 +1720,13 @@ export const setShareCollecting = mutation({
       }
     }
 
+    // A card's chip and its subtitle both come off `mode`, so the switch has
+    // to redraw: a link that started taking answers while its picture still
+    // said "sign in to read it" would be the card contradicting the page.
     const mode = args.collecting ? "collect" : "read";
     if ((share.mode ?? "read") === mode) return null;
     await ctx.db.patch(share._id, { mode });
+    await scheduleCardRender(ctx, share._id);
     await recordAudit(ctx, {
       workspaceId: share.workspaceId,
       actorUserId: userId,
