@@ -41,6 +41,7 @@ import {
   shortLinkFrom,
   previewFor,
   shareCardTokenFrom,
+  shortLinkCardFrom,
   shareTokenFrom,
   type PreviewMeta,
 } from "./preview";
@@ -63,6 +64,7 @@ export type RouteDecision =
   // for the preview HTML, so it sits AHEAD of the crawler check with the other
   // machine endpoints — a crawler asking for a PNG wants the bytes.
   | { kind: "share-card"; token: string }
+  | { kind: "short-link-card"; handle: string; slug: string }
   // A crawler asking for a readable team link. Shape-checked before it gets
   // here, so `slug` and `path` are well-formed and nothing an attacker types
   // reaches an upstream unchecked.
@@ -165,6 +167,16 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   const cardToken = shareCardTokenFrom(pathname);
   if (cardToken !== null) {
     return { kind: "share-card", token: cardToken };
+  }
+
+  // A short link's card, for the same reason and at the same point in the
+  // order: it is the image the preview tags point at, requested with the same
+  // User-Agent that triggered them. Its address carries a name rather than a
+  // token, which is the whole reason short links can have a card at all — see
+  // `previewForShortLink`.
+  const shortCard = shortLinkCardFrom(pathname);
+  if (shortCard !== null) {
+    return { kind: "short-link-card", handle: shortCard.handle, slug: shortCard.slug };
   }
 
   if (pathname.startsWith(IMMUTABLE_PREFIX)) {

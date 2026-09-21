@@ -9,7 +9,8 @@
  * turns a decision into an actual Response.
  */
 import { previewForNote,
-  previewForShortLink, previewForShare, renderPreviewHtml } from "./preview";
+  previewForShortLink, previewForShare, renderPreviewHtml,
+  SHORT_CARD_PREFIX } from "./preview";
 import { route, type Upstream } from "./route";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
@@ -117,6 +118,15 @@ export default {
       case "share-card":
         return await shareCardResponse(request.url, decision.token, env, ctx);
 
+      case "short-link-card":
+        return await shortLinkCardResponse(
+          request.url,
+          decision.handle,
+          decision.slug,
+          env,
+          ctx,
+        );
+
       case "note-preview": {
         const meta = previewForNote(
           ...(await noteTitle(decision.slug, decision.path, readOrigin(env.CONVEX_ORIGIN))),
@@ -135,12 +145,16 @@ export default {
       }
 
       case "short-link-preview": {
+        const [shortTitle, cardVersion] = await shortLinkPreview(
+          decision.handle,
+          decision.slug,
+          readOrigin(env.CONVEX_ORIGIN),
+        );
         const meta = previewForShortLink(
-          await shortLinkTitle(
-            decision.handle,
-            decision.slug,
-            readOrigin(env.CONVEX_ORIGIN),
-          ),
+          shortTitle,
+          decision.handle,
+          decision.slug,
+          cardVersion,
         );
         return new Response(renderPreviewHtml(meta), {
           status: 200,
@@ -404,6 +418,82 @@ function cacheOrNull(): Cache | null {
   }
 }
 
+/**
+ * The card image for one short link.
+ *
+ * `shareCardResponse`'s twin, and every rule in its doc applies here word for
+ * word: every failure lands on the static product card with a 200, the cache
+ * key is reconstructed rather than taken from the caller, and the `?v=` is a
+ * key and never an input — the picture is re-resolved from the handle and slug
+ * upstream, so nothing in the query reaches what is drawn.
+ *
+ * What differs is the address, and it is the whole point of the route: this one
+ * carries a name where the other carries a 64-character token. That is what
+ * lets a short link have a card without its token being published to whoever
+ * guessed the name.
+ */
+async function shortLinkCardResponse(
+  url: string,
+  handle: string,
+  slug: string,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const cache = cacheOrNull();
+  const version = new URL(url).searchParams.get("v");
+  const suffix = version !== null && /^[0-9a-f]{8}$/.test(version) ? `?v=${version}` : "";
+  const cacheKey = new Request(
+    `https://context.lc${SHORT_CARD_PREFIX}@${handle}/${slug}.png${suffix}`,
+  );
+
+  try {
+    const cached = await cache?.match(cacheKey);
+    if (cached) return cached;
+  } catch {
+    // A cache we cannot read is a slow request, not a failed one.
+  }
+
+  const response = await renderedShortLinkCard(handle, slug, env);
+  if (response.ok && cache !== null) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
+}
+
+async function renderedShortLinkCard(
+  handle: string,
+  slug: string,
+  env: Env,
+): Promise<Response> {
+  const origin = readOrigin(env.CONVEX_ORIGIN);
+  if (origin === null) return staticCard();
+
+  try {
+    const timeout =
+      typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+        ? AbortSignal.timeout(CARD_FETCH_TIMEOUT_MS)
+        : undefined;
+
+    const response = await fetch(`${origin}/share/short/card`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle, slug }),
+      ...(timeout ? { signal: timeout } : {}),
+    });
+
+    // 404 is every absence: no such name, no such slug, revoked, expired, a
+    // link shared with named people, never rendered, bucket unreachable. All
+    // of them mean the static product card, which is what keeps a revoked
+    // link indistinguishable from one that never existed.
+    if (!response.ok) return staticCard();
+
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength === 0) return staticCard();
+
+    return withCardHeaders(new Response(bytes));
+  } catch {
+    return staticCard();
+  }
+}
+
 async function renderedCard(token: string, env: Env): Promise<Response> {
   const origin = readOrigin(env.CONVEX_ORIGIN);
   if (origin === null) return staticCard();
@@ -481,12 +571,21 @@ function withCardHeaders(response: Response): Response {
  * that is not configured, a timeout, a non-200, a body that is not what this
  * documents — is `null`, which renders the generic card.
  */
-async function shortLinkTitle(
+/**
+ * A short link's title and the version of its card, or two nulls.
+ *
+ * A pair rather than a title, for the reason `noteTitle` beside it returns a
+ * triple: the card is addressed by the name this function was already given,
+ * so the only thing missing was a cache-buster — and that comes back
+ * pre-computed because a folder card draws names this route does not
+ * disclose. See `previewForShortLink`.
+ */
+async function shortLinkPreview(
   handle: string,
   slug: string,
   convexOrigin: string | null,
-): Promise<string | null> {
-  if (!convexOrigin) return null;
+): Promise<[string | null, string | null]> {
+  if (!convexOrigin) return [null, null];
 
   const timeout =
     typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
@@ -500,12 +599,21 @@ async function shortLinkTitle(
       body: JSON.stringify({ handle, slug }),
       ...(timeout ? { signal: timeout } : {}),
     });
-    if (!response.ok) return null;
+    if (!response.ok) return [null, null];
     const body: unknown = await response.json();
-    const title = (body as { title?: unknown } | null)?.title;
-    return typeof title === "string" && title.trim() !== "" ? title : null;
+    const payload = body as { title?: unknown; cardVersion?: unknown } | null;
+    const title = payload?.title;
+    const version = payload?.cardVersion;
+    return [
+      typeof title === "string" && title.trim() !== "" ? title : null,
+      // Shape-checked here as well as where it is interpolated. This value
+      // goes into a URL our own tags point at, and "upstream would not send
+      // anything else" is the assumption that makes a path built by
+      // concatenation into a redirect.
+      typeof version === "string" && /^[0-9a-f]{8}$/.test(version) ? version : null,
+    ];
   } catch {
-    return null;
+    return [null, null];
   }
 }
 

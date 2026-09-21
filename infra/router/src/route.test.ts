@@ -271,3 +271,39 @@ describe("route: an unexpected host falls back to the apex rules", () => {
     });
   });
 });
+
+describe("route: a short link's card is an image, not a page", () => {
+  it("is matched before the crawler check, like every other card", () => {
+    // The image the preview tags point at is fetched with the **same**
+    // User-Agent that triggered them, so a card address that only resolved for
+    // a crawler would 404 for a browser opening the picture directly — and one
+    // that only resolved for a browser would never reach an unfurler at all.
+    for (const ua of [undefined, BROWSER_UA, SLACKBOT_UA]) {
+      expect(at("https://context.lc/og/n/@seyi/intake.png?v=abcd1234", ua)).toEqual({
+        kind: "short-link-card",
+        handle: "seyi",
+        slug: "intake",
+      });
+    }
+  });
+
+  it("an address that could never name a card is an ordinary page", () => {
+    // Never a card, and therefore never an upstream POST. A crawler still gets
+    // preview tags for it, which is the existing behaviour for any path that
+    // is not one of the special cases.
+    expect(at("https://context.lc/og/n/seyi/intake.png", BROWSER_UA)).not.toMatchObject({
+      kind: "short-link-card",
+    });
+    expect(at("https://context.lc/og/n/@seyi/a/b.png", BROWSER_UA)).not.toMatchObject({
+      kind: "short-link-card",
+    });
+  });
+
+  it("the short link itself still routes to a preview, not to its card", () => {
+    expect(at("https://context.lc/@seyi/intake", SLACKBOT_UA)).toEqual({
+      kind: "short-link-preview",
+      handle: "seyi",
+      slug: "intake",
+    });
+  });
+});

@@ -1563,6 +1563,51 @@ unbounded, which is the combination `Link previews reveal nothing about a
 context` exists for. What changed is a second segment that only exists because
 somebody typed it.
 
+### A short link has its own card, because a card need not be addressed by a token
+
+Short links unfurled with the product's marketing image while every other link
+this product mints got a picture of the note's name. The reason was written
+down and was sound: a card was addressable **only by the share's token**, a
+slug is a word anybody can type, and a preview route that answered a guessed
+word with a 64-character secret publishes the secret. `/share/short` therefore
+returned no token, and `previewForShortLink` had nothing to point at.
+
+What was wrong was not the reasoning but a premise underneath it that nobody
+had written as an assumption: *a card is addressed by the token*. It does not
+have to be. `/og/n/@seyi/intake.png` addresses the same pre-rendered picture by
+**the handle and slug the crawler already used to ask for the title**, so the
+image arrives and the token stays exactly where it was.
+
+**Nothing new is disclosed, and that is the test this has to pass.** The card
+says the note's name. The name is what `/share/short` already answers with, to
+the same unauthenticated caller, at the same guessable address. A second way to
+learn a fact you could already learn is not a disclosure.
+
+**Every refusal the token route makes, this one makes, plus one.** Active,
+unexpired, `titleInPreview`, and a leaf recomputed rather than trusted — that
+last because a failed render leaves the old leaf in place, and a card is the
+one thing here that cannot be taken back once Discord or iMessage has copied
+it. The extra refusal is `recipientKind === "anyone"`, which
+`previewForShortLink` already applies to the title and which applies at least
+as hard to a picture: a memorable address over a link shared with *named
+people* must not put their note's name in front of somebody who guessed the
+word. It is enforced again rather than inherited, because these are two routes
+and a crawler can ask either.
+
+**The cache-buster is a digest, not the ingredients.** The edge cannot
+invalidate an image — the Workers Cache API is per-datacenter and
+`cache.delete` purges one colo — so a different URL is the only invalidation
+there is. `shareCardPath` gets that by hashing the title it already holds; this
+route's caller cannot, because a folder card also draws two or three names from
+inside the folder and *those* are not what a short link's preview discloses. So
+`cardVersion` comes back pre-computed and the edge never sees them.
+
+**`structure.test.ts` said this would happen and named the wrong fix.** Its
+comment read: "the shape of this addition, a year from now, is somebody
+noticing that short links have no card image and fixing it by copying the field
+from the route above." That is still the wrong fix and the forbidden-field list
+is unchanged; the test now says so beside the right one.
+
 ### A collect link is a write path, and the only one with no account behind it
 
 Non-negotiable #5 says a link an owner mints and can revoke is the single

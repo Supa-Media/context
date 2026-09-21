@@ -129,6 +129,45 @@ export interface FormResult {
   responsesPath: string;
   /** How many votes the response carries now. Absent where the form has none. */
   votes?: number;
+  /**
+   * Who to tell, when this call was a submission to a form that names
+   * somebody. Absent otherwise, and identifiers only — see
+   * `FormNotifyMaterial`.
+   *
+   * It is deliberately **not** part of what `runFileOperation` returns to its
+   * caller — see the `form` branch there. A submitter gets their response id;
+   * they do not get told who the form tells.
+   */
+  notify?: FormNotifyMaterial;
+}
+
+/**
+ * The identifiers a notification needs, and deliberately not the answers.
+ *
+ * **No field values, no submitter, no timestamp.** This travels as the
+ * arguments of a scheduled job, and Convex persists a scheduled job's arguments
+ * until it runs — so answers in here would be note content stored in the
+ * control plane, which non-negotiable #1 says never happens. It is a short
+ * window and it is still the wrong side of a line that is absolute on purpose.
+ *
+ * So the content is read back at delivery, from the customer's bucket, through
+ * `canSee` **as the recipient** — see `readResponseForNotification`. That costs
+ * one read and buys two things beyond the non-negotiable: the mail carries what
+ * the file says rather than what an argument claimed, and the same call that
+ * fetches it is the call that decides whether this person may have it. A
+ * boolean check beside separately-carried content is two facts that can
+ * disagree; this is one.
+ *
+ * `to` is the block's raw `notify` value — `owner`, or a handle. It is carried
+ * as written and resolved in the control plane, because resolving it is three
+ * questions about state this module has never had access to: is that a person,
+ * are they still a member here, may they read the answers.
+ */
+export interface FormNotifyMaterial {
+  to: string;
+  formId: string;
+  notePath: string;
+  responsesPath: string;
 }
 
 interface FormConfigField {
@@ -147,6 +186,8 @@ interface FormConfig {
   submit: WorkspaceRole;
   edit_own: boolean;
   votes: "named" | "off";
+  /** `owner` or a handle, when the block names somebody to tell. */
+  notify?: string;
   fields: FormConfigField[];
 }
 
@@ -301,6 +342,7 @@ export async function runFormAction(
       formId: config.id,
       responsesPath,
       ...(config.votes === "named" ? { votes: applied.votes } : {}),
+      ...(notifyMaterialFor(config, options, responsesPath) ?? {}),
     };
   }
 
@@ -308,6 +350,160 @@ export async function runFormAction(
     "CONFLICT",
     "Other responses kept landing while this one was being written. Try again.",
   );
+}
+
+/**
+ * The one answer a notification is about, read as the person being told.
+ *
+ * This is the whole of the notification feature's privacy story, and it is one
+ * call rather than two on purpose. The obvious shape — check a boolean, then
+ * render content carried separately — is two facts about one file that can
+ * disagree, and the place they would disagree is the place where being wrong
+ * means the content has already been sent. Here the read that produces the
+ * answers is the read that `canSee` authorised, so there is no arrangement of
+ * them that mails something the manifest refuses.
+ *
+ * It is asked **at delivery**, against the manifest as it stands then, for the
+ * reason `functions/shares.ts` re-derives a share's visibility on every read:
+ * an answer computed when the form was written goes stale the moment its owner
+ * changes their mind in `privacy.md`, and mail is the copy that cannot be
+ * recalled.
+ *
+ * Three asymmetries worth stating, because each looks like an oversight:
+ *
+ *  - **The form's own note is read without `canSee`**, exactly as
+ *    `runFormAction` reads the response file without it. The path did not come
+ *    from a caller; it came from the submission that just happened. What is
+ *    taken from that note is the block, which is the only thing that knows how
+ *    to parse the answers — never its prose.
+ *  - **The response file is read with `canSee`**, because that is the file
+ *    whose contents are about to be mailed.
+ *  - **A response that is gone is not an error.** Between a submission and its
+ *    notification somebody may have retracted it, and there is nothing to
+ *    announce; `null` and "you may not see this" are the same outcome to the
+ *    caller, which is the refusal shape every read in this package uses.
+ */
+export async function readResponseForNotification(
+  store: FileStore,
+  clearance: Clearance,
+  target: {
+    notePath: string;
+    formId: string;
+    responsesPath: string;
+    responseId: string;
+    /** Who the caller believes this form tells. Checked against the block. */
+    to: string;
+  },
+): Promise<{ by: string; at: string; answers: FormAnswer[] } | null> {
+  const responsesPath = normalizePath(target.responsesPath);
+  const notePath = normalizePath(target.notePath);
+  if (responsesPath === null || notePath === null) return null;
+  /*
+    NO SEPARATE `privacy.md` REFUSAL HERE, AND THAT IS A FINDING RATHER THAN AN
+    OMISSION.
+
+    One was written. `canSee` answers `true` for the manifest at `private`
+    scope — correctly; an owner may read their own access map — and this is the
+    one read in this package whose result is *emailed*, so a form whose
+    `responses:` pointed there looked like a way to mail somebody their own
+    access map.
+
+    Sabotaging the refusal failed nothing, twice over: nothing can write a
+    response into `privacy.md` (the marker check refuses a file this package
+    did not write), and nothing can read one back out of it (the same check, in
+    `parseResponsesFile`, which is what this function's `parsed.error` branch
+    catches). A guard nobody has checked is not a guard, and a guard that
+    cannot be reached is not one either — so the property is stated here
+    instead of being enforced twice, where it is enforced once and tested.
+  */
+  if (!responsesPath.endsWith(".md") || isPlumbing(responsesPath)) return null;
+
+  const state = await loadPrivacyState(store);
+  if (!canSee(responsesPath, clearance.scope, state.rules, state.overrides, clearance.names)) {
+    return null;
+  }
+
+  const note = await store.get(notePath);
+  if (note === null) return null;
+  const noteText = await note.text();
+  if (isEncryptedNote(noteText)) return null;
+  const blocks = parseFormBlocks(noteText) as Array<{ config?: FormConfig }>;
+  const config = blocks.find((block) => block.config?.id === target.formId)?.config;
+  if (config === undefined) return null;
+  /*
+    THE RECIPIENT IS READ OUT OF THE BLOCK, NEVER TAKEN FROM THE CALLER.
+
+    `to` arrived as an argument — through a scheduled job, and through
+    `/gateway/forms/notify`, which a leaked gateway secret can reach. Without
+    this line that argument decides who a real answer is mailed to, and the
+    only thing standing between it and an arbitrary member of the context is
+    that the member has to be able to read the file. That is a smaller hole
+    than a relay and it is the same *shape*: a destination supplied by a
+    caller rather than derived from the thing being sent.
+
+    So the block is the authority on who it tells, exactly as the session is
+    the authority on `by`. An argument that disagrees with the file is refused
+    rather than reconciled.
+  */
+  if (config.notify !== target.to) return null;
+
+  const stored = await store.get(responsesPath);
+  if (stored === null) return null;
+  const storedText = await stored.text();
+  if (isEncryptedNote(storedText)) return null;
+  const parsed = parseResponsesFile(storedText, config) as {
+    responses?: StoredResponse[];
+    error?: string;
+  };
+  if (parsed.error || !parsed.responses) return null;
+
+  const response = parsed.responses.find((row) => row.id === target.responseId);
+  if (response === undefined) return null;
+  return {
+    by: response.by,
+    at: response.at,
+    // Declaration order, which is the order the person who built the form
+    // chose to ask in and the order the responses file renders.
+    answers: config.fields.map((field) => ({
+      field: field.name,
+      value: response.values[field.name] ?? "",
+    })),
+  };
+}
+
+/**
+ * The notification material for a call that was a submission, or nothing.
+ *
+ * **Only `submit`.** An edit, a retraction and a vote are all changes to an
+ * answer that has already been announced, and mailing one is either noise or —
+ * for a vote, which a whole workspace can cast — a way for one member to fill
+ * another's inbox by clicking. "Anytime there is a submission" is what was
+ * asked for and it is what this is; widening it later is a decision, so the
+ * switch is a `kind` check rather than a truthiness test that would quietly
+ * admit the other three if the shape of `FormAction` changed.
+ *
+ * Read off the response that was **stored**, not off the arguments: `values`
+ * here are what `validateSubmission` normalised and what the file now holds, so
+ * the mail and the note cannot describe different answers. Field order follows
+ * the form's declaration rather than the submission's, because that is the
+ * order the person who built the form chose to ask in and the order the
+ * responses file renders.
+ */
+function notifyMaterialFor(
+  config: FormConfig,
+  options: { path: string; action: FormAction },
+  responsesPath: string,
+): { notify: FormNotifyMaterial } | null {
+  if (options.action.kind !== "submit") return null;
+  if (config.notify === undefined) return null;
+  return {
+    notify: {
+      to: config.notify,
+      formId: config.id,
+      notePath: options.path,
+      responsesPath,
+    },
+  };
 }
 
 interface Applied {

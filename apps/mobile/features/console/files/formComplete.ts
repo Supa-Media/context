@@ -70,6 +70,7 @@ const CONFIG_KEYS: ReadonlyArray<FormChoice> = [
   { label: "edit_own", insert: "edit_own: true", detail: "may people change their answer" },
   { label: "show_responses", insert: "show_responses: true", detail: "draw readable responses below" },
   { label: "votes", insert: "votes: named", detail: "named or off" },
+  { label: "notify", insert: "notify: owner", detail: "email owner or @handle on every answer" },
   { label: "fields", insert: "fields:\n  - { name: , type: line, max: 120 }", caretBack: 26, detail: "the questions, one per line" },
 ];
 
@@ -113,6 +114,20 @@ const VALUES: ReadonlyMap<string, ReadonlyArray<FormChoice>> = new Map([
     { label: "true", detail: "show responses when the viewer may read them" },
     { label: "false", detail: "keep responses out of the form" },
   ]],
+  /*
+    One value, and the reason there is only one is the rule this whole table
+    is held to: every offer is parsed back through `parseFormBlocks` in this
+    module's own test, because a completion suggesting something the gateway
+    refuses is worse than none — the person now believes they were told the
+    answer.
+
+    `owner` is the value this file can be sure of. A handle is somebody's, and
+    which handles exist here is not something an editor's autocomplete knows;
+    a bare `@` would be offered and then refused. An email address is absent
+    for the stronger reason: it is refused by design, and this list is not the
+    place somebody learns that.
+  */
+  ["notify", [{ label: "owner", detail: "whoever owns this context" }]],
   ["required", [{ label: "true" }, { label: "false" }]],
 ]);
 

@@ -697,6 +697,17 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/forms/notify": {
+        // The real route answers `{ok: true}` on every path, for the reason
+        // `/gateway/activity` does: the difference between "no such context",
+        // "nobody by that name here" and "they have no verified address" is
+        // three facts about other people, and a status code is a channel back
+        // to a worker that is not listening anyway. `calls` already carries
+        // the body, so a test asserts what the gateway reported by reading
+        // that rather than by a second recording here.
+        return ok({ ok: true });
+      }
+
       case "/gateway/usage": {
         // The reference implementation of the counter route: it accepts a list
         // of {metric, workspaceId, count} and answers how many it applied.
