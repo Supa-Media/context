@@ -79,8 +79,23 @@ const MANIFEST =
 function createBucket() {
   const objects = new Map();
   let etags = 0;
+  /*
+    Storage round trips, counted.
+
+    A refusal that reads the same and costs a different number of trips to the
+    bucket is still two different answers — the second one is just measured
+    with a clock rather than read. Counting them makes that a deterministic
+    check instead of a flaky timing one.
+  */
+  const ops = { get: 0, list: 0, put: 0, delete: 0 };
+  /** Every key whose BYTES were fetched, as opposed to probed for. */
+  const fetched = [];
+  const trips = () => ops.get + ops.list + ops.put + ops.delete;
   return {
     objects,
+    ops,
+    trips,
+    fetched,
     seed(key, body) {
       objects.set(key, { body, etag: `e${++etags}`, uploaded: new Date() });
     },
@@ -88,6 +103,8 @@ function createBucket() {
       return objects.get(key)?.body;
     },
     async get(key) {
+      ops.get += 1;
+      fetched.push(key);
       const stored = objects.get(key);
       if (!stored) return null;
       return {
@@ -97,6 +114,7 @@ function createBucket() {
       };
     },
     async put(key, value, options = {}) {
+      ops.put += 1;
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       if (options?.onlyIf?.absent && objects.has(key)) return null;
@@ -105,12 +123,14 @@ function createBucket() {
       return { etag: `e${etags}` };
     },
     async delete(key, options = {}) {
+      ops.delete += 1;
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       objects.delete(key);
       return {};
     },
     async list({ prefix } = {}) {
+      ops.list += 1;
       return {
         objects: [...objects.keys()]
           .filter((key) => !prefix || key.startsWith(prefix))
@@ -247,6 +267,63 @@ export async function runPrivacyGroupChecks(check) {
     check(
       "the refusal is byte-identical to the one a note that does not exist gets",
       teamReadsGroupNote === teamReadsAbsent
+    );
+
+    /*
+      AND THEY MUST COST THE SAME, NOT ONLY READ THE SAME.
+
+      The check above closes the channel a caller READS. This one closes the
+      channel a caller MEASURES. `read_note` used to refuse an invisible path
+      from `canSee` alone, before touching the bucket, while a path the caller
+      could have seen went to storage and missed first: 1 round trip against 4,
+      byte-identical answers. The cheap refusal was the one where the manifest
+      was holding something back.
+
+      All four shapes are driven, because two of them are the ones that would
+      put the leak back one level down if only the first pair were checked: a
+      note that EXISTS but is hidden must cost what a note that was never
+      written costs, or the bit on offer becomes existence instead of
+      visibility.
+
+      Counted rather than timed, so this is deterministic. The number is not
+      the invariant; the equality is.
+    */
+    const tripsFor = async (path) => {
+      const before = bucket.trips();
+      await callTool(env, TEAM_TOKEN, "read_note", { path });
+      return bucket.trips() - before;
+    };
+    const refusalCosts = {
+      "held back by name, and exists": await tripsFor("1-projects/rates.md"),
+      "inside a group folder, and exists": await tripsFor("2-areas/feedback/q3.md"),
+      "never written, in a folder the caller can see": await tripsFor("1-projects/no-such-note.md"),
+      "never written, in a folder it cannot": await tripsFor("2-areas/feedback/no-such.md"),
+    };
+    /*
+      AND A REFUSAL NEVER FETCHES THE NOTE'S BYTES.
+
+      The equality above is blind to HOW the work is done: swapping the
+      metadata probe back for a real `get` keeps every count identical and
+      measures nothing, which sabotage confirmed. It would also start pulling
+      a private note's plaintext into the worker for somebody who may not read
+      it — `S3Store.get` and `DropboxStore.get` both buffer the whole object
+      before any caller asks for text, so on those backends an "unread" body is
+      not a thing that exists.
+
+      So the shape is asserted directly rather than inferred from the cost.
+    */
+    bucket.fetched.length = 0;
+    await callTool(env, TEAM_TOKEN, "read_note", { path: "1-projects/rates.md" });
+    check(
+      "a refused read never fetches the note's bytes, only its metadata",
+      !bucket.fetched.includes("1-projects/rates.md")
+    );
+
+    const costs = Object.values(refusalCosts);
+    check(
+      `every refusal costs the same number of storage trips `
+        + `(${Object.entries(refusalCosts).map(([k, v]) => `${k}: ${v}`).join(", ")})`,
+      costs.every((cost) => cost === costs[0])
     );
 
     const teamSearch = await callTool(env, TEAM_TOKEN, "search_notes", { query: "FEEDBACKSECRET" });

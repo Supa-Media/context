@@ -52,6 +52,27 @@ export class R2Store {
     return this.bucket.get(applyRootPrefix(this.rootPrefix, assertSafeKey(key)));
   }
 
+  /**
+   * Is there an object at exactly this key, without fetching it.
+   *
+   * `head` rather than a prefix `list`: a list is not an existence check on
+   * every backend — Dropbox lists a FOLDER — and it is the wrong shape even
+   * here, answering "what begins with this" for a question about one key.
+   */
+  async exists(key) {
+    const full = applyRootPrefix(this.rootPrefix, assertSafeKey(key));
+    // `head` is on the real binding; a prefix listing is the fallback and is a
+    // correct existence check HERE, because R2 keys really are a flat
+    // namespace with prefix semantics. It is not correct on Dropbox, which is
+    // why that adapter answers this question with `get_metadata` instead and
+    // why this method exists at all.
+    if (typeof this.bucket.head === "function") {
+      return (await this.bucket.head(full)) !== null;
+    }
+    const page = await this.bucket.list({ prefix: full, limit: 4 });
+    return (page?.objects || []).some((object) => object.key === full);
+  }
+
   async put(key, value, options) {
     // An `onlyIf` carrying a missing or empty etag is rejected, exactly as
     // S3Store does. R2's R2Conditional with no etagMatches carries no

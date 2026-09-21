@@ -1486,8 +1486,23 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
  * reached. Missing and unreachable are both "no": a store that errors here
  * refuses the socket rather than opening one on an assumption.
  */
+/**
+ * Is there an object at exactly this key?
+ *
+ * `store.exists` where the adapter has one — a HEAD on S3, a `head` on R2,
+ * `get_metadata` on Dropbox — because a prefix listing is not an existence
+ * check everywhere: Dropbox's `list` is `/files/list_folder`, so asking it
+ * about a note's key asks about a directory that does not exist. Found by
+ * trying it, not by reading: the listing version passed every R2 and S3 test
+ * and failed the Dropbox one.
+ *
+ * The listing stays as the fallback so a store without the method — every
+ * in-memory stub in this suite — still answers, and so that adding the method
+ * to an adapter is an improvement rather than a prerequisite.
+ */
 async function objectExists(store, key) {
   try {
+    if (typeof store.exists === "function") return Boolean(await store.exists(key));
     const page = await store.list({ prefix: key, limit: 4 });
     return (page?.objects || []).some((object) => object.key === key);
   } catch {
@@ -4784,7 +4799,29 @@ async function listVisibleNoteKeysWithMoves(store, scope, rules, overrides, pref
   );
 }
 
-async function getVisibleMovedNote(store, scope, rules, overrides, path) {
+/**
+ * Existence, by metadata, with the same legacy fallback a read would follow.
+ *
+ * Returns a sentinel rather than an object: callers of `getVisibleMovedNote`
+ * only ever ask whether the thing is there, and handing back something that
+ * looks like a note but has no body is how a caller ends up reading `undefined`
+ * into a customer's bucket.
+ */
+const PRESENT = Object.freeze({ present: true });
+async function probeWithLegacyFallback(store, key) {
+  if (await objectExists(store, key)) return PRESENT;
+  const legacy = legacyStorageKey(key);
+  if (legacy && (await objectExists(store, legacy))) return PRESENT;
+  return null;
+}
+
+/**
+ * @param fetchOne how deep to look: the default fetches the object, and
+ *   `probeWithLegacyFallback` answers the same question out of metadata. One
+ *   function either way, because the ORDER these keys are tried in is the part
+ *   that must not exist twice — see the rows about second implementations.
+ */
+async function getVisibleMovedNote(store, scope, rules, overrides, path, fetchOne = getWithLegacyFallback) {
   const jobs = await loadMoveJobs(store);
   if (jobs.some((job) => path.startsWith(`${job.source}/`))) {
     return { object: null, physicalPath: path };
@@ -4794,12 +4831,12 @@ async function getVisibleMovedNote(store, scope, rules, overrides, path) {
     const source = movedSourceFor(job, path);
     if (!source) continue;
     if (!canSee(source, scope, rules, overrides)) return { object: null, physicalPath: path };
-    const destinationObject = await getWithLegacyFallback(store, path);
+    const destinationObject = await fetchOne(store, path);
     if (destinationObject) return { object: destinationObject, physicalPath: path };
-    const sourceObject = await getWithLegacyFallback(store, source);
+    const sourceObject = await fetchOne(store, source);
     if (sourceObject) return { object: sourceObject, physicalPath: source };
   }
-  return { object: await getWithLegacyFallback(store, path), physicalPath: path };
+  return { object: await fetchOne(store, path), physicalPath: path };
 }
 
 async function persistPrivacyFolderMove(store, source, destination) {
@@ -6297,10 +6334,54 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   // message is the one key `read_note` answers "not found" for.
   const requested = splitMessageAnchor(named).path;
   if (!requested) return toolError("invalid path");
-  if (!canSee(requested, scope, rules, overrides)) return toolError("not found");
+  /*
+    **THE REFUSAL MUST COST WHAT THE OTHER REFUSAL COSTS.**
+
+    `canSee` used to refuse right here, before the bucket had been touched at
+    all, while a path the caller could have seen went to storage and missed
+    first. The two refusals are byte-identical to read — `privacyGroups`
+    asserts that — and were 1 storage round trip against 4 to measure. Same
+    words, different cost, so the cheap refusal was the one where the manifest
+    is holding something back.
+
+    A team connection enumerating names inside a folder it CAN see would learn
+    from the cost alone which of them carry an exact-note override, and an
+    override is written only when somebody deliberately made a note there
+    private. Their own listing cannot tell them that: a held-back note is
+    absent from it either way. That is non-negotiable #5's "infer the
+    existence of", reached with a clock instead of a read.
+
+    So the lookup runs the same way for everybody and the decision is taken at
+    the end. Two things make that safe rather than merely equal:
+
+      - **It is metadata until the last step.** The resolution uses
+        `probeWithLegacyFallback`, and the body is fetched only once both
+        questions have passed. This matters concretely: `S3Store.get` buffers
+        the whole object with `response.arrayBuffer()` before any caller asks
+        for text, so resolving an invisible path with a real `get` would pull a
+        private note's plaintext into the worker on behalf of somebody who may
+        not read it. R2 would not, and the difference between the two adapters
+        is exactly why this is a probe.
+      - **The forwarding lookup runs whenever the answer will be a refusal**,
+        not only when the note is absent. Skipping it for a note that exists
+        but is hidden would put the leak back one level down, keyed on
+        existence instead of visibility.
+
+    The price is one metadata listing on a successful read. It is paid on the
+    hottest tool in the product, deliberately, and it is the only shape that
+    makes the two refusals indistinguishable rather than merely close.
+  */
+  const seen = canSee(requested, scope, rules, overrides);
   let path = requested;
-  let obj = (await getVisibleMovedNote(store, scope, rules, overrides, path)).object;
-  if (!obj) {
+  const found = await getVisibleMovedNote(
+    store, scope, rules, overrides, requested, probeWithLegacyFallback,
+  );
+  let present = Boolean(found.object);
+  // The logical path is what the reader is told; the physical one is where the
+  // bytes are. A note caught mid-move answers at its source and is reported at
+  // its destination, so conflating the two reports the wrong address.
+  let physicalPath = found.physicalPath;
+  if (!present || !seen) {
     /*
       A STALE PATH IS FORWARDED, BUT ONLY AFTER IT HAS MISSED.
 
@@ -6319,15 +6400,21 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
       a note forwarded into a private folder is not found, exactly as it would
       be if the caller had asked for its current path directly.
     */
-    const forwarded = forwardPath(await readForwarding(store), path);
-    if (forwarded !== path && canSee(forwarded, scope, rules, overrides)) {
-      const landed = await getVisibleMovedNote(store, scope, rules, overrides, forwarded);
-      if (landed.object) {
-        obj = landed.object;
+    const forwarded = forwardPath(await readForwarding(store), requested);
+    if (forwarded !== requested && canSee(forwarded, scope, rules, overrides)) {
+      const landed = await getVisibleMovedNote(
+        store, scope, rules, overrides, forwarded, probeWithLegacyFallback,
+      );
+      if (landed.object && !present) {
+        present = true;
         path = forwarded;
+        physicalPath = landed.physicalPath;
       }
     }
   }
+  // Both questions, asked once, in one place.
+  if (!seen || !present) return toolError("not found");
+  const obj = await getWithLegacyFallback(store, physicalPath);
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // Decrypted here, at request time, and nowhere else. The caller is handed the

@@ -184,6 +184,21 @@ export class S3Store {
     };
   }
 
+  /**
+   * Is there an object at exactly this key, without fetching it.
+   *
+   * A real HEAD, which matters here more than on R2: `get` above buffers the
+   * whole object with `arrayBuffer()` before any caller asks for text, so
+   * using it to answer an existence question would pull a note's plaintext
+   * into the worker for a caller who may never be allowed to read it.
+   */
+  async exists(key) {
+    const response = await this.send("HEAD", this.urlFor(key));
+    if (response.status === 404) return false;
+    if (!response.ok) throw await s3Error("HEAD", key, response);
+    return true;
+  }
+
   async put(key, value, options = {}) {
     // Validated against an allow-list, not sanitised: this lands in a request
     // header, so the only safe input is one that cannot be chosen freely. See
