@@ -360,6 +360,52 @@ describe("what the link has to be", () => {
     expect(errorCode(await captureError(() => answer(f, token)))).toBe("LINK_NOT_COLLECTING");
   });
 
+  test("a slug claimed in another context does not collect at this handle", async () => {
+    const f = await fixture();
+    /*
+      THE ONE UNAUTHENTICATED **WRITE** THAT RESOLVES BY A GUESSABLE ADDRESS.
+
+      `submitThroughLink` takes either a token or a short link's two halves,
+      and `collectTarget` turns `(handle, slug)` into the row that decides
+      **which customer's bucket a stranger's answer lands in**. The handle
+      picks the workspace; the slug picks the row within it.
+
+      Dropping the workspace from that lookup — so a slug matches whichever
+      context claimed it, whatever handle was asked for — reddened **nothing**
+      in 3,206 tests. Slugs are owner-chosen words, so two contexts sharing
+      one is ordinary; and this is the write path, not a preview.
+
+      `@dan` is a real handle here and has claimed no slug. Asking it for a
+      slug that exists only in the other context must refuse, and must refuse
+      with the generic answer that says nothing about where the slug does
+      live.
+    */
+    const { shareId } = await link(f, "collect");
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareSlug, {
+      shareId,
+      slug: "intake",
+    });
+
+    const wrongHandle = await captureError(() =>
+      f.t.action(api.functions.collect.submitThroughLink, {
+        handle: "dan",
+        slug: "intake",
+        values: [{ field: "who", value: "Jordan" }],
+        challenge: "widget-token",
+      }),
+    );
+    expect(errorCode(wrongHandle)).toBe("LINK_NOT_COLLECTING");
+
+    // The control: the same slug at its own handle takes the answer, so the
+    // refusal above is the workspace rather than a link that never worked.
+    await f.t.action(api.functions.collect.submitThroughLink, {
+      handle: "seyi",
+      slug: "intake",
+      values: [{ field: "who", value: "Jordan" }],
+      challenge: "widget-token",
+    });
+  });
+
   test("a folder cannot collect, and the owner is told at the mint", async () => {
     // Said twice on purpose. `collectTarget` refuses a folder row because that
     // is what an already-written row has to be judged by; the mint refuses it

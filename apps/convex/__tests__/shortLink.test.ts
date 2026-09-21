@@ -639,6 +639,92 @@ describe("what a short link unfurls with", () => {
     live and wants the test this comment is standing in for.**
   */
 
+  test("a slug claimed in another context does not answer at this handle", async () => {
+    const f = await fixture();
+    /*
+      THE HANDLE IS HALF THE ADDRESS, AND NOTHING WAS HOLDING IT THERE.
+
+      Both unauthenticated short-link routes resolve `(handle, slug)` through
+      the `by_workspace_slug` index. The handle picks the workspace and the
+      slug picks the row *within* it — and slugs are owner-chosen words, so
+      the same one in two contexts is ordinary rather than exotic.
+
+      Dropping the workspace from either lookup, so a slug matches whichever
+      context claimed it first, reddened **nothing** in 3,206 tests. Both
+      routes are answerable by anybody who can type, and what they hand back
+      is a note's name.
+
+      So: a slug that exists **only** in another context, asked for at this
+      handle. Both routes must answer with the generic absence, and the
+      control below proves the row is reachable at its own handle — otherwise
+      this passes for the boring reason.
+    */
+    const stranger = await createUser(f.t, "stranger@example.invalid");
+    const other = await createWorkspace(f.t, stranger, "mara");
+    const encrypted = await encryptSecret(FAKE_STORAGE.secretAccessKey, requireKeyset(), {
+      workspaceId: other,
+    });
+    await f.t.run((ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId: other,
+        provider: FAKE_STORAGE.provider,
+        endpoint: FAKE_STORAGE.endpoint,
+        region: FAKE_STORAGE.region,
+        bucket: FAKE_STORAGE.bucket,
+        accessKeyId: FAKE_STORAGE.accessKeyId,
+        encryptedSecretAccessKey: encrypted,
+        capabilities: { conditionalWrite: true },
+        status: "connected" as const,
+        lastVerifiedAt: Date.now(),
+        boundBy: stranger,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    await asUser(f.t, stranger).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: other,
+      path: "1-projects",
+      visibility: "team",
+    });
+    const theirs = await asUser(f.t, stranger).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: other, path: ENTRY },
+    );
+    const theirRows = await asUser(f.t, stranger).query(api.functions.shares.listShares, {
+      workspaceId: other,
+    });
+    const theirRow = theirRows.find((row) => row.token === theirs.token)!;
+    await asUser(f.t, stranger).mutation(api.functions.shares.setShareSlug, {
+      shareId: theirRow.shareId,
+      slug: "intake",
+    });
+    await f.t.mutation(internal.functions.shareCard.recordCardLeaf, {
+      shareId: theirRow.shareId,
+      leaf: cardImageLeaf(theirs.token, "Overview"),
+    });
+
+    // `seyi` has claimed nothing. The slug belongs to `mara` alone.
+    expect(
+      await f.t.query(api.functions.shares.previewForShortLink, {
+        handle: "seyi",
+        slug: "intake",
+      }),
+    ).toEqual({ title: null, cardVersion: null });
+    expect(await cardAt(f, "seyi", "intake")).toBeNull();
+
+    // The control: it is a live, card-bearing link at its own handle, so the
+    // two absences above are the workspace and not a missing row.
+    expect(
+      (
+        await f.t.query(api.functions.shares.previewForShortLink, {
+          handle: "mara",
+          slug: "intake",
+        })
+      ).title,
+    ).not.toBeNull();
+    expect((await cardAt(f, "mara", "intake"))?.workspaceId).toBe(other);
+  });
+
   test("every absence is the same absence", async () => {
     const f = await fixture();
     const share = await shortLink(f, "intake");
