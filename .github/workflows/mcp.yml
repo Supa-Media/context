@@ -170,6 +170,39 @@ jobs:
         working-directory: packages/meetings
         run: node test/test.mjs
 
+  obsidian-runtime:
+    name: Test Obsidian Runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # THE EIGHTH PACKAGE FOUND THIS WAY, AND THE FIRST FOUND BY A CHECK
+      # RATHER THAN BY SOMEBODY NOTICING. Every job above carries its own
+      # version of "no CI job ran this package's suite either"; this one was
+      # reported by `scripts/check-package-tests-run.mjs`, added in the same
+      # change so there is no ninth.
+      #
+      # What went unrun matters more than the count. This package is the
+      # plugin sandbox: `src/protocol.js` decides which capability each plugin
+      # operation requires and whether a grant authorises it, and its suite is
+      # what holds `vault.delete` away from a plugin granted only `vault:read`.
+      # 635 lines of assertions on the boundary between third-party code and a
+      # customer's notes, running only when a developer remembered.
+      #
+      # Here rather than in `ci.yml` for the reason in this file's header: no
+      # `paths:` filter on `pull_request`, so it runs on every pull request,
+      # including one that changes only the console's plugin host. Bare node,
+      # no install: this package's only dependency is a typechecker.
+      - name: Run test suite
+        working-directory: packages/obsidian-runtime
+        run: node test/test.mjs
+
   communications:
     name: Test Communications Core
     runs-on: ubuntu-latest
@@ -358,6 +391,19 @@ jobs:
         run: |
           node scripts/check-workflow-triggers.mjs --self-test
           node scripts/check-workflow-triggers.mjs
+
+      # The trigger checker above asserts that workflows reach pull requests.
+      # This asserts the other half nothing checked: that every package with a
+      # suite is actually RUN by one of them. Seven packages were found
+      # uncovered one at a time before it existed — the comments on the jobs
+      # in this file are the record — and `packages/obsidian-runtime` was the
+      # eighth, reported by this script rather than noticed.
+      #
+      # Two hosts, same reasoning as above.
+      - name: Every package with a test suite is run by a pull request
+        run: |
+          node scripts/check-package-tests-run.mjs --self-test
+          node scripts/check-package-tests-run.mjs
 
       # A deploy preflight calling the bare GET /accounts/{id} endpoint is what
       # took down deploy-router.yml and deploy-email-worker.yml on 2026-09-07
