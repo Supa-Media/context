@@ -159,6 +159,190 @@ export async function runStorageLayoutChecks() {
     ![...store.objects.keys()].some((key) => currentStorageKey(key) !== key),
   );
 
+  /*
+    CLEANUP'S ADVERSE CONDITION, WHICH THE HAPPY PATH NEVER PRODUCES.
+
+    Cleanup deletes a legacy object only after `copyWithoutOverwrite` has put
+    a byte-identical copy at the new key. `.history/` is note revisions and
+    `.images/` is attachments, so a wrong delete here is customer content —
+    non-negotiable #1 and #3's "never the only copy of anything".
+
+    The guard runs on every object in the existing pass above and has nothing
+    to do in any of them: every destination was written by the copy phase
+    minutes earlier, so `copyWithoutOverwrite` always answers `copied` and the
+    conflict branch is never taken. Measured that way: deleting the conflict
+    branch outright failed **0** of the gateway suite and 0 of the control
+    plane's, even though the line executes hundreds of times.
+
+    So this stages the disagreement. A destination that already holds
+    DIFFERENT bytes — a half-finished earlier migration, a customer's own
+    tooling, an interrupted pass — must stop the delete rather than be treated
+    as the copy.
+  */
+  const contested = memoryStore({
+    ".history/kept.md.old": "THE ONLY COPY",
+    ".audit/other.json": "{}",
+  });
+  const contestedCopy = await migrateStorageLayout(contested, { batchSize: 100 });
+  check(
+    "the contested fixture reaches `copied` first, or the rest proves nothing",
+    contestedCopy.state === "copied",
+  );
+  // Somebody else's bytes arrive at the destination after the copy verified.
+  await contested.put(currentStorageKey(".history/kept.md.old"), "NOT THE SAME");
+  const contestedNow = Date.parse(contestedCopy.copiedAt) + STORAGE_LAYOUT_ROLLBACK_MS;
+  let contestedCleanup;
+  let guard = 0;
+  do {
+    contestedCleanup = await migrateStorageLayout(contested, {
+      batchSize: 3,
+      cleanup: true,
+      now: {
+        toISOString: () => new globalThis.Date(contestedNow).toISOString(),
+        getTime: () => contestedNow,
+      },
+    });
+    guard += 1;
+  } while (contestedCleanup.state === "cleaning" && guard < 20);
+  check(
+    "a destination holding different bytes stops the cleanup",
+    contestedCleanup.state === "conflict",
+  );
+  check(
+    "...and names the object it stopped on",
+    (contestedCleanup.conflicts || []).includes(".history/kept.md.old"),
+  );
+  check(
+    "...and the legacy revision is still there, because it was the only copy",
+    contested.objects.has(".history/kept.md.old"),
+  );
+  check(
+    "...and the bytes that were already at the destination are untouched",
+    new TextDecoder().decode(
+      contested.objects.get(currentStorageKey(".history/kept.md.old")),
+    ) === "NOT THE SAME",
+  );
+
+  /*
+    THE SECOND BYTE COMPARISON, WHICH IS A DIFFERENT GUARD FROM THE FIRST.
+
+    `copyWithoutOverwrite` compares bytes twice and they answer different
+    questions. The `existing` branch asks *is what is already at the
+    destination mine?* — that is the contested-destination case above. The
+    branch after the write asks *did the store actually store what I sent?*
+    and exists because a `put` that reports success is not proof: an
+    eventually-consistent or simply wrong backend can accept a write and serve
+    back something else, and the migration would then delete the legacy
+    original against a destination that never held it.
+
+    Measured separately, because conflating them cost a round here: with the
+    contested-destination check above in place, defeating the POST-WRITE
+    comparison still failed **0** — the fixture never reaches that line,
+    because its destination already exists.
+
+    A store that lies is the only way to reach it, so here is one.
+  */
+  function lyingStore(seed, victimKey) {
+    const inner = memoryStore(seed);
+    return {
+      ...inner,
+      objects: inner.objects,
+      capabilities: inner.capabilities,
+      get: (key) => inner.get(key),
+      delete: (key, options) => inner.delete(key, options),
+      list: (options) => inner.list(options),
+      // Accepts the write, reports success, and stores something else. Only
+      // for the one key under test: the migration's own state file and
+      // manifest go through this same `put`, and corrupting those would fail
+      // the run for an unrelated reason.
+      put: (key, value, options) =>
+        key === victimKey
+          ? inner.put(key, "WHAT THE STORE ACTUALLY KEPT", options)
+          : inner.put(key, value, options),
+    };
+  }
+
+  const LIE_SOURCE = ".history/lied-about.md.old";
+  const lying = lyingStore(
+    { [LIE_SOURCE]: "THE ORIGINAL REVISION" },
+    currentStorageKey(LIE_SOURCE),
+  );
+  const lied = await migrateStorageLayout(lying, { batchSize: 100 });
+  check(
+    "a store that accepts a write and serves back something else is a conflict, not a copy",
+    lied.state === "conflict",
+  );
+  check(
+    "...and the legacy original is untouched, because nothing verified replaced it",
+    new TextDecoder().decode(lying.objects.get(LIE_SOURCE)) ===
+      "THE ORIGINAL REVISION",
+  );
+
+  /*
+    AND THE DELETE'S OWN PRECONDITION, WHICH IS A THIRD GUARD AGAIN.
+
+    Cleanup deletes the legacy object with `onlyIf: { etagMatches }`, carrying
+    the etag `copyWithoutOverwrite` saw. The window it closes is small and real:
+    the object is read, a copy is verified, and only then is the original
+    removed — anything that rewrote it in between would be destroyed against a
+    copy that predates the edit.
+
+    Unreachable by staging state, because the race is INSIDE one call. What
+    stands in for it is a store that reports an etag the object no longer has,
+    which is the same thing from the deleter's side.
+
+    Measured: dropping the precondition failed 0 until this existed.
+  */
+  function staleEtagStore(seed, victimKey) {
+    const inner = memoryStore(seed);
+    return {
+      ...inner,
+      objects: inner.objects,
+      capabilities: inner.capabilities,
+      put: (key, value, options) => inner.put(key, value, options),
+      delete: (key, options) => inner.delete(key, options),
+      list: (options) => inner.list(options),
+      // The object is really there; the etag handed out is one it has already
+      // moved past, exactly as a read followed by somebody else's write leaves
+      // it. `delete` still compares against the truth.
+      get: async (key) => {
+        const object = await inner.get(key);
+        if (!object || key !== victimKey) return object;
+        return { ...object, etag: "an-etag-this-object-has-moved-past" };
+      },
+    };
+  }
+
+  const RACED = ".audit/raced.json";
+  const raced = staleEtagStore({ [RACED]: '{"event":"original"}' }, RACED);
+  const racedCopy = await migrateStorageLayout(raced, { batchSize: 100 });
+  check(
+    "the raced fixture copies first, or the cleanup below proves nothing",
+    racedCopy.state === "copied",
+  );
+  const racedNow = Date.parse(racedCopy.copiedAt) + STORAGE_LAYOUT_ROLLBACK_MS;
+  let racedCleanup;
+  let racedGuard = 0;
+  do {
+    racedCleanup = await migrateStorageLayout(raced, {
+      batchSize: 3,
+      cleanup: true,
+      now: {
+        toISOString: () => new globalThis.Date(racedNow).toISOString(),
+        getTime: () => racedNow,
+      },
+    });
+    racedGuard += 1;
+  } while (racedCleanup.state === "cleaning" && racedGuard < 20);
+  check(
+    "a source that moved under the copy is not deleted against it",
+    racedCleanup.state === "conflict",
+  );
+  check(
+    "...and the legacy object is still there",
+    raced.objects.has(RACED),
+  );
+
   const fallback = memoryStore({ ".images/legacy.png": "legacy" });
   check(
     "dual-read compatibility reaches a legacy object",
