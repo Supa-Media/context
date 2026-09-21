@@ -44,7 +44,8 @@ import type {
 } from "./formBlock";
 import type { NoteShare } from "./shares";
 import { shareUrl } from "./shares";
-import { stepsTo, type NoteScope } from "./scope";
+import { scopeOf, stepsTo, type NoteScope } from "./scope";
+import { createPressQueue } from "./pressQueue";
 import type { ToastSpec } from "../../design/components/Toast";
 import { copyDeferred } from "../../design/clipboard";
 import { consoleOrigin } from "./shareOrigin";
@@ -3196,8 +3197,26 @@ export function useFileBrowser(options: {
     [copyEntry, listings, run, workspaceId],
   );
 
+  /**
+   * Write one entry's visibility.
+   *
+   * **Answers whether it landed**, because `setScope` runs steps in sequence
+   * and must not carry on past a refusal — the same contract `runShare` has,
+   * and for the same reason. It used to return nothing, so the one step in a
+   * sequence that goes through this one was fired and stepped over: "opening"
+   * a note is *widen the manifest, then mint the link*, and the mint left
+   * before the widening had answered. `stepsTo` settles that order and this is
+   * what makes the order real.
+   *
+   * Every other caller presses it and walks away, which is unchanged — a
+   * returned value nobody reads costs nothing.
+   */
   const setVisibility = useCallback(
-    (path: string, kind: "file" | "folder", visibility: SettableVisibility) => {
+    async (
+      path: string,
+      kind: "file" | "folder",
+      visibility: SettableVisibility,
+    ): Promise<boolean> => {
       /*
         The backstop, beside the one in `setScope`.
 
@@ -3214,9 +3233,9 @@ export function useFileBrowser(options: {
         setNotice(
           `${path} is shared with ${current}. Changing that is not something this control can do.`,
         );
-        return;
+        return false;
       }
-      void run(async () => {
+      return await run(async () => {
         if (kind === "folder") {
           await setDirectoryVisibility({ workspaceId: workspaceId!, path, visibility });
           return { touched: [path], cascadeFrom: path };
@@ -3388,6 +3407,16 @@ export function useFileBrowser(options: {
     api.functions.shares.listShares,
     mayShare && workspaceId !== null ? { workspaceId } : "skip",
   ) as readonly NoteShare[] | undefined;
+  /*
+    The live rows, where a sequence that is already running can reach them.
+
+    `setScope` runs several steps and the subscription can tick between two of
+    them, so a closed-over `shares` is the set as it was when the press was
+    made — which is exactly the staleness the queue beside it exists to remove.
+    Same pattern, and the same reason, as `listingsRef`.
+  */
+  const sharesRef = useRef(shares);
+  sharesRef.current = shares;
 
   const createShare = useMutation(api.functions.shares.createShare);
   const revokeShareMutation = useMutation(api.functions.shares.revokeShare);
@@ -3697,9 +3726,19 @@ export function useFileBrowser(options: {
     [run, setFolderGroupAction, setNoteGroupAction, workspaceId],
   );
 
+  /**
+   * The presses on this control, one at a time and newest-wins.
+   *
+   * Created once and never replaced, so every press for a path lands in the
+   * same queue whichever surface made it — the toolbar, the Browse pane, the
+   * Explorer's cycle and the privacy panel all reach `setScope`. The argument
+   * for it, and the failure it is for, are in `pressQueue.ts`.
+   */
+  const scopePresses = useRef(createPressQueue<NoteScope>());
+
   const setScope = useCallback(
     (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope) => {
-      void (async () => {
+      void scopePresses.current.run(path, async ({ live, carried }) => {
         /*
           The one guard for every surface that drives this control.
 
@@ -3720,17 +3759,50 @@ export function useFileBrowser(options: {
           doing nothing — the position it starts from is a lie the caller
           cannot see, and silence would leave them pressing it again.
         */
-        const current = findEntry(listings, path)?.visibility;
+        const current = findEntry(listingsRef.current, path)?.visibility;
         if (current !== undefined && isGroupVisibility(current)) {
           setNotice(
             `${path} is shared with ${current}, which this control cannot change. ` +
               "Use the group settings for this context.",
           );
-          return;
+          return undefined;
         }
-        for (const step of stepsTo(from, to)) {
+        /*
+          **Where this press starts from, decided here rather than at the press.**
+
+          `from` is what the screen was showing when somebody clicked, and
+          during a burst the screen is showing a position an earlier press is
+          in the middle of changing. Computing the steps from it is how two
+          presses end up between them doing something neither asked for.
+
+          `carried` first: the press before this one in the same burst knows
+          where it left things, and its writes have landed while the
+          subscription that would tell the screen has not necessarily ticked.
+          Past the end of a burst there is no carried value and the live state
+          is the better answer — see `pressQueue.ts`.
+
+          `from` is still the argument's job at the very start of a burst,
+          where the live state and the screen agree by construction and the
+          caller has already resolved a group rule into a position.
+        */
+        const liveScope =
+          current === undefined
+            ? undefined
+            : scopeOf(
+                current,
+                (sharesRef.current ?? []).some(
+                  (share) => share.audience === "anyone" && share.entryPath === path,
+                ),
+              );
+        const start = carried ?? liveScope ?? from;
+        let reached = start;
+        for (const step of stepsTo(start, to)) {
+          // Somebody has pressed again. Stop rather than write for a position
+          // nobody is asking for any more; the newer press computes from here.
+          if (!live()) return reached;
           if (step.kind === "visibility") {
-            setVisibility(path, kind, step.to);
+            if (!(await setVisibility(path, kind, step.to))) return reached;
+            reached = step.to === "team" ? "team" : "private";
             continue;
           }
           if (step.on) {
@@ -3757,34 +3829,32 @@ export function useFileBrowser(options: {
               "Anyone with the link can now open this note and the notes it links to." +
                 " Copy it from Share, under “Anyone with the link”.",
             );
-            if (!ok) return;
+            if (!ok) return reached;
+            reached = "anyone";
             continue;
           }
-          const live = (shares ?? []).find(
+          const open = (sharesRef.current ?? []).find(
             (share) => share.audience === "anyone" && share.entryPath === path,
           );
           // Nothing to revoke is not a failure: the row may have gone from
           // under us, and the caller's intent — no open link on this note — is
           // already true. Stopping here would strand the narrowing that
           // follows it.
-          if (live === undefined) continue;
+          if (open === undefined) {
+            reached = "team";
+            continue;
+          }
           const ok = await runShare(
-            () => revokeShareMutation({ shareId: live.shareId as Id<"noteShares"> }),
+            () => revokeShareMutation({ shareId: open.shareId as Id<"noteShares"> }),
             "That link no longer works.",
           );
-          if (!ok) return;
+          if (!ok) return reached;
+          reached = "team";
         }
-      })();
+        return reached;
+      });
     },
-    [
-      createLinkShareAction,
-      listings,
-      revokeShareMutation,
-      runShare,
-      setVisibility,
-      shares,
-      workspaceId,
-    ],
+    [createLinkShareAction, revokeShareMutation, runShare, setVisibility, workspaceId],
   );
 
   /**
