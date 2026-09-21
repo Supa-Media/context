@@ -212,9 +212,26 @@ export function mergeExternalText(
  *    belonged to a read-only viewer elected that viewer — and then nobody
  *    saved at all, because the one client that believed it was saving was the
  *    one whose frames the room drops.
- *  - **You are only a candidate if you are one of them.** `isWriter` adds you
- *    to the list it sorts, so a read-only member alone in a room would
- *    otherwise elect itself against an empty field.
+ *  - **You are only a candidate if the room would accept an edit from you.**
+ *    `isWriter` adds you to the list it sorts, so a read-only member alone in
+ *    a room would otherwise elect itself against an empty field.
+ *
+ * ## `members` does not contain you, and that was the whole bug
+ *
+ * This used to look for the caller inside `members` to answer the second half.
+ * It is not there: the reducer removes you from the roster on purpose, because
+ * the roster is what the header counts as "2 here". So the guard could never
+ * be satisfied — **no client in any room was ever elected**, nothing was ever
+ * written to the bucket, and a note reopened was a note reverted.
+ *
+ * The unit tests passed a list that did contain the caller, and the browser
+ * harness built its roster from the welcome frame unfiltered so it did too.
+ * Both halves were green against a shape the product never produces.
+ *
+ * So your own authority is passed in rather than looked up. It comes off your
+ * own entry in the welcome roster before the filter drops it — see
+ * `savesToBucket`, which is where this is called from and where the "no live
+ * room" case is decided.
  *
  * Pure, and exported, because this is the kind of decision that reads as
  * obviously right inside a `useMemo` and is obviously wrong the moment it is
@@ -222,10 +239,10 @@ export function mergeExternalText(
  */
 export function electWriter(
   you: string | null,
+  youCanWrite: boolean,
   members: { id: string; canWrite: boolean }[],
 ): boolean {
-  if (you === null) return false;
-  if (!members.some((one) => one.id === you && one.canWrite)) return false;
+  if (you === null || !youCanWrite) return false;
   return isWriter(
     you,
     members.filter((one) => one.canWrite).map((one) => one.id),
