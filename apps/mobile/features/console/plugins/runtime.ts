@@ -35,6 +35,30 @@ export interface RuntimeState {
 }
 
 /**
+ * A crash the current guest can repair without asking its owner to discover
+ * and press Start again.
+ *
+ * Runtime rows survive app deployments. That is right for a plugin whose own
+ * bundle keeps throwing, but it also preserved the three failed YouVersion
+ * loads from before the guest supplied its CodeMirror compatibility modules.
+ * The repaired guest was therefore never tried: the durable safety stop had
+ * become a durable record of code that no longer existed.
+ *
+ * Keep this deliberately exact. A generic crash-loop must stay stopped, and a
+ * blocked row was an owner or security decision. These three module failures
+ * are the complete compatibility gap fixed by the current guest, so each old
+ * row gets one ordinary bounded start in this tab. If it still fails,
+ * `resumed` in `useRuntime` prevents another attempt until the next visit and
+ * the truthful crash row remains on screen.
+ */
+export function shouldResumeRuntime(state: RuntimeState): boolean {
+  if (state.status === "loaded") return true;
+  if (state.status !== "crash-looped" || state.errorCode !== "PLUGIN_LOAD_FAILED") return false;
+  return /^Context sandbox does not provide module: @codemirror\/(?:language|state|view)$/
+    .test(state.errorMessage ?? "");
+}
+
+/**
  * A command or ribbon action a running plugin registered with the shim.
  *
  * It exists only while the bundle that registered it is loaded. A plugin that
