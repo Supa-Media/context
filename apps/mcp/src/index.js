@@ -10571,7 +10571,15 @@ async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
 async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
   const path = normalizePath(pathArg);
   if (!path) return toolError("invalid path");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided — `toolReadNote` argues it in full. It
+  // stays ahead of the archive-root resolution below on purpose: a note this
+  // caller may not see is "not found", never the sentence about whether this
+  // context keeps an archive folder. The cost of saying so is now the same
+  // either way, and a note that is simply absent is told it is absent rather
+  // than told about the layout.
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return toolError("not found");
   // The destination is this context's own archive, and that folder is the
   // owner's to have or not have. On a context whose manifest declares one —
   // every PARA scaffold, and every layout naming it `<n>-archive` — this works
@@ -10789,7 +10797,14 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
   }
   if (source === destination) return toolText("source and destination are the same");
   if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved");
-  if (!canSee(source, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided, so refusing a source this caller may
+  // not see costs what refusing an absent one costs; on metadata, so no
+  // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
+  // It stays ahead of the destination checks: a source the caller cannot see
+  // is "not found" whatever they aimed it at.
+  const sourceSeen = canSee(source, scope, rules, overrides);
+  const sourcePresent = await probeWithLegacyFallback(store, source);
+  if (!sourceSeen || !sourcePresent) return toolError("not found");
   if (scope !== "private" && visibilityOf(destination, rules) !== "team") {
     return writePermissionError("move destination");
   }
