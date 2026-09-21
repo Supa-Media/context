@@ -535,6 +535,59 @@ export async function runPrivacyGroupChecks(check) {
       );
     }
 
+    /*
+      AND THE BATCH SIBLING OF A DOOR ALREADY CLOSED.
+
+      `move_note` was equalised and `move_notes` was not looked at in the same
+      breath, which is the same mistake as sorting a sweep by the tool: the
+      batch form is a second route to the same decision and carries its own
+      copy of it.
+
+        if (!canSee(move.source, ...)) return toolError(`not found: ${source}`);
+        const sourceObject = await getWithLegacyFallback(store, move.source);
+        if (!sourceObject) return toolError(`not found: ${source}`);
+
+      The path in the message is the caller's own argument, so the words give
+      nothing away — the cost does.
+
+      NOT here, and measuring them is why: `move_folder` gates with a FILTER
+      (`.filter(({key}) => canSee(...))`) and has no per-path refusal to
+      equalise, and `set_visibility` / `set_folder_visibility` refuse a team
+      connection with "only a personal connection can change ..." before any
+      path is considered — identical words, identical cost. Three hypotheses,
+      three deaths on contact, recorded so nobody re-files them.
+    */
+    const batchCost = async (path) => {
+      const before = bucket.trips();
+      const text = await callTool(env, TEAM_TOKEN, "move_notes", {
+        // An etag is required before the batch will consider a move at all, and
+        // it is checked long after the gate under test — so any string reaches
+        // `canSee`. Without one, both shapes are refused by the precondition
+        // and the measurement is of a door that never opened. That is exactly
+        // what the first run of this check showed, and the wording assertion
+        // beside the cost one is what caught it.
+        moves: [
+          {
+            source: path,
+            destination: "1-projects/batch-dest.md",
+            expected_source_etag: "e-whatever",
+          },
+        ],
+      });
+      return { trips: bucket.trips() - before, text };
+    };
+    const batchHidden = await batchCost("1-projects/rates.md");
+    const batchAbsent = await batchCost("1-projects/no-such-note.md");
+    check(
+      "move_notes: both answers name only the path the caller supplied",
+      /^not found: /.test(batchHidden.text) && /^not found: /.test(batchAbsent.text)
+    );
+    check(
+      `move_notes: refusing a source it may not see costs what refusing an absent one costs `
+        + `(hidden: ${batchHidden.trips}, absent: ${batchAbsent.trips})`,
+      batchHidden.trips === batchAbsent.trips
+    );
+
     const teamSearch = await callTool(env, TEAM_TOKEN, "search_notes", { query: "FEEDBACKSECRET" });
     check(
       "a group-scoped note's terms do not reach a team connection's search",

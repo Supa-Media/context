@@ -7159,7 +7159,20 @@ function formActor(store) {
 async function resolveForm(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   if (!path || !path.endsWith(".md")) return { refusal: toolError("invalid path (must end in .md)") };
-  if (!canSee(path, scope, rules, overrides)) return { refusal: toolError("not found") };
+  /*
+    Both questions asked, then decided — `toolReadNote` argues it in full. This
+    is the read half of every form mutation, so the gate the read tools were
+    equalised for lives here too.
+
+    On a metadata probe, and the distinction matters here as much as anywhere:
+    resolving an invisible path with the real `get` below would buffer that
+    note's whole body on `S3Store` and `DropboxStore` before anything asked
+    whether this caller may read it. The body is fetched only once both
+    questions have passed.
+  */
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return { refusal: toolError("not found") };
   const object = await getWithLegacyFallback(store, path);
   if (!object) return { refusal: toolError("not found") };
   const opened = await openStoredNote(store, await object.text());
@@ -11089,7 +11102,23 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
 
   const preflight = [];
   for (const move of moves) {
-    if (!canSee(move.source, scope, rules, overrides)) return toolError(`not found: ${move.source}`);
+    /*
+      Both questions asked, then decided. The batch form carries its own copy
+      of `move_note`'s decision, so it needs its own copy of the equalising or
+      the door closed there stands open here — a second route to a decision is
+      a second place to make it wrong. `toolReadNote` argues the shape in full.
+
+      A metadata probe rather than reusing the `get` below: that `get` buffers
+      the whole object on S3 and Dropbox, and a source this caller may not see
+      must not have its body pulled into the worker to refuse them. The cost is
+      one extra metadata round trip per move in the batch, paid deliberately.
+
+      Ahead of the destination checks, like `move_note`: a source the caller
+      cannot see is "not found" whatever they aimed it at.
+    */
+    const sourceSeen = canSee(move.source, scope, rules, overrides);
+    const sourcePresent = await probeWithLegacyFallback(store, move.source);
+    if (!sourceSeen || !sourcePresent) return toolError(`not found: ${move.source}`);
     if (scope !== "private" && visibilityOf(move.destination, rules) !== "team") {
       return writePermissionError(`move destination ${move.destination}`);
     }
