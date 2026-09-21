@@ -1,49 +1,69 @@
 <!doctype html>
 <!--
   Source for src/og-card.png — the 1200x630 OpenGraph card every context.lc
-  link unfurls with.
+  link falls back to.
 
   IT SAYS NOTHING ABOUT ANY WORKSPACE, AND MUST NOT. A crawler is
   unauthenticated (see the long comment at the top of src/preview.ts), so the
   card is product branding and only product branding. Do not add a name, an
   avatar, a count, or anything else derived from the URL being previewed.
 
+  It is also what a revoked link unfurls with, which is the sharper reason: a
+  link taken back has to look exactly like one that never existed, so this is
+  the picture for "no", and "no" has no subject.
+
   Regenerate after editing:
 
-    chrome --headless --disable-gpu --hide-scrollbars \
-      --force-device-scale-factor=2 --window-size=1200,630 \
-      --virtual-time-budget=6000 \
-      --screenshot=card@2x.png og-card.source.html
-    magick card@2x.png -resize 1200x630 -dither None -colors 256 -strip \
-      PNG8:src/og-card.png
+    node scripts/render-og-card.mjs
+
+  The script drives the bundled Chromium at 2x and downsamples with sharp, and
+  it replaced a chrome + ImageMagick pipeline that this repository's own
+  environment could not run — a regeneration command nobody can execute is how
+  a source file and the PNG beside it drift into disagreeing. Keep it at
+  1200x630: src/preview.ts advertises those numbers in og:image:width/height
+  and preview.test.ts reads them back out of the PNG header.
 
   Rendered at 2x and downsampled so the type is crisp; quantised to a 256
   colour palette because the whole file ships inside the Worker bundle and the
-  truecolour version is three times the size for no visible gain. Keep it at
-  1200x630 — src/preview.ts advertises those numbers in og:image:width/height
-  and preview.test.ts reads them back out of the PNG header.
+  truecolour version is several times the size for no visible gain.
 
-  Type and palette come from docs/design/console-mockup.html: Onest for
-  display, Instrument Sans for body, JetBrains Mono for the chip; #050506
-  ground, #3B82F6 accent.
+  Palette and type are Graphite, from apps/mobile/features/design/tokens.ts and
+  apps/mobile/features/design/fonts.ts — the same two files the generated card
+  follows (apps/convex/functions/lib/cardArt.ts). The three cards a person
+  might see in one thread are one object in three states, so they share a frame:
+  ground, an inset panel on a hairline, one petrol rule, one lockup.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!--
+  No webfont link, deliberately. `scripts/render-og-card.mjs` injects the face
+  from the one copy of Instrument Sans this repository holds — the base64 in
+  apps/convex/functions/lib/cardFont/instrumentSans.ts, which is what the
+  generated card is drawn with too.
+
+  It used to load Google Fonts, and that made the picture depend on the network
+  at regeneration time: in an environment that proxies TLS the stylesheet fails
+  with ERR_CERT_AUTHORITY_INVALID, the page falls back to the system sans, and
+  the screenshot succeeds. A card in the wrong typeface that renders without
+  complaint is exactly the drift this whole pipeline exists to prevent, so the
+  bytes come from the repository and the render touches no network at all.
+
+  Opening this file directly in a browser therefore shows the system sans. The
+  layout is still right; the letterforms are not.
+-->
 <style>
   :root{
-    --ground:#050506;
-    --surface:#0B0B0D;
-    --line:rgba(255,255,255,.07);
-    --line-strong:rgba(255,255,255,.14);
-    --text:#F2F2F4;
-    --text-2:#A8A8B2;
-    --muted:#75757F;
-    --dim:#5E5E68;
-    --accent:#3B82F6;
+    /* Graphite. See darkColors in apps/mobile/features/design/tokens.ts. */
+    --ground:#100F0E;
+    --surface:#191715;
+    --line:rgba(237,232,224,.07);
+    --line-strong:rgba(237,232,224,.14);
+    --text:#EDE8E0;
+    --text-2:#C3BCB2;
+    --muted:#A79F95;
+    --dim:#7A736A;
+    --accent:#6BC8C1;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -54,82 +74,56 @@
     -webkit-font-smoothing:antialiased;
   }
   .card{
-    position:relative;width:1200px;height:630px;
-    padding:74px 80px;display:flex;flex-direction:column;
-    overflow:hidden;
+    width:1200px;height:630px;padding:40px;display:flex;
   }
-  /* a soft blue bloom from the lower-left, the console's accent light */
-  .card::before{
-    content:"";position:absolute;left:-180px;bottom:-300px;width:900px;height:900px;
-    background:radial-gradient(circle at center, rgba(59,130,246,.20), rgba(59,130,246,0) 62%);
+  .panel{
+    flex:1;display:flex;flex-direction:column;
+    padding:58px 64px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:28px;
   }
-  .card::after{
-    content:"";position:absolute;right:-260px;top:-320px;width:820px;height:820px;
-    background:radial-gradient(circle at center, rgba(139,92,246,.13), rgba(139,92,246,0) 62%);
-  }
-  /* faint grid, the "plain files" texture */
-  .grid{
-    position:absolute;inset:0;
-    background-image:
-      linear-gradient(to right, rgba(255,255,255,.028) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255,255,255,.028) 1px, transparent 1px);
-    background-size:60px 60px;
-    -webkit-mask-image:radial-gradient(ellipse 90% 80% at 50% 45%, #000 30%, transparent 78%);
-            mask-image:radial-gradient(ellipse 90% 80% at 50% 45%, #000 30%, transparent 78%);
-  }
-  .inner{position:relative;display:flex;flex-direction:column;height:100%}
 
-  .mark{
-    font-family:"Onest",ui-sans-serif,system-ui,sans-serif;
-    font-weight:600;font-size:27px;letter-spacing:-.025em;color:var(--text);
-    display:flex;align-items:center;gap:13px;
+  .mark{display:flex;align-items:center;gap:14px}
+  .mark .dot{width:13px;height:13px;border-radius:50%;background:var(--accent)}
+  .mark em{
+    font-style:normal;font-size:28px;color:var(--dim);letter-spacing:.01em;
   }
-  .mark .dot{
-    width:11px;height:11px;border-radius:50%;
-    background:var(--accent);
-    box-shadow:0 0 0 6px rgba(59,130,246,.13);
-  }
-  .mark em{font-style:normal;display:inline-flex}
-  .mark span{color:var(--muted)}
+
+  .rule{width:84px;height:3px;background:var(--accent);margin-top:40px}
 
   h1{
-    font-family:"Onest",ui-sans-serif,system-ui,sans-serif;
-    font-weight:600;font-size:88px;line-height:1.02;letter-spacing:-.042em;
-    margin:auto 0 0;max-width:17ch;
+    font-weight:600;font-size:72px;line-height:1.05;letter-spacing:-.03em;
+    margin:32px 0 0;max-width:17ch;
   }
   h1 .dim{color:var(--dim)}
 
-  p.sub{
-    margin:28px 0 0;font-size:25px;line-height:1.44;color:var(--text-2);
-    max-width:34ch;font-weight:400;letter-spacing:-.005em;
-  }
+  .spacer{flex:1}
 
-  .foot{
-    margin-top:auto;padding-top:40px;display:flex;align-items:center;gap:12px;
+  p.sub{
+    /*
+      600, like everything else here. The generated card registers one weight
+      with satori, so its subtitle is drawn at 600 too — a 400 here would make
+      the two cards differ in the one place a person sees them side by side.
+    */
+    margin:0;font-size:29px;line-height:1.35;color:var(--text-2);
+    max-width:34ch;font-weight:600;letter-spacing:-.01em;
   }
-  .chip{
-    display:inline-flex;align-items:center;gap:9px;
-    padding:9px 16px;border-radius:999px;
-    border:1px solid var(--line-strong);background:rgba(255,255,255,.03);
-    font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;
-    font-size:16px;color:var(--text-2);letter-spacing:-.01em;
-  }
-  .chip b{color:var(--text);font-weight:500}
-  .chip .tick{width:7px;height:7px;border-radius:50%;background:#34D399}
-  .rule{flex:1;height:1px;background:linear-gradient(to right, var(--line-strong), transparent)}
+  /*
+    No `.foot`. The lockup above already says `context.lc`, and this card has
+    no handle to put there instead — so a second copy at the bottom is the word
+    twice. The generated card has the same rule, in cardArt.ts.
+  */
 </style>
 </head>
 <body>
   <div class="card">
-    <div class="grid"></div>
-    <div class="inner">
-      <div class="mark"><i class="dot"></i><em>context<span>.lc</span></em></div>
+    <div class="panel">
+      <div class="mark"><i class="dot"></i><em>context.lc</em></div>
+      <div class="rule"></div>
       <h1>Free your context.<br><span class="dim">Share your context.</span></h1>
-      <p class="sub">One MCP endpoint for every AI client — backed by plain markdown in a bucket you own.</p>
-      <div class="foot">
-        <span class="chip"><i class="tick"></i>ChatGPT&nbsp;· Claude&nbsp;· Codex&nbsp;· <b>whatever comes next</b></span>
-        <span class="rule"></span>
-      </div>
+      <div class="spacer"></div>
+      <p class="sub">One MCP endpoint for every AI client, backed by plain markdown in a bucket you own.</p>
     </div>
   </div>
 </body>

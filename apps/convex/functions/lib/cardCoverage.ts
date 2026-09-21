@@ -185,7 +185,7 @@ function isWhitespace(code: number): boolean {
   );
 }
 
-import { onestFont } from "./cardFont/onest";
+import { cardFont } from "./cardFont/instrumentSans";
 
 /** The card font's coverage, parsed once per isolate. */
 let cached: Set<number> | null = null;
@@ -198,7 +198,7 @@ let cached: Set<number> | null = null;
  */
 export function isRenderableTitle(title: string): boolean {
   cached ??= fontCoverage(
-    onestFont().buffer.slice(0, onestFont().byteLength) as ArrayBuffer,
+    cardFont().buffer.slice(0, cardFont().byteLength) as ArrayBuffer,
   );
   return isRenderable(title, cached);
 }

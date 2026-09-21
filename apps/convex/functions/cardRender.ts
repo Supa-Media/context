@@ -54,7 +54,7 @@ import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { cardElement, CARD_HEIGHT, CARD_WIDTH } from "./lib/cardArt";
-import { onestFont } from "./lib/cardFont/onest";
+import { cardFont } from "./lib/cardFont/instrumentSans";
 
 /**
  * Render a title into a 1200×630 PNG.
@@ -82,6 +82,19 @@ export const renderCard = internalAction({
      * Optional so every existing caller and every note share is unchanged.
      */
     children: v.optional(v.array(v.string())),
+    /**
+     * The workspace as `@name`, drawn as the card's lockup.
+     *
+     * Optional and `null`-able, and this module asks no questions about either:
+     * whether a handle may appear on a given link's card is decided in
+     * `shareCard.ts`, where the share row is, and a renderer that re-derived it
+     * would be a second place for a disclosure rule to live.
+     */
+    handle: v.optional(v.union(v.string(), v.null())),
+    /** The chip in the corner. Derived from the share row, never from a note. */
+    kind: v.optional(
+      v.union(v.literal("note"), v.literal("folder"), v.literal("form")),
+    ),
   },
   returns: v.bytes(),
   handler: async (ctx, args): Promise<ArrayBuffer> => {
@@ -101,18 +114,28 @@ export const renderCard = internalAction({
     }
     await ensureWasm(ctx, initWasm, storageId);
 
-    const svg = await satori(cardElement(args.title, args.children ?? []) as never, {
-      width: CARD_WIDTH,
-      height: CARD_HEIGHT,
-      fonts: [
-        {
-          name: "Onest",
-          data: onestFont() as unknown as ArrayBuffer,
-          weight: 600,
-          style: "normal",
-        },
-      ],
-      /**
+    const svg = await satori(
+      cardElement({
+        title: args.title,
+        handle: args.handle ?? null,
+        kind: args.kind ?? "note",
+        children: args.children ?? [],
+      }) as never,
+      {
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
+        fonts: [
+          {
+            // The face `cardArt.ts` names in `fontFamily`, and the only one
+            // registered: a name that disagrees with the tree is a card drawn
+            // in satori's own fallback, silently.
+            name: "Instrument Sans",
+            data: cardFont() as unknown as ArrayBuffer,
+            weight: 600,
+            style: "normal",
+          },
+        ],
+        /**
        * THE LINE. Without it satori goes to the network on a glyph miss —
        * Google Fonts for a fallback face, jsDelivr for Twemoji. That would be a
        * hidden third-party dependency inside a *customer's* render path, note
@@ -124,8 +147,9 @@ export const renderCard = internalAction({
        * The cost is that an uncovered glyph draws as tofu, which is why the
        * caller checks coverage before asking for a render.
        */
-      loadAdditionalAsset: async () => "",
-    });
+        loadAdditionalAsset: async () => "",
+      },
+    );
 
     const png = new Resvg(svg, {
       fitTo: { mode: "width", value: CARD_WIDTH },

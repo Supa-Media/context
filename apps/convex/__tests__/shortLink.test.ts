@@ -500,6 +500,80 @@ describe("what a short link unfurls with", () => {
     });
   }
 
+  /*
+    WHOSE CONTEXT THE PICTURE MAY NAME.
+
+    The card leads with the workspace handle, because a share is somebody's
+    note being handed to somebody else. What bounds that is the *address*: a
+    short link has already told the crawler `@seyi` before it asked for
+    anything, and a token link has not. Drawing the handle on a token link's
+    card would tell everyone it is ever forwarded to whose context it is —
+    permanently, because a platform that unfurls a link copies the image.
+
+    So this is the disclosure rule, checked at the one place it is decided.
+  */
+  test("a short link's card may name the workspace, because its URL already did", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    const subject = await f.t.query(internal.functions.shareCard.cardSubject, {
+      shareId: share.shareId,
+    });
+    // `@seyi`, not `seyi`: the card interpolates this without decoration, and
+    // a bare slug looks correct in a row and wrong in a picture.
+    expect(subject?.handle).toBe("@seyi");
+  });
+
+  test("a token link's card may not, and that is the whole of the rule", async () => {
+    const f = await fixture();
+    // Same mint, same audience, same note — the only difference is that nobody
+    // claimed a name, so the address discloses nothing.
+    const share = await unlisted(f);
+    const subject = await f.t.query(internal.functions.shareCard.cardSubject, {
+      shareId: share.shareId,
+    });
+    expect(subject?.handle).toBeNull();
+  });
+
+  test("...and releasing the name takes it back off the card", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareSlug, {
+      shareId: share.shareId,
+      slug: null,
+    });
+    const subject = await f.t.query(internal.functions.shareCard.cardSubject, {
+      shareId: share.shareId,
+    });
+    expect(subject?.handle).toBeNull();
+  });
+
+  test("what the card calls the link comes off the row, never off the note", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    expect(
+      (
+        await f.t.query(internal.functions.shareCard.cardSubject, {
+          shareId: share.shareId,
+        })
+      )?.kind,
+    ).toBe("note");
+
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareCollecting, {
+      shareId: share.shareId,
+      collecting: true,
+    });
+    // A collect link is a form, and its card says so — with the one subtitle
+    // that does not tell the reader to sign in, because the page it points at
+    // takes answers from people who have no account to sign in to.
+    expect(
+      (
+        await f.t.query(internal.functions.shareCard.cardSubject, {
+          shareId: share.shareId,
+        })
+      )?.kind,
+    ).toBe("form");
+  });
+
   test("a claimed slug resolves to the card's leaf, and answers with its version", async () => {
     const f = await fixture();
     const share = await shortLink(f, "intake");
