@@ -594,3 +594,33 @@ Two things came out of it, and the second is the one that matters:
   question no other check in this repository could answer.
 
 A deploy step that runs only after the merge button is a check nobody has run.
+
+**And the check it grew asked the wrong question, which is the sharper half.**
+`ci / The native bundle still builds` answers "does this resolve on a phone",
+which was the missing question — and it is not the same question as "does the
+shim work". #776 pointed that out against code written a few hours earlier:
+the shim shipped with **no test of its own**, and a plausible wrong version of
+it builds perfectly. `lib0/random`'s `uint32()` is
+`getRandomValues(new Uint32Array(1))[0]`, so a shim that allocated its own
+array rather than filling the caller's returns an untouched array, `uint32()`
+reads index 0, and every phone in a room gets client id **0** — for ever. That
+is exactly the collision the shim's own docblock says it exists to prevent,
+shipped green, behind a check that only ever looked at whether Metro could
+resolve the file.
+
+So the contract is pinned now, not the resolution: the caller's array reaches
+the platform, the same array comes back, a `Uint8Array` passes through (because
+`uuidv4` walks bytes), and `subtle` throws by name rather than going quiet —
+`apps/mobile/__tests__/nativeCryptoShim.test.ts`, three sabotages, 3/2/1
+failures.
+
+**What it still cannot reach is stated rather than implied.** Whether a native
+binding actually fills a `Uint32Array` on a device is the platform's business
+and no test in this repository can answer it. That is the same "a phone is a
+third runtime" lesson one layer along, and saying so is better than a test that
+appears to cover it.
+
+The general form, for the next person who adds a guard after an outage: **ask
+what the outage would have needed, then ask separately what the code needs.**
+A guard written in the shape of the failure you just had covers that failure
+and can leave the new code it ships alongside completely unchecked.
