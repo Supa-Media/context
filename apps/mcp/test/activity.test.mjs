@@ -910,6 +910,7 @@ async function runWiredChecks(check) {
     "privacy.md",
     "---\nrole: privacy-manifest\nversion: 1\n---\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n" +
       "```yaml\ndefault_visibility: private\n\nfolder_defaults:\n  index.md: team\n  1-projects: team\n" +
+      "  2-areas: team\n  3-resources: team\n" +
       "  3-teams: private\n\nnote_overrides:\n```\n\n<!-- END BRAIN PRIVACY RULES -->\n",
   );
   await store.put("index.md", "# manifest\n");
@@ -966,6 +967,124 @@ async function runWiredChecks(check) {
   check(
     "the owner sees both",
     ownerView.includes("1-projects/alpha.md") && ownerView.includes("pay-bands"),
+  );
+
+  /*
+    THE LIVE RE-DERIVATION, THROUGH THE REAL ENGINE, FOR THE THREE AUDIENCES
+    NON-NEGOTIABLE #5 NAMES.
+
+    `visibleEntries` fails closed twice over — the flag recorded when the
+    change happened, AND `canSee` re-derived through the live `privacy.md`
+    now. Everything above exercises the FIRST half: `pay-bands` is hidden
+    because its line was stored `vis: private`, which is decided at write time
+    and never re-asked.
+
+    Measured: dropping the live half entirely reddened **1** check across the
+    whole gateway suite, and that one is the pure-module check above, which
+    passes `canSee: seesEverythingButOne` — a stub of the very thing being
+    guarded. So the half that makes a *changed* manifest bite had no wired
+    coverage at all.
+
+    Each note below is created while `1-projects` is team, so its line is
+    stored `vis: team` and the stored half lets it through. It is then hidden
+    by a different mechanism, and the team reader must stop seeing the line
+    that was already written. That is the live half, and only the live half.
+  */
+  /*
+    One folder each, and each published to team on the way in.
+
+    Both halves of that matter and both were got wrong first. A line is stored
+    `vis: team` only if every path in it is team AT WRITE TIME, so a note left
+    at the manifest's `private` default never reaches the live half at all —
+    the stored flag drops it and the check proves nothing. And the feed GROUPS
+    by parent folder inside a window, so three notes written into `1-projects`
+    became one entry whose `every()` went private the moment one of them did,
+    taking `alpha` down with it.
+  */
+  const publish = async (path, letter, summary) =>
+    call(OWNER, "write_note", {
+      path,
+      content: `# ${summary}\n\n${letter.repeat(400)}\n`,
+      visibility: "team",
+      confirm_team_publish: true,
+      summary,
+    });
+  await publish("2-areas/held-back.md", "c", "a note that will be held back by name");
+  await publish("1-projects/vault/plan.md", "d", "a note in what becomes a private subfolder");
+  await publish("3-resources/rates.md", "e", "a note that will be pointed at a group");
+
+  const beforeHiding = textOf(await call(TEAM, "read_activity", {}));
+  check(
+    "all three start visible to a team reader, or the checks below prove nothing",
+    beforeHiding.includes("2-areas/held-back.md") &&
+      beforeHiding.includes("1-projects/vault/plan.md") &&
+      beforeHiding.includes("3-resources/rates.md"),
+  );
+
+  // (1) HELD BACK BY NAME — an exact-note override inside a team folder.
+  await call(OWNER, "set_visibility", { path: "2-areas/held-back.md", visibility: "private" });
+  // (2) A PRIVATE SUBFOLDER under a team one.
+  /*
+    Two phases, and the first one is a plan rather than a write: this tool
+    refuses to apply without the `expected_privacy_etag` its dry run reports,
+    so that a folder-wide visibility change is never made against a manifest
+    the caller has not seen. The first version of this check called it once,
+    read the plan as success, and asserted on a change that had not happened.
+  */
+  const folderPlan = textOf(
+    await call(OWNER, "set_folder_visibility", { path: "1-projects/vault", visibility: "private" }),
+  );
+  const privacyEtag = /privacy_etag: (\S+)/.exec(folderPlan)?.[1];
+  const folderApplied = await call(OWNER, "set_folder_visibility", {
+    path: "1-projects/vault",
+    visibility: "private",
+    expected_privacy_etag: privacyEtag,
+  });
+  check(
+    "the private-subfolder rule actually applied, or the check below proves nothing",
+    Boolean(privacyEtag) && !folderApplied?.isError,
+  );
+  /*
+    (3) POINTED AT A GROUP. No gateway tool mints a group rule — `setNoteGroup`
+    is the console's — so the manifest is written directly, in exactly the form
+    that action produces (`@name`, undecorated in the rule value). What it
+    proves is about the reader, not the writer: `read_activity` calls `canSee`
+    with four arguments, so `grantedGroups` is `undefined` and a group-pointed
+    note is invisible to every team-tier caller. A line already written about
+    it must go with it.
+  */
+  const manifest = await store.get("privacy.md");
+  await store.put(
+    "privacy.md",
+    (await manifest.text()).replace(
+      "note_overrides:\n",
+      "note_overrides:\n  3-resources/rates.md: @supa-leads\n",
+    ),
+  );
+
+  const afterHiding = textOf(await call(TEAM, "read_activity", {}));
+  check(
+    "a note held back by name drops out of the line written while it was shared",
+    !afterHiding.includes("held-back"),
+  );
+  check(
+    "a note moved under a private subfolder drops out of its earlier line",
+    !afterHiding.includes("vault/plan"),
+  );
+  check(
+    "a note pointed at a group drops out for a team reader who is in no group",
+    !afterHiding.includes("rates"),
+  );
+  check(
+    "and the team line that is still team is still there, so nothing was hidden wholesale",
+    afterHiding.includes("1-projects/alpha"),
+  );
+  const ownerAfterHiding = textOf(await call(OWNER, "read_activity", {}));
+  check(
+    "the owner still sees all three, because none of this is about deletion",
+    ownerAfterHiding.includes("held-back") &&
+      ownerAfterHiding.includes("vault/plan") &&
+      ownerAfterHiding.includes("rates"),
   );
 
   check(
