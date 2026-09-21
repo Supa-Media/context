@@ -74,15 +74,42 @@ describe("a folder as one file", () => {
     });
   });
 
-  test("a name with an accent and an emoji survives the round trip", () => {
+  test("a name with an accent and an emoji is stored as UTF-8, and flagged as it", () => {
     /*
-      The UTF-8 flag, which is one bit and the difference between a note called
+      The UTF-8 flag is one bit and the difference between a note called
       `café 🌍.md` and one called `cafÃ© ð.md` on the machine somebody opens
       the archive on. It is the kind of thing nobody notices until the archive
       is the only copy.
+
+      **Asserted against the archive rather than through `unzip`, and that is a
+      CI failure teaching a lesson.** The first version extracted this entry and
+      compared the file name on disk, which passed locally and failed on the
+      runner: `unzip` transcodes a UTF-8 name into the *locale's* charset when
+      it writes the file, so what came back was mojibake produced by a
+      correct archive being read under `LANG=C`. The check was measuring the
+      runner's locale, which is not this module's to get right.
+
+      What is this module's is what it writes, and the format says exactly
+      that: bit 11 of the general-purpose flag, and the name stored as UTF-8
+      bytes. Both are read here off the header at the offsets the specification
+      fixes — reading the spec, not re-running the writer.
     */
-    const archive = buildZip([{ path: "3-resources/café 🌍.md", bytes: utf8("hello") }]);
-    expect(extract(archive)).toEqual({ "3-resources/café 🌍.md": "hello" });
+    const name = "3-resources/café 🌍.md";
+    const archive = buildZip([{ path: name, bytes: utf8("hello") }]);
+
+    // Local file header: signature, then the flag at +6 and the name at +30.
+    expect(Array.from(archive.slice(0, 4))).toEqual([0x50, 0x4b, 0x03, 0x04]);
+    const flag = archive[6] | (archive[7] << 8);
+    expect(flag & 0x0800).toBe(0x0800);
+
+    const nameLength = archive[26] | (archive[27] << 8);
+    const expected = utf8(name);
+    expect(nameLength).toBe(expected.length);
+    expect(Array.from(archive.slice(30, 30 + nameLength))).toEqual(Array.from(expected));
+
+    // And the extractor still opens it and the bytes still come back — the
+    // name it lands under is the reader's business, so it is not asserted.
+    expect(Object.values(extract(archive))).toEqual(["hello"]);
   });
 
   test("an empty note is an entry, not a gap", () => {
