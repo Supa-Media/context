@@ -7,7 +7,7 @@
  * stored here.
  */
 
-const MAX_BODY_BYTES = 256_000;
+export const MAX_BODY_BYTES = 256_000;
 const MAX_FIELD_LENGTH = 280;
 const ISSUE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,80}$/;
 const SHORT_ID_PATTERN = /^[A-Z0-9][A-Z0-9_-]{0,79}$/;

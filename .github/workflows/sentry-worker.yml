@@ -1,0 +1,58 @@
+# The Sentry inbox's own CI.
+#
+# Same gap `mcp.yml`, `router.yml`, `email-worker.yml` and
+# `transcribe-worker.yml` were written to close: the Supa framework's reusable
+# pipeline filters on apps/mobile, apps/convex and packages/shared, so nothing
+# under infra/ is covered. This Worker was one of the two left out of that
+# round, so its suite ran only inside `deploy-sentry-worker.yml`, on push to
+# `main` — after the merge, as the gate on its own deploy. The checks that hold
+# its six documented properties (the signature is verified before the body is
+# parsed, only the configured project is accepted, the request cannot choose a
+# folder or a workspace, no raw event or stack trace is stored, URLs are
+# stripped, credential-shaped text is redacted) therefore could not fail a
+# review, and `docs/decisions/testing.md` is one rule: a guard nobody has
+# checked is not a guard.
+name: Sentry Inbox
+
+# No `paths:` filter on pull_request. A filtered-out required check never
+# reports and leaves the PR pending forever; see the note in mcp.yml.
+#
+# And no `branches:` filter on pull_request either — a base-branch filter means
+# a pull request stacked on another branch runs no checks at all, which is how
+# #169 merged with zero check runs. `scripts/check-workflow-triggers.mjs`
+# enforces both. The `push:` filter below stays on `main`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "infra/sentry-worker/**"
+      - ".github/workflows/sentry-worker.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: sentry-worker-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Sentry Inbox
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      # No install step, and that is a property worth keeping rather than an
+      # omission: the Worker has no runtime dependency and its suite imports
+      # nothing but the module under test, so `node` alone is the whole
+      # environment — the same shape `deploy-sentry-worker.yml`'s gate uses.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Sentry inbox tests
+        run: node infra/sentry-worker/test/worker.test.mjs
