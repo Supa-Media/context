@@ -88,6 +88,27 @@ afterEach(() => {
 const NOTE = "1-projects/intake/overview.md";
 const RESPONSES = "1-projects/intake/overview-responses.md";
 
+/** A second context's form, at its own path so the two never collide. */
+const SECOND_NOTE = "1-projects/intake/second.md";
+const SECOND_RESPONSES = "1-projects/intake/second-responses.md";
+
+function secondFormBody(): string {
+  return [
+    "# Another intake",
+    "",
+    "```form",
+    "id: second",
+    `responses: ${SECOND_RESPONSES}`,
+    "layout: sections",
+    "submit: member",
+    "notify: owner",
+    "fields:",
+    "  - { name: who, type: line, max: 120, required: true }",
+    "```",
+    "",
+  ].join("\n");
+}
+
 /** The form, with whoever it names. `null` names nobody. */
 function formBody(notify: string | null): string {
   return [
@@ -486,6 +507,79 @@ describe("a burst is counted rather than mailed or dropped", () => {
     // landed, and a message holding twenty strangers' briefs is a different
     // object from one holding one.
     expect(f.sent[20].text).not.toContain("Person 2");
+  });
+
+  test("a burst in one context does not spend the same person's budget in another", async () => {
+    const f = await fixture("owner");
+    /*
+      NON-NEGOTIABLE #4, AT THE ONE PLACE A STRANGER CAN REACH IT.
+
+      The limiter is keyed on `(workspace, recipient)` and `notifyPolicy` says
+      why — "the contexts are separate boundaries and their mail should be
+      too". Nothing checked it: dropping `workspaceId` from that key, so one
+      person has a single budget across every context they belong to, reddened
+      **nothing** in 3,205 tests.
+
+      What that key holds is a cross-tenant effect reachable by somebody with
+      no account. A published `collect` link is answerable by a stranger, and
+      twenty answers to one workspace's form would then suppress into digests
+      the notifications a member was owed by a **different** workspace. One
+      tenant must not be able to act on another, and "prove isolation with
+      tests" is the rule this one exists under.
+
+      The second context is bound to the same bucket only because the fetch
+      stub serves one, and its form lives at its own path so the two never
+      touch the same object. One workspace per bucket is still the rule; this
+      fixture is about the limiter's key and claims nothing about storage.
+    */
+    const second = await createWorkspace(f.t, f.owner, "seyi-two");
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("workspaceMembers", {
+        workspaceId: second,
+        userId: f.member,
+        role: "member" as const,
+        joinedAt: Date.now(),
+      });
+    });
+    await seedStorageBinding(f.t, {
+      workspaceId: second,
+      boundBy: f.owner,
+      bucket: "fake-bucket",
+    });
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: second,
+      path: SECOND_NOTE,
+      text: secondFormBody(),
+    });
+
+    // Spend the first context's budget completely: twenty mailed, three held.
+    for (let i = 0; i < 23; i += 1) {
+      await asUser(f.t, f.member).action(api.functions.forms.submitForm, {
+        workspaceId: f.workspaceId,
+        path: NOTE,
+        values: [{ field: "who", value: `Person ${i}` }],
+      });
+    }
+    await drainDue(f.t);
+    expect(f.sent).toHaveLength(20);
+
+    // One answer in the other context, to the same person. It must be mailed,
+    // not counted: their budget there has not been touched.
+    await asUser(f.t, f.member).action(api.functions.forms.submitForm, {
+      workspaceId: second,
+      path: SECOND_NOTE,
+      values: [{ field: "who", value: "From the other context" }],
+    });
+    await drainDue(f.t);
+
+    expect(f.sent).toHaveLength(21);
+    // And it is the notification itself rather than a digest of the first
+    // context's burst, which would arrive at the same inbox and pass a count.
+    expect(f.sent[20].subject).not.toContain("more");
+    const digests = await f.t.run((ctx) =>
+      ctx.db.query("formNotifyDigests").collect(),
+    );
+    expect(digests.filter((row) => String(row.workspaceId) === String(second))).toHaveLength(0);
   });
 
   test("a digest for a recipient the manifest now refuses is not sent", async () => {
