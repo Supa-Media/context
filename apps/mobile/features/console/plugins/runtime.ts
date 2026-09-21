@@ -35,6 +35,16 @@ export interface RuntimeState {
 }
 
 /**
+ * When `af685c6c` (#545) gave the guest its CodeMirror compatibility modules.
+ *
+ * Deliberately the merge instant rather than a generous margin after it. The
+ * two ways to be wrong are not symmetric: refusing a genuine old row costs one
+ * press of Start, which is exactly the behaviour this repository had before
+ * #803, while admitting a forged one is the defect.
+ */
+const SANDBOX_COMPATIBILITY_FIX = Date.parse("2026-09-14T18:03:50Z");
+
+/**
  * A crash the current guest can repair without asking its owner to discover
  * and press Start again.
  *
@@ -50,10 +60,37 @@ export interface RuntimeState {
  * row gets one ordinary bounded start in this tab. If it still fails,
  * `resumed` in `useRuntime` prevents another attempt until the next visit and
  * the truthful crash row remains on screen.
+ *
+ * ## THE MESSAGE IS WRITTEN BY THE PLUGIN, SO THE DATE IS WHAT BOUNDS THIS
+ *
+ * `requireModule` is the only thing that has ever produced that sentence, and
+ * since #545 the guest supplies all three of those modules — so it cannot
+ * produce it any more. Every occurrence from here on is a bundle that threw
+ * the text itself: `sandbox.js` sends `String(error.message).slice(0, 500)`
+ * from the plugin's own load error and `reportCrash` stores it verbatim.
+ *
+ * Matching on the message alone therefore turns a rule meant for three known
+ * old rows into a standing offer, and a crash-loop stop that any plugin can
+ * lift by naming its crash correctly is not a stop — "a generic crash-loop
+ * must stay stopped" is precisely what it stops being.
+ *
+ * So the rule is bounded by the one field in the row a plugin cannot choose:
+ * `updatedAt`, written by the control plane. A row recorded after the guest
+ * gained those modules is one the guest could not have written. That also
+ * makes this self-expiring by construction rather than by somebody
+ * remembering — no new row can ever match it, so once the old ones are gone
+ * the whole predicate can be deleted.
  */
 export function shouldResumeRuntime(state: RuntimeState): boolean {
   if (state.status === "loaded") return true;
   if (state.status !== "crash-looped" || state.errorCode !== "PLUGIN_LOAD_FAILED") return false;
+  // `!(a < b)` rather than `a >= b`: the two differ only on a NaN timestamp,
+  // where this form refuses and the tidier one admits. The control plane
+  // declares `updatedAt` as `v.number()` and writes `Date.now()`, so NaN does
+  // not arrive and no test can honestly stage one — the form is chosen for the
+  // direction it fails in, and this note is here because the "simplification"
+  // is the kind a later reader makes without knowing it picked a side.
+  if (!(state.updatedAt < SANDBOX_COMPATIBILITY_FIX)) return false;
   return /^Context sandbox does not provide module: @codemirror\/(?:language|state|view)$/
     .test(state.errorMessage ?? "");
 }

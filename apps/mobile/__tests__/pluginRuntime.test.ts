@@ -148,6 +148,76 @@ describe("recovering a crash fixed by the current sandbox", () => {
     }))).toBe(false);
   });
 
+  /*
+    THE MESSAGE THIS MATCHES IS WRITTEN BY THE PLUGIN, NOT BY CONTEXT.
+
+    `requireModule` is the only thing that has ever produced this sentence, and
+    since #545 the guest supplies all three of those modules — so it cannot
+    produce it any more. Every occurrence from here on is a bundle that threw
+    the text itself: sandbox.js sends `String(error.message).slice(0, 500)` from
+    the plugin's own load error, and `reportCrash` stores it verbatim.
+
+    That turns a rule meant for three known old rows into a standing offer, and
+    a crash-loop stop any plugin can lift by naming its crash correctly is not
+    a stop. The row's `updatedAt` is written by the control plane, which is the
+    one field in it a plugin cannot choose.
+  */
+  test("does not retry a crash the current sandbox could not have caused", () => {
+    expect(shouldResumeRuntime(state({
+      status: "crash-looped",
+      attempts: 3,
+      errorCode: "PLUGIN_LOAD_FAILED",
+      errorMessage: "Context sandbox does not provide module: @codemirror/view",
+      updatedAt: Date.parse("2026-09-21T00:00:00Z"),
+    }))).toBe(false);
+  });
+
+  /*
+    The remaining three clauses, each of which could be deleted with the suite
+    green before these. A rule this narrow is all clauses: "deliberately exact"
+    is the whole of its safety argument, so every part of the exactness needs a
+    witness.
+  */
+  test("does not retry a crash-looped row carrying some other error code", () => {
+    // No writer produces this today — `reportCrash` hardcodes PLUGIN_LOAD_FAILED,
+    // and both security stops (BUNDLE_CHANGED, GRANT_REVOKED) write `blocked`.
+    // `reportRuntimeStatus` takes status and errorCode as independent arguments
+    // though, so the pair is expressible; pinned so a future writer cannot
+    // qualify for a resume it was never offered.
+    expect(shouldResumeRuntime(state({
+      status: "crash-looped",
+      attempts: 3,
+      errorCode: "PLUGIN_TIMED_OUT",
+      errorMessage: "Context sandbox does not provide module: @codemirror/view",
+    }))).toBe(false);
+  });
+
+  test("does not retry a message that merely contains the compatibility sentence", () => {
+    // The anchors are the difference between "the host said exactly this" and
+    // "the plugin's text has this in it somewhere", and the plugin writes the
+    // text. Old rows predate the cutoff, so for them the anchors are the only
+    // thing left doing this job.
+    expect(shouldResumeRuntime(state({
+      status: "crash-looped",
+      attempts: 3,
+      errorCode: "PLUGIN_LOAD_FAILED",
+      errorMessage: "onload failed: Context sandbox does not provide module: @codemirror/view",
+    }))).toBe(false);
+  });
+
+  test("does not retry a module gap the current sandbox did not close", () => {
+    // `requireModule` produced this sentence for ANY missing module, so old
+    // rows name modules the compatibility fix never added. Resuming one is a
+    // restart that cannot succeed, against a docblock claiming these three are
+    // "the complete compatibility gap fixed by the current guest".
+    expect(shouldResumeRuntime(state({
+      status: "crash-looped",
+      attempts: 3,
+      errorCode: "PLUGIN_LOAD_FAILED",
+      errorMessage: "Context sandbox does not provide module: @codemirror/search",
+    }))).toBe(false);
+  });
+
   test("does not undo an owner or security block", () => {
     expect(shouldResumeRuntime(state({
       status: "blocked",
