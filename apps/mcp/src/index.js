@@ -1412,7 +1412,25 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
   // A listing rather than a `get`, because this route does not read notes and
   // should not start: a prefix listing answers "is there an object at exactly
   // this key" out of metadata, and the body never enters the worker.
-  const present = visible ? await objectExists(store, notePath) : false;
+  //
+  // **Unconditionally, because the cost is part of the answer.** Probing only
+  // when `canSee` said yes made the two refusals identical to read and
+  // different to measure: a path the manifest holds back returned without
+  // touching the bucket, a path the caller could have seen went to storage and
+  // missed first. Same status, same body, one round trip apart — so the
+  // cheaper refusal was the one where something is being held back, which is
+  // the oracle the paragraph above says this route closed.
+  //
+  // Enumerating names inside a folder they CAN see, a team connection would
+  // learn from the cost alone which of those names carry an exact-note
+  // override, and an override is written only when somebody deliberately made
+  // a note there private. Their own listing cannot tell them that: a held-back
+  // note is absent from it either way.
+  //
+  // So the probe runs for everyone and its answer is combined afterwards. It
+  // is metadata either way — the body still never enters the worker, for a
+  // path the caller may not see least of all.
+  const present = await objectExists(store, notePath);
   if (!visible || !present) return json({ error: "not_found" }, 404);
 
   const room = env.PRESENCE_ROOM.get(

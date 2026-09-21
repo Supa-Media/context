@@ -147,11 +147,24 @@ const MANIFEST =
 function createBucket() {
   const objects = new Map();
   let etags = 0;
+  /*
+    Storage round trips, counted.
+
+    A refusal that reads the same and costs a different number of trips to the
+    bucket is still two different answers — the second one is just measured
+    with a clock rather than read. Counting them is what makes that a
+    deterministic check instead of a flaky timing one.
+  */
+  const ops = { get: 0, list: 0, put: 0, delete: 0 };
+  const trips = () => ops.get + ops.list + ops.put + ops.delete;
   return {
+    ops,
+    trips,
     seed(key, body) {
       objects.set(key, { body, etag: `e${++etags}`, uploaded: new Date() });
     },
     async get(key) {
+      ops.get += 1;
       const stored = objects.get(key);
       if (!stored) return null;
       return {
@@ -161,6 +174,7 @@ function createBucket() {
       };
     },
     async put(key, value, options = {}) {
+      ops.put += 1;
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       if (options?.onlyIf?.absent && objects.has(key)) return null;
@@ -169,10 +183,12 @@ function createBucket() {
       return { etag: `e${etags}` };
     },
     async delete(key) {
+      ops.delete += 1;
       objects.delete(key);
       return {};
     },
     async list({ prefix } = {}) {
+      ops.list += 1;
       return {
         objects: [...objects.keys()]
           .filter((key) => !prefix || key.startsWith(prefix))
@@ -1631,6 +1647,40 @@ export async function runPresenceChecks(check) {
       // same body, or the socket answers a question the read path will not.
       missingNote.status === privateNote.status && missingNote.text === privateNote.text,
     );
+    /*
+      AND THEY MUST COST THE SAME, NOT ONLY READ THE SAME.
+
+      The check above closes the channel a caller READS. It does not close the
+      one a caller MEASURES. This route asked `canSee` first and only probed
+      storage when the answer was yes, so a path held back by the manifest
+      refused without a round trip and a path the caller could have seen went
+      to the bucket and missed first. Byte-identical answers, different numbers
+      of trips — and the refusal that costs nothing is the one where something
+      is being held back.
+
+      That is the oracle the route's own comment says it closed. It closed the
+      value and left the clock: a team connection enumerating names inside a
+      folder it CAN see learns, from the cost alone, which of them carry an
+      exact-note override — and an override is written only when somebody
+      deliberately made a note there private. Their own listing cannot tell
+      them that, because a held-back note is absent from it either way.
+
+      Counted rather than timed, so this is deterministic. The number is not
+      the invariant; the equality is.
+    */
+    const tripsFor = async (query) => {
+      const before = bucket.trips();
+      await presenceRequest(env, TEAM_TOKEN, query);
+      return bucket.trips() - before;
+    };
+    const heldBackTrips = await tripsFor("?note=1-projects/rates.md");
+    const absentTrips = await tripsFor("?note=1-projects/nothing.md");
+    check(
+      `a private note and a missing note cost the same to refuse `
+        + `(held back ${heldBackTrips}, absent ${absentTrips})`,
+      heldBackTrips === absentTrips,
+    );
+
     const ownerJoins = await presenceRequest(env, OWNER_TOKEN, "?note=1-projects/rates.md");
     check(
       "the owner joins the private note's room",
