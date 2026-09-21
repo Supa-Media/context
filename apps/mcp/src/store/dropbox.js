@@ -266,6 +266,28 @@ export class DropboxStore {
     throw new Error(`dropbox ${action} failed: ${status}${tag ? ` (${tag})` : ""}`);
   }
 
+  /**
+   * Is there a file at exactly this key, without downloading it.
+   *
+   * `get_metadata` rather than a prefix `list`, because this adapter's `list`
+   * is `/files/list_folder` — it lists a FOLDER, so asking it about a note's
+   * key asks about a directory that does not exist. That is not a subtle
+   * difference: it is why a prefix listing cannot be the existence check on
+   * this backend, and `download` cannot be either, because it buffers the
+   * whole file below.
+   */
+  async exists(key) {
+    assertSafeKey(key);
+    const response = await this._rpc("/files/get_metadata", { path: this._path(key) });
+    if (!response.ok) {
+      const tag = await errorTagPath(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) return false;
+      return this._fail(response.status, "get_metadata", tag);
+    }
+    const entry = await response.json();
+    return entry?.[".tag"] === "file";
+  }
+
   async get(key) {
     assertSafeKey(key);
     const response = await this._request(`${CONTENT_BASE}/files/download`, {

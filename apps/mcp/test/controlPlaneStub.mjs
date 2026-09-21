@@ -838,6 +838,16 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
       return new Response(xml, { status: 200 });
     }
 
+    // A real bucket answers HEAD, so this one does. Modelled on GET and
+    // deliberately body-less: HEAD is how the gateway asks whether an object
+    // is there without pulling it, and a fake that only knew GET would make
+    // that question look impossible.
+    if (method === "HEAD") {
+      const object = objects.get(key);
+      if (!object) return new Response("", { status: 404 });
+      return new Response(null, { status: 200, headers: { etag: `"${object.etag}"` } });
+    }
+
     if (method === "GET") {
       const object = objects.get(key);
       if (!object) return new Response("", { status: 404 });
@@ -1045,6 +1055,16 @@ export function createDropboxBackend() {
         status: 200,
         headers: { "Dropbox-API-Result": JSON.stringify({ rev: file.rev, size: file.body.length }) },
       });
+    }
+
+    // Dropbox answers "is this file there" with `get_metadata`, never with a
+    // folder listing, and the adapter now asks it that way. A fake that knew
+    // only `list_folder` would make the existence check look unavailable on
+    // this backend — which is the shape of the real bug it was added for.
+    if (path === "/2/files/get_metadata") {
+      const file = files.get(body.path);
+      if (!file) return notFound();
+      return json({ ".tag": "file", rev: file.rev, path_display: body.path, size: file.body.length });
     }
 
     if (path === "/2/files/upload") {
