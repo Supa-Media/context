@@ -23,6 +23,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 /**
  * Remove comments without mangling string literals.
@@ -248,14 +249,26 @@ function selfTest() {
   console.log("\nSelf-test passed.");
 }
 
-const args = process.argv.slice(2);
-const allowNode = args.includes("--allow-node-builtins");
-const targets = args.filter((value) => !value.startsWith("--"));
-if (args.includes("--self-test")) {
-  selfTest();
-} else {
-  const dirs = targets.length ? targets : ["apps/mcp/src"];
-  for (const dir of dirs) checkDirectory(dir, allowNode);
+/*
+  Run only when invoked directly.
+
+  `stripComments` is imported by `check-exit-is-ungated.mjs`, which needs the
+  same walker and must not get a second copy of it — a second implementation of
+  a parser is a second place for it to be wrong. Without this guard that import
+  would also *run* this check, so one guard's output would appear inside
+  another's and a failure here would exit a process that was checking something
+  else. Behaviour when run directly is unchanged.
+*/
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const args = process.argv.slice(2);
+  const allowNode = args.includes("--allow-node-builtins");
+  const targets = args.filter((value) => !value.startsWith("--"));
+  if (args.includes("--self-test")) {
+    selfTest();
+  } else {
+    const dirs = targets.length ? targets : ["apps/mcp/src"];
+    for (const dir of dirs) checkDirectory(dir, allowNode);
+  }
 }
 
 function checkDirectory(dir, allowNode) {
