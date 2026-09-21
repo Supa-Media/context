@@ -172,8 +172,17 @@ const STAFF_NOTE = [
 function createBucket() {
   const objects = new Map();
   let etags = 0;
+  /*
+    Storage round trips, counted.
+
+    A refusal that reads the same and costs a different number of trips to
+    produce is still two answers. Counted rather than timed, so it is
+    deterministic; the number is not the invariant, the equality is.
+  */
+  let trips = 0;
   const bucket = {
     objects,
+    trips: () => trips,
     /** Fires once, on the next get of this key, before the value is returned. */
     interceptGet: null,
     seed(key, body) {
@@ -183,6 +192,7 @@ function createBucket() {
       return objects.get(key)?.body;
     },
     async get(key) {
+      trips += 1;
       const stored = objects.get(key);
       if (!stored) return null;
       // The snapshot is taken FIRST and the interleaving write runs after it,
@@ -204,6 +214,7 @@ function createBucket() {
       };
     },
     async put(key, value, options = {}) {
+      trips += 1;
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       if (options?.onlyIf?.absent && objects.has(key)) return null;
@@ -212,12 +223,14 @@ function createBucket() {
       return { etag: `e${etags}` };
     },
     async delete(key, options = {}) {
+      trips += 1;
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       objects.delete(key);
       return {};
     },
     async list({ prefix } = {}) {
+      trips += 1;
       return {
         objects: [...objects.keys()]
           .filter((key) => !prefix || key.startsWith(prefix))
@@ -1043,6 +1056,48 @@ export async function runFormChecks(check) {
       content: "hello",
     });
     check("a member still cannot write a note", denied.isError);
+
+    /*
+      THE FORM DOOR REFUSES AT ONE PRICE.
+
+      `resolveForm` is the read half of every form mutation, and it carries the
+      shape the read tools were equalised for:
+
+        if (!canSee(path, ...)) return { refusal: toolError("not found") };
+        const object = await getWithLegacyFallback(store, path);
+        if (!object) return { refusal: toolError("not found") };
+
+      A member is the right caller: `3-resources` is team so the folder is
+      theirs to see, and `3-resources/private-notes.md` carries an exact
+      override that holds that one note back. An exact override is written only
+      when somebody deliberately singled a note out, which is the bit the cost
+      would be handing over.
+
+      The wording check beside the cost one is load-bearing, not decoration.
+      This measurement was attempted first in the group-privacy suite and was
+      VACUOUS three times over — an actor with no username, then two argument
+      shapes the schema refuses — each time reporting equal costs for a door
+      that never opened.
+    */
+    const formRefusalCost = async (path) => {
+      const before = bucket.trips();
+      const answer = await call(env, MEMBER_TOKEN, "submit_form", {
+        path,
+        values: pairs({ summary: "probe" }),
+      });
+      return { trips: bucket.trips() - before, text: answer.text };
+    };
+    const formHidden = await formRefusalCost("3-resources/private-notes.md");
+    const formAbsent = await formRefusalCost("3-resources/no-such-note.md");
+    check(
+      "submit_form: both answers are the same refusal, so only the cost could tell them apart",
+      formHidden.text === formAbsent.text && /not found/.test(formHidden.text)
+    );
+    check(
+      `submit_form: refusing a note it may not see costs what refusing an absent one costs `
+        + `(hidden: ${formHidden.trips}, absent: ${formAbsent.trips})`,
+      formHidden.trips === formAbsent.trips
+    );
 
     const submitted = await call(env, MEMBER_TOKEN, "submit_form", {
       path: "3-resources/bugs.md",
