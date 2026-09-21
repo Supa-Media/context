@@ -1381,17 +1381,70 @@ export const shareShortLinkPreview = httpAction(async (ctx, request) => {
   const body = await readJsonBody(request);
   const handle = body === null ? null : stringField(body, "handle");
   const slug = body === null ? null : stringField(body, "slug");
-  if (handle === null || slug === null) return json({ title: null });
+  // Both fields on the quiet path too. A field on the success return and not
+  // on this one is a shape that varies with whether the body parsed, which is
+  // the failure `unauthenticatedRouteResponses` exists to catch — and it did.
+  if (handle === null || slug === null) return json({ title: null, cardVersion: null });
 
   const result = await ctx.runQuery(api.functions.shares.previewForShortLink, {
     handle,
     slug,
   });
   // Named rather than spread, for the reason stated on the three routes above.
-  return json({ title: result.title });
+  return json({ title: result.title, cardVersion: result.cardVersion });
 });
 
 http.route({ path: "/share/short", method: "POST", handler: shareShortLinkPreview });
+
+/* -------------------------------------------------------------------------- */
+/* POST /share/short/card — the card image for a short link                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The picture behind `/og/n/@handle/slug.png`.
+ *
+ * Short links had no image, and the reason was right: a card was addressable
+ * only by the share's **token**, a slug is a word anybody can type, and a
+ * preview route that answered a guessed word with a 64-character secret
+ * publishes the secret.
+ *
+ * What was wrong was the conclusion. The image does not have to be addressed by
+ * the token — it can be addressed by the handle and slug the crawler already
+ * used to ask for the title. The token stays where it was, nothing new is
+ * disclosed (the picture says the note's name, which `/share/short` already
+ * answers with), and a link somebody reads off a card unfurls like every other
+ * link this product mints.
+ *
+ * Its argument is guessable, like `/share/note`'s and unlike the two token
+ * routes', so it is bounded the same way: it answers only for a slug the owner
+ * deliberately claimed on an `anyone` link, and a slug nobody claimed is
+ * byte-identical to one that does not exist.
+ */
+export const shareShortLinkCard = httpAction(async (ctx, request) => {
+  const body = await readJsonBody(request);
+  const handle = body === null ? null : stringField(body, "handle");
+  const slug = body === null ? null : stringField(body, "slug");
+  if (handle === null || slug === null) return new Response(null, { status: 404 });
+
+  const bytes = await ctx.runAction(internal.functions.shareCard.cardBytesForShortLink, {
+    handle,
+    slug,
+  });
+  if (bytes === null) return new Response(null, { status: 404 });
+
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      // The router caches; its key carries the card version, which is the real
+      // invalidation. Same arrangement as `/share/card`.
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+});
+
+http.route({ path: "/share/short/card", method: "POST", handler: shareShortLinkCard });
 
 /* -------------------------------------------------------------------------- */
 /* POST /stripe/webhook — a signed subscription event                          */

@@ -756,6 +756,7 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "shareCard",
   "shareNotePreview",
   "shareShortLinkPreview",
+  "shareShortLinkCard",
 ]);
 
 /**
@@ -2526,12 +2527,26 @@ describe("the gateway's HTTP routes", () => {
       // argument means two things is how a field nobody looked at reaches an
       // anonymous crawler.
       //
-      // It is **one** field where the third is three, and the missing one is
-      // the point: `cardToken` is safe there because a team link's token is a
-      // locator, and a short link may sit over an `anyone` share where the
-      // token IS the authorization. So a short link unfurls with a title and
-      // the product's own image, never a per-share card.
+      // The missing field is still the point: `cardToken` is safe on the third
+      // because a team link's token is a locator, and a short link may sit
+      // over an `anyone` share where the token IS the authorization. What
+      // changed is that a short link now unfurls with its own card anyway —
+      // see the fifth entry, which is how, and the test below, which is why
+      // that is not the mistake this list warned about.
       "shareShortLinkPreview",
+      // **The fifth**, and the only one that answers with bytes rather than
+      // JSON besides `shareCard`. Its argument is a handle and a slug — the
+      // same two the fourth takes, and guessable the same way — so it is
+      // bounded the same way, and one 404 covers every absence: no such name,
+      // no such slug, a link shared with named people, a card that was never
+      // drawn, a title changed since the last successful render.
+      //
+      // It exists because the alternative was the mistake the fourth entry
+      // warns about. A card used to be addressable only by the share's token,
+      // so giving short links an image looked like it required publishing one.
+      // Addressing the picture by the name the crawler already typed requires
+      // publishing nothing.
+      "shareShortLinkCard",
     ]);
 
     const source = httpModule().source;
@@ -2665,22 +2680,37 @@ describe("the gateway's HTTP routes", () => {
   });
 
   /**
-   * **The fourth route is one field wide, and the field it does not have is
-   * the one that matters.**
+   * **The field this route does not have is still the one that matters, and
+   * short links have a card image anyway.**
+   *
+   * The comment here used to end: "the shape of this addition, a year from
+   * now, is somebody noticing that short links have no card image and fixing
+   * it by copying the field from the route above." That happened, in rather
+   * less than a year, and the warning did its job — the fix is **not** the
+   * copied field.
    *
    * `shareNotePreview` returns a `cardToken` because a team link's token is a
    * locator: its reader is authorised by membership on every request, so
    * handing it to a crawler grants nothing. A short link may sit over an
    * `anyone` share, where possession of the token **is** the authorization —
    * so the same field here would hand whoever guessed a name a capability that
-   * outlives the name, and keeps working after the slug is released.
+   * outlives the name and keeps working after the slug is released. That is
+   * unchanged and the forbidden list below is unchanged with it.
    *
-   * That is why this route returns the title alone, and why the absence is
-   * pinned rather than merely commented: the shape of this addition, a year
-   * from now, is somebody noticing that short links have no card image and
-   * fixing it by copying the field from the route above.
+   * What changed is the premise underneath it, which was never stated as an
+   * assumption: *a card is addressed by the share's token*. It does not have
+   * to be. `shareShortLinkCard` addresses the same picture by the handle and
+   * slug the crawler already used to ask for the title, so the image arrives
+   * and the token stays where it was.
+   *
+   * The second field is therefore `cardVersion` — an opaque digest of what the
+   * card draws, which the edge needs because the Workers Cache API cannot
+   * invalidate an image and a different URL is the only invalidation there is.
+   * It is a digest rather than the ingredients on purpose: a folder card draws
+   * names from inside the folder, and those names are not what a short link's
+   * preview discloses.
    */
-  test("the short link's route returns one field, and never the token", () => {
+  test("the short link's route returns its two fields, and never the token", () => {
     const source = httpModule().source;
     const start = source.indexOf("export const shareShortLinkPreview");
     expect(
@@ -2702,7 +2732,7 @@ describe("the gateway's HTTP routes", () => {
       expect(
         keys,
         "every shareShortLinkPreview response returns exactly these fields",
-      ).toEqual(["title"]);
+      ).toEqual(["cardVersion", "title"]);
     }
 
     for (const forbidden of [

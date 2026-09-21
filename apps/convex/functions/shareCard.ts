@@ -33,7 +33,9 @@ import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
-import { cardImageLeaf } from "./lib/cardKey";
+import { cardImageLeaf, hashTitle } from "./lib/cardKey";
+import { findName } from "./lib/nameClaims";
+import { shortLinkSlugFrom } from "./lib/shareSlug";
 import { isRenderableTitle } from "./lib/cardCoverage";
 import {
   boundPreviewChildren,
@@ -376,6 +378,103 @@ export const cardLocation = internalQuery({
     }
 
     return { workspaceId: share.workspaceId, leaf: share.cardImageLeaf };
+  },
+});
+
+/**
+ * The same card, found by the address a short link actually has. INTERNAL.
+ *
+ * ## Why this exists rather than the route handing back a token
+ *
+ * A card used to be addressable one way — by the share's token — and
+ * `previewForShortLink` therefore gave short links no image at all. The reason
+ * was sound and is unchanged: a short link is a **guessable** address, the
+ * token is a 64-character secret, and a preview route that answered with one
+ * would publish a secret to whoever typed a word.
+ *
+ * What was wrong was the conclusion, not the premise. The image does not have
+ * to be addressed by the token; it can be addressed by the same handle and slug
+ * the crawler already used to ask for the title. So nothing about the token
+ * changes, nothing new is disclosed — the picture says the note's name, which
+ * is exactly what `/share/short` already answers with — and a link somebody
+ * reads off a business card unfurls like every other link this product mints.
+ *
+ * ## Every refusal `cardLocation` makes, and one more
+ *
+ * Active, unexpired, `titleInPreview`, a leaf that still matches the title —
+ * all of it, because this resolves to the same row and the same object. The
+ * extra one is `recipientKind === "anyone"`, which `previewForShortLink`
+ * already applies to the title for a reason that applies at least as hard to a
+ * picture: a slug over a link shared with *named people* must not put their
+ * note's name in front of a stranger who guessed the word, and an unfurl
+ * cannot be taken back once a platform has cached it.
+ */
+export const cardLocationForShortLink = internalQuery({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ workspaceId: v.id("workspaces"), leaf: v.string() }),
+  ),
+  handler: async (ctx, args) => {
+    const slug = shortLinkSlugFrom(args.slug.toLowerCase());
+    if (slug === null) return null;
+    const name = await findName(ctx, args.handle.replace(/^@/, "").toLowerCase());
+    const workspaceId = name?.workspaceId;
+    if (workspaceId === undefined) return null;
+
+    const rows = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_slug", (q) =>
+        q.eq("workspaceId", workspaceId).eq("slug", slug),
+      )
+      .collect();
+    const now = Date.now();
+    const share = rows.find((row) => row.status === "active") ?? null;
+    if (share === null) return null;
+    if (share.expiresAt !== undefined && share.expiresAt <= now) return null;
+    if (share.recipientKind !== "anyone") return null;
+    if (!share.titleInPreview) return null;
+    if (share.cardImageLeaf === undefined) return null;
+    if (share.previewTitle === undefined || share.previewTitle.trim() === "") return null;
+    // The leaf is recomputed rather than trusted, for the reason `cardLocation`
+    // sets out at length: a failed render leaves the old leaf in place, and the
+    // card is the one thing here that cannot be taken back.
+    if (
+      share.cardImageLeaf !==
+      cardImageLeaf(
+        share.token,
+        share.previewTitle,
+        boundPreviewChildren(share.previewChildren ?? []),
+      )
+    ) {
+      return null;
+    }
+    return { workspaceId: share.workspaceId, leaf: share.cardImageLeaf };
+  },
+});
+
+/** The bytes behind `/og/n/@handle/slug.png`. INTERNAL. */
+export const cardBytesForShortLink = internalAction({
+  args: { handle: v.string(), slug: v.string() },
+  returns: v.union(v.null(), v.bytes()),
+  handler: async (ctx, args): Promise<ArrayBuffer | null> => {
+    const card = await ctx.runQuery(
+      internal.functions.shareCard.cardLocationForShortLink,
+      { handle: args.handle, slug: args.slug },
+    );
+    if (card === null) return null;
+    try {
+      const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: card.workspaceId,
+        scope: "team",
+        operation: { kind: "readImage", leaf: card.leaf },
+      });
+      return result.kind === "image" ? result.bytes : null;
+    } catch {
+      // A deleted object, a revoked bucket key, a store that is down. The card
+      // is unavailable, which is the same answer as never having had one.
+      return null;
+    }
   },
 });
 

@@ -558,7 +558,7 @@ export function shortLinkFrom(url: URL): { handle: string; slug: string } | null
   if (!first.startsWith("@")) return null;
   const handle = first.slice(1);
   // The same shape a name claim can have. Anything else never existed.
-  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(handle)) return null;
+  if (!SHORT_LINK_HANDLE.test(handle)) return null;
 
   const slug = decodeSafely(segments[1]);
   if (!SHORT_LINK_SLUG.test(slug)) return null;
@@ -570,25 +570,95 @@ export function shortLinkFrom(url: URL): { handle: string; slug: string } | null
 const SHORT_LINK_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
 
 /**
+ * The shape a name claim can have, restated for the same reason the slug is.
+ *
+ * One constant rather than the literal it used to be, because there are two
+ * readers of it now — the link and its card image — and a handle one accepts
+ * and the other does not is a card address that 404s for a link that works.
+ */
+const SHORT_LINK_HANDLE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/**
  * The card a short link unfurls with.
  *
- * The note's own name and nothing else. **No image**, and that absence is the
- * design rather than an omission: the card image is addressed by share token,
- * and a short link may sit over an `anyone` share where the token *is* the
- * authorization — so a per-share card here would mean handing the capability
- * to whoever guessed the name. The product's own image is what a short link
- * gets, and `/share/short` upstream returns no token to make any other choice
- * possible from here.
+ * This used to be the note's name and **no image**, and the reason was right
+ * while its premise held: a card was addressed by the share's token, a short
+ * link sits at a guessable address, and a short link may sit over an `anyone`
+ * share where the token *is* the authorization — so a per-share card here
+ * would have meant handing a capability to whoever typed the word.
+ *
+ * The premise is the part that turned out to be a choice. `SHORT_CARD_PREFIX`
+ * addresses the same picture by the **handle and slug the crawler already
+ * used to ask for the title**, so the image arrives and the token never moves.
+ * Nothing new is disclosed either: the card says the note's name, which is
+ * exactly what this function was already putting in `og:title`.
+ *
+ * `cardVersion` is an opaque digest from upstream rather than a hash computed
+ * here. `shareCardPath` can hash the title because the title is all its card
+ * draws; a folder card also draws two or three names from inside the folder,
+ * and those names are not what a short link's preview discloses — so the
+ * cache-buster comes back pre-computed and this file never sees them.
+ *
+ * No version means no card: never rendered, render failed, bucket refused,
+ * title changed since the last successful render. All of them fall through to
+ * the product's own image, which is the same absence a revoked link gives.
  */
-export function previewForShortLink(title: string | null | undefined): PreviewMeta {
+export function previewForShortLink(
+  title: string | null | undefined,
+  handle?: string | null,
+  slug?: string | null,
+  cardVersion?: string | null,
+): PreviewMeta {
   const bounded = boundTitle(title);
   if (bounded === null) return GENERIC_PREVIEW;
+  const named =
+    typeof handle === "string" &&
+    typeof slug === "string" &&
+    typeof cardVersion === "string" &&
+    /^[0-9a-f]{8}$/.test(cardVersion) &&
+    SHORT_LINK_HANDLE.test(handle) &&
+    SHORT_LINK_SLUG.test(slug);
   return {
     ...GENERIC_PREVIEW,
     title: `${bounded} — Context`,
     description:
       "Shared with you on Context — plain markdown in a bucket its owner controls.",
+    ...(named
+      ? { imageUrl: `${ORIGIN}${shortLinkCardPath(handle as string, slug as string, cardVersion as string)}` }
+      : {}),
   };
+}
+
+export const SHORT_CARD_PREFIX = "/og/n/";
+
+/**
+ * Where a short link's card lives.
+ *
+ * `/og/n/@seyi/intake.png?v=…`. The handle keeps its `@` so the path reads the
+ * way the link does, and both halves are shape-checked before they are
+ * interpolated — a path built by concatenation from anything an unfurler can
+ * put in a URL is how a card address becomes an open redirect.
+ */
+export function shortLinkCardPath(handle: string, slug: string, version: string): string {
+  return `${SHORT_CARD_PREFIX}@${handle.replace(/^@/, "")}/${slug}.png?v=${version}`;
+}
+
+/** The two halves of a short link's card path, or `null`. */
+export function shortLinkCardFrom(
+  pathname: string,
+): { handle: string; slug: string } | null {
+  if (!pathname.startsWith(SHORT_CARD_PREFIX)) return null;
+  const rest = pathname.slice(SHORT_CARD_PREFIX.length);
+  if (!rest.endsWith(".png")) return null;
+  const [handle, slug, ...extra] = rest.slice(0, -".png".length).split("/");
+  if (extra.length > 0 || handle === undefined || slug === undefined) return null;
+  if (!handle.startsWith("@")) return null;
+  const name = handle.slice(1);
+  // The same shape checks `shortLinkFrom` applies, for the same reason: a path
+  // that could never have been claimed never becomes an upstream request, so
+  // hammering this address costs a regex rather than a round trip to time.
+  if (!SHORT_LINK_HANDLE.test(name) || !SHORT_LINK_SLUG.test(slug)) return null;
+  return { handle: name, slug };
 }
 
 /**

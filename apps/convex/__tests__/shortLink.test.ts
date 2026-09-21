@@ -25,8 +25,9 @@
 import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { cardImageLeaf, cardSignature, hashTitle } from "../functions/lib/cardKey";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -466,6 +467,147 @@ describe("what a short link unfurls with", () => {
     expect(preview.title).toBe("Overview");
   });
 
+  /*
+    A SHORT LINK HAS ITS OWN CARD, AND ITS ADDRESS IS NOT A CAPABILITY.
+
+    It used to unfurl with the product's marketing image, and the reason was
+    sound: a card was addressable only by the share's **token**, a slug is a
+    word anybody can type, and a preview that answered a guessed word with a
+    64-character secret publishes the secret.
+
+    The premise turned out to be a choice. `cardBytesForShortLink` addresses the
+    same picture by the handle and slug the crawler already used to ask for the
+    title, so the image arrives and the token never moves. These tests are about
+    that boundary rather than about the picture: what may be asked for, by whom,
+    and what every refusal looks like.
+  */
+  /** Give a share the leaf a successful render would have left on it. */
+  async function drawCard(
+    f: Fixture,
+    share: { shareId: Id<"noteShares">; token: string },
+    title = "Overview",
+  ): Promise<void> {
+    await f.t.mutation(internal.functions.shareCard.recordCardLeaf, {
+      shareId: share.shareId,
+      leaf: cardImageLeaf(share.token, title),
+    });
+  }
+
+  function cardAt(f: Fixture, handle: string, slug: string) {
+    return f.t.query(internal.functions.shareCard.cardLocationForShortLink, {
+      handle,
+      slug,
+    });
+  }
+
+  test("a claimed slug resolves to the card's leaf, and answers with its version", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    await drawCard(f, share);
+
+    expect((await cardAt(f, "seyi", "intake"))?.leaf).toBe(
+      cardImageLeaf(share.token, "Overview"),
+    );
+    const preview = await f.t.query(api.functions.shares.previewForShortLink, {
+      handle: "seyi",
+      slug: "intake",
+    });
+    expect(preview.cardVersion).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  test("...and the version is a cache key, not the token and not the leaf", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    await drawCard(f, share);
+    const { cardVersion } = await f.t.query(
+      api.functions.shares.previewForShortLink,
+      { handle: "seyi", slug: "intake" },
+    );
+    // Eight hex characters, over the title alone. It exists because the edge
+    // cannot invalidate an image and a different URL is the only invalidation
+    // there is — not to describe the picture, and never to carry the secret
+    // whose absence is the reason this route can exist at all.
+    expect(cardVersion).toBe(hashTitle(cardSignature("Overview")));
+    expect(share.token).not.toContain(cardVersion ?? "");
+  });
+
+  test("a share with no card yet has no version and no leaf", async () => {
+    const f = await fixture();
+    await shortLink(f, "intake");
+    expect(await cardAt(f, "seyi", "intake")).toBeNull();
+    expect(
+      (
+        await f.t.query(api.functions.shares.previewForShortLink, {
+          handle: "seyi",
+          slug: "intake",
+        })
+      ).cardVersion,
+    ).toBeNull();
+  });
+
+  test("a card drawn for a title the owner has since replaced resolves nothing", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    // The leaf a *different* title would have produced, which is the state a
+    // failed re-render leaves behind: nothing clears the field, so the tags
+    // would update while the picture went on publishing the old name. The
+    // card is the one thing here that cannot be taken back.
+    await drawCard(f, share, "Something else entirely");
+    expect(await cardAt(f, "seyi", "intake")).toBeNull();
+    expect(
+      (
+        await f.t.query(api.functions.shares.previewForShortLink, {
+          handle: "seyi",
+          slug: "intake",
+        })
+      ).cardVersion,
+    ).toBeNull();
+  });
+
+  test("a link shared with named people has no card at its slug", async () => {
+    const f = await fixture();
+    /*
+      The rule `previewForShortLink` applies to the title, applied to the
+      picture — and applied again rather than inherited, because these are two
+      routes and a crawler can ask either. A memorable address for a link
+      shared with named people is a reasonable thing to want and still works;
+      it is the note's *name* that must not travel to somebody who guessed the
+      word, and a cached unfurl cannot be taken back.
+    */
+    const created = await asUser(f.t, f.owner).mutation(
+      api.functions.shares.createShare,
+      { workspaceId: f.workspaceId, path: ENTRY, recipient: "@dan" },
+    );
+    const rows = await asUser(f.t, f.owner).query(api.functions.shares.listShares, {
+      workspaceId: f.workspaceId,
+    });
+    const row = rows.find((candidate) => candidate.token === created.token)!;
+    await asUser(f.t, f.owner).mutation(api.functions.shares.setShareSlug, {
+      shareId: row.shareId,
+      slug: "named",
+    });
+    await drawCard(f, { shareId: row.shareId, token: created.token });
+
+    expect(await cardAt(f, "seyi", "named")).toBeNull();
+  });
+
+  test("every absence is the same absence", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    await drawCard(f, share);
+
+    expect(await cardAt(f, "nobody", "intake")).toBeNull();
+    expect(await cardAt(f, "seyi", "never-claimed")).toBeNull();
+    expect(await cardAt(f, "seyi", "Not A Slug At All")).toBeNull();
+
+    await asUser(f.t, f.owner).mutation(api.functions.shares.revokeShare, {
+      shareId: share.shareId,
+    });
+    // Revoked reads exactly as never-existed, which is what keeps a revocation
+    // invisible to whoever is probing for one.
+    expect(await cardAt(f, "seyi", "intake")).toBeNull();
+  });
+
   test("and never the note's contents, so no crawler reaches the bucket", async () => {
     const f = await fixture();
     await shortLink(f, "intake");
@@ -480,7 +622,7 @@ describe("what a short link unfurls with", () => {
   test("every absence is the same absence", async () => {
     const f = await fixture();
     const share = await shortLink(f, "intake");
-    const generic = { title: null };
+    const generic = { title: null, cardVersion: null };
 
     expect(
       await f.t.query(api.functions.shares.previewForShortLink, {
@@ -554,7 +696,7 @@ describe("what a short link unfurls with", () => {
         handle: "seyi",
         slug: "intake",
       }),
-    ).toEqual({ title: null });
+    ).toEqual({ title: null, cardVersion: null });
   });
 
   test("a link whose owner turned the title off names nothing", async () => {
@@ -574,6 +716,6 @@ describe("what a short link unfurls with", () => {
         handle: "seyi",
         slug: "intake",
       }),
-    ).toEqual({ title: null });
+    ).toEqual({ title: null, cardVersion: null });
   });
 });

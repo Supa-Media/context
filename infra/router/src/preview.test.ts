@@ -19,6 +19,8 @@ import {
   previewForNote,
   shortLinkFrom,
   previewForShortLink,
+  shortLinkCardFrom,
+  shortLinkCardPath,
 } from "./preview";
 import { route } from "./route";
 import shareSegmentCases from "./shareSegment.fixtures.json";
@@ -1139,18 +1141,97 @@ describe("what a short link unfurls with", () => {
     expect(meta.title).toBe("New project intake — Context");
   });
 
-  it("and no card image, because the image is addressed by a capability", () => {
-    // A short link may sit over an `anyone` share, where the token IS the
-    // authorization. `/share/short` returns no token, and this asserts the
-    // consequence rather than trusting the upstream to keep withholding it.
-    expect(previewForShortLink("New project intake").imageUrl).toBe(
-      GENERIC_PREVIEW.imageUrl,
-    );
+  it("and its own card image, addressed by the name rather than by a token", () => {
+    /*
+      This asserted the opposite until short links learned to unfurl, and the
+      reason it did is still true: a short link may sit over an `anyone` share
+      where the token IS the authorization, so `/share/short` returns no token
+      and this file must never build a URL from one.
+
+      What changed is the address. The card is at the handle and slug the
+      crawler already typed, so the image arrives and nothing is published —
+      which is what this now checks, including that no 64-hex token appears
+      anywhere in the URL.
+    */
+    const url = previewForShortLink("New project intake", "seyi", "intake", "abcd1234")
+      .imageUrl;
+    expect(url).toBe("https://context.lc/og/n/@seyi/intake.png?v=abcd1234");
+    expect(url).not.toMatch(/[0-9a-f]{64}/);
+  });
+
+  it("falls back to the product card when there is no card to point at", () => {
+    // No version is every reason a card can be missing: never rendered, render
+    // failed, bucket refused, title changed since the last successful render.
+    // All of them are the same absence a revoked link gives.
+    for (const version of [null, undefined, "", "nothex!!", "abcd123"]) {
+      expect(
+        previewForShortLink("New project intake", "seyi", "intake", version).imageUrl,
+      ).toBe(GENERIC_PREVIEW.imageUrl);
+    }
+  });
+
+  it("refuses to build a card URL out of a handle or slug it would not route", () => {
+    // The value is interpolated into a URL our own tags point at. "Upstream
+    // would not send anything else" is the assumption that turns a path built
+    // by concatenation into a redirect.
+    for (const [handle, slug] of [
+      ["seyi/../..", "intake"],
+      ["seyi", "in take"],
+      ["SEYI", "intake"],
+      ["seyi", "-intake"],
+      ["", "intake"],
+      ["seyi", ""],
+    ] as const) {
+      expect(
+        previewForShortLink("New project intake", handle, slug, "abcd1234").imageUrl,
+      ).toBe(GENERIC_PREVIEW.imageUrl);
+    }
   });
 
   it("every absence is the generic card, byte for byte", () => {
     for (const title of [null, undefined, "", "   "]) {
       expect(previewForShortLink(title)).toEqual(GENERIC_PREVIEW);
+      expect(previewForShortLink(title, "seyi", "intake", "abcd1234")).toEqual(
+        GENERIC_PREVIEW,
+      );
     }
+  });
+});
+
+describe("shortLinkCardFrom", () => {
+  it("reads the two halves of a card address", () => {
+    expect(shortLinkCardFrom("/og/n/@seyi/intake.png")).toEqual({
+      handle: "seyi",
+      slug: "intake",
+    });
+  });
+
+  it("refuses anything that could never have been claimed", () => {
+    // Shape-checked before anything is fetched, exactly as `shortLinkFrom` is:
+    // a path that could never name a real card never becomes an upstream
+    // request, so hammering this address costs a regex rather than a round
+    // trip somebody can time.
+    for (const path of [
+      "/og/n/seyi/intake.png",
+      "/og/n/@seyi/intake",
+      "/og/n/@seyi.png",
+      "/og/n/@seyi/intake/extra.png",
+      "/og/n/@seyi/IN TAKE.png",
+      "/og/n/@SEYI/intake.png",
+      "/og/n/@seyi/-intake.png",
+      "/og/n/@/intake.png",
+      "/og/s/@seyi/intake.png",
+      "/og/card.png",
+    ]) {
+      expect(shortLinkCardFrom(path), path).toBeNull();
+    }
+  });
+
+  it("round-trips the path the preview builds", () => {
+    // The two halves are written in different files and read in a third. A
+    // builder and a parser that disagree is a card address that 404s for a
+    // link that works, which is the generic image with extra steps.
+    expect(shortLinkCardFrom(shortLinkCardPath("seyi", "intake", "abcd1234").split("?")[0]!))
+      .toEqual({ handle: "seyi", slug: "intake" });
   });
 });

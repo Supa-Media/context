@@ -72,6 +72,7 @@ import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
 import { findName } from "./lib/nameClaims";
 import { isProductMandatedPath } from "./lib/scaffold";
+import { cardImageLeaf, cardSignature, hashTitle } from "./lib/cardKey";
 import { shortLinkSlugFrom, shortLinkSlugRejection } from "./lib/shareSlug";
 import { DEFAULT_COLLECT_CAP, collectCapFrom } from "./lib/collectLimits";
 import { APP_ORIGIN_ENV_VAR } from "./lib/gatewayAuth";
@@ -1853,9 +1854,24 @@ export const readShortLink = action({
  */
 export const previewForShortLink = query({
   args: { handle: v.string(), slug: v.string() },
-  returns: v.object({ title: v.union(v.string(), v.null()) }),
+  returns: v.object({
+    title: v.union(v.string(), v.null()),
+    /**
+     * An opaque digest of what the card draws, or `null` when there is no card.
+     *
+     * The edge cannot invalidate an image: the Workers Cache API is
+     * per-datacenter and `cache.delete` purges one colo, so the only
+     * invalidation there has ever been is a different URL. `shareCardPath`
+     * gets that by hashing the title it already holds — and this route's
+     * caller cannot, because a folder card draws two or three names from
+     * inside the folder and **those names are not what a short link's preview
+     * discloses**. Handing back the digest rather than the ingredients keeps
+     * the cache correct without widening what a guessable address answers.
+     */
+    cardVersion: v.union(v.string(), v.null()),
+  }),
   handler: async (ctx, args) => {
-    const nothing = { title: null };
+    const nothing = { title: null, cardVersion: null };
 
     const slug = shortLinkSlugFrom(args.slug.toLowerCase());
     if (slug === null) return nothing;
@@ -1893,7 +1909,31 @@ export const previewForShortLink = query({
     if (live.recipientKind !== "anyone") return nothing;
 
     const title = normalizePreviewTitle(live.previewTitle ?? "");
-    return { title: title === null ? null : title };
+    if (title === null) return nothing;
+    /*
+      A version only where there is a card to version. `null` is what tells the
+      edge to fall back to the product's own image, so the absence has to
+      survive every reason a card can be missing — never rendered, render
+      failed, bucket refused, title changed since the last successful render —
+      which is exactly the set `cardLocationForShortLink` refuses on. The leaf
+      is recomputed there and compared for the same reason it is compared
+      there: a stale card publishes a title its owner has already replaced.
+    */
+    const drawable =
+      live.cardImageLeaf !== undefined &&
+      live.previewTitle !== undefined &&
+      live.cardImageLeaf ===
+        cardImageLeaf(
+          live.token,
+          live.previewTitle,
+          boundPreviewChildren(live.previewChildren ?? []),
+        );
+    return {
+      title,
+      cardVersion: drawable
+        ? hashTitle(cardSignature(title, boundPreviewChildren(live.previewChildren ?? [])))
+        : null,
+    };
   },
 });
 
