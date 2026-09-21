@@ -381,6 +381,70 @@ export async function runFormChecks(check) {
     );
   }
 
+  /* ------------------- who a form tells, and what it refuses --------------- */
+  //
+  // `notify` is the only key that points *out* of the workspace, so the
+  // grammar is where an address has to die. Everything below is one claim: a
+  // block can name a person and cannot name a destination.
+  //
+  // The two halves are tested together on purpose. The parser refusing an
+  // address is worth nothing if the renderer will write one — `create_form`
+  // and the console's editor both go through `renderFormBlock`, so a value it
+  // emits is a value the parser on the next read has to accept, and a
+  // "simplification" that dropped the render-side check would leave the
+  // refusal reachable only by hand-editing in Obsidian.
+  {
+    const config = parseFormBlocks(BUGS_NOTE)[0].config;
+    const withNotify = (value) =>
+      parseFormBlocks(BUGS_NOTE.replace("id: bugs", `id: bugs\nnotify: ${value}`))[0];
+
+    check(
+      "a form says nothing about notification unless it asks to",
+      !("notify" in config)
+    );
+    check("owner is a notification target", withNotify("owner").config?.notify === "owner");
+    check("...and so is a handle", withNotify("@dan").config?.notify === "@dan");
+    check(
+      "an email address is refused by the parser, in words that say what to write instead",
+      /never an email address/.test(withNotify("dev@supa.media").error || "")
+    );
+    check(
+      "...and a bare word that is not owner is refused rather than read as a handle",
+      /never an email address/.test(withNotify("dan").error || "")
+    );
+    check(
+      "...and a handle longer than the namespace allows",
+      /never an email address/.test(withNotify(`@${"a".repeat(33)}`).error || "")
+    );
+
+    const rendered = renderFormBlock({ ...config, notify: "@dan" });
+    check(
+      "a notification target round-trips through the renderer",
+      parseFormBlocks(rendered.text)[0]?.config?.notify === "@dan"
+    );
+    check(
+      "...and a form that tells nobody renders no notify line at all",
+      !renderFormBlock(config).text.includes("notify:")
+    );
+    // The renderer is the half an agent reaches. `create_form` takes a policy
+    // rather than markdown precisely so that a tool argument cannot become a
+    // line in the block; an address arriving as `notify` would be that, and
+    // the refusal has to happen before the note is written rather than at the
+    // send that never comes.
+    check(
+      "the renderer refuses an address too, rather than writing one for the server to drop later",
+      /never an email address/.test(
+        renderFormBlock({ ...config, notify: "dev@supa.media" }).error || ""
+      )
+    );
+    check(
+      "...and refuses a value carrying a line break, which would forge a second key",
+      /never an email address/.test(
+        renderFormBlock({ ...config, notify: "owner\nsubmit: owner" }).error || ""
+      )
+    );
+  }
+
 
   {
     // A note may legitimately contain other fenced blocks, including one that
@@ -996,6 +1060,98 @@ export async function runFormChecks(check) {
       "...attributed to them in the file",
       (bucket.text("3-resources/bugs.responses.md") || "").includes("· @dan ·")
     );
+
+    /* -- (3b) a form that names somebody tells the control plane ------------ */
+    //
+    // The gateway's half of "anytime there is a submission". The console and a
+    // published collect link are both written by `runFileOperation`, which
+    // schedules the notification itself; `submit_form` never touches the
+    // control plane, so without the call this checks, answering a form through
+    // an AI client would be the one way of answering that told nobody.
+    {
+      const noteBody = [
+        "```form",
+        "id: told",
+        "responses: 3-resources/told.responses.md",
+        "layout: table",
+        "submit: member",
+        "votes: named",
+        "notify: owner",
+        "fields:",
+        "  - { name: summary, type: line, max: 120, required: true }",
+        "```",
+      ].join("\n");
+      await call(env, EDITOR_TOKEN, "write_note", {
+        path: "3-resources/told.md",
+        content: noteBody,
+        visibility: "team",
+        confirm_team_publish: true,
+      });
+      const before = controlPlane.calls.filter((c) => c.path === "/gateway/forms/notify").length;
+      const told = await call(env, MEMBER_TOKEN, "submit_form", {
+        path: "3-resources/told.md",
+        values: pairs({ summary: "the thing that broke" }),
+      });
+      check("a submission to a form that names somebody is accepted", !told.isError);
+      const reported = controlPlane.calls.filter((c) => c.path === "/gateway/forms/notify");
+      check("...and the gateway tells the control plane exactly once", reported.length === before + 1);
+
+      const body = reported[reported.length - 1]?.body ?? {};
+      check("...naming the person the block named", body.to === "owner");
+      check("...and the form, the note and the response", body.formId === "told" && body.notePath === "3-resources/told.md" && /^r-[0-9a-f]{8}$/.test(body.responseId || ""));
+      /*
+        IDENTIFIERS ONLY, AND THIS IS THE CHECK THAT SAYS SO.
+
+        What the submitter typed stays in the customer's bucket; the control
+        plane reads it back at delivery, as the recipient. Sending it here
+        would put note content in a scheduled job's arguments, which Convex
+        persists until the job runs — the one thing non-negotiable #1 is
+        absolute about. Asserted on the serialised body rather than on a field
+        list, because the failure to catch is a value arriving *somewhere* in
+        it, under whatever name a future edit gives it.
+      */
+      check(
+        "...and no answer of theirs is in what was sent",
+        !JSON.stringify(body).includes("the thing that broke")
+      );
+
+      const voteId = /submitted: (r-[0-9a-f]{8})/.exec(told.text)?.[1];
+      await call(env, MEMBER_TOKEN, "vote_form", { path: "3-resources/told.md", response_id: voteId });
+      await call(env, MEMBER_TOKEN, "update_submission", {
+        path: "3-resources/told.md",
+        response_id: voteId,
+        values: pairs({ summary: "the thing that broke, again" }),
+      });
+      await call(env, MEMBER_TOKEN, "retract_submission", {
+        path: "3-resources/told.md",
+        response_id: voteId,
+      });
+      check(
+        "a vote, an edit and a retraction tell nobody — each is a change to an answer already announced",
+        controlPlane.calls.filter((c) => c.path === "/gateway/forms/notify").length === before + 1
+      );
+
+      const quiet = controlPlane.calls.filter((c) => c.path === "/gateway/forms/notify").length;
+      // Its own note rather than a submission to `bugs.md`: the fixtures that
+      // follow count the responses in that file, and a control that changed
+      // them would be this test breaking another one to prove itself.
+      await call(env, EDITOR_TOKEN, "write_note", {
+        path: "3-resources/untold.md",
+        content: noteBody.replace("id: told", "id: untold")
+          .replace("3-resources/told.responses.md", "3-resources/untold.responses.md")
+          .replace("notify: owner\n", ""),
+        visibility: "team",
+        confirm_team_publish: true,
+      });
+      await call(env, MEMBER_TOKEN, "submit_form", {
+        path: "3-resources/untold.md",
+        values: pairs({ summary: "a form that names nobody" }),
+      });
+      check(
+        "...and a form with no notify line reports nothing at all",
+        controlPlane.calls.filter((c) => c.path === "/gateway/forms/notify").length === quiet
+      );
+    }
 
     const readonlySubmit = await call(env, READONLY_TOKEN, "submit_form", {
       path: "3-resources/bugs.md",

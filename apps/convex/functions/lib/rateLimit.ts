@@ -78,6 +78,75 @@ export const MAX_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const RATE_LIMIT_RETENTION_MS = 2 * MAX_RATE_LIMIT_WINDOW_MS;
 
 /**
+ * Spend one, and say whether there was room. No throw.
+ *
+ * `consumeRateLimit` below is this plus the refusal, and it is written that way
+ * round rather than the other because a caller with somewhere else to go is the
+ * harder case to get right. `functions/formNotify.ts` is that caller: over its
+ * limit it does not fail, it counts the answer into a digest, so "denied" is an
+ * ordinary branch and not an exception to catch.
+ *
+ * Catching the `ConvexError` would have worked and is the thing not to do. It
+ * makes a limit indistinguishable from a bug — a `ConvexError` thrown by
+ * anything this function grows to call would be read as "over the limit" and
+ * quietly turn a defect into a digest nobody investigates.
+ *
+ * Counts **successful** spends, with the same honesty the module comment gives:
+ * a denial writes nothing, so this bounds what a caller may do rather than how
+ * often it may ask.
+ */
+export async function tryConsumeRateLimit(
+  ctx: MutationCtx,
+  policy: RateLimitPolicy,
+): Promise<boolean> {
+  if (policy.windowMs > MAX_RATE_LIMIT_WINDOW_MS) {
+    throw new Error(
+      `rate limit window ${policy.windowMs}ms exceeds MAX_RATE_LIMIT_WINDOW_MS; raise it and the retention together`,
+    );
+  }
+  const now = Date.now();
+  const existing = await ctx.db
+    .query("rateLimits")
+    .withIndex("by_key", (q) => q.eq("key", policy.key))
+    .unique();
+
+  if (existing === null) {
+    await ctx.db.insert("rateLimits", { key: policy.key, windowStartedAt: now, count: 1 });
+    return true;
+  }
+  if (now - existing.windowStartedAt >= policy.windowMs) {
+    await ctx.db.patch(existing._id, { windowStartedAt: now, count: 1 });
+    return true;
+  }
+  if (existing.count >= policy.limit) return false;
+  await ctx.db.patch(existing._id, { count: existing.count + 1 });
+  return true;
+}
+
+/**
+ * When the window this key is in runs out.
+ *
+ * For a caller that has just been denied and needs to know when to come back —
+ * `formNotifyDigests.scheduledFor` is exactly that. Reads without spending, so
+ * asking does not move the limit.
+ *
+ * Falls back to a full window from now when there is no row, which is the
+ * conservative answer: no row means nothing has been spent, and a digest
+ * scheduled a window out is late rather than lost.
+ */
+export async function windowEndsAt(
+  ctx: MutationCtx,
+  policy: RateLimitPolicy,
+): Promise<number> {
+  const existing = await ctx.db
+    .query("rateLimits")
+    .withIndex("by_key", (q) => q.eq("key", policy.key))
+    .unique();
+  if (existing === null) return Date.now() + policy.windowMs;
+  return existing.windowStartedAt + policy.windowMs;
+}
+
+/**
  * Record one successful use of a limited operation, or throw `RATE_LIMITED`.
  *
  * Call it inside the same mutation as the work it limits, so the two commit or
@@ -90,45 +159,17 @@ export async function consumeRateLimit(
   ctx: MutationCtx,
   policy: RateLimitPolicy,
 ): Promise<void> {
-  if (policy.windowMs > MAX_RATE_LIMIT_WINDOW_MS) {
-    /*
-      A window longer than the sweep's retention would have its counters
-      deleted while still live, handing the caller their spent budget back.
-      Refused here rather than left to be noticed, because the failure is
-      silent everywhere else: the limit simply stops limiting.
-    */
-    throw new Error(
-      `rate limit window ${policy.windowMs}ms exceeds MAX_RATE_LIMIT_WINDOW_MS; raise it and the retention together`,
-    );
-  }
-  const now = Date.now();
-  const existing = await ctx.db
-    .query("rateLimits")
-    .withIndex("by_key", (q) => q.eq("key", policy.key))
-    .unique();
-
-  if (existing === null) {
-    await ctx.db.insert("rateLimits", {
-      key: policy.key,
-      windowStartedAt: now,
-      count: 1,
-    });
-    return;
-  }
-
-  const windowExpired = now - existing.windowStartedAt >= policy.windowMs;
-  if (windowExpired) {
-    await ctx.db.patch(existing._id, { windowStartedAt: now, count: 1 });
-    return;
-  }
-
-  if (existing.count >= policy.limit) {
-    throw new ConvexError({
-      code: "RATE_LIMITED",
-      message: "Too many requests. Try again shortly.",
-      retryAfterMs: existing.windowStartedAt + policy.windowMs - now,
-    });
-  }
-
-  await ctx.db.patch(existing._id, { count: existing.count + 1 });
+  /*
+    The refusal, and nothing else. The counting is `tryConsumeRateLimit`'s, so
+    there is one implementation of what a window is and when it rolls — two
+    would be two answers to "have I spent my budget", and the one nobody reads
+    is the one that drifts.
+  */
+  if (await tryConsumeRateLimit(ctx, policy)) return;
+  const endsAt = await windowEndsAt(ctx, policy);
+  throw new ConvexError({
+    code: "RATE_LIMITED",
+    message: "Too many requests. Try again shortly.",
+    retryAfterMs: Math.max(0, endsAt - Date.now()),
+  });
 }

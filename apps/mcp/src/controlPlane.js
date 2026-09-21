@@ -924,6 +924,28 @@ export function createControlPlane(env, options = {}) {
       });
     },
 
+    /**
+     * That a form took an answer, and who the block says to tell.
+     *
+     * **Identifiers only.** No field values, no submitter, no timestamp — the
+     * control plane reads the answer back out of the customer's bucket when it
+     * delivers, through `canSee` as the recipient. Two reasons, and the second
+     * is the one that decides it: a mail assembled from what this worker sent
+     * would be a mail about a submission rather than about the file, and this
+     * payload would otherwise be note content crossing into the control plane,
+     * where a scheduled job persists its arguments. Non-negotiable #1 is
+     * absolute about that, and a short window is still the wrong side of it.
+     *
+     * `to` is the block's raw `notify` value, already shape-checked by
+     * `parseFormBlocks`. It names a person; the control plane decides whether
+     * that person is a member here and holds a verified address, and there is
+     * no address this worker could send that would reach a stranger.
+     */
+    async notifyFormSubmission(workspaceId, submission) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      return await post("/gateway/forms/notify", { workspaceId, ...submission });
+    },
+
     async createGatewayJob(accessToken, expectedWorkspaceId, job) {
       const parsed = await post("/gateway/jobs/create", {
         accessToken,

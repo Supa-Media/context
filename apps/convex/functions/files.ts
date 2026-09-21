@@ -232,7 +232,10 @@ import {
 import {
   ensureFormResponseFiles,
   runFormAction,
+  readResponseForNotification,
   type FormAction,
+  type FormAnswer,
+  type FormNotifyMaterial,
   type FormResult,
   type FormSeedResult,
 } from "./lib/formOps";
@@ -1017,6 +1020,32 @@ const formResultValidator = v.object({
 });
 
 /**
+ * The one response a notification is about, or `null`.
+ *
+ * `null` covers every refusal without distinguishing them — the manifest says
+ * no, the response was retracted, the block stopped parsing. The caller is a
+ * scheduled job with nobody to tell, and the differences are facts about a
+ * file the recipient may not be able to open.
+ *
+ * Note what the `formApplied` validator beside this does **not** name:
+ * `notify`. `FormResult` carries it and Convex refuses a returned field its
+ * validator does not know, so the `form` branch has to strip it before
+ * returning — forgetting to is a test failure rather than a submitter learning
+ * who their answer was mailed to.
+ */
+const formNotifyReadValidator = v.object({
+  kind: v.literal("formNotifyRead"),
+  response: v.union(
+    v.null(),
+    v.object({
+      by: v.string(),
+      at: v.string(),
+      answers: v.array(formAnswerValidator),
+    }),
+  ),
+});
+
+/**
  * One activity entry, as the console draws it.
  *
  * Paths, names, a kind and a time. No note text, by construction — the file it
@@ -1065,6 +1094,7 @@ const operationResultValidator = v.union(
   pluginSettingsValidator,
   pluginManagedValidator,
   pluginBundleValidator,
+  formNotifyReadValidator,
   vaultImportResultValidator,
   vaultClearResultValidator,
   searchResultsValidator,
@@ -1372,6 +1402,29 @@ const operationValidator = v.union(
       }),
     ),
   }),
+  /**
+   * Read the one response a pending notification is about, as its recipient.
+   *
+   * Narrow on purpose, and named for its one caller. It re-enters this action
+   * with the **recipient's** `scope` and `grantedNames` rather than the
+   * submitter's, because the question is whether *they* may read the answers
+   * that are about to be mailed to them — asked against the live manifest, at
+   * delivery. See `readResponseForNotification`.
+   *
+   * It is not a general "read any note as any clearance" primitive and must
+   * not become one. Every argument is an identifier that came out of the
+   * submission this notification is for, and the clearance comes out of a
+   * membership row; a caller that could compose the two freely would be a read
+   * of any note as any member, with no session and no audit line.
+   */
+  v.object({
+    kind: v.literal("formNotifyRead"),
+    notePath: v.string(),
+    formId: v.string(),
+    responsesPath: v.string(),
+    responseId: v.string(),
+    to: v.string(),
+  }),
   v.object({ kind: v.literal("resetPrivacy") }),
   v.object({
     kind: v.literal("migrateStorage"),
@@ -1475,6 +1528,14 @@ type FileOperation =
       actorRole: WorkspaceRole;
       action: FormAction;
     }
+  | {
+      kind: "formNotifyRead";
+      notePath: string;
+      formId: string;
+      responsesPath: string;
+      responseId: string;
+      to: string;
+    }
   | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
   | { kind: "readStorageLayout" };
@@ -1491,7 +1552,11 @@ type FileOperation =
  */
 type OperationResult =
   | { kind: "activity"; entries: ActivityEntry[] }
-  | ({ kind: "formApplied" } & FormResult)
+  | ({ kind: "formApplied" } & Omit<FormResult, "notify">)
+  | {
+      kind: "formNotifyRead";
+      response: { by: string; at: string; answers: FormAnswer[] } | null;
+    }
   | {
       /**
        * What the bucket's own migration state says, having run nothing.
@@ -2234,6 +2299,7 @@ export const runFileOperation = internalAction({
     }
 
     let wroteActivity: { teamVisible: boolean } | null = null;
+    let dueNotification: (FormNotifyMaterial & { responseId: string }) | null = null;
     const result = await executeOperation(
       store,
       clearanceOf(args.scope, args.grantedNames ?? []),
@@ -2249,7 +2315,39 @@ export const runFileOperation = internalAction({
       (landed) => {
         wroteActivity = landed;
       },
+      (material) => {
+        dueNotification = material;
+      },
     );
+
+    /*
+      TELLING SOMEBODY IS SCHEDULED AFTER THE WRITE, NEVER AWAITED INSIDE IT,
+      AND THE REASON IS THE ONE `functions/invitationEmail.ts` GIVES.
+
+      A submission through a collect link comes from a stranger with no
+      account. If this resolved a recipient, read a manifest and made an HTTPS
+      call before returning, then the time a submission takes would depend on
+      whether the form notifies anybody and on whether their address accepted
+      the mail — an oracle readable with a stopwatch and no API at all.
+      `runAfter(0, …)` is enqueued in a separate transaction whose return value
+      the scheduler discards, so there is no channel back and nothing here
+      varies with any of it.
+
+      It is also what keeps a notification from ever failing a submission. The
+      answer is in the customer's bucket by the time this line runs; mail is a
+      derivative of it, and a derivative never rolls back the canonical write —
+      hence the `.catch`, which is the same shape the activity stamp above uses
+      and for the same reason.
+    */
+    if (dueNotification !== null) {
+      await ctx.scheduler
+        .runAfter(0, internal.functions.formNotify.deliver, {
+          workspaceId: args.workspaceId,
+          ...(dueNotification as FormNotifyMaterial & { responseId: string }),
+        })
+        .catch(() => {});
+    }
+
     /*
       Stamped after the operation, once, and never inside it: the store is the
       customer's bucket and this is a row in ours, so a failure here must not
@@ -3346,6 +3444,21 @@ export async function executeOperation(
    * time of a private change the rest of the product refuses them.
    */
   onActivity?: (landed: { teamVisible: boolean }) => void,
+  /**
+   * Called when a submission landed on a form that names somebody to tell.
+   *
+   * A callback for `onActivity`'s reason and one of its own. The reason: a
+   * result shape is a contract with the console, and the material a
+   * notification needs is the answers themselves — which is precisely what the
+   * submitter's return value must not carry.
+   *
+   * Its own reason: this function is drivable from a test with no workspace,
+   * no credential and no scheduler, and it stays that way. It reports that a
+   * notification is due; whether one is *sent* belongs to the caller that has
+   * a `ctx` — see `runFileOperation`, and `functions/formNotify.ts` for what
+   * happens next.
+   */
+  onFormNotify?: (material: FormNotifyMaterial & { responseId: string }) => void,
 ): Promise<OperationResult> {
   /**
    * One change, in the activity file, if it is one worth mentioning.
@@ -3802,7 +3915,53 @@ export async function executeOperation(
           actor: { name: operation.actorName, role: operation.actorRole },
           action: operation.action,
         });
-        return { kind: "formApplied", ...applied };
+        /*
+          TELLING SOMEBODY IS SCHEDULED, NEVER AWAITED, AND THE REASON IS THE
+          SAME ONE `functions/invitationEmail.ts` GIVES.
+
+          A submission through a collect link comes from a stranger with no
+          account. If this branch resolved a recipient, read a manifest and
+          made an HTTPS call before returning, then the time a submission takes
+          would depend on whether the form notifies anybody and on whether
+          their address accepted the mail — an oracle you can read with a
+          stopwatch and no API at all. `runAfter(0, …)` is enqueued in a
+          separate transaction whose return value the scheduler discards, so
+          there is no channel back and nothing here varies.
+
+          It is also why a failed notification cannot fail a submission. The
+          answer is already in the customer's bucket; mail is a derivative of
+          it, and a derivative never rolls back the canonical write.
+        */
+        const { notify, ...result } = applied;
+        if (notify !== undefined) {
+          onFormNotify?.({ ...notify, responseId: result.responseId });
+        }
+        // `notify` is destructured off rather than left for the validator to
+        // reject, and the validator would reject it — see
+        // `formNotifyVisibleValidator`. Two guards, because the one that
+        // matters is that the answers never reach the submitter's return
+        // value, and a validator is a guard nobody reads until it fires.
+        return { kind: "formApplied", ...result };
+      }
+      case "formNotifyRead": {
+        /*
+          No plugin gate, deliberately. Turning the Markdown forms plugin off
+          stops a form being *used*; it does not un-send the answer that landed
+          a moment before the switch, and a notification that silently stopped
+          at that boundary would leave an owner waiting for mail about an
+          answer they already have. What still applies is `canSee`, which is
+          the check that decides anything here.
+        */
+        return {
+          kind: "formNotifyRead",
+          response: await readResponseForNotification(store, clearance, {
+            notePath: operation.notePath,
+            formId: operation.formId,
+            responsesPath: operation.responsesPath,
+            responseId: operation.responseId,
+            to: operation.to,
+          }),
+        };
       }
       case "removeEncryption": {
         const written = await removeNoteEncryptionOp(store, {

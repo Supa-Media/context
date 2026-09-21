@@ -58,6 +58,7 @@ const CONFIG_KEYS = new Set([
   "edit_own",
   "show_responses",
   "votes",
+  "notify",
   "fields",
 ]);
 
@@ -67,6 +68,49 @@ const FIELD_KEYS = new Set(["name", "type", "max", "min", "required", "options"]
 const LAYOUTS = new Set(["table", "sections"]);
 const SUBMIT_ROLES = new Set(["member", "editor", "owner"]);
 const VOTE_MODES = new Set(["named", "off"]);
+
+/**
+ * Who gets told when an answer arrives — a *person*, never an address.
+ *
+ * `owner`, or a handle. This is the narrowest part of the notification feature
+ * and the narrowness is the feature, so it is stated here rather than in the
+ * decision doc alone.
+ *
+ * A form block sits in a note **any editor can rewrite**, which is already the
+ * stated reason `responses:` names a path and never a visibility: an edit to a
+ * code fence must not be able to do what `set_visibility` does with a
+ * confirmation step and an audit line. An email address in this position would
+ * be strictly worse than a visibility flag, because it is not a permission at
+ * all — it is an **egress destination**. One line changed in Obsidian would
+ * redirect every future answer to somebody else's inbox, and the form's owner
+ * would see nothing.
+ *
+ * It is worse again once the form is published. A collect link takes answers
+ * from strangers with no account, so an address here would make every
+ * published form a mail relay whose destination one editor chooses and whose
+ * *content* any stranger supplies — on our own sending domain. That is the
+ * threat `functions/invitationEmail.ts` already fences on four sides, and it
+ * fences it by never letting the sender choose a stranger's address either.
+ *
+ * So the block names a person and the **control plane resolves where**, exactly
+ * as `ingestionSettings` decides who may post into a context by mail: an
+ * identity, a live membership, a verified address. Context can mail a member of
+ * this workspace and nobody else, and removing somebody's membership stops
+ * their mail without anybody editing a note.
+ *
+ * The shape is all this file can check. Whether `@dan` is a member here, holds
+ * a verified address, and may read the answers file is three questions about
+ * state this module has never had access to, and they are asked where they can
+ * be answered — see `apps/convex/functions/formNotify.ts`.
+ *
+ * Two characters are the whole grammar's business: the leading `@` tells a
+ * handle from the literal `owner`, and `names.ts` claims `[a-z0-9-]{2,32}`, so
+ * a value that parses here can hold no space, no delimiter and no line break.
+ * That is not an accident to rely on quietly — the renderer below refuses
+ * anything else, and `renderFormBlock` writes this value into a line-oriented
+ * format where a newline would become a second key.
+ */
+const NOTIFY_RE = /^(?:owner|@[a-z0-9-]{2,32})$/;
 
 /**
  * Column headings the renderer owns, so a field may not be called one of them.
@@ -327,6 +371,18 @@ function normalizeConfig(raw, fieldMaps) {
   const votes = raw.has("votes") ? raw.get("votes") : "off";
   if (!VOTE_MODES.has(votes)) return { error: '"votes" must be named or off' };
 
+  /*
+    Absent means nobody is told, and absent is the default. A key that had to
+    be written out as `notify: nobody` to mean "no mail" would make every form
+    already in a customer's bucket ambiguous the day this shipped.
+  */
+  const notify = raw.has("notify") ? raw.get("notify") : null;
+  if (notify !== null && (typeof notify !== "string" || !NOTIFY_RE.test(notify))) {
+    return {
+      error: '"notify" must be owner or a handle such as @dan — never an email address',
+    };
+  }
+
   if (!raw.has("fields")) return { error: '"fields" is required' };
   if (!fieldMaps.length) return { error: "a form needs at least one field" };
   if (fieldMaps.length > MAX_FIELDS) return { error: `a form takes at most ${MAX_FIELDS} fields` };
@@ -350,6 +406,9 @@ function normalizeConfig(raw, fieldMaps) {
       edit_own: editOwn,
       show_responses: showResponses,
       votes,
+      // Present only when declared, so `"notify" in config` is the question
+      // "does this form tell anybody", asked in one way everywhere.
+      ...(notify === null ? {} : { notify }),
       fields,
     },
   };
@@ -971,6 +1030,25 @@ export function renderFormBlock(config) {
   lines.push(`edit_own: ${config.edit_own === false ? "false" : "true"}`);
   lines.push(`show_responses: ${config.show_responses === true ? "true" : "false"}`);
   lines.push(`votes: ${config.votes === "named" ? "named" : "off"}`);
+
+  /*
+    Refused rather than escaped, for the reason the option list is: this value
+    runs to the end of its line, so a newline in it would not be mangled, it
+    would become a second key in a block somebody is about to hand to
+    strangers. `NOTIFY_RE` admits nothing that needs escaping, which is why
+    this is one test rather than a quoting rule — and why an address, the thing
+    an author will reach for first, is refused here in the same words the
+    parser uses rather than being written out and refused later by a server the
+    author cannot see.
+  */
+  if (config.notify !== undefined && config.notify !== null) {
+    if (typeof config.notify !== "string" || !NOTIFY_RE.test(config.notify)) {
+      return {
+        error: '"notify" must be owner or a handle such as @dan — never an email address',
+      };
+    }
+    lines.push(`notify: ${config.notify}`);
+  }
 
   if (!Array.isArray(config.fields) || !config.fields.length) {
     return { error: "a form needs at least one field" };

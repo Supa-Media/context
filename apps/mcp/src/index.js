@@ -1109,6 +1109,39 @@ async function route(request, env, ctx) {
         }
       };
 
+      /**
+       * That a form on this context just took an answer.
+       *
+       * The gateway's half of "anytime there is a submission". The console and
+       * a published collect link both write through `runFileOperation`, which
+       * schedules the notification itself; a submission through `submit_form`
+       * never touches the control plane, so without this line an AI client
+       * filing a bug report would be the one way of answering a form that told
+       * nobody.
+       *
+       * Bound to the workspace this store reaches, like the progress reporter
+       * above and for the same reason: a cross-context submission notifies the
+       * context it was written into, never the one the client connected to.
+       *
+       * Deferred where the host can and dropped where it cannot — the trade
+       * `reportUsage` makes, with the same reasoning. The answer is in the
+       * customer's bucket either way; what is lost on a host with no
+       * `waitUntil` is a message, not a response. It never throws into the
+       * tool call for the same reason it is deferred at all: a mail provider
+       * having a bad afternoon must not turn a stored answer into an error.
+       */
+      store.reportFormSubmission = (submission) => {
+        const send = controlPlane
+          .notifyFormSubmission(session.workspaceId, submission)
+          .catch(() => {});
+        if (typeof store.defer !== "function") return;
+        try {
+          store.defer(send);
+        } catch {
+          // A host whose `waitUntil` refuses the work simply does not report.
+        }
+      };
+
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one
       // nothing calls. That makes "a capture-only credential reaches exactly
@@ -1174,6 +1207,21 @@ async function route(request, env, ctx) {
             ...progress,
             workspaceId: target.workspaceId,
           });
+        // Likewise against the context that was routed to. A form answered in
+        // somebody else's context tells *their* owner, and a notification
+        // filed against the caller's own workspace would resolve `notify:
+        // owner` to the wrong person entirely.
+        targetStore.reportFormSubmission = (submission) => {
+          const send = controlPlane
+            .notifyFormSubmission(target.workspaceId, submission)
+            .catch(() => {});
+          if (typeof targetStore.defer !== "function") return;
+          try {
+            targetStore.defer(send);
+          } catch {
+            // A host whose `waitUntil` refuses the work simply does not report.
+          }
+        };
         return { session: target, store: targetStore };
       };
 
@@ -3439,6 +3487,7 @@ function baseToolDefinitions() {
         "A form is a fenced ```form block in the content; writing the note validates it and creates the answers note in the same call, and a block that does not parse is refused with the line that is wrong. The block is:\n" +
         "```form\nid: intake\nresponses: 1-projects/intake-responses.md\nlayout: table\nsubmit: member\nedit_own: true\nvotes: off\nfields:\n  - { name: who, type: line, max: 120, required: true }\n  - { name: brief, type: text, max: 2000 }\n```\n" +
         "id is a short lowercase name; responses is a note of its OWN, never this one; layout is table or sections; submit is the lowest role that may answer (member, editor or owner — use member for anything a link should collect); votes is named or off. Field types are line, text, select, number, date and checkbox; line and text need max, select needs options: [A, B]. Who may READ the answers is the responses note's own visibility, so say where it lands before you make it. " +
+        "Add notify: owner — or notify: @handle — to EMAIL somebody every answer, which is what to reach for when they say they want to know when one comes in. It names a PERSON, never an address: the mail goes to a member of this context at the address on their account, an email address there is refused, and the mail carries the answers, so only somebody who could already open the answers note is told. " +
         "Then pass share to hand out a link to it — see that argument.",
       inputSchema: {
         type: "object",
@@ -3982,6 +4031,17 @@ function baseToolDefinitions() {
             type: "string",
             enum: ["named", "off"],
             description: "named lets people upvote each other's answers, and names who voted. Defaults to off.",
+          },
+          notify: {
+            type: "string",
+            description:
+              "Who gets an email every time somebody answers — owner, or a handle such as @dan. " +
+              "Reach for it whenever they say they want to know when a form comes in. It is a " +
+              "PERSON and never an address: Context mails a member of this context at the address " +
+              "on their account, so an email address here is refused, and somebody who is not a " +
+              "member of this context cannot be told however you spell them. The mail carries the " +
+              "answers, so say that before you set it, and it only goes to somebody who could " +
+              "already open the answers note. Leave it out and nobody is emailed.",
           },
           visibility: {
             type: "string",
@@ -7081,6 +7141,27 @@ async function mutateFormResponses(store, scope, rules, overrides, args, action,
       version: put.etag,
       visibility: effectiveVisibility(responsesPath, rules, overrides),
     });
+    /*
+      A NEW ANSWER, AND ONLY A NEW ANSWER, TELLS SOMEBODY.
+
+      `action` rather than a flag: an edit, a retraction and a vote all land in
+      this same helper, and every one of them is a change to an answer that has
+      already been announced. Mailing a vote would also hand any member of a
+      context a button that fills another member's inbox.
+
+      Identifiers only — see `controlPlane.notifyFormSubmission`. The values
+      this worker just wrote are deliberately not sent; the control plane reads
+      them back out of the bucket, as the recipient, when it delivers.
+    */
+    if (action === "submit_form" && config.notify && typeof store.reportFormSubmission === "function") {
+      store.reportFormSubmission({
+        to: config.notify,
+        formId: config.id,
+        notePath: form.path,
+        responsesPath,
+        responseId: applied.responseId,
+      });
+    }
     return toolText(applied.message);
   }
 
@@ -7341,6 +7422,7 @@ async function toolCreateForm(store, scope, rules, overrides, args) {
     edit_own: args.edit_own !== false,
     show_responses: args.show_responses === true,
     votes: args.votes === "named" ? "named" : "off",
+    ...(typeof args.notify === "string" && args.notify ? { notify: args.notify } : {}),
     fields: args.fields,
   });
   if (rendered.error) return toolError(`that form cannot be written: ${rendered.error}`);
@@ -7412,6 +7494,17 @@ async function toolCreateForm(store, scope, rules, overrides, args) {
   return toolText(
     `${body}\n\n${destination}` +
       `\nsubmitting: ${parsed[0].config.submit} and above` +
+      /*
+        Who gets told, said in the same breath as where the answers land, and
+        said honestly: this worker cannot resolve a handle to a person, a
+        membership or a mailbox, so it reports what the block asks for rather
+        than claiming a delivery it has no way to confirm.
+      */
+      (parsed[0].config.notify
+        ? `\nemails on every answer: ${parsed[0].config.notify} — a member of this context, at the ` +
+          "address on their account, and only if they can read the answers note. The mail carries " +
+          "the answers."
+        : "") +
       (parsed[0].config.layout === "table"
         ? "\nlayout: table — one row per answer, so keep paragraph fields few"
         : "\nlayout: sections — one heading per answer") +

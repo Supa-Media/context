@@ -591,6 +591,73 @@ export const gatewayActivity = gatewayRoute(async (ctx, body) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 2b-bis. POST /gateway/forms/notify — a form took an answer                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The gateway's half of "anytime there is a submission".
+ *
+ * A submission through the console or a published collect link is written by
+ * `runFileOperation`, which schedules the notification itself. `submit_form`
+ * is written by the gateway against the bucket directly, so this route is the
+ * only way one of those reaches a mailbox.
+ *
+ * **It carries identifiers and never an answer.** The values are read back out
+ * of the customer's bucket at delivery, as the recipient — see
+ * `functions/formNotify.ts`. A route that accepted the answers would put note
+ * content in a scheduled job's arguments, which are persisted until it runs.
+ *
+ * ## What authorises it, and what it cannot be turned into
+ *
+ * The gateway secret, which is `gatewayRoute`'s business, plus the fact that
+ * **nothing on this route names a destination**. `to` is a `notify` value from
+ * a form block; `formNotify.resolveRecipient` decides whether it names a
+ * member of *this* workspace with a verified address, and refuses everything
+ * else. So a leaked gateway secret buys mail to members of contexts the
+ * attacker already reached, about answers already in those contexts' buckets —
+ * not a send to an address of their choosing, which is the thing a
+ * notification route must never become.
+ *
+ * `ok: true` whatever happens, and `.catch` around the schedule. The caller is
+ * a deferred `waitUntil` in a Worker with nobody listening; a status code here
+ * would be a fact about somebody's membership, published to whoever can reach
+ * the route.
+ */
+export const gatewayFormsNotify = gatewayRoute(async (ctx, body) => {
+  const answered = () => json({ ok: true });
+  const workspaceId = stringField(body, "workspaceId");
+  const to = stringField(body, "to");
+  const formId = stringField(body, "formId");
+  const notePath = stringField(body, "notePath");
+  const responsesPath = stringField(body, "responsesPath");
+  const responseId = stringField(body, "responseId");
+  if (
+    workspaceId === null ||
+    to === null ||
+    formId === null ||
+    notePath === null ||
+    responsesPath === null ||
+    responseId === null
+  ) {
+    return answered();
+  }
+  try {
+    await ctx.scheduler.runAfter(0, internal.functions.formNotify.deliver, {
+      workspaceId: workspaceId as Id<"workspaces">,
+      to,
+      formId,
+      notePath,
+      responsesPath,
+      responseId,
+    });
+  } catch {
+    // As with the activity route: the difference between "that is not an id"
+    // and "that context is not yours" is the oracle this must not be.
+  }
+  return answered();
+});
+
+/* -------------------------------------------------------------------------- */
 /* 2c. POST /gateway/jobs/create — mint queued gateway work                  */
 /* -------------------------------------------------------------------------- */
 
@@ -1447,6 +1514,7 @@ http.route({
   handler: gatewaySearchIndexProgress,
 });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
+http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
 http.route({
   path: "/gateway/jobs/create",
   method: "POST",

@@ -268,8 +268,9 @@ somebody who has never seen one cannot complete their way in one key at a time.
 ## What is deliberately not built
 
 - **A form builder screen.** Explicitly rejected: the file is what people edit.
-- **Notifications on submission**, response export, closing a form to new
-  responses, and per-field conditional logic. None are foreclosed.
+- Response export, closing a form to new responses, and per-field conditional
+  logic. None are foreclosed. **Notifications on submission** were on this list
+  until 2026-09-21 and now have a section of their own below.
 
 ## Response display is explicit, and privacy still decides
 
@@ -463,3 +464,146 @@ because widening it would change a stable storage format rather than fix a bug.
 **Reading one back cleared it.** The editor's form widget filled a checkbox
 from `value === "true"` — the same confusion at the other end — so editing an
 answer arrived with every ticked box unticked.
+
+## A form tells a person, and the block names one rather than a destination
+
+Decided with the owner, 2026-09-21, from "anytime there is a submission, I
+would love to be able to email someone". The obvious design is
+`notify: dev@example.com` in the block, and it is the one thing here that must
+not be built.
+
+**An address in the block is an egress destination, and a form block sits on a
+note any editor can rewrite.** That is already the stated reason `responses:`
+names a path and never a visibility — an edit to a code fence must not be able
+to do what `set_visibility` does with a confirmation step and an audit line. An
+address is worse than a visibility flag rather than comparable to one: it is
+not a permission at all. One line changed in Obsidian redirects every future
+client brief to somebody else's inbox, and the form's owner sees nothing, ever.
+
+**And once a form is published it stops being about one workspace.** A collect
+link takes answers from strangers with no account, so an address here would
+make every published form a mail relay whose destination one editor chooses and
+whose *content* any stranger supplies, sent from our own domain. That is the
+threat `functions/invitationEmail.ts` is fenced against on four sides, and the
+fence that matters most there is the one this would remove: the sender never
+gets to name a stranger's mailbox.
+
+So the grammar takes `owner` or a handle, and `apps/mcp/src/forms.js` refuses
+everything else **in the renderer as well as the parser** — `create_form` and
+the console editor both write blocks through `renderFormBlock`, so a value it
+would emit is a value the next read has to accept. The control plane then
+resolves the name to an identity, requires a **live membership** in the
+workspace the answer landed in, and reads the address off the account. The
+shape of that is `ingestionSettings`' shape, for the same reason: an allowlist
+that starts closed, seeded from accounts, with no wildcard and no suffix rule.
+
+**What this buys, stated as the property to keep:** Context can mail a member of
+that workspace and nobody else. Naming is not granting — a handle that resolves
+to a real person who is not a member here gets nothing. Removing somebody's
+membership stops their mail without anybody editing a note. And there is no
+value an editor can write into a code fence that makes a message go somewhere
+new.
+
+## The answers are in the mail, so the mail is fetched as its recipient
+
+Also the owner's call, and the more expensive half: a bug report you have to
+click through to is a bug report you read tomorrow. The cost is that content
+leaves the bucket, and the bound on it is that it only ever leaves **to somebody
+it had already been shown to**.
+
+The shape that looks obvious and is wrong is: check `canSee`, then render the
+answers the submission carried along. Those are two facts about one file that
+can disagree, and this is the one place where being wrong means the content has
+already been sent. So `readResponseForNotification` does both at once — the
+read that produces the answers *is* the read `canSee` authorised, against the
+live manifest, for that person, at delivery rather than at authoring time. A
+recipient the manifest holds back is not mailed at all, not mailed a contentless
+notice: "an answer arrived on a form whose answers you cannot see" is itself a
+statement about a file being held back.
+
+**Nothing about an answer travels in a scheduled job's arguments.** Convex
+persists those until the job runs, so answers there would be note content stored
+in the control plane — non-negotiable #1, which is absolute rather than
+proportionate. A short window is still the wrong side of it. The job carries
+identifiers, and so does the gateway's `/gateway/forms/notify`, which is why
+that route cannot be turned into a send-to-an-address-of-your-choosing primitive
+even with the gateway secret in hand.
+
+## Only a submission, and a burst is counted rather than dropped
+
+**`kind === "submit"`, not truthiness.** An edit, a retraction and a vote are
+all changes to an answer that has already been announced, and a vote is a button
+every member of a context has — mailing one hands any member a way to fill
+another's inbox by clicking.
+
+**Twenty per recipient per hour, then a digest.** A published form's collect cap
+is in the hundreds and nobody wants hundreds of messages, so a limit is not
+optional. What a bare limit costs is the difference between "nothing arrived"
+and "a burst arrived while you were over your limit", which is invisible to the
+person the form belongs to — so the overflow increments `formNotifyDigests` and
+one message per window names the count. The digest holds a counter and three
+identifiers and never an answer: it is sent precisely when a lot of them landed,
+and a message carrying twenty strangers' briefs is a different object from one
+carrying one.
+
+The slot is claimed **before** the bucket is opened, which is `spendCollectSlot`'s
+reasoning applied here: otherwise a stranger with a published link spends a
+bucket read per submission on work that is thrown away. The cost of that order
+is that a slot spent on a notification the manifest then refuses is one fewer
+message in the window, which errs towards sending less.
+
+There is deliberately **no second limiter keyed on the address**, which is the
+fence `invitationEmail.ts` needs and this does not: there, any account could
+name any stranger's mailbox; here the recipient is always a member of the
+sending workspace, so flooding somebody first requires them to have granted you
+membership, and the lever they already hold is removing it.
+
+## It is scheduled, and that is a security boundary rather than a tidiness one
+
+`runFileOperation` schedules `deliver` and discards it. A synchronous send would
+make the time a submission takes depend on whether the form notifies anybody and
+on whether the address accepted the mail — an oracle readable with a stopwatch,
+by a stranger, on a URL its owner published. It is the same reasoning
+`sendInvitationEmail` gives, with a worse attacker.
+
+The same property is what makes failure safe: the answer is in the customer's
+bucket before any of this runs, mail is a derivative of it, and a derivative
+never rolls back the canonical write. A deployment with no `RESEND_API_KEY`
+sends nothing and refuses nothing.
+
+## What a "simplification" would cost
+
+Each has a test in `apps/convex/__tests__/formNotify.test.ts`, and each was
+sabotaged to confirm the test fails — including the one that came back **1**
+and was therefore the finding rather than the result. The anti-relay rule had a
+single assertion behind it, on the resolver, and the resolver is the *inner* of
+two guards; nothing covered the outer one, which is that a block holding an
+address does not parse at all. There is now a fixture that writes one straight
+into the bucket, past every tool, the way an owner with Obsidian open can.
+
+- Letting `notify:` hold an address makes every published form a mail relay
+  whose destination an editor picks and whose content a stranger writes.
+- Trusting the `to` argument instead of reading `notify` back out of the block
+  lets whoever can reach `/gateway/forms/notify` — a leaked gateway secret —
+  redirect a real answer to a different member. A smaller hole than the relay
+  and the same shape: a destination supplied by a caller rather than derived
+  from the thing being sent. The block is the authority on who it tells, as the
+  session is the authority on `by`.
+- Dropping the membership check lets a form mail anybody with an account.
+- Checking `canSee` separately from the read discloses answers to somebody the
+  manifest refuses, on whichever of the two goes stale first.
+- Testing truthiness instead of `kind === "submit"` mails every vote.
+- Carrying the answers in the scheduled job puts note content in our database.
+- Awaiting the send inside the submission hands a stranger a timing oracle and
+  lets a mail provider's bad afternoon turn a stored answer into an error.
+
+One guard was **removed** during that pass rather than kept, which is the same
+outcome `create_form`'s runtime re-render check had. It refused a `responses:`
+pointing at `privacy.md` — `canSee` says an owner may read their own access
+map, and this is the one read whose result is emailed, so it looked like a way
+to mail somebody their manifest. Sabotaging it failed nothing from either end:
+nothing can write a response into that file and nothing can read one back out
+of it, both because of the marker check that stops a submission writing into a
+file this package did not write. A guard that cannot be reached is not a guard,
+so the reasoning is a comment in `readResponseForNotification` and the line is
+gone.
