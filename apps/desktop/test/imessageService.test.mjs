@@ -42,6 +42,34 @@ import { execFileSync } from "node:child_process";
 
 const SQLITE3_BINARY = "/usr/bin/sqlite3";
 
+/**
+ * The day every fixture message falls on, and the clock the service is given.
+ *
+ * ## This suite had a fourteen-day fuse, and it went off
+ *
+ * The fixture's messages are pinned to 2026-09-07 (Apple-epoch
+ * `8104328…`–`8104330…`), and a watcher-triggered pass refreshes
+ * `recentUtcDates(now, IMESSAGE_WATCH_REFRESH_DAYS)` — today back through
+ * today−13. Nothing pinned `now`, so the service used the wall clock, and on
+ * **2026-09-21** the window became 09-08…09-21 and the fixture's day fell out
+ * of it overnight. The deletion-refresh checks went from green to red at
+ * midnight UTC, on every branch at once, with nobody having changed a line:
+ * green on `main` at 21:27, red at 02:11 on a pull request whose whole diff
+ * was one Markdown file.
+ *
+ * So the clock is injected. A test that asserts something about "recent days"
+ * against a fixture on a fixed calendar date and then reads the real time is
+ * a test with an expiry date on it, and the failure it produces is maximally
+ * confusing: reproducible, unrelated to any diff, and wrong about whose fault
+ * it is.
+ *
+ * Midday rather than midnight so that a timezone or DST subtlety cannot put
+ * the fixture on the wrong side of a UTC day boundary.
+ */
+const FIXTURE_DAY = "2026-09-07";
+const FIXTURE_NOW = Date.parse(`${FIXTURE_DAY}T12:00:00.000Z`);
+const FIXTURE_NOTE_PATH = `0-inbox/imessage/${FIXTURE_DAY.slice(0, 4)}/${FIXTURE_DAY.slice(5, 7)}/${FIXTURE_DAY}.md`;
+
 /** Bytes a sender chose, in every column that carries any. None may reach a status. */
 const HOSTILE = Object.freeze({
   handle: "+15550009999",
@@ -213,6 +241,8 @@ export async function runImessageServiceChecks(check, skip) {
     let watcherCloses = 0;
     let enabled = false;
     service = new ImessageSyncService({
+      // The fixture's own day, never the wall clock. See `FIXTURE_NOW`.
+      now: () => FIXTURE_NOW,
       store: offStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: enabled }),
@@ -292,7 +322,7 @@ export async function runImessageServiceChecks(check, skip) {
     check("...and writes the daily note once there is a new row", wroteNote !== undefined);
     check(
       "...at the fixed iMessage path for the day the fixture's message falls on",
-      wroteNote?.params?.arguments?.path === "0-inbox/imessage/2026/09/2026-09-07.md",
+      wroteNote?.params?.arguments?.path === FIXTURE_NOTE_PATH,
     );
     check("...as a private note, never team-visible", wroteNote?.params?.arguments?.visibility === "private");
     check("...and the new message really is in it", String(wroteNote?.params?.arguments?.content).includes("second message after a filesystem change"));
@@ -326,11 +356,11 @@ export async function runImessageServiceChecks(check, skip) {
     ]);
     observedChange();
     const deletionRefreshRan = await waitUntil(() => {
-      const stored = offGateway.notes.get("0-inbox/imessage/2026/09/2026-09-07.md");
+      const stored = offGateway.notes.get(FIXTURE_NOTE_PATH);
       return stored !== undefined && !stored.content.includes("second message after a filesystem change");
     });
     check("A WATCHER-TRIGGERED DELETION-ONLY CHANGE REWRITES THE DAY", deletionRefreshRan);
-    check("...and removes the deleted message body through the service path", !offGateway.notes.get("0-inbox/imessage/2026/09/2026-09-07.md")?.content.includes("second message after a filesystem change"));
+    check("...and removes the deleted message body through the service path", !offGateway.notes.get(FIXTURE_NOTE_PATH)?.content.includes("second message after a filesystem change"));
 
     // -- TURNED BACK OFF: it stops --------------------------------------------
     enabled = false;
@@ -369,6 +399,8 @@ export async function runImessageServiceChecks(check, skip) {
     ]);
     const replayStore = fakeStore(3);
     service = new ImessageSyncService({
+      // The fixture's own day, never the wall clock. See `FIXTURE_NOW`.
+      now: () => FIXTURE_NOW,
       store: replayStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: replayEnabled }),
@@ -412,6 +444,8 @@ export async function runImessageServiceChecks(check, skip) {
     globalThis.fetch = cancelGateway.impl;
     const cancelStore = fakeStore(4);
     service = new ImessageSyncService({
+      // The fixture's own day, never the wall clock. See `FIXTURE_NOW`.
+      now: () => FIXTURE_NOW,
       store: cancelStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: cancelEnabled }),
@@ -447,6 +481,8 @@ export async function runImessageServiceChecks(check, skip) {
     globalThis.fetch = writeAbortGateway.impl;
     const writeAbortStore = fakeStore(4);
     service = new ImessageSyncService({
+      // The fixture's own day, never the wall clock. See `FIXTURE_NOW`.
+      now: () => FIXTURE_NOW,
       store: writeAbortStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: writeAbortEnabled }),
@@ -468,6 +504,8 @@ export async function runImessageServiceChecks(check, skip) {
     const failStatuses = [];
     let failEnabled = true;
     service = new ImessageSyncService({
+      // The fixture's own day, never the wall clock. See `FIXTURE_NOW`.
+      now: () => FIXTURE_NOW,
       store: failStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: failEnabled }),
@@ -537,6 +575,8 @@ export async function runImessageServiceChecks(check, skip) {
     const noDb = stubFetch();
     globalThis.fetch = noDb.impl;
     service = new ImessageSyncService({
+      // The fixture's own day, never the wall clock. See `FIXTURE_NOW`.
+      now: () => FIXTURE_NOW,
       store: fakeStore(),
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: true }),
@@ -567,6 +607,8 @@ export async function runImessageServiceChecks(check, skip) {
     const decoyStore = fakeStore();
     let decoyWatcherInstalled = false;
     service = new ImessageSyncService({
+      // The fixture's own day, never the wall clock. See `FIXTURE_NOW`.
+      now: () => FIXTURE_NOW,
       store: decoyStore,
       connection: fakeConnection(),
       settings: () => ({ imessageEnabled: true }),
