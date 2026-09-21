@@ -1220,6 +1220,71 @@ describe("a session stuck finalizing is not left stuck", () => {
     expect(record.session.notes).toBe("typed before the gateway went quiet");
   });
 
+  /*
+    THE CASE THE RETRY WAS WRITTEN FOR, AND THE ONE IT DID NOT COVER.
+
+    `retryFinalize`'s own header names it: the stuck meeting the owner reported
+    is a gateway that *accepted* a finalize and never came back with a path.
+    That acknowledgement sets `acked.finalized`, `pendingSteps` then offers no
+    finalize step, and `sync.ts` says the answer "arrives through the list" —
+    except nothing in this app has ever called `gateway.list()`.
+
+    So the only thing that could ask again was `recoverStaleFinalizes`'s retry
+    branch, and it went through `retrySync`, which returns the record unchanged
+    when there is no `rejection` and never touches `acked.finalized`. The
+    automatic retry was a no-op in exactly the case it exists for: ten minutes
+    of nothing, then ten more, then `failed` — with the words on the device and
+    a note the gateway may well have written.
+
+    Measured before the fix: `the retry actually asks the gateway again` saw 1
+    finalize call where it expects 2, and `and the note lands without anybody
+    pressing anything` ended `failed` with `notePath` null.
+  */
+  test("the retry actually asks the gateway again, rather than stamping a clock", async () => {
+    const gateway = fakeGateway();
+    gateway.withholdNotePath(1);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Jhon / Seyi" });
+    controller.setNotes(id, "the bit that must not be lost");
+    await controller.end();
+    await settle();
+
+    const accepted = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(accepted.session.state).toBe("finalizing");
+    expect(accepted.acked.finalized).toBe(true);
+    expect(accepted.session.notePath).toBeNull();
+    const before = gateway.calls.filter((call) => call === "finalize").length;
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    await controller.sync();
+    await settle();
+
+    expect(gateway.calls.filter((call) => call === "finalize").length).toBeGreaterThan(before);
+  });
+
+  test("and the note lands without anybody pressing anything", async () => {
+    const gateway = fakeGateway();
+    gateway.withholdNotePath(1);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Jhon / Seyi" });
+    controller.setNotes(id, "the bit that must not be lost");
+    await controller.end();
+    await settle();
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    await controller.sync();
+    await settle();
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("complete");
+    expect(record.session.notePath).not.toBeNull();
+    expect(record.session.notes).toBe("the bit that must not be lost");
+    // One meeting, one note: asking again is idempotent, not a second file.
+    expect(gateway.notesWritten()).toBe(1);
+  });
+
   test("sync() runs the same check on its own schedule, not only on relaunch", async () => {
     const gateway = fakeGateway();
     gateway.offlineFor(1000);

@@ -424,6 +424,39 @@ export function retrySync(record: MeetingRecord): MeetingRecord {
 }
 
 /**
+ * Ask the gateway about this finalize again.
+ *
+ * `retrySync` clears a *refusal*, and for a meeting the gateway refused that
+ * is the whole of it. It is not the whole of it for the meeting this function
+ * exists for, and the difference is what lost one.
+ *
+ * **"Finalize accepted, no path yet" is not a refusal.** It is the gateway
+ * saying "I have it, the bucket does not" (`sync.ts`), and it sets
+ * `acked.finalized`. With that set, `pendingSteps` offers no finalize step —
+ * correctly, since one was accepted — and `retrySync` answers a record with no
+ * `rejection` by returning it **unchanged**. So every automatic path through
+ * `retrySync` was a no-op for this state: `recoverStaleFinalizes` stamped
+ * `retriedAt` on a record it sent nothing for, waited out a second window, and
+ * failed the meeting. `sync.ts` says the answer "arrives through the list";
+ * nothing in this app has ever called `gateway.list()`.
+ *
+ * So the ack is cleared and the step comes back. The protocol is idempotent by
+ * construction — "finalize on an already-complete session returns the note path
+ * it already wrote rather than writing a second note" — which is what makes
+ * asking again the right move rather than a risk of two files.
+ *
+ * **One function, because two callers drifted.** `retryFinalize` had this half
+ * and said in its own header that without it the method "does nothing at all in
+ * the case it exists for". The automatic retry beside it never got that half.
+ * They are the same question now, asked in one place.
+ */
+export function reopenFinalize(record: MeetingRecord): MeetingRecord {
+  const cleared = retrySync(record);
+  if (!record.acked.finalized) return cleared;
+  return { ...cleared, acked: { ...cleared.acked, finalized: false } };
+}
+
+/**
  * Read a record back off the store.
  *
  * Anything that is not exactly this version's shape comes back `null` rather

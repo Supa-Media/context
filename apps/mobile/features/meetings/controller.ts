@@ -15,6 +15,7 @@ import { NOT_DURABLE_REASON, forgetMeeting, loadMeetings, saveMeeting } from "./
 import {
   emptyAck,
   isSynced,
+  reopenFinalize,
   retrySync,
   type MeetingRecord,
 } from "./record";
@@ -632,7 +633,13 @@ export class MeetingsController {
       if (outcome.action === "none") continue;
 
       if (outcome.action === "retry") {
-        this.put(retrySync({ ...record, retriedAt: at }), { immediate: true });
+        /*
+          `reopenFinalize`, not `retrySync`: a finalize the gateway accepted
+          without a path has no `rejection` to clear, so `retrySync` returned
+          the record untouched and this branch sent nothing at all. See that
+          function's header — it is the bug that lost a meeting.
+        */
+        this.put(reopenFinalize({ ...record, retriedAt: at }), { immediate: true });
         continue;
       }
 
@@ -1165,14 +1172,7 @@ export class MeetingsController {
     this.apply(meetingId, { type: "end", at: this.nowIso() });
     const reopened = this.find(meetingId);
     if (reopened !== undefined) {
-      this.put(
-        {
-          ...retrySync(reopened),
-          retriedAt: undefined,
-          acked: { ...reopened.acked, finalized: false },
-        },
-        { immediate: true },
-      );
+      this.put({ ...reopenFinalize(reopened), retriedAt: undefined }, { immediate: true });
     }
     await this.sync();
   }
