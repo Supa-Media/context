@@ -1,0 +1,59 @@
+# The plugin egress service's own CI.
+#
+# The second of the two Workers left out of the round that wrote `mcp.yml`,
+# `router.yml`, `email-worker.yml` and `transcribe-worker.yml`: the Supa
+# framework's reusable pipeline filters on apps/mobile, apps/convex and
+# packages/shared, so nothing under infra/ is covered. Until this file, the
+# suite holding a service whose whole job is refusing to reach private address
+# space ran only inside `deploy-egress-service.yml`, on push to `main` — which
+# is after the merge, and after the decision it exists to inform.
+name: Plugin Egress Service
+
+# No `paths:` filter on pull_request. A filtered-out required check never
+# reports and leaves the PR pending forever; see the note in mcp.yml.
+#
+# And no `branches:` filter on pull_request either — a base-branch filter means
+# a pull request stacked on another branch runs no checks at all, which is how
+# #169 merged with zero check runs. `scripts/check-workflow-triggers.mjs`
+# enforces both. The `push:` filter below stays on `main`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "infra/egress-service/**"
+      - ".github/workflows/egress-service.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: egress-service-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Plugin Egress Service
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter @context/egress-service... --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: infra/egress-service
+        run: npx tsc --noEmit
+
+      - name: Egress tests
+        working-directory: infra/egress-service
+        run: npm test
