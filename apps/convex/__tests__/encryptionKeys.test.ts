@@ -37,15 +37,22 @@
  *   `authorizeEncryptionExport`'s `requireWorkspaceRole` removed          3
  *   a public function elsewhere returning a `material` field, with
  *   `material` absent from `PLAINTEXT_CREDENTIAL_FIELDS`             0 -> 1
+ *   the workspace dropped from `encryption.export`'s rate-limit key   0 -> 1
  *
- * The last row is the one worth reading twice: it measured ZERO as the branch
- * was written. The workspace data key stopped being called `dataKey` when
+ * The `material` row is the one worth reading twice: it measured ZERO as the
+ * branch was written. The workspace data key stopped being called `dataKey` when
  * rotation made it a set, so the guard that names credential fields no longer
  * named anything this feature returns, and a public function handing one back
  * passed. `material` is listed now, with the two functions allowed to declare
  * it enumerated beside it.
  *
- * The fourth row is the one worth naming, and it is one on purpose. Binding the
+ * The last row measured zero for a duller reason, and one worth knowing about
+ * every rate limit: the exhaustion test below it only ever looked at a single
+ * workspace, and a limit counted globally refuses the sixth export in exactly
+ * the same place a per-workspace one does. The key is only observable from a
+ * second context, which is what the test beside it now supplies.
+ *
+ * The `AAD` row is the one worth naming, and it is one on purpose. Binding the
  * envelope to a constant instead of to the workspace looks harmless — every row
  * still opens, every key is still different, and every other test here stays
  * green. What it removes is the single property that a row copied into another
@@ -59,7 +66,15 @@ import { ConvexError } from "convex/values";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { addMember, asUser, createUser, createWorkspace, setupTest } from "./fixtures.helpers";
+import {
+  addMember,
+  asUser,
+  captureError,
+  createUser,
+  createWorkspace,
+  errorCode,
+  setupTest,
+} from "./fixtures.helpers";
 
 async function keyRow(t: ReturnType<typeof setupTest>, workspaceId: Id<"workspaces">) {
   return await t.run(async (ctx) =>
@@ -637,5 +652,64 @@ describe("exportEncryptionKeys (the console action)", () => {
 
     const after = await t.run((ctx) => ctx.db.query("auditEvents").collect());
     expect(after).toHaveLength(before.length);
+  });
+
+  /**
+   * The budget belongs to the context, not to the deployment.
+   *
+   * The test above proves the limit engages. It cannot tell a key that names
+   * the workspace from one that does not, because it only ever looks at a
+   * single workspace: a limit counted globally refuses the sixth export in
+   * exactly the same place. So the sabotage that drops `${workspaceId}` from
+   * `encryption.export:` passed it, and passed the whole suite.
+   *
+   * What the missing half asserts is the one thing the two spellings disagree
+   * about: after one context has spent its five, an unrelated context whose
+   * owner has never called this must still be able to export its own key. A
+   * shared counter makes one customer's recovery workflow a denial of another
+   * customer's — against the key that is their only route back to their own
+   * notes if we disappear, which is the first non-negotiable's whole argument.
+   *
+   * A second *tenant* rather than the same owner's second context, because the
+   * other wrong key — `encryption.export:${args.userId}` — already has a test:
+   * "two owners of one context share one window", above, which alternates two
+   * owner identities against one workspace and counts five accepted, five
+   * refused. That one is refuted by a per-caller key and passes a global one;
+   * this one is the mirror. Neither alone reads the key; together they pin it.
+   */
+  test("a second context has its own export budget, spent by nobody", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "alfa");
+    const neighbour = await createUser(t, "neighbour@example.invalid");
+    const theirs = await createWorkspace(t, neighbour, "bravo");
+    for (const id of [workspaceId, theirs]) {
+      await t.action(internal.functions.encryptionKeys.openWorkspaceDataKey, {
+        workspaceId: id,
+        create: true,
+      });
+    }
+
+    for (let i = 0; i < 5; i += 1) {
+      await asUser(t, owner).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+        workspaceId,
+      });
+    }
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, owner).action(api.functions.encryptionKeys.exportEncryptionKeys, {
+            workspaceId,
+          }),
+        ),
+      ),
+    ).toBe("RATE_LIMITED");
+
+    // The neighbour has spent nothing, so their first export is their first.
+    const exported = await asUser(t, neighbour).action(
+      api.functions.encryptionKeys.exportEncryptionKeys,
+      { workspaceId: theirs },
+    );
+    expect(exported?.keys).toHaveLength(1);
   });
 });

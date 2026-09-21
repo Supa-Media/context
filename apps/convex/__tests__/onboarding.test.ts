@@ -32,6 +32,7 @@ import {
   createWorkspace,
   drainScheduled,
   errorCode,
+  seedStorageBinding,
   setupTest,
 } from "./fixtures.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
@@ -878,5 +879,93 @@ describe("a shared workspace is laid down for the people in it", () => {
     expect(
       canSee("1-projects/kickoff.md", visibilityTierOf(editorScopes), rules, overrides),
     ).toBe(true);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The scaffold budget belongs to the context, not to the deployment.
+ *
+ * `APPLY_STRUCTURE_LIMIT` bounds how often one workspace may have us write a
+ * starting layout into its bucket — outbound writes to an endpoint a customer
+ * typed, which is why it exists. Ten per hour, and nothing in this file ever
+ * reached it: the scaffolder records `scaffoldReason` on the way out, so the
+ * second call is normally refused by `STRUCTURE_ALREADY_APPLIED` long before
+ * the eleventh. The limit only engages for the case that never records one —
+ * a scaffold whose job did not run, retried by somebody watching it not work.
+ *
+ * Because no test got there, the key was never read, and removing
+ * `${args.workspaceId}` from it left the whole suite green. A global counter
+ * means a single context stuck in that retry loop locks every other customer
+ * out of onboarding for the rest of the hour: they connect a bucket, choose a
+ * layout, and are told to try again later for a reason that is nothing to do
+ * with them.
+ *
+ * ## Two wrong keys, and why it takes two neighbours to rule out both
+ *
+ * `:all` and `:${userId}` are different mistakes, and a second *tenant* only
+ * catches the first — two owners have different ids either way, so a budget
+ * keyed by the caller sails through. The same owner's second context is what
+ * refutes that one. Both are asserted below: the owner's other workspace is
+ * the instrument, and the neighbour is the claim.
+ *
+ * Sabotage, as failing tests across the whole `apps/convex` suite:
+ *
+ *   `workspace.applyStructure:all`                                   0 -> 1
+ *   `workspace.applyStructure:${userId}`                             0 -> 1
+ *   the `consumeRateLimit` call deleted outright                          1
+ */
+describe("the scaffold budget is one context's, not everybody's", () => {
+  test("a second context can still choose a layout after the first spends its budget", async () => {
+    const { t, owner, workspaceId } = await connected();
+
+    const mine = await createWorkspace(t, owner, "bravo");
+    const neighbour = await createUser(t, "neighbour@example.invalid");
+    const theirs = await createWorkspace(t, neighbour, "charlie");
+    for (const [id, who] of [
+      [mine, owner],
+      [theirs, neighbour],
+    ] as const) {
+      await seedStorageBinding(t, {
+        workspaceId: id,
+        boundBy: who,
+        status: "connected",
+        bucket: `${id}-bucket`,
+      });
+    }
+
+    /*
+      Never drained, so `scaffoldReason` is never written and every call is the
+      retry this limit is the ceiling on.
+    */
+    let spent = 0;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      try {
+        await apply(t, owner, workspaceId, { template: "para" });
+        spent += 1;
+      } catch {
+        break;
+      }
+    }
+    expect(spent).toBeGreaterThan(0);
+    expect(spent).toBeLessThan(30);
+    expect(
+      errorCode(
+        await captureError(() => apply(t, owner, workspaceId, { template: "para" })),
+      ),
+    ).toBe("RATE_LIMITED");
+
+    // Neither of the other two contexts has scaffolded anything, so both are
+    // accepted: the owner's own second context rules out a budget keyed by the
+    // caller, and the neighbour's is the cross-tenant claim.
+    expect(await apply(t, owner, mine, { template: "para" })).toMatchObject({
+      queued: true,
+      template: "para",
+    });
+    expect(await apply(t, neighbour, theirs, { template: "para" })).toMatchObject({
+      queued: true,
+      template: "para",
+    });
   });
 });

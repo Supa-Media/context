@@ -28,6 +28,7 @@ import {
   createWorkspace,
   errorCode,
   seedAppSecret,
+  seedStorageBinding,
   setupTest,
   FAKE_D1,
 } from "./fixtures.helpers";
@@ -1703,6 +1704,116 @@ describe("where the storage-layout migration got to", () => {
     );
     expect(binding?.storageLayoutState).toBeUndefined();
     expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+  });
+
+  /**
+   * The probe budget belongs to the context, not to the deployment.
+   *
+   * `OBSERVE_LAYOUT_LIMIT` is the ceiling on probes against a bucket that will
+   * not answer — low on purpose, because nobody is waiting on the result. Four
+   * is also low enough that a shared counter is spent by accident: one context
+   * whose bucket is unreachable, with a console mounting on a phone and a
+   * laptop, reaches it inside a minute. Keyed globally, every other customer's
+   * layout notice then stays up forever, because the question that would clear
+   * it can no longer be asked.
+   *
+   * Nothing here could see that. The guard spends itself after one success, so
+   * every existing test calls this once or twice against a single workspace and
+   * the limit never engages at all — which is why the whole suite passed with
+   * `${args.workspaceId}` removed from the key. Exhausting it is the only way
+   * to look at the key at all.
+   *
+   * ## Two wrong keys, and why it takes two neighbours to rule out both
+   *
+   * `:all` and `:${userId}` are different mistakes and a second context does
+   * not catch both. A budget keyed by the caller is refuted only by the same
+   * person's *other* context — two owners would sail through it, because their
+   * ids differ anyway. A budget keyed globally is refuted by either. So the
+   * owner's second workspace is the instrument, and the neighbour is the claim
+   * being made: one customer's unreachable bucket must not be able to silence
+   * another customer's layout notice.
+   *
+   * Sabotage, as failing tests across the whole `apps/convex` suite:
+   *
+   *   `storage.observeLayout:all`                                    0 -> 1
+   *   `storage.observeLayout:${userId}`                              0 -> 1
+   *   the `consumeRateLimit` call deleted outright                        1
+   */
+  test("a second context has its own probe budget, spent by nobody", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: true,
+      capabilities: { conditionalWrite: true },
+    });
+
+    // The same owner's other context, and a different customer's.
+    const mine = await createWorkspace(t, owner, "bravo");
+    const neighbour = await createUser(t, "neighbour@example.invalid");
+    const theirs = await createWorkspace(t, neighbour, "charlie");
+    for (const [id, who] of [
+      [mine, owner],
+      [theirs, neighbour],
+    ] as const) {
+      await seedStorageBinding(t, {
+        workspaceId: id,
+        boundBy: who,
+        status: "connected",
+        bucket: `${id}-bucket`,
+      });
+    }
+
+    /*
+      The answer is only recorded by the scheduled read, which is never drained
+      here — so the binding stays unanswered and every call is a fresh probe.
+      That is the production shape this limit is for: a bucket that never
+      answers, asked again by a console that mounted again.
+    */
+    const answers: unknown[] = [];
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        answers.push(
+          await asUser(t, owner).mutation(
+            api.functions.storage.observeStorageLayout,
+            { workspaceId },
+          ),
+        );
+      } catch {
+        break;
+      }
+    }
+    // Asserted outside the loop: a failed expectation inside it would be caught
+    // by the `catch` and read as the refusal, which is the one thing this is
+    // trying to observe.
+    expect(answers.length).toBeGreaterThan(0);
+    expect(answers.length).toBeLessThan(20);
+    expect(answers.every((answer) => JSON.stringify(answer) === '{"queued":true}')).toBe(
+      true,
+    );
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, owner).mutation(api.functions.storage.observeStorageLayout, {
+            workspaceId,
+          }),
+        ),
+      ),
+    ).toBe("RATE_LIMITED");
+
+    // Neither of the other two buckets has been asked anything, so both are.
+    // The first rules out a budget keyed by the caller; the second is the
+    // cross-tenant claim.
+    expect(
+      await asUser(t, owner).mutation(api.functions.storage.observeStorageLayout, {
+        workspaceId: mine,
+      }),
+    ).toEqual({ queued: true });
+    expect(
+      await asUser(t, neighbour).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId: theirs },
+      ),
+    ).toEqual({ queued: true });
   });
 
   test("asking is owner-only, and spends itself once the bucket has answered", async () => {
