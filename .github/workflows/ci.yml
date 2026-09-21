@@ -84,6 +84,25 @@ jobs:
       - name: No account identifier or private-register pointer is committed
         run: node scripts/check-no-identifiers.mjs
 
+      # ── NON-NEGOTIABLE #1 NOW HAS A TEST INSTEAD OF A COMMENT ─────────────
+      #
+      # `billing.ts` forbids the class of code that would gate the exit — "What
+      # this file may never grow: a function that consults the plan to decide
+      # whether somebody may export, download, or hand over their bucket." That
+      # is a prohibition on code nobody has written yet, and prose cannot fail a
+      # build.
+      #
+      # The guard checks the stronger property: not that the exit ignores
+      # billing state, but that billing state never reaches it. The two files
+      # that serve every export — `/gateway/session`, which resolves the token
+      # each read runs under, and `/gateway/binding`, which opens the storage
+      # the bytes come from — must not have a plan in scope to read.
+      - name: The exit checker catches a gate
+        run: node scripts/check-exit-is-ungated.mjs --self-test
+
+      - name: The exit is never gated on what somebody has paid
+        run: node scripts/check-exit-is-ungated.mjs
+
   # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────
   #
   # `apps/mobile/features/console/files/webview/bundle.generated.ts` is ~500kb
