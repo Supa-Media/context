@@ -591,6 +591,54 @@ describe("what a short link unfurls with", () => {
     expect(await cardAt(f, "seyi", "named")).toBeNull();
   });
 
+  test("a link whose owner turned the title off has no card either", async () => {
+    const f = await fixture();
+    const share = await shortLink(f, "intake");
+    /*
+      THE SAME SWITCH, ASKED OF THE PICTURE.
+
+      `previewForShortLink` has this test already — *a link whose owner turned
+      the title off names nothing* — and the card route grew its own copy of
+      the refusal. Two routes, two copies, and only one of them was checked:
+      deleting `if (!share.titleInPreview) return null;` from
+      `cardLocationForShortLink` reddened **nothing** in 3,204 tests.
+
+      What that guard holds is not a nicety. The switch exists so an owner can
+      hand out a link whose address says nothing about what is behind it, and
+      the card is the one answer here that cannot be taken back — a crawler
+      that has cached the picture has the note's name for good, whatever the
+      owner changes afterwards.
+
+      The console turns it off by re-minting the link, which supersedes the row
+      in place and keeps its token and its slug.
+    */
+    await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
+      workspaceId: f.workspaceId,
+      path: ENTRY,
+      titleInPreview: false,
+    });
+    // Drawn anyway, so the absence below is the switch and not a missing leaf.
+    await drawCard(f, share);
+
+    expect(await cardAt(f, "seyi", "intake")).toBeNull();
+  });
+
+  /*
+    WHY THE EXPIRY BRANCH BESIDE THEM IS NOT TESTED HERE.
+
+    `cardLocationForShortLink` also refuses an expired share, and that check is
+    **unreachable from this route today**: `mintLinkShare` is the only path
+    that writes `recipientKind: "anyone"` and it never sets `expiresAt`, while
+    every path that does set one — all three inside `createShare` — needs a
+    `recipient`, which makes the row a named share that the `anyone` refusal
+    above has already turned away.
+
+    So a test for it would assert a state this product cannot produce, and
+    would pass just as happily with the branch deleted. It is written down
+    instead: **the day an `anyone` link can be time-boxed, that branch becomes
+    live and wants the test this comment is standing in for.**
+  */
+
   test("every absence is the same absence", async () => {
     const f = await fixture();
     const share = await shortLink(f, "intake");
