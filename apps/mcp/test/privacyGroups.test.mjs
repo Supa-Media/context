@@ -69,8 +69,10 @@ const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  index.md: team\n  1-projects: team\n  2-areas: team\n" +
-  "  2-areas/feedback: @supa-owners\n  3-resources: team\n  3-resources/board: @supa-owners\n\n" +
+  "  2-areas/feedback: @supa-owners\n  3-resources: team\n  3-resources/board: @supa-owners\n" +
+  "  0-inbox: team\n\n" +
   "note_overrides:\n  1-projects/rates.md: @supa-leads\n" +
+  "  0-inbox/contacts/dan.md: @supa-leads\n" +
   "  1-projects/reserved.md: @supa-leads\n" +
   "  3-resources/board/Minutes.md: @supa-owners\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
@@ -230,6 +232,7 @@ export async function runPrivacyGroupChecks(check) {
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
     bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
     bucket.seed("2-areas/feedback/q3.md", "FEEDBACKSECRET the q3 review");
+    bucket.seed("0-inbox/contacts/dan.md", "CONTACTSECRET dan's page");
 
     /* -- (1) a group is not team, to a team connection --------------------- */
 
@@ -325,6 +328,115 @@ export async function runPrivacyGroupChecks(check) {
         + `(${Object.entries(refusalCosts).map(([k, v]) => `${k}: ${v}`).join(", ")})`,
       costs.every((cost) => cost === costs[0])
     );
+
+    /*
+      AND THE SECOND DOOR TO THE SAME FACT MUST COST WHAT THE FIRST DOES.
+
+      `read_image` is not an image tool for this purpose. It takes a NOTE path,
+      runs the same `canSee` on it, and refuses with the same three bytes — so
+      it answers the same question `read_note` does, and closing one door while
+      the other stands open closes nothing. A caller who cannot read
+      `read_note`'s cost can read this one's.
+
+      The four shapes are the four above, driven through the other tool. The
+      image argument is well-formed on purpose: a malformed one is refused
+      before any path is considered, which would make every count zero and the
+      equality vacuous.
+
+      Counted rather than timed, so this is deterministic. The number is not
+      the invariant; the equality is.
+    */
+    const imageTripsFor = async (note) => {
+      const before = bucket.trips();
+      await callTool(env, TEAM_TOKEN, "read_image", { note, image: "photo.png" });
+      return bucket.trips() - before;
+    };
+    const imageRefusalCosts = {
+      "held back by name, and exists": await imageTripsFor("1-projects/rates.md"),
+      "inside a group folder, and exists": await imageTripsFor("2-areas/feedback/q3.md"),
+      "never written, in a folder the caller can see": await imageTripsFor("1-projects/no-such-note.md"),
+      "never written, in a folder it cannot": await imageTripsFor("2-areas/feedback/no-such.md"),
+    };
+    const imageCosts = Object.values(imageRefusalCosts);
+    check(
+      `every read_image refusal costs the same number of storage trips `
+        + `(${Object.entries(imageRefusalCosts).map(([k, v]) => `${k}: ${v}`).join(", ")})`,
+      imageCosts.every((cost) => cost === imageCosts[0])
+    );
+
+    /*
+      And it never fetches the note's bytes to refuse, for `read_note`'s
+      reason: equalising the COUNT with a real `get` would satisfy the check
+      above while pulling a private note's plaintext into the worker on
+      `S3Store` and `DropboxStore`, which both buffer the whole object.
+    */
+    bucket.fetched.length = 0;
+    await callTool(env, TEAM_TOKEN, "read_image", {
+      note: "1-projects/rates.md",
+      image: "photo.png",
+    });
+    check(
+      "a refused read_image never fetches the note's bytes, only its metadata",
+      !bucket.fetched.includes("1-projects/rates.md")
+    );
+
+    /*
+      AND EVERY OTHER DOOR THAT REFUSES ON `canSee`.
+
+      `read_note` and `read_image` were found one at a time. That is the wrong
+      way to find the third, so this is the list itself: every read tool whose
+      refusal is `canSee` saying no, driven through the same two shapes.
+
+      The pair is the whole leak and the rest is decoration:
+
+        A. the caller may NOT see it, and it EXISTS  — the refusal the manifest
+           is responsible for
+        B. the caller MAY see the folder, and nothing is there — the refusal
+           that is simply absence
+
+      Byte-identical to read, both of them. If A is cheaper than B then A is
+      distinguishable, and A is exactly "somebody deliberately made this
+      private" — which the caller's own listing will never tell them.
+
+      **Adding a tool to this table is the whole cost of covering it**, which is
+      the point: a guarantee that lives in a list is only as good as the check
+      on the list, and the list is now the check.
+
+      `fetch` earns its row twice over. It is `read_note` wearing OpenAI's
+      contract, and its own header says "a second path is a second place for a
+      bug" — which is what it turned out to be.
+    */
+    const REFUSAL_DOORS = [
+      { tool: "read_meeting", arg: "path", hidden: "1-projects/rates.md", absent: "1-projects/no-such-note.md" },
+      { tool: "read_channel_day", arg: "path", hidden: "1-projects/rates.md", absent: "1-projects/no-such-note.md" },
+      { tool: "read_contact", arg: "path", hidden: "0-inbox/contacts/dan.md", absent: "0-inbox/contacts/nobody.md" },
+      { tool: "fetch", arg: "id", hidden: "1-projects/rates.md", absent: "1-projects/no-such-note.md" },
+    ];
+    for (const door of REFUSAL_DOORS) {
+      const cost = async (path) => {
+        const before = bucket.trips();
+        const text = await callTool(env, TEAM_TOKEN, door.tool, { [door.arg]: path });
+        return { trips: bucket.trips() - before, text };
+      };
+      const hidden = await cost(door.hidden);
+      const absent = await cost(door.absent);
+      // Non-vacuity: a door that refused both on shape before reaching `canSee`
+      // would report an equal cost and prove nothing.
+      check(
+        `${door.tool}: both answers are the same refusal, so only the cost could tell them apart`,
+        hidden.text === absent.text && /not found/.test(hidden.text)
+      );
+      check(
+        `${door.tool}: refusing a note it may not see costs what refusing an absent one costs `
+          + `(hidden: ${hidden.trips}, absent: ${absent.trips})`,
+        hidden.trips === absent.trips
+      );
+      check(
+        `${door.tool}: and refusing never fetches the note's bytes`,
+        !bucket.fetched.includes(door.hidden)
+      );
+      bucket.fetched.length = 0;
+    }
 
     const teamSearch = await callTool(env, TEAM_TOKEN, "search_notes", { query: "FEEDBACKSECRET" });
     check(

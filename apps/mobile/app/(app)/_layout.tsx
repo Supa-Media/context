@@ -6,6 +6,7 @@ import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react"
 import { api } from "@context/convex/_generated/api";
 import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
+import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
@@ -200,6 +201,15 @@ export default function AppLayout() {
         }}
       />
       <RecordingBar bottomInset={insets.bottom} />
+      {/*
+        Mounted beside the recording bar and *after* it, which is what orders
+        them: `zIndex` is only ever an ordering among siblings in
+        react-native-web. They never draw together — `StrandedBar` stands down
+        while anything is live — but the order is the guarantee rather than the
+        condition, for the reason `RecordingBar`'s header gives about two bars
+        in one 66pt of glass.
+      */}
+      <StrandedBar bottomInset={insets.bottom} />
     </View>
   );
 }

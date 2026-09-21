@@ -15,6 +15,7 @@ import { NOT_DURABLE_REASON, forgetMeeting, loadMeetings, saveMeeting } from "./
 import {
   emptyAck,
   isSynced,
+  reopenFinalize,
   retrySync,
   type MeetingRecord,
 } from "./record";
@@ -581,13 +582,16 @@ export class MeetingsController {
         continue;
       }
 
-      this.apply(record.session.id, {
-        type: "fail",
-        at: at_,
-        reason: INTERRUPTED_RECORDING_REASON,
-      });
-      const failed = this.find(record.session.id);
-      if (failed !== undefined) this.put(retrySync(failed), { immediate: true });
+      /*
+        `end`, the same event the button folds, so the ordinary queue files
+        this meeting with no further press. See the header for why this
+        stopped being `fail`.
+      */
+      this.apply(record.session.id, { type: "end", at: at_ });
+      const ended = this.find(record.session.id);
+      if (ended !== undefined) {
+        this.put({ ...retrySync(ended), interrupted: true }, { immediate: true });
+      }
     }
   }
 
@@ -632,7 +636,13 @@ export class MeetingsController {
       if (outcome.action === "none") continue;
 
       if (outcome.action === "retry") {
-        this.put(retrySync({ ...record, retriedAt: at }), { immediate: true });
+        /*
+          `reopenFinalize`, not `retrySync`: a finalize the gateway accepted
+          without a path has no `rejection` to clear, so `retrySync` returned
+          the record untouched and this branch sent nothing at all. See that
+          function's header — it is the bug that lost a meeting.
+        */
+        this.put(reopenFinalize({ ...record, retriedAt: at }), { immediate: true });
         continue;
       }
 
@@ -1165,14 +1175,7 @@ export class MeetingsController {
     this.apply(meetingId, { type: "end", at: this.nowIso() });
     const reopened = this.find(meetingId);
     if (reopened !== undefined) {
-      this.put(
-        {
-          ...retrySync(reopened),
-          retriedAt: undefined,
-          acked: { ...reopened.acked, finalized: false },
-        },
-        { immediate: true },
-      );
+      this.put({ ...reopenFinalize(reopened), retriedAt: undefined }, { immediate: true });
     }
     await this.sync();
   }
@@ -1432,6 +1435,10 @@ export class MeetingsController {
       // finalize would otherwise erase the flag that came back with it.
       destination: existing?.destination ?? null,
       ...(existing?.folderRejected === true ? { folderRejected: true as const } : {}),
+      // Carried for `folderRejected`'s reason, and one of its own: the `end`
+      // that closes an interrupted recording is itself an event through here,
+      // so a flag set beside it would be erased by the fold that set it.
+      ...(existing?.interrupted === true ? { interrupted: true as const } : {}),
       acked: existing?.acked ?? emptyAck(),
       runningSince: after.runningSince,
       updatedAt: config.now?.() ?? Date.now(),

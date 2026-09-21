@@ -36,6 +36,21 @@ export interface FakeGateway extends MeetingsGateway {
   failNext(code: string, message?: string): void;
   /** Refuse the next `count` calls as `unavailable`. */
   offlineFor(count: number): void;
+  /**
+   * Accept the next `count` finalizes and answer with **no note path**.
+   *
+   * The contract's own "I have it, the bucket does not yet" — a real state
+   * while an enhancement runs (`sync.ts`'s `ack.notePath === null` branch).
+   * Programmable because it is the one gateway answer that is neither a
+   * success nor a refusal, and the client's handling of it is where a meeting
+   * went missing: the ack sets `acked.finalized`, `pendingSteps` then offers
+   * no finalize, and nothing else in this app ever asks again.
+   *
+   * The session is *not* advanced to `complete` while this is in force, so a
+   * later finalize writes the note for real — which is what makes an
+   * asking-again fix observable rather than assumed.
+   */
+  withholdNotePath(count: number): void;
   /** How many notes this gateway has written. Idempotency's observable. */
   notesWritten(): number;
 }
@@ -66,6 +81,7 @@ export function fakeGateway(
   const calls: string[] = [];
   let queuedFailure: { code: string; message: string } | null = null;
   let offlineCalls = 0;
+  let withheldFinalizes = 0;
   let written = 0;
 
   /**
@@ -200,6 +216,9 @@ export function fakeGateway(
     offlineFor(count) {
       offlineCalls = count;
     },
+    withholdNotePath(count) {
+      withheldFinalizes = count;
+    },
     notesWritten: () => written,
 
     async putSession(_to, session) {
@@ -257,6 +276,12 @@ export function fakeGateway(
       */
       const sessionId = incoming.id;
       const session = require(sessionId);
+      if (withheldFinalizes > 0) {
+        // Accepted, held, no path — and nothing written, so the session stays
+        // exactly where it was for the next attempt to find.
+        withheldFinalizes -= 1;
+        return ack(session);
+      }
       if (session.state === "complete" && session.notePath !== null) {
         // Already written. The path it already wrote, and no second note.
         // Deliberately before the destination is read: a re-finalize with a

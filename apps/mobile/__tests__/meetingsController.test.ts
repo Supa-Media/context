@@ -394,8 +394,10 @@ describe("the app being killed mid-meeting", () => {
 
     const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
     expect(restored.session.notes).toBe("curiosity is the prerequisite");
-    expect(restored.session.state).toBe("failed");
-    expect(restored.session.failureReason).toMatch(/restarted while recording/i);
+    // Closed and on its way, rather than parked behind a Retry — see the
+    // owner's rule quoted in `what was captured survives` below.
+    expect(restored.session.state).toBe("finalizing");
+    expect(restored.interrupted).toBe(true);
     // 41 minutes — exactly what was captured before the restart — and it does
     // not move no matter how much wall clock passes after it.
     expect(recordElapsedMs(restored, first.clock.now())).toBe(41 * 60_000);
@@ -412,21 +414,38 @@ describe("the app being killed mid-meeting", () => {
 
     const second = await harness({ store, startAt: first.clock.now() });
     const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
-    expect(restored.session.state).toBe("failed");
+    /*
+      CHANGED, AND THE OWNER CHANGED IT: *"if a meeting ever stops it should
+      IMMEDIATELY be saved, no button press needed"*.
+
+      This used to fold `fail`, on the argument that "finalizing it
+      automatically, unasked, would write a note the person never agreed was
+      over — a meeting that was merely interrupted by a restart may well
+      continue". Both halves of that turned out to cost more than they saved.
+      A note is editable, movable and deletable the moment it lands; a meeting
+      parked on the device behind a Retry nobody knew to press is reachable by
+      nothing, which is the failure actually reported. And "may well continue"
+      is answered by resuming the meeting, not by withholding the note.
+
+      So the move is `end`, which is the same event the button pressed, and
+      the ordinary queue takes it from there.
+    */
+    expect(restored.session.state).toBe("finalizing");
     // The transcript captured before the restart is not discarded.
     expect(restored.session.transcript).toHaveLength(1);
+    // Client-local, so the app can say the recording was cut short without
+    // writing that claim into the customer's own file.
+    expect(restored.interrupted).toBe(true);
 
-    // `failed -> finalizing` is a legal move for a reason: the meeting is not
-    // gone, it is interrupted, and this is the same Retry a stuck finalize
-    // already gets — composing with recovery rather than a second
-    // implementation of it.
-    await second.controller.retryFinalize(id);
+    await second.controller.sync();
     await settle();
 
     const finished = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
     expect(finished.session.state).toBe("complete");
     expect(finished.session.notePath).toBe(`0-inbox/meetings/${id}.md`);
     expect(second.gateway.notesWritten()).toBe(1);
+    // Nobody pressed anything.
+    expect(finished.interrupted).toBe(true);
   });
 
   test("a paused meeting is reconciled the same way as a recording one", async () => {
@@ -442,7 +461,10 @@ describe("the app being killed mid-meeting", () => {
 
     const second = await harness({ store, startAt: first.clock.now() });
     const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
-    expect(restored.session.state).toBe("failed");
+    expect(restored.session.state).toBe("finalizing");
+    // The clock still stops where the recording did, which is the half of the
+    // old `fail` that was never about failing: an open interval climbing from
+    // a `startedAt` in the past is the zombie this closes.
     expect(recordElapsedMs(restored, second.clock.now())).toBe(2 * 60_000);
   });
 
@@ -1218,6 +1240,71 @@ describe("a session stuck finalizing is not left stuck", () => {
     expect(record.session.failureReason?.length).toBeGreaterThan(0);
     // The one thing this may never cost: the human's own words.
     expect(record.session.notes).toBe("typed before the gateway went quiet");
+  });
+
+  /*
+    THE CASE THE RETRY WAS WRITTEN FOR, AND THE ONE IT DID NOT COVER.
+
+    `retryFinalize`'s own header names it: the stuck meeting the owner reported
+    is a gateway that *accepted* a finalize and never came back with a path.
+    That acknowledgement sets `acked.finalized`, `pendingSteps` then offers no
+    finalize step, and `sync.ts` says the answer "arrives through the list" —
+    except nothing in this app has ever called `gateway.list()`.
+
+    So the only thing that could ask again was `recoverStaleFinalizes`'s retry
+    branch, and it went through `retrySync`, which returns the record unchanged
+    when there is no `rejection` and never touches `acked.finalized`. The
+    automatic retry was a no-op in exactly the case it exists for: ten minutes
+    of nothing, then ten more, then `failed` — with the words on the device and
+    a note the gateway may well have written.
+
+    Measured before the fix: `the retry actually asks the gateway again` saw 1
+    finalize call where it expects 2, and `and the note lands without anybody
+    pressing anything` ended `failed` with `notePath` null.
+  */
+  test("the retry actually asks the gateway again, rather than stamping a clock", async () => {
+    const gateway = fakeGateway();
+    gateway.withholdNotePath(1);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Jhon / Seyi" });
+    controller.setNotes(id, "the bit that must not be lost");
+    await controller.end();
+    await settle();
+
+    const accepted = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(accepted.session.state).toBe("finalizing");
+    expect(accepted.acked.finalized).toBe(true);
+    expect(accepted.session.notePath).toBeNull();
+    const before = gateway.calls.filter((call) => call === "finalize").length;
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    await controller.sync();
+    await settle();
+
+    expect(gateway.calls.filter((call) => call === "finalize").length).toBeGreaterThan(before);
+  });
+
+  test("and the note lands without anybody pressing anything", async () => {
+    const gateway = fakeGateway();
+    gateway.withholdNotePath(1);
+    const { controller, clock } = await harness({ gateway });
+    const id = await controller.start({ title: "Jhon / Seyi" });
+    controller.setNotes(id, "the bit that must not be lost");
+    await controller.end();
+    await settle();
+
+    clock.advance(FINALIZE_TIMEOUT_MS);
+    controller.recoverStaleFinalizes(clock.now());
+    await controller.sync();
+    await settle();
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("complete");
+    expect(record.session.notePath).not.toBeNull();
+    expect(record.session.notes).toBe("the bit that must not be lost");
+    // One meeting, one note: asking again is idempotent, not a second file.
+    expect(gateway.notesWritten()).toBe(1);
   });
 
   test("sync() runs the same check on its own schedule, not only on relaunch", async () => {

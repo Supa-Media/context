@@ -10,9 +10,12 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { LiveWaveform } from "../../meetings/components/LiveWaveform";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
+import { writeClipboard } from "../../design/clipboard";
 import { meetings, recordElapsedMs } from "../../meetings/controller";
 import { describeDestination } from "../../meetings/destination";
 import { clock, meetingSubtitle } from "../../meetings/format";
+import { meetingLanding } from "../../meetings/landing";
+import { renderMeetingNote } from "../../meetings/note";
 import { noteEditorHref } from "../../meetings/noteLink";
 import type { MeetingRecord } from "../../meetings/record";
 import { UNTITLED_MEETING } from "../../meetings/session";
@@ -384,9 +387,7 @@ function PastMeeting({
         button that opens nothing.
       */}
       {href === null || onOpenNote === null ? (
-        <Text variant="foot" style={styles.dest} testID="aside-meeting-no-note">
-          This meeting has not been written to your context yet.
-        </Text>
+        <Stranded record={record} />
       ) : (
         <View style={styles.pastActions}>
           <Button
@@ -398,6 +399,113 @@ function PastMeeting({
         </View>
       )}
     </ScrollView>
+  );
+}
+
+/**
+ * A MEETING THAT DID NOT LAND, AND WHAT TO DO ABOUT IT.
+ *
+ * This was one sentence — *"This meeting has not been written to your context
+ * yet"* — for every one of the states below, with nothing beside it. The owner
+ * recorded 31 minutes, opened it here, read that, and asked "how do I get
+ * it???". The sentence was true and it was the whole of the panel's answer.
+ *
+ * Every fact drawn here already existed on `/meetings/:id`; what was missing
+ * was this surface reaching it. So the classification and the words come from
+ * `landing.ts`, which both screens read — a panel deciding for itself is how
+ * one surface ended up offering nothing for states the other has always
+ * offered a Retry for.
+ *
+ * ## Copy note, on this surface too
+ *
+ * A meeting can be complete, correct, on the device and reachable by nothing
+ * else — no bucket connected, a refusal parked for a person to answer, a
+ * finalize that will not go. When it is, the clipboard is the whole of what
+ * somebody can do about it, and what lands there is `renderMeetingNote`'s
+ * output: the same function `convexGateway` writes the bucket with, so what
+ * they paste into their vault is the note they would have had rather than this
+ * panel's summary of one.
+ *
+ * Drawn only where there is no note to open. A filed meeting has a path, and
+ * the answer for that one is the editor behind this panel.
+ *
+ * ## `copied` is about one meeting, and nothing has to key it to keep it that way
+ *
+ * Worth checking rather than assuming, because `openId` names a meeting rather
+ * than holding one and `record` is swapped underneath `PastMeeting`: a "copied"
+ * message that survived the swap would be a claim about the wrong meeting. It
+ * cannot, because the only way to reach another one from here is Back, and that
+ * sets `openId` to `null` and unmounts this whole subtree on the way. A `key`
+ * here would be a guard over a path that does not exist — and one no test could
+ * fail, which is the same thing as no guard at all.
+ */
+function Stranded({ record }: { record: MeetingRecord }) {
+  const styles = useThemedStyles(makeStyles);
+  const landing = meetingLanding(record);
+  const [copied, setCopied] = useState<"idle" | "copied" | "refused">("idle");
+
+  const copy = useCallback(() => {
+    void (async () => {
+      const ok = await writeClipboard(renderMeetingNote(record.session));
+      setCopied(ok ? "copied" : "refused");
+    })();
+  }, [record.session]);
+
+  /*
+    `null` is the meeting whose note *is* in the bucket and whose link this
+    panel could not build — a record from a build before `destination` existed
+    has no slug, and `noteEditorHref` refuses to guess one rather than open the
+    right path in somebody else's context. The path is still the answer to
+    "where is it", and `PastMeeting` has already printed it above.
+  */
+  const title = landing?.title ?? "This meeting is in your context, but this device cannot address it.";
+  const detail = landing?.detail ?? "Its path is above — open it from any client connected to that context.";
+
+  return (
+    <View style={styles.landing} testID="aside-meeting-landing">
+      <Text variant="foot" style={styles.landingTitle} testID="aside-meeting-landing-title">
+        {title}
+      </Text>
+      {detail === null ? null : (
+        <Text variant="foot" style={styles.dest}>
+          {detail}
+        </Text>
+      )}
+
+      <View style={styles.landingActions}>
+        {landing?.retry == null ? null : (
+          <Button
+            label="Retry"
+            variant="white"
+            onPress={
+              landing.retry === "finalize"
+                ? () => void meetings.retryFinalize(record.session.id)
+                : () => void meetings.retry(record.session.id)
+            }
+            testID="aside-meeting-retry"
+          />
+        )}
+        <Button
+          label="Copy note"
+          variant="dialog"
+          onPress={copy}
+          testID="aside-meeting-copy"
+        />
+      </View>
+
+      {/*
+        Said, never assumed. `writeClipboard` answers a boolean precisely so a
+        refusal can reach a person, and a phone with no clipboard is where
+        somebody most needs to know the text is still only on the device.
+      */}
+      {copied === "idle" ? null : (
+        <Text variant="foot" style={styles.dest} testID="aside-meeting-copy-said">
+          {copied === "copied"
+            ? "The whole note is on your clipboard — paste it wherever you keep notes."
+            : "Couldn't reach the clipboard. The note is still on this device."}
+        </Text>
+      )}
+    </View>
   );
 }
 
@@ -461,4 +569,13 @@ const makeStyles = (colors: Colors) =>
     backLabel: { color: colors.accentText },
     pastHead: { paddingHorizontal: space.x4, paddingTop: space.x2, gap: 2 },
     pastActions: { paddingHorizontal: space.x4, paddingTop: space.x3 },
+    landing: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x1 },
+    landingTitle: { color: colors.text },
+    landingActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      flexWrap: "wrap",
+      paddingTop: space.x1,
+    },
   });

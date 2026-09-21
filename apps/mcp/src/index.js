@@ -6497,7 +6497,27 @@ async function toolReadImage(store, scope, rules, overrides, args) {
   const notePath = normalizePath(args.note);
   const image = imageRefFor(args.image);
   if (!notePath || !notePath.endsWith(".md") || !image) return notFound;
-  if (!canSee(notePath, scope, rules, overrides)) return notFound;
+  /*
+    **THE SECOND DOOR TO THE SAME FACT, AND IT COSTS WHAT THE FIRST DOES.**
+
+    This tool takes a NOTE path and asks `canSee` about it, so it answers the
+    question `read_note` answers and its refusal is the same three bytes.
+    Refusing on visibility before touching the bucket, while a path the caller
+    could have seen went to storage and missed first, made the two refusals 2
+    storage round trips against 3 — identical to read, a trip apart to measure,
+    and the bit on offer was exactly `canSee(notePath)`.
+
+    So the lookup runs the same way for everybody and the decision is taken
+    once both answers are in. It is a metadata probe rather than a `get` for
+    the reason spelled out in `toolReadNote`: `S3Store.get` and
+    `DropboxStore.get` both buffer the whole object before any caller asks for
+    its text, so resolving an invisible path with a real `get` would pull a
+    private note's plaintext into the worker on behalf of somebody who may not
+    read it. The body below is fetched only after both questions have passed.
+  */
+  const seen = canSee(notePath, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, notePath);
+  if (!seen || !present) return notFound;
   const note = await getWithLegacyFallback(store, notePath);
   if (!note) return notFound;
   if (!noteReferencesImage(await note.text(), image)) return notFound;
@@ -10482,8 +10502,25 @@ async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
   const path = splitMessageAnchor(normalizePath(idArg) ?? "").path;
   if (!path || !path.endsWith(".md")) return toolError("invalid id");
   if (isPlumbing(path)) return toolError("not found");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const { object: obj } = await getVisibleMovedNote(store, scope, rules, overrides, path);
+  /*
+    `read_note`'s rule, because this is `read_note`: the resolution runs the
+    same way for everybody and the decision is taken once both answers are in,
+    so the refusal for a note being held back costs what the refusal for an
+    absent one costs. It resolves on metadata and fetches the body only after
+    both questions have passed — this door was the widest of the four, 1 trip
+    against 3.
+  */
+  const seen = canSee(path, scope, rules, overrides);
+  const { object: present, physicalPath } = await getVisibleMovedNote(
+    store,
+    scope,
+    rules,
+    overrides,
+    path,
+    probeWithLegacyFallback,
+  );
+  if (!seen || !present) return toolError("not found");
+  const obj = await getWithLegacyFallback(store, physicalPath);
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // The same decrypt `read_note` does, because this is `read_note` wearing
@@ -12045,7 +12082,12 @@ async function toolListMeetings(store, scope, rules, overrides, limitArg) {
 async function toolReadMeeting(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided, so the refusal for a note being held
+  // back costs what the refusal for an absent one costs; on metadata, so no
+  // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return toolError("not found");
   const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
@@ -12161,7 +12203,12 @@ async function toolListChannelDays(store, scope, rules, overrides, args = {}) {
 async function toolReadChannelDay(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided, so the refusal for a note being held
+  // back costs what the refusal for an absent one costs; on metadata, so no
+  // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return toolError("not found");
   const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
@@ -12341,7 +12388,12 @@ async function toolReadContact(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
   if (!isContactNotePath(path)) return toolError("not a contact page — read it with read_note");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided, so the refusal for a note being held
+  // back costs what the refusal for an absent one costs; on metadata, so no
+  // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return toolError("not found");
   const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
