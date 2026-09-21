@@ -27,6 +27,8 @@ import { internal } from "../_generated/api";
 import { action, internalQuery, type ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { requireWorkspaceAccess } from "./lib/workspaceAuth";
+import { reachesPinnedContext } from "./lib/pinnedContext";
+import { PINNED_CONTEXT_ROLE } from "@context/shared";
 import type { FormAction } from "./lib/formOps";
 
 const answerValidator = v.object({ field: v.string(), value: v.string() });
@@ -72,7 +74,29 @@ export const formActor = internalQuery({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
   }),
   handler: async (ctx, args) => {
-    const access = await requireWorkspaceAccess(ctx, args.workspaceId, args.actorUserId);
+    /*
+      THE PIN IS RESOLVED HERE TOO, OR THE ONE WRITE IT ALLOWS IS UNREACHABLE.
+
+      `@context-lc` is reachable by every account without a membership row, and
+      `authorizeFileAccess` — which `runForm` calls a line before this — already
+      knows that. This query did not: it went straight to
+      `requireWorkspaceAccess`, which knows nothing about the pin and answers
+      `WORKSPACE_NOT_FOUND` for anybody with no row. So every account that
+      reaches that workspace the way the feature intends could read the
+      bug-report form and got "workspace not found" on submit — the one thing a
+      read-only context is in their rail for.
+
+      Same precedence as every other consumer of the pin, and not a second rule:
+      `reachesPinnedContext` answers `false` for a real member, so an owner or
+      an editor of that workspace falls through to the membership read below and
+      is reported with the role their own row carries. The pinned role is
+      `member`, which is what the form block's own `submit` policy is compared
+      against in `formOps.ts` — this decides *who is acting*, never *which form
+      they may act on*.
+    */
+    const role = (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId))
+      ? PINNED_CONTEXT_ROLE
+      : (await requireWorkspaceAccess(ctx, args.workspaceId, args.actorUserId)).membership.role;
 
     const memberships = await ctx.db
       .query("workspaceMembers")
@@ -82,7 +106,7 @@ export const formActor = internalQuery({
       if (membership.role !== "owner") continue;
       const workspace = await ctx.db.get(membership.workspaceId);
       if (workspace?.kind !== "personal" || !workspace.slug) continue;
-      return { name: `@${workspace.slug}`, role: access.membership.role };
+      return { name: `@${workspace.slug}`, role };
     }
     throw new ConvexError({
       code: "NO_USERNAME",

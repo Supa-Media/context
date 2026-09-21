@@ -413,6 +413,60 @@ describe("a pinned reader may read and may not write", () => {
     ).toEqual({ role: "editor", scope: "team", grantedNames: ["ed"], actorName: "@ed" });
   });
 
+  /**
+   * FILING A BUG REPORT IS THE WHOLE REASON THIS CONTEXT IS IN THE RAIL.
+   *
+   * `authorizeFileAccess` learned about the pin; `formActor` — the second query
+   * every console form action runs, for the name a response is stamped with —
+   * did not. It called `requireWorkspaceAccess` directly, which knows nothing
+   * about the pin and answers `WORKSPACE_NOT_FOUND` for anybody with no
+   * membership row. So every account that reaches `@context-lc` the way the
+   * feature intends could read the bug-report form and got "workspace not
+   * found" on submit, which is the one thing the read-only context is for.
+   *
+   * The role it reports is what the form's own `submit` policy is compared
+   * against, so it is asserted rather than merely "did not throw": a pinned
+   * reader is a `member` and the default policy is `member`.
+   */
+  test("a pinned reader can be the actor on a form response", async () => {
+    const { t, pinnedId, sayo } = await pinnedReader();
+    expect(
+      await t.query(internal.functions.forms.formActor, {
+        actorUserId: sayo,
+        workspaceId: pinnedId,
+      }),
+    ).toEqual({ name: "@sayo", role: "member" });
+  });
+
+  test("...and a stranger to a context is still refused as its actor", async () => {
+    const { t, sayo } = await pinnedReader();
+    const stranger = await createUser(t, "stranger@example.invalid");
+    const theirs = await createWorkspace(t, stranger, "stranger");
+
+    const error = await captureError(() =>
+      t.query(internal.functions.forms.formActor, {
+        actorUserId: sayo,
+        workspaceId: theirs,
+      }),
+    );
+    expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
+  });
+
+  test("...and a real member is reported with the role their row carries", async () => {
+    const t = setupTest();
+    const { pinnedId } = await seedPinnedContext(t);
+    const editor = await createUser(t, "ed@example.invalid");
+    await createWorkspace(t, editor, "ed");
+    await addMember(t, pinnedId, editor, "editor");
+
+    expect(
+      await t.query(internal.functions.forms.formActor, {
+        actorUserId: editor,
+        workspaceId: pinnedId,
+      }),
+    ).toEqual({ name: "@ed", role: "editor" });
+  });
+
   test("the pin does not authorize reads anywhere else", async () => {
     const { t, sayo } = await pinnedReader();
     const stranger = await createUser(t, "stranger@example.invalid");
