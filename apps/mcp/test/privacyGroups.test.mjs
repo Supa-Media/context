@@ -70,7 +70,7 @@ const MANIFEST =
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  index.md: team\n  1-projects: team\n  2-areas: team\n" +
   "  2-areas/feedback: @supa-owners\n  3-resources: team\n  3-resources/board: @supa-owners\n" +
-  "  0-inbox: team\n\n" +
+  "  0-inbox: team\n  4-archive: team\n\n" +
   "note_overrides:\n  1-projects/rates.md: @supa-leads\n" +
   "  0-inbox/contacts/dan.md: @supa-leads\n" +
   "  1-projects/reserved.md: @supa-leads\n" +
@@ -485,6 +485,55 @@ export async function runPrivacyGroupChecks(check) {
       overridden.trips === inFolderPresent.trips &&
         overridden.trips === inFolderAbsent.trips
     );
+
+    /*
+      AND THE WRITE TOOLS' *READ* REFUSAL, WHICH THE READ SWEEP SKIPPED FOR
+      THE WRONG REASON.
+
+      The sweep that equalised the read tools left `archive_note`, `move_note`
+      and `set_encryption` out, on the grounds that a write tool's refusal is a
+      write refusal and belongs to the separate finding about those. That
+      classified them by the TOOL being a writer instead of by the REFUSAL
+      being a read, and it is wrong: each one's *first* refusal is
+
+          if (!canSee(path, ...)) return toolError("not found");
+
+      — the same three bytes `read_note` says, decided before the bucket is
+      touched, while a path the caller could have seen goes to storage and
+      misses. `writePermissionError` is a different door further in, and the
+      separate write-refusal finding is about that one.
+
+      So these belong with the read doors after all, and they are driven here
+      the same way: same words asserted first, then same cost.
+
+      `set_encryption` is NOT here, and measuring it is why: a team connection
+      is refused by "only a personal connection can encrypt or decrypt a note"
+      before `canSee` is ever consulted, identically and at identical cost for
+      both shapes. It never reaches this door, so there is nothing to equalise
+      — the hypothesis died on contact and this line is the record of it.
+    */
+    const WRITE_DOORS = [
+      { tool: "archive_note", args: (path) => ({ path }) },
+      { tool: "move_note", args: (path) => ({ source: path, destination: "1-projects/moved.md" }) },
+    ];
+    for (const door of WRITE_DOORS) {
+      const cost = async (path) => {
+        const before = bucket.trips();
+        const text = await callTool(env, TEAM_TOKEN, door.tool, door.args(path));
+        return { trips: bucket.trips() - before, text };
+      };
+      const hidden = await cost("1-projects/rates.md");
+      const absent = await cost("1-projects/no-such-note.md");
+      check(
+        `${door.tool}: both answers are the same refusal, so only the cost could tell them apart`,
+        hidden.text === absent.text && /not found/.test(hidden.text)
+      );
+      check(
+        `${door.tool}: refusing a note it may not see costs what refusing an absent one costs `
+          + `(hidden: ${hidden.trips}, absent: ${absent.trips})`,
+        hidden.trips === absent.trips
+      );
+    }
 
     const teamSearch = await callTool(env, TEAM_TOKEN, "search_notes", { query: "FEEDBACKSECRET" });
     check(
