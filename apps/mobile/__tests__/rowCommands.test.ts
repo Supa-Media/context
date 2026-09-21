@@ -129,6 +129,7 @@ describe("the chords the menu advertises", () => {
           canEdit: true,
           canSetVisibility: true,
           canShare: true,
+          canDownload: true,
           clipboard: { mode: "copy", path: NOTE, name: "note.md" },
           platform: "web",
           apple: true,

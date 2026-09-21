@@ -46,6 +46,9 @@ import type { NoteShare } from "./shares";
 import { shareUrl } from "./shares";
 import { scopeOf, stepsTo, type NoteScope } from "./scope";
 import { createPressQueue } from "./pressQueue";
+import { collectNotes, downloadNotice, pathsUnder } from "./download";
+import { buildZip, downloadName } from "./zip";
+import { saveFile } from "./saveFile";
 import type { ToastSpec } from "../../design/components/Toast";
 import { copyDeferred } from "../../design/clipboard";
 import { consoleOrigin } from "./shareOrigin";
@@ -271,6 +274,7 @@ export function useFileBrowser(options: {
 
   const listFiles = useAction(api.functions.files.listFiles);
   const readNote = useAction(api.functions.files.readNote);
+  const readNotesAction = useAction(api.functions.files.readNotes);
   const searchContext = useAction(api.functions.files.searchContext);
   const notePathsAction = useAction(api.functions.files.notePaths);
   const writeNote = useAction(api.functions.files.writeNote);
@@ -3071,6 +3075,89 @@ export function useFileBrowser(options: {
     [duplicateEntry, run, workspaceId],
   );
 
+  /**
+   * Put a note, or a whole folder, on the person's own disk.
+   *
+   * ## The last step of the exit, which was the one that was missing
+   *
+   * Non-negotiable #1 promises the customer can always leave with their
+   * content and that the exit is never gated or degraded. Everything under
+   * that was built — plain Markdown, a bucket they hold the key to, a
+   * hand-off that survives cancellation — except the step somebody actually
+   * takes. Getting your own writing out of the console meant opening the
+   * bucket somewhere else, which asks a person to hold cloud credentials to
+   * read what they wrote.
+   *
+   * ## Deliberately not behind `canEdit`
+   *
+   * Every other verb in this file goes through `run`, which refuses a
+   * read-only console. This does not, and that is the point rather than an
+   * oversight: downloading is a **read**, it asks the server nothing the row's
+   * own Open does not, and gating the exit on write access would make it
+   * exactly the degraded thing the non-negotiable forbids. A `member` in
+   * somebody else's context downloads what they can see, and a note held back
+   * is absent from the archive the same way it is absent from the listing —
+   * `notePaths` and `readNotes` are both filtered by the live manifest.
+   *
+   * ## A folder is one archive, and a short one says so
+   *
+   * The fetching, its bound and what it does with a note it cannot read are in
+   * `download.ts`, away from React, because the bound is the part a hand-test
+   * never reaches. An archive that is quietly incomplete is the worst outcome
+   * on this path — nobody finds out until the bucket is gone — so the count is
+   * said out loud.
+   */
+  const download = useCallback(
+    (path: string, kind: "file" | "folder") => {
+      if (workspaceId === null) return;
+      void (async () => {
+        try {
+          if (kind === "file") {
+            const note = await readNote({ workspaceId, path });
+            const saved = saveFile(
+              downloadName(path, ".md"),
+              new TextEncoder().encode(note.text),
+              "text/markdown;charset=utf-8",
+            );
+            setNotice(
+              saved
+                ? downloadNotice("file", 1, 0)
+                : "This device cannot save a file. Open the console in a browser to download.",
+            );
+            return;
+          }
+
+          const listed = await notePathsAction({ workspaceId });
+          if (listed.paths === null) {
+            // The walk did not reach the end, so an archive built from it
+            // would be short with nothing saying so. Refused rather than
+            // written — see the header.
+            setNotice("That folder could not be listed to the end, so nothing was downloaded.");
+            return;
+          }
+          const wanted = pathsUnder(listed.paths, path);
+          const { entries, missed } = await collectNotes(wanted, async (batch) => {
+            const answer = await readNotesAction({ workspaceId, paths: batch });
+            return answer.results as never;
+          });
+          const saved = saveFile(
+            downloadName(path, ".zip"),
+            buildZip(entries),
+            "application/zip",
+          );
+          setNotice(
+            saved
+              ? downloadNotice("folder", entries.length, missed.length)
+              : "This device cannot save a file. Open the console in a browser to download.",
+          );
+        } catch (error) {
+          setNotice(toFileError(error).message);
+        }
+      })();
+    },
+    [notePathsAction, readNote, readNotesAction, workspaceId],
+  );
+
   const archive = useCallback(
     (path: string) => {
       if (viaQueue(path)) return queueRemovalOf(path, "archive");
@@ -4057,6 +4144,7 @@ export function useFileBrowser(options: {
       resumeContextMove,
       dismissContextMove,
       duplicate,
+      download,
       archive,
       destroy,
       setVisibility,
@@ -4082,6 +4170,9 @@ export function useFileBrowser(options: {
         isOwner: options.isOwner === true,
       }),
       canShare: mayShare,
+      // A real console always has one. See `canDownload` in `browser.ts` for
+      // why this is a capability rather than a permission.
+      canDownload: true,
       copyShareLink,
       shares,
       share,
@@ -4115,6 +4206,7 @@ export function useFileBrowser(options: {
       encryptedElsewhere,
       dismissNotice,
       dismissToast,
+      download,
       duplicate,
       editor,
       expanded,

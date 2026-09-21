@@ -144,6 +144,8 @@ function browser(canSetVisibility: boolean): FileBrowser {
     resumeContextMove: noop,
     dismissContextMove: noop,
     duplicate: noop,
+    download: noop,
+    canDownload: true,
     archive: noop,
     destroy: noop,
     setVisibility: noop,

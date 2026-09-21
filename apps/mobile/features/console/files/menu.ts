@@ -56,6 +56,25 @@ export type MenuActionId =
   | "paste"
   | "copyPath"
   | "copyAtPath"
+  /**
+   * Put this on the person's own disk — a note as Markdown, a folder as a zip
+   * of everything in it they can see.
+   *
+   * **Offered whether or not this console may edit**, which is the one item
+   * here that is. Every other rule in this file says read-only means absent,
+   * and it is about *writes*: a menu of greyed-out verbs somebody cannot
+   * perform tells them their context is broken. Downloading is a read, and
+   * non-negotiable #1 says the exit is "never gated, never degraded, and never
+   * behind a paywall" — so hiding it from a `member`, or from a viewer of the
+   * pinned context, would be the gate that sentence forbids.
+   *
+   * `canDownload` is a capability rather than a constant because there is one
+   * surface with no bucket behind it at all: the landing page's demo console,
+   * whose `FileBrowser` methods are no-ops. A Download there would be a row
+   * that silently does nothing, which this file's own header names as the
+   * harder failure to notice.
+   */
+  | "download"
   | "share"
   /**
    * The submenu's own id, and deliberately not one of the three below.
@@ -186,6 +205,14 @@ export interface MenuContext {
    * `minimum: "owner"` regardless of what this menu says.
    */
   canShare: boolean;
+  /**
+   * Whether this console can hand a file to the device at all.
+   *
+   * False on the landing page's demo, which has no bucket and whose browser
+   * methods are no-ops. Not a permission — see `download` above, which is
+   * deliberately not gated on `canEdit`.
+   */
+  canDownload: boolean;
   clipboard: Clipboard | null;
   /**
    * Web prints shortcuts; touch does not, and touch has no "open in new tab".
@@ -546,13 +573,45 @@ function crumbItems(context: MenuContext, folder: string): MenuItem[] {
   ];
   // The same early return the row menu takes, and for the same reason: with no
   // write access there is nothing between opening and addressing to offer.
-  if (!context.canEdit) return joinGroups([opening, addresses]);
+  /*
+    The root crumb is the context itself, and downloading it is the whole of
+    "downloading everything" from non-negotiable #1 — the same archive as any
+    other folder's, one level up. It is the one item the root has that is not
+    about a path, which is why it sits beside `addresses` rather than in it.
+  */
+  const download = downloadGroup(context, { kind: "folder" });
+  if (!context.canEdit) return joinGroups([opening, addresses, download]);
   return joinGroups([
     opening,
     [...createGroup(context, true), ...pasteGroup(context, folder)],
     addresses,
+    download,
     context.canSetVisibility ? visibilityGroup(context, true, 1, null) : [],
   ]);
+}
+
+/**
+ * Download, as its own group, or nothing.
+ *
+ * Shared by the row menu and the breadcrumb menu, and by both of their
+ * read-only branches, because it is the one item those branches keep: it is a
+ * read, and non-negotiable #1 says the exit is never gated. A second copy of
+ * "is this offered" is how one of the four ends up without it.
+ */
+function downloadGroup(context: MenuContext, target: { kind: string } | null): MenuItem[] {
+  // A `loading` or `empty` row is not a file or a folder and has no path
+  // behind it, so there is nothing to hand anybody. The row menu never opens
+  // on one, and asking the question here rather than trusting that is what
+  // keeps this usable from four call sites.
+  if (!context.canDownload || target === null) return [];
+  if (target.kind !== "file" && target.kind !== "folder") return [];
+  return [
+    makeItem(
+      context,
+      "download",
+      target.kind === "folder" ? "Download folder (.zip)" : "Download",
+    ),
+  ];
 }
 
 /** "Paste foo.md", or nothing. The label names the thing so it is not a guess. */
@@ -603,6 +662,10 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
         makeItem(context, "copyPath", "Copy path"),
         makeItem(context, "copyAtPath", "Copy @path"),
       ],
+      // The one item this branch keeps. Everything above returns early because
+      // there is nothing to *write*; a download is a read, and gating the exit
+      // on write access is the degradation non-negotiable #1 forbids.
+      downloadGroup(context, single),
     ]);
   }
 
@@ -682,6 +745,20 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       makeItem(context, "copyPath", single === null ? `Copy ${count} paths` : "Copy path"),
       ...(single === null ? [] : [makeItem(context, "copyAtPath", "Copy @path")]),
     ],
+
+    /*
+      Download, on its own row group and above Share.
+
+      Single-target only, for the reason Rename and Duplicate are: three
+      downloads is three files landing in somebody's folder with no ordering
+      and no way to tell which press produced which. A multi-select download is
+      a real feature — one archive of the selection — and it is a different
+      one, so it is omitted rather than offered as a loop.
+
+      Not gated on `canEdit`, unlike everything above it. See `download` in
+      `MenuActionId`.
+    */
+    downloadGroup(context, single),
 
     // Share takes one note and has no plural: a share is addressed to one
     // person over one path, and "Share 3 items" is three separate grants with

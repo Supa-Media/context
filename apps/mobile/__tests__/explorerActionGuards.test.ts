@@ -373,6 +373,8 @@ function browser(
     resumeContextMove: noop,
     dismissContextMove: noop,
     duplicate: record("duplicate"),
+    download: record("download"),
+    canDownload: true,
     archive: record("archive"),
     destroy: record("destroy"),
     setVisibility: record("setVisibility"),

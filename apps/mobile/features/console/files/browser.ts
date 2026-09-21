@@ -535,6 +535,21 @@ export interface FileBrowser {
    */
   dismissContextMove: (id: string) => void;
   duplicate: (path: string) => void;
+  /**
+   * Put this note, or this whole folder, on the person's own disk.
+   *
+   * Non-negotiable #1's last step, and the one that was missing: the console
+   * could read a note and could not hand it to you, so getting your own
+   * writing out meant opening the bucket somewhere else. A folder comes as a
+   * `.zip` of every note in it **this caller can see** — the same set the
+   * listing shows, because the same manifest decides both.
+   *
+   * **Not gated on `canEdit`.** The exit is never gated and never degraded, so
+   * a read-only member and a viewer of the pinned context download exactly what
+   * they can read. It is a bulk read, not a write, and it asks the server
+   * nothing the row's own Open does not.
+   */
+  download: (path: string, kind: "file" | "folder") => void;
   archive: (path: string) => void;
   /** Recoverable delete: moves the entry into the archive-backed trash and offers Undo. */
   destroy: (path: string) => void;
@@ -619,6 +634,18 @@ export interface FileBrowser {
    * a control — same rule the server enforces with `minimum: "owner"`.
    */
   canSetVisibility: boolean;
+
+  /**
+   * Whether this console can hand a file to the device.
+   *
+   * **Not a permission.** Downloading is a read and non-negotiable #1 says the
+   * exit is never gated — a `member` in somebody else's context and a viewer of
+   * the pinned one both download what they can see. What this answers is
+   * whether there is a bucket behind the console at all: the landing page's
+   * demo has none, and its `FileBrowser` methods are no-ops, so a Download
+   * there would be a control that silently does nothing.
+   */
+  canDownload: boolean;
 
   /**
    * Whether a Share control exists at all.

@@ -65,6 +65,7 @@ function menu(target: MenuTarget, over: Partial<Omit<MenuContext, "target">> = {
     // and the owner-only rule has its own describe below.
     canSetVisibility: true,
     canShare: true,
+    canDownload: true,
     clipboard: null,
     platform: "web",
     ...over,
@@ -106,19 +107,24 @@ describe("read-only means absent, not disabled", () => {
    * `member` has read access without write access. `FileBrowser` carries no
    * mutating method for either, so an item here would have nothing to call.
    */
-  test("a note offers only reading and addressing", () => {
+  test("a note offers only reading, addressing and taking a copy away", () => {
+    // Download is here and nothing else new is: it is a **read**, and
+    // non-negotiable #1 says the exit is never gated. The `download` block at
+    // the end of this file is where that is argued.
     expect(ids(menu({ kind: "row", row: note("1-projects/plan.md") }, { canEdit: false }))).toEqual([
       "open",
       "copyPath",
       "copyAtPath",
+      "download",
     ]);
   });
 
-  test("a folder offers the same three", () => {
+  test("a folder offers the same four", () => {
     expect(ids(menu({ kind: "row", row: dir("1-projects") }, { canEdit: false }))).toEqual([
       "open",
       "copyPath",
       "copyAtPath",
+      "download",
     ]);
   });
 
@@ -190,6 +196,7 @@ describe("a note", () => {
       "cut",
       "copyPath",
       "copyAtPath",
+      "download",
       "share",
       "visibility",
       "archive",
@@ -234,6 +241,7 @@ describe("a folder", () => {
       "cut",
       "copyPath",
       "copyAtPath",
+      "download",
       "visibility",
       "archive",
       "delete",
@@ -793,6 +801,7 @@ describe("separators come from grouping, so the empty-group bugs cannot happen",
               canEdit,
               canSetVisibility: canEdit,
               canShare: canEdit,
+              canDownload: true,
               clipboard,
             });
             if (list.length === 0) continue;
@@ -1084,6 +1093,7 @@ describe("a breadcrumb segment is the folder you are standing in", () => {
       "newFolder",
       "copyPath",
       "copyAtPath",
+      "download",
       "visibility",
     ]);
   });
@@ -1109,22 +1119,30 @@ describe("a breadcrumb segment is the folder you are standing in", () => {
    * than copying an empty string.
    */
   test("the context root creates and sets visibility but has no path to copy", () => {
+    /*
+      Download is the one thing the root has that is not about a path. The
+      root crumb *is* the context, so this is "download everything" — which
+      non-negotiable #1 names out loud, and which had nowhere to be asked for
+      until this item existed.
+    */
     expect(ids(crumb(""))).toEqual([
       "open",
       "revealInTree",
       "newNote",
       "newDrawing",
       "newFolder",
+      "download",
       "visibility",
     ]);
   });
 
-  test("a read-only console gets the two that change nothing", () => {
+  test("a read-only console gets the three that change nothing", () => {
     expect(ids(crumb("1-projects", { canEdit: false }))).toEqual([
       "open",
       "revealInTree",
       "copyPath",
       "copyAtPath",
+      "download",
     ]);
   });
 
@@ -1147,5 +1165,72 @@ describe("a breadcrumb segment is the folder you are standing in", () => {
   test("but not the folder itself, which cannot be pasted into itself", () => {
     const list = ids(crumb("1-projects", { clipboard: put("copy", "1-projects") }));
     expect(list).not.toContain("paste");
+  });
+});
+
+/**
+ * DOWNLOAD IS THE ONE ITEM A READ-ONLY CONSOLE STILL GETS.
+ *
+ * Every other rule in `menu.ts` is "read-only means absent", and it is about
+ * writes: a menu of greyed-out verbs somebody cannot perform tells them their
+ * context is broken. Downloading is a read, and non-negotiable #1 says the
+ * exit is "never gated, never degraded, and never behind a paywall" — so a
+ * `member` in somebody else's context, and a viewer of the pinned one, get it.
+ *
+ * Which makes this the item most likely to be lost to a future tidy-up that
+ * folds it in with the rest, so it is asserted from the read-only side first.
+ */
+describe("download", () => {
+  const ids = (items: MenuItem[]): string[] =>
+    items.flatMap((item) => [item.id, ...(item.items ?? []).map((child) => child.id)]);
+
+  test("a read-only console can still download a note", () => {
+    const items = menu(
+      { kind: "row", row: note("1-projects/plan.md") },
+      { canEdit: false, canSetVisibility: false, canShare: false },
+    );
+    expect(ids(items)).toContain("download");
+    // ...and still gets none of the verbs that write.
+    expect(ids(items)).not.toContain("rename");
+    expect(ids(items)).not.toContain("delete");
+  });
+
+  test("a folder says it comes as an archive, because that is a different file", () => {
+    const items = menu({ kind: "row", row: dir("1-projects") });
+    const label = items
+      .find((item) => item.id === "download")?.label;
+    expect(label).toBe("Download folder (.zip)");
+  });
+
+  test("a note says nothing extra", () => {
+    const items = menu({ kind: "row", row: note("1-projects/plan.md") });
+    expect(items.find((item) => item.id === "download")?.label).toBe("Download");
+  });
+
+  test("a surface with no bucket behind it does not offer it", () => {
+    // The landing page's demo console, whose browser methods are no-ops. A
+    // Download there is a row that silently does nothing, which this menu's
+    // own header names as the harder failure to notice.
+    const items = menu({ kind: "row", row: note("1-projects/plan.md") }, { canDownload: false });
+    expect(ids(items)).not.toContain("download");
+  });
+
+  test("a multi-row selection is not offered it", () => {
+    /*
+      Three downloads is three files landing in somebody's folder with no
+      ordering and no way to tell which press produced which. One archive of a
+      selection is a real feature and a different one, so this is omitted
+      rather than offered as a loop — the same rule Rename and Duplicate follow.
+    */
+    const items = menu({
+      kind: "selection",
+      rows: [note("1-projects/a.md"), note("1-projects/b.md")],
+    });
+    expect(ids(items)).not.toContain("download");
+  });
+
+  test("the background is not a row, so there is nothing to download", () => {
+    const items = menu({ kind: "background", folder: "1-projects" });
+    expect(ids(items)).not.toContain("download");
   });
 });

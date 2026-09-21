@@ -205,6 +205,15 @@ export function runMenuAction(
     case "duplicate":
       files.duplicate(path);
       return;
+    /*
+      A read, and the only item here that is offered to a console that cannot
+      write. `kind` is what decides the shape of the answer — a note comes back
+      as Markdown under its own name, a folder as a zip of everything in it
+      this caller can see.
+    */
+    case "download":
+      files.download(path, kind);
+      return;
     case "copy":
       files.copy(path);
       return;
