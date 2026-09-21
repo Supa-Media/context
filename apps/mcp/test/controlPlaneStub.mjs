@@ -263,7 +263,20 @@ export function createControlPlaneStub(options = {}) {
     });
   }
 
+  /*
+    Gateway → control-plane round trips, counted.
+
+    The same reasoning the S3 backend's counters carry: two refusals that are
+    byte-identical to read and a different number of round trips apart are
+    still two answers, the second measured with a clock. On the link tools the
+    trips that matter are these, not the bucket's.
+  */
+  const gatewayCalls = { total: 0, byPath: new Map() };
+
   async function handle(url, init = {}) {
+    gatewayCalls.total += 1;
+    const calledPath = new URL(url).pathname;
+    gatewayCalls.byPath.set(calledPath, (gatewayCalls.byPath.get(calledPath) || 0) + 1);
     const parsed = new URL(url);
     const path = parsed.pathname;
     const body = init.body ? JSON.parse(init.body) : {};
@@ -750,6 +763,7 @@ export function createControlPlaneStub(options = {}) {
   }
 
   return {
+    gatewayCalls,
     origin,
     secret,
     handle,
@@ -788,6 +802,17 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
   /** bucket → Map(key → { body, etag }) */
   const buckets = new Map();
   let etagCounter = 0;
+  /*
+    Requests, counted by method.
+
+    Two refusals that are byte-identical to read and a different number of
+    round trips apart are still two answers — the second one is just measured
+    with a clock rather than read. Counting them is what turns an
+    indistinguishability claim into a deterministic check instead of a flaky
+    timing one. See the cost checks that use `trips()`.
+  */
+  const ops = { GET: 0, HEAD: 0, PUT: 0, DELETE: 0, LIST: 0 };
+  const trips = () => Object.values(ops).reduce((sum, count) => sum + count, 0);
 
   function bucketFor(name) {
     if (!buckets.has(name)) buckets.set(name, new Map());
@@ -802,6 +827,8 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     const bucketName = decodeURIComponent(segments.shift() || "");
     const key = segments.map(decodeURIComponent).join("/");
     const objects = bucketFor(bucketName);
+    if (method === "GET" && parsed.searchParams.get("list-type") === "2") ops.LIST += 1;
+    else if (ops[method] !== undefined) ops[method] += 1;
 
     if (method === "GET" && parsed.searchParams.get("list-type") === "2") {
       const prefix = parsed.searchParams.get("prefix") || "";
@@ -937,7 +964,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     };
   }
 
-  const api = { endpoint: endpointOrigin, buckets, bucketFor, handle, install };
+  const api = { endpoint: endpointOrigin, buckets, bucketFor, handle, install, ops, trips };
   return api;
 }
 

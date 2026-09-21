@@ -1178,6 +1178,30 @@ export async function runMeetingChecks(check) {
     "...byte-identical to what it is told about an id nobody ever issued",
     memberSessionRead.text === memberGhostRead.text && memberSessionRead.status === memberGhostRead.status
   );
+  /*
+    AND THEY MUST COST THE SAME, NOT ONLY READ THE SAME.
+
+    The check above closes the channel a caller READS. This closes the one a
+    caller MEASURES. Two answers that are byte-identical and a different number
+    of storage round trips apart are still two answers; the second is just
+    measured with a clock rather than read.
+
+    Counted rather than timed, so this is deterministic. The number is not the
+    invariant; the equality is.
+  */
+  const sessionTripsFor = async (id) => {
+    const before = s3.trips();
+    await meetingRequest(env, TOKEN_MEMBER, `/meetings/sessions/${id}`, { method: "GET" });
+    return s3.trips() - before;
+  };
+  const forbiddenTrips = await sessionTripsFor(SESSION_MAIN);
+  const ghostTrips = await sessionTripsFor(SESSION_NEVER_ISSUED);
+  check(
+    `a refused session and an id nobody issued cost the same to refuse `
+      + `(forbidden ${forbiddenTrips}, never issued ${ghostTrips})`,
+    forbiddenTrips === ghostTrips
+  );
+
   const memberSessionList = await meetingRequest(env, TOKEN_MEMBER, "/meetings/sessions", { method: "GET" });
   const listedForMember = JSON.stringify(memberSessionList.body ?? {});
   check("and cannot learn the private note's path by listing sessions", !listedForMember.includes(notePath));

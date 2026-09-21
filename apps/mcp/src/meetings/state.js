@@ -77,7 +77,7 @@ import {
   MEETING_PREFIX,
   legacyStorageKey,
 } from "../../../../packages/shared/src/storageLayout.cjs";
-import { getWithLegacyFallback } from "../storageLayout.js";
+import { getWithLegacyFallback, objectExists } from "../storageLayout.js";
 
 /** In-flight sessions and completion receipts. Dot-prefixed, so never a note. */
 export { MEETING_PREFIX };
@@ -540,7 +540,27 @@ async function readRecord(store, id) {
 export async function readSession(store, id, tier) {
   const record = await readRecord(store, id);
   if (!record) return null;
-  return canSeeSession(record.session, tier) ? record : null;
+  if (canSeeSession(record.session, tier)) return record;
+  /*
+    **THE TWO NULLS MUST COST THE SAME, NOT ONLY LOOK THE SAME.**
+
+    `sessionNotFound` is spelled once so the words cannot diverge, and a check
+    compares them byte for byte. Neither closes the channel a caller MEASURES:
+    `readRecord` reads through `getWithLegacyFallback`, whose fallback runs
+    only when the first read MISSES — so a record that is here cost one round
+    trip and one that never existed cost two. Byte-identical refusals a round
+    trip apart are still two answers, and the cheap one means "it is here and
+    not yours". Measured at 1 against 2 before this line.
+
+    So the trip the miss would have spent is spent here. `objectExists` rather
+    than a second `get`: `S3Store.get` and `DropboxStore.get` both buffer the
+    whole object before any caller asks for text, and this is a record the
+    caller may not read. The residue is stated rather than hidden — the miss
+    path's second trip is a `get` that 404s and this one is a HEAD, which are
+    the same shape and the same round trip, not the same request.
+  */
+  await objectExists(store, legacyStorageKey(sessionKey(id)) || sessionKey(id));
+  return null;
 }
 
 /**

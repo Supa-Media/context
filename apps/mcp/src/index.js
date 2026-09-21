@@ -145,6 +145,7 @@ import {
   deleteWithLegacyFallback,
   getWithLegacyFallback,
   migrateStorageLayout,
+  objectExists,
 } from "./storageLayout.js";
 import { forwardPath, readForwarding, recordForwarding } from "./forwarding.js";
 import {
@@ -1477,38 +1478,6 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
   return await room.fetch(new Request(request.url, { method: "GET", headers }));
 }
 
-/**
- * Is there an object at exactly this key?
- *
- * A prefix listing can answer about a *neighbour*: asking for `foo.md` also
- * returns `foo.md.bak` and `foo.md/`-prefixed keys on a store that allows them,
- * so the exact comparison is the check and the listing is only how it is
- * reached. Missing and unreachable are both "no": a store that errors here
- * refuses the socket rather than opening one on an assumption.
- */
-/**
- * Is there an object at exactly this key?
- *
- * `store.exists` where the adapter has one — a HEAD on S3, a `head` on R2,
- * `get_metadata` on Dropbox — because a prefix listing is not an existence
- * check everywhere: Dropbox's `list` is `/files/list_folder`, so asking it
- * about a note's key asks about a directory that does not exist. Found by
- * trying it, not by reading: the listing version passed every R2 and S3 test
- * and failed the Dropbox one.
- *
- * The listing stays as the fallback so a store without the method — every
- * in-memory stub in this suite — still answers, and so that adding the method
- * to an adapter is an improvement rather than a prerequisite.
- */
-async function objectExists(store, key) {
-  try {
-    if (typeof store.exists === "function") return Boolean(await store.exists(key));
-    const page = await store.list({ prefix: key, limit: 4 });
-    return (page?.objects || []).some((object) => object.key === key);
-  } catch {
-    return false;
-  }
-}
 
 /**
  * The name a caret is labelled with.

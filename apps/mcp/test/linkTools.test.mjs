@@ -505,6 +505,32 @@ export async function runLinkToolChecks(check) {
       foreign.text === invented.text,
     );
 
+    /*
+      AND THE FOUR CAUSES MUST COST THE SAME, NOT ONLY READ THE SAME.
+
+      The check above closes the channel a caller READS. This closes the one a
+      caller MEASURES: two answers that are byte-identical to read and a
+      different number of round trips apart are still two answers. The trips
+      that matter on this tool are the gateway's calls to the control plane
+      rather than the bucket's, because that is where a share row is looked up
+      and where "found but not yours" could cost more than "never minted".
+
+      Counted rather than timed, so this is deterministic. The number is not
+      the invariant; the equality is.
+    */
+    const revokeTripsFor = async (token, id) => {
+      const before = controlPlane.gatewayCalls.total;
+      await call(env, token, "revoke_link", { share_id: id });
+      return controlPlane.gatewayCalls.total - before;
+    };
+    const foreignTrips = await revokeTripsFor(OTHER_TOKEN, shareId);
+    const inventedTrips = await revokeTripsFor(OTHER_TOKEN, "share_nope");
+    check(
+      `a real id from another context costs what an invented one costs `
+        + `(foreign ${foreignTrips}, invented ${inventedTrips})`,
+      foreignTrips === inventedTrips,
+    );
+
     const revoked = await call(env, OWNER_TOKEN, "revoke_link", { share_id: shareId });
     check("the owner can revoke", !revoked.isError);
     check(
@@ -513,6 +539,13 @@ export async function runLinkToolChecks(check) {
     );
     const again = await call(env, OWNER_TOKEN, "revoke_link", { share_id: shareId });
     check("revoking twice refuses like an id that never existed", again.isError);
+    const goneTrips = await revokeTripsFor(OWNER_TOKEN, shareId);
+    const neverTrips = await revokeTripsFor(OWNER_TOKEN, "share_never_minted");
+    check(
+      `an id already gone costs what one that never existed costs `
+        + `(gone ${goneTrips}, never ${neverTrips})`,
+      goneTrips === neverTrips,
+    );
 
     const afterRevoke = await call(env, OWNER_TOKEN, "list_links");
     check("...and the link is out of the listing", !afterRevoke.text.includes(`opens: ${NOTE}\n`));
