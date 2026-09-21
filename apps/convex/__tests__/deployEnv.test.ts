@@ -23,6 +23,16 @@
  * variable nothing here reads yet — a feature flag landing ahead of its code is
  * ordinary, and failing on it would push people to leave it out of the loop,
  * which is the bug this file is about.
+ *
+ * ## There is a second guard, one link further up the chain
+ *
+ * `scripts/check-secrets-allowlist.mjs` checks that a name a workflow reads as
+ * `secrets.NAME` is one the 1Password → GitHub sync actually supplies. That is
+ * the hop *into* the GitHub environment; this file is the hop *out of* it, onto
+ * the Convex deployment. A name can pass either and fail the other, so adding
+ * an operator-set variable means touching `secrets-allowlist.json` as well —
+ * the three names added alongside this file were caught by that checker, not
+ * by this one.
  */
 
 import { describe, expect, it } from "vitest";
