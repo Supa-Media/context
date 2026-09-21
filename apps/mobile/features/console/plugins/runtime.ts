@@ -35,6 +35,16 @@ export interface RuntimeState {
 }
 
 /**
+ * When `af685c6c` (#545) gave the guest its CodeMirror compatibility modules.
+ *
+ * Deliberately the merge instant rather than a generous margin after it. The
+ * two ways to be wrong are not symmetric: refusing a genuine old row costs one
+ * press of Start, which is exactly the behaviour this repository had before
+ * #803, while admitting a forged one is the defect.
+ */
+const SANDBOX_COMPATIBILITY_FIX = Date.parse("2026-09-14T18:03:50Z");
+
+/**
  * A crash the current guest can repair without asking its owner to discover
  * and press Start again.
  *
@@ -71,17 +81,6 @@ export interface RuntimeState {
  * remembering — no new row can ever match it, so once the old ones are gone
  * the whole predicate can be deleted.
  */
-
-/**
- * When `af685c6c` (#545) gave the guest its CodeMirror compatibility modules.
- *
- * Deliberately the merge instant rather than a generous margin after it. The
- * two ways to be wrong are not symmetric: refusing a genuine old row costs one
- * press of Start, which is exactly the behaviour this repository had before
- * #803, while admitting a forged one is the defect.
- */
-const SANDBOX_COMPATIBILITY_FIX = Date.parse("2026-09-14T18:03:50Z");
-
 export function shouldResumeRuntime(state: RuntimeState): boolean {
   if (state.status === "loaded") return true;
   if (state.status !== "crash-looped" || state.errorCode !== "PLUGIN_LOAD_FAILED") return false;
