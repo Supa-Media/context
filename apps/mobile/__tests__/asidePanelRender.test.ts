@@ -36,6 +36,13 @@
  *     → **1 fails**: `the mark is in the name as well as beside it`.
  *  3. `MeetingsTab` rendering nothing when `live` is null.
  *     → **1 fails**: `an empty tab says what would put something in it`.
+ *  4. `Stranded`'s Copy note dropped — the panel back to showing words it
+ *     will not let anybody take off the device.
+ *     → **1 fails**: `the words are reachable whatever the gateway does`.
+ *  5. `Stranded` calling `meetings.retry` for every state, ignoring what
+ *     `landing.retry` says — a sync retry over a finalize that never
+ *     completed, which is the wrong call and a silent one.
+ *     → **1 fails**: `offers the retry the note screen has always had`.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -79,6 +86,8 @@ jest.mock("../features/meetings/controller", () => {
       discard: record("discard"),
       pause: record("pause"),
       resume: record("resume"),
+      retry: record("retry"),
+      retryFinalize: record("retryFinalize"),
     },
   };
 });
@@ -141,6 +150,38 @@ function filed() {
     },
     runningSince: null,
     destination: { kind: "personalInbox", contextSlug: "seyi", folder: "0-inbox/meetings" },
+  };
+}
+
+/**
+ * A meeting that ended and never reached the bucket.
+ *
+ * The owner's own, from the bug report: *"This meeting randomly stopped
+ * working, Trying to open it it says it hasnt been written to context, how do
+ * I get it???"* — a real recording, 31 minutes of it, and a panel with one
+ * sentence and nothing to press.
+ */
+function stranded(over: Record<string, unknown> = {}, session: Record<string, unknown> = {}) {
+  return {
+    session: {
+      id: "m0",
+      title: "Jhon / Seyi",
+      state: "failed",
+      failureReason: "the upload timed out.",
+      startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      recordedMs: 1_860_000,
+      attendees: [],
+      source: { kind: "unknown" },
+      notes: "- [0:12] LK owns the transparency page",
+      transcript: [],
+      notePath: null,
+      enhanced: null,
+      log: [],
+      ...session,
+    },
+    runningSince: null,
+    destination: { kind: "personalInbox", contextSlug: "seyi", folder: "0-inbox/meetings" },
+    ...over,
   };
 }
 
@@ -476,5 +517,128 @@ describe("meetings that have already been recorded", () => {
     panel.press("aside-meeting-row-m0");
     expect(panel.find("aside-meeting-title")).toBeNull();
     expect(panel.find("aside-meeting-note-field")).toBeNull();
+  });
+});
+
+/**
+ * THE PANEL IS NOT A DEAD END FOR A MEETING THAT DID NOT LAND.
+ *
+ * The owner recorded 31 minutes, opened the meeting in this panel, and read
+ * *"This meeting has not been written to your context yet"* with nothing
+ * beside it — no reason, no Retry, no way to read the words. Their question
+ * was "how do I get it???", and the panel's answer was the sentence again.
+ *
+ * Everything asserted below already existed on `/meetings/:id`. What was
+ * missing was this surface reaching it, which is why `landing.ts` is a module
+ * — and why these tests check the *panel* while `meetingsLanding.test.ts`
+ * checks the rule.
+ */
+describe("a meeting that never reached the bucket", () => {
+  test("says why, rather than only that it did not", () => {
+    mockRecords = [stranded()];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.text()).toContain("Not filed");
+    expect(panel.text()).toContain("the upload timed out.");
+  });
+
+  test("and offers the retry the note screen has always had", () => {
+    mockRecords = [stranded()];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+    panel.press("aside-meeting-retry");
+
+    expect(mockCalls.map((call) => call.name)).toContain("retryFinalize");
+  });
+
+  test("a refusal gets the sync retry instead, because that is the one that clears it", () => {
+    mockRecords = [
+      stranded({ rejection: { code: "meeting_forbidden", message: "gateway answered 403", noticedAt: 0 } }, { state: "complete" }),
+    ];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.text()).toContain("Connect it again from Settings");
+    expect(panel.text()).not.toContain("403");
+    panel.press("aside-meeting-retry");
+    expect(mockCalls.map((call) => call.name)).toContain("retry");
+  });
+
+  test("a session that captured nothing is offered no retry of nothing", () => {
+    mockRecords = [stranded({}, { state: "empty", emptyReason: "no audio reached the recorder.", notes: "", transcript: [] })];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.text()).toContain("Nothing was captured");
+    expect(panel.find("aside-meeting-retry")).toBeNull();
+  });
+
+  test("one still on its way says so, and is not something to press at", () => {
+    mockRecords = [stranded({}, { state: "finalizing", failureReason: undefined })];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.text()).toContain("Not in your bucket yet");
+    expect(panel.find("aside-meeting-retry")).toBeNull();
+  });
+
+  test("and the words are reachable whatever the gateway does, which is the actual ask", async () => {
+    /*
+      The way out of the device. A meeting can be complete, correct, on the
+      phone and reachable by nothing else, and when it is, the clipboard is the
+      whole of what somebody can do about it — `renderMeetingNote`'s output,
+      the same function the gateway writes the bucket with, so what they paste
+      is the note they would have had.
+
+      jsdom has no `navigator.clipboard`, so this asserts the control is there
+      and reaches the press; `meetingsScreens.test.ts` is where the bytes on
+      the clipboard are checked.
+    */
+    mockRecords = [stranded()];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.find("aside-meeting-copy")).not.toBeNull();
+    panel.press("aside-meeting-copy");
+    await settle();
+    expect(panel.text()).toContain("Couldn't reach the clipboard");
+  });
+
+  test("a filed meeting this device cannot address says where it is, not that it is lost", () => {
+    /*
+      `noteEditorHref` refuses to guess a context: a record from a build before
+      `destination` existed has no slug, so there is no honest link even though
+      the note is in the bucket. The panel used to answer that with "has not
+      been written to your context yet", which is the one thing that is flatly
+      false about it — the path is printed directly above the sentence.
+    */
+    mockRecords = [
+      stranded({ destination: null }, { state: "complete", notePath: "0-inbox/meetings/a.md" }),
+    ];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.text()).not.toContain("has not been written");
+    expect(panel.text()).toContain("this device cannot address it");
+    expect(panel.find("aside-meeting-retry")).toBeNull();
+  });
+
+  test("a filed meeting keeps its door to the editor and grows no landing", () => {
+    mockRecords = [filed()];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.find("aside-meeting-open-note")).not.toBeNull();
+    expect(panel.find("aside-meeting-retry")).toBeNull();
+    expect(panel.text()).not.toContain("Not in your bucket yet");
   });
 });
