@@ -413,6 +413,38 @@ export async function handleEmail(
     throw error;
   }
 
+  /*
+    ── The body is read BEFORE the recipient is decided. ────────────────────
+
+    The frozen refusal closes what an SMTP peer can READ. It does not close
+    what this Worker DOES, and those are two answers, not one.
+
+    Draining after the `resolution === null` check meant a name nobody owns
+    cost **0 bytes** and a real one whose owner does not admit the sender cost
+    the **whole message** — measured, not reasoned: `worker.test.ts` meters it.
+    Ingestion is on the apex, so the party who can measure that needs no
+    account: it is the enumeration this file's header says must not exist,
+    reached by the clock instead of by the reply.
+
+    So the read happens for every well-formed recipient alike, on the hard cap,
+    and the decisions are taken afterwards — the same shape the gateway's read
+    tools took for the same reason. The per-workspace cap is applied below by
+    `decideCapture`, which already refuses an oversize message; moving the read
+    ahead of it costs at most `hardCap` bytes for a name nobody owns, and those
+    bytes have already crossed the network into Cloudflare before this Worker
+    runs. What is spent here is memory and CPU, bounded per message, not
+    bandwidth.
+
+    **The residue, stated rather than hidden**: the MIME *parse* still happens
+    only for a recipient that resolved, because `decideCapture` parses with the
+    workspace's own limits and there is no second set to parse with beforehand.
+    Closing that would mean either parsing twice on every legitimate capture or
+    parsing with limits that are not the owner's. The dominant term — reading
+    the message — is equal; the parse is not, and a fix for it is a change to
+    `decideCapture`'s signature rather than an ordering.
+  */
+  const raw = await drain(message.raw, hardCap);
+
   // Unknown name, **the name is a shared context**, ingestion disabled, unbound
   // storage, over quota — one answer, because any two of those being told apart
   // is an oracle.
@@ -429,7 +461,6 @@ export async function handleEmail(
     return refuse("not_a_personal_context", username);
   }
 
-  const raw = await drain(message.raw, Math.min(hardCap, resolution.maxMessageBytes || hardCap));
   if (raw === null) return refuse("message_too_large", username);
 
   const decision = await decideCapture(
