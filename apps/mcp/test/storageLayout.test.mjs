@@ -5,9 +5,12 @@ import {
   readStorageLayoutState,
 } from "../src/storageLayout.js";
 import {
+  CONTEXT_ROOT,
+  LEGACY_STORAGE_PREFIXES,
   STORAGE_LAYOUT_MANIFEST_KEY,
   STORAGE_LAYOUT_MIGRATION_KEY,
   currentStorageKey,
+  legacyStorageKey,
 } from "../../../packages/shared/src/storageLayout.cjs";
 
 function check(name, ok) {
@@ -209,7 +212,74 @@ export async function runStorageLayoutChecks() {
  * bucket that genuinely has never run this. A caller that collapsed the two
  * would record a false absence, which is the nag again with extra steps.
  */
+/*
+  WHAT KEEPS THE DUAL READ AWAY FROM NOTES.
+
+  `getWithLegacyFallback` is the shape a privacy engine cannot see through:
+  the caller names one key, the bytes may come from another. It is called with
+  NOTE paths all over `index.js` — the note read resolver, `read_image`'s
+  note, the write path's existence check — so if a caller-visible path ever
+  acquired a legacy twin, `canSee` would decide about the path asked for and
+  the answer would be the contents of a different one.
+
+  Nothing in the function prevents that. The only thing that does is a
+  property of this list: **every pair is Context's own plumbing on both
+  sides**, and `isPlumbing` refuses every dot-prefixed segment, so
+  `legacyStorageKey` returns `null` for everything a caller can name.
+
+  That property was unchecked. Measured: appending a tenth pair whose current
+  side is not under `.context/` — the shape an author adds when plumbing moves
+  — failed **0** of the gateway suite and **0** of the control plane's.
+  Changing one of the nine existing entries reddened exactly one check, and
+  that one is a fixture that happens to spell the string, not a check on the
+  invariant; it is also a THROW, so it took the rest of its section with it.
+
+  Written over the list rather than over a sample of paths, because the danger
+  is the pair nobody has added yet.
+*/
+function runLegacyPrefixInvariant() {
+  /*
+    Collected rather than thrown per entry. `check` throws, and this file's
+    sections run behind one another, so a list with two bad pairs would report
+    the first and hide both the second and every later check in the section —
+    which is the cost `test.mjs`'s `suite` wrapper exists to report. One
+    failure, naming every offender.
+  */
+  const offenders = [];
+  for (const [legacy, current] of LEGACY_STORAGE_PREFIXES) {
+    if (!current.startsWith(CONTEXT_ROOT)) {
+      offenders.push(`current side outside ${CONTEXT_ROOT}: ${current}`);
+    }
+    if (!legacy.startsWith(".") || legacy.startsWith("..")) {
+      offenders.push(`legacy side is not a dot-prefixed segment: ${legacy}`);
+    }
+  }
+  check(
+    `every legacy pair is Context plumbing on both sides — ${offenders.join("; ")}`,
+    offenders.length === 0,
+  );
+  /*
+    And the consequence, stated the way a caller meets it: the paths a person
+    can name have no twin to fall back to. A sample here is enough BECAUSE the
+    loop above is general — this says what the property buys, the loop is what
+    keeps it true when the list grows.
+  */
+  for (const visible of [
+    "index.md",
+    "privacy.md",
+    "1-projects/alpha.md",
+    "assets/legacy/x.md",
+    "3-teams/pay-bands.md",
+  ]) {
+    check(
+      `a caller-visible path has no legacy twin (${visible})`,
+      legacyStorageKey(visible) === null,
+    );
+  }
+}
+
 export async function runStorageLayoutReadChecks() {
+  runLegacyPrefixInvariant();
   const never = memoryStore({ ".audit/a.json": "legacy" });
   const fresh = await readStorageLayoutState(never);
   check(
