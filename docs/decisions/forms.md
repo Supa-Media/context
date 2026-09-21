@@ -607,3 +607,57 @@ of it, both because of the marker check that stops a submission writing into a
 file this package did not write. A guard that cannot be reached is not a guard,
 so the reasoning is a comment in `readResponseForNotification` and the line is
 gone.
+
+## `create_form` is unlisted, and `write_note` is the way to make a form
+
+Decided by the owner, 2026-09-21: "most clients don't have it and really
+there's no reason to have a separate way to do this when `write_note` is all
+you need."
+
+`create_form` shipped to close a real gap. An agent asked for "an intake form"
+had to know the block's keys, its field types, that `max` is mandatory on a
+`line`, that `layout` is declared rather than inferred, and that the answers
+live in a second note — a feature nobody discovers, which is the same as a
+feature nobody has.
+
+**That gap was closed a better way, and the tool outlived it.** PR #782 found
+why: a client caches `tools/list` and re-fetches on its own schedule, so a tool
+added after it connected is not callable by name however correct the server is.
+A connected assistant reported it in as many words — "Missing: `create_link`
+and `create_form`" — about two tools that had shipped and were working. The fix
+was to put the block's grammar into `write_note`'s description, which every
+client already holds and has held from the beginning. It now says, in as many
+words, that it makes forms and that no separate tool is needed.
+
+What was left was a second name for one operation: `create_form` renders a
+block through `renderFormBlock`, parses it back through `parseFormBlocks`, and
+hands it to the same write path `write_note` uses, with `mustCreate` as the one
+difference. Every rule about the block — a new field type, a new key, a refusal
+— had to be taught in two places, and the copy most clients cannot call is the
+copy that quietly rots.
+
+**Unlisted, not deleted.** `UNLISTED_TOOLS` in `apps/mcp/src/index.js` takes it
+out of `tools/list` while its definition and its dispatch case stay, so a client
+that *did* fetch it goes on working and its arguments go on being validated
+against the schema this server advertises now. The same arrangement
+`archive_chat` has had since it became `save_context`, and for the same reason:
+a tool that vanishes mid-session is an error in somebody's chat, not a tidier
+server. Deleting the code is a later, separate change, once nothing calls it.
+
+`orient`'s guidance and the "that note already exists" refusal both point at
+`write_note` now. They used to name `create_form` to clients that did not have
+it, which is worse than saying nothing.
+
+### What a "simplification" would cost
+
+- **Deleting it instead of unlisting it** breaks every client still holding the
+  cached name, today, with no warning and no fallback in the error.
+- **Listing it again** reintroduces two places to teach one grammar, and the
+  one most clients cannot reach is the one that goes stale.
+- **Dropping the census exemption** (`toolArguments.test.mjs`) lets a dispatch
+  case exist with no advertised schema, so its arguments stop being validated —
+  which is the hole that test was written for.
+- **Dropping the check that an unlisted tool is really absent from
+  `tools/list`** makes the exemption hide the thing it exempts: a name in
+  `UNLISTED_TOOLS` that `toolsForSession` forgot to filter would pass either
+  way. Sabotage: removing the filter reddens exactly that check.

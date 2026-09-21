@@ -511,7 +511,7 @@ const tools = await rpc("priv-token", "tools/list");
 // 42 with `create_link`, `list_links` and `revoke_link` — the console has had
 // share links since the beginning and nothing here could mint one, so an agent
 // asked for "a link to send them" wrote a URL out of the path it was holding.
-check("42 tools listed", tools.result?.tools.length === 42);
+check("41 tools listed", tools.result?.tools.length === 41);
 check(
   "storage migration is advertised only to an owner-tier connection",
   tools.result?.tools?.some((tool) => tool.name === "migrate_storage_layout") === true &&
@@ -669,12 +669,12 @@ check(
 await contextStore.put(enablementKey, "{ half a file");
 check(
   "a settings file that does not parse leaves every tool where it was",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 42
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 41
 );
 await contextStore.delete(enablementKey);
 check(
   "and removing the file restores the full listing",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 42
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 41
 );
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
@@ -1388,7 +1388,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 42);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 41);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1614,7 +1614,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 42
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 41
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(

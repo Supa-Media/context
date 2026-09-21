@@ -648,6 +648,28 @@ export async function runToolArgumentChecks(check) {
     aliases.get("archive_chat") === "save_context"
   );
 
+  /*
+    The other way a name leaves `tools/list` without leaving the server.
+
+    An alias sends one name to another tool's schema. `UNLISTED_TOOLS` keeps a
+    tool's own definition and its own dispatch case and merely stops offering
+    it — so the census below has to count it as covered, and the call at the
+    end of this file has to still work. Read off the source for the same
+    reason the dispatch table is: a set nobody reads is a set that can be
+    emptied without a single check noticing.
+  */
+  const unlistedBlock = SOURCE.slice(
+    SOURCE.indexOf("const UNLISTED_TOOLS"),
+    SOURCE.indexOf("const UNLISTED_TOOLS") + 200
+  );
+  const unlisted = new Set(
+    [...unlistedBlock.matchAll(/"([a-z_]+)"/g)].map((m) => m[1])
+  );
+  check(
+    "the unlisted set is read, and holds create_form",
+    unlisted.has("create_form") && dispatched.includes("create_form")
+  );
+
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
     GATEWAY_SECRET,
@@ -708,10 +730,26 @@ export async function runToolArgumentChecks(check) {
 
     /* ---- every dispatch case is advertised, and every schema is closed ---- */
 
-    const uncovered = dispatched.filter((name) => !schemas.has(aliases.get(name) ?? name));
+    const uncovered = dispatched.filter(
+      (name) => !schemas.has(aliases.get(name) ?? name) && !unlisted.has(name)
+    );
     check(
       "every tool in the dispatch table has an advertised inputSchema",
       uncovered.length === 0
+    );
+
+    /*
+      And an unlisted one is unlisted, rather than quietly still offered.
+
+      Without this the exemption above would hide the thing it exempts: a name
+      in `UNLISTED_TOOLS` that `toolsForSession` forgot to filter would pass
+      the census either way, and nobody would learn that the set stopped doing
+      anything.
+    */
+    const stillOffered = [...unlisted].filter((name) => schemas.has(name));
+    check(
+      `a tool in UNLISTED_TOOLS is absent from tools/list (${stillOffered.join(", ")})`,
+      stillOffered.length === 0
     );
     const open = advertised.filter(
       (tool) =>
@@ -1246,6 +1284,27 @@ export async function runToolArgumentChecks(check) {
       !(await callTool(env, TOKEN_OWNER, "archive_chat", {
         platform: "probe",
         content: "# a session\n",
+      }))?.isError
+    );
+
+    /* ------------ and the unlisted tool, which kept its own schema --------- */
+
+    check(
+      "an unlisted tool is validated against its OWN advertised schema",
+      textOf(
+        await callTool(env, TOKEN_OWNER, "create_form", {
+          path: "1-projects/unlisted-probe.md",
+          fields: [{ name: "who", type: "line", max: 20 }],
+          responses_note: "1-projects/elsewhere.md",
+        })
+      ).startsWith('unknown argument "responses_note"')
+    );
+    check(
+      "...and still works, so a client holding a cached list is not broken",
+      !(await callTool(env, TOKEN_OWNER, "create_form", {
+        path: "1-projects/unlisted-probe.md",
+        title: "Probe",
+        fields: [{ name: "who", type: "line", max: 20, required: true }],
       }))?.isError
     );
 

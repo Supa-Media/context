@@ -653,12 +653,14 @@ stop paying.
    credentials, or raw tool logs — and label an incomplete capture honestly.
 5. **They can collect answers from other people, and you build the form.** A note
    can carry a form — fields somebody fills in, answers appended to a second note
-   — and \`create_form\` writes both in one call, from fields you pass rather than
-   markdown you compose. Offer it when they describe collecting the same thing
-   from several people: an intake, a request list, a sign-up, a bug report. It is
-   the one thing here that works for people who cannot write notes at all, and
-   who may read the answers is the answers note's own visibility, so say where it
-   will land before you make it.`;
+   — and you make one by putting a \`\`\`form block in the content you pass to
+   \`write_note\`, which validates it and creates the answers note in the same call.
+   That tool carries the block's grammar in its own description, and it is in your
+   list however long ago you fetched it. Offer this when they describe collecting
+   the same thing from several people: an intake, a request list, a sign-up, a bug
+   report. It is the one thing here that works for people who cannot write notes at
+   all, and who may read the answers is the answers note's own visibility, so say
+   where it will land before you make it.`;
 
 /**
  * The working half of `orient` — short on purpose.
@@ -2710,6 +2712,34 @@ function toolExistenceMasked(name, scope) {
 const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
 
 /**
+ * Tools still defined and still dispatched that `tools/list` no longer offers.
+ *
+ * `create_form` is the first. It shipped to close a real gap — an agent asked
+ * for "an intake form" had to know the block's keys, its field types, that
+ * `max` is mandatory on a `line` — and that gap was closed a better way
+ * instead. PR #782 found the reason: a client caches `tools/list` and
+ * re-fetches on its own schedule, so a tool added after it connected is not
+ * callable by name however correct it is. The fix was to put the block's
+ * grammar into `write_note`'s description, which every client already holds.
+ * `write_note` now says, in as many words, that it makes forms and that no
+ * separate tool is needed.
+ *
+ * That leaves `create_form` rendering a block `write_note` would have accepted
+ * as text, through the same write path, behind a name most clients never see.
+ * A second way to do one thing is a second thing to keep true: every rule
+ * about the block — a new field type, a new key, a refusal — has to be taught
+ * twice, and the copy nobody can call is the copy that quietly rots.
+ *
+ * It is unlisted rather than deleted because a client that *did* fetch it is
+ * still holding it, and a tool that vanishes mid-session is an error in
+ * somebody's chat rather than a tidier server. The dispatch case and the
+ * schema both stay, so such a call still works and its arguments are still
+ * validated against what this server advertises now — the same arrangement
+ * `archive_chat` has had since it was renamed.
+ */
+const UNLISTED_TOOLS = new Set(["create_form"]);
+
+/**
  * The advertised `inputSchema` for a tool name, alias resolved.
  *
  * Built once per isolate. `toolDefinitions()` rebuilds the advertised objects
@@ -2781,7 +2811,11 @@ async function toolsForSession(session, store) {
     that suddenly speaks a quarter of the protocol.
   */
   const off = await disabledToolNames(store);
-  return off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name));
+  const enabled = off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name));
+  // Last, so that everything above still reasons about the whole surface: an
+  // unlisted tool is one this server stopped *recommending*, not one it
+  // stopped answering. See `UNLISTED_TOOLS`.
+  return enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name));
 }
 
 
@@ -6690,8 +6724,8 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
   if (options.mustCreate && existing) {
     return toolError(
       `that note already exists (etag ${existing.etag}). A form block is ordinary Markdown: ` +
-        "read the note, add the block to its content, and save it with write_note — or point " +
-        "create_form at a path of its own."
+        "read the note, add the block to its content, and save it with write_note — or write " +
+        "the form to a path of its own."
     );
   }
   // `!== "team"` on the existing side. A note held back to a group is not
