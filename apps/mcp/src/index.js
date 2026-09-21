@@ -6775,9 +6775,6 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
   // replaced the owner's group rule with `team`. `undefined` is spelled out
   // because "no override at all" must keep falling through to the folder.
   const pathOverride = overrideFor(overrides, path);
-  if (scope === "team" && pathOverride !== undefined && pathOverride !== "team") {
-    return writePermissionError("write destination");
-  }
   // Refused here rather than left to `persistExactVisibility`'s backstop, which
   // throws — and a throw reaches the client as a protocol error instead of a
   // refusal it can read and act on.
@@ -6792,19 +6789,50 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
   if (requestedVisibility && !["private", "team"].includes(requestedVisibility)) {
     return toolError("visibility must be private or team");
   }
-  const desiredVisibility = requestedVisibility || existingVisibility || scope;
 
-  if (scope === "team" && desiredVisibility !== "team") {
+  /*
+   * ONE REFUSAL ABOUT THIS DESTINATION, AT ONE COST.
+   *
+   * `writePermissionError` ends with "No private-path information is disclosed
+   * by this error". That sentence is the specification, and three things had to
+   * change for it to be true.
+   *
+   * **The caller's own request is answered separately, and only it.** A team
+   * connection that ASKED for `private` is told exactly that — they chose the
+   * value, so saying it back infers nothing about storage. Every other reason
+   * this destination is closed collapses into one message below.
+   *
+   * That split is the fix. The private-content sentence used to be reached on
+   * `desiredVisibility`, which falls back to `existingVisibility` — so it fired
+   * for a caller who asked for nothing, purely because a note was **there** and
+   * not team-visible, while the identical path with nothing at it got the other
+   * message. Two refusals, two different sentences, keyed on existence: the
+   * exact inference the error text denies making, with no timing needed to read
+   * it.
+   *
+   * **And the three reasons are now decided together, after the lookup.** An
+   * exact override used to refuse from the manifest alone, before the note was
+   * ever fetched — a round trip cheaper than the folder cases. An exact
+   * override is written only when somebody deliberately named THAT path in
+   * `privacy.md`, which a team caller cannot read, so the cheap refusal said
+   * "this note was singled out". The lookup now runs for every reason, and the
+   * body is the same in each.
+   */
+  if (scope === "team" && requestedVisibility && requestedVisibility !== "team") {
     return toolError(
       "permission denied: a team connection cannot create or change private content; use a personal connection"
     );
   }
-  if (scope === "team" && !existing && inheritedVisibility !== "team") {
+  if (
+    scope === "team" &&
+    ((pathOverride !== undefined && pathOverride !== "team") ||
+      (!existing && inheritedVisibility !== "team") ||
+      (existing && existingVisibility !== "team"))
+  ) {
     return writePermissionError("write destination");
   }
-  if (scope === "team" && existing && existingVisibility !== "team") {
-    return writePermissionError("write destination");
-  }
+
+  const desiredVisibility = requestedVisibility || existingVisibility || scope;
   /*
    * `create_form` NEVER OVERWRITES, AND SAYS SO HERE RATHER THAN LOOKING FIRST.
    *
