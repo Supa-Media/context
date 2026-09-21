@@ -7368,3 +7368,66 @@ the screenshot **succeeds**. The face is injected from the repository's one
 copy of Instrument Sans instead, and the script asserts `document.fonts.size`
 rather than `document.fonts.check` — which answered `true` with zero faces
 loaded, because it reports whether text can be rendered and a fallback can.
+
+## The room binds to a document it agrees with, and a different note unbinds first
+
+Found from three screenshots and one sentence — *"whatever I'm selecting on the
+left is not the content that shows up in the middle"* — where the tab, the
+breadcrumb, the path and the word count all named the note that had been
+clicked and the text on the glass was a different note entirely.
+
+**Two rules came out of it, and each one had already cost a note.**
+
+### A different note is the `notePath` effect's, not the `value` effect's
+
+`usePresence` builds the shared document for a note in the *parent's* effect,
+and a child's effects run first — so the commit carrying the new note's `value`
+still carries the previous note's `presence.shared`. `LiveEditor.web.tsx`'s
+authoritative-value effect stands down while a document is bound, correctly and
+for the reason its own comment gives, and the new note's text was landing in
+that guard and being dropped. Nothing wrote it again. The editor was frozen on
+the first note it had ever been given while everything around it moved.
+
+So a change of `notePath` is now its own effect, and it takes the binding down
+before it writes: while a binding is up, `YSyncPluginValue.update` relays every
+document change into that room, so writing note B into an editor still bound to
+note A's room would send B down A's wire as an edit of the note other people
+are reading. It compares before it writes, because a rename changes the path
+under a document that is not changing and a caret in the middle of a sentence
+belongs where it is.
+
+### A binding needs the same text on both sides, so an empty room is waited on
+
+`yCollab` maps editor offsets straight onto `Y.Text` offsets and reconciles
+nothing at construction. Two consequences, both silent:
+
+- Binding an empty room to a document that already holds the note means the
+  seed arrives as an insert at 0 of text the editor is already showing — the
+  duplicated note `sharedDoc.ts` is written to prevent, arriving from the one
+  direction it did not cover — and any keystroke before that lands at an offset
+  the room does not have.
+- `ySync` is one module-level `ViewPlugin`, and CodeMirror keeps a plugin's
+  value across a reconfiguration that still contains that plugin. Swapping
+  `yCollab(a)` for `yCollab(b)` in a single dispatch therefore leaves the *same*
+  plugin in place, still holding the `Y.Text` it was built with: bound in name,
+  relaying into a room nobody is in. Removing it and adding it back are two
+  transactions for that reason.
+
+A room that already holds the note is authoritative and is written in; a room
+that holds nothing yet is waited on rather than bound, so the note stays on the
+glass and `value` stays its authority until the seed or the replay gives the
+two of them the same text.
+
+### What a "simplification" would cost
+
+Each has a test in `apps/mobile/__tests__/liveEditorNoteSwitch.test.ts`,
+sabotaged to confirm the right one fails.
+
+- Letting the `value` effect carry a note change again is the reported bug: the
+  editor shows the note before the one that was clicked, indefinitely.
+- Writing the new note in without unbinding first replaces the text of the note
+  being left, in its room, for everybody in it.
+- Swapping the binding in one dispatch is the freeze that hid this: every room
+  after the first is bound in name only.
+- Binding an empty room writes the note twice when the seed lands, or blanks it
+  if the document is reconciled to a room that has nothing in it yet.
