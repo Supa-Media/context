@@ -1,6 +1,11 @@
 import { describe, expect, test } from "@jest/globals";
 
-import { meetingLanding, rejectionNotice } from "../features/meetings/landing";
+import {
+  meetingLanding,
+  meetingNeedsAttention,
+  rejectionNotice,
+  strandedMeetings,
+} from "../features/meetings/landing";
 import { emptyAck, type MeetingRecord } from "../features/meetings/record";
 import { ERRORS } from "../features/meetings/protocol";
 
@@ -187,5 +192,42 @@ describe("rejectionNotice", () => {
 
   test("and turns a conflict into the thing to do about it", () => {
     expect(rejectionNotice({ code: ERRORS.conflict, message: "409" })).toContain("Try again");
+  });
+});
+
+describe("which meetings a person is shouted at about", () => {
+  /*
+    The rule behind the bar. It is narrow deliberately: a bar that counted
+    every meeting without a note would be up during the ordinary seconds after
+    every meeting anybody records, and an alert that is always up is furniture.
+  */
+  test("one still on its way is not a problem — that is the queue working", () => {
+    expect(meetingNeedsAttention(record({}, { state: "finalizing" }))).toBe(false);
+  });
+
+  test("one already in the bucket is not a problem either", () => {
+    expect(meetingNeedsAttention(record({}, { notePath: "0-inbox/meetings/a.md" }))).toBe(false);
+  });
+
+  test("a session that captured nothing is not shouted about: nothing was lost", () => {
+    expect(meetingNeedsAttention(record({}, { state: "empty", emptyReason: "no audio." }))).toBe(false);
+  });
+
+  test("a failed finalize is, because nothing will send it on its own", () => {
+    expect(meetingNeedsAttention(record({}, { state: "failed" }))).toBe(true);
+  });
+
+  test("and so is a refusal, which is parked until somebody clears the cause", () => {
+    const refused = record({
+      rejection: { code: ERRORS.forbidden, message: "gateway answered 403", noticedAt: 0 },
+    });
+    expect(meetingNeedsAttention(refused)).toBe(true);
+  });
+
+  test("the list keeps the records' own order, newest first", () => {
+    const one = record({}, { id: "m1", state: "failed" });
+    const two = record({}, { id: "m2", state: "finalizing" });
+    const three = record({}, { id: "m3", state: "failed" });
+    expect(strandedMeetings([one, two, three]).map((r) => r.session.id)).toEqual(["m1", "m3"]);
   });
 });

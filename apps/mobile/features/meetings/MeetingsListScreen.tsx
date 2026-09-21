@@ -12,6 +12,7 @@ import { meetings } from "./controller";
 import { groupMeetings, startsIn, type MeetingListSection } from "./format";
 import type { CalendarEvent } from "./protocol";
 import { CONSOLE_ROOT } from "../console/nav";
+import { strandedMeetings } from "./landing";
 import { MEETINGS_ROUTE, meetingHref } from "./route";
 import { useMeetingsSnapshot, useTick } from "./useMeetings";
 
@@ -70,6 +71,17 @@ export function MeetingsListScreen({
   const now = useTick(upcoming.length > 0, 30_000);
   const params = useOptionalLocalSearchParams<{ quickAction?: string | string[] }>();
   const handledQuickAction = useRef(false);
+
+  /*
+    Which rows are parked. The sections are built from sessions — `groupMeetings`
+    is about dates and a session carries its own — but "is anything going to
+    send this" lives on the *record*, beside the session. So it is computed
+    once here, where both are in hand, and carried down as ids.
+  */
+  const strandedIds = useMemo(
+    () => new Set(strandedMeetings(snapshot.records).map((record) => record.session.id)),
+    [snapshot.records],
+  );
 
   const sections = useMemo(
     () =>
@@ -151,6 +163,7 @@ export function MeetingsListScreen({
               locale={locale}
               now={now === 0 ? Date.now() : now}
               onOpen={(id) => router.push(meetingHref(id))}
+              stranded={strandedIds}
               onRecord={(title) => void start(title)}
             />
           ))
@@ -214,12 +227,15 @@ function Section({
   locale,
   now,
   onOpen,
+  stranded,
   onRecord,
 }: {
   section: MeetingListSection;
   locale?: string;
   now: number;
   onOpen: (id: string) => void;
+  /** Ids of the meetings nothing is going to send on its own. */
+  stranded: ReadonlySet<string>;
   onRecord: (title: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -244,6 +260,7 @@ function Section({
               <MeetingRow
                 meeting={meeting}
                 locale={locale}
+                stranded={stranded.has(meeting.id)}
                 onPress={() => onOpen(meeting.id)}
               />
             </View>

@@ -425,6 +425,36 @@ describe("the badge is the one fact worth knowing about a row", () => {
     expect(meetingBadge(session({ state: "failed" }))).toEqual({ label: "Failed", tone: "crit" });
   });
 
+  test("a meeting parked behind a refusal stops calling itself Finalizing", () => {
+    /*
+      The list read `session.state` and nothing else, and a meeting the
+      gateway refused keeps `finalizing` — so a parked meeting sat in the list
+      in the warning tone, spelled exactly like one a second away from landing.
+      That is the same lie the console panel told in sentence form, in two
+      words, on the screen somebody scans to check whether anything is wrong.
+
+      `stranded` is the caller's answer to "is anything ever going to send
+      this", which is `meetingNeedsAttention`'s question and not a second
+      opinion about it.
+    */
+    expect(meetingBadge(session({ state: "finalizing" }), { stranded: true })).toEqual({
+      label: "Not saved",
+      tone: "crit",
+    });
+    // And nothing changes for a meeting that is merely on its way.
+    expect(meetingBadge(session({ state: "finalizing" }))?.label).toBe("Finalizing");
+  });
+
+  test("a failed meeting says what it says whether or not the caller flags it", () => {
+    // `failed` already answers this question for itself, in crit, with a
+    // reason. The flag may not overwrite a more specific sentence with a
+    // vaguer one.
+    expect(meetingBadge(session({ state: "failed", failureReason: "mic died" }), { stranded: true })).toEqual({
+      label: "Failed — mic died",
+      tone: "crit",
+    });
+  });
+
   test("a failed meeting carries its reason, so the badge answers rather than just alarms", () => {
     expect(meetingBadge(session({ state: "failed", failureReason: "storage_down" }))).toEqual({
       label: "Failed — storage_down",

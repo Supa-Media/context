@@ -27,14 +27,17 @@ export function MeetingRow({
   meeting,
   onPress,
   locale,
+  stranded = false,
 }: {
   meeting: MeetingSession;
   onPress: () => void;
   locale?: string;
+  /** Nothing is going to send this one on its own. See `meetingBadge`. */
+  stranded?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const badge = meetingBadge(meeting);
+  const badge = meetingBadge(meeting, { stranded });
   const subtitle = meetingSubtitle(meeting, { locale });
 
   return (

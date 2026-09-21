@@ -184,3 +184,35 @@ export function rejectionNotice(rejection: { code: string; message: string }): s
  */
 export const FOLDER_REJECTED_NOTICE =
   "Your context did not file this meeting in the folder you chose, so this is where the note is. Move it if you want it elsewhere.";
+
+/**
+ * Is this a meeting somebody has to do something about?
+ *
+ * Narrower than "has no note yet", and the narrowness is the point. A meeting
+ * still on its way is not a problem — it is the queue working, and a bar that
+ * shouted about it would be shouting on every meeting anybody records, which
+ * is how an alert becomes furniture. A session that captured nothing is not a
+ * problem either: nothing was lost and there is nothing to press.
+ *
+ * What is left is the two states where a recording exists, is not in the
+ * bucket, and **nothing automatic will ever send it** — `failed` and
+ * `refused`. Those are exactly the states `retry` is non-null for, which is
+ * not a coincidence: "somebody has to do something" and "there is something
+ * for them to do" are the same fact, and deriving one from the other keeps a
+ * third opinion about it from existing.
+ */
+export function meetingNeedsAttention(record: MeetingRecord): boolean {
+  return meetingLanding(record)?.retry != null;
+}
+
+/**
+ * Every meeting that needs somebody, newest first.
+ *
+ * The order is the records' own — `loadMeetings` sorts by `startedAt`
+ * descending and nothing since re-sorts — so the first entry is the one a
+ * person is most likely to be thinking about, which is what a bar with room
+ * for one of them should be naming.
+ */
+export function strandedMeetings(records: readonly MeetingRecord[]): MeetingRecord[] {
+  return records.filter(meetingNeedsAttention);
+}
