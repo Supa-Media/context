@@ -394,8 +394,10 @@ describe("the app being killed mid-meeting", () => {
 
     const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
     expect(restored.session.notes).toBe("curiosity is the prerequisite");
-    expect(restored.session.state).toBe("failed");
-    expect(restored.session.failureReason).toMatch(/restarted while recording/i);
+    // Closed and on its way, rather than parked behind a Retry — see the
+    // owner's rule quoted in `what was captured survives` below.
+    expect(restored.session.state).toBe("finalizing");
+    expect(restored.interrupted).toBe(true);
     // 41 minutes — exactly what was captured before the restart — and it does
     // not move no matter how much wall clock passes after it.
     expect(recordElapsedMs(restored, first.clock.now())).toBe(41 * 60_000);
@@ -412,21 +414,38 @@ describe("the app being killed mid-meeting", () => {
 
     const second = await harness({ store, startAt: first.clock.now() });
     const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
-    expect(restored.session.state).toBe("failed");
+    /*
+      CHANGED, AND THE OWNER CHANGED IT: *"if a meeting ever stops it should
+      IMMEDIATELY be saved, no button press needed"*.
+
+      This used to fold `fail`, on the argument that "finalizing it
+      automatically, unasked, would write a note the person never agreed was
+      over — a meeting that was merely interrupted by a restart may well
+      continue". Both halves of that turned out to cost more than they saved.
+      A note is editable, movable and deletable the moment it lands; a meeting
+      parked on the device behind a Retry nobody knew to press is reachable by
+      nothing, which is the failure actually reported. And "may well continue"
+      is answered by resuming the meeting, not by withholding the note.
+
+      So the move is `end`, which is the same event the button pressed, and
+      the ordinary queue takes it from there.
+    */
+    expect(restored.session.state).toBe("finalizing");
     // The transcript captured before the restart is not discarded.
     expect(restored.session.transcript).toHaveLength(1);
+    // Client-local, so the app can say the recording was cut short without
+    // writing that claim into the customer's own file.
+    expect(restored.interrupted).toBe(true);
 
-    // `failed -> finalizing` is a legal move for a reason: the meeting is not
-    // gone, it is interrupted, and this is the same Retry a stuck finalize
-    // already gets — composing with recovery rather than a second
-    // implementation of it.
-    await second.controller.retryFinalize(id);
+    await second.controller.sync();
     await settle();
 
     const finished = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
     expect(finished.session.state).toBe("complete");
     expect(finished.session.notePath).toBe(`0-inbox/meetings/${id}.md`);
     expect(second.gateway.notesWritten()).toBe(1);
+    // Nobody pressed anything.
+    expect(finished.interrupted).toBe(true);
   });
 
   test("a paused meeting is reconciled the same way as a recording one", async () => {
@@ -442,7 +461,10 @@ describe("the app being killed mid-meeting", () => {
 
     const second = await harness({ store, startAt: first.clock.now() });
     const restored = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
-    expect(restored.session.state).toBe("failed");
+    expect(restored.session.state).toBe("finalizing");
+    // The clock still stops where the recording did, which is the half of the
+    // old `fail` that was never about failing: an open interval climbing from
+    // a `startedAt` in the past is the zombie this closes.
     expect(recordElapsedMs(restored, second.clock.now())).toBe(2 * 60_000);
   });
 

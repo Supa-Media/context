@@ -111,6 +111,26 @@ export interface MeetingRecord {
    * `session.notePath` is the only answer to that, and it is the gateway's.
    */
   folderRejected?: true;
+  /**
+   * This recording was cut short by the device, not by a person.
+   *
+   * Client-local like `acked` and `folderRejected`, and for the sharper of
+   * their two reasons: it is a fact about *this device's* last run, and the
+   * gateway has no way to know it and no business being told. It is set by
+   * `recoverInterruptedRecordings` when a process that was recording is found
+   * gone at launch.
+   *
+   * **It is deliberately not written into the note.** The note is the
+   * customer's file, and "your phone restarted" is a fact about our software
+   * on a particular evening, not about their meeting — a sentence they would
+   * have to delete out of their own document. The app says it instead, for as
+   * long as it is worth saying.
+   *
+   * Absent rather than `false`, so a record written by a build before this
+   * existed and a meeting that ended the ordinary way read the same — which
+   * they are.
+   */
+  interrupted?: true;
   /** ISO timestamp the currently-open recording interval started at. */
   runningSince: string | null;
   /** When anything about this record last changed, for ordering a restore. */
@@ -501,6 +521,8 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
     // Narrowed rather than carried, so a device that has been edited cannot
     // put anything but the flag itself back on a record.
     ...(record.folderRejected === true ? { folderRejected: true as const } : {}),
+    // Narrowed the same way, and for the same reason.
+    ...(record.interrupted === true ? { interrupted: true as const } : {}),
     acked,
     runningSince: typeof record.runningSince === "string" ? record.runningSince : null,
     updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,

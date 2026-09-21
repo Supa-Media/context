@@ -216,9 +216,20 @@ describe("the note waits for its audio", () => {
     await settle();
 
     const record = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
-    // `recoverInterruptedRecordings` failed the orphaned session, and a failed
-    // meeting still takes words — so its audio lands rather than being dropped.
-    expect(record.session.state).toBe("failed");
+    /*
+      `recoverInterruptedRecordings` now *ends* the orphaned session rather
+      than failing it — the owner's rule, "if a meeting ever stops it should
+      IMMEDIATELY be saved". The claim this test makes is unchanged and is
+      the one that matters: the audio recorded before the kill still lands.
+
+      It lands *before* the note, not after, and that is the part worth
+      reading twice. `sync()` holds a `finalizing` meeting while its audio is
+      still on the device (`audioHeld`), so the finalize waits for the words
+      and the note is written with them in it. Under the old `failed` the
+      same audio arrived into a session nothing was going to file.
+    */
+    expect(record.session.state).toBe("complete");
+    expect(record.session.notePath).not.toBeNull();
     expect(record.session.transcript.map((s) => s.id)).toEqual([
       `${chunkIdFor(id, 0)}-0`,
       `${chunkIdFor(id, 0)}-1`,
@@ -257,9 +268,12 @@ describe("the note waits for its audio", () => {
 
     const record = second.controller.getSnapshot().records.find((r) => r.session.id === id)!;
     expect(record.session.state).not.toBe("empty");
-    // Failed, which still takes words — so the audio lands rather than being
-    // refused by a session nothing can leave.
-    expect(record.session.state).toBe("failed");
+    // Ended and filed, and the words still arrive first: `finalizing` takes a
+    // transcript, and `audioHeld` holds the finalize until the audio is off
+    // the device. What this guards is unchanged — the session is never
+    // `empty`, which would refuse every word this audio comes back as.
+    expect(record.session.state).toBe("complete");
+    expect(record.session.notePath).not.toBeNull();
     expect(record.session.transcript.map((s) => s.id)).toEqual([
       `${chunkIdFor(id, 0)}-0`,
       `${chunkIdFor(id, 0)}-1`,

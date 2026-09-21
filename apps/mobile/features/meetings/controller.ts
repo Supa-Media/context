@@ -582,13 +582,16 @@ export class MeetingsController {
         continue;
       }
 
-      this.apply(record.session.id, {
-        type: "fail",
-        at: at_,
-        reason: INTERRUPTED_RECORDING_REASON,
-      });
-      const failed = this.find(record.session.id);
-      if (failed !== undefined) this.put(retrySync(failed), { immediate: true });
+      /*
+        `end`, the same event the button folds, so the ordinary queue files
+        this meeting with no further press. See the header for why this
+        stopped being `fail`.
+      */
+      this.apply(record.session.id, { type: "end", at: at_ });
+      const ended = this.find(record.session.id);
+      if (ended !== undefined) {
+        this.put({ ...retrySync(ended), interrupted: true }, { immediate: true });
+      }
     }
   }
 
@@ -1432,6 +1435,10 @@ export class MeetingsController {
       // finalize would otherwise erase the flag that came back with it.
       destination: existing?.destination ?? null,
       ...(existing?.folderRejected === true ? { folderRejected: true as const } : {}),
+      // Carried for `folderRejected`'s reason, and one of its own: the `end`
+      // that closes an interrupted recording is itself an event through here,
+      // so a flag set beside it would be erased by the fold that set it.
+      ...(existing?.interrupted === true ? { interrupted: true as const } : {}),
       acked: existing?.acked ?? emptyAck(),
       runningSince: after.runningSince,
       updatedAt: config.now?.() ?? Date.now(),
