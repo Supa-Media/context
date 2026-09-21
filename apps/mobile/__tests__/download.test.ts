@@ -13,6 +13,7 @@ import {
   collectNotes,
   downloadNotice,
   pathsUnder,
+  READ_BATCH,
   type ReadResult,
 } from "../features/console/files/download";
 
@@ -32,6 +33,18 @@ describe("collecting a folder", () => {
     expect(outcome.entries.map((entry) => entry.path)).toEqual(["a.md", "b.md"]);
     expect(text(outcome.entries[0].bytes)).toBe("body of a.md");
     expect(outcome.missed).toEqual([]);
+  });
+
+  test("the default batch is the one the server accepts", () => {
+    /*
+      `READ_BATCH_PATHS` on the server refuses a longer list **before** it
+      opens the bucket, so asking for more is a round trip spent learning a
+      number that is already written down. Restated rather than imported — a
+      server implementation detail is not the console's to reach into — which
+      is exactly why it needs a check: a server that lowered its limit reddens
+      this rather than failing somebody's download.
+    */
+    expect(READ_BATCH).toBe(50);
   });
 
   test("it asks in batches the server will accept", async () => {

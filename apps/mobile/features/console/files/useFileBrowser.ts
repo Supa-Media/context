@@ -46,7 +46,7 @@ import type { NoteShare } from "./shares";
 import { shareUrl } from "./shares";
 import { scopeOf, stepsTo, type NoteScope } from "./scope";
 import { createPressQueue } from "./pressQueue";
-import { collectNotes, downloadNotice, pathsUnder } from "./download";
+import { collectNotes, downloadNotice, pathsUnder, type ReadResult } from "./download";
 import { buildZip, downloadName } from "./zip";
 import { saveFile } from "./saveFile";
 import type { ToastSpec } from "../../design/components/Toast";
@@ -3136,9 +3136,17 @@ export function useFileBrowser(options: {
             return;
           }
           const wanted = pathsUnder(listed.paths, path);
+          // Said before the reads start, because a folder of two hundred notes
+          // is several round trips and a control that does nothing visible for
+          // four seconds reads as one that did nothing.
+          setNotice(
+            wanted.length === 1
+              ? "Downloading 1 note…"
+              : `Downloading ${wanted.length} notes…`,
+          );
           const { entries, missed } = await collectNotes(wanted, async (batch) => {
             const answer = await readNotesAction({ workspaceId, paths: batch });
-            return answer.results as never;
+            return answer.results as readonly ReadResult[];
           });
           const saved = saveFile(
             downloadName(path, ".zip"),
