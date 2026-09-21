@@ -256,6 +256,34 @@ async function hasLegacyPlumbing(store) {
 }
 
 /** Read a v1 plumbing object, falling back to its pre-v1 key. */
+/**
+ * Is there an object at exactly this key?
+ *
+ * `store.exists` where the adapter has one — a `head` on R2, a HEAD on S3,
+ * `get_metadata` on Dropbox — because a prefix listing is not an existence
+ * check everywhere: Dropbox's `list` is `/files/list_folder`, so asking it
+ * about a key asks about a directory that does not exist. The listing stays as
+ * the fallback so a store without the method still answers.
+ *
+ * It lives beside `getWithLegacyFallback` because that function is why it is
+ * needed twice over: the fallback only runs when the first read MISSES, so a
+ * key that is present costs one round trip and one that is absent costs two.
+ * Any refusal that must not distinguish "here but not yours" from "never
+ * existed" has to spend the same trips, and it cannot spend them on a `get` —
+ * `S3Store.get` and `DropboxStore.get` both buffer the whole object before any
+ * caller asks for text, so a `get` for a record the caller may not see puts
+ * its bytes in the worker.
+ */
+export async function objectExists(store, key) {
+  try {
+    if (typeof store.exists === "function") return Boolean(await store.exists(key));
+    const page = await store.list({ prefix: key, limit: 4 });
+    return (page?.objects || []).some((object) => object.key === key);
+  } catch {
+    return false;
+  }
+}
+
 export async function getWithLegacyFallback(store, key, options = {}) {
   const current = await store.get(key);
   if (current) return current;
