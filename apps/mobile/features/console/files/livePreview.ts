@@ -376,11 +376,45 @@ export function hiddenMarkRanges(
   */
   const front = doc === undefined ? null : frontmatterRange(doc.sliceString(0, docLength));
 
+  /*
+    **A wiki link is drawn as its words, and the grammar cannot help.**
+
+    `[[…]]` is not a node. The lezer Markdown dialect reads it as an ordinary
+    `Link` around the inner `[…]`, so hiding that link's own marks — right for
+    `[label](url)` — takes the *inner* bracket from each end and leaves the
+    outer one, with the target and the pipe still in the middle of the
+    sentence. `[[1-projects/foo/overview|Open the project]]` came out as
+    `[1-projects/foo/overview|Open the project]`, which is what a screenshot
+    reported. `cellRuns` has said this in its header the whole time and solved
+    it for a table cell; outside one, nothing did.
+
+    So the spans are found here, the same shape `noteLinksIn` parses, and this
+    pass **owns them whole**: every node inside one is skipped below, because
+    the grammar's answer for those characters is the wrong one and two
+    decorations over the same text is the overlap this file warns about
+    elsewhere.
+
+    What is left visible is the alias where there is one and the target where
+    there is not — never nothing. An empty alias (`[[path|]]`) is a typo in
+    progress, and drawing it as an empty span would make the link invisible
+    and unfixable without selecting blindly across it, so that falls back to
+    showing the target too.
+
+    An **embed** (`![[…]]`) is left completely alone: it is a picture rather
+    than words, `imageBlock` replaces it with a widget, and hiding half of it
+    here is how it came to read `![paste-1.png]`.
+  */
+  const wiki = doc === undefined ? [] : wikiLinkSpans(doc.sliceString(0, docLength), selection);
+  const insideWiki = (from: number, to: number): boolean =>
+    wiki.some((span) => from >= span.from && to <= span.to);
+
   tree.iterate({
     from: 0,
     to: docLength,
     enter(node) {
       if (front !== null && node.from < front.to) return;
+      // See `wiki` above: this pass owns every character of a wiki link.
+      if (insideWiki(node.from, node.to)) return;
       const isMark = HIDDEN_MARKS.has(node.name);
       if (!isMark && !isHiddenPlumbing(node.node)) return;
       // A zero-width mark is nothing to hide, and an empty replace decoration
@@ -402,7 +436,75 @@ export function hiddenMarkRanges(
     },
   });
 
-  return hidden;
+  /*
+    Merged rather than concatenated and sorted. `RangeSet.of` needs document
+    order, and this function's header says a blanket sort would hide a bug
+    where the tree is walked out of order — so the two lists, each already
+    ordered by construction, are interleaved instead. A sort here would still
+    produce the right answer today and would stop being a check tomorrow.
+  */
+  return mergeOrdered(hidden, wiki.flatMap((span) => span.hides));
+}
+
+/** Two ranges lists, already in document order, as one. */
+function mergeOrdered(left: TextRange[], right: TextRange[]): TextRange[] {
+  if (right.length === 0) return left;
+  const out: TextRange[] = [];
+  let a = 0;
+  let b = 0;
+  while (a < left.length && b < right.length) {
+    out.push((left[a]!.from <= right[b]!.from ? left[a++] : right[b++])!);
+  }
+  while (a < left.length) out.push(left[a++]!);
+  while (b < right.length) out.push(right[b++]!);
+  return out;
+}
+
+/**
+ * Every `[[…]]` in the text, with the ranges that should be drawn as nothing.
+ *
+ * The same shape `noteLinksIn` parses, deliberately: two readers of the same
+ * syntax that disagree is how `[[a|b]]` ends up underlined as a link over text
+ * that has already been folded away by somebody else.
+ *
+ * `hides` is empty — the span is still *owned*, so the grammar keeps out of it
+ * — in the two cases where the source is what should be on screen: the caret
+ * is inside it, or it is an embed and `imageBlock` is about to replace the
+ * whole thing with a picture.
+ */
+function wikiLinkSpans(
+  text: string,
+  selection: readonly TextRange[],
+): { from: number; to: number; hides: TextRange[] }[] {
+  const spans: { from: number; to: number; hides: TextRange[] }[] = [];
+  for (const match of text.matchAll(/!?\[\[([^[\]]+)\]\]/g)) {
+    const from = match.index;
+    const to = from + match[0].length;
+    const embed = match[0].startsWith("!");
+    if (embed || selectionTouches({ from, to }, selection)) {
+      spans.push({ from, to, hides: [] });
+      continue;
+    }
+    const inner = match[1]!;
+    const innerFrom = from + 2;
+    const bar = inner.indexOf("|");
+    /*
+      An alias is what the link is *called*, so it is the only thing left. A
+      missing one leaves the target, and so does an empty one: `[[path|]]` is a
+      typo in progress, and an empty span is a link nobody can see to fix.
+    */
+    const alias = bar === -1 ? "" : inner.slice(bar + 1);
+    const openTo = alias.length > 0 ? innerFrom + bar + 1 : innerFrom;
+    spans.push({
+      from,
+      to,
+      hides: [
+        { from, to: openTo },
+        { from: to - 2, to },
+      ],
+    });
+  }
+  return spans;
 }
 
 /**

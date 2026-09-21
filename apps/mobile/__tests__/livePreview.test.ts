@@ -1836,3 +1836,71 @@ describe("the reveal rule waits for somebody to touch the note", () => {
     expect(hidden).toContain("**");
   });
 });
+
+/*
+  A WIKI LINK IS DRAWN AS ITS WORDS, NOT AS ITS PLUMBING.
+
+  Reported with a screenshot: `[[1-projects/…/overview|Open the onboarding
+  project]]` was drawn as `[1-projects/…/overview|Open the onboarding project]`
+  — the whole path, the pipe, and one bracket at each end, on a line that was
+  supposed to read "Open the onboarding project".
+
+  `[[…]]` is not a grammar node. The lezer Markdown dialect reads it as an
+  ordinary `Link` around the inner `[…]`, so hiding that link's own marks —
+  which is right for `[label](url)` — takes the *inner* bracket from each end
+  and leaves the outer one, with the target and the pipe still sitting in the
+  middle of the sentence. `cellRuns` already says this in its header and draws
+  wiki links itself inside a table; outside one, nothing did.
+*/
+describe("a wiki link is drawn as its words", () => {
+  test("an alias is all that is left of it", () => {
+    expect(visibleText("See [[1-projects/foo/overview|Open the project]] today")).toBe(
+      "See Open the project today",
+    );
+  });
+
+  test("without an alias the target is what it has to show", () => {
+    // Nothing else names the note, so the path is the words. Only the brackets
+    // go.
+    expect(visibleText("See [[1-projects/foo/overview]] today")).toBe(
+      "See 1-projects/foo/overview today",
+    );
+  });
+
+  test("the caret inside it reveals the source, like every other mark", () => {
+    // The rule the rest of this file follows: what you are editing is shown as
+    // what it is. A path is only fixable when it is on the screen.
+    const doc = "See [[1-projects/foo/overview|Open the project]] today";
+    expect(visibleText(doc, doc.indexOf("overview"))).toBe(doc);
+  });
+
+  test("two on one line are both drawn, and neither eats the other", () => {
+    /*
+      Led with a word on purpose: the caret defaults to 0, and a caret at 0
+      *touches* a link that starts at 0 — so revealing that one is the reveal
+      rule working, not this pass failing. The first version of this check
+      read `[[a/one|First]] and …` and caught itself.
+    */
+    expect(visibleText("Go [[a/one|First]] and [[b/two|Second]]")).toBe("Go First and Second");
+  });
+
+  test("an empty alias leaves the target rather than nothing", () => {
+    // `[[path|]]` is a typo in progress. Drawing it as an empty span would make
+    // the link invisible and unfixable without selecting blindly across it.
+    expect(visibleText("See [[1-projects/foo/overview|]] today")).toBe(
+      "See 1-projects/foo/overview| today",
+    );
+  });
+
+  test("an embed is left to the pass that replaces it with a widget", () => {
+    /*
+      `![[paste-….png]]` is a picture, not words, and `imageBlock` owns it.
+
+      Led with a word for the reason above — the caret at 0 would reveal it and
+      this check would pass without ever reaching the embed branch. It did,
+      until a sabotage of that branch failed nothing.
+    */
+    const doc = "Look ![[paste-1.png]]";
+    expect(visibleText(doc)).toBe(doc);
+  });
+});
