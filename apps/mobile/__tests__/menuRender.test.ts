@@ -110,6 +110,7 @@ function sheetItems(): MenuItem[] {
     canEdit: true,
     canSetVisibility: true,
     canShare: true,
+    canDownload: true,
     clipboard: null,
     platform: "touch",
   });
@@ -222,6 +223,7 @@ function folderItems(platform: "web" | "touch"): MenuItem[] {
     canEdit: true,
     canSetVisibility: true,
     canShare: true,
+    canDownload: true,
     clipboard: null,
     platform,
   });
@@ -462,6 +464,7 @@ function mountPopover(
       canEdit: true,
       canSetVisibility: true,
       canShare: true,
+      canDownload: true,
       clipboard: null,
       platform: "web",
     });
@@ -640,6 +643,7 @@ describe("the popover's pointer and keyboard", () => {
       canEdit: true,
       canSetVisibility: true,
       canShare: true,
+      canDownload: true,
       clipboard: null,
       platform: "web",
     });
@@ -730,6 +734,7 @@ function mountWeb(
     canEdit: true,
     canSetVisibility: true,
     canShare: true,
+    canDownload: true,
     clipboard: null,
     platform,
   });
@@ -945,6 +950,7 @@ describe("a detail line is drawn under its label", () => {
           canEdit: true,
           canSetVisibility: true,
           canShare: true,
+          canDownload: true,
           clipboard: null,
           platform: "web",
         }),

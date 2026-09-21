@@ -223,6 +223,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       resumeContextMove: noop,
       dismissContextMove: noop,
       duplicate: noop,
+      download: noop,
       archive: noop,
       destroy: noop,
       setVisibility: noop,
@@ -238,6 +239,8 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       resetPrivacy: noop,
       canResetPrivacy: false,
       canSetVisibility: false,
+      // No bucket behind this surface, so a Download would do nothing.
+      canDownload: false,
       // The landing page's console cannot share, and `shares` is `undefined`
       // rather than `[]` for the reason `browser.ts` gives: `[]` means "nobody
       // has access", which is a different claim from "this console never asked".

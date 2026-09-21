@@ -394,6 +394,75 @@ export class DropboxStore {
     }
   }
 
+  /**
+   * Remove a folder that this operation has just emptied.
+   *
+   * ## WHY ONLY THIS BACKEND HAS THE METHOD AT ALL
+   *
+   * `createFolder` states the assumption every other adapter here is built on:
+   * *"object storage has no folders — a folder is a shared key prefix"*. Delete
+   * the last key under `1-projects/foo/` on R2 or S3 and the folder is gone,
+   * because it was never anything but those keys.
+   *
+   * **Dropbox has real directories.** Deleting every file under a folder leaves
+   * the folder, `list_folder` goes on reporting it, and `list` here turns it
+   * into a `delimitedPrefix` — so the console, Obsidian and Dropbox's own UI go
+   * on showing it. A folder move therefore *looked like a copy* on this
+   * backend and on no other: the notes appeared at the destination and the
+   * folder they came from was still sitting there with its name on it.
+   *
+   * So this is a real method here and absent everywhere else, and every caller
+   * checks for it rather than every adapter growing a no-op: "does this backend
+   * have folders of its own" is a genuine difference between backends, and a
+   * silent no-op is the shape that hides the next one.
+   *
+   * ## IT REFUSES ANYTHING THAT IS NOT EMPTY, AND THE CHECK IS RECURSIVE
+   *
+   * `delete_v2` on a folder is recursive and has no precondition — there is no
+   * `If-Match` for a directory in this API — so the emptiness check is the only
+   * guard there is and it is made to be the strict one: `recursive: true`, so a
+   * folder holding nothing but another folder that holds a note is refused,
+   * not flattened.
+   *
+   * The residual window is between the listing and the delete, and it is named
+   * rather than papered over: a write that lands in those milliseconds is
+   * deleted with the folder. It is the narrowest window this API allows, and
+   * the folder in it is one the caller has just emptied and is about to stop
+   * showing — not one anybody is working in. Every other outcome fails closed:
+   * a listing that errors, a listing that is truncated, and a delete that
+   * fails all leave the folder exactly where it is.
+   *
+   * @returns {Promise<boolean>} whether the folder was removed.
+   */
+  async removeEmptyFolder(prefix) {
+    const folder = String(prefix || "").replace(/\/+$/, "");
+    // The root is never a candidate: emptying a context is not a reason to
+    // delete the customer's Dropbox folder.
+    if (!folder) return false;
+    assertSafePrefix(`${folder}/`);
+
+    let page;
+    try {
+      page = await this.list({ prefix: `${folder}/` });
+    } catch {
+      return false;
+    }
+    if (page.truncated) return false;
+    if ((page.objects || []).length > 0) return false;
+    if ((page.delimitedPrefixes || []).length > 0) return false;
+
+    const response = await this._rpc("/files/delete_v2", { path: this._path(folder) });
+    if (!response.ok) {
+      const tag = await errorTagPath(response);
+      // Already gone is the outcome this was asked for, so it is success —
+      // the same rule `delete` follows, for the same reason: a cleanup pass
+      // that runs twice must not fail the second time.
+      if (response.status === 409 && tag.split("/").includes("not_found")) return true;
+      return false;
+    }
+    return true;
+  }
+
   async copy(sourceKey, destinationKey, options = {}) {
     assertSafeKey(sourceKey);
     assertSafeKey(destinationKey);

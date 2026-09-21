@@ -270,8 +270,23 @@ export function isWriter(you: string | null, memberIds: string[]): boolean {
  *
  * True when there is no room at all, which is what keeps a note nobody else is
  * in behaving exactly as it always did.
+ *
+ * ## `bound`, and why it is not `shared`
+ *
+ * This used to ask whether a `SharedDoc` **existed**. It always does: the hook
+ * creates one the moment it runs, before a socket connects and whether or not
+ * one ever does. What decides whether anybody else is coordinating this client
+ * is whether the editor is *wired to* that document — `yCollab` installed, so
+ * a keystroke here becomes an update everybody else applies.
+ *
+ * The gap between the two is where a note goes missing. An empty note seeds to
+ * an empty document, the editor waits for text that is never coming, and the
+ * binding never goes up — so with the old question a client that was not
+ * elected to save sat behind a `false` forever: its typing reached neither the
+ * room nor the bucket. Asking about the binding makes the unbound case what it
+ * has to be, which is the case where this feature is not running.
  */
-export function mayPersist(presence: { shared: unknown; canWrite: boolean } | undefined): boolean {
-  if (!presence || !presence.shared) return true;
+export function mayPersist(presence: { bound: unknown; canWrite: boolean } | undefined): boolean {
+  if (!presence || !presence.bound) return true;
   return presence.canWrite;
 }

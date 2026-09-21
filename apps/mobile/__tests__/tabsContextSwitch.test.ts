@@ -146,6 +146,8 @@ function browser(
     resumeContextMove: noop,
     dismissContextMove: noop,
     duplicate: noop,
+    download: noop,
+    canDownload: true,
     archive: noop,
     destroy: noop,
     setVisibility: noop,

@@ -335,6 +335,10 @@ export function BrowsePane({
         target,
         canEdit: files.canEdit,
         canSetVisibility: files.canSetVisibility,
+        // Offered here exactly as it is in the tree: downloading is a read of
+        // the row you right-clicked, so it needs none of the per-note state
+        // the share dialog below does.
+        canDownload: files.canDownload,
         /*
           Deliberately false, and this is the one item the listing offers less
           of than the tree does.

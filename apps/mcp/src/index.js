@@ -67,7 +67,7 @@ import {
   runTurn,
 } from "./agent/turn.js";
 import { R2Store } from "./store/r2.js";
-import { decodeSegment } from "./store/index.js";
+import { decodeSegment, pruneEmptyFolders } from "./store/index.js";
 import {
   SCOPE_CAPTURE,
   SCOPE_READ,
@@ -11382,6 +11382,22 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
     }
   }
   for (const { source: path } of moves) await clearExactVisibility(store, path).catch(() => {});
+  /*
+    The folder itself, on a backend that has one.
+
+    Every other adapter here has no folders to remove — a prefix with no keys
+    under it is gone — but Dropbox does, so the notes arrived at the new name
+    and the old folder went on being listed beside them. That is a folder move
+    that reads as a copy, and it read that way on exactly one backend.
+
+    `destination` is kept explicitly: a move *into* a subfolder of the source's
+    parent must not have its own destination tidied out from under it.
+  */
+  await pruneEmptyFolders(
+    store,
+    moves.map((move) => move.source),
+    { roots: [source], keep: [destination] }
+  );
   await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
   const references = await rewriteReferences(
     store,
@@ -11510,6 +11526,14 @@ async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     job.status = "complete";
     job.deleted_objects = sources.length;
     await persistMoveJob(store, job);
+    // The folder itself, where the backend has one. Same reason as the direct
+    // folder move — on Dropbox the sources go and the directory stays, so the
+    // move reads as a copy until this runs.
+    await pruneEmptyFolders(
+      store,
+      sources.map((item) => item.source),
+      { roots: [job.source], keep: [job.destination] }
+    );
     await cleanupPrivacySourceAfterMove(store, job).catch(() => {});
     let references = { links: 0, capped: true };
     try {

@@ -1023,12 +1023,46 @@ export function createDropboxBackend() {
 
   /** access token → Map(dropbox path → { body, rev }) */
   const accounts = new Map();
+  /**
+   * access token → Set(dropbox folder path)
+   *
+   * **This is the thing the fake used to get wrong**, and it is the difference
+   * between Dropbox and every other backend here. Folders were synthesised
+   * from the keys, exactly as `S3Store` has to synthesise them — so an emptied
+   * directory vanished from the fake and stayed in the product. A folder move
+   * on Dropbox left its source folder behind, went on listing it, and read as
+   * a copy; the suite could not see it because the fake was an S3 wearing
+   * Dropbox's URLs.
+   *
+   * Real directories, created by an upload and removed only by a delete aimed
+   * at them, are what make that reproducible.
+   */
+  const directories = new Map();
   let revCounter = 0;
 
   /** Register an account and return its file map, so a test can seed it. */
   function accountFor(accessToken) {
     if (!accounts.has(accessToken)) accounts.set(accessToken, new Map());
+    if (!directories.has(accessToken)) directories.set(accessToken, new Set());
+    for (const key of accounts.get(accessToken).keys()) noteAncestors(accessToken, key);
     return accounts.get(accessToken);
+  }
+
+  /** Folders a path implies, the way an upload creates them on Dropbox. */
+  function noteAncestors(token, path) {
+    const held = directories.get(token);
+    if (!held) return;
+    const parts = path.replace(/^\//, "").split("/").slice(0, -1);
+    for (let end = 1; end <= parts.length; end += 1) {
+      held.add(`/${parts.slice(0, end).join("/")}`);
+    }
+  }
+
+  /** Every folder registered for an account, so a test can assert on them. */
+  function foldersFor(accessToken) {
+    if (!directories.has(accessToken)) directories.set(accessToken, new Set());
+    for (const key of accounts.get(accessToken)?.keys() || []) noteAncestors(accessToken, key);
+    return directories.get(accessToken);
   }
 
   /**
@@ -1099,19 +1133,34 @@ export function createDropboxBackend() {
       if (arg.mode?.[".tag"] === "update" && current?.rev !== arg.mode.update) return conflict();
       const rev = `r${++revCounter}`;
       files.set(arg.path, { body: decodeBody(init.body), rev });
+      // An upload creates the folders above it, and they outlive the file.
+      noteAncestors(token, arg.path);
       return json({ rev, path_display: arg.path, size: files.get(arg.path).body.length });
     }
 
     if (path === "/2/files/delete_v2") {
-      if (!files.has(body.path)) return notFound();
-      files.delete(body.path);
-      return json({ metadata: { path_display: body.path } });
+      const held = directories.get(token) || new Set();
+      if (files.delete(body.path)) return json({ metadata: { path_display: body.path } });
+      // Dropbox deletes a folder recursively, which is why the adapter has to
+      // establish emptiness before it asks.
+      if (held.has(body.path)) {
+        held.delete(body.path);
+        for (const key of [...files.keys()]) {
+          if (key.startsWith(`${body.path}/`)) files.delete(key);
+        }
+        for (const folder of [...held]) {
+          if (folder.startsWith(`${body.path}/`)) held.delete(folder);
+        }
+        return json({ metadata: { path_display: body.path } });
+      }
+      return notFound();
     }
 
     if (path === "/2/files/list_folder") {
+      const held = directories.get(token) || new Set();
       const root = body.path === "" ? "/" : `${body.path}/`;
       const children = [...files.keys()].filter((key) => key.startsWith(root)).sort();
-      if (body.path !== "" && children.length === 0) return notFound();
+      if (body.path !== "" && children.length === 0 && !held.has(body.path)) return notFound();
       const entries = [];
       const folders = new Set();
       for (const key of children) {
@@ -1136,6 +1185,16 @@ export function createDropboxBackend() {
           });
         }
       }
+      /*
+        Directories that exist in their own right, including the empty ones.
+        An S3 cannot produce this entry and Dropbox does, which is the whole
+        reason this fake keeps a folder set rather than deriving one.
+      */
+      for (const folder of held) {
+        if (!folder.startsWith(root) || folder === body.path) continue;
+        if (!body.recursive && folder.slice(root.length).includes("/")) continue;
+        folders.add(folder);
+      }
       for (const folder of folders) entries.push({ ".tag": "folder", path_display: folder });
       return json({ entries, has_more: false, cursor: "" });
     }
@@ -1155,5 +1214,5 @@ export function createDropboxBackend() {
     };
   }
 
-  return { accounts, accountFor, handle, install };
+  return { accounts, accountFor, foldersFor, handle, install };
 }

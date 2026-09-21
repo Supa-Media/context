@@ -125,6 +125,7 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
+import { storageMoved } from "../functions/storage";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   addMember,
@@ -1184,6 +1185,209 @@ describe("turning it off", () => {
       { workspaceId },
     );
     expect(result.state).toBe("off");
+    expect(await bindingRow(t, workspaceId)).toBeNull();
+  });
+});
+
+/**
+ * THE PROJECTION IS DERIVED FROM A BUCKET. IT CANNOT OUTLIVE THE BINDING.
+ *
+ * A `searchIndexes` row with a `databaseId` names a real, billed D1 database
+ * holding this context's notes — titles, headings, tags, body chunks. Every
+ * other way a workspace can stop having a bucket already releases it:
+ * `disable` when somebody turns the feature off, the account cascade when the
+ * workspace is deleted.
+ *
+ * **Disconnecting storage did not.** The credential row was deleted, the
+ * customer had revoked our key, and the projection of their notes stayed on our
+ * infrastructure with nothing pointing at it — which is the outcome the opt-out
+ * exists to prevent, reached by the one door nobody had checked. Reported as
+ * "I disconnected it and it still had my data — it's just cached", and it was.
+ *
+ * A rebind onto **different** storage is the same fact arriving differently:
+ * the projection describes a bucket this workspace is no longer bound to, so it
+ * is stale as well as retained. A rebind onto the *same* storage is the repair
+ * path — somebody rotating a key on the bucket they already had — and must keep
+ * what it has, or every credential repair costs a re-provision.
+ */
+describe("storage going away takes the projection with it", () => {
+  async function bound(t: TestConvex, slug: string, bucket: string) {
+    const { owner, workspaceId } = await context(t, slug);
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId });
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, { databaseId: "db-storage", status: "ready" });
+      await ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "s3",
+        endpoint: "https://s3.example.invalid",
+        region: "auto",
+        bucket,
+        forcePathStyle: true,
+        capabilities: {
+          conditionalWrite: true,
+          conditionalCreate: true,
+          conditionalDelete: true,
+        },
+        status: "connected",
+        boundBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    return { owner, workspaceId };
+  }
+
+  test("disconnecting storage releases the database, and keeps the row until it is gone", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await bound(t, "disc-ctx", "their-bucket");
+
+    expect(
+      await asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {
+        workspaceId,
+      }),
+    ).toEqual({ disconnected: true });
+
+    const row = await bindingRow(t, workspaceId);
+    // Marked, not deleted — the same property `disable` has, for the same
+    // reason: a row removed here is a database nothing can find to delete.
+    expect(row).not.toBeNull();
+    expect(row?.optedIn).toBe(false);
+    expect(row?.status).toBe("releasing");
+    expect(row?.databaseId).toBe("db-storage");
+  });
+
+  test("...and it serves nothing from the moment the credential is gone", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await bound(t, "disc-serve", "their-bucket");
+    await asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {
+      workspaceId,
+    });
+    const row = await bindingRow(t, workspaceId);
+    expect(fastSearchOptedIn(row)).toBe(false);
+    expect(fastSearchActive(workspaceDoc(), planDoc(), row)).toBe(false);
+  });
+
+  test("rebinding onto a different bucket releases it too", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await bound(t, "rebind-away", "old-bucket");
+
+    await t.mutation(internal.functions.storage.applyBinding, {
+      actorUserId: owner,
+      workspaceId,
+      provider: "s3",
+      endpoint: "https://s3.example.invalid",
+      region: "auto",
+      bucket: "a-different-bucket",
+      accessKeyId: "AKIAEXAMPLEEXAMPLE01",
+      encryptedSecretAccessKey: "not-a-real-envelope",
+      forcePathStyle: true,
+    });
+
+    const row = await bindingRow(t, workspaceId);
+    expect(row?.optedIn).toBe(false);
+    expect(row?.status).toBe("releasing");
+  });
+
+  test("...but repairing the credential on the same bucket keeps it", async () => {
+    /*
+      THE HALF THAT MAKES THE OTHER HALF AFFORDABLE.
+
+      Releasing deletes a billed database and rebuilding one is minutes of work
+      against a bucket that may not even be reachable yet. Somebody rotating an
+      access key on the bucket they already had has not moved their notes, and
+      charging them a re-provision for a repair would make the repair the
+      expensive thing to do.
+    */
+    const t = setupTest();
+    const { owner, workspaceId } = await bound(t, "rebind-repair", "same-bucket");
+
+    await t.mutation(internal.functions.storage.applyBinding, {
+      actorUserId: owner,
+      workspaceId,
+      provider: "s3",
+      endpoint: "https://s3.example.invalid",
+      region: "auto",
+      bucket: "same-bucket",
+      accessKeyId: "AKIAEXAMPLEEXAMPLE99",
+      encryptedSecretAccessKey: "a-rotated-envelope",
+      forcePathStyle: true,
+    });
+
+    const row = await bindingRow(t, workspaceId);
+    expect(row?.optedIn).toBe(true);
+    expect(row?.status).toBe("ready");
+    expect(row?.databaseId).toBe("db-storage");
+  });
+
+  test("...and the same bucket under a different prefix is a different place", async () => {
+    // A rootPrefix is part of every key, so the same bucket under another one
+    // holds a different context's worth of notes.
+    const t = setupTest();
+    const { owner, workspaceId } = await bound(t, "rebind-prefix", "same-bucket");
+
+    await t.mutation(internal.functions.storage.applyBinding, {
+      actorUserId: owner,
+      workspaceId,
+      provider: "s3",
+      endpoint: "https://s3.example.invalid",
+      region: "auto",
+      bucket: "same-bucket",
+      rootPrefix: "somewhere-else/",
+      accessKeyId: "AKIAEXAMPLEEXAMPLE01",
+      encryptedSecretAccessKey: "not-a-real-envelope",
+      forcePathStyle: true,
+    });
+
+    expect((await bindingRow(t, workspaceId))?.status).toBe("releasing");
+  });
+
+  test("the address is what moved, never the credential", () => {
+    const here = { provider: "s3", endpoint: "https://s3.example.invalid", bucket: "b" };
+    expect(storageMoved(here, { ...here })).toBe(false);
+    expect(storageMoved(here, { ...here, bucket: "c" })).toBe(true);
+    expect(storageMoved(here, { ...here, rootPrefix: "sub/" })).toBe(true);
+    expect(storageMoved(here, { provider: "dropbox", dropboxAccountId: "dbid:x" })).toBe(true);
+    // A first connect has nothing to have moved from.
+    expect(storageMoved(null, here)).toBe(false);
+    // A half-built row names nowhere, and nowhere is not evidence of anything.
+    expect(storageMoved({ provider: "s3" }, here)).toBe(false);
+    // Dropbox is addressed by account, so the same account is the same place.
+    const dbx = { provider: "dropbox", dropboxAccountId: "dbid:one" };
+    expect(storageMoved(dbx, { ...dbx })).toBe(false);
+    expect(storageMoved(dbx, { ...dbx, dropboxAccountId: "dbid:two" })).toBe(true);
+  });
+
+  test("disconnecting a context with no index is an ordinary disconnect", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "disc-none");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "s3",
+        endpoint: "https://s3.example.invalid",
+        region: "auto",
+        bucket: "plain",
+        forcePathStyle: true,
+        capabilities: {
+          conditionalWrite: true,
+          conditionalCreate: true,
+          conditionalDelete: true,
+        },
+        status: "connected",
+        boundBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    expect(
+      await asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {
+        workspaceId,
+      }),
+    ).toEqual({ disconnected: true });
     expect(await bindingRow(t, workspaceId)).toBeNull();
   });
 });

@@ -25,7 +25,7 @@
  * leave and rejoin.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { gatewayOriginFrom } from "../../meetings/gateway";
@@ -118,6 +118,29 @@ export interface Presence {
    * feature, which is what makes the whole thing safe to switch off.
    */
   shared: SharedDoc | null;
+  /**
+   * Whether the room has told this client everything it holds for this note.
+   *
+   * **`shared` says a document exists; this says the room has spoken.** The
+   * two are not the same question and the gap between them is where a note
+   * goes missing: the document is created when the hook runs, before a socket
+   * connects and whether or not one ever does, while this turns true only when
+   * one of the three things that can settle a joiner has happened — this
+   * client was told to seed, the room replayed its log, or a peer answered the
+   * state vector this client sent on connect.
+   *
+   * The editor needs it because an **empty** document is ambiguous on its own:
+   * a brand-new note and a room that has not answered yet look identical, and
+   * binding in the second case means the seed arrives a moment later as an
+   * insert of text the editor is already showing — the duplicated note. So the
+   * editor waits for text *or* for this, and an empty note stops being a room
+   * nobody is ever wired into.
+   *
+   * False again on a reconnect, and correctly so: the exchange runs from the
+   * start on every connect, and until it has this client cannot say the room
+   * holds nothing.
+   */
+  settled: boolean;
   /**
    * Whether this client is the one that writes the merged text to the bucket.
    *
@@ -271,6 +294,22 @@ export function usePresence(options: {
   const pending = useRef<{ anchor: number; head: number } | null>(null);
   const seed = useRef<string | null>(null);
   const shared = useRef<SharedDoc | null>(null);
+  /**
+   * Has the room answered for the document currently in `shared`?
+   *
+   * A ref plus a counter rather than a piece of reducer state: the reducer is
+   * keyed on frames that describe the *roster*, and this describes the
+   * *document*. The counter is what makes the change visible to React — the
+   * value itself is read off the ref, so a settle that lands between renders
+   * is never missed.
+   */
+  const settled = useRef(false);
+  const [settledAt, setSettledAt] = useState(0);
+  const settle = useCallback(() => {
+    if (settled.current) return;
+    settled.current = true;
+    setSettledAt((count) => count + 1);
+  }, []);
   const textForSeed = useRef(options.textForSeed);
   textForSeed.current = options.textForSeed;
   const onExternalWrite = useRef(options.onExternalWrite);
@@ -377,6 +416,12 @@ export function usePresence(options: {
       },
     });
     shared.current = document;
+    /*
+      A new document is a room that has not answered for it yet. Reset before
+      the socket opens rather than on the welcome, so the window between the
+      hook running and the room replying is never mistaken for a settled one.
+    */
+    settled.current = false;
     pointers.current = new Map();
 
     const connect = async (attempt: number) => {
@@ -502,6 +547,14 @@ export function usePresence(options: {
 
         if (frame.t === "y") {
           if (!document) return;
+          /*
+            A peer answered the state vector this client sent on connect, which
+            is the joiner's half of "the room has told me everything". It stays
+            outside the `reply` branch below because an ordinary edit relayed
+            from a peer settles this client just as well: either way somebody
+            who was already here has spoken about this document.
+          */
+          settle();
           // A reply is produced when a peer asked what we have; sending it is
           // how a late joiner gets filled in by whoever is already here.
           const outcome = readSyncMessage(frame.d, document.doc, REMOTE_ORIGIN);
@@ -519,6 +572,10 @@ export function usePresence(options: {
           // The room's own log, replayed on join: every message it kept, in
           // the order it received them. Same handler, because they are the
           // same protocol messages — the room stored them without reading them.
+          //
+          // The replay is the room's whole answer to a joiner, so it settles
+          // this client whether or not any of the messages in it apply.
+          settle();
           if (!document) {
             /*
               For a canvas the log holds element updates instead, replayed the
@@ -665,6 +722,17 @@ export function usePresence(options: {
             whether the replay it is about to send already carries the text.
           */
           if (frame.seed && document) seedSharedDoc(document, textForSeed.current());
+          /*
+            **The seeder is settled by definition**, whatever the seed produced.
+
+            Nothing is coming for it: the room told it the log was empty and
+            nobody else was seated, so what the document holds after this line
+            is the whole of what the room holds — including for a brand-new
+            note, where the seed is the empty string and the document stays
+            empty. That case is the one the editor could not tell apart from
+            "still waiting", and this is the answer.
+          */
+          if (frame.seed) settle();
 
           // Reconnect just before the gateway would close this socket, so the
           // roster never visibly drops. See the header.
@@ -743,7 +811,7 @@ export function usePresence(options: {
     // text document at all. It is derived from the path and so moves with it,
     // but a dependency that is true by coincidence is one that stops being
     // true without anybody noticing.
-  }, [active, workspaceId, origin, notePath, mode, mint, closeSocket, clearTimers]);
+  }, [active, workspaceId, origin, notePath, mode, mint, closeSocket, clearTimers, settle]);
 
   /**
    * Send a caret, at most every `CURSOR_THROTTLE_MS`.
@@ -918,6 +986,12 @@ export function usePresence(options: {
       report,
       shared: shared.current,
       /*
+        Read off the ref, recomputed when `settledAt` moves. The ref is the
+        value and the counter is only the signal — a memo that closed over the
+        counter alone would report the state of the render it was built in.
+      */
+      settled: settled.current,
+      /*
         One question, asked in one pure place a test can reach — see
         `savesToBucket`. It used to be computed here against `state.members`,
         which does not contain this client, by a guard that required it to:
@@ -926,6 +1000,15 @@ export function usePresence(options: {
       */
       canWrite: savesToBucket(state),
     }),
-    [state, report, drawing, announceSaved],
+    /*
+      `settledAt` is the whole reason this list has a counter in it, and the
+      lint rule calls it unnecessary because nothing in the body reads it. That
+      is the point: the value is `settled.current`, a ref, which React cannot
+      see change. The counter is the only thing that tells this memo to look
+      again, and dropping it leaves every consumer holding the answer from
+      whichever render happened to be last.
+    */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, report, drawing, announceSaved, settledAt],
   );
 }

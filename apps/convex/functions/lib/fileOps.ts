@@ -75,6 +75,7 @@ import { HISTORY_PREFIX, IMAGE_PREFIX, legacyStorageKey } from "@context/shared/
 // these run here unmodified over the same store `provisioning.ts` already
 // builds from a binding.
 import { forwardPath, readForwarding, recordForwarding } from "../../../mcp/src/forwarding.js";
+import { pruneEmptyFolders } from "../../../mcp/src/store/index.js";
 import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
@@ -2515,6 +2516,30 @@ export async function movePath(
       throw new FileOpError("CONFLICT", changedElsewhere);
     }
     if (!sourceIsFolder && created?.etag) movedEtag = created.etag;
+  }
+
+  if (folderMove !== null) {
+    /*
+      The folder itself, on a backend that has one.
+
+      `createFolder` writes down the assumption the rest of this file is built
+      on — object storage has no folders, only shared key prefixes — and it is
+      true of R2 and S3 and false of Dropbox. There the files move and the
+      directory stays, `list` keeps reporting it as a prefix, and the console
+      goes on drawing the folder somebody just moved. The notes at the new name
+      and the old folder still beside them is a move that reads as a copy, and
+      it read that way on exactly one backend.
+
+      `keep` is the destination: moving a folder next to itself must not tidy
+      away the tree the move just built. `walk.withheld` is why the adapter's
+      own emptiness check is the authority rather than this list — a note this
+      caller could not see is still in that folder, and the folder has to stay.
+    */
+    await pruneEmptyFolders(
+      store,
+      pairs.map((pair) => pair.source),
+      { roots: [folderMove.from], keep: [folderMove.to] },
+    );
   }
 
   await remapPrivacy(store, {

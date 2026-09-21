@@ -581,6 +581,62 @@ export const bindStorage = action({
 });
 
 /**
+ * Where a binding's notes actually live, as one comparable string.
+ *
+ * ## What this is for, and why it is not "did anything change"
+ *
+ * A binding row changes for two very different reasons, and every field on it
+ * that describes the old bucket is cleared on both — `applyBinding` says so
+ * eleven times over. The **projection of the notes** cannot be treated that
+ * way, because releasing it deletes a billed database and re-provisioning one
+ * is minutes of work against a bucket that may not even be reachable yet.
+ *
+ * So the question is narrower than "was this row rewritten": it is *"do the
+ * notes live somewhere else now"*. Rotating an access key on the bucket
+ * somebody already had is a repair and keeps its index. Pointing the workspace
+ * at a different bucket, or at a different Dropbox account, is a move, and the
+ * projection describes somewhere the person has left.
+ *
+ * `rootPrefix` is part of the address for the same reason it is part of every
+ * key: the same bucket under a different prefix is a different context's worth
+ * of notes. The credential is deliberately **not** — it is the thing that
+ * changes on a repair.
+ *
+ * `null` where the row names nowhere yet, which compares equal to nothing,
+ * including to another `null`: a half-built binding is not evidence that the
+ * notes stayed put.
+ */
+export function storageAddress(
+  binding: {
+    provider?: string;
+    endpoint?: string;
+    bucket?: string;
+    rootPrefix?: string;
+    dropboxAccountId?: string;
+  } | null,
+): string | null {
+  if (binding === null || binding === undefined) return null;
+  const prefix = binding.rootPrefix ?? "";
+  if (binding.provider === "dropbox") {
+    return binding.dropboxAccountId
+      ? `dropbox\u0000${binding.dropboxAccountId}\u0000${prefix}`
+      : null;
+  }
+  if (!binding.provider || !binding.bucket) return null;
+  return `${binding.provider}\u0000${binding.endpoint ?? ""}\u0000${binding.bucket}\u0000${prefix}`;
+}
+
+/** Do these two rows name different places for the notes to be? */
+export function storageMoved(
+  before: Parameters<typeof storageAddress>[0],
+  after: Parameters<typeof storageAddress>[0],
+): boolean {
+  const from = storageAddress(before);
+  if (from === null) return false;
+  return from !== storageAddress(after);
+}
+
+/**
  * Write the binding. Internal — the plaintext secret never reaches here.
  *
  * `actorUserId` is supplied by the calling action rather than read from auth,
@@ -731,6 +787,26 @@ export const applyBinding = internalMutation({
           encryptedRefreshToken: existing.encryptedRefreshToken,
         },
       );
+    }
+
+    /*
+      And the projection of the notes, when the notes have moved.
+
+      Every field cleared above describes the old bucket and costs nothing to
+      recompute. The search index describes it too, and is the one that is
+      neither free nor ours to keep: it is a D1 database holding this context's
+      note text, and pointed at a different bucket it answers searches out of
+      somewhere the person has left.
+
+      `storageMoved` rather than "this row was rewritten", because rotating an
+      access key on the same bucket is a repair and must not cost a
+      re-provision. Before the write, so the comparison is against what was
+      really there.
+    */
+    if (storageMoved(existing, fields)) {
+      await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
+        workspaceId: args.workspaceId,
+      });
     }
 
     let bindingId: Id<"storageBindings">;
@@ -2854,6 +2930,26 @@ export const disconnectStorage = mutation({
     }
 
     await ctx.db.delete(binding._id);
+
+    /*
+      AND THE PROJECTION OF THEIR NOTES GOES WITH THE CREDENTIAL.
+
+      A `searchIndexes` row with a `databaseId` names a real D1 database holding
+      this context's notes — titles, headings, tags, body chunks — on our
+      infrastructure. The header above says the point of the hard delete is that
+      *"revoke the key and we're gone"* has to mean the row is gone. It was only
+      ever true of the row: the derived copy stayed, searchable, with nothing
+      pointing at it, which is precisely the state `fastSearch`'s opt-out exists
+      to prevent and the account cascade already prevents.
+
+      Scheduled inside `releaseForStorage`, and the row is marked rather than
+      removed, so a failed delete stays visible to the sweep instead of becoming
+      a database nothing can find.
+    */
+    await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
+      workspaceId: args.workspaceId,
+    });
+
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: userId,

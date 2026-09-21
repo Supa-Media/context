@@ -341,6 +341,7 @@ export function Explorer({
         canEdit: files.canEdit,
         canSetVisibility: files.canSetVisibility,
         canShare: files.canShare,
+        canDownload: files.canDownload,
         clipboard: files.clipboard,
         platform,
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
