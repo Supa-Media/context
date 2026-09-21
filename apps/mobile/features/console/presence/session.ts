@@ -29,6 +29,7 @@
  */
 
 import type { PresenceMember, ServerFrame } from "./protocol";
+import { electWriter } from "./sharedDoc";
 
 export type PresencePhase = "idle" | "connecting" | "live" | "reconnecting" | "unavailable";
 
@@ -38,6 +39,15 @@ export interface PresenceState {
   notePath: string | null;
   /** This connection's own member id, once the gateway has named it. */
   you: string | null;
+  /**
+   * Whether the room would accept an edit from **this** client.
+   *
+   * Kept separately because `members` deliberately does not contain you — the
+   * header counts it as "2 here" — so your own authority is nowhere in it. It
+   * arrives on your own entry in the welcome roster and was being dropped on
+   * the floor by the filter below, which is what made every save impossible.
+   */
+  youCanWrite: boolean;
   members: PresenceMember[];
   /** Whether each member's caret may be drawn — false across a reconnect. */
   stale: boolean;
@@ -49,6 +59,7 @@ export const initialPresenceState: PresenceState = {
   phase: "idle",
   notePath: null,
   you: null,
+  youCanWrite: false,
   members: [],
   stale: false,
   attempts: 0,
@@ -73,6 +84,7 @@ export function presenceReducer(state: PresenceState, action: PresenceAction): P
         phase: "connecting",
         notePath: action.notePath,
         you: null,
+        youCanWrite: false,
         members: [],
         stale: false,
         attempts: 0,
@@ -93,7 +105,14 @@ export function presenceReducer(state: PresenceState, action: PresenceAction): P
     case "dropped": {
       if (state.phase === "unavailable" || state.phase === "idle") return state;
       // Members are kept and their carets are not drawn. See the header.
-      return { ...state, phase: "reconnecting", you: null, stale: true, attempts: state.attempts + 1 };
+      return {
+        ...state,
+        phase: "reconnecting",
+        you: null,
+        youCanWrite: false,
+        stale: true,
+        attempts: state.attempts + 1,
+      };
     }
 
     case "frame": {
@@ -116,6 +135,13 @@ function applyFrame(state: PresenceState, frame: ServerFrame): PresenceState {
         ...state,
         phase: "live",
         you: frame.you,
+        /*
+          Read before the filter throws your own entry away. The room resolved
+          this from your grant and your role; it is the only place this client
+          is told whether its own edits would be accepted, and it used to be
+          discarded one line later.
+        */
+        youCanWrite: frame.members.some((one) => one.id === frame.you && one.canWrite),
         // The welcome roster is authoritative and replaces whatever a previous
         // connection left, rather than merging with it — a merge would keep a
         // peer who left while we were away.
@@ -178,4 +204,46 @@ export function presenceSummary(state: PresenceState): string {
   if (state.phase === "reconnecting") return "Reconnecting";
   if (state.members.length === 0) return "";
   return state.members.length === 1 ? "1 here" : `${state.members.length} here`;
+}
+
+/**
+ * Does **this** client write the note to the bucket?
+ *
+ * ## The question the editor asks, in the one place it can be checked
+ *
+ * It used to be asked inside `usePresence`, against `state.members` — and
+ * `electWriter` required the caller to be in that list while the reducer
+ * removes the caller from it. The guard could never be satisfied. `canWrite`
+ * was false for every client in every room, so `mayPersist` refused every
+ * change and every ⌘S, and the text lived in the shared document and in the
+ * room's log and **never reached the bucket**. Open the note again and the
+ * work was gone.
+ *
+ * Every test on both sides of that seam was green: the unit tests passed a
+ * roster containing the caller, and the browser harness built its roster from
+ * the welcome frame unfiltered so it contained the caller too. Neither ran the
+ * shape the product actually produces. So the decision lives here now, pure
+ * and reachable, and the checks drive it through the real reducer.
+ *
+ * ## Two states, and the second one is the safety net
+ *
+ * **In a live room**, exactly one member saves — the lowest id among the
+ * members the room would accept an edit from — or every editor races against
+ * one etag, which is the collision the whole feature exists to remove.
+ *
+ * **With no live room, this client saves**, exactly as it did before presence
+ * existed. `shared` is created the moment the hook runs, before any socket
+ * connects and whether or not one ever does, so `mayPersist`'s "no room at
+ * all" escape hatch could not fire on its own: a gateway with no presence
+ * binding, a refused socket or a dead network left the editor unable to save
+ * anything. Nobody else is coordinating in those states.
+ *
+ * A reconnect counts as "no live room" too. Saving during that gap can cost a
+ * conflict, because whoever was elected may still be saving; not saving costs
+ * the work. A conflict is the one of those two a person can see and recover
+ * from.
+ */
+export function savesToBucket(state: PresenceState): boolean {
+  if (state.phase !== "live") return true;
+  return electWriter(state.you, state.youCanWrite, state.members);
 }

@@ -56,7 +56,6 @@ import {
 import { decodeElements, encodeElements } from "@context/drawings";
 import {
   createSharedDoc,
-  electWriter,
   seedSharedDoc,
   type SharedDoc,
 } from "./sharedDoc";
@@ -66,6 +65,7 @@ import {
   presenceReducer,
   presenceSummary,
   reconnectDelayMs,
+  savesToBucket,
   type PresencePhase,
 } from "./session";
 
@@ -918,12 +918,13 @@ export function usePresence(options: {
       report,
       shared: shared.current,
       /*
-        Elected over the members the room would accept an edit from, not over
-        everybody in it. A room whose lowest member id belongs to a read-only
-        viewer used to elect that viewer, and then nobody saved: the one client
-        that believed it was saving was the one whose frames the room drops.
+        One question, asked in one pure place a test can reach — see
+        `savesToBucket`. It used to be computed here against `state.members`,
+        which does not contain this client, by a guard that required it to:
+        nobody was ever elected, so nothing was ever written to the bucket and
+        every note reopened was a note reverted.
       */
-      canWrite: electWriter(state.you, state.members),
+      canWrite: savesToBucket(state),
     }),
     [state, report, drawing, announceSaved],
   );

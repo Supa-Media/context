@@ -35,6 +35,7 @@ import {
 } from "../features/console/presence/protocol";
 import {
   initialPresenceState,
+  savesToBucket,
   presenceReducer,
   presenceSummary,
   reconnectDelayMs,
@@ -48,6 +49,7 @@ import {
 import {
   createSharedDoc,
   electWriter,
+  mayPersist,
   isWriter,
   mergeExternalText,
   seedSharedDoc,
@@ -752,20 +754,150 @@ describe("a tool's write, and the version that comes with it", () => {
       checked, because leaving either out reintroduces it.
     */
     const viewer = { id: "m1", canWrite: false };
-    const editor = { id: "m2", canWrite: true };
     const later = { id: "m9", canWrite: true };
 
-    expect(electWriter("m2", [viewer, editor, later])).toBe(true);
-    expect(electWriter("m1", [viewer, editor, later])).toBe(false);
-    expect(electWriter("m9", [viewer, editor, later])).toBe(false);
+    /*
+      **The roster never contains the caller**, which these calls used to get
+      wrong — they passed the caller's own entry in `members` and so tested a
+      shape `session.ts` does not produce. Your own authority is the second
+      argument now; the list is the other people.
+    */
+    expect(electWriter("m2", true, [viewer, later])).toBe(true);
+    expect(electWriter("m1", false, [later])).toBe(false);
+    expect(electWriter("m9", true, [viewer, { id: "m2", canWrite: true }])).toBe(false);
 
     // A read-only member alone in a room elects nobody, rather than itself
     // against an empty field.
-    expect(electWriter("m1", [viewer])).toBe(false);
+    expect(electWriter("m1", false, [])).toBe(false);
 
     // And when the only editor leaves, the next one takes over off the very
     // next roster.
-    expect(electWriter("m9", [viewer, later])).toBe(true);
+    expect(electWriter("m9", true, [viewer])).toBe(true);
+
+    // Nobody is elected before the room has named this client.
+    expect(electWriter(null, true, [later])).toBe(false);
+  });
+});
+
+describe("who actually writes the note to the bucket", () => {
+  /*
+    THE SEAM NOTHING CROSSED, AND IT COST EVERY SAVE IN THE PRODUCT.
+
+    Reported by the owner: "new changes are not saved/persisted, when I refresh
+    the page, or go to a page and then come back, all the new things added is
+    lost."
+
+    `electWriter` required the caller to appear in its own `members` list. The
+    reducer **removes** the caller from that list — `session.ts` does it in the
+    welcome branch, deliberately, because the roster is what the header counts
+    as "2 here". So the guard could never be satisfied: `canWrite` was false for
+    every client in every room, `mayPersist` therefore refused every change and
+    every ⌘S, and the text lived in the shared document and in the room's log
+    and never reached the bucket at all.
+
+    Every test on both sides was green. The unit tests below called
+    `electWriter("m2", [viewer, editor, later])` with `editor` being `m2` — a
+    roster containing the caller. The browser harness built `state.members`
+    from the welcome frame **unfiltered**, so it contained the caller too, and
+    "exactly one browser is elected to save" passed against a roster shape the
+    product never produces.
+
+    So the checks here drive the **real reducer** with a **real welcome frame**
+    and ask the question the editor asks. That is the only shape that could
+    have caught this, and it is why the decision now lives in a pure function
+    rather than inside the hook.
+  */
+
+  /** A room as the app builds one: a welcome through the real reducer. */
+  function room(you: string, everybody: { id: string; canWrite: boolean }[]): PresenceState {
+    return presenceReducer(
+      { ...initialPresenceState, phase: "connecting", notePath: "a.md" },
+      {
+        type: "frame",
+        notePath: "a.md",
+        frame: {
+          t: "welcome",
+          you,
+          members: everybody.map((one) => member({ id: one.id, canWrite: one.canWrite })),
+          reconnectAfterMs: 300_000,
+          heartbeatMs: 15_000,
+          seed: false,
+        },
+      },
+    );
+  }
+
+  test("somebody alone in a note saves it", () => {
+    // The whole bug, in one line. A person opens a note nobody else is in,
+    // types, and the text must reach the bucket.
+    const alone = room("me", [{ id: "me", canWrite: true }]);
+    expect(savesToBucket(alone)).toBe(true);
+  });
+
+  test("...and mayPersist agrees, which is what the editor actually calls", () => {
+    const alone = room("me", [{ id: "me", canWrite: true }]);
+    expect(mayPersist({ shared: {}, canWrite: savesToBucket(alone) })).toBe(true);
+  });
+
+  test("exactly one of two editors saves, and it is the lower id", () => {
+    const mine = room("m2", [
+      { id: "m2", canWrite: true },
+      { id: "m9", canWrite: true },
+    ]);
+    const theirs = room("m9", [
+      { id: "m2", canWrite: true },
+      { id: "m9", canWrite: true },
+    ]);
+    expect([savesToBucket(mine), savesToBucket(theirs)]).toEqual([true, false]);
+  });
+
+  test("a read-only viewer never saves, even alone in a room", () => {
+    // The other half, and the reason the caller's own authority has to travel
+    // rather than be assumed: a viewer alone would otherwise elect itself
+    // against an empty field and push a draft the room refuses.
+    const viewer = room("m1", [{ id: "m1", canWrite: false }]);
+    expect(savesToBucket(viewer)).toBe(false);
+  });
+
+  test("...and the lowest id being a viewer does not stop the editor saving", () => {
+    // A room whose lowest member id belongs to a read-only viewer used to
+    // elect that viewer, and then nobody saved at all.
+    const editor = room("m2", [
+      { id: "m1", canWrite: false },
+      { id: "m2", canWrite: true },
+      { id: "m9", canWrite: true },
+    ]);
+    expect(savesToBucket(editor)).toBe(true);
+  });
+
+  test("a client with no live room saves, exactly as it did before presence", () => {
+    /*
+      **Presence is never allowed to break the editor**, and this is the half
+      the election quietly took away. `shared` is created the moment the hook
+      runs, before any socket connects and whether or not one ever does — so
+      `mayPersist`'s "no room at all" escape hatch could not fire, and a
+      gateway with no presence binding, a refused socket or a dead network left
+      the editor unable to save anything.
+
+      Nobody else is coordinating in any of these states, so this client is the
+      one that saves.
+    */
+    for (const phase of ["idle", "connecting", "unavailable", "reconnecting"] as const) {
+      const state = { ...initialPresenceState, phase, notePath: "a.md" };
+      expect([phase, savesToBucket(state)]).toEqual([phase, true]);
+    }
+  });
+
+  test("...including a reconnect that still remembers the roster", () => {
+    // `dropped` keeps the members and clears `you`. Saving during the gap can
+    // cost a conflict; not saving costs the work, and a conflict is the one
+    // the person can see and recover from.
+    const dropped = presenceReducer(room("m9", [
+      { id: "m2", canWrite: true },
+      { id: "m9", canWrite: true },
+    ]), { type: "dropped" });
+    expect(dropped.phase).toBe("reconnecting");
+    expect(savesToBucket(dropped)).toBe(true);
   });
 });
 

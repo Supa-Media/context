@@ -12,9 +12,13 @@
  */
 import {
   createSharedDoc,
-  isWriter,
   seedSharedDoc,
 } from "../../../mobile/features/console/presence/sharedDoc.ts";
+import {
+  initialPresenceState,
+  presenceReducer,
+  savesToBucket,
+} from "../../../mobile/features/console/presence/session.ts";
 import { applyExternalWrite } from "../../../mobile/features/console/presence/externalWrite.ts";
 import {
   answerStateVector,
@@ -61,15 +65,30 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
     },
     /** The members the room says are tools rather than people. */
     agents: () => state.members.filter((m) => m.isAgent),
-    /** Whether this client is the one elected to save. */
-    saver: () => Boolean(state.you) &&
-      state.members.some((m) => m.id === state.you && m.canWrite) &&
-      isWriter(state.you, state.members.filter((m) => m.canWrite).map((m) => m.id)),
+    /**
+     * Whether this client is the one elected to save.
+     *
+     * **Through the product's own reducer, not a model of it.** This used to
+     * keep its own roster — built from the welcome frame *unfiltered*, so it
+     * contained this client — and answer the question against that. The app's
+     * reducer removes you from the roster, and the election it fed required
+     * you to be in it, so nobody was ever elected and nothing was ever saved.
+     * This harness reported "exactly one browser is elected to save" through
+     * the whole outage, because it was asking a roster shape the product does
+     * not produce.
+     *
+     * So the frames go through `presenceReducer` and the answer comes from
+     * `savesToBucket`, exactly as `usePresence` does it. A harness that models
+     * the client proves the model.
+     */
+    saver: () => savesToBucket(reduced),
   };
   /** The last edit this client made, kept so the reader can try to smuggle it. */
   let lastUpdate = null;
   /** Every member's caret as it arrived, encoded, by member id. */
   const positions = new Map();
+  /** The product's own state machine, driven by the same frames. */
+  let reduced = presenceReducer(initialPresenceState, { type: "open", notePath: note });
   const doc = createSharedDoc({
     onLocalUpdateBytes: (update) => {
       lastUpdate = update;
@@ -90,6 +109,7 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
     state.frames += 1;
     const frame = decodeServerFrame(event.data);
     if (!frame) return;
+    reduced = presenceReducer(reduced, { type: "frame", notePath: note, frame });
     if (frame.t === "welcome") {
       state.you = frame.you;
       state.members = frame.members;
@@ -157,6 +177,9 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
   };
   socket.onclose = () => {
     state.connected = false;
+    // The reducer hears about the drop too, so `saver()` answers for the state
+    // the app would actually be in rather than the last one it saw.
+    reduced = presenceReducer(reduced, { type: "dropped" });
   };
 
   state.type = (at, text) => doc.text.insert(at, text);
