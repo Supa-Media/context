@@ -438,6 +438,54 @@ export async function runPrivacyGroupChecks(check) {
       bucket.fetched.length = 0;
     }
 
+    /*
+      AND THE WRITE REFUSAL, WHOSE OWN TEXT MAKES THE CLAIM.
+
+      `writePermissionError` ends with "No private-path information is
+      disclosed by this error", and the comment above `mustCreate` says the
+      three team-scope checks "refuse with the same message whether or not
+      anything is there — so a connection that may not write here still learns
+      nothing."
+
+      Both sentences are about the WORDS, and the words are identical. The
+      three checks are not reached at the same point:
+
+        1. an exact override that is not `team`  — decided from the manifest,
+           BEFORE the note is looked up
+        2. absent, and the folder is not team    — after the lookup
+        3. present, and not team                 — after the lookup
+
+      So the override case is a round trip cheaper, and an exact override is
+      written only when somebody deliberately named THAT path in `privacy.md`
+      — a file a team-tier caller cannot read. The cheap refusal says "this
+      exact note was singled out", which is precisely the sentence the error
+      claims not to disclose.
+    */
+    const writeCost = async (path) => {
+      const before = bucket.trips();
+      const text = await callTool(env, TEAM_TOKEN, "write_note", {
+        path,
+        content: "# probe\n",
+      });
+      return { trips: bucket.trips() - before, text };
+    };
+    const overridden = await writeCost("1-projects/rates.md");
+    const inFolderPresent = await writeCost("2-areas/feedback/q3.md");
+    const inFolderAbsent = await writeCost("2-areas/feedback/no-such.md");
+    check(
+      "every refused write says the same words, so only the cost could tell them apart",
+      overridden.text === inFolderPresent.text &&
+        overridden.text === inFolderAbsent.text &&
+        /permission denied/.test(overridden.text)
+    );
+    check(
+      `a write refused by an exact override costs what one refused by a folder rule costs `
+        + `(override: ${overridden.trips}, folder+present: ${inFolderPresent.trips}, `
+        + `folder+absent: ${inFolderAbsent.trips})`,
+      overridden.trips === inFolderPresent.trips &&
+        overridden.trips === inFolderAbsent.trips
+    );
+
     const teamSearch = await callTool(env, TEAM_TOKEN, "search_notes", { query: "FEEDBACKSECRET" });
     check(
       "a group-scoped note's terms do not reach a team connection's search",
