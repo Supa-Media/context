@@ -10502,8 +10502,25 @@ async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
   const path = splitMessageAnchor(normalizePath(idArg) ?? "").path;
   if (!path || !path.endsWith(".md")) return toolError("invalid id");
   if (isPlumbing(path)) return toolError("not found");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const { object: obj } = await getVisibleMovedNote(store, scope, rules, overrides, path);
+  /*
+    `read_note`'s rule, because this is `read_note`: the resolution runs the
+    same way for everybody and the decision is taken once both answers are in,
+    so the refusal for a note being held back costs what the refusal for an
+    absent one costs. It resolves on metadata and fetches the body only after
+    both questions have passed — this door was the widest of the four, 1 trip
+    against 3.
+  */
+  const seen = canSee(path, scope, rules, overrides);
+  const { object: present, physicalPath } = await getVisibleMovedNote(
+    store,
+    scope,
+    rules,
+    overrides,
+    path,
+    probeWithLegacyFallback,
+  );
+  if (!seen || !present) return toolError("not found");
+  const obj = await getWithLegacyFallback(store, physicalPath);
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // The same decrypt `read_note` does, because this is `read_note` wearing
@@ -12041,7 +12058,12 @@ async function toolListMeetings(store, scope, rules, overrides, limitArg) {
 async function toolReadMeeting(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided, so the refusal for a note being held
+  // back costs what the refusal for an absent one costs; on metadata, so no
+  // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return toolError("not found");
   const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
@@ -12157,7 +12179,12 @@ async function toolListChannelDays(store, scope, rules, overrides, args = {}) {
 async function toolReadChannelDay(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided, so the refusal for a note being held
+  // back costs what the refusal for an absent one costs; on metadata, so no
+  // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return toolError("not found");
   const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
@@ -12337,7 +12364,12 @@ async function toolReadContact(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
   if (!isContactNotePath(path)) return toolError("not a contact page — read it with read_note");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // Both questions asked, then decided, so the refusal for a note being held
+  // back costs what the refusal for an absent one costs; on metadata, so no
+  // unreadable body is pulled in to refuse. `toolReadNote` argues it in full.
+  const seen = canSee(path, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, path);
+  if (!seen || !present) return toolError("not found");
   const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
