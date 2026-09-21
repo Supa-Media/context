@@ -858,7 +858,27 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
         const sourceIfMatch = init.headers?.["x-amz-copy-source-if-match"]?.replace(/^"|"$/g, "");
         if (!source) return new Response("", { status: 404 });
         if (sourceIfMatch && source.etag !== sourceIfMatch) return new Response("", { status: 412 });
-        const etag = `s${++etagCounter}`;
+        /*
+          A COPY PRESERVES THE SOURCE'S ETAG, because a real one does.
+
+          S3 CopyObject returns the source's ETag for a single-part object —
+          the ETag is the content MD5 and the content did not change. This stub
+          used to mint a fresh counter value instead, which is the one place it
+          disagreed with the backend it stands in for, and it disagreed in the
+          direction that hides a branch: `canVerifyMoveByEtag` lets a resuming
+          move skip the byte-for-byte comparison when the destination's etag
+          already equals the source's, and against a stub whose copy always
+          changed the etag **that branch could never be taken by any test**.
+
+          Making it faithful costs nothing — measured, 0 failures across both
+          suites — and it is the difference between a harness that could catch
+          a regression in the copy path and one that could not.
+
+          It does NOT make the shortcut's *soundness* testable: that needs a
+          store whose etag is not derived from content, which no fixture here
+          models. See the header note.
+        */
+        const etag = source.etag;
         objects.set(key, { body: source.body, etag });
         return new Response(
           `<CopyObjectResult><ETag>&quot;${etag}&quot;</ETag></CopyObjectResult>`,
