@@ -1852,3 +1852,94 @@ describe("what is refused before Cloudflare is ever called", () => {
     expect((await provisioningRow(t, workspaceId))!.status).toBe("pending");
   });
 });
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The provisioning budget belongs to the context, not to the deployment.
+ *
+ * `PROVISION_LIMIT` is five accepted bucket creations per hour, and its own
+ * comment says why: every accepted request creates real objects in a customer's
+ * cloud account, so unlimited is a way to fill somebody's account with buckets
+ * using a credential they gave us for one. The counter it spends is the thing
+ * that has to be theirs alone.
+ *
+ * Nothing reached it. `beginProvisioning` refuses a second attempt while the
+ * first is pending, so every test here makes one or two calls and the limit
+ * never engages — which is how the suite stayed green with `${args.workspaceId}`
+ * dropped from the key. Keyed globally, five failed attempts anywhere in the
+ * deployment stop every other customer from creating storage at all, at the one
+ * moment in their life with us where nothing works yet and there is nothing to
+ * fall back to.
+ *
+ * ## Two wrong keys, and why it takes two neighbours to rule out both
+ *
+ * `:all` and `:${args.actorUserId}` are different mistakes, and a second
+ * *tenant* only catches the first — two owners have different ids either way.
+ * The same owner's second context is what refutes a budget keyed by the
+ * caller, and it is the one that matters most here, because the ceiling exists
+ * to protect one Cloudflare account from being filled with buckets: a shared
+ * workspace with three owners would get three times the ceiling against the
+ * same account.
+ *
+ * ## Why each attempt is marked failed first
+ *
+ * The refusals in this mutation throw, and a throw rolls the transaction back
+ * — the counted request with it. So an attempt that is refused for being a
+ * duplicate spends nothing, and the only way to reach the limit is five
+ * attempts that are *accepted*. That is the shape production has: a run that
+ * fails leaves `failed` on the row, and `a failed attempt can simply be
+ * retried`. Patching the row between calls is that retry, without five round
+ * trips through a stubbed Cloudflare.
+ *
+ * Sabotage, as failing tests across the whole `apps/convex` suite:
+ *
+ *   `storage.provision:all`                                          0 -> 1
+ *   `storage.provision:${args.actorUserId}`                          0 -> 1
+ *   the `consumeRateLimit` call deleted outright                          1
+ */
+describe("the provisioning budget is one context's, not everybody's", () => {
+  test("a second context can still create storage after the first spends its budget", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    const mine = await createWorkspace(t, owner, "bravo");
+    const neighbour = await createUser(t, "neighbour@example.invalid");
+    const theirs = await createWorkspace(t, neighbour, "charlie");
+
+    /** What a run that did not get there leaves behind. */
+    const markFailed = () =>
+      t.run(async (ctx) => {
+        const row = await ctx.db
+          .query("cloudflareProvisioning")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+          .unique();
+        if (row !== null) await ctx.db.patch(row._id, { status: "failed" });
+      });
+
+    let spent = 0;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await markFailed();
+      try {
+        await startProvisioning(t, owner, workspaceId);
+        spent += 1;
+      } catch {
+        break;
+      }
+    }
+    expect(spent).toBeGreaterThan(0);
+    expect(spent).toBeLessThan(20);
+    await markFailed();
+    expect(
+      errorCode(await captureError(() => startProvisioning(t, owner, workspaceId))),
+    ).toBe("RATE_LIMITED");
+
+    // Neither of the other two contexts has asked for anything, so both first
+    // buckets are accepted: the owner's own second context rules out a budget
+    // keyed by the caller, and the neighbour's is the cross-tenant claim.
+    expect(
+      await startProvisioning(t, owner, mine, { bucket: "bravo-context" }),
+    ).toMatchObject({ status: "pending" });
+    expect(
+      await startProvisioning(t, neighbour, theirs, { bucket: "charlie-context" }),
+    ).toMatchObject({ status: "pending" });
+  });
+});
