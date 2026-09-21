@@ -21,6 +21,7 @@ import { runSearchPacingChecks } from "./searchPacing.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
+import { runDropboxFolderChecks } from "./dropboxFolders.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
@@ -4588,6 +4589,7 @@ await suite("runDrawingChecks", () => runDrawingChecks(check));
 }
 
 await suite("runTenancyChecks", () => runTenancyChecks(check));
+await suite("runDropboxFolderChecks", () => runDropboxFolderChecks(check));
 await suite("runCrossContextChecks", () => runCrossContextChecks(check));
 await suite("runMoveWithoutConditionalDeleteChecks", () => runMoveWithoutConditionalDeleteChecks(check));
 // Its own control plane and S3 backend, so it swaps globalThis.fetch and

@@ -736,3 +736,105 @@ async function cleanUpProbe(store, key, result) {
     result.errors.push(`probe cleanup failed: ${errorMessage(error)}`);
   }
 }
+
+/**
+ * Remove the folders an operation has just emptied, on a backend that has any.
+ *
+ * ## The one place the "no empty folders" assumption is not true
+ *
+ * `createFolder` writes it down: object storage has no folders, a folder is a
+ * shared key prefix, and deleting the last key under one removes it because it
+ * was never anything else. Every path in this codebase that moves, archives,
+ * trashes or deletes a folder is built on that, and on R2 and S3 it holds.
+ *
+ * **Dropbox has real directories.** The files go and the folder stays, the
+ * listing goes on reporting it, and a folder move therefore reads as a *copy*
+ * on that backend and on no other — the notes at the new name, the old folder
+ * still sitting beside them. That is the bug this exists to close, and it is
+ * closed at the adapter boundary rather than by teaching every caller which
+ * backend it is on.
+ *
+ * `removeEmptyFolder` is absent on the adapters with no folders to remove, so
+ * this is a no-op there, in one branch, once.
+ *
+ * ## Deepest first, and the parents follow only if they empty too
+ *
+ * Moving `1-projects/foo/` carries `1-projects/foo/bar/note.md` with it, so
+ * `bar` empties and then `foo` does. Sorting by depth is what lets one pass
+ * clear the whole tree: a parent is only ever considered after every child
+ * under it has been, and the adapter refuses a parent that still holds
+ * anything — including a note this caller could not see, which is exactly the
+ * case that must leave the folder alone.
+ *
+ * Failures are swallowed on purpose. Every caller has already done the thing a
+ * person asked for; a folder that could not be tidied up afterwards is litter,
+ * and reporting the move as failed over it would be the false half of a move
+ * that happened.
+ *
+ * ## A top-level folder is the customer's layout, unless they moved it
+ *
+ * `1-projects` is a folder they chose and `privacy.md` has a rule for; emptying
+ * it by archiving the last note in it is not a reason to delete it, so the
+ * ancestors derived from a key stop one level short of the root. A folder the
+ * operation itself moved or deleted is a different question — the person asked
+ * for that one to stop being there — and callers name it in `roots`.
+ *
+ * @param {object} store
+ * @param {Iterable<string>} keys the source keys the operation removed
+ * @param {{ keep?: Iterable<string>, roots?: Iterable<string> }} [options]
+ *   `keep`: folders never to remove, whatever the listing says. The
+ *   destination and every folder above it, for a move within one context —
+ *   `1-projects/a/b` → `1-projects/a/c` empties `b` and leaves `1-projects/a`
+ *   looking like a candidate, and it is holding the move's own destination.
+ *   `roots`: folders the operation removed in their own right, eligible even at
+ *   the top level.
+ * @returns {Promise<string[]>} the folders that were removed
+ */
+export async function pruneEmptyFolders(store, keys, options = {}) {
+  if (typeof store?.removeEmptyFolder !== "function") return [];
+
+  const keep = new Set();
+  for (const path of options.keep || []) {
+    for (const folder of ancestorFolders(path)) keep.add(folder);
+    keep.add(String(path).replace(/\/+$/, ""));
+  }
+
+  const candidates = new Set();
+  for (const key of keys) {
+    for (const folder of ancestorFolders(key)) {
+      if (!keep.has(folder)) candidates.add(folder);
+    }
+  }
+  for (const root of options.roots || []) {
+    const folder = String(root || "").replace(/\/+$/, "");
+    if (folder && !keep.has(folder)) candidates.add(folder);
+  }
+
+  const removed = [];
+  // Deepest first: a parent is only asked about once its children have been.
+  for (const folder of [...candidates].sort((a, b) => depthOf(b) - depthOf(a))) {
+    try {
+      if (await store.removeEmptyFolder(folder)) removed.push(folder);
+    } catch {
+      // See the header: tidying is never allowed to fail the operation.
+    }
+  }
+  return removed;
+}
+
+/** Every folder above a key, longest first: `a/b/c.md` → `a/b`, `a`. */
+function ancestorFolders(key) {
+  const parts = String(key || "").split("/").filter(Boolean);
+  // The last segment is the object itself, and the first is a root folder the
+  // customer chose — `1-projects` is part of their layout, not a container this
+  // created, so emptying it is not a reason to remove it.
+  const folders = [];
+  for (let end = parts.length - 1; end > 1; end -= 1) {
+    folders.push(parts.slice(0, end).join("/"));
+  }
+  return folders;
+}
+
+function depthOf(folder) {
+  return folder.split("/").length;
+}
