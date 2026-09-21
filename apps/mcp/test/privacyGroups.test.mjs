@@ -326,6 +326,57 @@ export async function runPrivacyGroupChecks(check) {
       costs.every((cost) => cost === costs[0])
     );
 
+    /*
+      AND THE SECOND DOOR TO THE SAME FACT MUST COST WHAT THE FIRST DOES.
+
+      `read_image` is not an image tool for this purpose. It takes a NOTE path,
+      runs the same `canSee` on it, and refuses with the same three bytes — so
+      it answers the same question `read_note` does, and closing one door while
+      the other stands open closes nothing. A caller who cannot read
+      `read_note`'s cost can read this one's.
+
+      The four shapes are the four above, driven through the other tool. The
+      image argument is well-formed on purpose: a malformed one is refused
+      before any path is considered, which would make every count zero and the
+      equality vacuous.
+
+      Counted rather than timed, so this is deterministic. The number is not
+      the invariant; the equality is.
+    */
+    const imageTripsFor = async (note) => {
+      const before = bucket.trips();
+      await callTool(env, TEAM_TOKEN, "read_image", { note, image: "photo.png" });
+      return bucket.trips() - before;
+    };
+    const imageRefusalCosts = {
+      "held back by name, and exists": await imageTripsFor("1-projects/rates.md"),
+      "inside a group folder, and exists": await imageTripsFor("2-areas/feedback/q3.md"),
+      "never written, in a folder the caller can see": await imageTripsFor("1-projects/no-such-note.md"),
+      "never written, in a folder it cannot": await imageTripsFor("2-areas/feedback/no-such.md"),
+    };
+    const imageCosts = Object.values(imageRefusalCosts);
+    check(
+      `every read_image refusal costs the same number of storage trips `
+        + `(${Object.entries(imageRefusalCosts).map(([k, v]) => `${k}: ${v}`).join(", ")})`,
+      imageCosts.every((cost) => cost === imageCosts[0])
+    );
+
+    /*
+      And it never fetches the note's bytes to refuse, for `read_note`'s
+      reason: equalising the COUNT with a real `get` would satisfy the check
+      above while pulling a private note's plaintext into the worker on
+      `S3Store` and `DropboxStore`, which both buffer the whole object.
+    */
+    bucket.fetched.length = 0;
+    await callTool(env, TEAM_TOKEN, "read_image", {
+      note: "1-projects/rates.md",
+      image: "photo.png",
+    });
+    check(
+      "a refused read_image never fetches the note's bytes, only its metadata",
+      !bucket.fetched.includes("1-projects/rates.md")
+    );
+
     const teamSearch = await callTool(env, TEAM_TOKEN, "search_notes", { query: "FEEDBACKSECRET" });
     check(
       "a group-scoped note's terms do not reach a team connection's search",
