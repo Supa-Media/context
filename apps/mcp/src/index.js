@@ -6497,7 +6497,27 @@ async function toolReadImage(store, scope, rules, overrides, args) {
   const notePath = normalizePath(args.note);
   const image = imageRefFor(args.image);
   if (!notePath || !notePath.endsWith(".md") || !image) return notFound;
-  if (!canSee(notePath, scope, rules, overrides)) return notFound;
+  /*
+    **THE SECOND DOOR TO THE SAME FACT, AND IT COSTS WHAT THE FIRST DOES.**
+
+    This tool takes a NOTE path and asks `canSee` about it, so it answers the
+    question `read_note` answers and its refusal is the same three bytes.
+    Refusing on visibility before touching the bucket, while a path the caller
+    could have seen went to storage and missed first, made the two refusals 2
+    storage round trips against 3 — identical to read, a trip apart to measure,
+    and the bit on offer was exactly `canSee(notePath)`.
+
+    So the lookup runs the same way for everybody and the decision is taken
+    once both answers are in. It is a metadata probe rather than a `get` for
+    the reason spelled out in `toolReadNote`: `S3Store.get` and
+    `DropboxStore.get` both buffer the whole object before any caller asks for
+    its text, so resolving an invisible path with a real `get` would pull a
+    private note's plaintext into the worker on behalf of somebody who may not
+    read it. The body below is fetched only after both questions have passed.
+  */
+  const seen = canSee(notePath, scope, rules, overrides);
+  const present = await probeWithLegacyFallback(store, notePath);
+  if (!seen || !present) return notFound;
   const note = await getWithLegacyFallback(store, notePath);
   if (!note) return notFound;
   if (!noteReferencesImage(await note.text(), image)) return notFound;
