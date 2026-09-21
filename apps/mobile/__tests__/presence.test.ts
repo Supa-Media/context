@@ -888,6 +888,48 @@ describe("who actually writes the note to the bucket", () => {
     }
   });
 
+  /*
+    THE SOCKET OPENING IS NOT THE ROOM NAMING YOU.
+
+    `connected` fires from `live.onopen` and sets `phase: "live"` — before any
+    frame, so with `you: null` and `youCanWrite: false`. `savesToBucket` then
+    takes the live branch and `electWriter` refuses, because there is nobody to
+    elect: this client has no id and no roster yet.
+
+    That is the same sentence this whole change exists to delete — nobody is
+    elected, so nothing is written — reached by a different route, and every
+    reconnect passes through it as well as every first connect. Nobody is
+    coordinating this client in that window either: the escape hatch's
+    condition drifted from the state it describes, because `live` is one label
+    over two different states and only one of them has an identity in it.
+
+    The loop above could not see it: it enumerates phases against
+    `initialPresenceState`, and this is a phase-and-identity pair.
+  */
+  test("a socket that is open but not yet welcomed still saves", () => {
+    const open = presenceReducer(initialPresenceState, { type: "open", notePath: "a.md" });
+    const connected = presenceReducer(open, { type: "connected" });
+    expect([connected.phase, connected.you]).toEqual(["live", null]);
+    expect(savesToBucket(connected)).toBe(true);
+  });
+
+  test("...and so does a reconnected socket waiting for its welcome", () => {
+    const dropped = presenceReducer(room("m9", [
+      { id: "m2", canWrite: true },
+      { id: "m9", canWrite: true },
+    ]), { type: "dropped" });
+    const reopened = presenceReducer(dropped, { type: "connected" });
+    expect([reopened.phase, reopened.you]).toEqual(["live", null]);
+    expect(savesToBucket(reopened)).toBe(true);
+  });
+
+  test("...and the welcome still hands the decision back to the election", () => {
+    // The positive control: without it, "always save when live" would pass
+    // both checks above and take the election away entirely.
+    const viewer = room("m9", [{ id: "m2", canWrite: true }, { id: "m9", canWrite: false }]);
+    expect([viewer.phase, savesToBucket(viewer)]).toEqual(["live", false]);
+  });
+
   test("...including a reconnect that still remembers the roster", () => {
     // `dropped` keeps the members and clears `you`. Saving during the gap can
     // cost a conflict; not saving costs the work, and a conflict is the one
