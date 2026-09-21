@@ -13,6 +13,7 @@ import {
   runtimeDetail,
   runtimeFor,
   runtimeNote,
+  shouldResumeRuntime,
   maySeePaths,
   runtimePill,
   vaultEventForOperation,
@@ -118,6 +119,42 @@ describe("what each status says", () => {
     expect(runtimeNote(state({ status: "crash-looped", attempts: 3 }))).toContain(
       "stopped retrying",
     );
+  });
+});
+
+describe("recovering a crash fixed by the current sandbox", () => {
+  test.each(["language", "state", "view"])(
+    "retries the old @codemirror/%s compatibility crash",
+    (module) => {
+      expect(shouldResumeRuntime(state({
+        status: "crash-looped",
+        attempts: 3,
+        errorCode: "PLUGIN_LOAD_FAILED",
+        errorMessage: `Context sandbox does not provide module: @codemirror/${module}`,
+      }))).toBe(true);
+    },
+  );
+
+  test("still resumes a plugin that was already running", () => {
+    expect(shouldResumeRuntime(state())).toBe(true);
+  });
+
+  test("does not retry an unrelated plugin crash", () => {
+    expect(shouldResumeRuntime(state({
+      status: "crash-looped",
+      attempts: 3,
+      errorCode: "PLUGIN_LOAD_FAILED",
+      errorMessage: "Plugin onload threw",
+    }))).toBe(false);
+  });
+
+  test("does not undo an owner or security block", () => {
+    expect(shouldResumeRuntime(state({
+      status: "blocked",
+      attempts: 3,
+      errorCode: "PLUGIN_LOAD_FAILED",
+      errorMessage: "Context sandbox does not provide module: @codemirror/view",
+    }))).toBe(false);
   });
 });
 

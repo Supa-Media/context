@@ -30,6 +30,7 @@ import {
   freshPreviews,
   freshSuggestions,
   maySeeContent,
+  shouldResumeRuntime,
   vaultEventForOperation,
 } from "./runtime";
 import type { ActiveSandbox, PluginRegistration, RuntimeState, RuntimeView } from "./runtime";
@@ -1093,7 +1094,7 @@ export function useRuntime(options: {
   useEffect(() => {
     if (!states || workspaceId === null || !isOwner) return;
     for (const state of states) {
-      if (state.status !== "loaded") continue;
+      if (!shouldResumeRuntime(state)) continue;
       const key = `${workspaceId}:${state.pluginId}:${state.bundleFingerprint}`;
       if (resumed.current.has(key) || sandboxes.some((one) => one.bundle.pluginId === state.pluginId)) continue;
       resumed.current.add(key);
