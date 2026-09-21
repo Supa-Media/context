@@ -1245,6 +1245,26 @@ describe("`saved` is said only when there is a path to print", () => {
     expect(mounted.container.textContent).toContain("This meeting has not left the device");
     expect(mounted.container.textContent).toContain("Connect it again");
     expect(mounted.container.textContent).not.toContain("Saved to your bucket");
+
+    /*
+      AND A WAY TO SAY "DONE, TRY IT NOW".
+
+      This sentence has always ended with something for a person to *do* —
+      connect the machine again — and this branch then offered them nothing to
+      press. The only control that reached `retrySync` was the header's
+      **Re-run**, labelled for the enhancement, which is not what somebody who
+      has just reconnected a machine goes looking for.
+
+      `retrySync` clears `rejection` on the way through precisely so the
+      attempt reaches the gateway again, so pressing this is a real second
+      attempt rather than a relabelled wait.
+    */
+    const before = gateway.calls.length;
+    await act(async () => {
+      press(mounted.container, "meeting-retry-sync");
+      await Promise.resolve();
+    });
+    expect(gateway.calls.length).toBeGreaterThan(before);
     mounted.unmount();
   });
 

@@ -7,11 +7,12 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { writeClipboard } from "../design/clipboard";
+import { FOLDER_REJECTED_NOTICE, meetingLanding, rejectionNotice } from "./landing";
 import { noteEditorHref } from "./noteLink";
 import { NotesPad } from "./components/NotesPad";
 import { meetings } from "./controller";
 import { renderMeetingNote } from "./note";
-import { ERRORS, isMeetingId } from "./protocol";
+import { isMeetingId } from "./protocol";
 import { attendeeCount, dayHeading, duration, sourceLabel } from "./format";
 import { notesOnlyOnDevice, pendingSteps } from "./record";
 import type { MeetingRecord } from "./record";
@@ -496,26 +497,8 @@ function Transcript({ record }: { record: MeetingRecord }) {
   );
 }
 
-/**
- * Said under the path when the folder somebody picked was not the one used.
- *
- * **It used to say "so this is the default folder", and that is only one of the
- * two cases.** `folderRejected` means "the folder you named is not where this
- * note is", which is wider than "the string you sent was malformed": the
- * gateway also sets it when the folder was perfectly legal and *a different one
- * had already been claimed* — a second finalize naming somewhere else, or a
- * retry after a failed write (`folderFlag` in `apps/mcp/src/meetings/ingest.js`,
- * and the `IngestAck` contract in `packages/meetings/src/protocol.js`). In that
- * case the note is in the folder the first finalize claimed, which is not the
- * default and not the one on screen.
- *
- * So the sentence says what is true in both: not where you chose, here instead,
- * move it if you want it elsewhere. The path above is what answers "where",
- * which is the question somebody actually has — and the notice still names no
- * folder, because the ack carries no copy of what was sent.
- */
-export const FOLDER_REJECTED_NOTICE =
-  "Your context did not file this meeting in the folder you chose, so this is where the note is. Move it if you want it elsewhere.";
+/** The folder notice, said by both surfaces; it lives in `landing.ts`. */
+export { FOLDER_REJECTED_NOTICE } from "./landing";
 
 /**
  * Where the note landed, and nothing where it has not landed.
@@ -562,13 +545,28 @@ function Landing({ record }: { record: MeetingRecord }) {
   const { session } = record;
   const href = noteEditorHref(record);
 
-  if (session.state === "empty") {
+  /*
+    WHICH OF THESE IS TRUE IS NOT THIS SCREEN'S TO DECIDE.
+
+    The branch order below — path first, then nothing-captured, then a refusal,
+    then a failed finalize — used to be written out here in JSX, in a file that
+    imports `expo-router`. The console's Meetings panel could not import a line
+    of it, so it grew a second and much worse vocabulary for the same states:
+    one sentence, *"This meeting has not been written to your context yet"*,
+    for all of them, with nothing to press. `landing.ts` is that order and
+    those sentences, pure, and both surfaces read it. What stays here is the
+    *drawing* — the icons, the tone, and the two controls that are this
+    screen's rather than the rule's.
+  */
+  const landing = meetingLanding(record);
+
+  if (landing?.kind === "empty") {
     return (
       <View style={styles.landing} testID="meeting-landing">
         <Icon name="folder" size={18} color={colors.muted} />
         <View style={styles.landingText}>
           <Text variant="mini" testID="meeting-empty-reason">
-            Nothing was captured: {session.emptyReason ?? "no transcript and no typed notes."}
+            {landing.title}
           </Text>
           <Pressable
             onPress={() => router.push(MEETINGS_ROUTE)}
@@ -586,6 +584,28 @@ function Landing({ record }: { record: MeetingRecord }) {
   }
 
   /*
+    `NOTHING_CAPTURED` reaching the sync queue is the same fact as `empty`
+    arriving by a different road, so it is drawn the same way — same icon, same
+    neutral tone, same absence of a Retry. "This meeting has not left the
+    device" would be true in the narrow sense that nothing was sent, and reads
+    as a meeting waiting to depart, which is the retry-forever framing this
+    branch exists to avoid. What it does not get is Record again: the recording
+    exists, and `empty`'s offer would be a second one over the top of it.
+  */
+  if (landing?.kind === "nothing-captured") {
+    return (
+      <View style={styles.landing} testID="meeting-landing">
+        <Icon name="folder" size={18} color={colors.muted} />
+        <View style={styles.landingText}>
+          <Text variant="mini" testID="meeting-rejection">
+            {landing.title}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  /*
     A REFUSAL IS SAID ABOUT WHAT WAS REFUSED, NOT ABOUT THE WHOLE MEETING.
 
     This branch used to run before the `notePath` one and claimed "This meeting
@@ -597,46 +617,37 @@ function Landing({ record }: { record: MeetingRecord }) {
     the console had addressed to the wrong meeting, was refused. Two
     contradictory claims about one meeting, and the second was the wrong one.
 
-    So the note's own path decides which sentence is true, and the refusal is
-    said underneath rather than instead: with a path, the meeting is saved and
-    something about it did not go; with no path, nothing has left. Neither
-    sentence shows the person an HTTP status — `rejectionNotice` turns the
-    gateway's own words into something a person can act on and keeps the
-    gateway's sentence only as the last line of a fallback.
+    That order is now `meetingLanding`'s, which answers `null` for anything
+    with a path; the refusal is said underneath the tick instead, further down.
 
-    ## `NOTHING_CAPTURED` is not "has not left the device" either
+    THE RETRY IS NEW, AND IT IS THE HALF THIS BRANCH WAS MISSING.
 
-    This code (`markSyncFailed`, `record.ts`) is the backstop for a session
-    with nothing in it that still ended up cycling through sync failures
-    instead of being folded to `empty` before it ever reached this queue —
-    see that function's own header. "This meeting has not left the device"
-    would still be true in the narrow sense that nothing was sent, but it
-    reads as a meeting waiting to depart, which is exactly the retry-forever
-    framing this whole branch exists to avoid. Drawn like the `empty` block
-    above instead — same icon, same neutral tone, same absence of a Retry —
-    because the fact is the same fact.
+    `rejectionNotice` has always ended these sentences with something to *do*
+    — connect the machine again, answer the conflict — and then this screen
+    offered no way to say "done, try it now". The only press that reaches
+    `retrySync` was the header's **Re-run**, labelled for the enhancement,
+    which is not what somebody who has just reconnected a machine goes looking
+    for. `retrySync` clears `rejection` on the way through for exactly this.
   */
-  if (record.rejection?.code === "NOTHING_CAPTURED" && session.notePath === null) {
-    return (
-      <View style={styles.landing} testID="meeting-landing">
-        <Icon name="folder" size={18} color={colors.muted} />
-        <View style={styles.landingText}>
-          <Text variant="mini" testID="meeting-rejection">
-            {record.rejection.message}
-          </Text>
-        </View>
-      </View>
-    );
-  }
-  if (record.rejection !== undefined && session.notePath === null) {
+  if (landing?.kind === "refused") {
     return (
       <View style={[styles.landing, styles.landingCrit]} testID="meeting-landing">
         <Icon name="close" size={18} color={colors.crit} />
         <View style={styles.landingText}>
           <Text variant="mini" style={styles.landingCritTitle}>
-            This meeting has not left the device
+            {landing.title}
           </Text>
-          <Text variant="rowSub" testID="meeting-rejection">{rejectionNotice(record.rejection)}</Text>
+          <Text variant="rowSub" testID="meeting-rejection">{landing.detail}</Text>
+          <Pressable
+            onPress={() => void meetings.retry(session.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Try sending this meeting again"
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="meeting-retry-sync"
+          >
+            <Icon name="plus" size={15} color={colors.text} />
+            <Text variant="mini">Retry</Text>
+          </Pressable>
         </View>
       </View>
     );
@@ -652,13 +663,13 @@ function Landing({ record }: { record: MeetingRecord }) {
     always allowed — the "Retry a person presses" this feature's decision
     record promises.
   */
-  if (session.state === "failed") {
+  if (landing?.kind === "failed") {
     return (
       <View style={[styles.landing, styles.landingCrit]} testID="meeting-landing">
         <Icon name="close" size={18} color={colors.crit} />
         <View style={styles.landingText}>
           <Text variant="mini" style={styles.landingCritTitle} testID="meeting-failed-reason">
-            Not filed: {session.failureReason ?? "the finalize did not complete."}
+            {landing.title}
           </Text>
           <Pressable
             onPress={() => void meetings.retryFinalize(session.id)}
@@ -675,15 +686,13 @@ function Landing({ record }: { record: MeetingRecord }) {
     );
   }
 
-  if (session.notePath === null) {
+  if (landing !== null) {
     return (
       <View style={styles.landing} testID="meeting-landing">
         <Icon name="folder" size={18} color={colors.muted} />
         <View style={styles.landingText}>
-          <Text variant="mini">Not in your bucket yet</Text>
-          <Text variant="rowSub">
-            It is kept on this device and sent as soon as your context answers.
-          </Text>
+          <Text variant="mini">{landing.title}</Text>
+          <Text variant="rowSub">{landing.detail}</Text>
         </View>
       </View>
     );
@@ -785,33 +794,8 @@ function Landing({ record }: { record: MeetingRecord }) {
   );
 }
 
-/**
- * A REFUSAL, IN WORDS SOMEBODY CAN DO SOMETHING WITH.
- *
- * What this screen showed instead was `record.rejection.message`, and for the
- * whole life of the desktop app that string was **"gateway answered 400"** —
- * `postEntry` read a `message` field this gateway does not send, so the
- * sentence explaining the refusal was parsed off the wire and dropped. A person
- * was shown a status code and no action, about their own meeting.
- *
- * The client reads `error_description` now, so the gateway's sentence does
- * arrive; this maps the codes whose recovery is a thing a *person* does, and
- * falls through to the gateway's own words for everything else. The fallback
- * is deliberately the gateway's sentence rather than a generic one: a refusal
- * this app has never seen before is exactly the one worth quoting.
- */
-export function rejectionNotice(rejection: { code: string; message: string }): string {
-  if (rejection.code === ERRORS.forbidden) {
-    return "This machine's access to your context was refused. Connect it again from Settings.";
-  }
-  if (rejection.code === ERRORS.conflict) {
-    return "Something else changed this meeting while it was being written. Try again.";
-  }
-  if (rejection.code === ERRORS.invalid) {
-    return `Your context would not accept it: ${rejection.message}`;
-  }
-  return rejection.message;
-}
+/** A refusal in words somebody can act on; it lives in `landing.ts`. */
+export { rejectionNotice } from "./landing";
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /*
