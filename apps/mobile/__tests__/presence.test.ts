@@ -835,8 +835,10 @@ describe("who actually writes the note to the bucket", () => {
   });
 
   test("...and mayPersist agrees, which is what the editor actually calls", () => {
+    // `bound` rather than the document's existence: the editor asks whether it
+    // is wired to a room, not whether one was allocated. See `mayPersist`.
     const alone = room("me", [{ id: "me", canWrite: true }]);
-    expect(mayPersist({ shared: {}, canWrite: savesToBucket(alone) })).toBe(true);
+    expect(mayPersist({ bound: true, canWrite: savesToBucket(alone) })).toBe(true);
   });
 
   test("exactly one of two editors saves, and it is the lower id", () => {

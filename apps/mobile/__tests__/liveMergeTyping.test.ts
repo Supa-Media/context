@@ -28,6 +28,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { LiveEditor } from "../features/console/files/LiveEditor.web";
 import { createSharedDoc, mayPersist, seedSharedDoc } from "../features/console/presence/sharedDoc";
+import { EditorView } from "@codemirror/view";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -36,6 +37,16 @@ function editor(options: {
   shared: ReturnType<typeof createSharedDoc>;
   canWrite: boolean;
   value: string;
+  /**
+   * Whether the room has told this client everything it holds.
+   *
+   * Defaults to `true` because that is what every case below except the empty
+   * note is: the fixture seeds the document before mounting, which is the room
+   * having already spoken. The empty-note checks pass it explicitly, because
+   * an empty room is the one state where "the room holds nothing" and "the
+   * room has not answered yet" look identical from the document alone.
+   */
+  settled?: boolean;
 }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -56,6 +67,7 @@ function editor(options: {
           report: () => {},
           shared: options.shared,
           canWrite: options.canWrite,
+          settled: options.settled ?? true,
         },
       }),
     );
@@ -79,6 +91,7 @@ function editor(options: {
             report: () => {},
             shared: options.shared,
             canWrite: options.canWrite,
+            settled: options.settled ?? true,
           },
         }),
       );
@@ -88,6 +101,26 @@ function editor(options: {
     changes,
     /** What CodeMirror is actually showing. */
     text: () => container.querySelector(".cm-content")?.textContent ?? "",
+    /**
+     * Type into this editor the way a person does — through CodeMirror, not
+     * into the shared document behind it.
+     *
+     * The difference is the whole of what the binding is. Inserting into the
+     * `Y.Text` directly reaches every peer whether or not this editor was ever
+     * wired to it, so a check written that way passes over an editor that is
+     * bound to nothing — which is exactly the state the empty-note bug left
+     * every client in.
+     */
+    type: (text: string) => {
+      const live = EditorView.findFromDOM(container);
+      if (live === null) throw new Error("no editor mounted");
+      act(() => {
+        live.dispatch({
+          changes: { from: live.state.doc.length, insert: text },
+          userEvent: "input.type",
+        });
+      });
+    },
     /** The parent re-rendering with whatever draft it is holding. */
     rerender: (next: { value: string }) => {
       state.value = next.value;
@@ -179,11 +212,18 @@ describe("two people typing in one note", () => {
       would be worse than saying which half is covered — the change path below
       exercises the same predicate through a real editor.
     */
-    expect(mayPersist({ shared: {}, canWrite: false })).toBe(false);
-    expect(mayPersist({ shared: {}, canWrite: true })).toBe(true);
+    expect(mayPersist({ bound: true, canWrite: false })).toBe(false);
+    expect(mayPersist({ bound: true, canWrite: true })).toBe(true);
     // No room: a note nobody else is in behaves exactly as it always did.
-    expect(mayPersist({ shared: null, canWrite: false })).toBe(true);
+    expect(mayPersist({ bound: false, canWrite: false })).toBe(true);
     expect(mayPersist(undefined)).toBe(true);
+    /*
+      **Bound, not merely present.** This asked about `shared` — the document
+      object, which `usePresence` creates the moment the hook runs and before
+      any socket connects — so a client whose editor was not wired to that
+      document at all was still silenced by it. For an empty note the editor
+      never got wired, so the answer was "do not persist" forever.
+    */
   });
 
   test("only the elected writer marks the note unsaved", () => {
@@ -208,5 +248,138 @@ describe("two people typing in one note", () => {
     expect(reader.text()).toContain("note!");
     writer.unmount();
     reader.unmount();
+  });
+});
+
+/**
+ * THE NOTE NOBODY HAD TYPED IN YET.
+ *
+ * Every check above seeds the document before mounting, so the binding goes up
+ * on the first render and the tests are about what happens afterwards. The
+ * product does not always produce that shape: two people open a **new, empty**
+ * note, which is exactly what somebody does to try this feature out.
+ *
+ * An empty note seeds to an empty document, so `room.text.length > 0` is never
+ * true, so the binding was never installed — and everything hanging off it went
+ * with it:
+ *
+ *  - nobody's keystrokes reached the room, because CodeMirror was never wired
+ *    to the shared text;
+ *  - no remote caret was drawn, because `setCaretDocument` is dispatched by the
+ *    same `bind()`;
+ *  - and the client that was not elected to save had its `onChange` dropped by
+ *    `mayPersist` — which was asking whether a room *object exists* rather than
+ *    whether this editor is actually bound to one — so its typing reached
+ *    neither the room nor the bucket. It sat on the glass until the tab closed.
+ *
+ * "No carets, and my typing did not sync," reported from two browsers, is all
+ * three of those at once.
+ */
+describe("two people in a note that is still empty", () => {
+  test("what I type reaches the room, with nothing to seed from", () => {
+    /*
+      Typed through CodeMirror rather than into the `Y.Text`, which is the only
+      version of this check that can fail: an insert into the document behind
+      an editor reaches every peer whether or not that editor was ever wired to
+      it. Nobody's *keystroke* did, and a note two people had open collected
+      one person's typing and threw the other's away.
+    */
+    let theirs: ReturnType<typeof createSharedDoc>;
+    const yours = createSharedDoc({ onLocalUpdate: (u) => theirs.applyRemote(u) });
+    theirs = createSharedDoc({ onLocalUpdate: (u) => yours.applyRemote(u) });
+    // No `seedSharedDoc`: the note is new, so the seed is the empty string and
+    // the room holds nothing. The room has still spoken — that is `settled`.
+    const mine = editor({ shared: yours, canWrite: true, value: "", settled: true });
+
+    mine.type("hello");
+
+    expect(theirs.text.toString()).toContain("hello");
+    mine.unmount();
+  });
+
+  test("...and a peer's letters come back the other way", () => {
+    let theirs: ReturnType<typeof createSharedDoc>;
+    const yours = createSharedDoc({ onLocalUpdate: (u) => theirs.applyRemote(u) });
+    theirs = createSharedDoc({ onLocalUpdate: (u) => yours.applyRemote(u) });
+    const mine = editor({ shared: yours, canWrite: true, value: "", settled: true });
+
+    act(() => {
+      theirs.text.insert(0, "from them");
+    });
+
+    expect(mine.text()).toContain("from them");
+    mine.unmount();
+  });
+
+  test("the client that is not elected to save still types into the room", () => {
+    let theirs: ReturnType<typeof createSharedDoc>;
+    const yours = createSharedDoc({ onLocalUpdate: (u) => theirs.applyRemote(u) });
+    theirs = createSharedDoc({ onLocalUpdate: (u) => yours.applyRemote(u) });
+
+    const writer = editor({ shared: yours, canWrite: true, value: "", settled: true });
+    const reader = editor({ shared: theirs, canWrite: false, value: "", settled: true });
+
+    reader.type("from the reader");
+
+    // The elected writer sees it, which is what "collaboration works" means
+    // here: the reader's text reached the room and came back out.
+    expect(writer.text()).toContain("from the reader");
+    // ...and it is the writer, not the reader, who marks the note unsaved.
+    expect(writer.changes.length).toBeGreaterThan(0);
+    expect(reader.changes).toEqual([]);
+    writer.unmount();
+    reader.unmount();
+  });
+
+  test("a settled room holding nothing does not blank a note that is loaded", () => {
+    /*
+      The other half of `settledEmptyRoom`, and the half a sabotage sweep found
+      nothing checking.
+
+      "Settled" is the room's answer about itself, and binding on it alone would
+      trust it against the evidence: an editor showing a note, over a room that
+      says it holds none, is two parties disagreeing — and `bind()` resolves a
+      disagreement by making the room win, which here means replacing the
+      customer's note with an empty document and then saving that.
+
+      So the two are required together. A room with text binds on the text; a
+      room with none binds only over an editor that also has none, which is the
+      new note this whole block is about.
+    */
+    const shared = createSharedDoc({ onLocalUpdate: () => {} });
+    const mine = editor({ shared, canWrite: true, value: "a loaded note", settled: true });
+
+    expect(mine.text()).toContain("a loaded note");
+    // Unbound, so `value` is still the authority — which is what the editor
+    // did before any of this existed, and the correct behaviour for a room
+    // that cannot be reconciled with what is on screen.
+    act(() => {
+      mine.rerender({ value: "a loaded note, edited elsewhere" });
+    });
+    expect(mine.text()).toContain("a loaded note, edited elsewhere");
+    mine.unmount();
+  });
+
+  test("the room has not answered yet, so the note on the glass is still the note", () => {
+    /*
+      The other half of the same seam, and the reason `settled` is a signal from
+      the room rather than "is the document empty".
+
+      Before the room answers, an empty shared document is indistinguishable
+      from a room that holds nothing — so binding on emptiness alone would bind
+      to a document the room is about to replace, and the seed arriving a moment
+      later would insert the note a second time. So while the room is silent the
+      `value` prop stays the authority, exactly as it was before any of this
+      existed.
+    */
+    const shared = createSharedDoc({ onLocalUpdate: () => {} });
+    const mine = editor({ shared, canWrite: true, value: "", settled: false });
+
+    act(() => {
+      mine.rerender({ value: "the note, arriving from the bucket" });
+    });
+
+    expect(mine.text()).toContain("the note, arriving from the bucket");
+    mine.unmount();
   });
 });

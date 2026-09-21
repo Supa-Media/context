@@ -214,6 +214,14 @@ export interface LiveEditorProps {
     report: (anchor: number, head: number) => void;
     /** The document this room shares, once it has one. */
     shared: SharedDoc | null;
+    /**
+     * Whether the room has told this client everything it holds for this note.
+     *
+     * The editor needs it because an empty shared document is ambiguous: a
+     * brand-new note and a room that has not replied yet look the same from
+     * the document alone. See `usePresence`, and the binding effect below.
+     */
+    settled?: boolean;
     /** Whether this client is the one that writes to the bucket. */
     canWrite: boolean;
   };
@@ -590,6 +598,24 @@ export function LiveEditor({
    * selection and the undo history left alone.
    */
   const collab = useRef(new Compartment());
+  /**
+   * The room this editor is **actually wired to**, or `null`.
+   *
+   * Not the same fact as `presence.shared`, which is non-null from the moment
+   * the hook runs and says only that a document object exists. This says
+   * `yCollab` is installed: a keystroke here becomes an update everybody else
+   * applies, and the room — not `value` — is the authority for the text.
+   *
+   * Both of the gates that used to read `presence.shared` read this instead,
+   * because both are really asking "is somebody else coordinating this
+   * editor?" and the unbound answer to that is no. Getting it wrong costs a
+   * note: with an empty document that never bound, `mayPersist` silenced every
+   * client but the elected writer, and the `value` effect stood down over a
+   * binding that was never installed.
+   */
+  const bound = useRef<SharedDoc | null>(null);
+  /** Re-run the binding attempt when the room settles without any text. */
+  const bindIfWaiting = useRef<(() => void) | null>(null);
   const colors = useColors();
 
   /**
@@ -763,7 +789,7 @@ export function LiveEditor({
             `canWrite` is true when there is no room at all, which is what
             keeps a note nobody else is in behaving exactly as it always did.
           */
-          if (!mayPersist(presenceRef.current)) return;
+          if (!mayPersist({ bound: bound.current, canWrite: presenceRef.current?.canWrite === true })) return;
           handlers.current.onChange(text);
         },
         onSave: () => {
@@ -778,7 +804,7 @@ export function LiveEditor({
             being saved by somebody else, so the right behaviour is to do
             nothing rather than to save a duplicate.
           */
-          if (!mayPersist(presenceRef.current)) return;
+          if (!mayPersist({ bound: bound.current, canWrite: presenceRef.current?.canWrite === true })) return;
           handlers.current.onSave();
         },
       },
@@ -1077,6 +1103,7 @@ export function LiveEditor({
     if (current === null || path === shownPath.current) return;
     shownPath.current = path;
     unbind(current, collab.current);
+    bound.current = null;
     latestValue.current = value;
     /*
       Compared rather than written unconditionally, because a path can change
@@ -1129,6 +1156,8 @@ export function LiveEditor({
     const shared = presence?.shared ?? null;
     if (current === null) return;
     unbind(current, collab.current);
+    bound.current = null;
+    bindIfWaiting.current = null;
     if (shared === null) return;
     /*
       The same object under a name the closures below can keep: a hoisted
@@ -1151,6 +1180,7 @@ export function LiveEditor({
       if (!waiting || live === null) return;
       waiting = false;
       stopWatching();
+      bound.current = room;
       const roomText = room.text.toString();
       if (roomText !== live.state.doc.toString()) {
         latestValue.current = roomText;
@@ -1178,18 +1208,71 @@ export function LiveEditor({
       if (room.text.length > 0) bind();
     }
 
-    if (room.text.length > 0) {
+    /*
+      **An empty room is not always a room that has not spoken.**
+
+      The rule used to be "bind once the document has text", which is right for
+      the hazard it was written against — binding an editor that is showing a
+      note to a room that does not hold it yet means the seed arrives as an
+      insert at 0 of text already on screen, and the note contains itself twice.
+
+      It is wrong for a note that is **empty**, which is what two people open to
+      try this feature out. The seed is the empty string, the document never
+      gets text, and the binding never went up: no keystroke of anybody's
+      reached the room, `setCaretDocument` was never dispatched so no peer's
+      caret could be drawn, and the client that was not elected to save had its
+      typing dropped by `mayPersist`. "No carets, and my typing did not sync."
+
+      So the condition is text **or** a room that has said it holds none —
+      which `usePresence` reports as `settled`, and which is exactly the fact
+      the document alone could not carry. The old hazard is still refused: a
+      settled room that is empty under an editor that is *not* keeps waiting,
+      because those two disagree and the room losing is how a loaded note gets
+      blanked.
+    */
+    const settledEmptyRoom = () =>
+      presence?.settled === true && current.state.doc.length === 0;
+
+    if (room.text.length > 0 || settledEmptyRoom()) {
       bind();
     } else {
       watching = true;
       room.text.observe(onSeeded);
+      /*
+        And the same attempt again when the room settles, which arrives as a
+        prop rather than as a change to the document. Held in a ref so the
+        settle does not tear this effect down and rebuild the binding — see
+        the header on why swapping a `yCollab` in place is not safe.
+      */
+      bindIfWaiting.current = () => {
+        if (settledEmptyRoom()) bind();
+      };
     }
 
     return () => {
       waiting = false;
       stopWatching();
+      bindIfWaiting.current = null;
     };
+    // `presence?.settled` is read through `bindIfWaiting` by the effect below
+    // rather than listed here: naming it would tear down and rebuild a live
+    // binding every time the room settles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presence?.shared]);
+
+  /*
+    The room settling, into a binding that was waiting for it.
+
+    Separate from the effect above because the two have different jobs: that
+    one owns the binding's life, and this one is a single retry of the
+    condition it stalled on. Folding them together would mean listing
+    `settled` in those dependencies, which tears down a working binding and
+    builds another — and `ySync` is a module-level plugin, so the rebuild is
+    the stale-room bug the effect above was written to close.
+  */
+  useEffect(() => {
+    bindIfWaiting.current?.();
+  }, [presence?.settled]);
 
   /*
     The roster, into the editor.
@@ -1245,7 +1328,14 @@ export function LiveEditor({
       whatever it held before the room existed.
     */
     latestValue.current = value;
-    if (presenceRef.current?.shared) return;
+    /*
+      **Bound, not merely present.** This read `presence.shared`, which exists
+      from the moment the hook runs — so the note arriving from the bucket was
+      being refused by a room that had not answered, and on an empty note (or a
+      deployment with no presence binding at all) by one that never would.
+      `bound` is the question this was always asking.
+    */
+    if (bound.current) return;
 
     // Not an edit — a different note, a discarded draft, a resolved conflict —
     // and not an entry in the undo history either, or the bar's undo key steps

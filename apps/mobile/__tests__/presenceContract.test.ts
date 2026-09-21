@@ -361,6 +361,34 @@ describe("what the room sends, the client reads", () => {
     }
   });
 
+  test("a peer with nothing to add still answers, because the answer is the signal", () => {
+    /*
+      Two people opening a **new** note is a room where nobody has anything to
+      send: the log is empty, the seed is the empty string, and the peer's diff
+      against the joiner's state vector is nothing at all.
+
+      That reply is load-bearing anyway, and it is pinned here because nothing
+      was pinning it. It is the only acknowledgement a joiner receives that the
+      room has told it everything it holds — `usePresence` turns it into
+      `settled`, which is what lets an editor bind to a document that is empty
+      because the note is new rather than because the room has not spoken. A
+      later "do not send a frame with nothing in it" would look like a saving
+      and would leave two people in a new note with no carets and no syncing,
+      which is precisely the shape this feature has failed in before.
+
+      Both halves: the answer comes back, and applying it changes nothing.
+    */
+    const peer = createSharedDoc({});
+    const joiner = createSharedDoc({});
+
+    const answer = answerStateVector(encodeSyncStep1(joiner.doc), peer.doc);
+    expect(answer.kind).toBe("reply");
+    if (answer.kind === "reply") {
+      readSyncMessage(answer.payload, joiner.doc, "remote");
+      expect(joiner.markdown()).toBe("");
+    }
+  });
+
   test("a save announces a version, and the version is what comes back", () => {
     /*
       The console saves through the control plane rather than through the
