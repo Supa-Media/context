@@ -102,11 +102,25 @@ jobs:
           ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
           STORAGE_SECRET_ENCRYPTION_KEY: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY }}
           STORAGE_SECRET_ENCRYPTION_KEY_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_ID }}
+          # The key being rotated out, and its id. Both absent is the ordinary
+          # state; during a rotation they are what lets envelopes written under
+          # the old key still decrypt while `rekeyStorageBindings` moves them
+          # forward. Here so that putting the outgoing key on the deployment is
+          # the same GitHub edit as every other secret rather than a visit to
+          # the Convex dashboard — clearing them afterwards is still a manual
+          # `convex env remove`, because this workflow never unsets anything.
+          STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS }}
+          STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           # The From: address on sign-in codes and invitations. Missing from this
           # list until 2026-09-05, so it was the one Convex variable the deploy
           # did not keep in step with GitHub.
           AUTH_EMAIL_FROM: ${{ secrets.AUTH_EMAIL_FROM }}
+          # The From: address on form notifications, separate from AUTH_EMAIL_FROM
+          # so an operator can give them their own subdomain and reputation.
+          # Absent is a working state: `functions/formNotify.ts` falls back to
+          # forms@context.lc, which has to be a domain Resend will send for.
+          FORM_NOTIFY_EMAIL_FROM: ${{ secrets.FORM_NOTIFY_EMAIL_FROM }}
           APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
@@ -169,7 +183,10 @@ jobs:
           synced=""
           skipped=""
           for var in GATEWAY_SECRET ADMIN_EMAILS AUTH_EMAIL_FROM \
+                     FORM_NOTIFY_EMAIL_FROM \
                      STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
+                     STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS \
+                     STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
                      RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET \
                      DROPBOX_APP_KEY DROPBOX_APP_SECRET \
                      GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
