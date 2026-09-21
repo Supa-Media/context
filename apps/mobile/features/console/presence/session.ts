@@ -46,6 +46,13 @@ export interface PresenceState {
    * header counts it as "2 here" — so your own authority is nowhere in it. It
    * arrives on your own entry in the welcome roster and was being dropped on
    * the floor by the filter below, which is what made every save impossible.
+   *
+   * The resets on `open` and `dropped` cannot be observed today and are kept
+   * anyway: this field is only ever read on the `live` branch of
+   * `savesToBucket`, and the one action that reaches `live` carrying an
+   * identity is the welcome frame, which recomputes it. Deleting either reset
+   * measures nothing — that is a fact about the current transitions, not a
+   * spare line, and it stops being true the moment another action sets `you`.
    */
   youCanWrite: boolean;
   members: PresenceMember[];
@@ -242,8 +249,28 @@ export function presenceSummary(state: PresenceState): string {
  * conflict, because whoever was elected may still be saving; not saving costs
  * the work. A conflict is the one of those two a person can see and recover
  * from.
+ *
+ * ## AND `live` IS NOT ONE STATE — THE SOCKET OPENING IS NOT THE ROOM NAMING YOU
+ *
+ * `connected` fires from `live.onopen` and sets `phase: "live"` before any
+ * frame arrives, so with `you: null` and `youCanWrite: false`. Asking only
+ * about the phase therefore took the live branch while this client had no id
+ * and no roster, `electWriter` refused for want of anybody to elect, and the
+ * editor saved nothing — the same sentence this function exists to delete,
+ * reached by a different route, on every first connect and every reconnect.
+ *
+ * Nobody is coordinating this client in that window either: it is not in
+ * anyone's roster and no election has named it. So the escape hatch asks the
+ * question it means — **has the room named me?** — rather than a proxy for it.
+ * `you` is the room's own answer, set only by the welcome frame and cleared by
+ * `open` and `dropped`.
  */
 export function savesToBucket(state: PresenceState): boolean {
-  if (state.phase !== "live") return true;
+  // `state.you === null` alone would behave identically today, because `you`
+  // is non-null only on the `live` branch. Both clauses are kept because they
+  // say the two different things this is actually asking — is there a room,
+  // and has it named me — and only the pair survives a new transition that
+  // carries one without the other.
+  if (state.phase !== "live" || state.you === null) return true;
   return electWriter(state.you, state.youCanWrite, state.members);
 }

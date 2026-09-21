@@ -242,6 +242,10 @@ export function electWriter(
   youCanWrite: boolean,
   members: { id: string; canWrite: boolean }[],
 ): boolean {
+  // The `you === null` half is unmeasurable and deliberate: `isWriter` opens
+  // with the same check, and `savesToBucket` never reaches here with a null
+  // `you`. It stays because this function is exported and pure, so a caller
+  // that is not `savesToBucket` is the case it is written for.
   if (you === null || !youCanWrite) return false;
   return isWriter(
     you,
