@@ -44,6 +44,9 @@
  *   the client's registered name consulted before the verified handle           2
  *   `kind === "personal"` dropped (a workspace slug labels a person)             2
  *   the slug clause dropped (an absent handle becomes `@null`)                   1
+ *   `roomKey` drops the PATH (one room per workspace)                       0 -> 3
+ *   `roomKey` drops the WORKSPACE (one room per path, across tenants)       1 -> 3
+ *   `roomKey` drops the percent-encoding                                    1 -> 3
  *
  * The first two of those four share a fixture and therefore share their failures: the
  * team connection's client is registered as `@presencetest`, the host's own
@@ -75,6 +78,33 @@
  * checks across this suite already depended on `/presence` naming a route
  * rather than a workspace, which is what it looks like when a name is load
  * bearing before anybody writes a test for it by that name.
+ *
+ * ## The room-key zero, a second time, one axis over
+ *
+ * The three `roomKey` rows were added 2026-09-21 and the first of them was
+ * **0**. `roomKey` had three checks and all three varied the *workspace*:
+ * two tenants, a delimiter collision between two tenants, and stability. None
+ * said that **two notes in one workspace are two different rooms**, so a key
+ * that had stopped naming the note passed everything.
+ *
+ * That matters here more than the arithmetic suggests. `/presence` authorizes
+ * a **path** — `canSee` on it, then `objectExists` on it — and then enters
+ * `roomKey(workspaceId, notePath)`. The path in the key is the only thing that
+ * makes the note it authorized and the room it joined the same note. Without
+ * it a team-tier caller cleared for a team note is handed the live text of a
+ * private one somebody is typing in: the `canSee`-at-join bound non-negotiable
+ * #2 names, defeated by the key rather than by the check.
+ *
+ * The other two rows moved 1 -> 3 for a reason worth keeping: every check on
+ * this function called `roomKey` on **both sides**, so it was its own oracle
+ * and a change to it moved the expectation with it. One literal — here, and
+ * one on the route — is what makes the self-comparisons mean anything.
+ *
+ * 🔎 So this is the same lesson as the row above it, one axis over: that zero
+ * was *every tenancy check varied the token*; this one is *every room-key
+ * check varied the workspace*. **A suite is uniform in whatever its author was
+ * not thinking about, and what they were not thinking about is named by the
+ * thing they were.** Both were found by sabotage and neither by reading.
  */
 
 import worker from "../src/index.js";
@@ -252,8 +282,33 @@ export async function runPresenceChecks(check) {
     roomKey("ws_a", "b/1.md") !== roomKey("ws_a/b", "1.md"),
   );
   check(
+    "two notes in one workspace are two different rooms",
+    // THE AXIS THE THREE CHECKS AROUND THIS ONE DO NOT COVER, and the one the
+    // join leans on hardest. `/presence` authorizes a *path* — `canSee` on it,
+    // then `objectExists` on it — and then enters `roomKey(workspaceId,
+    // notePath)`. Those two only describe the same note because the path is in
+    // the key. Drop it and every note in a workspace shares one room, so a
+    // team-tier caller authorized for a team note is handed the live text of a
+    // private one somebody is typing in — the `canSee`-at-join bound
+    // non-negotiable #2 names, defeated by the key rather than by the check.
+    //
+    // Measured: dropping the path from `roomKey` failed 0 of 4,120 checks.
+    // The neighbours all vary the workspace, because two tenants in one room
+    // is the failure this module expected to be remembered for.
+    roomKey("ws_a", "1-projects/foo.md") !== roomKey("ws_a", "1-projects/bar.md"),
+  );
+  check(
     "a room key is stable for the same pair",
     roomKey("ws_a", "1-projects/foo.md") === roomKey("ws_a", "1-projects/foo.md"),
+  );
+  check(
+    "a room key is both halves, spelled out rather than asked for",
+    // Every other check here calls `roomKey` on both sides, so the function is
+    // its own oracle: any change to it moves the expectation with it, and a
+    // key that had quietly stopped naming one of its inputs would still be
+    // "equal to itself". One literal is what makes the rest of them mean
+    // something.
+    roomKey("ws_a", "1-projects/foo.md") === "ws_a/1-projects%2Ffoo.md",
   );
 
   /* -- a frame from a client is hostile until parsed ---------------------- */
@@ -1459,6 +1514,15 @@ export async function runPresenceChecks(check) {
     check(
       "the room addressed is the one the session's workspace names",
       rooms.calls.at(-1)?.name === roomKey("ws_presence", "1-projects/roadmap.md"),
+    );
+    check(
+      "and it is the room for the note that was authorized, spelled out",
+      // Written as a literal on purpose. The check above compares the room the
+      // route entered against `roomKey` called with the same arguments, so it
+      // holds however `roomKey` is spelled — including a spelling that drops
+      // the note. This route authorizes one path and joins one room, and
+      // nothing else in this file says those are the same path.
+      rooms.calls.at(-1)?.name === "ws_presence/1-projects%2Froadmap.md",
     );
 
     const member = JSON.parse(rooms.calls.at(-1)?.member || "null");
