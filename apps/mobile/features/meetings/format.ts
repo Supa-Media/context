@@ -321,12 +321,33 @@ export function sourceLabel(source: MeetingSource): string {
  */
 export function meetingBadge(
   meeting: MeetingSession,
+  /**
+   * Whether anything is ever going to send this meeting, as the *caller*
+   * already knows it.
+   *
+   * A session refused by the gateway stays `finalizing` — the refusal lives on
+   * the record, beside the session, and this function is handed the session.
+   * So the list read "Finalizing", in the warning tone, over a meeting that was
+   * parked permanently and spelled identically to one a second from landing.
+   * The console panel told the same lie in sentence form; this is it in two
+   * words, on the screen somebody scans to check whether anything is wrong.
+   *
+   * Passed rather than derived, because deriving it needs the record and this
+   * is the session's own vocabulary. `meetingNeedsAttention` (`landing.ts`) is
+   * the one place that question is answered, and this takes its answer rather
+   * than forming a second opinion.
+   */
+  options: { stranded?: boolean } = {},
 ): { label: string; tone: "warn" | "crit" | "neutral" } | null {
   if (meeting.state === "failed") {
     return { label: meeting.failureReason ? `Failed — ${meeting.failureReason}` : "Failed", tone: "crit" };
   }
   if (meeting.state === "empty") return { label: "Nothing captured", tone: "neutral" };
-  if (meeting.state === "finalizing") return { label: "Finalizing", tone: "warn" };
+  if (meeting.state === "finalizing") {
+    return options.stranded === true
+      ? { label: "Not saved", tone: "crit" }
+      : { label: "Finalizing", tone: "warn" };
+  }
   if (meeting.state === "complete") return null;
   return { label: "Draft", tone: "warn" };
 }

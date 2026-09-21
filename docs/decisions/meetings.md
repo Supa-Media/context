@@ -4276,3 +4276,89 @@ than three fixes: one attach/detach helper that owns a subscription set, or a
 check that every subscription taken in this subsystem is released. That is a
 larger change than the pull request making this note, and it is proposed here
 rather than built.
+
+### A meeting that stops saves itself, and says so where somebody is looking (2026-09-21)
+
+**Reverses "a note the person never agreed was over"**, decided by the owner
+after losing one: *"if a meeting ever stops it should IMMEDIATELY be saved, no
+button press needed"*, and *"it should be very LOUD and dramatic if something
+went wrong so the user can resume/restart"*.
+
+**What was lost, and how.** A 31-minute meeting, ended normally. The gateway
+*accepted* the finalize and answered with no note path — a real state, "I have
+it, the bucket does not yet", while an enhancement runs. That ack sets
+`acked.finalized`, so `pendingSteps` correctly offers no finalize step, and
+`sync.ts` recorded that the path "arrives through the list". Nothing in this app
+has ever called `gateway.list()`. The only thing left that could ask again was
+`recoverStaleFinalizes`'s retry branch, and it went through `retrySync`, which
+returns the record **unchanged** when there is no `rejection`. Ten minutes of
+nothing, ten more, then `failed` — parked forever, with the words on the device
+and a note that may well have been written. The console panel's one flat
+sentence about it was the last link in the chain, not the defect.
+
+So: `reopenFinalize` is the one place that question is asked, and it clears the
+ack. `retryFinalize` already had that half and said in its own header that
+without it the method "does nothing at all in the case it exists for"; the
+automatic retry beside it never got it. **Two callers of one question is the
+shape of this defect**, and the rule it leaves behind is that a recovery path
+and the button beside it are the same function or they will drift.
+
+**Why `fail` became `end` for an interrupted recording.** The old argument was
+symmetrical-sounding and is not: *finalizing unasked writes a note the person
+never agreed was over* versus *parking it leaves a meeting reachable by
+nothing*. A note is editable, movable and deletable the moment it lands, and it
+is in the customer's own storage where every other thing they own already is. A
+parked meeting is behind a Retry nobody knew to press. The costs are not
+comparable, and the reported failure is the second one. The other half of the
+old argument — "a meeting merely interrupted may well continue" — is answered by
+*resuming* the meeting, not by withholding the note in the meantime.
+
+This is strictly better for the offline case, which was not the point but is
+worth recording: `sync()` already holds a `finalizing` meeting while its audio
+is on the device, so a recording killed with nothing but audio on disk now waits
+for its words and is filed **with** them. Under `failed` that same audio landed
+in a session nothing was ever going to file.
+
+**`interrupted` is client-local and is never written into the note.** "Your
+phone restarted" is a fact about our software on a particular evening, not about
+somebody's meeting, and they should not have to delete it out of their own file.
+The app says it; the note does not.
+
+**Loud is a bar, not a toast, and it has no dismiss.** `Toast` is eight seconds,
+tuned for an undo somebody is already looking at. A meeting that did not save is
+still not saved eight seconds later, and a notice that removes itself can be
+missed by being in another room. `StrandedBar` is up while the meeting is
+stranded and goes when it is filed or discarded — the two things that make it
+untrue. **The Retry is on the bar itself**: the whole failure is a person who
+did not know there was anything to press, and putting the press three screens
+behind a notice is the same bug with a sentence in front of it.
+
+It stands down while anything is recording. `RecordingBar` holds that exact slot
+and `zIndex` cannot arbitrate between two stacking contexts — and somebody
+recording *now* is the one person who must not be pulled away from it. A meeting
+that failed an hour ago will still have failed when they stop.
+
+**What "stranded" means is derived, not re-decided.** `meetingNeedsAttention` is
+`meetingLanding(record)?.retry != null` — "somebody has to do something" and
+"there is something for them to do" are the same fact. A meeting on its way is
+not stranded, or the bar would be up after every meeting anybody records; a
+session that captured nothing is not stranded either, because nothing was lost.
+The list badge takes the same answer: a refused meeting keeps `finalizing`, so
+the list used to spell it "Finalizing" in the warning tone, identical to one a
+second from landing.
+
+**What a "simplification" would cost.** Reading `stranded` as "has no note path"
+puts the bar up after every recording and teaches people to ignore it. Routing
+both Retries to `meetings.retry` sends a sync retry at a finalize that never
+completed. Dropping the stand-down draws two bars in one 66pt of glass. Going
+back to `retrySync` in the recovery path restores the defect this section
+opens with, and the check that fails is `the retry actually asks the gateway
+again, rather than stamping a clock`.
+
+**Still open, and deliberately a separate change:** resuming a meeting into the
+same note. The client state table allows `failed -> recording` and nothing emits
+it; the gateway short-circuits a finalize on an already-complete session rather
+than rewriting the claimed path, which is what keeps a crash-retry from forking
+somebody's bucket into near-duplicates. Continuing a meeting therefore needs a
+way to tell a retry from a continuation, and that is a gateway decision with the
+customer's bucket on the other side of it.
