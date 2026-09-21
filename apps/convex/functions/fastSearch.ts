@@ -352,6 +352,75 @@ export const enable = mutation({
  * the R2 index the instant `optedIn` goes false, so nothing here is on a
  * person's critical path.
  */
+/**
+ * Release this context's projection because its **storage** went away.
+ *
+ * ## Why the opt-out is not the only door
+ *
+ * A row with a `databaseId` names a real, billed D1 database holding this
+ * context's notes — titles, headings, tags, body chunks. `disable` releases it
+ * when somebody turns the feature off and the account cascade releases it when
+ * the workspace is deleted, and both of those were written down as the complete
+ * set. They were not: **disconnecting storage** deletes the credential row and
+ * left the projection where it was, so a customer who revoked our key still had
+ * a copy of their notes on our infrastructure with nothing pointing at it.
+ * That is the outcome the opt-out exists to prevent, reached by a door nobody
+ * had checked, and non-negotiable #1 is what makes it a defect rather than
+ * untidiness.
+ *
+ * A **rebind onto different storage** is the same fact arriving differently:
+ * the projection describes a bucket this workspace is no longer bound to, so
+ * it is stale as well as retained, and searching it answers out of somewhere
+ * the person has moved away from. Its caller decides which rebinds are that —
+ * a repair onto the same bucket keeps what it has, or rotating an access key
+ * would cost a re-provision every time.
+ *
+ * ## It opts out, and that is deliberate rather than incidental
+ *
+ * `releaseIndex` refuses a row that is still `optedIn`, correctly: a release in
+ * flight must not delete a database the provisioner is rebuilding. So a release
+ * means opting out, and somebody reconnecting storage turns fast search back on
+ * themselves. Keeping the switch on through a disconnect would mean either
+ * re-provisioning against a bucket that is not there, or teaching the release
+ * path to ignore the flag that protects it.
+ *
+ * Internal, and no role check of its own: both callers are owner-gated
+ * mutations that have already established who is asking. The audit line is
+ * theirs too — this records nothing, because "storage was disconnected" is the
+ * event, and a second row saying the index went with it would be bookkeeping
+ * about bookkeeping.
+ */
+export const releaseForStorage = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ releasing: v.boolean() }),
+  handler: async (ctx, args): Promise<{ releasing: boolean }> => {
+    const existing = await bindingFor(ctx, args.workspaceId);
+    if (existing === null) return { releasing: false };
+
+    if (
+      existing.generation !== FAST_SEARCH_GENERATION ||
+      existing.databaseId === undefined
+    ) {
+      // Nothing was ever created, so there is nothing to delete and the row is
+      // a tombstone rather than a pointer. Same branch `disable` takes.
+      await ctx.db.delete(existing._id);
+      return { releasing: false };
+    }
+
+    await ctx.db.patch(existing._id, {
+      optedIn: false,
+      status: "releasing",
+      updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.fastSearchProvision.releaseIndex,
+      { workspaceId: args.workspaceId },
+    );
+    return { releasing: true };
+  },
+});
+
 export const disable = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ state: stateValidator }),

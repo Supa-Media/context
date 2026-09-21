@@ -53,6 +53,7 @@ import type { Id } from "../_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
+import { storageMoved } from "./storage";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import {
   createPkcePair,
@@ -681,6 +682,22 @@ export const applyDropboxBinding = internalMutation({
       boundBy: args.boundBy,
       updatedAt: now,
     };
+
+    /*
+      And the projection of the notes, when the notes have moved.
+
+      Same rule `applyBinding` applies on the S3 side, and the same reason: the
+      search index is a D1 database holding this context's note text, and
+      pointed at a different Dropbox account it answers out of somewhere the
+      person has left. A reconnect onto the *same* account is a repair —
+      `dropboxAccountId` is what tells the two apart, which is what the
+      revocation above already uses it for.
+    */
+    if (storageMoved(existing, fields)) {
+      await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
+        workspaceId: args.workspaceId,
+      });
+    }
 
     if (existing === null) {
       return ctx.db.insert("storageBindings", { ...fields, createdAt: now });
