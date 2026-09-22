@@ -318,6 +318,7 @@ export async function resolveSession(token, slug, controlPlane) {
   // removed — two answers to one question, which is the shape of every
   // privilege bug in this neighbourhood.
   const scopes = effectiveScopes(session.scopes, workspace.role);
+  const grantedGroups = new Set(workspace.grantedNames.map((name) => `@${name}`));
   const resolvedSession = {
     grantId: session.grantId,
     workspaceId: workspace.workspaceId,
@@ -337,6 +338,7 @@ export async function resolveSession(token, slug, controlPlane) {
     actorClientName:
       typeof session.clientName === "string" && session.clientName ? session.clientName : null,
     scopes,
+    grantedGroups,
     /**
      * The grant's own scopes, before this workspace's role clamped them, and
      * the set of contexts this connection may address.
@@ -418,6 +420,7 @@ export function sessionForContext(session, name) {
     role: covered.role,
     scope: visibilityTierForGrant(scopes, covered.role),
     scopes,
+    grantedGroups: new Set((covered.grantedNames || []).map((name) => `@${name}`)),
   };
   Object.defineProperty(sibling, "accessToken", {
     value: session.accessToken,
@@ -468,7 +471,22 @@ function normalizeSession(raw) {
     if (typeof entry.role !== "string" || !entry.role) throw fail();
     const kind = entry.kind === "shared" ? "shared" : "personal";
     const slug = typeof entry.slug === "string" ? entry.slug.toLowerCase() : null;
-    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind };
+    const rawGrantedNames = entry.grantedNames;
+    if (
+      rawGrantedNames !== undefined &&
+      (!Array.isArray(rawGrantedNames) || rawGrantedNames.some((name) => typeof name !== "string"))
+    ) {
+      throw fail();
+    }
+    const grantedNames = (rawGrantedNames || []).map((name) => {
+      // Convex returns the stored name without `@`; accepting the decorated
+      // form here keeps this boundary compatible with older gateway fixtures,
+      // while the set consumed by privacy always has the exact `@name` form.
+      const normalizedName = name.trim().replace(/^@/, "").toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalizedName)) throw fail();
+      return normalizedName;
+    });
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   return {

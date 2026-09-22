@@ -193,6 +193,7 @@ export function createControlPlaneStub(options = {}) {
     clientName = null,
     userId = "user_test",
     alsoMemberOf = [],
+    grantedNamesByWorkspace = {},
     expiresAt,
   }) {
     const grantId = `grant_${++grantCounter}`;
@@ -205,6 +206,7 @@ export function createControlPlaneStub(options = {}) {
       clientName,
       userId,
       alsoMemberOf,
+      grantedNamesByWorkspace,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
     });
@@ -236,12 +238,22 @@ export function createControlPlaneStub(options = {}) {
    * that is not in the set.
    */
   function coveredContexts(grant) {
+    const namesFor = (workspaceId) => {
+      // Match Convex: only the first-party console grant receives live group
+      // names. Ordinary OAuth and pinned reach carry no such authority.
+      if (grant.clientId !== "context_console") return undefined;
+      const names = grant.grantedNamesByWorkspace?.[workspaceId];
+      return Array.isArray(names) ? [...names] : [];
+    };
     const rows = [
       {
         workspaceId: grant.workspaceId,
         slug: workspaces.get(grant.workspaceId)?.slug ?? null,
         role: grant.role,
         kind: workspaces.get(grant.workspaceId)?.kind ?? "personal",
+        ...(namesFor(grant.workspaceId) === undefined
+          ? {}
+          : { grantedNames: namesFor(grant.workspaceId) }),
       },
     ];
     for (const membership of grant.alsoMemberOf || []) {
@@ -251,6 +263,9 @@ export function createControlPlaneStub(options = {}) {
         slug: workspaces.get(membership.workspaceId)?.slug ?? null,
         role: membership.role ?? "member",
         kind: workspaces.get(membership.workspaceId)?.kind ?? "personal",
+        ...(namesFor(membership.workspaceId) === undefined
+          ? {}
+          : { grantedNames: namesFor(membership.workspaceId) }),
       });
     }
     return rows;
