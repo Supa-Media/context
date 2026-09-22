@@ -609,12 +609,22 @@ export async function runPresenceChecks(check) {
     const sent = [];
     const closed = [];
     let attachment = null;
+    let readyState = 1;
     return {
       sent,
       closed,
+      get readyState() {
+        return readyState;
+      },
+      setReadyState(value) {
+        readyState = value;
+      },
       frames: () => sent.map((text) => JSON.parse(text)),
       send: (text) => sent.push(text),
-      close: (code, reason) => closed.push({ code, reason }),
+      close(code, reason) {
+        closed.push({ code, reason });
+        readyState = 3;
+      },
       serializeAttachment: (value) => {
         attachment = value;
       },
@@ -712,6 +722,62 @@ export async function runPresenceChecks(check) {
     check(
       "the room tells a client joining an occupied room not to seed",
       secondWelcome?.seed === false,
+    );
+
+    /* -------- closing sockets are not members after hibernation ---------- */
+
+    const reconnecting = fakeRoomRuntime();
+    const oldSocket = fakeSocket();
+    const firstTab = fakeSocket();
+    const secondTab = fakeSocket();
+    const attachedMember = (id) => ({
+      id,
+      name: "@bo",
+      color: "#123456",
+      canWrite: true,
+      seen: Date.now(),
+      deadline: Number.MAX_SAFE_INTEGER,
+    });
+    oldSocket.serializeAttachment(attachedMember("old-connection"));
+    firstTab.serializeAttachment(attachedMember("first-tab"));
+    secondTab.serializeAttachment(attachedMember("second-tab"));
+    // Cloudflare may retain this socket in getWebSockets() while completing
+    // the close handshake. Constructing the room object afterwards models a
+    // hibernation wake, when no in-memory closed-socket set survives.
+    oldSocket.setReadyState(2);
+    reconnecting.open.push(oldSocket, firstTab, secondTab);
+    const wokeRoom = new PresenceRoom(reconnecting.state, {});
+    const wokeRoster = roster(wokeRoom.roomFromSockets());
+    check(
+      "a closing socket retained across hibernation is absent from the rebuilt roster",
+      wokeRoster.length === 2 && wokeRoster.every((member) => member.id !== "old-connection"),
+    );
+    check(
+      "two open tabs belonging to the same person remain two legitimate members",
+      wokeRoster.map((member) => member.name).every((name) => name === "@bo") &&
+        new Set(wokeRoster.map((member) => member.id)).size === 2,
+    );
+    wokeRoom.broadcast({ t: "leave", id: "somebody-else" });
+    check(
+      "a closing socket retained by the runtime receives no later room frames",
+      oldSocket.sent.length === 0 && firstTab.sent.length === 1 && secondTab.sent.length === 1,
+    );
+    await wokeRoom.webSocketClose(oldSocket, 1000, "bye");
+    check(
+      "the close callback completes the closing handshake while the runtime still retains the socket",
+      oldSocket.closed.length === 1 && oldSocket.closed[0].code === 1000 &&
+        oldSocket.closed[0].reason === "bye" && reconnecting.open.includes(oldSocket) &&
+        !wokeRoom.roomFromSockets().members.has("old-connection"),
+    );
+
+    const erroredSocket = fakeSocket();
+    erroredSocket.serializeAttachment(attachedMember("errored-open-socket"));
+    reconnecting.open.push(erroredSocket);
+    await wokeRoom.webSocketError(erroredSocket);
+    check(
+      "a logically released socket is excluded even before readyState changes",
+      erroredSocket.readyState === 1 &&
+        !wokeRoom.roomFromSockets().members.has("errored-open-socket"),
     );
 
     // A room whose members have all gone but whose log has not yet been swept:

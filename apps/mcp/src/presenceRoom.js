@@ -195,7 +195,7 @@ export class PresenceRoom {
         caret at text somebody else wrote.
       */
       const seatedClients = new Set();
-      for (const ws of this.state.getWebSockets()) {
+      for (const ws of this.openSockets()) {
         const held = ws.deserializeAttachment();
         if (typeof held?.clientKey === "string" && held.clientKey) seatedClients.add(held.clientKey);
       }
@@ -691,7 +691,7 @@ export class PresenceRoom {
     // whose lease may outlive a revoked grant would leak new note content.
     const payload = JSON.stringify({ t: "committed", documentId, etag });
     let delivered = 0;
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (attachment?.collaborationVersion !== COLLABORATION_PROTOCOL_VERSION) continue;
       try {
@@ -768,7 +768,7 @@ export class PresenceRoom {
       return;
     }
     const candidates = [];
-    for (const peer of this.state.getWebSockets()) {
+    for (const peer of this.openSockets()) {
       if (peer === ws) continue;
       const held = peer.deserializeAttachment();
       if (
@@ -797,7 +797,7 @@ export class PresenceRoom {
       this.dropSocket(ws, CLOSE_REAUTHORIZE, "reauthorize");
       return;
     }
-    const seated = new Set(this.state.getWebSockets());
+    const seated = new Set(this.openSockets());
     const currentSender = ws.deserializeAttachment();
     if (
       this.closedLiveSockets.has(ws) || !seated.has(ws) || !currentSender ||
@@ -840,9 +840,19 @@ export class PresenceRoom {
     }
   }
 
-  async webSocketClose(ws) {
+  async webSocketClose(ws, code, reason) {
     this.cancelLiveRelay(ws);
     this.releaseSocket(ws);
+    // Before the 2026-04-07 compatibility behavior, Durable Objects had to
+    // answer the closing handshake themselves. Keep doing so explicitly: the
+    // runtime may continue returning a CLOSING socket from getWebSockets(),
+    // but it must not remain a member while that handshake completes.
+    try {
+      ws.close(code, reason);
+    } catch {
+      // Already closed, or a peer supplied a close code the platform will not
+      // echo. Membership was released above either way.
+    }
   }
 
   async webSocketError(ws) {
@@ -869,7 +879,7 @@ export class PresenceRoom {
     const now = Date.now();
     const room = this.roomFromSockets();
 
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (!attachment) continue;
       if (now > attachment.deadline) {
@@ -943,7 +953,7 @@ export class PresenceRoom {
   async askForSnapshotIfLong() {
     const entries = await this.state.storage.list({ prefix: "u:" });
     if (entries.size < UPDATE_LOG_CAP) return;
-    const sockets = this.state.getWebSockets();
+    const sockets = this.openSockets();
     if (sockets.length === 0) return;
     try {
       sockets[0].send(JSON.stringify({ t: "compact" }));
@@ -963,7 +973,7 @@ export class PresenceRoom {
    */
   roomFromSockets() {
     const room = createRoom();
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (!attachment || typeof attachment.id !== "string") continue;
       room.members.set(attachment.id, {
@@ -1041,7 +1051,7 @@ export class PresenceRoom {
   mergerSocket() {
     let best = null;
     let bestId = null;
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (!attachment || attachment.canWrite !== true) continue;
       // Legacy external merges are intentionally kept out of v2 rooms.  A v2
@@ -1061,7 +1071,7 @@ export class PresenceRoom {
     const text = JSON.stringify(message);
     const legacyDocumentFrame =
       message?.t === "y" || message?.t === "snap" || message?.t === "ask" || message?.t === "saved";
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       if (ws === except) continue;
       if (legacyDocumentFrame) {
         const attachment = ws.deserializeAttachment();
@@ -1101,7 +1111,7 @@ export class PresenceRoom {
    * reconnect within the window finds its document still here.
    */
   async dropLogIfEmpty() {
-    if (this.state.getWebSockets().length > 0) return false;
+    if (this.openSockets().length > 0) return false;
     const entries = await this.state.storage.list({ prefix: "u:" });
     if (entries.size === 0) return false;
     await this.state.storage.deleteAll();
@@ -1119,7 +1129,7 @@ export class PresenceRoom {
   }
 
   closeById(id, code, reason) {
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (attachment && attachment.id === id) {
         try {
@@ -1140,7 +1150,7 @@ export class PresenceRoom {
       cancels the sweep that would have deleted the log, and the note's content
       sits in Durable Object storage with nothing scheduled to ever remove it.
     */
-    if (this.state.getWebSockets().length === 0) {
+    if (this.openSockets().length === 0) {
       const entries = await this.state.storage.list({ prefix: "u:", limit: 1 });
       if (entries.size === 0) return;
     }
@@ -1148,6 +1158,20 @@ export class PresenceRoom {
     if (existing === null || existing === undefined) {
       await this.state.storage.setAlarm(Date.now() + PRESENCE_SWEEP_MS);
     }
+  }
+
+  /**
+   * Sockets that still represent seated members.
+   *
+   * Cloudflare may keep returning a socket from `getWebSockets()` while its
+   * close handshake is in the CLOSING state, including after this object has
+   * hibernated and lost its in-memory closed-socket set. WebSocket readyState
+   * is therefore the durable membership boundary; attachments alone are not.
+   */
+  openSockets() {
+    return this.state.getWebSockets().filter(
+      (ws) => ws?.readyState === 1 && !this.closedLiveSockets.has(ws),
+    );
   }
 }
 
