@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAction } from "convex/react";
-import { api } from "@context/convex/_generated/api";
 import { Button } from "../../design/components/Button";
 import { Card } from "../../design/components/Card";
 import { CenteredScroll } from "../../design/components/CenteredScroll";
@@ -11,6 +9,7 @@ import { Text } from "../../design/components/Text";
 import { clamp, fonts, leading, pointerType as t } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
+import { completeGoogleCallback } from "./completeGoogleCallback";
 import { parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
 
 export function GoogleCallbackScreen() {
@@ -24,7 +23,6 @@ export function GoogleCallbackScreen() {
     () => parseGoogleCallback(params),
     [params],
   );
-  const complete = useAction(api.functions.googleConnect.completeGoogleConnect);
   const router = useRouter();
   const colors = useColors();
   const { width } = useWindowDimensions();
@@ -44,13 +42,13 @@ export function GoogleCallbackScreen() {
     }
     void (async () => {
       try {
-        await complete({ state: callback.state, code: callback.code, completionSecret });
+        await completeGoogleCallback({ state: callback.state, code: callback.code, completionSecret });
         setStatus("done");
       } catch {
         setStatus("failed");
       }
     })();
-  }, [callback, complete]);
+  }, [callback]);
 
   const headline =
     callback.kind === "cancelled"
