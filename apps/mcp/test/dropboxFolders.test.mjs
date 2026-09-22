@@ -148,23 +148,25 @@ export async function runDropboxFolderChecks(check) {
       files.has("/2-areas/old/a.md") && files.has("/2-areas/old/deep/b.md")
     );
     check(
-      "...and no longer at the source, which every backend already did",
-      !files.has("/1-projects/old/a.md") && !files.has("/1-projects/old/deep/b.md")
+      "...and the old source paths are fenced by content-free retirement markers",
+      isLogicalDeleteMarker(files.get("/1-projects/old/a.md")?.body) &&
+        isLogicalDeleteMarker(files.get("/1-projects/old/deep/b.md")?.body)
     );
 
     /*
-      The bug, stated as the check that closes it. Before this, both of these
-      were still in the account — so `list` reported them, the console drew
-      them, and the customer's Dropbox held a folder tree they had just moved
-      away. That is what "the move acted like a copy" was.
+      Dropbox directories containing generation fences cannot be physically
+      deleted: `delete_v2` is recursive and would erase the markers that stop
+      a delayed old writer from resurrecting the source. The wrapper hides the
+      markers and the directories they alone keep alive, so the folder is gone
+      from the product while the storage-level fence remains durable.
     */
     check(
-      "the emptied source folder is gone from Dropbox",
-      !folders.has("/1-projects/old")
+      "the retired source folder remains physically fenced in Dropbox",
+      folders.has("/1-projects/old")
     );
     check(
-      "...and so is the subfolder under it, child before parent",
-      !folders.has("/1-projects/old/deep")
+      "...including its nested generation fence",
+      folders.has("/1-projects/old/deep")
     );
     check(
       "...and it is gone from what a client lists, which is where it was seen",

@@ -2585,6 +2585,31 @@ check(
   !approveProposal.isError && objects.has("2-areas/private/apps/example.md") &&
     (await call("priv-token", "list_proposals"))?.content?.[0]?.text.includes("no pending")
 );
+const racedProposal = await call("pub-token", "propose_note", {
+  path: "2-areas/private/apps/raced-approval.md",
+  content: "# Proposed content that must not overwrite",
+  reason: "Exercise the approval destination create race",
+  agent: "Claude Code",
+});
+const racedProposalId = racedProposal.content[0].text.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
+concurrentCreateOnAbsent = {
+  key: "2-areas/private/apps/raced-approval.md",
+  text: "# Human-created winner",
+};
+const racedApproval = await call("priv-token", "review_proposal", {
+  id: racedProposalId,
+  action: "approve",
+});
+check(
+  "proposal approval never overwrites a note created after its preflight",
+  racedApproval.isError &&
+    storedText("2-areas/private/apps/raced-approval.md") === "# Human-created winner",
+);
+check(
+  "a proposal whose destination raced remains pending for another review",
+  (await call("priv-token", "list_proposals"))?.content?.[0]?.text.includes(racedProposalId),
+);
+await call("priv-token", "review_proposal", { id: racedProposalId, action: "reject" });
 const rejectedProposal = await call("pub-token", "propose_note", {
   path: "2-areas/private/apps/rejected.md",
   content: "reject me",

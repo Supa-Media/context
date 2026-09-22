@@ -8711,7 +8711,7 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
     try {
       collaborationBase = await readCollaborationDocument(store, path);
     } catch {
-      return toolError("this note cannot be transitioned safely right now; nothing was changed");
+      return toolError("this note's transition could not finish safely; re-read it and retry");
     }
   }
   const currentEtag = collaborationBase?.etag ?? existing.etag;
@@ -8759,7 +8759,7 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
       if (["BASE_MISSING", "CONFLICT", "GENERATION_MISMATCH", "SEAL_CONFLICT", "CONCURRENT_WRITE"].includes(code)) {
         return toolError("conflict: note changed while it was being encrypted; re-read and try again");
       }
-      return toolError("this note cannot be encrypted safely right now; nothing was changed");
+      return toolError("this note's encryption transition could not finish safely; re-read it and retry");
     }
   } else {
     put = await store.put(path, body, { onlyIf: { etagMatches: existing.etag } });
@@ -9960,13 +9960,31 @@ async function toolSaveContext(store, scope, rules, overrides, args) {
     return writePermissionError("archive destination");
   }
 
-  await persistExactVisibility(store, path, visibility, rules);
+  // Private is a narrowing and must be present before the bytes. Team is a
+  // widening relative to an inherited private folder, so publish it only
+  // after this request has atomically created the note.
+  if (visibility !== "team") {
+    await persistExactVisibility(store, path, visibility, rules);
+  }
   let put;
   try {
-    put = await store.put(path, content);
+    put = await store.put(path, content, { onlyIf: { absent: true } });
   } catch (error) {
-    await clearExactVisibility(store, path).catch(() => {});
+    await clearExactVisibilityIfAbsent(store, path).catch(() => {});
     throw error;
+  }
+  if (!put) {
+    await clearExactVisibilityIfAbsent(store, path).catch(() => {});
+    return toolError("conflict: archive path was created concurrently; retry");
+  }
+  if (visibility === "team") {
+    try {
+      await persistExactVisibility(store, path, "team", rules);
+    } catch {
+      return toolError(
+        "archive was saved, but its team visibility could not be recorded; ask the owner to repair the destination rule",
+      );
+    }
   }
   await recordChange(store, "save_context", scope, [path], {
     platform,
@@ -10107,7 +10125,13 @@ async function toolReviewProposal(store, scope, id, action, destinationArg, revi
     // Proposal approval is a personal review action and defaults private even
     // when the logical destination sits in a team-default folder.
     await persistExactVisibility(store, destination, "private", await loadScopeRules(store));
-    await store.put(destination, proposal.content);
+    const created = await store.put(destination, proposal.content, { onlyIf: { absent: true } });
+    if (!created) {
+      await clearExactVisibilityIfAbsent(store, destination).catch(() => {});
+      return toolError(
+        "conflict: approval destination was created concurrently; the proposal remains pending",
+      );
+    }
   }
 
   const reviewed = {
@@ -11264,7 +11288,7 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
       if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "DESTINATION_EXISTS"].includes(code)) {
         return toolError("conflict: note changed since it was read; re-read and retry");
       }
-      return toolError("this note cannot be archived safely right now; nothing was changed");
+      return toolError("this note's archive transition could not finish safely; re-read it and retry");
     }
     if (destinationVisibility === "team") {
       try {
@@ -11289,7 +11313,13 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   if (destinationVisibility === "private") {
     await persistExactVisibility(store, dest, "private", rules);
   }
-  const archived = await store.put(dest, body);
+  const archived = await store.put(dest, body, { onlyIf: { absent: true } });
+  if (!archived) {
+    if (destinationVisibility === "private") {
+      await clearExactVisibilityIfAbsent(store, dest).catch(() => {});
+    }
+    return toolError("conflict: archive destination was created concurrently; re-read and retry");
+  }
   if (destinationVisibility === "team") {
     await persistExactVisibility(store, dest, "team", rules);
   }
@@ -11543,7 +11573,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
       if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "DESTINATION_EXISTS"].includes(code)) {
         return toolError("conflict: source changed since it was read; re-read and retry");
       }
-      return toolError("this note cannot be moved safely right now; nothing was changed");
+      return toolError("this note's move transition could not finish safely; re-read it and retry");
     }
     if (destinationVisibility === "team") {
       try {
@@ -12070,8 +12100,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
 async function recordPartialMove(store, action, scope, planned, applied) {
   const appliedSources = new Set(applied.map((move) => move.source));
   const incomplete = planned.filter(
-    (move) => !appliedSources.has(move.source) &&
-      (move.destinationCreated || move.collaborationBase),
+    (move) => !appliedSources.has(move.source) && move.destinationCreated,
   );
   const strandedCopies = incomplete.filter((move) => move.destinationCreated);
   await recordChange(
@@ -12080,10 +12109,7 @@ async function recordPartialMove(store, action, scope, planned, applied) {
     scope,
     [
       ...applied.flatMap((move) => [move.source, move.destination]),
-      ...incomplete.flatMap((move) =>
-        move.collaborationBase
-          ? [move.source, move.destination]
-          : [move.destination]),
+      ...incomplete.map((move) => move.destination),
     ],
     {
       partial: true,

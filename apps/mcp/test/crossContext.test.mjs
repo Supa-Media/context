@@ -490,7 +490,10 @@ export async function runCrossContextChecks(check) {
   check(
     "cross-context move_note moves a personal note into a shared workspace when the caller owns the source and can write the destination",
     !/permission denied|confirm_team_publish|required/i.test(textOf(publishPersonal)) &&
-      !mine.has("2-areas/personal-to-shared.md") &&
+      /not found/.test(textOf(await callTool(env, TOKEN_EDITOR, "read_note", {
+        path: "2-areas/personal-to-shared.md",
+        context: "@mine",
+      }))) &&
       theirs.has("1-projects/from-personal.md")
   );
   check(
@@ -547,9 +550,11 @@ export async function runCrossContextChecks(check) {
   hooks.push(async (url, init = {}) => {
     const parsed = new URL(url);
     const method = (init.method || "GET").toUpperCase();
+    const contentType = new Headers(init.headers).get("content-type");
     if (
       !racedSource &&
-      method === "DELETE" &&
+      method === "PUT" &&
+      contentType === "application/x-context-logical-tombstone" &&
       parsed.pathname === "/cross-mine/2-areas/race-source.md"
     ) {
       racedSource = true;
@@ -572,11 +577,14 @@ export async function runCrossContextChecks(check) {
   hooks.length = 0;
   check(
     "cross-context move_note preserves a source edited after copy instead of deleting it",
-    /move rolled back after source-delete failure: Markdown changed during deletion/.test(
+      /move rolled back after source-delete failure: Markdown changed during deletion/.test(
       textOf(sourceRace),
     ) &&
       mine.get("2-areas/race-source.md")?.body === "RACED-SOURCE-WRITE" &&
-      !theirs.has("1-projects/race-source.md") &&
+      /not found/.test(textOf(await callTool(env, TOKEN_OWNER, "read_note", {
+        path: "1-projects/race-source.md",
+        context: "@theirs",
+      }))) &&
       crossedDestinationEtag !== null
   );
 
@@ -589,9 +597,11 @@ export async function runCrossContextChecks(check) {
   hooks.push(async (url, init = {}) => {
     const parsed = new URL(url);
     const method = (init.method || "GET").toUpperCase();
+    const contentType = new Headers(init.headers).get("content-type");
     if (
       !racedRollbackSource &&
-      method === "DELETE" &&
+      method === "PUT" &&
+      contentType === "application/x-context-logical-tombstone" &&
       parsed.pathname === "/cross-mine/2-areas/race-rollback.md"
     ) {
       racedRollbackSource = true;
@@ -602,7 +612,8 @@ export async function runCrossContextChecks(check) {
     } else if (
       racedRollbackSource &&
       !racedRollbackDestination &&
-      method === "DELETE" &&
+      method === "PUT" &&
+      contentType === "application/x-context-logical-tombstone" &&
       parsed.pathname === "/cross-theirs/1-projects/race-rollback.md"
     ) {
       racedRollbackDestination = true;
@@ -661,7 +672,10 @@ export async function runCrossContextChecks(check) {
   check(
     "cross-context move_note allows shared-to-personal when the caller owns both contexts",
     !/permission denied/i.test(textOf(ownerBothMove)) &&
-      !stranger.has("1-projects/owned-both.md") &&
+      /not found/.test(textOf(await callTool(env, TOKEN_OWNER_BOTH, "read_note", {
+        path: "1-projects/owned-both.md",
+        context: "@stranger",
+      }))) &&
       mine.has("2-areas/from-owned-both.md")
   );
   check(

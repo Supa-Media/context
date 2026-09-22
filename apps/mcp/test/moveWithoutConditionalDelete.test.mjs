@@ -387,11 +387,15 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     path: "1-projects/retiring.md",
   });
   check("a note archives on a store with no conditional delete", !archived?.isError);
+  const archivedPath = /→ (\S+)/.exec(textOf(archived))?.[1];
+  const oldArchiveSource = await callTool(env, TOKEN_OWNER, "read_note", {
+    path: "1-projects/retiring.md",
+  });
   check(
-    "...and the source is gone",
-    (await callTool(env, TOKEN_OWNER, "read_note", {
-      path: "1-projects/retiring.md",
-    }))?.isError === true
+    "...and the old source forwards to the archived identity",
+    typeof archivedPath === "string" &&
+      textOf(oldArchiveSource).includes(`path: ${archivedPath}`) &&
+      textOf(oldArchiveSource).includes("moved_from: 1-projects/retiring.md"),
   );
   check(
     "...with the bytes under the archive this context declares",

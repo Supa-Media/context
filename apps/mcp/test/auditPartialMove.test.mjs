@@ -21,9 +21,9 @@
  * deletes the destination it created and returns — so the bucket is unchanged
  * and no row is owed. The batch doors cannot roll back, and then do not record.
  *
- * Driven, not argued: the fixture lets the first source's conditional delete
- * through and refuses the second with a 412, which is exactly what a racing
- * writer produces.
+ * Driven, not argued: the fixture lets the first source's conditional
+ * tombstone through and races the second with a 412, which is exactly what a
+ * concurrent writer produces.
  */
 
 import worker from "../src/index.js";
@@ -34,6 +34,7 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 
 const S3_ENDPOINT = "https://s3.example-audit-partial.test";
 const TOKEN_OWNER = `cat_auditpart_own_${"0".repeat(22)}`;
@@ -58,8 +59,8 @@ function binding(bucket) {
     capabilities: {
       conditionalWrite: true,
       conditionalCreate: true,
-      // The batch doors' retire uses a conditional DELETE where the backend has
-      // one, which is the path this suite is about.
+      // Verified write/create stores expose conditional retirement through the
+      // logical-delete wrapper, even when the physical provider has DELETE.
       conditionalDelete: true,
       serverSideCopy: false,
     },
@@ -124,23 +125,32 @@ export async function runAuditPartialMoveChecks(check) {
   const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
 
   /*
-    Refuse ONE conditional delete, the second source's, exactly as a racing
-    writer would: the etag it was copied under is no longer the etag on the
-    key. Installed over the S3 fake's own fetch, the way the projection suite
-    layers its counters.
+    Refuse ONE conditional tombstone write, the second source's, exactly as a
+    racing writer would: the etag it was copied under is no longer the etag on
+    the key. Installed over the S3 fake's own fetch, the way the projection
+    suite layers its counters.
   */
   const refuse = { key: null, seen: 0 };
   const beneath = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     const method = (init?.method || "GET").toUpperCase();
+    const headers = new Headers(init?.headers);
     if (
       refuse.key !== null &&
-      method === "DELETE" &&
+      refuse.seen === 0 &&
+      method === "PUT" &&
+      headers.get("content-type") === "application/x-context-logical-tombstone" &&
       url.startsWith(S3_ENDPOINT) &&
       decodeURIComponent(new URL(url).pathname).endsWith(refuse.key)
     ) {
       refuse.seen += 1;
+      const current = s3.bucketFor("audit-partial").get(refuse.key);
+      s3.bucketFor("audit-partial").set(refuse.key, {
+        body: `${current?.body || ""}\nConcurrent edit\n`,
+        etag: `${current?.etag || "race"}-edited`,
+        contentType: current?.contentType,
+      });
       return new Response("", { status: 412 });
     }
     return beneath(input, init);
@@ -196,6 +206,7 @@ export async function runAuditPartialMoveChecks(check) {
     seed("1-projects/gamma.md", "# Gamma\n");
     seed("1-projects/delta.md", "# Delta\n");
     refuse.key = "1-projects/delta.md";
+    refuse.seen = 0;
     const beforePartial = auditRows().length;
     const partial = await callTool(env, "move_notes", {
       moves: [
@@ -208,14 +219,21 @@ export async function runAuditPartialMoveChecks(check) {
       "a batch whose source cleanup stops says so",
       /partially applied/.test(partial) && refuse.seen > 0,
     );
-    // The bucket really did change: both destinations exist and the first
-    // source is gone. Without this the check below could pass over a move that
-    // never happened.
+    // The bucket really did change: the first move completed, while the failed
+    // second destination was rolled back. Tombstones remain physical protocol
+    // records, so observe note visibility through the gateway and assert the
+    // first source's exact marker separately.
+    const gammaDestination = await callTool(env, "read_note", {
+      path: "3-resources/gamma.md",
+    });
+    const deltaDestination = await callTool(env, "read_note", {
+      path: "3-resources/delta.md",
+    });
     check(
-      "...and the bucket changed: both copies exist and the first source is gone",
-      bucket.has("3-resources/gamma.md") &&
-        bucket.has("3-resources/delta.md") &&
-        !bucket.has("1-projects/gamma.md") &&
+      "...and only the completed first move is visible after rollback",
+      gammaDestination.includes("# Gamma") &&
+        /not found/.test(deltaDestination) &&
+        isLogicalDeleteMarker(bucket.get("1-projects/gamma.md")?.body) &&
         bucket.has("1-projects/delta.md"),
     );
     const partialRows = since(beforePartial).filter((row) => row.action === "move_notes");
@@ -224,13 +242,15 @@ export async function runAuditPartialMoveChecks(check) {
       "...marked partial, with what applied and what was planned",
       partialRows[0]?.details?.partial === true &&
         partialRows[0]?.details?.moved === 1 &&
-        partialRows[0]?.details?.planned === 2,
+        partialRows[0]?.details?.planned === 2 &&
+        partialRows[0]?.details?.copies_without_source_removed === 0,
     );
     check(
-      "...naming the move that completed and the copy left behind",
+      "...naming only the move that changed durable note paths",
       (partialRows[0]?.paths || []).includes("1-projects/gamma.md") &&
         (partialRows[0]?.paths || []).includes("3-resources/gamma.md") &&
-        (partialRows[0]?.paths || []).includes("3-resources/delta.md"),
+        !(partialRows[0]?.paths || []).includes("1-projects/delta.md") &&
+        !(partialRows[0]?.paths || []).includes("3-resources/delta.md"),
     );
     check(
       "...and the acting identity, which is the whole point of the row",
@@ -241,6 +261,7 @@ export async function runAuditPartialMoveChecks(check) {
     seed("1-projects/team/one.md", "# One\n");
     seed("1-projects/team/two.md", "# Two\n");
     refuse.key = "1-projects/team/two.md";
+    refuse.seen = 0;
     const beforeFolder = auditRows().length;
     const folder = await callTool(env, "move_folder", {
       source: "1-projects/team",
@@ -250,7 +271,8 @@ export async function runAuditPartialMoveChecks(check) {
     check("a folder move whose cleanup stops says so", /partially applied/.test(folder));
     check(
       "...and the bucket changed",
-      bucket.has("3-resources/team/one.md") && !bucket.has("1-projects/team/one.md"),
+      bucket.has("3-resources/team/one.md") &&
+        isLogicalDeleteMarker(bucket.get("1-projects/team/one.md")?.body),
     );
     const folderRows = since(beforeFolder).filter((row) => row.action === "move_folder");
     check("...and there is a row for it", folderRows.length === 1);
@@ -277,6 +299,7 @@ export async function runAuditPartialMoveChecks(check) {
     seed("1-projects/zeta.md", "# Zeta\n");
     seed("1-projects/eta.md", "# Eta\n");
     refuse.key = "1-projects/eta.md";
+    refuse.seen = 0;
     await callTool(env, "move_notes", {
       moves: [
         move("1-projects/zeta.md", "2-areas/zeta.md"),
