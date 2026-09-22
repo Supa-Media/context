@@ -691,7 +691,9 @@ jobs:
           PY
 
   no-dependencies:
-    name: Gateway dependency boundary
+    # Keep the required branch-protection status name stable. The check below
+    # now permits only the explicitly approved collaboration dependency.
+    name: Gateway stays dependency-free
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
