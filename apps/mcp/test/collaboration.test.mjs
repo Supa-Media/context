@@ -268,11 +268,16 @@ export async function runCollaborationChecks(check) {
         expected_source_etag: batchBase.etag,
       }],
     });
+    const batchOldPath = await request(env, ownerToken, { path: "team/batch.md" });
+    const batchOldPathBody = await batchOldPath.json();
     const batchDestination = await (await request(env, ownerToken, {
       path: "team/batch-moved.md",
     })).json();
     check("move_notes carries an active collaboration identity to its destination",
       !batchMove?.isError && batchDestination.documentId === batchBase.documentId);
+    check("a path-only collaboration reconnect follows a logically retired move source",
+      batchOldPath.status === 200 && batchOldPathBody.text === "# batch\n" &&
+      batchOldPathBody.documentId === batchBase.documentId);
     await primary.put("team/batch.md", "# recreated batch source\n");
     const batchRecreated = await (await request(env, ownerToken, { path: "team/batch.md" })).json();
     check("move_notes leaves a moved head that fences the old generation",

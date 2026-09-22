@@ -1455,6 +1455,16 @@ async function handleCollaboration(request, store, session, origin) {
 
   if (!visible) return json({ error: "not_found" }, 404);
 
+  // The metadata probe above is deliberately safe before authorization, but a
+  // logical-delete marker is still physically present. Resolve the authorized
+  // logical object before deciding whether a moved head may forward this
+  // request. Otherwise a path-only reconnect sees the marker, stops at the old
+  // path, and returns 404 instead of carrying its offline edits to the moved
+  // document. Keep the fetched object so the ordinary path does not download
+  // the same note twice.
+  let stored = present ? await getWithLegacyFallback(store, effectivePath) : null;
+  if (present && !stored) present = false;
+
   // A moved collaborative head remains the authority for an offline client
   // holding the old path. An offline filesystem may recreate raw bytes at the
   // old source before it can deliver its pending update, so an update carrying
@@ -1501,6 +1511,8 @@ async function handleCollaboration(request, store, session, origin) {
         // alias to a later head. Keep following the collaboration identity
         // until a raw destination exists or a live engine head answers.
         present = await probeWithLegacyFallback(store, destination);
+        stored = present ? await getWithLegacyFallback(store, destination) : null;
+        if (present && !stored) present = false;
       }
     }
   }
@@ -1508,7 +1520,7 @@ async function handleCollaboration(request, store, session, origin) {
 
   // Check the stored bytes before the engine initializes a document. Encrypted
   // and drawing notes stay outside this plaintext collaboration capability.
-  const stored = await getWithLegacyFallback(store, effectivePath);
+  stored ||= await getWithLegacyFallback(store, effectivePath);
   if (!stored) return json({ error: "not_found" }, 404);
   const storedText = await stored.text();
   if (!collaborationEligible(effectivePath, storedText) ||
