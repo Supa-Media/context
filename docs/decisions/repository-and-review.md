@@ -24,8 +24,15 @@ Open source from the first commit. That raises the bar in three concrete ways:
 
 ## Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 
-`packages/hook` publishes as `@supa-media/context-hook`, not `@context-lc/hook`
-(its name for one PR, before anyone had asked the question out loud). There is
+`packages/cli` publishes as `@supa-media/context`. It was `@context-lc/hook`
+for one PR, before anyone had asked the question out loud, and then
+`@supa-media/context-hook` while all it did was install two session hooks. It
+was renamed again (2026-09-22, with the owner's approval) when it became the
+installer for the whole `context` plugin; the hook-only name described a part
+of it. There is no pass-through package under the old name: 0.1.0 stays on the
+registry for the machines that installed it, and `PUBLISHED_NAMES` in
+`src/install.js` keeps recognising every retired name so an install replaces
+their hook entries rather than stacking a second one. There is
 exactly one npm scope this org publishes under — `@supa-media` — and exactly
 one pipeline: `supa-framework`'s `release.yml` (changesets + `NPM_TOKEN` via
 `NODE_AUTH_TOKEN`, `publishConfig.registry` pointed at
@@ -38,7 +45,7 @@ to be one.
 `supa-framework` has no `workflow_call` reusable workflow for "publish one
 package from a consumer repo" — `release.yml` runs `changeset publish` over
 its own monorepo's workspace, which is not this repo's shape. So this repo
-keeps its own `publish-hook.yml` rather than calling into the framework, but
+keeps its own `publish-cli.yml` rather than calling into the framework, but
 aligned to the framework's actual mechanism rather than inventing a second
 one: the same `NODE_AUTH_TOKEN`/`registry-url`/`scope` shape `setup-node` uses
 in `release.yml` — so the org's existing npm automation token (the one that
@@ -55,7 +62,7 @@ The GitHub secret name is `NPMJS_SECRET`, not `NPM_TOKEN` (confirmed
 `Context` vault's item for this token is named `NPMJS_SECRET`; each app vault
 names its own items independently, and `scripts/secrets-allowlist.json` /
 `sync-secrets.yml` map an allowlist name straight to the vault item of that
-same name, so `publish-hook.yml` and the allowlist follow the `Context`
+same name, so `publish-cli.yml` and the allowlist follow the `Context`
 vault's actual name rather than the framework's. `NPMJS_SECRET` was already
 in `scripts/secrets-allowlist.json` as optional before this decision was
 written down — this section is what makes that placement a decision rather
@@ -74,7 +81,7 @@ package ships named for a product before anyone checks whether the org
 already has a publishing story, and it has to be renamed — ideally before its
 first publish, not after, when the old name has downloads depending on it.
 
-**The test that fails if this is reversed:** `packages/hook/test/test.mjs`
+**The test that fails if this is reversed:** `packages/cli/test/test.mjs`
 asserts `package.json`'s `name` starts with `@supa-media/`. Rename the
 package to any other scope, or drop the scope, and that assertion fails —
 loudly, in the same suite that runs before every publish

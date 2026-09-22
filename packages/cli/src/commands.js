@@ -180,11 +180,11 @@ export async function authorize({
 export async function accessTokenFor({ endpoint, configPath, fetchImpl = fetch }) {
   const record = await loadEndpoint(endpoint, configPath);
   if (!record?.refreshToken && !record?.accessToken) {
-    throw new Error(`not signed in for ${endpointKey(endpoint)} — run: context-hook install`);
+    throw new Error(`not signed in for ${endpointKey(endpoint)} — run: npx -y @supa-media/context install`);
   }
   if (record.accessToken && Number(record.expiresAt) > Date.now()) return record.accessToken;
   if (!record.refreshToken) {
-    throw new Error("the stored session has expired — run: context-hook install");
+    throw new Error("the stored session has expired — run: npx -y @supa-media/context install");
   }
 
   const discovery = await discover(endpoint, { fetchImpl });
@@ -226,7 +226,7 @@ export async function capture({
   const payload = await readJsonStdin(stdin);
   const transcriptPath = payload?.transcript_path || payload?.transcriptPath;
   if (!transcriptPath) {
-    log("context-hook: no transcript in the session payload; nothing saved");
+    log("context: no transcript in the session payload; nothing saved");
     return { saved: false, reason: "no-transcript" };
   }
 
@@ -234,7 +234,7 @@ export async function capture({
   try {
     raw = await readTranscript(transcriptPath);
   } catch {
-    log("context-hook: could not read the session transcript; nothing saved");
+    log("context: could not read the session transcript; nothing saved");
     return { saved: false, reason: "unreadable" };
   }
 
@@ -242,7 +242,7 @@ export async function capture({
   if (!messages) {
     // A session with nothing the person said or was told is not worth a note,
     // and an empty capture is refused by the gateway anyway.
-    log("context-hook: nothing user-visible in this session; nothing saved");
+    log("context: nothing user-visible in this session; nothing saved");
     return { saved: false, reason: "empty" };
   }
 
@@ -263,10 +263,10 @@ export async function capture({
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    log(`context-hook: the gateway refused the capture (${response.status})`);
+    log(`context: the gateway refused the capture (${response.status})`);
     return { saved: false, reason: `http-${response.status}` };
   }
-  log(`context-hook: saved ${messages} messages to your context`);
+  log(`context: saved ${messages} messages to your context`);
   return { saved: true, messages, truncated };
 }
 

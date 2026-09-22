@@ -1,4 +1,9 @@
-# Publish `@supa-media/context-hook` to npmjs.com (public).
+# Publish `@supa-media/context` to npmjs.com (public).
+#
+# Renamed from `@supa-media/context-hook` (and this file from `publish-hook.yml`)
+# when the package grew from two session hooks into the installer for the
+# whole `context` plugin. 0.1.0 stays on the registry under the old name for
+# the machines that installed it; the new name starts its own version line.
 #
 # The package the console and every README tell people to run has never been
 # published — `npm view @supa-media/context-hook version` 404s. This is the workflow
@@ -14,7 +19,7 @@
 # name (`deploy-*.yml`) in one direction and by command in the other, and
 # `npm publish` is not in its DEPLOY_COMMANDS denylist today — so this file
 # earns no obligations from that checker either way, and is named for what it
-# does (`publish-hook.yml`) rather than borrowed into a convention with a
+# does (`publish-cli.yml`) rather than borrowed into a convention with a
 # stricter meaning elsewhere in this repo (a deploy pushes infrastructure this
 # account owns; this hands a tarball to a public registry once).
 #
@@ -63,7 +68,7 @@
 # environment works too, but a later real (non-dry-run) secrets sync will then
 # delete it, because an `optional` name absent from the vault is removed
 # rather than left alone — see that workflow's header.
-name: Publish Session Hook
+name: Publish CLI
 
 on:
   workflow_dispatch:
@@ -78,7 +83,7 @@ on:
 # queue rather than run in parallel, and never cancel a publish already
 # talking to the registry.
 concurrency:
-  group: publish-hook
+  group: publish-cli
   cancel-in-progress: false
 
 permissions:
@@ -90,12 +95,12 @@ permissions:
 
 jobs:
   publish:
-    name: Publish @supa-media/context-hook
+    name: Publish @supa-media/context
     runs-on: ubuntu-latest
     environment: production
     defaults:
       run:
-        working-directory: packages/hook
+        working-directory: packages/cli
     steps:
       - uses: actions/checkout@v5
 
@@ -103,7 +108,7 @@ jobs:
         with:
           node-version: 22
           # Bare node, no pnpm install: the package has zero dependencies in
-          # any field (hook.yml's own "Hook stays dependency-free" job proves
+          # any field (cli.yml's own "Hook stays dependency-free" job proves
           # it on every push), so nothing here needs the workspace installed.
           package-manager-cache: false
           registry-url: "https://registry.npmjs.org"

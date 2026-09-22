@@ -109,7 +109,7 @@ export interface MachineApprovalFacts {
  *
  * `127.0.0.1` and nothing else. `localhost` is a name the OS resolves and
  * somebody else's DNS can answer, `127.0.0.2` is still this machine but is not
- * what `packages/hook`'s listener binds, and `127.0.0.1.attacker.invalid` is a
+ * what `packages/cli`'s listener binds, and `127.0.0.1.attacker.invalid` is a
  * routable host that merely reads like loopback. The port is optional because
  * the *registered* URI has none — the OS hands one out per connect and
  * `redirectUriMatches` in the gateway is what allows it to float — while the

@@ -164,14 +164,14 @@ Two answers, and you want both:
 - **A session-end hook**, for when the agent does not call it:
 
   ```sh
-  npx -y @supa-media/context-hook install
+  npx -y @supa-media/context install
   ```
 
   Signs you in once and adds a `SessionEnd` hook to Claude Code. From then on a
   session's user-visible messages land in `0-inbox/` on their own. It asks for
   capture access only — it can add to your inbox and cannot read a single note —
   and it shows up in Connections like any other client, revocable on its own.
-  See [`packages/hook`](packages/hook).
+  See [`packages/cli`](packages/cli).
 
 ## Privacy tiers
 
@@ -191,7 +191,8 @@ anonymous tier.
 | `apps/mobile/`    | Expo app (iOS, Android, web) — onboarding and dashboard         |
 | `apps/mcp/`       | The MCP gateway Worker — tools, privacy engine, storage adapter |
 | `packages/shared/`| Types and constants shared across apps                          |
-| `packages/hook/`  | `npx @supa-media/context-hook` — the session-end hook                    |
+| `packages/cli/`   | `npx @supa-media/context` — installs Context into your AI tools  |
+| `plugins/context/`| The agent plugin: skills, MCP entry, session hooks              |
 
 ## Development
 

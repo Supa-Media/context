@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `npx @supa-media/context-hook <command>`.
+ * `npx @supa-media/context <command>`.
  *
  * A thin shell: parse, dispatch, and turn a thrown error into one line a person
  * can act on. Everything with a decision in it lives in `src/commands.js`, so
@@ -14,11 +14,11 @@ const DEFAULT_ENDPOINT = "https://mcp.context.lc/mcp";
 
 const USAGE = `Save what an AI coding session learned into your Context.
 
-  npx @supa-media/context-hook install      sign in, then add the hooks to your client
-  npx @supa-media/context-hook status       show whether this machine is signed in
-  npx @supa-media/context-hook uninstall    remove the hook and forget the credential
-  npx @supa-media/context-hook capture      run by the hook itself; reads stdin
-  npx @supa-media/context-hook session-start run by the hook itself; reads stdin
+  npx @supa-media/context install      sign in, then add the hooks to your client
+  npx @supa-media/context status       show whether this machine is signed in
+  npx @supa-media/context uninstall    remove the hook and forget the credential
+  npx @supa-media/context capture      run by the hook itself; reads stdin
+  npx @supa-media/context session-start run by the hook itself; reads stdin
 
 Options
   --endpoint <url>   your MCP endpoint (default ${DEFAULT_ENDPOINT})
@@ -85,7 +85,7 @@ async function main() {
       // somebody's work, and this is a safety net rather than the main path —
       // the agent's own `save_context` is. It says what happened and stops.
       await commands.capture(options).catch((error) => {
-        console.log(`context-hook: ${error.message}`);
+        console.log(`context: ${error.message}`);
       });
       return 0;
     }
@@ -98,6 +98,6 @@ async function main() {
 main()
   .then((code) => process.exit(code))
   .catch((error) => {
-    console.error(`context-hook: ${error.message}`);
+    console.error(`context: ${error.message}`);
     process.exit(1);
   });

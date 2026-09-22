@@ -1,19 +1,19 @@
 {
-  "name": "@supa-media/context-hook",
+  "name": "@supa-media/context",
   "version": "0.1.0",
-  "description": "Save what an AI coding session learned into your Context, automatically, when the session ends",
+  "description": "Install Context into your AI tools: the MCP server, the skills, and the session hooks that save what a session learned",
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Supa-Media/context.git",
-    "directory": "packages/hook"
+    "directory": "packages/cli"
   },
-  "homepage": "https://github.com/Supa-Media/context/tree/main/packages/hook#readme",
+  "homepage": "https://github.com/Supa-Media/context/tree/main/packages/cli#readme",
   "bugs": {
     "url": "https://github.com/Supa-Media/context/issues"
   },
-  "bin": { "context-hook": "./bin/context-hook.mjs" },
+  "bin": { "context-lc": "./bin/context.mjs" },
   "files": ["bin", "src", "README.md", "LICENSE"],
   "engines": { "node": ">=20" },
   "publishConfig": {

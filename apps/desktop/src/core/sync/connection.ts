@@ -11,7 +11,7 @@
  * not: a laptop app that could read every context its owner belongs to is a
  * much larger thing to lose than one that holds a revocable grant on one.
  *
- * So the mechanism is the one `packages/hook` already ships and this repository
+ * So the mechanism is the one `packages/cli` already ships and this repository
  * has already reviewed: dynamic client registration, a **loopback redirect**
  * (RFC 8252 §7.3), PKCE with S256, and a refresh token kept in the OS keychain.
  * `main/connect.ts` performs the browser half by importing that package's
@@ -153,7 +153,7 @@ export interface ConnectionRecord {
   scope: string;
 }
 
-/** What a refresh answers with. Mirrors `packages/hook`'s `postToken`. */
+/** What a refresh answers with. Mirrors `packages/cli`'s `postToken`. */
 export interface RefreshedTokens {
   accessToken: string;
   refreshToken: string | null;
@@ -320,7 +320,7 @@ export class GatewayConnection {
       A rotating refresh token that is spent and not written down leaves this
       machine permanently unable to authenticate, and the failure surfaces at
       the end of some future meeting where nobody is looking. Same reasoning as
-      `packages/hook`'s `accessTokenFor`.
+      `packages/cli`'s `accessTokenFor`.
     */
     await this.#store.write(JSON.stringify(next));
     return next.accessToken;

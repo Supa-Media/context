@@ -102,7 +102,7 @@ const isRelative = (specifier) => specifier.startsWith("./") || specifier.starts
 /**
  * `--allow-node-builtins` widens the rule from "relative only" to "relative or
  * a `node:` built-in", for the one thing in this repo that is a Node program
- * rather than a Worker: `packages/hook`, which people run on their own laptop.
+ * rather than a Worker: `packages/cli`, which people run on their own laptop.
  *
  * The invariant that matters is the same in both places and is **not** "no
  * `node:`" — it is **no third party**. A package hoisted to the workspace root

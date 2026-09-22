@@ -36,13 +36,13 @@ it ran rather than *whether* it ran.
 `--smoke` launch against the unpackaged dev bundle.** On a pull request it
 runs only when the diff touches `apps/desktop` itself, or one of the four
 workspace packages `apps/desktop/package.json` actually lists as a runtime
-dependency — `packages/desktop-bridge`, `packages/hook`,
+dependency — `packages/desktop-bridge`, `packages/cli`,
 `packages/communications`, `packages/meetings` — or `ci.yml` itself. That list
 is read off the manifest rather than assumed: an earlier draft of this job
 said "`packages/desktop-bridge`, the app's only runtime dependency outside the
 workspace root," which was wrong the moment it was written — three more
 workspace packages were already in `dependencies`, so a pull request touching
-only `packages/hook` or `packages/meetings` would have skipped this job and
+only `packages/cli` or `packages/meetings` would have skipped this job and
 waited for the push-to-`main` backstop to notice, exactly the kind of gap this
 section exists to close. This is change-detection-inside-the-job, not a
 `paths:` filter on the trigger, for the reason `check-workflow-triggers.mjs`

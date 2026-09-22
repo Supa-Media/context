@@ -69,7 +69,7 @@ export const HOOK_MARKER = "context-hook";
  * grows, because the alternative is not migrating somebody — it is abandoning
  * what is already on their machine.
  */
-const PUBLISHED_NAMES = ["@supa-media/context-hook", "@context-lc/hook"];
+const PUBLISHED_NAMES = ["@supa-media/context", "@supa-media/context-hook", "@context-lc/hook"];
 
 /**
  * Each name as a whole token, because `uninstall` deletes what this matches.
