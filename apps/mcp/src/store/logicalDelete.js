@@ -233,6 +233,9 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
       conditionalDelete: physicalDelete || canWriteMarkers,
       serverSideCopy: false,
     },
+    ...(typeof store.removeEmptyFolder === "function"
+      ? { removeEmptyFolder: store.removeEmptyFolder.bind(store) }
+      : {}),
 
     async get(key) {
       const object = await rawGet(key);

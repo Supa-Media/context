@@ -63,6 +63,15 @@ class RawStore {
     this.objects.delete(key);
   }
 
+  async removeEmptyFolder(prefix) {
+    const page = await this.list({ prefix, delimiter: "/" });
+    if ((page.objects || []).length > 0 || (page.delimitedPrefixes || []).length > 0) return false;
+    for (const key of this.objects.keys()) {
+      if (key.startsWith(prefix)) this.objects.delete(key);
+    }
+    return true;
+  }
+
   async list({ prefix = "", delimiter, cursor, limit } = {}) {
     const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort();
     if (delimiter) {
@@ -140,6 +149,17 @@ test("logical delete hides a marker from get, list, and folder prefixes", async 
   assert.equal(raw.objects.has("folder/note.md"), true);
   assert.deepEqual((await store.list({ prefix: "", delimiter: "/" })).delimitedPrefixes, []);
   assert.equal((await store.list({ prefix: "" })).objects.some((entry) => entry.key === "folder/note.md"), false);
+});
+
+test("inherited physical folder cleanup sees hidden markers", async () => {
+  const raw = new RawStore();
+  raw.seed("folder/note.md", "private text");
+  const store = withLogicalDelete(raw);
+  const before = await store.get("folder/note.md");
+  await store.delete("folder/note.md", { onlyIf: { etagMatches: before.etag } });
+  assert.equal(await store.removeEmptyFolder("folder/"), false);
+  assert.equal(raw.objects.has("folder/note.md"), true);
+  assert.equal(await store.get("folder/note.md"), null);
 });
 
 test("same-path recreation CASes over the marker and stale delete cannot remove it", async () => {
