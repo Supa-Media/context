@@ -1,5 +1,7 @@
 // @ts-check
 
+import { isolateForDisplay } from "../../shared/src/displayText.cjs";
+
 /**
  * The document that executes one reviewed plugin bundle.
  *
@@ -2352,6 +2354,34 @@ function workReason(value) {
 }
 
 /**
+ * A plugin-authored string, bounded and then CONTAINED.
+ *
+ * Every string below this line is the plugin's own words drawn where Context
+ * speaks in its own voice — a card beside the Stop button, a notice, a dialog
+ * with the plugin's name on it. They were bounded by length alone, and length
+ * is not the hazard: one U+202E reverses the rendering of everything after it,
+ * so a plugin could reach out of its own card and rearrange the row holding
+ * the control somebody presses to stop it.
+ *
+ * `isolateForDisplay` contains rather than cleans, and
+ * `packages/shared/src/displayText.cjs` carries the argument for why that is
+ * the stronger of the two. The cap is applied first so it measures the text
+ * rather than the container.
+ *
+ * **Not applied to everything the guest sends.** An id, an href and a setting
+ * value are matched, compared and addressed rather than read, and
+ * `suggest-applied`'s line is typed into somebody's note by the trusted
+ * editor — putting an invisible character into a person's own file to protect
+ * a label would be the wrong trade in the wrong direction.
+ *
+ * @param {string} text
+ * @param {number} cap
+ */
+function display(text, cap) {
+  return isolateForDisplay(text.slice(0, cap));
+}
+
+/**
  * Strictly recognize messages that may cross from the untrusted frame.
  * @param {unknown} value
  * @param {string} expectedNonce
@@ -2374,13 +2404,13 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       return typeof row.code === "string" && typeof row.message === "string"
         ? {
             type: "crashed",
-            code: row.code.slice(0, 80),
-            message: row.message.slice(0, 500),
+            code: display(row.code, 80),
+            message: display(row.message, 500),
           }
         : null;
     case "notice":
       return typeof row.message === "string"
-        ? { type: "notice", message: row.message.slice(0, 500) }
+        ? { type: "notice", message: display(row.message, 500) }
         : null;
     /*
       The guest's answer to a host `command`.
@@ -2398,7 +2428,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
             type: "command-result",
             id: row.id.slice(0, 100),
             ok: row.ok,
-            error: typeof row.error === "string" ? row.error.slice(0, 500) : null,
+            error: typeof row.error === "string" ? display(row.error, 500) : null,
             /*
               And why, when the why is one Context can state better than the
               plugin can. A command that asked for the open note and could not
@@ -2432,7 +2462,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         const one = /** @type {Record<string, unknown>} */ (entry);
         if (typeof one.id !== "string" || typeof one.text !== "string") return null;
         if (items.length >= STATUS_BAR_MAX) continue;
-        items.push({ id: one.id.slice(0, 60), text: one.text.slice(0, 120) });
+        items.push({ id: one.id.slice(0, 60), text: display(one.text, 120) });
       }
       return { type: "status-bar", items };
     }
@@ -2457,7 +2487,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         const one = /** @type {Record<string, unknown>} */ (entry);
         if (typeof one.text !== "string") return null;
         if (items.length >= SUGGEST_MAX) continue;
-        items.push({ text: one.text.slice(0, 200) });
+        items.push({ text: display(one.text, 200) });
       }
       return { type: "suggest-results", seq: row.seq, items };
     }
@@ -2482,14 +2512,14 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         if (typeof one.command !== "string" || typeof one.purpose !== "string") return null;
         if (instructions.length >= SUGGEST_MODAL_INSTRUCTIONS_MAX) continue;
         instructions.push({
-          command: one.command.slice(0, 40),
-          purpose: one.purpose.slice(0, 120),
+          command: display(one.command, 40),
+          purpose: display(one.purpose, 120),
         });
       }
       return {
         type: "suggest-modal",
         open: row.open,
-        placeholder: typeof row.placeholder === "string" ? row.placeholder.slice(0, 120) : "",
+        placeholder: typeof row.placeholder === "string" ? display(row.placeholder, 120) : "",
         instructions,
       };
     }
@@ -2545,7 +2575,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         the word "undefined" in it.
       */
       const error = typeof row.error === "string" && row.error
-        ? row.error.slice(0, SETTING_DESC_CAP)
+        ? display(row.error, SETTING_DESC_CAP)
         : null;
       const rows = [];
       let controls = 0;
@@ -2555,7 +2585,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         const one = /** @type {Record<string, unknown>} */ (entry);
         const kind = one.kind;
         if (kind === "heading") {
-          const text = typeof one.text === "string" ? one.text.slice(0, SETTING_TEXT_CAP) : "";
+          const text = typeof one.text === "string" ? display(one.text, SETTING_TEXT_CAP) : "";
           const level = typeof one.level === "number" && one.level >= 1 && one.level <= 6
             ? Math.round(one.level)
             : 2;
@@ -2563,7 +2593,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
           continue;
         }
         if (kind === "note") {
-          const text = typeof one.text === "string" ? one.text.slice(0, SETTING_DESC_CAP) : "";
+          const text = typeof one.text === "string" ? display(one.text, SETTING_DESC_CAP) : "";
           if (text) rows.push({ kind: "note", text });
           continue;
         }
@@ -2572,11 +2602,11 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
           continue;
         }
         if (one.index !== controls) continue;
-        const name = typeof one.name === "string" ? one.name.slice(0, SETTING_TEXT_CAP) : "";
-        const desc = typeof one.desc === "string" ? one.desc.slice(0, SETTING_DESC_CAP) : "";
-        const label = typeof one.label === "string" ? one.label.slice(0, SETTING_TEXT_CAP) : "";
+        const name = typeof one.name === "string" ? display(one.name, SETTING_TEXT_CAP) : "";
+        const desc = typeof one.desc === "string" ? display(one.desc, SETTING_DESC_CAP) : "";
+        const label = typeof one.label === "string" ? display(one.label, SETTING_TEXT_CAP) : "";
         const placeholder = typeof one.placeholder === "string"
-          ? one.placeholder.slice(0, SETTING_TEXT_CAP)
+          ? display(one.placeholder, SETTING_TEXT_CAP)
           : "";
         const options = [];
         for (const option of Array.isArray(one.options) ? one.options : []) {
@@ -2586,7 +2616,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
           if (typeof pair.value !== "string" || typeof pair.label !== "string") continue;
           options.push({
             value: pair.value.slice(0, SETTING_VALUE_CAP),
-            label: pair.label.slice(0, SETTING_TEXT_CAP),
+            label: display(pair.label, SETTING_TEXT_CAP),
           });
         }
         const value = kind === "toggle"
@@ -2617,8 +2647,8 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       return {
         type: "text-modal",
         open: row.open,
-        title: typeof row.title === "string" ? row.title.slice(0, TEXT_MODAL_TITLE_CAP) : "",
-        text: typeof row.text === "string" ? row.text.slice(0, TEXT_MODAL_TEXT_CAP) : "",
+        title: typeof row.title === "string" ? display(row.title, TEXT_MODAL_TITLE_CAP) : "",
+        text: typeof row.text === "string" ? display(row.text, TEXT_MODAL_TEXT_CAP) : "",
       };
     }
     /*
@@ -2636,7 +2666,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         const one = /** @type {Record<string, unknown>} */ (entry);
         if (typeof one.text !== "string") return null;
         if (items.length >= SUGGEST_MAX) continue;
-        items.push({ text: one.text.slice(0, 200) });
+        items.push({ text: display(one.text, 200) });
       }
       return { type: "suggest-modal-results", seq: row.seq, items };
     }
@@ -2701,7 +2731,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         const one = /** @type {Record<string, unknown>} */ (entry);
         if (typeof one.href !== "string" || typeof one.text !== "string") return null;
         if (previews.length >= PREVIEW_LINKS_MAX) continue;
-        previews.push({ href: one.href.slice(0, 2000), text: one.text.slice(0, PREVIEW_TEXT_MAX) });
+        previews.push({ href: one.href.slice(0, 2000), text: display(one.text, PREVIEW_TEXT_MAX) });
       }
       return { type: "preview-results", seq: row.seq, previews };
     }
@@ -2713,7 +2743,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
             type: "registration",
             kind: row.kind,
             id: row.id.slice(0, 100),
-            name: row.name.slice(0, 200),
+            name: display(row.name, 200),
             /*
               Absent means false, deliberately. A guest older than this field
               reports nothing, and reading that as "takes an editor" would
