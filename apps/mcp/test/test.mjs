@@ -1,5 +1,6 @@
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
+import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
 import { runCommunicationsChecks } from "./communications.test.mjs";
@@ -107,7 +108,9 @@ const bucket = {
   async put(key, value, options = {}) {
     const expected = options?.onlyIf?.etagMatches;
     if (expected && objects.get(key)?.etag !== expected) return null;
-    if (options?.onlyIf?.absent === true && concurrentCreateOnAbsent?.key === key) {
+    const createOnly =
+      options?.onlyIf?.absent === true || options?.onlyIf?.etagDoesNotMatch === "*";
+    if (createOnly && concurrentCreateOnAbsent?.key === key) {
       const winner = concurrentCreateOnAbsent;
       concurrentCreateOnAbsent = null;
       if (!objects.has(key)) {
@@ -115,7 +118,7 @@ const bucket = {
       }
     }
     if (
-      (options?.onlyIf?.absent === true || options?.onlyIf?.etagDoesNotMatch === "*") &&
+      createOnly &&
       objects.has(key)
     ) {
       return null;
@@ -2464,7 +2467,7 @@ check(
   "moving a private note within a team folder preserves its ACL",
   !movePrivateMeeting.isError &&
     objects.has(movedPrivateMeetingPath) &&
-    !objects.has(privateMeetingPath) &&
+    isLogicalDeleteMarker(storedText(privateMeetingPath)) &&
     (await call("team-token", "read_note", { path: movedPrivateMeetingPath }))?.isError
 );
 const archivePrivateMeeting = await call("priv-token", "archive_note", {
@@ -2476,7 +2479,7 @@ check(
   !archivePrivateMeeting.isError &&
     archivedPrivateMeetingPath &&
     objects.has(archivedPrivateMeetingPath) &&
-    !objects.has(movedPrivateMeetingPath) &&
+    isLogicalDeleteMarker(storedText(movedPrivateMeetingPath)) &&
     (await call("team-token", "read_note", { path: archivedPrivateMeetingPath }))?.isError
 );
 
@@ -2530,7 +2533,7 @@ check(
     privateArchiveKey?.startsWith("4-archive/") &&
     !privateArchiveKey.startsWith("4-archive/private/") &&
     (await call("team-token", "read_note", { path: privateArchiveKey }))?.isError &&
-    !objects.has("1-projects/togather/notes.md")
+    isLogicalDeleteMarker(storedText("1-projects/togather/notes.md"))
 );
 await call("pub-token", "write_note", { path: "1-projects/togather/probe.md", content: "temporary probe" });
 const probeRead = (await call("pub-token", "read_note", { path: "1-projects/togather/probe.md" }))?.content?.[0]?.text;
@@ -2549,7 +2552,7 @@ check(
   !publicArchive.isError &&
     publicArchiveKey?.startsWith("4-archive/") &&
     !publicArchiveKey.startsWith("4-archive/team/") &&
-    !objects.has("1-projects/togather/probe.md")
+    isLogicalDeleteMarker(storedText("1-projects/togather/probe.md"))
 );
 
 // -- private-approval proposal queue
@@ -2763,7 +2766,8 @@ const moveNote = await call("pub-token", "move_note", {
 enforceOneUseBodies = false;
 check(
   "team move_note moves within team scope with a production one-use body",
-  !moveNote.isError && objects.has("1-projects/portable/renamed.md") && !objects.has("1-projects/portable/a.md")
+  !moveNote.isError && objects.has("1-projects/portable/renamed.md") &&
+    isLogicalDeleteMarker(storedText("1-projects/portable/a.md"))
 );
 const moveConflict = await call("pub-token", "move_note", {
   source: "1-projects/portable/renamed.md",
@@ -2783,7 +2787,7 @@ check(
   "team move_folder moves the visible half of a tree with a private island",
   !mixedMove.isError &&
     objects.has("1-projects/mixed-dest/public.md") &&
-    !objects.has("1-projects/mixed/public.md")
+    isLogicalDeleteMarker(storedText("1-projects/mixed/public.md"))
 );
 check(
   "team move_folder leaves the private island where it was",
@@ -2830,7 +2834,7 @@ check(
   "personal move_folder still moves a tree a team connection could only half-see",
   !personalIslandMove.isError &&
     objects.has("1-projects/mixed-personal/private/secret.md") &&
-    !objects.has("1-projects/mixed/private/secret.md")
+    isLogicalDeleteMarker(storedText("1-projects/mixed/private/secret.md"))
 );
 const privateFolderMove = await call("priv-token", "move_folder", {
   source: "1-projects/private-folder",
@@ -2840,7 +2844,7 @@ check(
   "personal move_folder moves a private tree without reducing privacy",
   !privateFolderMove.isError &&
     objects.has("1-projects/private-folder-renamed/a.md") &&
-    !objects.has("1-projects/private-folder/a.md") &&
+    isLogicalDeleteMarker(storedText("1-projects/private-folder/a.md")) &&
     (await call("team-token", "read_note", { path: "1-projects/private-folder-renamed/a.md" }))?.isError
 );
 check(
@@ -2868,9 +2872,8 @@ check(
   !batchPlan.isError && batchEtags.length === 2 &&
     objects.has("1-projects/portable/batch-a.md") && !objects.has("1-projects/portable-moved/batch-a.md")
 );
-// Simulate a Worker invocation that copied one identical destination before
-// hitting its request limit. A retry must resume without treating it as a
-// conflicting overwrite.
+// An identical raw destination is still a different collaborative identity.
+// Refuse to adopt it, then remove it and prove the batch moves cleanly.
 await contextStore.put("1-projects/portable-moved/batch-a.md", "batch a");
 const batchWithoutEtags = await call("pub-token", "move_notes", {
   moves: [
@@ -2879,6 +2882,28 @@ const batchWithoutEtags = await call("pub-token", "move_notes", {
   ],
 });
 check("batch apply requires etags", batchWithoutEtags.isError && objects.has("1-projects/portable/batch-a.md"));
+const batchAdoption = await call("pub-token", "move_notes", {
+  moves: [
+    {
+      source: "1-projects/portable/batch-a.md",
+      destination: "1-projects/portable-moved/batch-a.md",
+      expected_source_etag: batchEtags[0],
+    },
+    {
+      source: "1-projects/portable/batch-b.md",
+      destination: "1-projects/portable-moved/batch-b.md",
+      expected_source_etag: batchEtags[1],
+    },
+  ],
+});
+check(
+  "batch apply does not adopt identical bytes without the collaborative identity",
+  batchAdoption.isError &&
+    objects.has("1-projects/portable/batch-a.md") &&
+    objects.has("1-projects/portable/batch-b.md") &&
+    objects.has("1-projects/portable-moved/batch-a.md"),
+);
+await contextStore.delete("1-projects/portable-moved/batch-a.md");
 const batchApply = await call("pub-token", "move_notes", {
   moves: [
     {
@@ -2894,10 +2919,10 @@ const batchApply = await call("pub-token", "move_notes", {
   ],
 });
 check(
-  "batch apply resumes identical partial copies and moves every note",
+  "batch apply moves every note once every destination is unclaimed",
   !batchApply.isError &&
-    !objects.has("1-projects/portable/batch-a.md") &&
-    !objects.has("1-projects/portable/batch-b.md") &&
+    isLogicalDeleteMarker(storedText("1-projects/portable/batch-a.md")) &&
+    isLogicalDeleteMarker(storedText("1-projects/portable/batch-b.md")) &&
     objects.has("1-projects/portable-moved/batch-a.md") &&
     objects.has("1-projects/portable-moved/batch-b.md")
 );
@@ -2947,14 +2972,12 @@ for (let i = 0; i < 502; i += 1) {
   await contextStore.put(`1-projects/big-move/note-${suffix}.md`, `big ${suffix}`);
 }
 const bigSecretPath = "1-projects/big-move/note-501.md";
-// Keep this large-tree fixture raw: reading it through read_note would
-// intentionally promote it into an active collaborative document, which a
-// logical raw folder move must refuse rather than strand.
-const bigSecretEtag = objects.get(bigSecretPath)?.etag;
+// Keep this large-tree fixture raw: an expected_etag asks set_visibility to
+// resolve the collaborative revision and intentionally promotes the note,
+// which a logical raw folder move must refuse rather than strand.
 await call("priv-token", "set_visibility", {
   path: bigSecretPath,
   visibility: "private",
-  expected_etag: bigSecretEtag,
 });
 const teamBigMove = await call("pub-token", "move_folder", {
   source: "1-projects/big-move",
@@ -3130,7 +3153,8 @@ const completeMove = await call("priv-token", "move_folder", {
 });
 const completeMoveId = completeMove.content[0].text.match(/move_id: (\S+)/)?.[1];
 let completeMaterialize = completeMove;
-for (let i = 0; i < 20 && objects.has(`.context/moves/${completeMoveId}.json`); i += 1) {
+for (let i = 0; i < 20 &&
+  !isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)); i += 1) {
   completeMaterialize = await call("priv-token", "materialize_move", {
     id: completeMoveId,
     batch_size: 100,
@@ -3140,8 +3164,8 @@ check(
   "materialize_move completes a logical move and removes the source objects",
   !completeMaterialize.isError &&
     completeMaterialize.content[0].text.includes("complete") &&
-    !objects.has(`.context/moves/${completeMoveId}.json`) &&
-    !objects.has("1-projects/big-complete/note-000.md") &&
+    isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)) &&
+    isLogicalDeleteMarker(storedText("1-projects/big-complete/note-000.md")) &&
     objects.has("2-areas/deep/big-complete-moved/note-000.md")
 );
 check(
@@ -3187,15 +3211,16 @@ check(
     firstProgressReport?.body?.result?.progress?.total === 501 &&
     !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
 );
-for (let i = 0; i < 20 && objects.has(`.context/moves/${queuedMoveId}.json`); i += 1) {
+for (let i = 0; i < 20 &&
+  !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
   const message = queuedGatewayMessages.shift();
   if (!message) break;
   await worker.queue({ messages: [{ body: message }] }, env);
 }
 check(
   "queue consumer materializes a large logical move across bounded passes",
-  !objects.has(`.context/moves/${queuedMoveId}.json`) &&
-    !objects.has("1-projects/queued-move/note-000.md") &&
+  isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)) &&
+    isLogicalDeleteMarker(storedText("1-projects/queued-move/note-000.md")) &&
     objects.has("1-projects/queued-moved/note-000.md")
 );
 delete env.GATEWAY_JOBS;
@@ -3233,7 +3258,7 @@ const archiveRelocation = await call("priv-token", "move_notes", {
 check(
   "archive relocation moves the note",
   !archiveRelocation.isError &&
-    !objects.has("4-archive/old-layout/a.md") &&
+    isLogicalDeleteMarker(storedText("4-archive/old-layout/a.md")) &&
     objects.has("4-archive/new-layout/a.md")
 );
 

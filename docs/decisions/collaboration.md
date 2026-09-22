@@ -90,6 +90,17 @@ external tools must not interpret them as live Markdown notes. There is no
 periodic marker cleanup in this implementation. Storage adapters must recognize
 existing markers even if a later provider probe changes its capabilities.
 
+## Large folder move bound
+
+A folder move of at most 500 visible objects carries each collaborative
+document through its identity-preserving lifecycle. Above 500 objects, Context
+uses a logical cutover followed by bounded raw-object materialization. That
+large-folder path currently refuses before changing privacy rules, forwarding,
+move jobs, or note bytes if any Markdown source already has collaboration
+history. Move such a folder in smaller batches so each note uses the lifecycle
+path. This bound is a current product limitation; a logical cutover must not
+strand an active document identity to make a large move appear seamless.
+
 ## What proves this works
 
 Core tests cover simultaneous commits, retries, exact-base agent edits, and

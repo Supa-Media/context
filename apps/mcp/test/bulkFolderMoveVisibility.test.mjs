@@ -218,6 +218,36 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     textOf(ownerReads).includes("SECRET-0")
   );
 
+  /* ------- 1b. large raw materialization cannot strand active history ----- */
+
+  const ACTIVE_BULK = 501;
+  for (let n = 0; n < ACTIVE_BULK; n += 1) {
+    primary.set(`2-areas/active/note-${String(n).padStart(4, "0")}.md`, {
+      body: `ACTIVE-${n}`,
+      etag: `a${n}`,
+    });
+  }
+  const activeWitness = "2-areas/active/note-0000.md";
+  check(
+    "reading one note in a large folder gives it active collaboration history",
+    textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: activeWitness })).includes("ACTIVE-0"),
+  );
+  const moveMarkersBefore = [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length;
+  const activeRefused = await callTool(env, TOKEN_OWNER, "move_folder", {
+    source: "2-areas/active",
+    destination: "1-projects/active",
+  });
+  check(
+    "a folder past the threshold refuses before moving an active collaborative identity",
+    activeRefused?.isError === true && /active collaborative note/.test(textOf(activeRefused)),
+  );
+  check(
+    "the refusal leaves source bytes, destinations, and move jobs unchanged",
+    primary.get(activeWitness)?.body === "ACTIVE-0" &&
+      !primary.has("1-projects/active/note-0000.md") &&
+      [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length === moveMarkersBefore,
+  );
+
   /* ---------------- 2. the small path, for the same shape ----------------- */
 
   for (let n = 0; n < 3; n += 1) {
