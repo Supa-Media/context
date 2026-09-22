@@ -741,6 +741,7 @@ const contextMoveExportedValidator = v.object({
     destination: v.string(),
     bytes: v.bytes(),
     etag: v.string(),
+    collaborationEtag: v.optional(v.string()),
     sourceVisibility: v.union(v.literal("private"), v.literal("team")),
   })),
   skipped: v.array(v.object({
@@ -1333,12 +1334,17 @@ const operationValidator = v.union(
       destination: v.string(),
       bytes: v.bytes(),
       etag: v.string(),
+      collaborationEtag: v.optional(v.string()),
       sourceVisibility: v.union(v.literal("private"), v.literal("team")),
     })),
   }),
   v.object({
     kind: v.literal("contextMoveDelete"),
-    sources: v.array(v.object({ path: v.string(), etag: v.string() })),
+    sources: v.array(v.object({
+      path: v.string(),
+      etag: v.string(),
+      collaborationEtag: v.optional(v.string()),
+    })),
   }),
   v.object({
     kind: v.literal("contextMoveFinish"),
@@ -1492,7 +1498,10 @@ type FileOperation =
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
   | { kind: "contextMoveImport"; objects: ContextMoveObject[]; root?: string }
-  | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
+  | {
+      kind: "contextMoveDelete";
+      sources: Array<{ path: string; etag: string; collaborationEtag?: string }>;
+    }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }

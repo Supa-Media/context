@@ -53,6 +53,28 @@ not attach an old device to the new note. Structural changes need recoverable
 ordering with content commits, not a best-effort sidecar copy after a move.
 Encryption must never be downgraded to enable collaborative text editing.
 
+## Deletion on storage without conditional DELETE
+
+R2's S3 API does not enforce the conditional delete needed by a resumable
+rename. The native R2 adapter's read-then-delete is not atomic either. A passing
+browser test against that adapter does not prove production lifecycle safety.
+The raw provider probe must continue to report the physical capabilities.
+
+For Context-controlled writes, the storage adapter can instead atomically
+replace the object with a small, content-free deletion marker using conditional
+PUT. Reads and listings treat that marker as absent. A create at the same path
+replaces it only by matching its current version; concurrent creates cannot both
+succeed. Markers have unique nonces and are never physically cleaned up: an old
+cleanup request could otherwise delete a new note at the reused path. This is
+storage protocol data, including when the path used to hold an ordinary note.
+
+This has a visible cost for people copying the raw bucket: retired paths can
+contain marker objects. Context downloads and listings hide them. A full bucket
+backup must preserve the markers and their metadata alongside editing history;
+external tools must not interpret them as live Markdown notes. There is no
+periodic marker cleanup in this implementation. Storage adapters must recognize
+existing markers even if a later provider probe changes its capabilities.
+
 ## What proves this works
 
 Core tests cover simultaneous commits, retries, exact-base agent edits, and

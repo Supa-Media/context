@@ -18,7 +18,7 @@ function memoryStore(initial: Record<string, number[]> = {}, corruptWrites = fal
   const store: MigrationStore = {
     async get(key) {
       const value = values.get(key);
-      return value === undefined ? null : { arrayBuffer: async () => value.slice(0) };
+      return value === undefined ? null : { contentType: contentTypes.get(key), arrayBuffer: async () => value.slice(0) };
     },
     async put(key, value, options) {
       values.set(key, corruptWrites ? bytes([0]) : value.slice(0));
@@ -33,6 +33,21 @@ function memoryStore(initial: Record<string, number[]> = {}, corruptWrites = fal
 }
 
 describe("one managed-storage migration object", () => {
+  test("preserves deletion-marker metadata even when target bytes already match", async () => {
+    const source = memoryStore({ "retired.md": [1, 2, 3] });
+    const target = memoryStore({ "retired.md": [1, 2, 3] });
+    source.contentTypes.set("retired.md", "application/x-context-logical-tombstone");
+    target.contentTypes.set("retired.md", "text/markdown; charset=utf-8");
+    const result = await reconcileMigrationObject({
+      source: source.store, target: target.store, key: "retired.md",
+      listedFromTarget: false, byteCap: 1024,
+    });
+    expect(result).toEqual({ copied: 1, changes: 1 });
+    expect(target.contentTypes.get("retired.md")).toBe("application/x-context-logical-tombstone");
+    expect([...new Uint8Array(target.values.get("retired.md")!)]).toEqual([1, 2, 3]);
+    expect(source.values.has("retired.md")).toBe(true);
+  });
+
   test("copies binary bytes exactly and verifies the stored result", async () => {
     const source = memoryStore({ "attachments/photo.bin": [0, 255, 7, 128] });
     const target = memoryStore();

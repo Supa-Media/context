@@ -1052,7 +1052,7 @@ async function readVisibleFile(
   // `readOnly` is forced, so an older console that ignores `encrypted` still
   // refuses to put it in a textarea.
   const encrypted = isEncryptedNote(text);
-  let collaboration: { documentId: string; update: string; text: string; etag: string } | null = null;
+  let collaboration: { documentId: string; update: string; text: string; etag: string; rawEtag: string } | null = null;
   if (!encrypted && collaborationSupported(store) && collaborationEligible(path, text)) {
     try {
       collaboration = await readCollaborationDocument(store, path);
@@ -1067,7 +1067,7 @@ async function readVisibleFile(
     path,
     text: collaboration?.text ?? text,
     etag: collaboration?.etag ?? object.etag,
-    ...(collaboration ? { rawEtag: object.etag } : {}),
+    ...(collaboration ? { rawEtag: collaboration.rawEtag } : {}),
     visibility: described.visibility,
     inherited: described.inherited,
     exception: described.exception,
@@ -2562,6 +2562,36 @@ export async function movePath(
     if (sourceObject !== null) {
       const sourceText = await sourceObject.text();
       if (!isEncryptedNote(sourceText) && collaborationEligible(from, sourceText)) {
+        if (store.capabilities?.conditionalDelete !== true) {
+          throw new FileOpError(
+            "STORAGE_UNSAFE",
+            "This storage cannot safely move a collaboratively edited note.",
+          );
+        }
+        if ((await store.get(to)) !== null) {
+          throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
+        }
+        const destinationVisibility = narrowerVisibility(
+          effectiveVisibility(from, state.rules, state.overrides),
+          visibilityOf(to, state.rules),
+        );
+        // Install any narrowing before moveDocument materializes bytes at the
+        // destination. The source rule remains in place until remapPrivacy
+        // runs after success; on failure a stale narrowing is safe to leave.
+        if (destinationVisibility !== "team") {
+          await mutateManifest(store, (current) => ({
+            rules: current.rules,
+            overrides: nextOverrides(
+              to,
+              narrowerVisibility(
+                destinationVisibility,
+                effectiveVisibility(to, current.rules, current.overrides),
+              ) ?? "private",
+              current.rules,
+              current.overrides,
+            ),
+          }));
+        }
         let moved;
         try {
           moved = await moveCollaborationDocument(store, from, to, {
@@ -2587,17 +2617,21 @@ export async function movePath(
           survivors: [],
         });
         await recordForwarding(store, [{ from, to, kind: "note" as const }], { now: options.now });
+        let finalEtag = moved.etag;
         const references = await rewriteReferences(store, {
           clearance: options.clearance,
           state,
           renames: new Map(movedPairs.map((pair) => [pair.source, pair.destination])),
+          onRewritten: (key, etag) => {
+            if (key === to) finalEtag = etag;
+          },
         });
         return {
           from,
           to,
           paths: [to],
           references,
-          etag: moved.etag,
+          etag: finalEtag,
         };
       }
     }
@@ -2638,15 +2672,48 @@ export async function movePath(
   // conditional delete cannot leave a half-moved folder.
   const collaborativePairs = new Set<string>();
   if (sourceIsFolder && collaborationSupported(store)) {
-    const candidates: Array<{ pair: (typeof pairs)[number]; text: string }> = [];
+    const candidates: Array<{
+      pair: (typeof pairs)[number];
+      visibility: Visibility;
+    }> = [];
     for (const pair of pairs) {
       const object = await store.get(pair.source);
       if (object === null) continue;
       const text = await object.text();
-      if (!isEncryptedNote(text) && collaborationEligible(pair.source, text)) candidates.push({ pair, text });
+      if (!isEncryptedNote(text) && collaborationEligible(pair.source, text)) {
+        candidates.push({
+          pair,
+          visibility: narrowerVisibility(
+            effectiveVisibility(pair.source, state.rules, state.overrides),
+            visibilityOf(pair.destination, state.rules),
+          ) ?? "private",
+        });
+      }
     }
     if (candidates.length > 0 && store.capabilities?.conditionalDelete !== true) {
       throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely move collaboratively edited notes.");
+    }
+    if (candidates.length > 0) {
+      await mutateManifest(store, (current) => {
+        let next = current.overrides;
+        for (const candidate of candidates) {
+          if (candidate.visibility === "team") continue;
+          next = nextOverrides(
+            candidate.pair.destination,
+            narrowerVisibility(
+              candidate.visibility,
+              effectiveVisibility(
+                candidate.pair.destination,
+                current.rules,
+                next,
+              ),
+            ) ?? "private",
+            current.rules,
+            next,
+          );
+        }
+        return { rules: current.rules, overrides: next };
+      });
     }
     for (const candidate of candidates) {
       try {
@@ -2850,6 +2917,8 @@ export interface ContextMoveObject {
   bytes: ArrayBuffer;
   /** What the source held when it was read. The delete is conditional on it. */
   etag: string;
+  /** Exact collaboration revision to tombstone after the other context lands it. */
+  collaborationEtag?: string;
   /**
    * The source's effective visibility, collapsed to the two tiers.
    *
@@ -3093,8 +3162,9 @@ export async function exportContextMoveBatch(
     looked += 1;
     const object = await store.get(key);
     if (object === null) continue; // deleted underneath us; nothing to carry
-    const bytes = await object.arrayBuffer();
-    if (key.endsWith(".md") && isEncryptedNote(new TextDecoder().decode(bytes))) {
+    let bytes = await object.arrayBuffer();
+    const sourceText = key.endsWith(".md") ? new TextDecoder().decode(bytes) : null;
+    if (sourceText !== null && isEncryptedNote(sourceText)) {
       /*
         AN ENCRYPTED NOTE IS ENCRYPTED TO *THIS* CONTEXT'S KEY.
 
@@ -3108,12 +3178,33 @@ export async function exportContextMoveBatch(
       skipped.push({ path: key, reason: "encrypted" });
       continue;
     }
+    let collaborationEtag: string | undefined;
+    if (sourceText !== null && collaborationSupported(store) &&
+        collaborationEligible(key, sourceText)) {
+      if (store.capabilities?.conditionalDelete !== true) {
+        throw new FileOpError(
+          "STORAGE_UNSAFE",
+          "This storage cannot safely retire a collaboratively edited note. Nothing from this batch was removed.",
+        );
+      }
+      try {
+        const base = await readCollaborationDocument(store, key);
+        bytes = new TextEncoder().encode(base.text).buffer;
+        collaborationEtag = base.etag;
+      } catch {
+        throw new FileOpError(
+          "CONFLICT",
+          "A note changed while this context move was reading it. Nothing from this batch was removed.",
+        );
+      }
+    }
     carried += bytes.byteLength;
     objects.push({
       source: key,
       destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
       bytes,
       etag: object.etag,
+      ...(collaborationEtag === undefined ? {} : { collaborationEtag }),
       sourceVisibility:
         effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",
     });
@@ -3399,14 +3490,25 @@ function assertDestinationCanLand(store: FileStore): void {
 
 export async function deleteMovedSources(
   store: FileStore,
-  options: { sources: readonly { path: string; etag: string }[] },
+  options: { sources: readonly { path: string; etag: string; collaborationEtag?: string }[] },
 ): Promise<{ deleted: string[]; conflicts: string[] }> {
   const deleted: string[] = [];
   const conflicts: string[] = [];
   for (const source of options.sources) {
-    const retired = await retireMovedSource(store, source.path, source.etag);
-    if (retired === "retired") deleted.push(source.path);
-    else conflicts.push(source.path);
+    if (source.collaborationEtag !== undefined) {
+      try {
+        await tombstoneCollaborationDocument(store, source.path, {
+          expectedEtag: source.collaborationEtag,
+        });
+        deleted.push(source.path);
+      } catch {
+        conflicts.push(source.path);
+      }
+    } else {
+      const retired = await retireMovedSource(store, source.path, source.etag);
+      if (retired === "retired") deleted.push(source.path);
+      else conflicts.push(source.path);
+    }
   }
 
   if (deleted.length > 0) {

@@ -50,13 +50,15 @@ interface StoredValue {
    * because a PNG decoded as text is mojibake.
    */
   readonly body: string;
+  contentType?: string;
 }
 
-function stored(value: string | ArrayBuffer | Uint8Array, etag: string): StoredValue {
+function stored(value: string | ArrayBuffer | Uint8Array, etag: string, contentType?: string): StoredValue {
   const bytes = toBytes(value);
   return {
     bytes,
     etag,
+    ...(contentType ? { contentType } : {}),
     get body() {
       return new TextDecoder().decode(bytes);
     },
@@ -309,6 +311,8 @@ export interface MemoryS3Options {
   virtualHosted?: boolean;
   /** Accepts `If-Match` and overwrites anyway — B2, Wasabi. */
   ignoreIfMatch?: boolean;
+  /** Enforces conditional PUT but ignores conditional DELETE, as R2 does. */
+  ignoreConditionalDelete?: boolean;
   /** Lists, refuses every write. */
   readOnly?: boolean;
   /**
@@ -411,7 +415,7 @@ export function memoryS3(
       if (!value) return new Response("", { status: 404 });
       // The bytes, not the decoded text — a GET of a PNG must return the PNG.
       return new Response(value.bytes as unknown as BodyInit, {
-        headers: { etag: `"${value.etag}"` },
+        headers: { etag: `"${value.etag}"`, ...(value.contentType ? { "content-type": value.contentType } : {}) },
       });
     }
 
@@ -456,7 +460,7 @@ export function memoryS3(
           return new Response("", { status: 412 });
         }
         const copyEtag = `m${++counter}`;
-        objects.set(key, stored(source.bytes, copyEtag));
+        objects.set(key, stored(source.bytes, copyEtag, source.contentType));
         return new Response(
           `<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult>` +
             `<ETag>&quot;${copyEtag}&quot;</ETag></CopyObjectResult>`,
@@ -475,7 +479,7 @@ export function memoryS3(
       // silently corrupting for a PNG, and — because the assertion would read
       // it back through the same decode — invisible to a test.
       const etag = `m${++counter}`;
-      objects.set(key, stored(init.body as string | Uint8Array, etag));
+      objects.set(key, stored(init.body as string | Uint8Array, etag, headers.get("content-type") ?? undefined));
       return new Response("", { status: 200, headers: { etag: `"${etag}"` } });
     }
 
@@ -494,6 +498,7 @@ export function memoryS3(
       if (
         deleteExpected &&
         !options.ignoreIfMatch &&
+        !options.ignoreConditionalDelete &&
         objects.get(key)?.etag !== deleteExpected
       ) {
         return new Response("", { status: 412 });
