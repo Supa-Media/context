@@ -2,9 +2,10 @@ import {
   createContext,
   useContext,
   useMemo,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { useColorScheme } from "react-native";
+import { Appearance } from "react-native";
 
 import {
   darkColors,
@@ -36,7 +37,7 @@ import {
  *
  * ## Why the provider is optional
  *
- * `useColorScheme()` already answers the question on every platform this app
+ * `Appearance` already answers the question on every platform this app
  * ships to, so the hooks below work with no provider above them. The provider
  * exists for the one case the platform cannot answer: a test that needs to
  * mount a screen in a named scheme.
@@ -118,6 +119,34 @@ export function resolveScheme(
   return "dark";
 }
 
+/**
+ * The device's appearance, read live rather than remembered per call site.
+ *
+ * Not react-native's `useColorScheme`, because on web that hook (from
+ * react-native-web) keeps its own `useState` per call and re-subscribes after
+ * every render. A browser calls the media query's listeners one at a time and
+ * React renders the first one's update before the next is called, so that
+ * render unsubscribes every later hook in the subtree mid-dispatch and they
+ * never hear the change: `useColors` and `useThemedStyles` in one component
+ * would disagree until a reload. `themeLiveSwitch.test.ts` stages exactly that.
+ *
+ * `useSyncExternalStore` fixes both halves: `subscribe` is one module-level
+ * function, so a render never re-subscribes, and the snapshot is read on every
+ * render, so a component re-rendered for any reason draws the current scheme.
+ */
+function subscribeToAppearance(onChange: () => void): () => void {
+  const subscription = Appearance.addChangeListener(onChange);
+  return () => subscription.remove();
+}
+
+function readAppearance() {
+  return Appearance.getColorScheme();
+}
+
+function useSystemScheme() {
+  return useSyncExternalStore(subscribeToAppearance, readAppearance, readAppearance);
+}
+
 export function ThemeProvider({
   scheme,
   children,
@@ -126,7 +155,7 @@ export function ThemeProvider({
   scheme?: Scheme;
   children: ReactNode;
 }) {
-  const system = useColorScheme();
+  const system = useSystemScheme();
   const resolved = resolveScheme(scheme ?? null, system);
   return <SchemeContext.Provider value={resolved}>{children}</SchemeContext.Provider>;
 }
@@ -134,7 +163,7 @@ export function ThemeProvider({
 /** The appearance in force for this subtree. */
 export function useScheme(): Scheme {
   const chosen = useContext(SchemeContext);
-  const system = useColorScheme();
+  const system = useSystemScheme();
   return resolveScheme(chosen, system);
 }
 
