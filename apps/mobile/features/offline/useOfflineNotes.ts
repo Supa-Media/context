@@ -650,7 +650,6 @@ export function useOfflineNotes(options: {
       shouldWrite: (write) => !collaborationOwnedRef.current.has(write.path) && (shouldWriteRef.current?.(write) ?? true),
       ...(send === undefined ? {} : { op: (op: PendingOp) => send(op) }),
       now: () => Date.now(),
-      onWritten: (result) => onWrittenRef.current?.({ path: result.path, etag: result.etag }),
       onOpDone: (done) => {
         rememberOpDone(done);
         onOpDoneRef.current?.(done);
@@ -668,6 +667,12 @@ export function useOfflineNotes(options: {
           reconcile(outboxRef.current, next, report, { id: newOpId, now: Date.now() }),
           true,
         );
+        // Reconcile first. The editor needs to know whether a newer write was
+        // queued while this request was in flight before it marks a create
+        // settled or upgrades it to a canonical collaboration generation.
+        for (const sent of report.sent) {
+          onWrittenRef.current?.({ path: sent.path, etag: sent.etag });
+        }
         setLastDrain(report);
         /*
           What was sent is in the bucket now, at the etag the write returned,

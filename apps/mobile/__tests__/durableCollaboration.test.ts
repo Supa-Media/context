@@ -353,4 +353,39 @@ describe("durable collaboration", () => {
     server.destroy();
     controller.stop();
   });
+
+  test("legacy recovery keeps a peer edit that arrived after the create ACK", async () => {
+    const bodies: unknown[] = [];
+    const server = new Y.Doc();
+    server.getText("note").insert(0, "created peer");
+    const serverResponse = (): CollaborationResponse => ({
+      documentId: "doc-1",
+      update: Buffer.from(Y.encodeStateAsUpdate(server)).toString("base64"),
+      text: server.getText("note").toString(),
+      etag: "c2-current",
+    });
+    const controller = new DurableCollaborationController({
+      ...options({
+        mint: async () => "grant",
+        request: async (_token, body) => {
+          bodies.push(body);
+          if (body.replacement !== undefined) {
+            expect(body.replacement.expectedEtag).toBe("raw-create");
+            server.getText("note").insert(server.getText("note").length, " mine");
+          }
+          return serverResponse();
+        },
+      }),
+      legacyDraft: { baseline: "created", desired: "created mine", baseEtag: "raw-create" },
+    });
+    await controller.start();
+    expect(bodies).toEqual([
+      { path: "notes/a.md" },
+      { path: "notes/a.md", replacement: { expectedEtag: "raw-create", text: "created mine" } },
+    ]);
+    expect(controller.state.text).toContain("created peer");
+    expect(controller.state.text).toContain("mine");
+    server.destroy();
+    controller.stop();
+  });
 });

@@ -32,6 +32,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify durable history and interrupted storage operations
+        run: pnpm --filter @context/collaboration test
       - run: pnpm --filter @context/mobile exec playwright install --with-deps chromium
       - name: Build the actual app with its local-only test screen
         run: pnpm --filter @context/mobile exec expo export --platform web --output-dir web-build

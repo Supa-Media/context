@@ -64,5 +64,5 @@ removing an unseen human edit. It is a design experiment, not an implementation
 of durable storage, authorization, migration, or a production merge service.
 An in-memory encode/restore test does not establish disk/crash durability.
 
-The proposed model is in `docs/design/collaboration-model.md`. The implementation is on this branch; no deployment is established by these
+The implemented model is described in `docs/design/collaboration-model.md`. The implementation is on this branch; no deployment is established by these
 local artifacts. Failed release gates remain failures until fixed and rerun.

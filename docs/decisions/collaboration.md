@@ -11,6 +11,12 @@ essential data, unlike a search index. Backups, transfers, and full workspace
 exports must include it. A plain Markdown export remains useful, but does not
 carry the history needed to reconnect an older offline device.
 
+The console's existing note/folder ZIP download contains readable Markdown,
+not a complete bucket backup. Preserving offline merge history requires a full
+bucket copy including the hidden `.context/` objects. The managed-storage
+migration copies all objects, including these records. Do not describe the
+note ZIP as a full collaboration backup.
+
 This explicitly extends the previous plain-files-only durability contract.
 Accepted operations may briefly precede their Markdown rendering. A completed
 save must include the operations in Markdown; a failed rendering keeps the

@@ -126,6 +126,30 @@ test("concurrent initialization adopts one canonical seed snapshot", async () =>
   assert.equal(left.text, "same seed\n");
 });
 
+test("an offline create ACK remains the exact base after a peer edits the new note", async () => {
+  const store = new MemoryStore();
+  const rawCreateEtag = store.seed("created-offline.md", "Created offline\n");
+  const firstRead = await readDocument(store, "created-offline.md");
+  const peer = new Y.Doc();
+  Y.applyUpdate(peer, Buffer.from(firstRead.update, "base64"));
+  peer.getText("note").insert(peer.getText("note").length, "Peer sentence\n");
+  await commitUpdate(store, "created-offline.md", {
+    documentId: firstRead.documentId,
+    update: Buffer.from(Y.encodeStateAsUpdate(peer)).toString("base64"),
+  });
+  const reread = await readDocument(store, "created-offline.md");
+  assert.notEqual(reread.etag, firstRead.etag);
+  const pending = { expectedEtag: rawCreateEtag, text: "Created offline\nMore local typing\n" };
+  const merged = await replaceText(store, "created-offline.md", pending);
+  for (const sentence of ["Created offline", "Peer sentence", "More local typing"]) {
+    assert.equal(merged.text.split(sentence).length - 1, 1);
+  }
+  const retried = await replaceText(store, "created-offline.md", pending);
+  assert.equal(retried.text, merged.text);
+  assert.equal(await (await store.get("created-offline.md")).text(), merged.text);
+  peer.destroy();
+});
+
 test("human update and agent replacement preserve an unseen human insertion", async () => {
   const store = new MemoryStore();
   store.seed("note.md", "Heading\nBody\n");

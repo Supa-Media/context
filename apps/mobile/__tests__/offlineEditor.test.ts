@@ -134,6 +134,61 @@ describe("a save that was written down instead of written", () => {
     expect(isDirty(settled)).toBe(false);
   });
 
+  test("canonicalizing a created note preserves newer queued typing", () => {
+    const queued = editorReducer(
+      editorReducer(opened(), { type: "edited", text: "created then more" }),
+      { type: "saveQueued", message: "queued" },
+    );
+    const canonical = editorReducer(queued, { type: "queueCanonicalized", etag: "c2-created", baseEtag: "raw-create" });
+
+    expect(canonical.status).toBe("queued");
+    expect(canonical.draft).toBe("created then more");
+    expect(canonical.baseline).toBe("on the server");
+    expect(canonical.etag).toBe("c2-created");
+    expect(canonical.draftBase).toBe("raw-create");
+  });
+
+  test("canonicalizing without newer typing adopts peer content as the new baseline", () => {
+    const settled = editorReducer(
+      editorReducer(opened(), { type: "edited", text: "created" }),
+      { type: "saveQueued", message: "queued" },
+    );
+    const saved = editorReducer(settled, { type: "queueSettled", etag: "raw-create" });
+    const canonical = editorReducer(saved, {
+      type: "queueCanonicalized",
+      etag: "c2-current",
+      text: "created peer",
+      baseEtag: "raw-create",
+    });
+
+    expect(canonical.status).toBe("saved");
+    expect(canonical.draft).toBe("created peer");
+    expect(canonical.baseline).toBe("created peer");
+    expect(canonical.draftBase).toBeUndefined();
+  });
+
+  test("canonicalizing after typing keeps the raw create ancestor", () => {
+    const settled = editorReducer(
+      editorReducer(
+        editorReducer(opened(), { type: "edited", text: "created" }),
+        { type: "saveQueued", message: "queued" },
+      ),
+      { type: "queueSettled", etag: "raw-create" },
+    );
+    const typed = editorReducer(settled, { type: "edited", text: "created local" });
+    const canonical = editorReducer(typed, {
+      type: "queueCanonicalized",
+      etag: "c2-peer",
+      text: "created peer",
+      baseEtag: "raw-create",
+    });
+
+    expect(canonical.draft).toBe("created local");
+    expect(canonical.baseline).toBe("created");
+    expect(canonical.draftBase).toBe("raw-create");
+    expect(canonical.etag).toBe("c2-peer");
+  });
+
   test("a drain landing on a note that is no longer queued changes nothing", () => {
     // The person may have discarded, reloaded theirs, or opened something else
     // between the drain starting and finishing.

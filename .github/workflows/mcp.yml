@@ -92,7 +92,7 @@ jobs:
       - uses: pnpm/action-setup@v4
 
       - name: Install the collaboration engine
-        run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
       - name: Run test suite
         working-directory: apps/mcp
@@ -306,7 +306,7 @@ jobs:
       # imports `@context/meetings` by package name and resolves it through the
       # workspace. Scoped to that app so the install stays small.
       - name: Install
-        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+        run: pnpm install --filter "@context/desktop..." --filter "@context/mcp..." --frozen-lockfile
 
       - name: Run test suite
         working-directory: apps/desktop

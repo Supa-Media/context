@@ -678,11 +678,15 @@ export async function runPrivacyGroupChecks(check) {
       bucket.text("privacy.md").includes("1-projects/rates.md: @supa-leads")
     );
     // The positive control: the confirmation is a real gate, not a refusal.
+    const ratesRead = await callTool(env, OWNER_TOKEN, "read_note", {
+      path: "1-projects/rates.md",
+    });
     const confirmed = await callTool(env, OWNER_TOKEN, "write_note", {
       path: "1-projects/rates.md",
       content: "# rates\n\nRATESECRET what we charge",
       visibility: "team",
       confirm_team_publish: true,
+      expected_etag: ratesRead.match(/^etag: (\S+)/)?.[1],
     });
     check("...and it goes through once the owner confirms", /written/i.test(confirmed));
 

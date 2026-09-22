@@ -83,7 +83,7 @@ jobs:
       - uses: pnpm/action-setup@v4
 
       - name: Install the collaboration engine
-        run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
       - name: Run test suite
         working-directory: apps/mcp
@@ -215,7 +215,7 @@ jobs:
       # Install the gateway, wrangler, and the shared collaboration engine.
       - name: Install gateway dependencies
         if: steps.config.outputs.found == 'true'
-        run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
       # DEPLOY FIRST, secrets after — the ordering `deploy-router.yml` and
       # `deploy-email-worker.yml` fixed for the same reason (#302).

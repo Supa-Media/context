@@ -234,9 +234,9 @@ index 705445c..e69f966 100644
 +      ? toolError(FOLDED_TWIN_REFUSAL)
 +      : writePermissionError("archive destination");
 +  }
-   const body = await obj.arrayBuffer();
-   if (destinationVisibility === "private") {
-     await persistExactVisibility(store, dest, "private", rules);
+
+   if (collaborationBase) {
+     if (store.capabilities?.conditionalDelete !== true) {
 @@ -8780,6 +8847,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
    // on every move. Neither branch firing at all was the first version of this
    // and left the note on its new folder's default, which is exactly the

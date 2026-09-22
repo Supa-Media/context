@@ -380,6 +380,7 @@ export async function runTenancyChecks(check) {
     content: "alpha rewrote this",
     visibility: "team",
     confirm_team_publish: true,
+    expected_etag: aReadsShared.content[0].text.match(/^etag: (\S+)/)?.[1],
   });
   check(
     "a write by tenant A lands in tenant A's bucket",
@@ -497,6 +498,7 @@ export async function runTenancyChecks(check) {
     content: "gamma rewrote this",
     visibility: "team",
     confirm_team_publish: true,
+    expected_etag: cReadsShared.content[0].text.match(/^etag: (\S+)/)?.[1],
   });
   check("a dropbox-backed workspace can write", !cWrites.isError);
   check(

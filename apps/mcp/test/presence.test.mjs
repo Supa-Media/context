@@ -1817,10 +1817,14 @@ export async function runPresenceChecks(check) {
     /* -- a tool's write reaches the room for that note --------------------- */
 
     const writesBefore = rooms.calls.length;
+    const roadmapRead = await callTool(env, TEAM_TOKEN, "read_note", {
+      path: "1-projects/roadmap.md",
+    });
     const written = await callTool(env, TEAM_TOKEN, "write_note", {
       path: "1-projects/roadmap.md",
       content: "the roadmap, for everyone here\n\nand a line an agent added\n",
       summary: "an agent writing a note somebody has open",
+      expected_etag: roadmapRead.match(/^etag: (\S+)/)?.[1],
     });
     const notice = rooms.calls.slice(writesBefore).find((call) => call.body !== null);
     check(

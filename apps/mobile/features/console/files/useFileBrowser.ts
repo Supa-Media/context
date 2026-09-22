@@ -668,6 +668,7 @@ export function useFileBrowser(options: {
    */
   const onDrained = useCallback((result: { path: string; etag: string }) => {
     const current = editorRef.current;
+    const generation = openRun.current;
     /*
       The bucket's path, or the name this device shows it under: an edit of a
       note renamed here is sent to the note's old name, ahead of the rename,
@@ -675,8 +676,49 @@ export function useFileBrowser(options: {
     */
     const shownAt = offlineRef.current.localPathOf(result.path);
     if (current.path !== result.path && current.path !== shownAt) return;
-    dispatch({ type: "queueSettled", etag: result.etag });
-  }, []);
+    const newer = offlineRef.current.pendingFor(result.path) !== undefined;
+    if (!newer) dispatch({ type: "queueSettled", etag: result.etag });
+    else dispatch({ type: "queueCanonicalized", etag: result.etag });
+    if (workspaceId === null) return;
+    // A create ACK may carry the legacy raw etag. Read the note through the
+    // authorized file path so the editor can bind durable collaboration only
+    // after the backend has initialized and advertised its c2 generation.
+    const reread = (attempt: number): void => {
+      void readNote({ workspaceId, path: result.path })
+        .then((canonical) => {
+          const open = editorRef.current;
+          if (openRun.current !== generation) return;
+          if (open.path !== result.path && open.path !== shownAt) return;
+          // A later raw/collaboration save owns the editor now. This reread
+          // must not relabel that newer text or move its etag backwards.
+          if (open.etag !== result.etag) return;
+          const canonicalGeneration = canonical.etag.startsWith("c2.");
+          dispatch({
+            type: "queueCanonicalized",
+            etag: canonical.etag,
+            text: canonical.text,
+            // Keep the raw ACK as the historical ancestor whenever local text
+            // changed during the reread. Replacing against current c2 directly
+            // could overwrite peer edits already included in this response.
+            ...(canonicalGeneration ? { baseEtag: result.etag } : {}),
+          });
+          if (!canonicalGeneration && attempt < 2) {
+            const delay = [500, 1500][attempt] ?? 1500;
+            setTimeout(() => {
+              if (openRun.current === generation) reread(attempt + 1);
+            }, delay);
+          }
+        })
+        .catch(() => {
+          if (attempt >= 2) return;
+          const delay = [500, 1500][attempt] ?? 1500;
+          setTimeout(() => {
+            if (openRun.current === generation) reread(attempt + 1);
+          }, delay);
+        });
+    };
+    reread(0);
+  }, [readNote, workspaceId]);
 
   /**
    * One queued rename, move, archive, delete or new folder — `queuedOpSender`,
