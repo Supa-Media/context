@@ -57,6 +57,8 @@ on:
       - "packages/hook/**"
       - "packages/communications/**"
       - "packages/meetings/**"
+      - "apps/mcp/**"
+      - "packages/collaboration/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -126,11 +128,13 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # Scoped to the app and what it depends on. The desktop app has one
-      # runtime dependency (`@context/meetings`, bundled by esbuild) and its
-      # build tools; the rest of the workspace is not this build's business.
+      # Scoped to the app and its declared dependency graph. The desktop test
+      # suite imports the live MCP tool contract, so `@context/mcp` is a real
+      # test-only dependency and brings its collaboration engine (including
+      # Yjs) into this filtered install. Runtime packages are still bundled by
+      # esbuild; the rest of the workspace is not this build's business.
       - name: Install
-        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+        run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       # Before anything is built. A `.dmg` of a broken app is worse than no
       # `.dmg`, because somebody installs it.

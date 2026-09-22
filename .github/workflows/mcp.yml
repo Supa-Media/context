@@ -301,12 +301,13 @@ jobs:
       #
       # It lives in this workflow for the reason the header gives: no `paths:`
       # filter on `pull_request`, so it runs on every pull request rather than
-      # only on the ones somebody remembered to name. The gateway's own jobs
-      # install nothing on purpose; this one has to, because the desktop app
-      # imports `@context/meetings` by package name and resolves it through the
-      # workspace. Scoped to that app so the install stays small.
+      # only on the ones somebody remembered to name. The desktop app resolves
+      # its workspace imports through pnpm, including the live MCP tool contract
+      # its tests exercise. `@context/mcp` is therefore an explicit test-only
+      # dependency, and this uses the same filtered graph production's desktop
+      # deploy installs instead of repairing the graph in CI.
       - name: Install
-        run: pnpm install --filter "@context/desktop..." --filter "@context/mcp..." --frozen-lockfile
+        run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       - name: Run test suite
         working-directory: apps/desktop
