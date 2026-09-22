@@ -7,10 +7,16 @@ implementation, before the fixes on this branch.
 The same mounted-editor runner now exercises the durable collaboration
 implementation and writes `implementation-results.json`. Those results are
 separate from the baseline. Screenshots show the most recent implementation
-run. The checked-in local run passed 42 checks before the final aborted-move
-recovery fix; final-head CI reruns this same browser gate and uploads its own
-evidence. These local results do not establish production sign-in or native
-behavior.
+run. The latest local run passed all 68 assertions with no failed checks and
+recorded eight state diagnostics. The named-peer screenshot is
+`presence-named-caret.png`. The three separately typed characters reached the
+other editor in 33 ms, 32 ms, and 29 ms in this localhost run; a
+four-character burst delivered four live frames before the held durable
+acknowledgements were released. These are browser-to-browser measurements on
+localhost, not production latency claims. Expected browser network/auth
+errors from offline and revocation fault scenarios are recorded separately
+from assertion results. These local results do not establish production
+sign-in or native behavior.
 
 ## What was exercised
 
@@ -36,8 +42,9 @@ The original `verify.mjs` protocol harness passed 21/21. That harness does not
 mount React or CodeMirror. Its result is separate from `baseline-results.json`,
 which records the mounted-editor investigation. Deliberate offline network
 errors are expected in that report. The offline cases explicitly close both
-sides of a Playwright-intercepted connection to the real room, since setting
-HTTP offline alone did not reliably disconnect the existing socket. A failed expectation is retained, not
+sides of a Playwright-intercepted connection to the real room with an
+application close code, since setting HTTP offline alone did not reliably
+disconnect the existing socket. A failed expectation is retained, not
 converted into a pass because the code currently behaves that way.
 
 ## Reproduce
