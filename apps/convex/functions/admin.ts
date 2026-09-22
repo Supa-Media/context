@@ -75,7 +75,7 @@ import {
   type AccountFacts,
 } from "./lib/census";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
-import { MANAGED_BUCKET_PREFIX } from "./lib/managedStorage";
+import { managedBucketName } from "./lib/managedStorage";
 import { activeEntitlements, type PlanStatus } from "./lib/premium";
 import {
   USAGE_METRICS,
@@ -526,7 +526,7 @@ export const censusReport = query({
       // cannot derive — correct when provisioning a bucket, wrong in a census,
       // where one unusual row must not take the whole dashboard down.
       const isManaged =
-        binding.bucket === `${MANAGED_BUCKET_PREFIX}${String(binding.workspaceId)}`;
+        binding.bucket === managedBucketName(binding.workspaceId);
       if (isManaged) managed += 1;
       else customer += 1;
       if (binding.provider === "dropbox") dropbox += 1;

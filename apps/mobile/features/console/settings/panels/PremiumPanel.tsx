@@ -1,3 +1,4 @@
+import { STAGING_DATA_WARNING } from "../../../app/StagingNotice";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
@@ -309,6 +310,7 @@ export function PremiumBody({
             )}
           </View>
 
+          {status.stagingFreeStorage ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
           <Row divided style={styles.priceRow}>
             <Text variant="rowSub">Price</Text>
             <Text variant="rowTitle" testID="premium-price">

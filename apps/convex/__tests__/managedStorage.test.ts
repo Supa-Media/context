@@ -20,7 +20,7 @@
  * call sites deleted, which is the failure `docs/decisions/testing.md` names.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ConvexError } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -183,4 +183,17 @@ describe("the managed account is not a customer's", () => {
       refuseManagedEndpoint(`https://${ACCOUNT_ID}.r2.cloudflarestorage.com`, null),
     ).not.toThrow();
   });
+});
+
+
+it("staging bucket names are distinct, deterministic and easy to remove", () => {
+  const id = ws("k17abc000000000000000000000000ab");
+  vi.stubEnv("APP_ENV", "production");
+  const production = managedBucketName(id);
+  vi.stubEnv("APP_ENV", "staging");
+  try {
+    expect(managedBucketName(id)).toBe(`staging-${production}`);
+    expect(managedBucketName(id)).toBe(managedBucketName(id));
+    expect(managedBucketName(id).length).toBeLessThanOrEqual(63);
+  } finally { vi.unstubAllEnvs(); }
 });

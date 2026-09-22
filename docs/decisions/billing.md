@@ -390,3 +390,7 @@ The UI says storage is free on staging and proceeds directly to provisioning.
 Selected services use the normal entitlement machinery; fast search is still opt-in.
 Context pays the underlying Cloudflare usage. This replaces the proposal to hand
 out credentials for connecting production-managed buckets to staging.
+
+All staging-created managed buckets use the `staging-` prefix for operator
+cleanup. Staging is disposable: warn persistently in the app and before storage
+activation that data may be deleted at any time and must not hold vital information.

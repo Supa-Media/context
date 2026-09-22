@@ -298,6 +298,7 @@ test("staging offers and creates storage without payment copy", () => {
   const confirm = mount(offer({ status: free, mode: "confirm", price: "Free on staging" }));
   expect(confirm.textContent).toContain("Free on staging");
   expect(confirm.textContent).toContain("Create staging storage");
+  expect(confirm.textContent).toContain("Do not store vital information or your only copy here.");
   expect(confirm.textContent).not.toMatch(/Stripe|Billed monthly|after you pay|You are subscribing/);
   const settling = mount(offer({ status: free, mode: "settling", paid: true }));
   expect(settling.textContent).toContain("Creating staging storage");

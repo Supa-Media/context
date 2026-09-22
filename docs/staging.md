@@ -65,3 +65,10 @@ allowing the bypass. The staging sync sets these deployment selectors; a client
 flag or request origin cannot enable it. Ordinary production owners still need
 payment. Selected services activate through the existing test activation path,
 with a distinct staging audit event; fast search remains an explicit opt-in.
+
+Every managed bucket created by staging is named `staging-ctx-<workspaceId>`;
+production retains `ctx-<workspaceId>`. Inspect and select only the `staging-`
+prefix when cleaning up test storage. Deleting a bucket leaves its workspace
+binding in Convex, so the app may report missing storage afterwards.
+A persistent staging banner and the storage activation screens warn that data
+may be deleted at any time and must never be the only copy of vital information.

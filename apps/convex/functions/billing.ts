@@ -73,18 +73,9 @@ import {
   type Entitlements,
   type PlanStatus,
 } from "./lib/premium";
-import { MANAGED_BUCKET_PREFIX, managedAccountId } from "./lib/managedStorage";
+import { managedBucketName, managedAccountId, stagingStorageIsFree } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
 import { isProductionTestAccount } from "./lib/testAccount";
-
-/** Server-only: the platform URL must match the deployment selected by staging CI. */
-function stagingStorageIsFree(): boolean {
-  const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
-  return process.env.APP_ENV === "staging" &&
-    process.env.APP_ORIGIN === "https://staging.context.lc" &&
-    Boolean(deployment) &&
-    process.env.CONVEX_CLOUD_URL === `https://${deployment}.convex.cloud`;
-}
 
 /** How long a minted checkout or portal URL stays usable from our side. */
 const SESSION_TTL_MS = 15 * 60 * 1000;
@@ -142,7 +133,7 @@ function bindingIsManaged(
   workspaceId: Id<"workspaces">,
 ): boolean {
   if (binding === null) return false;
-  return binding.bucket === `${MANAGED_BUCKET_PREFIX}${String(workspaceId)}`;
+  return binding.bucket === managedBucketName(workspaceId);
 }
 
 /**

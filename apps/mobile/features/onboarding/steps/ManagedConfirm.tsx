@@ -1,3 +1,4 @@
+import { STAGING_DATA_WARNING } from "../../app/StagingNotice";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
@@ -102,6 +103,7 @@ export function ManagedConfirm({
   return (
     <View>
       <Text variant="rowTitle">Context keeps your notes</Text>
+      {free ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
       <Text variant="rowSub" style={styles.lede}>
         {free ? "Create a dedicated bucket for this staging workspace. No payment or card is required."
           : "You are subscribing to the services we run for this context. You are not buying your files — those are yours either way, and always leave with you."}
