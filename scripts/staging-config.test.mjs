@@ -24,10 +24,10 @@ test('staging profile sets both the gateway and sharing origin', () => {
 
 const { validateStaging } = await import('./staging-env.mjs');
 const valid = {
-  STAGING_CONVEX_DEPLOYMENT: 'staging-example-123',
-  CONVEX_DEPLOY_KEY: 'prod:staging-example-123|fake-test-key',
-  EXPO_PUBLIC_CONVEX_URL: 'https://staging-example-123.convex.cloud',
-  CONTROL_PLANE_URL: 'https://staging-example-123.convex.site',
+  STAGING_CONVEX_DEPLOYMENT: 'example-deployment',
+  CONVEX_DEPLOY_KEY: 'prod:example-deployment|fake-test-key',
+  EXPO_PUBLIC_CONVEX_URL: 'https://example-deployment.convex.cloud',
+  CONTROL_PLANE_URL: 'https://example-deployment.convex.site',
   APP_ORIGIN: 'https://staging.context.lc',
   GATEWAY_SECRET: 'test', STORAGE_SECRET_ENCRYPTION_KEY: 'test',
   JWT_PRIVATE_KEY: 'test', JWKS: 'test', EMAIL_WORKER_SECRET: 'test',
@@ -36,9 +36,9 @@ const valid = {
 test('staging refuses production or mismatched secrets before deploying', () => {
   assert.doesNotThrow(() => validateStaging(valid));
   for (const changed of [
-    { CONVEX_DEPLOY_KEY: 'prod:production-example-456|fake-test-key' },
-    { CONTROL_PLANE_URL: 'https://production-example-456.convex.site' },
-    { EXPO_PUBLIC_CONVEX_URL: 'https://production-example-456.convex.cloud' },
+    { CONVEX_DEPLOY_KEY: 'prod:your-deployment|fake-test-key' },
+    { CONTROL_PLANE_URL: 'https://your-deployment.convex.site' },
+    { EXPO_PUBLIC_CONVEX_URL: 'https://your-deployment.convex.cloud' },
     { APP_ORIGIN: 'https://context.lc' },
     { STAGING_CONVEX_DEPLOYMENT: '' },
     { JWT_PRIVATE_KEY: '' },
