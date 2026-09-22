@@ -17,7 +17,7 @@ import { writeClipboard } from "../../design/clipboard";
 import { runMenuAction, type ActionContext, type Dialog } from "../files/actions";
 import { ExplorerDialogs } from "../files/Explorer";
 import { itemsFor, type MenuTarget } from "../files/menu";
-import { ancestorsOf, baseName, parentPath, withoutSortPrefix } from "../files/paths";
+import { ancestorsOf, baseName, folderLabel, parentPath } from "../files/paths";
 import { canDrop as verdictFor, type DragSource } from "../files/dnd";
 import type { FolderDrag, FolderMenu } from "../files/FolderView";
 import { Breadcrumb } from "../files/Breadcrumb";
@@ -428,7 +428,7 @@ export function BrowsePane({
       openFolderTarget(
         { kind: "crumb", folder },
         // Titled the way the crumb it opened from is drawn — see `crumbsFor`.
-        withoutSortPrefix(baseName(folder)) || contextLabel,
+        folderLabel(baseName(folder)) || contextLabel,
         anchor,
       ),
     [openFolderTarget, contextLabel],
@@ -452,14 +452,14 @@ export function BrowsePane({
         // `Explorer.tsx`, which titles the tree's own menu the same way.
         return openFolderTarget(
           { kind: "row", row },
-          withoutSortPrefix(baseName(entry.path)),
+          folderLabel(baseName(entry.path)),
           anchor,
         );
       },
       onBackground: (anchor) =>
         openFolderTarget(
           { kind: "background", folder },
-          withoutSortPrefix(baseName(folder)) || contextLabel,
+          folderLabel(baseName(folder)) || contextLabel,
           anchor,
         ),
     }),

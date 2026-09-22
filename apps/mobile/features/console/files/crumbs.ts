@@ -66,7 +66,8 @@
  */
 
 import { drawingName } from "@context/drawings";
-import { withoutSortPrefix } from "./paths";
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+import { folderLabel, withoutSortPrefix } from "./paths";
 
 /** One element of the path line. */
 export type Crumb =
@@ -106,7 +107,17 @@ export function crumbsFor(
   const leafName = segments[segments.length - 1]!;
   const leaf: Crumb = {
     kind: "leaf",
-    label: title ?? stripMarkdown(leafName),
+    /*
+      Contained, because neither half of this is ours: `title` is what the note
+      calls itself in its own frontmatter, and `leafName` is a key out of the
+      customer's bucket. The band is the app's own voice, so a directional
+      character in either would reverse the labels around it — the context
+      pill, the visibility chip, the folders before it.
+
+      `label` only. `path` below is the real key and is what pressing a crumb
+      asks the bucket for.
+    */
+    label: isolateForDisplay(title ?? stripMarkdown(leafName)),
     path,
   };
 
@@ -116,7 +127,9 @@ export function crumbsFor(
     // band and the listing it came from cannot come to disagree about what a
     // folder is called. **Only the label**: `path` below is the segment as it
     // is on disk, and it is what pressing the crumb asks the bucket for.
-    label: withoutSortPrefix(segment),
+    // `folderLabel` rather than the bare trim: same trim, contained. See its
+    // header for why the container belongs on the label and not on the trim.
+    label: folderLabel(segment),
     // Its own listing, not its parent's. Built from `segments` rather than by
     // slicing `path`, so a doubled slash cannot leak into a path we then ask
     // somebody's bucket for.

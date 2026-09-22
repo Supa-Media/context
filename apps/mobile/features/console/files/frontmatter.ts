@@ -35,6 +35,7 @@
  */
 
 import { drawingName, isDrawingPath } from "@context/drawings";
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { withoutSortPrefix } from "./paths";
 
 import { stripFrontmatter } from "../../share/markdown";
@@ -140,6 +141,21 @@ export function frontmatterTitle(frontmatter: string): string | null {
  * basename and then the path itself, which is always *something*.
  */
 export function noteHeading(source: string, path: string): string {
+  /*
+    CONTAINED ONCE, AT THE ONE PLACE EVERY RUNG LEAVES BY.
+
+    All four rungs return somebody else's string: a title the note gives
+    itself, a heading in its body, a drawing's name, and the filename out of
+    the customer's bucket. This is the inline title, the tab and the breadcrumb
+    leaf, so an override in any of them reverses the app's own words around it.
+
+    Wrapping the exit rather than each `return` is deliberate — a fifth rung
+    added later is contained without anybody remembering to.
+  */
+  return isolateForDisplay(headingText(source, path));
+}
+
+function headingText(source: string, path: string): string {
   const { frontmatter, body } = splitNote(source);
 
   const stated = frontmatterTitle(frontmatter);

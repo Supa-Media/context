@@ -92,7 +92,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor, noteColumnWidth } from "../../app/frame";
 import type { DragModifier } from "./dnd";
 import { useListingOrder } from "./listingOrder";
-import { baseName, displayName, withoutSortPrefix } from "./paths";
+import { baseName, displayName, folderLabel } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
 import { useRowInteractions } from "./rowInteractions";
@@ -292,14 +292,16 @@ export function FolderView({
           already said which folder you asked for, so the eyebrow was labelling
           the obvious in the space where the first row should be.
 
-          `withoutSortPrefix` and not `displayName`: this is a folder, so the
-          sort number goes and the extension rule must not, or a folder somebody
+          `folderLabel` and not `displayName`: this is a folder, so the sort
+          number goes and the extension rule must not, or a folder somebody
           called `notes.md` would be titled `notes` on its own page while every
-          row and crumb naming it says `notes.md`.
+          row and crumb naming it says `notes.md`. Both contain the name they
+          return — this is a heading in the app's own voice, over a name out of
+          somebody's bucket.
         */}
         <View style={styles.head}>
           <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
-            {withoutSortPrefix(baseName(entry.path)) || contextLabel}
+            {folderLabel(baseName(entry.path)) || contextLabel}
           </Text>
         </View>
 
