@@ -117,8 +117,8 @@ jobs:
       - name: Deploy staging web alias
         working-directory: apps/mobile
         run: eas deploy --alias staging --environment=preview --non-interactive
-      - name: Publish staging OTA
-        working-directory: apps/mobile
-        run: eas update --branch staging --message "Staging ${GITHUB_SHA}" --non-interactive
       - name: Verify live staging
         run: node scripts/staging-smoke.mjs
+      - name: Publish staging OTA
+        working-directory: apps/mobile
+        run: eas update --branch staging --clear-cache --message "Staging ${GITHUB_SHA}" --non-interactive
