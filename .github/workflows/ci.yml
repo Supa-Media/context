@@ -273,19 +273,18 @@ jobs:
   # smaller concurrency pool than Linux gets, and the way to keep that cheap
   # is to run it only where it can find something: gated by path, exactly
   # like `editor-webkit` below gates on `apps/mobile/**`. A run that does
-  # apply is short — `pnpm install --filter "./apps/desktop..."`, a build,
+  # apply is short — `pnpm install --filter "@context/desktop..."`, a build,
   # then the same `--smoke` launch `deploy-desktop.yml` runs, with no
   # certificate, no notarisation and no `.dmg` — nothing like that job's
   # 45-minute budget.
   #
   # So: on a pull request, this runs only when the diff touches
-  # `apps/desktop` itself, or one of the four workspace packages it actually
-  # depends on at runtime — `packages/desktop-bridge`, `packages/hook`,
-  # `packages/communications`, `packages/meetings` (`apps/desktop/package.json`'s
-  # own `dependencies`, not `packages/**` wholesale: `packages/shared` is not
-  # one of them, and gating on all of `packages/**` would run this on every
-  # unrelated package change) — or this file. The same change-detection-
-  # inside-the-job shape `editor-webkit` uses and for the same reason (a
+  # `apps/desktop` itself, one of its four runtime workspace packages, or the
+  # MCP/collaboration packages its tool-contract test imports. These are the
+  # dependency edges declared by `apps/desktop/package.json`, rather than
+  # `packages/**` wholesale: `packages/shared` is not one of them, and gating
+  # on all packages would run this on every unrelated package change. This uses
+  # the same in-job change detection as `editor-webkit`, for the same reason (a
   # `paths:` filter on the trigger would leave an unrelated pull request with
   # no report at all, pending forever on a required check). On a push to
   # `main` it always runs, ungated — a merge is the moment this incident
@@ -326,6 +325,8 @@ jobs:
               - "packages/hook/**"
               - "packages/communications/**"
               - "packages/meetings/**"
+              - "apps/mcp/**"
+              - "packages/collaboration/**"
               - ".github/workflows/ci.yml"
 
       # `github.event_name == 'push'` (to `main`, per this workflow's trigger)
@@ -340,11 +341,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # Scoped to the app and what it depends on, same as `deploy-desktop.yml`'s
-      # own install — the rest of the workspace is not this job's business.
+      # Scoped to the app and its declared runtime and test dependencies, same
+      # as `deploy-desktop.yml`'s install. The rest of the workspace is not
+      # this job's business.
       - name: Install
         if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
-        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+        run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       - name: Build
         if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
