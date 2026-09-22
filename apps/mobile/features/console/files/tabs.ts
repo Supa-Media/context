@@ -38,6 +38,7 @@
 
 import { drawingName } from "@context/drawings";
 
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { baseName, parentPath, withoutSortPrefix } from "./paths";
 import type { FolderListing } from "./types";
 
@@ -434,12 +435,23 @@ export function dirtyCount(state: TabsState): number {
  */
 export function tabLabel(state: TabsState, path: string): string {
   const name = withoutSortPrefix(drawingName(path));
+  /*
+    The collision test compares the UNCONTAINED names, and the container goes
+    on the way out. Two reasons, and the second is the one that would bite:
+    a container is only added to a name that has something in it to hold, so
+    comparing contained names would make `plan.md` and a `plan.md` carrying an
+    override read as two different names — which is true, and is not what this
+    test is asking. It asks whether a reader can tell the two tabs apart, and
+    a reader cannot see either character.
+  */
   const ambiguous = state.tabs.some(
     (tab) => tab.path !== path && withoutSortPrefix(drawingName(tab.path)) === name,
   );
-  if (!ambiguous) return name;
+  if (!ambiguous) return isolateForDisplay(name);
   const folder = parentPath(path);
-  return folder === "" ? name : `${withoutSortPrefix(baseName(folder))}/${name}`;
+  return isolateForDisplay(
+    folder === "" ? name : `${withoutSortPrefix(baseName(folder))}/${name}`,
+  );
 }
 
 /**

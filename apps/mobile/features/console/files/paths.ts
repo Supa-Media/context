@@ -13,6 +13,8 @@
  * before they wait for a round trip, not instead of the check that matters.
  */
 
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+
 /** The folder a path sits in. `""` is the root. */
 export function parentPath(path: string): string {
   const index = path.lastIndexOf("/");
@@ -130,7 +132,27 @@ export function withoutSortPrefix(name: string): string {
  * would offer a folder that is not there.
  */
 export function displayPath(path: string): string {
-  return path.split("/").map(withoutSortPrefix).join("/");
+  return isolateForDisplay(path.split("/").map(withoutSortPrefix).join("/"));
+}
+
+/**
+ * A folder's label — the sort number dropped, the extension kept, contained.
+ *
+ * `withoutSortPrefix` is the trim and this is the *label*, and the difference
+ * is the whole reason this function exists. The trim is mid-pipeline: its
+ * stated property is that "the result is always a suffix of what went in",
+ * `displayName` slices three characters off the end of it, and `tabLabel`
+ * compares two of them to decide whether two tabs collide. A container would
+ * break all three.
+ *
+ * So the container goes at the outermost point — the value a renderer is handed
+ * — and this is that point for a folder. `displayName` is the same point for a
+ * file, and the pair is what the components call instead of trimming a name
+ * themselves. **A folder keeps its extension**: a folder called `notes.md` is
+ * a folder called `notes.md`.
+ */
+export function folderLabel(name: string): string {
+  return isolateForDisplay(withoutSortPrefix(name));
 }
 
 /**
@@ -165,9 +187,12 @@ export function displayPath(path: string): string {
  */
 export function displayName(name: string): string {
   const called = withoutSortPrefix(name);
-  if (!isMarkdown(called)) return called;
+  if (!isMarkdown(called)) return isolateForDisplay(called);
   const stem = called.slice(0, -3);
-  return stem === "" ? called : stem;
+  // Contained AFTER the slice, never before it: a container is two characters
+  // at the ends of the string, and `slice(0, -3)` would take the closing one
+  // off and leave the value open.
+  return isolateForDisplay(stem === "" ? called : stem);
 }
 
 /**

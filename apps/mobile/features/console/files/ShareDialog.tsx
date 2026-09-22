@@ -69,7 +69,7 @@ import { Switch } from "../../design/components/Switch";
 import { fonts, leading, pointerType as t, radii, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor } from "../../app/frame";
-import { baseName, withoutSortPrefix } from "./paths";
+import { baseName, folderLabel } from "./paths";
 import {
   accessRows,
   type AccessMember,
@@ -450,7 +450,7 @@ export function ShareDialog({
         <Pressable
           style={[styles.card, compact && styles.sheet]}
           onPress={() => {}}
-          accessibilityLabel={`Share ${withoutSortPrefix(baseName(path))}`}
+          accessibilityLabel={`Share ${folderLabel(baseName(path))}`}
         >
           {/*
             A SHEET ON A PHONE, A CARD EVERYWHERE ELSE.
@@ -479,7 +479,7 @@ export function ShareDialog({
             minted link is a token rather than a path.
           */}
           <Text variant="paneTitle" role="heading" aria-level={2}>
-            Share “{withoutSortPrefix(baseName(path))}”
+            Share “{folderLabel(baseName(path))}”
           </Text>
 
           <ScrollView
@@ -706,7 +706,7 @@ export function ShareDialog({
                     <AudienceControl
                       scope={scopeOf(access.visibility, openLink !== undefined)}
                       canOpenLink
-                      name={withoutSortPrefix(baseName(path))}
+                      name={folderLabel(baseName(path))}
                       onSet={onSetScope}
                       context={context}
                       compact={compact}
