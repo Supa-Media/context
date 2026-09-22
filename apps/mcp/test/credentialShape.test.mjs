@@ -79,8 +79,18 @@ const controlPlane = {
       scopes: ["context:read", "context:write", "context:private"],
       defaultWorkspaceId: "ws_home",
       workspaces: [
-        { workspaceId: "ws_home", slug: "home", role: "owner" },
-        { workspaceId: "ws_other", slug: "other", role: "member" },
+        {
+          workspaceId: "ws_home",
+          slug: "home",
+          role: "owner",
+          grantedNames: ["home-readers"],
+        },
+        {
+          workspaceId: "ws_other",
+          slug: "other",
+          role: "member",
+          grantedNames: ["other-readers"],
+        },
       ],
     };
   },
@@ -121,6 +131,10 @@ export async function runCredentialShapeChecks(check) {
     !exposedKeys(session).includes("accessToken")
   );
   check("so no spread or stringify of it carries the token", !exposedText(session).includes(TOKEN));
+  check(
+    "the selected context receives its validated group clearance",
+    session.grantedGroups instanceof Set && session.grantedGroups.has("@home-readers"),
+  );
 
   const sibling = sessionForContext(session, "@other");
   check("a cross-context sibling still carries the token by name", sibling.accessToken === TOKEN);
@@ -128,6 +142,50 @@ export async function runCredentialShapeChecks(check) {
     "and does not expose it either — it is re-attached, never spread",
     !exposedKeys(sibling).includes("accessToken") && !exposedText(sibling).includes(TOKEN)
   );
+  check(
+    "a cross-context session selects that context's group clearance",
+    sibling.grantedGroups instanceof Set &&
+      sibling.grantedGroups.has("@other-readers") &&
+      !sibling.grantedGroups.has("@home-readers"),
+  );
+
+  const emptySession = await resolveSession(TOKEN, null, {
+    async resolveSession() {
+      return {
+        grantId: "grant_empty_groups",
+        clientId: "narrow_oauth_client",
+        actorUserId: "user_shape",
+        scopes: ["context:read"],
+        defaultWorkspaceId: "ws_empty",
+        // This is the wire shape for a pinned or ordinary OAuth context:
+        // no console-only names are present.
+        workspaces: [{ workspaceId: "ws_empty", slug: "empty", role: "member" }],
+      };
+    },
+  });
+  check(
+    "an omitted group field becomes an empty set",
+    emptySession.grantedGroups instanceof Set && emptySession.grantedGroups.size === 0,
+  );
+
+  let malformedRefused = false;
+  try {
+    await resolveSession(TOKEN, null, {
+      async resolveSession() {
+        return {
+          grantId: "grant_bad_groups",
+          clientId: "client_shape",
+          actorUserId: "user_shape",
+          scopes: ["context:read"],
+          defaultWorkspaceId: "ws_home",
+          workspaces: [{ workspaceId: "ws_home", slug: "home", role: "owner", grantedNames: [42] }],
+        };
+      },
+    });
+  } catch {
+    malformedRefused = true;
+  }
+  check("a malformed group field is refused rather than coerced", malformedRefused);
 
   const store = await storeForSession(session, {}, controlPlane);
 

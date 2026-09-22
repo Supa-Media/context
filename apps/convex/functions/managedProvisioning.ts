@@ -615,7 +615,7 @@ export const awaitManagedTargetReady = internalAction({
         secretAccessKey,
         capabilities: { conditionalWrite: true },
         status: "connected",
-      });
+      }, undefined, { probeCapabilities: true });
       const probe = await probeStore(target);
       // Not `probe.ok`: that folds in conditional-write verification, which is
       // a question about the binding and is asked at cutover by the ordinary
@@ -1004,7 +1004,7 @@ export const runManagedStorageMigration = internalAction({
         requireKeyset(),
         { workspaceId: args.workspaceId },
       );
-      const source = storeForBinding(sourceCredential);
+      const source = storeForBinding(sourceCredential, undefined, { rawObjects: true });
       const target = storeForBinding({
         provider: "r2",
         endpoint: migration.targetEndpoint,
@@ -1014,7 +1014,7 @@ export const runManagedStorageMigration = internalAction({
         secretAccessKey,
         capabilities: { conditionalWrite: true },
         status: "connected",
-      });
+      }, undefined, { rawObjects: true });
       const listingStore =
         migration.phase === "verify_target" ? target : source;
       const page = await listingStore.list({

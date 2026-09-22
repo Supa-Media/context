@@ -73,15 +73,16 @@ cp .env.example .env.local
 
 ### `apps/mcp` has one unusual rule
 
-**It has zero npm dependencies, and we intend to keep it that way.** It runs on
-the Cloudflare Workers runtime — Web Crypto and `fetch`, no Node APIs. Its test
-suite runs offline against an in-memory store stub with a bare
-`node test/test.mjs`.
+**Runtime dependencies go through `@context/collaboration`.** This explicit
+exception contains the shared Yjs merge engine used by the gateway and Convex;
+see [the collaboration decision](docs/decisions/collaboration.md). Other gateway
+modules use relative imports and the Cloudflare Workers runtime — Web Crypto
+and `fetch`, without Node APIs. Install the workspace dependencies before
+running `pnpm --filter @context/mcp test`.
 
-This is deliberate. The gateway is the piece users self-host, and a dependency
-is a thing that can break under them or quietly change what happens to their
-notes. If you think you need a package, propose it in an issue first — the
-answer is often "that's 80 lines, let's just write it."
+The import guard rejects undeclared packages and direct imports of the merge
+engine's dependencies. Propose additional runtime dependencies before adding
+them: the gateway is also a product people self-host.
 
 ## Tests
 

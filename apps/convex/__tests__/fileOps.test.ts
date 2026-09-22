@@ -62,7 +62,7 @@ const NOW = 1_800_000_000_000;
  * A bucket that looks like a real one: the PARA scaffold's own `privacy.md`,
  * a shared folder, a private folder, and one exception in each direction.
  */
-function bucket(options: { ignoreIfMatch?: boolean } = {}): MemoryStore & FileStore {
+function bucket(options: { ignoreIfMatch?: boolean; conditional?: boolean } = {}): MemoryStore & FileStore {
   const store = memoryStore(options) as MemoryStore & FileStore;
   store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   store.seed("index.md", "# Context\n");
@@ -912,6 +912,52 @@ describe("duplicate names", () => {
 });
 
 describe("moving and renaming", () => {
+  test("a collaborative private note is narrowed before destination bytes appear", async () => {
+    const store = bucket({ conditional: true });
+    await shareProjects(store);
+    const originalPut = store.put.bind(store);
+    let visibilityWhileLanding: string | null = null;
+    store.put = async (key, value, options) => {
+      const written = await originalPut(key, value, options);
+      if (key === "1-projects/health.md" && written !== null) {
+        const observed = await capture(() =>
+          readFile(store, {
+            path: "1-projects/health.md",
+            clearance: clearanceOf("team"),
+          }),
+        );
+        visibilityWhileLanding = observed.code;
+      }
+      return written;
+    };
+
+    await movePath(store, {
+      from: "2-areas/health.md",
+      to: "1-projects/health.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+
+    expect(visibilityWhileLanding).toBe("FILE_NOT_FOUND");
+  });
+
+  test("a collaborative move returns the etag after rewriting its own links", async () => {
+    const store = bucket({ conditional: true });
+    store.seed("1-projects/old.md", "# Old\n\n[[old]]\n");
+    const moved = await movePath(store, {
+      from: "1-projects/old.md",
+      to: "1-projects/nested/new.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const current = await readFile(store, {
+      path: "1-projects/nested/new.md",
+      clearance: clearanceOf("private"),
+    });
+
+    expect(moved.etag).toBe(current.etag);
+  });
+
   test("a rename is a move whose parent does not change", async () => {
     const store = bucket();
     await movePath(store, {
@@ -951,6 +997,36 @@ describe("moving and renaming", () => {
     );
     expect(error.code).toBe("DESTINATION_EXISTS");
     expect(store.snapshot()["1-projects/pay.md"]).toContain("salaries");
+  });
+
+  test("a refused collaborative collision cannot loosen the destination ACL", async () => {
+    const store = bucket({ conditional: true });
+    await shareProjects(store);
+    const before = await capture(() =>
+      readFile(store, {
+        path: "1-projects/pay.md",
+        clearance: clearanceOf("team"),
+      }),
+    );
+    expect(before.code).toBe("FILE_NOT_FOUND");
+
+    const refusal = await capture(() =>
+      movePath(store, {
+        from: "1-projects/context-lc.md",
+        to: "1-projects/pay.md",
+        clearance: clearanceOf("private"),
+        now: NOW,
+      }),
+    );
+    const after = await capture(() =>
+      readFile(store, {
+        path: "1-projects/pay.md",
+        clearance: clearanceOf("team"),
+      }),
+    );
+
+    expect(refusal.code).toBe("DESTINATION_EXISTS");
+    expect(after.code).toBe("FILE_NOT_FOUND");
   });
 
   test("a folder cannot be moved inside itself", async () => {
@@ -4102,6 +4178,31 @@ describe("resetting a privacy.md that cannot be read", () => {
       prefix: "1-projects",
       vis: "team",
     });
+  });
+
+  test("a missing manifest repair loses to a concurrent conditional create", async () => {
+    const store = memoryStore({ conditional: true }) as MemoryStore & FileStore;
+    store.seed("1-projects/a.md", "# A\n");
+    const winner = renderPrivacyManifest("para");
+    const realPut = store.put.bind(store);
+    let raced = false;
+    store.put = async (key, body, options) => {
+      if (key === PRIVACY_KEY && options?.onlyIf?.absent === true && !raced) {
+        raced = true;
+        // A second repair (or a direct provider writer) wins the one absent
+        // slot before this invocation's create reaches the backend. The first
+        // writer must surface a conflict and leave the winner byte-for-byte.
+        expect(await realPut(key, winner, { onlyIf: { absent: true } })).not.toBeNull();
+      }
+      return realPut(key, body, options);
+    };
+
+    const error = await capture(() =>
+      resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW }),
+    );
+
+    expect(error.code).toBe("CONFLICT");
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(winner);
   });
 
   test("a manifest that parses is refused — this is not a way to flatten one", async () => {

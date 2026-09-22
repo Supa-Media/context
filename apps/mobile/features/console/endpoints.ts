@@ -52,6 +52,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "agent",
   // The presence socket, `/presence` on the gateway.
   "presence",
+  // The durable collaboration transport, `/collaboration` on the gateway.
+  "collaboration",
 ]);
 
 /**

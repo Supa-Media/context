@@ -87,7 +87,13 @@ export function isTransportPath(path) {
   // and a WebSocket handshake is not subject to CORS at all. A page on any
   // origin can open one and read every frame it receives, so if this route were
   // not origin-checked here, the check would not exist anywhere.
-  return path === "/mcp" || path === "/inbox" || path === "/agent" || path === "/presence";
+  return (
+    path === "/mcp" ||
+    path === "/inbox" ||
+    path === "/agent" ||
+    path === "/presence" ||
+    path === "/collaboration"
+  );
 }
 
 /**

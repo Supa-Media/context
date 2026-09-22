@@ -1236,6 +1236,34 @@ async function runEndToEndChecks(check) {
     return { response, body };
   }
 
+  async function collaborate(path, content) {
+    const readHarness = createWorkerCtx();
+    const read = await worker.fetch(
+      new Request("https://gateway.test/collaboration", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      }),
+      { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+      readHarness.ctx,
+    );
+    const base = await read.json();
+    await readHarness.settle();
+    const writeHarness = createWorkerCtx();
+    const response = await worker.fetch(
+      new Request("https://gateway.test/collaboration", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ path, replacement: { expectedEtag: base.etag, text: content } }),
+      }),
+      { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+      writeHarness.ctx,
+    );
+    const body = await response.json();
+    await writeHarness.settle();
+    return { response, body };
+  }
+
   const projectedCount = () => d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
   const progressReports = () =>
     controlPlane.calls.filter((call) => call.path === "/gateway/search-index/progress");
@@ -1433,6 +1461,18 @@ async function runEndToEndChecks(check) {
     check("against the workspace the search ran in", last.workspaceId === WS);
     check("and it ends by saying the projection is ready", last.state === "ready");
     check("with nothing pending", last.notesPending === 0);
+
+    const collaborativeWrite = await collaborate(
+      "1-projects/p00.md",
+      "# Project 00\n\nAn axolotl replaced the old roster through collaboration.\n",
+    );
+    const collaborativeSearch = await search("axolotl");
+    check(
+      "an accepted collaboration edit updates the ready search projection",
+      collaborativeWrite.response.status === 200 &&
+        collaborativeWrite.body.text.includes("axolotl") &&
+        JSON.stringify(collaborativeSearch.body).includes("1-projects/p00.md"),
+    );
     const bodies = JSON.stringify(reports.map((call) => call.body));
     check(
       "a progress report carries counts, never a path or a query",

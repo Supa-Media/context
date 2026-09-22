@@ -42,6 +42,9 @@ import {
 } from "./fixtures.helpers";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
+import { readDocument, replaceText } from "@context/collaboration";
+import { S3Store } from "../../mcp/src/store/s3.js";
+import { withLogicalDelete, isLogicalDeleteMarker } from "../../mcp/src/store/logicalDelete.js";
 import {
   DEFAULT_SYNC_INTERVAL_MINUTES,
   MAX_SYNC_BACKOFF_MS,
@@ -1483,7 +1486,7 @@ function chatAndBucket(options: { backend: MemoryS3 }) {
   return { fetchImpl, calls };
 }
 
-function calendarAndBucket(options: { backend: MemoryS3 }) {
+function calendarAndBucket(options: { backend: MemoryS3; items?: Record<string, unknown>[] }) {
   const calls: string[] = [];
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
@@ -1500,7 +1503,7 @@ function calendarAndBucket(options: { backend: MemoryS3 }) {
       return json({
         timeZone: "America/New_York",
         nextSyncToken: "calendar-token-2",
-        items: [
+        items: options.items ?? [
           {
             id: "event-1",
             status: "confirmed",
@@ -1785,6 +1788,90 @@ describe("one pass, end to end, through the credential barrier", () => {
       "Design review",
     );
     expect(google.calls).toEqual(["/calendar/v3/calendars/primary/events"]);
+  });
+
+  test("Calendar updates and removals use the initialized collaboration document", async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      now: new Date("2026-09-12T18:00:00.000Z"),
+    });
+    const { t, workspaceId, connectionId, backend } = await endToEnd();
+    await t.run(async (ctx) => {
+      const binding = (await ctx.db.query("storageBindings").first())!;
+      await ctx.db.patch(binding._id, {
+        capabilities: {
+          conditionalWrite: true,
+          conditionalCreate: true,
+          conditionalDelete: true,
+        },
+      });
+    });
+    await patchConnection(t, connectionId, {
+      products: ["calendar"],
+      gmail: undefined,
+      calendar: {
+        scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+      },
+    });
+    const path = "0-inbox/calendar/2026/09/2026-09-13.md";
+    vi.stubGlobal("fetch", calendarAndBucket({ backend }).fetchImpl);
+    await runPass(t, workspaceId, connectionId);
+
+    const store = withLogicalDelete(new S3Store({
+      ...FAKE_STORAGE,
+      forcePathStyle: true,
+      fetchImpl: backend.fetchImpl,
+    }));
+    const initial = await readDocument(store, path);
+    const edited = await replaceText(store, path, {
+      documentId: initial.documentId,
+      expectedEtag: initial.etag,
+      text: `${initial.text}\nPeer's in-flight calendar note.\n`,
+    });
+    expect(edited.text).toContain("Peer's in-flight calendar note.");
+
+    // The next sync must update the CRDT-backed note, rather than replacing
+    // only Markdown and leaving readDocument able to materialize stale prose.
+    vi.stubGlobal(
+      "fetch",
+      calendarAndBucket({
+        backend,
+        items: [
+          {
+            id: "event-1",
+            status: "confirmed",
+            summary: "Updated design review",
+            start: { dateTime: "2026-09-13T14:00:00.000Z" },
+            end: { dateTime: "2026-09-13T14:30:00.000Z" },
+          },
+        ],
+      }).fetchImpl,
+    );
+    await runPass(t, workspaceId, connectionId);
+    const updated = await readDocument(store, path);
+    expect(updated.text).toContain("Updated design review");
+    expect(updated.text).not.toContain("Peer's in-flight calendar note.");
+
+    // A cancellation must tombstone the same generation. A later read cannot
+    // recreate the old calendar Markdown from its retained collaboration data.
+    vi.stubGlobal(
+      "fetch",
+      calendarAndBucket({
+        backend,
+        items: [
+          {
+            id: "event-1",
+            status: "cancelled",
+            start: { dateTime: "2026-09-13T14:00:00.000Z" },
+            end: { dateTime: "2026-09-13T14:30:00.000Z" },
+          },
+        ],
+      }).fetchImpl,
+    );
+    await runPass(t, workspaceId, connectionId);
+    expect(isLogicalDeleteMarker(backend.snapshot()[path])).toBe(true);
+    expect(await store.get(path)).toBeNull();
+    await expect(readDocument(store, path)).rejects.toMatchObject({ code: "DELETED" });
   });
 
   test("a Calendar cursor stays put until every account for the folder has a contribution", async () => {

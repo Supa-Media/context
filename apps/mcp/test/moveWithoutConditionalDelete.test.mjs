@@ -154,6 +154,18 @@ async function callTool(env, tokenValue, name, args = {}) {
 
 const textOf = (result) => result?.content?.[0]?.text || "";
 
+function collaborationHeads(bucket) {
+  return [...bucket]
+    .filter(([key]) => key.startsWith(".context/collaboration/v1/heads/"))
+    .flatMap(([, value]) => {
+      try {
+        return [JSON.parse(value.body)];
+      } catch {
+        return [];
+      }
+    });
+}
+
 export async function runMoveWithoutConditionalDeleteChecks(check) {
   const s3 = createS3Backend(S3_ENDPOINT);
   // A seam for one check: something has to be able to edit a note *during* a
@@ -234,9 +246,14 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     "...and the destination holds the bytes",
     primary.get("1-projects/renamed.md")?.body === "PLAIN-MARKER"
   );
+  const oldSourceRead = await callTool(env, TOKEN_OWNER, "read_note", {
+    path: "1-projects/plain.md",
+  });
   check(
-    "...and the source is gone rather than left as a duplicate",
-    primary.get("1-projects/plain.md") === undefined
+    "...and the old source forwards to the one live destination rather than becoming a duplicate",
+    !oldSourceRead?.isError &&
+      textOf(oldSourceRead).includes("path: 1-projects/renamed.md") &&
+      textOf(oldSourceRead).includes("moved_from: 1-projects/plain.md")
   );
   check(
     "...and a same-workspace move writes no trash copy, because the destination is one",
@@ -299,7 +316,9 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   );
   check(
     "...and the half-written destination is rolled back",
-    primary.get("1-projects/inflight-moved.md") === undefined
+    (await callTool(env, TOKEN_OWNER, "read_note", {
+      path: "1-projects/inflight-moved.md",
+    }))?.isError === true
   );
 
   /* --------------------- 3. neither conditional at all -------------------- */
@@ -337,16 +356,21 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   );
   check(
     "...and out of the first one",
-    primary.get("1-projects/handover.md") === undefined
+    (await callTool(env, TOKEN_OWNER, "read_note", {
+      path: "1-projects/handover.md",
+      context: "@r2like",
+    }))?.isError === true
   );
-  const trashed = [...primary.keys()].filter((key) => key.startsWith(".context/trash/"));
-  check(
-    "...leaving the owner their own copy under .context/trash/",
-    trashed.length === 1 && primary.get(trashed[0])?.body === "HANDOVER-MARKER"
+  const handoverHead = collaborationHeads(primary).find(
+    (head) => head.path === "1-projects/handover.md",
   );
   check(
-    "...at a key that still names the note it came from",
-    trashed[0]?.endsWith("/1-projects/handover.md")
+    "...leaving a recoverable collaboration tombstone in the source workspace",
+    handoverHead?.status === "deleted" && typeof handoverHead.documentId === "string"
+  );
+  check(
+    "...whose identity still names the note it came from",
+    handoverHead?.path === "1-projects/handover.md"
   );
 
   /* ------------------------ 4b. archive is a move too --------------------- */
@@ -363,9 +387,15 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
     path: "1-projects/retiring.md",
   });
   check("a note archives on a store with no conditional delete", !archived?.isError);
+  const archivedPath = /→ (\S+)/.exec(textOf(archived))?.[1];
+  const oldArchiveSource = await callTool(env, TOKEN_OWNER, "read_note", {
+    path: "1-projects/retiring.md",
+  });
   check(
-    "...and the source is gone",
-    primary.get("1-projects/retiring.md") === undefined
+    "...and the old source forwards to the archived identity",
+    typeof archivedPath === "string" &&
+      textOf(oldArchiveSource).includes(`path: ${archivedPath}`) &&
+      textOf(oldArchiveSource).includes("moved_from: 1-projects/retiring.md"),
   );
   check(
     "...with the bytes under the archive this context declares",
@@ -401,7 +431,9 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   );
   check(
     "...and the archive copy is rolled back rather than left as a stale twin",
-    [...primary.keys()].every((key) => primary.get(key)?.body !== "ARCH-ORIGINAL")
+    !(await callTool(env, TOKEN_OWNER, "list_notes", {
+      prefix: "4-archive/",
+    }))?.content?.[0]?.text?.includes("edited-while-archiving.md")
   );
 
   /* -------------------------- 5. thousands of them ------------------------ */
@@ -440,9 +472,11 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   check("...taking more than one pass, so the batching is real", passes > 1);
 
   const arrived = [...primary.keys()].filter((key) => key.startsWith("3-teams/moved/"));
-  const leftBehind = [...primary.keys()].filter((key) => key.startsWith("3-teams/big/"));
+  const listedSourceAfterBulk = textOf(
+    await callTool(env, TOKEN_OWNER, "list_notes", { prefix: "3-teams/big/" }),
+  );
   check(`...with all ${BULK} objects at the destination`, arrived.length === BULK);
-  check("...and nothing left at the source prefix", leftBehind.length === 0);
+  check("...and nothing left at the source prefix", !listedSourceAfterBulk.includes("note-"));
   check(
     "...and the bytes are the originals, not markers",
     primary.get("3-teams/moved/note-0000.md")?.body === "BULK-0" &&

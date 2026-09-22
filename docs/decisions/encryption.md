@@ -317,6 +317,15 @@ context_encryption_key: ws:k1
 ```
 ````
 
+When a path is recreated after a logical deletion, storage may append one
+reserved final line after the closing fence:
+`<!-- context-generation:v1:<32 lowercase hexadecimal characters> -->`.
+This is storage-generation metadata, not encrypted content. Standalone
+decryptors must parse the fenced JSON block and ignore this exact trailing
+comment; the logical storage view removes it before ordinary note and
+re-encryption code sees the document. No other trailing content is accepted
+as generation metadata.
+
 Five things about that shape are load-bearing:
 
 - **It is valid Markdown and valid YAML.** Obsidian renders it as a note with a

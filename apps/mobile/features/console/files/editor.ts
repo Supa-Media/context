@@ -202,11 +202,22 @@ export type EditorAction =
     }
   | { type: "closed" }
   | { type: "edited"; text: string }
+  | {
+      type: "collaboration";
+      text: string;
+      etag: string | null;
+      status: "offline" | "storing" | "local" | "syncing" | "saved" | "error" | "unavailable" | "revoked";
+    pending: number;
+    recovery?: { baseline: string; desired: string; baseEtag?: string | null };
+    legacyAdopted?: { path: string; text: string; baseEtag: string };
+    }
   | { type: "saveStarted" }
   /** No connection, so the draft went into the queue instead of the bucket. */
   | { type: "saveQueued"; message: string }
   /** The queue drained this note's write to the bucket. */
   | { type: "queueSettled"; etag: string }
+  /** A just-created note was reread and now carries the canonical CRDT generation. */
+  | { type: "queueCanonicalized"; etag: string; text?: string; baseEtag?: string }
   | { type: "saveSucceeded"; etag: string; conflictCheck: ConflictCheck }
   | { type: "saveFailed"; error: FileError }
   /** `SAVE_TIMEOUT_MS` elapsed with the save still outstanding. */
@@ -338,6 +349,22 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       return { ...state, draft: action.text, status, message: undefined };
     }
 
+    case "collaboration":
+      if (state.path === null || state.readOnly) return state;
+      return {
+        ...state,
+        draft: action.text,
+        ...(action.status === "saved" && action.pending === 0
+          ? {
+              baseline: action.text,
+              etag: action.etag,
+              status: "saved" as const,
+              fromCache: undefined,
+              message: undefined,
+            }
+          : {}),
+      };
+
     case "saveQueued":
       return {
         ...state,
@@ -366,6 +393,25 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         draftBase: undefined,
         message: "Saved. That was waiting for a connection.",
       };
+
+    case "queueCanonicalized":
+      // The create ACK can be a legacy raw etag. A canonical reread upgrades
+      // only the generation marker. Newer queued typing keeps its draft and
+      // raw ancestor; a clean settled create may adopt peer content returned
+      // by this reread as its new baseline.
+      {
+        const clean =
+          action.text !== undefined &&
+          action.baseEtag !== undefined &&
+          state.status === "saved" &&
+          state.draft === state.baseline;
+        return {
+          ...state,
+          ...(clean ? { draft: action.text, baseline: action.text } : {}),
+          ...(clean || action.baseEtag === undefined ? {} : { draftBase: action.baseEtag }),
+          etag: action.etag,
+        };
+      }
 
     case "saveStarted":
       return { ...state, status: "saving", message: undefined };

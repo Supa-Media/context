@@ -172,6 +172,9 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       },
       editor,
       setDraft: noop,
+      setCollaborationOwned: noop,
+      setCollaborationDraft: noop,
+      setCollaborationState: noop,
       save: noop,
       // The demo console has no gateway, so no room, so nothing outside it
       // ever writes the note it is showing.

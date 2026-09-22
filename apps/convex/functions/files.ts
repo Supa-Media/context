@@ -163,6 +163,13 @@ import {
 } from "../../../packages/communications/src/calendar/index.js";
 import { fnv1a64 } from "../../../packages/communications/src/anchors.js";
 import {
+  eligible as collaborationEligible,
+  readDocument as readCollaborationDocument,
+  replaceText as replaceCollaborationText,
+  supported as collaborationSupported,
+  tombstoneDocument as tombstoneCollaborationDocument,
+} from "@context/collaboration";
+import {
   D1_ACCOUNT_SECRET,
   D1_TOKEN_SECRET,
   messageFor,
@@ -603,6 +610,7 @@ const fileValidator = v.object({
   path: v.string(),
   text: v.string(),
   etag: v.string(),
+  rawEtag: v.optional(v.string()),
   visibility: visibilityReadValidator,
   inherited: visibilityReadValidator,
   exception: v.boolean(),
@@ -615,6 +623,9 @@ const fileValidator = v.object({
    * protection. See `docs/decisions/encryption.md`.
    */
   encrypted: v.boolean(),
+  /** Present for ordinary Markdown notes backed by the collaboration engine. */
+  documentId: v.optional(v.string()),
+  update: v.optional(v.string()),
 });
 
 /**
@@ -730,6 +741,7 @@ const contextMoveExportedValidator = v.object({
     destination: v.string(),
     bytes: v.bytes(),
     etag: v.string(),
+    collaborationEtag: v.optional(v.string()),
     sourceVisibility: v.union(v.literal("private"), v.literal("team")),
   })),
   skipped: v.array(v.object({
@@ -1322,12 +1334,17 @@ const operationValidator = v.union(
       destination: v.string(),
       bytes: v.bytes(),
       etag: v.string(),
+      collaborationEtag: v.optional(v.string()),
       sourceVisibility: v.union(v.literal("private"), v.literal("team")),
     })),
   }),
   v.object({
     kind: v.literal("contextMoveDelete"),
-    sources: v.array(v.object({ path: v.string(), etag: v.string() })),
+    sources: v.array(v.object({
+      path: v.string(),
+      etag: v.string(),
+      collaborationEtag: v.optional(v.string()),
+    })),
   }),
   v.object({
     kind: v.literal("contextMoveFinish"),
@@ -1481,7 +1498,10 @@ type FileOperation =
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
   | { kind: "contextMoveImport"; objects: ContextMoveObject[]; root?: string }
-  | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
+  | {
+      kind: "contextMoveDelete";
+      sources: Array<{ path: string; etag: string; collaborationEtag?: string }>;
+    }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }
@@ -2835,6 +2855,14 @@ async function writeSharedCalendarDay(
   path: string,
   text: string | null,
 ): Promise<{ wrote: boolean; bytes: number }> {
+  const retryableCollaborationError = (error: unknown): boolean => {
+    const code = error && typeof error === "object" && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+    return code === "CONFLICT" || code === "CONCURRENT_WRITE" || code === "BASE_MISSING" ||
+      code === "GENERATION_MISMATCH" || code === "DOCUMENT_MISSING" || code === "DELETED";
+  };
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const existing = await store.get(path);
     const existingText = existing === null ? null : await existing.text();
@@ -2845,6 +2873,22 @@ async function writeSharedCalendarDay(
     }
     if (text === null) {
       if (existing === null) return { wrote: false, bytes: 0 };
+      if (collaborationSupported(store) && collaborationEligible(path, existingText ?? undefined)) {
+        if (store.capabilities?.conditionalDelete !== true) {
+          throw new Error("Calendar cannot delete a collaboration note without conditional deletion");
+        }
+        try {
+          const current = await readCollaborationDocument(store, path);
+          await tombstoneCollaborationDocument(store, path, {
+            expectedEtag: current.etag,
+            permanent: true,
+          });
+          return { wrote: true, bytes: 0 };
+        } catch (error) {
+          if (retryableCollaborationError(error)) continue;
+          throw error;
+        }
+      }
       const deleted = await store.delete(path, {
         onlyIf: { etagMatches: existing.etag },
       });
@@ -2852,6 +2896,20 @@ async function writeSharedCalendarDay(
       continue;
     }
     if (existingText === text) return { wrote: false, bytes: 0 };
+    if (existing !== null && collaborationSupported(store) && collaborationEligible(path, existingText ?? undefined)) {
+      try {
+        const current = await readCollaborationDocument(store, path);
+        const replaced = await replaceCollaborationText(store, path, {
+          documentId: current.documentId,
+          expectedEtag: current.etag,
+          text,
+        });
+        return { wrote: true, bytes: new TextEncoder().encode(replaced.text).byteLength };
+      } catch (error) {
+        if (retryableCollaborationError(error)) continue;
+        throw error;
+      }
+    }
     const written = await store.put(path, text, {
       onlyIf:
         existing === null
@@ -3709,13 +3767,12 @@ export async function executeOperation(
         return { kind: "pluginSettings", json: operation.json, etag: written.etag };
       }
       case "pluginRename": {
-        const source = await store.get(operation.from);
-        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
-        if (source.etag !== operation.expectedEtag) {
+        const current = await readFile(store, { path: operation.from, clearance });
+        if (current.etag !== operation.expectedEtag) {
           throw new FileOpError(
             "CONFLICT",
             "That file changed somewhere else while the plugin was using it.",
-            source.etag,
+            current.etag,
           );
         }
         const moved = await movePath(store, {
@@ -3729,13 +3786,12 @@ export async function executeOperation(
         return { kind: "moved", ...moved };
       }
       case "pluginDelete": {
-        const source = await store.get(operation.path);
-        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
-        if (source.etag !== operation.expectedEtag) {
+        const current = await readFile(store, { path: operation.path, clearance });
+        if (current.etag !== operation.expectedEtag) {
           throw new FileOpError(
             "CONFLICT",
             "That file changed somewhere else while the plugin was using it.",
-            source.etag,
+            current.etag,
           );
         }
         const deleted = await deletePath(store, {

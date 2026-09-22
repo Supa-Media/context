@@ -396,6 +396,62 @@ describe("the gateway secret is never sufficient", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("/gateway/session", () => {
+  test("a console session carries live group names, while a narrow OAuth grant carries none", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "group-owner@example.invalid");
+    const member = await createUser(t, "group-member@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "group-home", { kind: "shared" });
+    await addMember(t, workspaceId, member, "member", owner);
+    const group = await asUser(t, owner).mutation(api.functions.groups.createGroup, {
+      workspaceId,
+      label: "readers",
+    });
+    await asUser(t, owner).mutation(api.functions.groups.addGroupMember, {
+      workspaceId,
+      groupId: group.groupId,
+      userId: member,
+    });
+
+    const consoleGrant = await asUser(t, member).action(
+      api.functions.agentGrant.mintConsoleGrant,
+      { workspaceId },
+    );
+    const consoleSession = await bodyOf(
+      await gatewayPost(t, "/gateway/session", { accessToken: consoleGrant.accessToken }),
+    );
+    expect((consoleSession.session as any).workspaces[0].grantedNames).toEqual([
+      "group-home-readers",
+    ]);
+
+    // The membership is read on every resolution. Removing it must retract the
+    // live name from an already-issued console token on the next request.
+    await asUser(t, owner).mutation(api.functions.groups.removeGroupMember, {
+      workspaceId,
+      groupId: group.groupId,
+      userId: member,
+    });
+    const afterRemoval = await bodyOf(
+      await gatewayPost(t, "/gateway/session", { accessToken: consoleGrant.accessToken }),
+    );
+    expect((afterRemoval.session as any).workspaces[0].grantedNames).toEqual([]);
+
+    // A normal OAuth grant may have the same person, workspace and role, but
+    // its consent is narrower and must never acquire console-only group names.
+    await registerClient(t, "narrow_group_client");
+    const narrowToken = token("narrow_group");
+    await seedConnectedClient(t, {
+      workspaceId,
+      userId: member,
+      clientId: "narrow_group_client",
+      accessToken: narrowToken,
+      scopes: ["context:read"],
+    });
+    const narrowSession = await bodyOf(
+      await gatewayPost(t, "/gateway/session", { accessToken: narrowToken }),
+    );
+    expect((narrowSession.session as any).workspaces[0].grantedNames).toBeUndefined();
+  });
+
   test("resolves a live grant to the documented shape", async () => {
     const { t, alice, aliceWs, grantA } = await twoConnectedTenants();
     const body = await bodyOf(

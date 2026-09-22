@@ -130,6 +130,8 @@ export type ServerFrame =
    * receives the result as an ordinary edit.
    */
   | { t: "external"; text: string; etag: string | null }
+  /** Durable collaboration changed; the HTTP client performs an authorized read repair. */
+  | { t: "committed"; documentId: string; update?: string; etag: string }
   | { t: "pong" };
 
 
@@ -299,6 +301,18 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
       etag: typeof frame.etag === "string" ? frame.etag : null,
     };
   }
+  if (
+    frame.t === "committed" &&
+    typeof frame.documentId === "string" &&
+    typeof frame.etag === "string"
+  ) {
+    return {
+      t: "committed",
+      documentId: frame.documentId,
+      ...(typeof frame.update === "string" ? { update: frame.update } : {}),
+      etag: frame.etag,
+    };
+  }
   if (frame.t === "pong") return { t: "pong" };
   return null;
 }
@@ -405,10 +419,12 @@ export function presenceSocketUrl(options: {
   notePath: string;
   token: string;
   colorSeed: string;
+  collaborationVersion?: 2;
 }): string {
   const url = new URL(`/t/${encodeURIComponent(options.token)}/presence`, options.gatewayOrigin);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.searchParams.set("note", options.notePath);
   url.searchParams.set("seed", options.colorSeed);
+  if (options.collaborationVersion !== undefined) url.searchParams.set("collaboration", String(options.collaborationVersion));
   return url.toString();
 }

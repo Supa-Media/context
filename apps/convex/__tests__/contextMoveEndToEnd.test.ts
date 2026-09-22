@@ -40,6 +40,7 @@ import {
   type TestConvex,
 } from "./fixtures.helpers";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
+import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
@@ -148,7 +149,7 @@ async function pair(
       : await createWorkspace(t, other, "bee-context", { kind: "shared" });
   if (into === "shared") await addMember(t, to, mover, "editor", other);
 
-  const source = memoryS3(SOURCE_BUCKET);
+  const source = memoryS3(SOURCE_BUCKET, { ignoreConditionalDelete: true });
   source.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(["1-projects"], "personal"));
   source.seed("1-projects/README.md", "# Projects\n");
   const notes = options.notes ?? 55;
@@ -156,7 +157,7 @@ async function pair(
     source.seed(`1-projects/acme/note-${String(index).padStart(3, "0")}.md`, `# ${index}\n`);
   }
 
-  const destination = memoryS3(DESTINATION_BUCKET);
+  const destination = memoryS3(DESTINATION_BUCKET, { ignoreConditionalDelete: true });
   destination.seed(
     PRIVACY_KEY,
     renderPrivacyManifestForFolders(["work"], into === "own" ? "personal" : "shared"),
@@ -174,11 +175,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function keysUnder(bucket: MemoryS3, prefix: string): string[] {
-  return [...bucket.objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+async function keysUnder(bucket: MemoryS3, prefix: string): Promise<string[]> {
+  const store = storeForBinding({
+    ...FAKE_STORAGE,
+    bucket: bucket.objects.has("1-projects/README.md") ? SOURCE_BUCKET : DESTINATION_BUCKET,
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false },
+  }, undefined, { fetchImpl: bucket.fetchImpl });
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await store.list({ prefix, cursor, limit: 1000 });
+    keys.push(...page.objects.map((object: { key: string }) => object.key));
+    if (!page.truncated) break;
+    cursor = page.cursor;
+  } while (cursor);
+  return keys.sort();
 }
 
-describe("a folder moved from one context into another", () => {
+// Durable lifecycle writes add real SigV4/crypto requests per note. Keep this
+// multi-batch integration test bounded without the unit-suite 5-second ceiling.
+describe("a folder moved from one context into another", { timeout: 30_000 }, () => {
   test("arrives whole, leaves nothing behind, and takes more than one batch", async () => {
     const p = await pair({ notes: 55 });
 
@@ -199,13 +215,17 @@ describe("a folder moved from one context into another", () => {
     expect(row?.skipped).toEqual([]);
 
     // Every note is in the destination, under the new prefix, with its body.
-    expect(keysUnder(p.destination, "work/acme/").length).toBe(55);
+    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(55);
     expect(p.destination.objects.get("work/acme/note-000.md")?.body).toBe("# 0\n");
     expect(p.destination.objects.get("work/acme/note-054.md")?.body).toBe("# 54\n");
 
     // And none is in the source. A copy-then-delete that skipped the delete
     // reads as a complete move from the destination alone.
-    expect(keysUnder(p.source, "1-projects/acme/")).toEqual([]);
+    expect((await keysUnder(p.source, "1-projects/acme/"))).toEqual([]);
+    const retired = p.source.objects.get("1-projects/acme/note-000.md");
+    expect(retired?.contentType).toBe("application/x-context-logical-tombstone");
+    expect(retired?.body).not.toContain("# 0");
+    expect(p.source.requests.some((request) => request.method === "DELETE" && request.key.startsWith("1-projects/acme/"))).toBe(false);
     // What was outside the folder is untouched, in both buckets.
     expect(p.source.objects.has("1-projects/README.md")).toBe(true);
     expect(p.destination.objects.has("work/README.md")).toBe(true);
@@ -245,8 +265,8 @@ describe("a folder moved from one context into another", () => {
     // tell from a slow one.
     expect([row?.status, row?.error]).toEqual(["complete", undefined]);
     expect(row?.movedObjects).toBe(250);
-    expect(keysUnder(p.destination, "work/acme/").length).toBe(250);
-    expect(keysUnder(p.source, "1-projects/acme/")).toEqual([]);
+    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(250);
+    expect((await keysUnder(p.source, "1-projects/acme/"))).toEqual([]);
   });
 
   test("the source's manifest forgets the folder and the destination's is untouched", async () => {
@@ -277,7 +297,7 @@ describe("a folder moved from one context into another", () => {
     */
     const row = await p.t.run((ctx) => ctx.db.get(moveId));
     expect([row?.status, row?.error]).toEqual(["complete", undefined]);
-    expect(keysUnder(p.destination, "work/acme/").length).toBe(3);
+    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(3);
 
     expect(p.destination.objects.get(PRIVACY_KEY)!.body).toBe(destinationManifestBefore);
     expect(p.source.objects.get(PRIVACY_KEY)!.body).not.toContain("1-projects/acme");
@@ -380,8 +400,8 @@ describe("a folder moved from one context into another", () => {
     const row = await p.t.run((ctx) => ctx.db.get(moveId));
     expect(row?.status).toBe("failed");
     expect(row?.movedObjects).toBe(0);
-    expect(keysUnder(p.source, "1-projects/acme/").length).toBe(4);
-    expect(keysUnder(p.destination, "work/acme/")).toEqual(["work/acme/theirs.md"]);
+    expect((await keysUnder(p.source, "1-projects/acme/")).length).toBe(4);
+    expect((await keysUnder(p.destination, "work/acme/"))).toEqual(["work/acme/theirs.md"]);
   });
 
   test("a move of a path that is not there fails rather than reporting success", async () => {
@@ -445,7 +465,7 @@ describe("a folder moved from one context into another", () => {
     // Six in total, not nine: the three that had already crossed are not
     // counted twice, because they are not in the source to be found.
     expect(row?.movedObjects).toBe(6);
-    expect(keysUnder(p.source, "1-projects/acme/")).toEqual([]);
-    expect(keysUnder(p.destination, "work/acme/").length).toBe(6);
+    expect((await keysUnder(p.source, "1-projects/acme/"))).toEqual([]);
+    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(6);
   });
 });

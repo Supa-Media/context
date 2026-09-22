@@ -1567,3 +1567,12 @@ decrypts a customer's storage credential on every request. The merge logic went
 to the clients instead, and updates are opaque bytes to the gateway. That is the
 strongest argument for the rule anyone has produced, and it was produced by
 someone trying to make an exception to it.
+
+
+## Automatic collaboration extends the storage contract
+
+The owner approved essential editing history in the customer bucket, in
+addition to portable Markdown. The current contract is documented in
+[collaboration](./collaboration.md). The older presence-only decisions above
+describe the legacy transport; they do not authorize deleting acknowledged
+collaboration history when a room empties.

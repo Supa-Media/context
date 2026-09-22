@@ -261,6 +261,15 @@ export { bytesFromBase64 };
 
 export interface HostSink {
   onChange: (text: string) => void;
+  /** A local Yjs update from the durable native guest. */
+  onCollaborationUpdate?: (documentId: string, update: string) => void;
+  /**
+   * Return the new rendered revision when the versioned path accepted a
+   * change. `null` means the versioned editor deliberately refused it (for
+   * example while its durable snapshot is still loading). `undefined` means
+   * this sink is a legacy editor and the host should use onChange instead.
+   */
+  onVersionedChange?: (text: string, baseSnapshot: string) => string | null | undefined;
   onSave: () => void;
   onFocus?: (focused: boolean) => void;
   /**
@@ -340,7 +349,12 @@ export interface HostSink {
 
 export interface HostBridge {
   /** Authoritative text. A no-op when it is the echo of the last `change`. */
-  setDoc: (text: string) => void;
+  setDoc: (text: string, revision?: string) => void;
+  setRevision: (revision: string) => void;
+  /** Set (or clear with null) the canonical Yjs state for durable mode. */
+  setCrdtSnapshot: (snapshot: { documentId: string; update: string } | null) => void;
+  /** Hold the guest read-only while durable state is loading. */
+  setCrdtMode: (enabled: boolean) => void;
   setEditable: (editable: boolean) => void;
   setTheme: (vars: Readonly<Record<string, string>>) => void;
   /** How many points of the editor something else is covering. */
@@ -424,6 +438,9 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
    * component so it cannot be reset by a re-render.
    */
   let known = "";
+  let revision = "";
+  let crdtSnapshot: { documentId: string; update: string } | null = null;
+  let crdtMode = false;
   let linkPath: string | null = null;
   let linkPaths: readonly string[] | undefined;
   /**
@@ -440,7 +457,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
   };
 
   return {
-    setDoc: (text) => {
+    setDoc: (text, nextRevision = revision) => {
       /*
         `doc` is assigned BEFORE the echo check, and `known` after it, and the
         difference between those two lines is somebody's unsaved note.
@@ -462,14 +479,61 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
         loss; see `webviewHost.test.ts`'s second `ready`.
       */
       doc = text;
+      revision = nextRevision;
+      // A legacy document message explicitly switches the guest out of the
+      // durable binding. The next snapshot, if any, re-enters it.
+      crdtSnapshot = null;
+      crdtMode = false;
       if (echoes(text, known)) return;
       known = text;
-      post({ v: PROTOCOL_VERSION, type: "doc", text });
+      post({ v: PROTOCOL_VERSION, type: "doc", text, ...(revision === "" ? {} : { revision }) });
+    },
+    setRevision: (nextRevision) => {
+      revision = nextRevision;
+      post({ v: PROTOCOL_VERSION, type: "revision", revision });
+    },
+    setCrdtSnapshot: (snapshot) => {
+      const hadSnapshot = crdtSnapshot !== null;
+      crdtSnapshot = snapshot;
+      if (snapshot === null) {
+        // A loading/new-note transition must detach the old guest binding.
+        // Keeping it alive would let edits for the previous document escape
+        // while the new durable state is being recovered.
+        if (ready && crdtMode && hadSnapshot) {
+          send(encode({ v: PROTOCOL_VERSION, type: "crdtReset" }));
+          send(encode({ v: PROTOCOL_VERSION, type: "editable", editable: false }));
+        }
+        return;
+      }
+      crdtMode = true;
+      post({ v: PROTOCOL_VERSION, type: "crdtSnapshot", ...snapshot });
+      post({ v: PROTOCOL_VERSION, type: "editable", editable });
+    },
+    setCrdtMode: (enabled) => {
+      const wasCrdt = crdtMode;
+      crdtMode = enabled;
+      if (!ready) return;
+      if (enabled && !wasCrdt) send(encode({ v: PROTOCOL_VERSION, type: "crdtReset" }));
+      send(encode({
+        v: PROTOCOL_VERSION,
+        type: "editable",
+        editable: enabled && crdtSnapshot === null ? false : editable,
+      }));
+      // Explicitly tear down a prior durable binding even when the legacy text
+      // happens to equal the last known rendering and setDoc would otherwise
+      // classify it as an echo.
+      if (wasCrdt && !enabled) {
+        send(encode({ v: PROTOCOL_VERSION, type: "doc", text: doc, ...(revision === "" ? {} : { revision }) }));
+      }
     },
     setEditable: (next) => {
       if (next === editable && ready) return;
       editable = next;
-      post({ v: PROTOCOL_VERSION, type: "editable", editable: next });
+      post({
+        v: PROTOCOL_VERSION,
+        type: "editable",
+        editable: crdtMode && crdtSnapshot === null ? false : next,
+      });
     },
     setTheme: (next) => {
       vars = next;
@@ -525,13 +589,30 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           ready = true;
           // Everything, in the order the guest needs it: what it may do, how it
           // is drawn, and only then the note.
-          send(encode({ v: PROTOCOL_VERSION, type: "editable", editable }));
+          send(encode({
+            v: PROTOCOL_VERSION,
+            type: "editable",
+            editable: crdtMode && crdtSnapshot === null ? false : editable,
+          }));
           send(encode({ v: PROTOCOL_VERSION, type: "theme", vars }));
           send(encode({ v: PROTOCOL_VERSION, type: "inset", bottom: inset }));
           send(encode({ v: PROTOCOL_VERSION, type: "links", path: linkPath, paths: linkPaths }));
           send(encode({ v: PROTOCOL_VERSION, type: "suggest", available: suggesting }));
-          send(encode({ v: PROTOCOL_VERSION, type: "doc", text: doc }));
-          known = doc;
+          if (!crdtMode && crdtSnapshot === null) {
+            send(encode({ v: PROTOCOL_VERSION, type: "doc", text: doc, ...(revision === "" ? {} : { revision }) }));
+            known = doc;
+          } else if (crdtSnapshot !== null) {
+            send(encode({
+              v: PROTOCOL_VERSION,
+              type: "crdtSnapshot",
+              documentId: crdtSnapshot.documentId,
+              update: crdtSnapshot.update,
+            }));
+            // The initial editable message deliberately held the guest while
+            // its canonical state was loading. Release that gate only after
+            // the snapshot has crossed the bridge.
+            send(encode({ v: PROTOCOL_VERSION, type: "editable", editable }));
+          }
           return;
         case "change":
           /**
@@ -545,9 +626,28 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
            * is exactly the assumption that let a read-only drop rewrite a
            * document for a release.
            */
-          if (!acceptsChange(editable)) return;
+          if (crdtMode || !acceptsChange(editable)) return;
           known = message.text;
-          sink.onChange(message.text);
+          if (sink.onVersionedChange !== undefined) {
+            if (typeof message.baseRevision !== "string") return;
+            const nextRevision = sink.onVersionedChange(message.text, message.baseRevision);
+            if (typeof nextRevision === "string") {
+              revision = nextRevision;
+              post({ v: PROTOCOL_VERSION, type: "revision", revision });
+            } else if (nextRevision === undefined) sink.onChange(message.text);
+          } else sink.onChange(message.text);
+          return;
+        case "crdtUpdate":
+          // A stale WebView can finish an update after navigation. Durable
+          // mode alone is not an identity check: accept only the snapshot
+          // currently authorized by this host bridge.
+          if (
+            !crdtMode ||
+            crdtSnapshot === null ||
+            message.documentId !== crdtSnapshot.documentId ||
+            !acceptsChange(editable)
+          ) return;
+          sink.onCollaborationUpdate?.(message.documentId, message.update);
           return;
         case "save":
           if (!acceptsChange(editable)) return;

@@ -94,6 +94,9 @@ export function LiveEditor({
   value,
   editable,
   onChange,
+  onVersionedChange,
+  documentRevision,
+  presence,
   onSave,
   controls,
   onFocus,
@@ -162,6 +165,8 @@ export function LiveEditor({
    */
   const handlers = useRef({
     onChange,
+    onVersionedChange,
+    collaboration: presence?.collaboration,
     onSave,
     controls,
     onFocus,
@@ -180,6 +185,8 @@ export function LiveEditor({
   });
   handlers.current = {
     onChange,
+    onVersionedChange,
+    collaboration: presence?.collaboration,
     onSave,
     controls,
     onFocus,
@@ -243,6 +250,18 @@ export function LiveEditor({
         (raw) => web.current?.postMessage(raw),
         {
           onChange: (text) => handlers.current.onChange(text),
+          onVersionedChange: (text, base) => {
+            const callback = handlers.current.onVersionedChange;
+            if (callback === undefined) return undefined;
+            // A mounted durable editor can be temporarily unable to accept a
+            // change (initial read, revoked access, or a stale snapshot). Do
+            // not fall through to the legacy whole-file callback in that
+            // case: only the absence of the prop means legacy mode.
+            return callback(text, base) ?? null;
+          },
+          onCollaborationUpdate: (documentId, update) => {
+            handlers.current.collaboration?.onUpdate(documentId, update);
+          },
           onSave: () => handlers.current.onSave(),
           /**
            * The focus contract, crossing back out of the web view.
@@ -387,12 +406,33 @@ export function LiveEditor({
     [bridge],
   );
 
-  // Authoritative text: a different note opened, a draft discarded, a conflict
-  // resolved. Never the echo of typing — `setDoc` drops that, which is the one
-  // guard the whole bridge turns on.
+  const collaboration = presence?.collaboration;
+
+  // Durable mode sends only the canonical Yjs snapshot. Before it arrives the
+  // host keeps the guest read-only, so the native replica cannot seed a second
+  // identity or produce updates against an unknown base. Legacy surfaces keep
+  // the original full-text bridge.
   useEffect(() => {
-    bridge.setDoc(value);
-  }, [bridge, value]);
+    if (collaboration?.mode === "durable") {
+      bridge.setCrdtMode(true);
+      // Recovery may expose the collaboration record before its canonical
+      // snapshot is ready. Keep the guest read-only and detached until that
+      // snapshot is available; sending a stale revision here would overwrite
+      // the recovered display with an older Yjs base.
+      if (
+        collaboration.ready === true &&
+        collaboration.documentId !== null &&
+        collaboration.revision !== ""
+      ) {
+        bridge.setCrdtSnapshot({ documentId: collaboration.documentId, update: collaboration.revision });
+      } else {
+        bridge.setCrdtSnapshot(null);
+      }
+      return;
+    }
+    bridge.setCrdtMode(false);
+    bridge.setDoc(value, documentRevision);
+  }, [bridge, collaboration, documentRevision, value]);
 
   useEffect(() => {
     bridge.setEditable(editable);

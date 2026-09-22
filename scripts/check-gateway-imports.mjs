@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * The gateway may only import its own files.
+ * The gateway may import relative modules and its explicit collaboration boundary.
  *
- * `apps/mcp` is the piece users self-host: dependency-free, running on the
+ * `apps/mcp` is the piece users self-host, running on the
  * Cloudflare Workers runtime where Node built-ins do not exist. A `node:`
  * import typechecks and passes the in-memory test stub, then fails at the edge
  * on real traffic. And with `shamefully-hoist=true`, a package installed
  * anywhere in the workspace hoists to the root `node_modules`, so a bare
  * import from `apps/mcp/src` would resolve, bundle and ship without ever
  * appearing in `apps/mcp/package.json`. Requiring every specifier to be
- * relative catches both, and everything else of that shape.
+ * relative, except for the explicit @context/collaboration boundary, catches
+ * undeclared imports without forbidding the shared server merge engine.
  *
  * This began as a grep in the workflow and produced a false positive on the
  * first file that discussed imports in prose — a comment reading
@@ -162,6 +163,8 @@ export function isForbiddenPackage(specifier) {
 export function offenceOf(specifier, allowNode) {
   if (isForbiddenPackage(specifier)) return "forbidden";
   if (isRelative(specifier)) return null;
+  // One reviewed boundary for the bucket-backed Yjs engine; no arbitrary npm imports.
+  if (!allowNode && specifier === "@context/collaboration") return null;
   if (allowNode && isNodeBuiltin(specifier)) return null;
   return "not-relative";
 }
@@ -178,6 +181,9 @@ function walk(dir) {
 
 function selfTest() {
   const cases = [
+    ['import { readDocument } from "@context/collaboration";', true, "explicit collaboration boundary"],
+    ['import { x } from "@context/collaboration/unchecked";', false, "no unchecked collaboration subpaths"],
+    ['import * as Y from "yjs";', false, "Yjs only inside the collaboration package"],
     // The flag widens the rule to node: built-ins and nothing else. Asserted
     // here so "allow Node" cannot quietly become "allow anything".
     ['import fs from "node:fs";', true, "node builtin under --allow-node-builtins", true],
@@ -301,7 +307,7 @@ function checkDirectory(dir, allowNode) {
     console.error(`${dir} may not import ${FORBIDDEN_PACKAGES.join(", ")}, by any path.`);
     console.error("");
     console.error("`packages/desktop-bridge` is the contract between the Expo UI and the");
-    console.error("Electron shell that hosts it. The gateway is a dependency-free Workers");
+    console.error("Electron shell that hosts it. The gateway is a Workers");
     console.error("bundle; a desktop IPC surface in its graph is coupling nothing needs.");
     console.error("See docs/decisions/desktop.md, 'The bridge is a package'.");
     process.exit(1);
@@ -313,7 +319,7 @@ function checkDirectory(dir, allowNode) {
     console.error(
       allowNode
         ? `${dir} may only import relative paths and node: built-ins.`
-        : `${dir} may only import relative paths.`
+        : `${dir} may only import relative paths and @context/collaboration.`
     );
     console.error("");
     if (!allowNode) {
@@ -328,6 +334,6 @@ function checkDirectory(dir, allowNode) {
   console.log(
     allowNode
       ? `OK — every specifier in ${dir} is relative or a node: built-in.`
-      : `OK — every specifier in ${dir} is relative.`
+      : `OK — every specifier in ${dir} is relative or the collaboration boundary.`
   );
 }

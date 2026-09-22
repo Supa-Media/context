@@ -29,6 +29,8 @@ on:
     branches: [main]
     paths:
       - "apps/mcp/**"
+      - "packages/collaboration/**"
+      - "pnpm-lock.yaml"
       - ".github/workflows/deploy-mcp.yml"
   workflow_dispatch:
 
@@ -77,9 +79,12 @@ jobs:
           # file: pnpm" before the suite ever ran.
           package-manager-cache: false
 
-      # No install. apps/mcp has zero dependencies and its suite runs offline
-      # against an in-memory store stub. If this ever needs an install, a
-      # dependency crept into the gateway and that is the thing to fix.
+      # The collaboration engine is the gateway's explicit dependency boundary.
+      - uses: pnpm/action-setup@v4
+
+      - name: Install the collaboration engine
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
+
       - name: Run test suite
         working-directory: apps/mcp
         run: node test/test.mjs
@@ -207,11 +212,10 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # Scoped to apps/mcp, which needs exactly one devDependency (wrangler) —
-      # the gateway itself still has no runtime dependencies.
-      - name: Install wrangler
+      # Install the gateway, wrangler, and the shared collaboration engine.
+      - name: Install gateway dependencies
         if: steps.config.outputs.found == 'true'
-        run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
       # DEPLOY FIRST, secrets after — the ordering `deploy-router.yml` and
       # `deploy-email-worker.yml` fixed for the same reason (#302).

@@ -30,13 +30,13 @@ export class R2Store {
     this.bucket = bucket;
     this.rootPrefix = normalizeRootPrefix(options.rootPrefix);
     // R2 implements conditional writes natively. Its Worker delete API does
-    // not expose an If-Match parameter, so delete below performs a strongly
-    // consistent etag check immediately before deleting and `probeStore()`
-    // still proves the advertised contract on the concrete binding.
+    // not expose an atomic If-Match parameter, so this adapter must never claim
+    // physical conditional deletion; the factory may add the logical-delete
+    // wrapper when conditional writes and creates are verified.
     this.capabilities = {
       conditionalWrite: true,
       conditionalCreate: true,
-      conditionalDelete: true,
+      conditionalDelete: false,
       serverSideCopy: false,
     };
   }
@@ -50,6 +50,21 @@ export class R2Store {
   // synchronously — rollback paths use `store.delete(key).catch(...)`.
   async get(key) {
     return this.bucket.get(applyRootPrefix(this.rootPrefix, assertSafeKey(key)));
+  }
+
+  /** Read object metadata without downloading its body. */
+  async head(key) {
+    // `undefined` means this binding cannot answer metadata-only. Keep `null`
+    // reserved for a provider-confirmed missing object so callers can safely
+    // fall back to their existing existence path.
+    if (typeof this.bucket.head !== "function") return undefined;
+    const object = await this.bucket.head(applyRootPrefix(this.rootPrefix, assertSafeKey(key)));
+    if (!object) return null;
+    return {
+      etag: normalizeEtag(object.etag || object.httpEtag || ""),
+      size: object.size,
+      contentType: object.contentType || object.httpMetadata?.contentType,
+    };
   }
 
   /**

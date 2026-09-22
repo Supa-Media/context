@@ -522,6 +522,24 @@ export async function runStorageLayoutReadChecks() {
     );
   }
 
+  // The logical-delete wrapper can hide a tombstone from the first physical
+  // page while preserving its cursor. The migration probe must follow that
+  // page instead of declaring the legacy prefix empty.
+  const markerThenLegacy = memoryStore();
+  markerThenLegacy.list = async ({ prefix = "", cursor } = {}) => {
+    if (prefix !== ".audit/") return { objects: [], truncated: false };
+    if (cursor === undefined) return { objects: [], truncated: true, cursor: "next" };
+    return {
+      objects: [{ key: ".audit/live.json", size: 4, uploaded: new Date() }],
+      truncated: false,
+    };
+  };
+  const delayedLegacy = await readStorageLayoutState(markerThenLegacy);
+  check(
+    "a legacy object after a hidden first page keeps migration pending",
+    delayedLegacy.observed === true && delayedLegacy.state === null,
+  );
+
   /*
     And a bucket that will not answer the listing is not read as empty. Closing
     the offer on a bucket we could not see into is the one failure here that is

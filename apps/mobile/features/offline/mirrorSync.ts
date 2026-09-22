@@ -221,7 +221,7 @@ export async function syncContext(
       local === undefined ||
       !local.body ||
       entry.etag === undefined ||
-      local.etag !== entry.etag
+      (local.rawEtag ?? local.etag) !== entry.etag
     ) {
       toFetch.push(entry.path);
     }
@@ -396,7 +396,9 @@ export async function syncContext(
         continue;
       }
       const atVersion =
-        entry.etag === undefined ? toFetch.includes(entry.path) : local.etag === entry.etag;
+        entry.etag === undefined
+          ? toFetch.includes(entry.path)
+          : (local.rawEtag ?? local.etag) === entry.etag;
       if (!atVersion) {
         remaining += 1;
         continue;
