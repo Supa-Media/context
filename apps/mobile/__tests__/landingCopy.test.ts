@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { HERO_LINE_ONE, HERO_LINE_TWO, LANDING_COPY } from "../features/landing/copy";
+import * as landingCopy from "../features/landing/copy";
 
 /**
  * The vocabulary decisions, enforced on the copy they govern.
@@ -127,23 +128,14 @@ describe("the landing page's list is the page, and its claims are ones we keep",
    * somebody remembering.
    */
   test("no line this file exports is left out of the list", () => {
-    const source = readFileSync(join(__dirname, "../features/landing/copy.ts"), "utf8");
-    const strings = [...source.matchAll(/export const [A-Z_0-9]+(?:\s*=\s*|\s*=\s*\n\s*)"([^"]*)"/g)].map(
-      (match) => match[1]!,
-    );
-    /*
-      Every exported name except the list itself, counted separately — so a
-      constant written in a shape this reader cannot parse **fails here** rather
-      than being quietly skipped. A reader that can silently return less than it
-      was given is the failure this whole test exists about, one level down.
-    */
-    const names = [...source.matchAll(/export const ([A-Z_0-9]+)\s*[:=]/g)]
-      .map((match) => match[1]!)
-      .filter((name) => name !== "LANDING_COPY");
-    expect(strings.length).toBe(names.length);
-    expect(strings.length).toBeGreaterThan(8);
-    const missing = strings.filter((text) => !LANDING_COPY.some((line) => line.includes(text)));
-    expect(missing).toEqual([]);
+    // Read complete exported values, including concatenated prose and the
+    // environment-dependent endpoint; a literal-only scan silently misses both.
+    const entries = Object.entries(landingCopy).filter(([name]) => name !== "LANDING_COPY");
+    expect(entries.length).toBeGreaterThan(8);
+    for (const [name, value] of entries) {
+      expect({ name, type: typeof value }).toEqual({ name, type: "string" });
+      expect(LANDING_COPY).toContain(value);
+    }
   });
 
   /**

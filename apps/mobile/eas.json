@@ -17,7 +17,9 @@
       "env": {
         "APP_ENV": "staging",
         "EXPO_PUBLIC_CONVEX_URL": "REPLACED_BY_CI",
-        "EAS_PROJECT_ID": "REPLACED_BY_CI"
+        "EAS_PROJECT_ID": "REPLACED_BY_CI",
+        "EXPO_PUBLIC_MCP_URL": "https://mcp-staging.context.lc/mcp",
+        "EXPO_PUBLIC_SITE_ORIGIN": "https://staging.context.lc"
       },
       "channel": "staging",
       "ios": {

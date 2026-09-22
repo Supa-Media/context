@@ -94,7 +94,10 @@ export const ENDPOINT_BODY =
   "back to them — each write recorded in your own audit trail, under the name " +
   "of the client that made it.";
 export const ENDPOINT_SCHEME = "https://";
-export const ENDPOINT_HOST = "mcp.context.lc/@you";
+export const ENDPOINT_HOST =
+  (process.env.EXPO_PUBLIC_MCP_URL ?? "https://mcp.context.lc/mcp")
+    .replace(/^https?:\/\//, "")
+    .replace(/\/mcp\/?$/, "") + "/@you";
 export const ENDPOINT_COPY = "Copy";
 export const ENDPOINT_CLIENTS_LEAD = "Works with anything that speaks MCP —";
 export const ENDPOINT_CLIENTS_TAIL = "and the next one";

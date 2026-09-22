@@ -65,6 +65,9 @@ jobs:
       - name: The checker catches what it claims to
         run: node scripts/check-secrets-allowlist.mjs --self-test
 
+      - name: Staging targets cannot select production
+        run: node --test scripts/staging-config.test.mjs
+
       - name: Every secret is named in the same three places
         run: node scripts/check-secrets-allowlist.mjs
 

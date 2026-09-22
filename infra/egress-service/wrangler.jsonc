@@ -14,11 +14,41 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "EGRESS", "class_name": "EgressContainer" }
+      {
+        "name": "EGRESS",
+        "class_name": "EgressContainer"
+      }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["EgressContainer"] }
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EgressContainer"]
+    }
   ],
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "context-public-egress-staging",
+      "workers_dev": true,
+      "containers": [
+        {
+          "class_name": "EgressContainer",
+          "image": "./Dockerfile",
+          "instance_type": "lite",
+          "max_instances": 1
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "EGRESS",
+            "class_name": "EgressContainer"
+          }
+        ]
+      }
+    }
+  }
 }
