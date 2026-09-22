@@ -421,6 +421,7 @@ function makeResult(state, revision) {
     update: value.snapshot,
     text: value.text,
     etag: revisionEtag(state.documentId, state.revision),
+    rawEtag: state.rawMarkdownEtag,
   };
 }
 

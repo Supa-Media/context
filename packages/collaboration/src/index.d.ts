@@ -29,6 +29,8 @@ export interface DocumentResult {
   update: string;
   text: string;
   etag: string;
+  /** Provider object version corresponding to this acknowledged text. */
+  rawEtag: string;
   /** False means the update is durably retained but waiting for Yjs dependencies. */
   applied?: boolean;
   pendingDependencies?: boolean;

@@ -73,6 +73,8 @@ export interface OpenNote {
   path: string;
   text: string;
   etag: string;
+  /** Provider object version used by the offline mirror's freshness check. */
+  rawEtag?: string;
   visibility: Visibility;
   inherited: Visibility;
   exception: boolean;

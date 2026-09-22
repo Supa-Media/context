@@ -167,7 +167,7 @@ export interface OfflineNotes {
    * wrong access markers on a note read offline. A note that is not cached
    * stays uncached: the next read will fetch the real thing.
    */
-  rememberBody: (body: { path: string; text: string; etag: string }) => void;
+  rememberBody: (body: { path: string; text: string; etag: string; rawEtag?: string }) => void;
   rememberListing: (listing: FolderListing) => void;
   cachedNote: (path: string) => Promise<Cached<OpenNote> | null>;
   cachedListing: (path: string) => Promise<Cached<FolderListing> | null>;

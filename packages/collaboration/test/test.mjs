@@ -105,6 +105,7 @@ test("empty and pre-existing notes initialize exactly once", async () => {
   assert.equal(first.text, "");
   assert.match(first.etag, /^c2\.doc-/);
   assert.notEqual(first.etag, emptyEtag);
+  assert.equal(first.rawEtag, emptyEtag);
   assert.equal(second.documentId, first.documentId);
   assert.equal(second.update, first.update);
 

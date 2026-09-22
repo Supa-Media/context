@@ -202,6 +202,10 @@ async function main() {
     // The transport may answer as SSE; the payload is the same JSON either way.
     const line = text.split("\n").find((l) => l.startsWith("data: "));
     const body = JSON.parse(line ? line.slice(6) : text);
+    if (!response.ok || body?.error || body?.result?.isError === true) {
+      const detail = body?.error?.message ?? body?.result?.content?.map((part) => part.text ?? "").join("\n") ?? text;
+      throw new Error(`${name} failed (${response.status}): ${detail}`);
+    }
     return body.result ?? body;
   };
 
@@ -254,20 +258,44 @@ async function main() {
       const peer=ws.connectToServer();links.push({ws,peer});
     });
     const page=await context.newPage();
+    const traffic=[];
+    page.on("request",request=>{
+      const url=request.url();
+      if(!url.includes("/collaboration")&&!url.includes("/files"))return;
+      let body;
+      try{body=request.postDataJSON?.();}catch{body=request.postData?.();}
+      traffic.push({kind:"request",method:request.method(),url,body});
+    });
+    page.on("response",async response=>{
+      const url=response.url();
+      if(!url.includes("/collaboration")&&!url.includes("/files"))return;
+      let body="";
+      try{body=(await response.text()).slice(0,1200);}catch{}
+      traffic.push({kind:"response",status:response.status(),url,body});
+    });
     page.on("response",async r=>{if(r.url().includes("/__fixture")&&!r.ok()) errors.push({user,status:r.status(),body:await r.text()});});
     page.on("pageerror",error=>errors.push({user,message:error.message}));
     page.on("console",msg=>{if(msg.type()==="error") errors.push({user,message:msg.text().slice(0,500)});});
     await page.goto(`http://127.0.0.1:${PAGES}/e2e-fixture?screen=collaboration&user=${user}&note=${encodeURIComponent(note)}`);
     await page.locator(".cm-content").waitFor({timeout:60000});
     await page.waitForFunction(()=>window.fixture?.presence.settled,{},{timeout:20000});
-    return {context,page,
+    return {context,page,traffic,
       cut:async()=>{if(!links.length)throw new Error("Fault injector observed no presence socket");disconnected=true;await Promise.all(links.flatMap(({ws,peer})=>[ws.close({code:1012,reason:"test network loss"}),peer.close({code:1012,reason:"test network loss"})]));},
       reconnect:()=>{disconnected=false;}
     };
   };
   const text=page=>page.evaluate(()=>window.fixture?.editorText() ?? "");
   const state=page=>page.evaluate(()=>({editorText:window.fixture.editorText(),sync:window.fixture.files.sync,settled:window.fixture.presence.settled,status:window.fixture.files.editor.status,collaboration:window.fixture.presence.collaboration&&{status:window.fixture.presence.collaboration.status,pending:window.fixture.presence.collaboration.pending,etag:window.fixture.presence.collaboration.etag},phase:window.fixture.presence.phase,saver:window.fixture.presence.canWrite,draft:window.fixture.files.editor.draft,shared:window.fixture.presence.shared?.markdown(),etag:window.fixture.files.editor.etag,members:window.fixture.presence.members.map(m=>m.name)}));
-  const append=async(page,words)=>{await page.locator(".cm-content").click();await page.keyboard.press("ControlOrMeta+End");await page.keyboard.insertText(words);};
+  const append=async(page,words)=>{
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    const parts=String(words).split("\n");
+    if(parts[0]) await page.keyboard.insertText(parts[0]);
+    for(const part of parts.slice(1)){
+      await page.keyboard.press("Enter");
+      if(part) await page.keyboard.insertText(part);
+    }
+  };
   const screenshot=async(page,name)=>page.screenshot({path:join(ARTIFACTS,name+".png"),fullPage:true});
   const pair=async(note,run)=>{
     const sessions=[];
@@ -347,7 +375,7 @@ async function main() {
         off.reconnect();await off.context.setOffline(false);
         const merged=await until(async()=>{const x=await text(off.page);return x===await text(online.page)&&x.includes("OFFLINE sentence preserved")&&x.includes("ONLINE sentence preserved");},{timeout:15000});
         check(`${path}: reconnect merges both without intervention`,merged);
-        check(`${path}: both edits reach actual Markdown storage`,await until(async()=>{const n=await rawNote(path);return n.text.includes("OFFLINE sentence preserved")&&n.text.includes("ONLINE sentence preserved");},{timeout:20000}));
+        check(`${path}: both edits reach actual Markdown storage`,await until(async()=>{const n=await rawNote(path);return n.text.includes("\nOFFLINE sentence preserved")&&n.text.includes("\nONLINE sentence preserved");},{timeout:20000}));
         check(`${path}: no conflict decision required`,(await state(off.page)).status!=="conflict" && (await state(off.page)).sync.counts.conflicted===0);
         results.push({label:path+" states",detail:[await state(off.page),await state(online.page)],diagnostic:true});
         await screenshot(off.page,reloadOffline?"05-offline-reload":"04-offline-reconnect");
@@ -427,13 +455,26 @@ async function main() {
       await b.context.setOffline(true);await b.cut();
       await append(b.page,"\nOFFLINE THROUGH RENAME");
       const read=textOf(await callTool(ANA,"read_note",{path}));
+      const originalDocumentId=read.match(/^document_id: (.+)$/m)?.[1] ?? null;
       const moved=await callTool(ANA,"move_note",{source:path,destination,expected_source_etag:read.match(/^etag: (.+)$/m)?.[1]});
-      check("agent rename preserves the collaborative document",!moved.isError,textOf(moved).slice(0,160));
+      const moveText=textOf(moved);
+      const movedOk=!moved.isError&&moveText.startsWith("moved:");
+      check("agent rename preserves the collaborative document",movedOk,JSON.stringify({moved,moveText}).slice(0,500));
+      const [oldAfterMove,newAfterMove]=await Promise.all([rawNote(path),rawNote(destination)]);
+      let destinationRead="";
+      if(movedOk) destinationRead=textOf(await callTool(ANA,"read_note",{path:destination}));
+      const destinationDocumentId=destinationRead.match(/^document_id: (.+)$/m)?.[1] ?? null;
+      check("rename lands the same document before reconnect",movedOk&&oldAfterMove===null&&newAfterMove?.text===read.split("\n\n").slice(1).join("\n\n")&&destinationDocumentId===originalDocumentId,JSON.stringify({oldAfterMove,newAfterMove,originalDocumentId,destinationDocumentId}).slice(0,800));
       b.reconnect();await b.context.setOffline(false);
-      check("offline changes follow a renamed note automatically",await until(async()=>{
+      const follows=await until(async()=>{
         const doc=await rawNote(destination);return doc?.text.includes("OFFLINE THROUGH RENAME") && (await state(b.page)).collaboration?.pending===0;
-      },{timeout:20000}));
-      check("rename does not recreate the old file",await rawNote(path)===null);
+      },{timeout:20000});
+      if(!follows){
+        const [browserState,oldNote,newNote]=await Promise.all([state(b.page),rawNote(path),rawNote(destination)]);
+        check("offline changes follow a renamed note automatically",false,JSON.stringify({browserState,oldNote,newNote,traffic:b.traffic}));
+      }else check("offline changes follow a renamed note automatically",true);
+      const oldNote=await rawNote(path);
+      check("rename does not recreate the old file",oldNote===null,oldNote===null?"":JSON.stringify(oldNote));
     });
     await pair("1-projects/offline-trash.md",async(a,b)=>{
       const path="1-projects/offline-trash.md";

@@ -65,6 +65,8 @@ export interface MirrorEntry {
    * the version the manifest listed, or `""` when the store gave none.
    */
   etag: string;
+  /** Provider object version used to compare the mirror with the manifest. */
+  rawEtag?: string;
   size?: number;
   updatedAt?: number;
   visibility: Visibility;
@@ -170,6 +172,7 @@ export function parseIndex(raw: string | null): MirrorIndex | null {
       entries.set(entry.path, {
         path: entry.path,
         etag: entry.etag,
+        ...(typeof entry.rawEtag === "string" ? { rawEtag: entry.rawEtag } : {}),
         visibility: entry.visibility,
         inherited: entry.inherited,
         exception: entry.exception === true,
@@ -384,6 +387,7 @@ function entryOf(note: OpenNote, now: number, previous?: MirrorEntry): MirrorEnt
   return {
     path: note.path,
     etag: note.etag,
+    rawEtag: note.rawEtag ?? note.etag,
     size: utf8Length(note.text),
     ...(previous?.updatedAt !== undefined ? { updatedAt: previous.updatedAt } : {}),
     visibility: note.visibility,
@@ -454,7 +458,7 @@ export async function moveMirroredBody(
   store: MirrorStore,
   epoch: number,
   workspaceId: string,
-  body: { path: string; text: string; etag: string },
+  body: { path: string; text: string; etag: string; rawEtag?: string },
   needed: Needed,
   now: number,
 ): Promise<void> {
@@ -478,9 +482,12 @@ export async function moveMirroredBody(
         );
         if (placed === false) return false;
         const { base: _previousBase, ...rest } = existing;
+        const rawEtag = body.rawEtag ??
+          (body.etag.startsWith("c2.") ? existing.rawEtag : body.etag);
         index.entries.set(body.path, {
           ...rest,
           etag: body.etag,
+          ...(rawEtag === undefined ? {} : { rawEtag }),
           size: utf8Length(body.text),
           syncedAt: now,
           ...(placed.base !== undefined ? { base: placed.base } : {}),
@@ -563,6 +570,7 @@ function noteOf(entry: MirrorEntry, text: string): OpenNote {
     path: entry.path,
     text,
     etag: entry.etag,
+    ...(entry.rawEtag === undefined ? {} : { rawEtag: entry.rawEtag }),
     visibility: entry.visibility,
     inherited: entry.inherited,
     exception: entry.exception,

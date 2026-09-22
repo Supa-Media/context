@@ -6,7 +6,7 @@ import { getFunctionName, type FunctionReference } from "convex/server";
 import { ConvexError } from "convex/values";
 import { useFileBrowser } from "../../console/files/useFileBrowser";
 import { useNoteRoom } from "../../console/presence/useNoteRoom";
-import { LiveEditor } from "../../console/files/LiveEditor";
+import { NoteEditor } from "../../console/files/NoteEditor";
 
 type FixtureWindow = Window & {
   fixture?: { files: unknown; presence: unknown; editorText: () => string | null };
@@ -71,11 +71,31 @@ function Session({ user, note }: { user: string; note: string }) {
     <button onClick={()=>files.select("1-projects/second.md")}>Second note</button>
     <button onClick={()=>files.save()}>Save</button>
     <p>{files.notice}</p>
-    {files.editor.path !== null && <LiveEditor
-      value={files.editor.draft} editable={user!=="reader"}
-      onChange={files.setDraft} onSave={files.save}
-      presence={presence} notePath={files.editor.path}
-      accessibilityLabel="Note text"
+    {files.editor.path !== null && <NoteEditor
+      state={files.editor}
+      canEdit={user !== "reader"}
+      presence={presence}
+      visibility={{
+        visibility: files.editor.visibility,
+        inherited: files.editor.inherited,
+        exception: files.editor.exception,
+        readOnly: files.editor.readOnly,
+      }}
+      onChange={files.setDraft}
+      onSave={files.save}
+      onDiscard={files.discard}
+      onUseTheirs={files.useTheirs}
+      onKeepMine={files.keepMine}
+      onOpenNote={(path) => { void files.select(path); }}
+      onLoadImage={files.loadImage}
+      onStoreImage={files.storeImage}
+      onImageProblem={files.say}
+      onReadFormResponses={files.readFormResponses}
+      onSubmitForm={files.submitForm}
+      onVoteForm={files.voteForm}
+      onUpdateFormResponse={files.updateFormResponse}
+      onRetractFormResponse={files.retractFormResponse}
+      notePaths={files.linkPaths}
     />}
   </div>;
 }
