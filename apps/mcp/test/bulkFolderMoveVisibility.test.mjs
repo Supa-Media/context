@@ -196,7 +196,13 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     "...and the move still materializes: the bytes are at the destination",
     primary.get(moved)?.body === "SECRET-0"
   );
-  check("...and the source path is gone", primary.get(witness) === undefined);
+  const oldSource = await callTool(env, TOKEN_OWNER, "read_note", { path: witness });
+  check(
+    "...and the source path forwards to the one live destination",
+    !oldSource?.isError &&
+      textOf(oldSource).includes(`path: ${moved}`) &&
+      textOf(oldSource).includes(`moved_from: ${witness}`),
+  );
 
   const afterMaterialized = await callTool(env, TOKEN_TEAM, "read_note", {
     path: moved,

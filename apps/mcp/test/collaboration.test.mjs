@@ -35,16 +35,18 @@ function bucket() {
     async delete(key) {
       objects.delete(key);
     },
-    async list() {
+    async list({ prefix } = {}) {
       return {
-        objects: [...objects].map(([key, value]) => ({ key, size: value.text.length, etag: value.etag })),
+        objects: [...objects]
+          .filter(([key]) => !prefix || key.startsWith(prefix))
+          .map(([key, value]) => ({ key, size: value.text.length, etag: value.etag })),
         truncated: false,
       };
     },
   };
 }
 
-const privacy = `---\nrole: privacy-manifest\nversion: 1\n---\n\n# Brain Privacy Map\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n\`\`\`yaml\ndefault_visibility: private\nfolder_defaults:\n  team: team\n\`\`\`\n\n<!-- END BRAIN PRIVACY RULES -->\n`;
+const privacy = `---\nrole: privacy-manifest\nversion: 1\n---\n\n# Brain Privacy Map\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n\`\`\`yaml\ndefault_visibility: private\nfolder_defaults:\n  team: team\nnote_overrides:\n  group/note.md: @editors\n  group/moved.md: @editors\n\`\`\`\n\n<!-- END BRAIN PRIVACY RULES -->\n`;
 
 async function request(env, token, body) {
   return worker.fetch(
@@ -61,6 +63,28 @@ async function request(env, token, body) {
   );
 }
 
+async function callTool(env, token, name, args) {
+  const response = await worker.fetch(
+    new Request("https://gateway.test/mcp", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: args },
+      }),
+    }),
+    env,
+    { waitUntil() {} },
+  );
+  const body = await response.json();
+  return body.result ?? body.error;
+}
+
 /** Adversarial HTTP checks for the collaboration auth and route boundary. */
 export async function runCollaborationChecks(check) {
   const primary = bucket();
@@ -72,6 +96,8 @@ export async function runCollaborationChecks(check) {
   const readerToken = "cat_collaboration_reader_0000000000000000";
   const otherToken = "cat_collaboration_other_0000000000000000";
   const revokedToken = "cat_collaboration_revoked_0000000000000000";
+  const groupToken = "cat_collaboration_group_000000000000000000";
+  const ordinaryGroupToken = "cat_collaboration_oauth_group_00000000000";
   try {
     controlPlane.addWorkspace("ws_collaboration", "collab", {
       provider: "r2-binding",
@@ -94,6 +120,7 @@ export async function runCollaborationChecks(check) {
     await primary.put("privacy.md", privacy);
     await primary.put("team/open.md", "# visible");
     await primary.put("secret.md", "# private");
+    await primary.put("group/note.md", "# group visible");
     await other.put("team/open.md", "# other workspace");
     await unsupported.put("team/open.md", "# unsupported");
 
@@ -130,6 +157,25 @@ export async function runCollaborationChecks(check) {
       userId: "revoked",
     });
     controlPlane.revoke(revokedGrant);
+    const liveConsoleNames = { ws_collaboration: ["editors"] };
+    await controlPlane.addGrant({
+      accessToken: groupToken,
+      workspaceId: "ws_collaboration",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "context_console",
+      userId: "group-editor",
+      grantedNamesByWorkspace: liveConsoleNames,
+    });
+    await controlPlane.addGrant({
+      accessToken: ordinaryGroupToken,
+      workspaceId: "ws_collaboration",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "ordinary-oauth-client",
+      userId: "ordinary-editor",
+      grantedNamesByWorkspace: { ws_collaboration: ["editors"] },
+    });
 
     const env = {
       CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -144,6 +190,32 @@ export async function runCollaborationChecks(check) {
     check("collaboration reader receives the engine snapshot", read.status === 200 &&
       readBody.text === "# visible" && typeof readBody.documentId === "string" &&
       typeof readBody.update === "string" && typeof readBody.etag === "string");
+
+    const groupRead = await request(env, groupToken, { path: "group/note.md" });
+    const groupBody = await groupRead.json();
+    const groupWrite = await request(env, groupToken, {
+      path: "group/note.md",
+      replacement: { expectedEtag: groupBody.etag, text: "# group edited\n" },
+    });
+    check("a console group grant reads and updates its named collaboration note",
+      groupRead.status === 200 && groupBody.text === "# group visible" && groupWrite.status === 200 &&
+      (await groupWrite.json()).text === "# group edited\n");
+
+    await moveDocument(primary, "group/note.md", "group/moved.md");
+    const groupMoved = await request(env, groupToken, { path: "group/note.md" });
+    check("a moved group note reauthorizes its destination before returning content",
+      groupMoved.status === 200 && (await groupMoved.json()).text === "# group edited\n");
+
+    liveConsoleNames.ws_collaboration = [];
+    const removedGroup = await request(env, groupToken, { path: "group/note.md" });
+    check("removing live group membership closes collaboration on the next request",
+      removedGroup.status === 404 &&
+      JSON.stringify(await removedGroup.json()) === JSON.stringify({ error: "not_found" }));
+
+    const ordinaryGroup = await request(env, ordinaryGroupToken, { path: "group/note.md" });
+    check("an ordinary OAuth grant cannot claim console group authority",
+      ordinaryGroup.status === 404 &&
+      JSON.stringify(await ordinaryGroup.json()) === JSON.stringify({ error: "not_found" }));
 
     const human = await request(env, ownerToken, {
       path: "team/open.md",
@@ -163,8 +235,9 @@ export async function runCollaborationChecks(check) {
     const auditRows = [...primary.objects]
       .filter(([key]) => key.startsWith(".context/audit/"))
       .map(([, value]) => JSON.parse(value.text));
+    const ownerAuditRows = auditRows.filter((row) => row.actor_user_id === "owner");
     check("accepted collaboration changes write actor-bound audit rows",
-      auditRows.length === 2 && auditRows.every((row) =>
+      ownerAuditRows.length === 2 && ownerAuditRows.every((row) =>
         row.action === "update_note" && row.actor_user_id === "owner" &&
         row.actor_client_id === "collaboration-owner" && row.workspace_id === "ws_collaboration"));
     check("collaboration audit rows carry metadata and no note content",
@@ -185,6 +258,46 @@ export async function runCollaborationChecks(check) {
     check("an authorized collaboration client follows a moved head",
       movedOwner.status === 200 && movedOwnerBody.text.includes("Human edit") &&
       movedOwnerBody.documentId === readBody.documentId);
+
+    await primary.put("team/batch.md", "# batch\n");
+    const batchBase = await (await request(env, ownerToken, { path: "team/batch.md" })).json();
+    const batchMove = await callTool(env, ownerToken, "move_notes", {
+      moves: [{
+        source: "team/batch.md",
+        destination: "team/batch-moved.md",
+        expected_source_etag: batchBase.etag,
+      }],
+    });
+    const batchDestination = await (await request(env, ownerToken, {
+      path: "team/batch-moved.md",
+    })).json();
+    check("move_notes carries an active collaboration identity to its destination",
+      !batchMove?.isError && batchDestination.documentId === batchBase.documentId);
+    await primary.put("team/batch.md", "# recreated batch source\n");
+    const batchRecreated = await (await request(env, ownerToken, { path: "team/batch.md" })).json();
+    check("move_notes leaves a moved head that fences the old generation",
+      batchRecreated.documentId !== batchBase.documentId &&
+      batchRecreated.text === "# recreated batch source\n");
+
+    await primary.put("team/folder/source.md", "# folder source\n");
+    const folderBase = await (await request(env, ownerToken, {
+      path: "team/folder/source.md",
+    })).json();
+    const folderMove = await callTool(env, ownerToken, "move_folder", {
+      source: "team/folder",
+      destination: "team/folder-moved",
+    });
+    const folderDestination = await (await request(env, ownerToken, {
+      path: "team/folder-moved/source.md",
+    })).json();
+    check("move_folder carries active collaboration identities to their destinations",
+      !folderMove?.isError && folderDestination.documentId === folderBase.documentId);
+    await primary.put("team/folder/source.md", "# recreated folder source\n");
+    const folderRecreated = await (await request(env, ownerToken, {
+      path: "team/folder/source.md",
+    })).json();
+    check("move_folder leaves moved heads that fence old generations",
+      folderRecreated.documentId !== folderBase.documentId);
 
     await primary.put("team/private-source.md", "# private destination");
     const privateSourceRead = await request(env, ownerToken, { path: "team/private-source.md" });

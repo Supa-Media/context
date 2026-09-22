@@ -572,7 +572,9 @@ export async function runCrossContextChecks(check) {
   hooks.length = 0;
   check(
     "cross-context move_note preserves a source edited after copy instead of deleting it",
-    /source changed since it was copied/.test(textOf(sourceRace)) &&
+    /move rolled back after source-delete failure: Markdown changed during deletion/.test(
+      textOf(sourceRace),
+    ) &&
       mine.get("2-areas/race-source.md")?.body === "RACED-SOURCE-WRITE" &&
       !theirs.has("1-projects/race-source.md") &&
       crossedDestinationEtag !== null
@@ -621,7 +623,9 @@ export async function runCrossContextChecks(check) {
   hooks.length = 0;
   check(
     "cross-context move_note rollback does not delete a destination edited after copy",
-    /source changed since it was copied/.test(textOf(rollbackRace)) &&
+    /move rolled back after source-delete failure: Markdown changed during deletion/.test(
+      textOf(rollbackRace),
+    ) &&
       mine.get("2-areas/race-rollback.md")?.body === "RACED-ROLLBACK-SOURCE" &&
       theirs.get("1-projects/race-rollback.md")?.body === "RACED-ROLLBACK-DESTINATION"
   );

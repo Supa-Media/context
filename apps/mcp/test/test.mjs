@@ -75,23 +75,50 @@ import {
 // `text()` decodes on demand, exactly as R2 does.
 const objects = new Map();
 let etagCounter = 0;
+let enforceOneUseBodies = false;
+let concurrentCreateOnAbsent = null;
 const encoder = new TextEncoder();
 const bucket = {
   async get(key) {
     if (!objects.has(key)) return null;
     const { bytes, etag } = objects.get(key);
+    let consumed = false;
+    const consume = () => {
+      if (!enforceOneUseBodies) return;
+      if (consumed) throw new TypeError("Body has already been used");
+      consumed = true;
+    };
     return {
       etag,
-      text: async () => new TextDecoder().decode(bytes),
-      // A fresh copy per call: a caller that mutates what it reads must not be
-      // able to rewrite the stored object through the back door.
-      arrayBuffer: async () => bytes.slice().buffer,
+      text: async () => {
+        consume();
+        return new TextDecoder().decode(bytes);
+      },
+      // Real R2 bodies are one-use streams. Return a fresh byte copy on that
+      // one read so callers cannot mutate the stored object through the back
+      // door, and throw on a second read exactly as production does.
+      arrayBuffer: async () => {
+        consume();
+        return bytes.slice().buffer;
+      },
     };
   },
   async put(key, value, options = {}) {
     const expected = options?.onlyIf?.etagMatches;
     if (expected && objects.get(key)?.etag !== expected) return null;
-    if (options?.onlyIf?.etagDoesNotMatch === "*" && objects.has(key)) return null;
+    if (options?.onlyIf?.absent === true && concurrentCreateOnAbsent?.key === key) {
+      const winner = concurrentCreateOnAbsent;
+      concurrentCreateOnAbsent = null;
+      if (!objects.has(key)) {
+        objects.set(key, { bytes: encoder.encode(winner.text), etag: `e${++etagCounter}` });
+      }
+    }
+    if (
+      (options?.onlyIf?.absent === true || options?.onlyIf?.etagDoesNotMatch === "*") &&
+      objects.has(key)
+    ) {
+      return null;
+    }
     const bytes =
       typeof value === "string"
         ? encoder.encode(value)
@@ -2066,6 +2093,20 @@ check(
 );
 const wPub2 = await call("pub-token", "write_note", { path: "1-projects/togather/notes.md", content: "ok" });
 check("legacy public token writes to a team path", !wPub2.isError);
+concurrentCreateOnAbsent = {
+  key: "1-projects/concurrent-create.md",
+  text: "human won the create race",
+};
+const racedCreate = await call("pub-token", "write_note", {
+  path: "1-projects/concurrent-create.md",
+  content: "agent must not overwrite",
+});
+check(
+  "two concurrent creates have one winner and the later conditional create is refused",
+  racedCreate?.isError === true &&
+    racedCreate.content[0].text.includes("created while this write was in progress") &&
+    storedText("1-projects/concurrent-create.md") === "human won the create race",
+);
 const wPubNewFolder = await call("pub-token", "write_note", {
   path: "2-areas/apps/new-folder-created-by-note.md",
   content: "public app-area note",
@@ -2687,13 +2728,15 @@ check(
 // -- move note / folder
 const portableRead = (await call("pub-token", "read_note", { path: "1-projects/portable/a.md" }))?.content?.[0]?.text;
 const portableEtag = portableRead?.match(/etag: (\S+)/)?.[1];
+enforceOneUseBodies = true;
 const moveNote = await call("pub-token", "move_note", {
   source: "1-projects/portable/a.md",
   destination: "1-projects/portable/renamed.md",
   expected_source_etag: portableEtag,
 });
+enforceOneUseBodies = false;
 check(
-  "team move_note moves within team scope",
+  "team move_note moves within team scope with a production one-use body",
   !moveNote.isError && objects.has("1-projects/portable/renamed.md") && !objects.has("1-projects/portable/a.md")
 );
 const moveConflict = await call("pub-token", "move_note", {
@@ -2780,8 +2823,11 @@ check(
 );
 
 // -- batch move plan and apply
-await call("pub-token", "write_note", { path: "1-projects/portable/batch-a.md", content: "batch a" });
-await call("pub-token", "write_note", { path: "1-projects/portable/batch-b.md", content: "batch b" });
+// Raw legacy notes deliberately have no collaboration head. This case pins
+// resumable copy/delete behavior rather than the CRDT lifecycle, whose
+// destination identity cannot be reconstructed from an identical raw copy.
+await contextStore.put("1-projects/portable/batch-a.md", "batch a");
+await contextStore.put("1-projects/portable/batch-b.md", "batch b");
 const batchPlan = await call("pub-token", "move_notes", {
   dry_run: true,
   moves: [
@@ -2875,7 +2921,10 @@ for (let i = 0; i < 502; i += 1) {
   await contextStore.put(`1-projects/big-move/note-${suffix}.md`, `big ${suffix}`);
 }
 const bigSecretPath = "1-projects/big-move/note-501.md";
-const bigSecretEtag = (await call("priv-token", "read_note", { path: bigSecretPath })).content[0].text.match(/etag: (\S+)/)?.[1];
+// Keep this large-tree fixture raw: reading it through read_note would
+// intentionally promote it into an active collaborative document, which a
+// logical raw folder move must refuse rather than strand.
+const bigSecretEtag = objects.get(bigSecretPath)?.etag;
 await call("priv-token", "set_visibility", {
   path: bigSecretPath,
   visibility: "private",

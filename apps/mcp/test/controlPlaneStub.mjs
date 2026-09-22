@@ -887,13 +887,25 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     if (method === "HEAD") {
       const object = objects.get(key);
       if (!object) return new Response("", { status: 404 });
-      return new Response(null, { status: 200, headers: { etag: `"${object.etag}"` } });
+      return new Response(null, {
+        status: 200,
+        headers: {
+          etag: `"${object.etag}"`,
+          ...(object.contentType ? { "content-type": object.contentType } : {}),
+        },
+      });
     }
 
     if (method === "GET") {
       const object = objects.get(key);
       if (!object) return new Response("", { status: 404 });
-      return new Response(object.body, { status: 200, headers: { etag: `"${object.etag}"` } });
+      return new Response(object.body, {
+        status: 200,
+        headers: {
+          etag: `"${object.etag}"`,
+          ...(object.contentType ? { "content-type": object.contentType } : {}),
+        },
+      });
     }
 
     if (method === "PUT") {
@@ -931,7 +943,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
           models. See the header note.
         */
         const etag = source.etag;
-        objects.set(key, { body: source.body, etag });
+        objects.set(key, { body: source.body, etag, contentType: source.contentType });
         return new Response(
           `<CopyObjectResult><ETag>&quot;${etag}&quot;</ETag></CopyObjectResult>`,
           { status: 200 }
@@ -949,7 +961,11 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
               init.body instanceof Uint8Array ? init.body : new Uint8Array(init.body)
             );
       const etag = `s${++etagCounter}`;
-      objects.set(key, { body, etag });
+      objects.set(key, {
+        body,
+        etag,
+        contentType: init.headers?.["content-type"],
+      });
       return new Response("", { status: 200, headers: { etag: `"${etag}"` } });
     }
 
