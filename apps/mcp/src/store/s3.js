@@ -185,6 +185,20 @@ export class S3Store {
     };
   }
 
+  /** Read object metadata with HEAD; never buffers the object body. */
+  async head(key) {
+    const response = await this.send("HEAD", this.urlFor(key));
+    if (response.status === 404) return null;
+    if (!response.ok) throw await s3Error("HEAD", key, response);
+    const contentLength = response.headers.get("content-length");
+    const declaredSize = contentLength === null ? NaN : Number(contentLength);
+    return {
+      etag: normalizeEtag(response.headers.get("etag") || ""),
+      size: Number.isFinite(declaredSize) && declaredSize >= 0 ? declaredSize : undefined,
+      contentType: response.headers.get("content-type") || undefined,
+    };
+  }
+
   /**
    * Is there an object at exactly this key, without fetching it.
    *

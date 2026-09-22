@@ -1,4 +1,10 @@
-import { LOGICAL_DELETE_CONTENT_TYPE } from "./index.js";
+import { LOGICAL_DELETE_CONTENT_TYPE, MARKDOWN_CONTENT_TYPE } from "./index.js";
+import {
+  isStampEligible,
+  isInternalMetadataPath,
+  stampGeneration,
+  stripGenerationStamp,
+} from "./generationStamp.js";
 
 export { LOGICAL_DELETE_CONTENT_TYPE } from "./index.js";
 
@@ -23,6 +29,33 @@ function isSafeMarkerBody(value) {
 
 function contentTypeOf(object) {
   return object?.contentType || object?.httpMetadata?.contentType;
+}
+
+function isMarkdownContentType(value) {
+  return value === undefined || value === null || value === MARKDOWN_CONTENT_TYPE;
+}
+
+function isMarkdownPath(path) {
+  return typeof path === "string" && path.toLowerCase().endsWith(".md");
+}
+
+const strictDecoder = new TextDecoder("utf-8", { fatal: true });
+
+function markdownText(value) {
+  if (typeof value === "string") return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) ? null : value;
+  try {
+    if (value instanceof ArrayBuffer) {
+      const text = strictDecoder.decode(new Uint8Array(value));
+      return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text) ? null : text;
+    }
+    if (ArrayBuffer.isView(value)) {
+      const text = strictDecoder.decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+      return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text) ? null : text;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 async function sha256(value) {
@@ -80,18 +113,78 @@ async function buffered(object) {
   };
 }
 
-async function inspect(object) {
+async function inspect(object, key) {
   if (object === null) return null;
   const contentType = contentTypeOf(object);
   // Some providers replace MIME metadata. Recognize the reserved exact body
   // too, buffering a candidate only once. A known different byte size cannot
   // be a marker and keeps native R2's lazy body untouched.
-  if (contentType !== LOGICAL_DELETE_CONTENT_TYPE &&
+  const stampCandidate = isMarkdownPath(key) && isMarkdownContentType(contentType);
+  if (contentType !== LOGICAL_DELETE_CONTENT_TYPE && !stampCandidate &&
       typeof object.size === "number" && object.size !== MARKER_BODY_BYTES) {
     return { object, marker: null };
   }
   const cached = await buffered(object);
-  return { object: cached, marker: isSafeMarkerBody(await cached.text()) };
+  const physicalText = await cached.text();
+  const marker = isSafeMarkerBody(physicalText);
+  const stamped = !marker && stampCandidate ? stripGenerationStamp(physicalText) : null;
+  const logical = stamped && isStampEligible(key, stamped.text) ? stamped : null;
+  return { object: cached, marker, stamp: logical };
+}
+
+function logicalObject(object, stamp) {
+  if (!stamp) return object;
+  const bytes = encoder.encode(stamp.text);
+  return {
+    ...object,
+    size: bytes.byteLength,
+    text: async () => stamp.text,
+    arrayBuffer: async () => bytes.slice().buffer,
+  };
+}
+
+function unsupportedRecreation(key, value) {
+  if (isInternalMetadataPath(key)) return false;
+  const text = markdownText(value);
+  if (!isMarkdownPath(key)) {
+    throw new Error("cannot recreate an unsupported object over a logical tombstone");
+  }
+  if (!isStampEligible(key, text)) {
+    throw new Error("cannot recreate an unsupported Markdown path over a logical tombstone");
+  }
+  return true;
+}
+
+function stampedWrite(key, value, options, inspected) {
+  const text = markdownText(value);
+  if (!inspected?.stamp) {
+    // A caller may intentionally write a literal comment matching our footer
+    // grammar. Wrap it in a fresh footer so the literal user text is retained
+    // when the logical read strips only the outer stamp.
+    if (text !== null && isStampEligible(key, text) && stripGenerationStamp(text)) {
+      if (!isMarkdownContentType(options.contentType)) {
+        throw new Error("cannot write unsupported content to a Markdown path");
+      }
+      return {
+        value: stampGeneration(text),
+        options: {
+          ...options,
+          ...(options.contentType === undefined ? { contentType: MARKDOWN_CONTENT_TYPE } : {}),
+        },
+      };
+    }
+    return { value, options };
+  }
+  if (!isStampEligible(key, text) || !isMarkdownContentType(options.contentType)) {
+    throw new Error("cannot write unsupported content to a stamped Markdown path");
+  }
+  return {
+    value: stampGeneration(text),
+    options: {
+      ...options,
+      ...(options.contentType === undefined ? { contentType: MARKDOWN_CONTENT_TYPE } : {}),
+    },
+  };
 }
 
 async function hasVisibleObject(prefix, store) {
@@ -100,7 +193,7 @@ async function hasVisibleObject(prefix, store) {
     const page = await store.list({ prefix, cursor, limit: 1000 });
     for (const listed of page.objects || []) {
       if (listed.size !== undefined && listed.size !== MARKER_BODY_BYTES) return true;
-      const inspected = await inspect(await store.get(listed.key));
+      const inspected = await inspect(await store.get(listed.key), listed.key);
       if (inspected && !inspected.marker) return true;
     }
     if (!page.truncated) return false;
@@ -119,7 +212,7 @@ function putOptions(options, onlyIf) {
  * cannot atomically delete. User objects are replaced by a content-free marker;
  * the marker is hidden by this wrapper and is never physically deleted.
  */
-export function withLogicalDelete(store, { logicalDelete = store?.capabilities?.conditionalDelete !== true } = {}) {
+export function withLogicalDelete(store, { logicalDelete = true } = {}) {
   if (!store) return store;
   const physicalDelete = store.capabilities?.conditionalDelete === true;
   // Read interpretation remains enabled even when a capability probe is
@@ -141,24 +234,58 @@ export function withLogicalDelete(store, { logicalDelete = store?.capabilities?.
     async get(key) {
       const object = await rawGet(key);
       if (object === null) return object;
-      const inspected = await inspect(object);
-      return inspected.marker ? null : inspected.object;
+      const inspected = await inspect(object, key);
+      return inspected.marker ? null : logicalObject(inspected.object, inspected.stamp);
     },
 
     async exists(key) {
-      if (typeof store.exists !== "function") return (await this.get(key)) !== null;
+      if (typeof store.head === "function") {
+        const object = await store.head(key);
+        if (object === null) return false;
+        if (object === undefined) {
+          if (typeof store.exists === "function") return store.exists(key);
+          return (await this.get(key)) !== null;
+        }
+        if (contentTypeOf(object) === LOGICAL_DELETE_CONTENT_TYPE) return false;
+        if (object.size === undefined) {
+          if (typeof store.exists === "function") return store.exists(key);
+          return true;
+        }
+        if (object.size !== MARKER_BODY_BYTES) return true;
+        const inspected = await inspect(await rawGet(key), key);
+        return inspected !== null && !inspected.marker;
+      }
+      if (typeof store.exists === "function") return store.exists(key);
       return (await this.get(key)) !== null;
     },
 
     async put(key, value, options = {}) {
       if (markerValue(value, options.contentType)) throw new Error("reserved logical-delete marker body");
       const current = await rawGet(key);
-      const inspected = await inspect(current);
-      if (!inspected?.marker) return store.put(key, value, options);
+      const inspected = await inspect(current, key);
+      if (!inspected?.marker) {
+        const stamped = stampedWrite(key, value, options, inspected);
+        return store.put(key, stamped.value, stamped.options);
+      }
 
       if (options.onlyIf?.absent === true) {
         if (!canLogicalWrite) return null;
-        return store.put(key, value, putOptions(options, { etagMatches: inspected.object.etag }));
+        unsupportedRecreation(key, value);
+        const text = markdownText(value);
+        const stamped = isStampEligible(key, text)
+          ? (() => {
+              if (!isMarkdownContentType(options.contentType)) {
+                throw new Error("cannot recreate a non-Markdown object over a logical tombstone");
+              }
+              return { value: stampGeneration(text), options: { ...options, contentType: MARKDOWN_CONTENT_TYPE } };
+            })()
+          : isInternalMetadataPath(key)
+            ? { value, options }
+            : (() => {
+                unsupportedRecreation(key, value);
+                throw new Error("cannot recreate an unsupported object over a logical tombstone");
+              })();
+        return store.put(key, stamped.value, putOptions(stamped.options, { etagMatches: inspected.object.etag }));
       }
       if (options.onlyIf?.etagMatches !== undefined && options.onlyIf.etagMatches !== inspected.object.etag) return null;
       // A caller must explicitly recreate a logically deleted path with an
@@ -170,7 +297,7 @@ export function withLogicalDelete(store, { logicalDelete = store?.capabilities?.
     async delete(key, options = {}) {
       for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
         const current = await rawGet(key);
-        const inspected = await inspect(current);
+        const inspected = await inspect(current, key);
         if (!inspected) return null;
         if (inspected.marker) {
           const expected = options.onlyIf?.etagMatches;
@@ -209,7 +336,7 @@ export function withLogicalDelete(store, { logicalDelete = store?.capabilities?.
             objects.push(listed);
           } else {
             const object = await rawGet(listed.key);
-            const inspected = await inspect(object);
+            const inspected = await inspect(object, listed.key);
             if (inspected && !inspected.marker) objects.push(listed);
           }
         }

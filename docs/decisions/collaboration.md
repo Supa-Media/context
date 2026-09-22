@@ -53,14 +53,14 @@ not attach an old device to the new note. Structural changes need recoverable
 ordering with content commits, not a best-effort sidecar copy after a move.
 Encryption must never be downgraded to enable collaborative text editing.
 
-## Deletion on storage without conditional DELETE
+## Safe deletion and filename reuse
 
 R2's S3 API does not enforce the conditional delete needed by a resumable
 rename. The native R2 adapter's read-then-delete is not atomic either. A passing
 browser test against that adapter does not prove production lifecycle safety.
 The raw provider probe must continue to report the physical capabilities.
 
-For Context-controlled writes, the storage adapter can instead atomically
+For Context-controlled writes, the storage adapter instead atomically
 replace the object with a small, content-free deletion marker using conditional
 PUT. Reads and listings treat that marker as absent. A create at the same path
 replaces it only by matching its current version; concurrent creates cannot both
@@ -68,8 +68,23 @@ succeed. Markers have unique nonces and are never physically cleaned up: an old
 cleanup request could otherwise delete a new note at the reused path. This is
 storage protocol data, including when the path used to hold an ordinary note.
 
+A provider ETag may be a content hash, even with atomic conditional DELETE.
+Delete followed by same-text recreation
+can therefore reuse it: a delayed delete could still match the new note. On
+supported Markdown, recreating a marker must add a unique reserved
+HTML footer to the physical bytes. Later writes preserve generation uniqueness;
+logical reads and downloads remove that footer. Existing untagged files remain
+readable and ordinary notes are not stamped until the path is reused. Internal
+metadata encodes its own document/operation identities. Valid encrypted Markdown
+can carry this footer outside its envelope; it remains excluded from plaintext
+collaboration, and the footer never enters the ciphertext or authentication
+data. Unsupported user files, including binary attachments and drawings, cannot
+reuse a logically deleted path until they have a compatible generation fence.
+
 This has a visible cost for people copying the raw bucket: retired paths can
-contain marker objects. Context downloads and listings hide them. A full bucket
+contain marker objects, and recreated notes can contain a reserved HTML footer.
+Context downloads hide the footer and listings hide the markers; listed object
+sizes can include the footer's small storage overhead. A full bucket
 backup must preserve the markers and their metadata alongside editing history;
 external tools must not interpret them as live Markdown notes. There is no
 periodic marker cleanup in this implementation. Storage adapters must recognize

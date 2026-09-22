@@ -52,6 +52,21 @@ export class R2Store {
     return this.bucket.get(applyRootPrefix(this.rootPrefix, assertSafeKey(key)));
   }
 
+  /** Read object metadata without downloading its body. */
+  async head(key) {
+    // `undefined` means this binding cannot answer metadata-only. Keep `null`
+    // reserved for a provider-confirmed missing object so callers can safely
+    // fall back to their existing existence path.
+    if (typeof this.bucket.head !== "function") return undefined;
+    const object = await this.bucket.head(applyRootPrefix(this.rootPrefix, assertSafeKey(key)));
+    if (!object) return null;
+    return {
+      etag: normalizeEtag(object.etag || object.httpEtag || ""),
+      size: object.size,
+      contentType: object.contentType || object.httpMetadata?.contentType,
+    };
+  }
+
   /**
    * Is there an object at exactly this key, without fetching it.
    *
