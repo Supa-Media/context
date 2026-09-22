@@ -57,6 +57,9 @@ jobs:
       DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
       PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
       PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+      STRIPE_PRICE_ID: ${{ secrets.STRIPE_PRICE_ID }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
