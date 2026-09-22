@@ -275,6 +275,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   "agent",
   "granola-webhook",
   "mcp",
+  // The collaborative editor transport is a top-level gateway route. A
+  // workspace or mailbox called `collaboration` would be unreachable there.
+  "collaboration",
   // Meeting ingestion runs at `/meetings/sessions` on the gateway. Claimed as a
   // handle, `@meetings` would be a context nobody can address by name — and,
   // because ingestion is on the apex, `meetings@` the company's own domain: the

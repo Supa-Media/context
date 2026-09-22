@@ -107,14 +107,14 @@ export function mirrorLine(
       return status.notes > 0
         ? {
             text: "Only notes you have opened are on this device — connect to download the rest",
-            short: "Not downloaded yet",
+            short: "Some notes offline",
             detail:
               "This context has not been downloaded to this device yet. The notes you opened are here; the rest come down the first time you are connected.",
             tone,
           }
         : {
             text: "Not yet downloaded — connect once to put this context on this device",
-            short: "Not downloaded yet",
+            short: "Not available offline",
             detail:
               "Nothing from this context is on this device yet. Open the app once with a connection and every note you can see is downloaded.",
             tone,

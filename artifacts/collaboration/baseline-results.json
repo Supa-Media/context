@@ -1,0 +1,372 @@
+{
+  "baseline": "c8fd9dce",
+  "results": [
+    {
+      "label": "the note is created through the real MCP save path",
+      "passed": true,
+      "detail": "written: 1-projects/verify.md (etag b4c23cccaea0b7f8b36f65a4f73e8494)\nvisibility: private"
+    },
+    {
+      "label": "the folder is shared with the workspace through the real manifest",
+      "passed": true,
+      "detail": "folder visibility changed\nfolder: 1-projects\nprivacy_etag: 8528a325d8301dc170d045916db975f3\ncurrent_default: private\nres"
+    },
+    {
+      "label": "real React editors join with pre-existing text",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "typing in both mounted editors converges",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "ordinary autosave persists both humans",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "reload restores both humans",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "collaboration works after switching to another nonempty note",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "settled empty note relays actual typing",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "label": "empty note states",
+      "detail": [
+        {
+          "editorText": "",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "clean",
+          "phase": "live",
+          "saver": false,
+          "draft": "",
+          "shared": "",
+          "etag": "edadf42f4e991a6315118ee67b456f1c",
+          "members": [
+            "@bo"
+          ]
+        },
+        {
+          "editorText": "EMPTY note now has text",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "phase": "live",
+          "saver": true,
+          "draft": "EMPTY note now has text",
+          "shared": "",
+          "etag": "edadf42f4e991a6315118ee67b456f1c",
+          "members": [
+            "@ana"
+          ]
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "agent write accepted against saved base",
+      "passed": true,
+      "detail": "written: 1-projects/agent-race.md (etag ddbcb4a4d92c278ef8fd2e4f869358a9)\nvisibility: team"
+    },
+    {
+      "label": "agent edit preserves concurrent unsaved human sentence",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "label": "agent race states",
+      "detail": [
+        {
+          "editorText": "# Agent renamed heading\n\nfirst line\n",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "dirty",
+          "phase": "live",
+          "saver": true,
+          "draft": "# Agent renamed heading\n\nfirst line\n",
+          "shared": "# Agent renamed heading\n\nfirst line\n",
+          "etag": "ddbcb4a4d92c278ef8fd2e4f869358a9",
+          "members": [
+            "@bo",
+            "A Coding Agent"
+          ]
+        },
+        {
+          "editorText": "# Agent renamed heading\n\nfirst line\n",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "clean",
+          "phase": "live",
+          "saver": false,
+          "draft": "# Verify\n\nfirst line\n",
+          "shared": "# Agent renamed heading\n\nfirst line\n",
+          "etag": "b4c23cccaea0b7f8b36f65a4f73e8494",
+          "members": [
+            "@ana",
+            "A Coding Agent"
+          ]
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "writer saves before leaving",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "remaining editor saves after elected writer leaves",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "handoff state",
+      "detail": {
+        "editorText": "# Verify\n\nfirst line\nBEFORE handoff\nSURVIVOR saves",
+        "sync": {
+          "reachability": "online",
+          "counts": {
+            "pending": 0,
+            "conflicted": 0,
+            "rejected": 0
+          },
+          "ready": true,
+          "durable": true,
+          "conditionalWrite": true,
+          "stuckPaths": []
+        },
+        "settled": true,
+        "status": "saved",
+        "phase": "live",
+        "saver": true,
+        "draft": "# Verify\n\nfirst line\nBEFORE handoff\nSURVIVOR saves",
+        "shared": "# Verify\n\nfirst line\nBEFORE handoff\nSURVIVOR saves",
+        "etag": "a83f3ae79cbcf40fede187c9c4a7f80e",
+        "members": []
+      },
+      "diagnostic": true
+    },
+    {
+      "label": "1-projects/offline.md: offline edits recorded in local storage",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline.md: reconnect merges both without intervention",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline.md: no conflict decision required",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline.md states",
+      "detail": [
+        {
+          "editorText": "# Verify\n\nfirst line\nOFFLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 1,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": [
+              "1-projects/offline.md"
+            ]
+          },
+          "settled": true,
+          "status": "queued",
+          "phase": "unavailable",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\nOFFLINE sentence preserved",
+          "shared": "# Verify\n\nfirst line\nOFFLINE sentence preserved",
+          "etag": "b4c23cccaea0b7f8b36f65a4f73e8494",
+          "members": []
+        },
+        {
+          "editorText": "# Verify\n\nfirst line\nONLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\nONLINE sentence preserved",
+          "shared": "# Verify\n\nfirst line\nONLINE sentence preserved",
+          "etag": "36f4460f117811ef571e33d3610b81e5",
+          "members": [
+            "@bo"
+          ]
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "1-projects/offline-reload.md: offline edits recorded in local storage",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "offline cold reload restores local writing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline-reload.md: reconnect merges both without intervention",
+      "passed": false,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline-reload.md: no conflict decision required",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline-reload.md states",
+      "detail": [
+        {
+          "editorText": "# Verify\n\nfirst line\nOFFLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": false,
+          "status": "saved",
+          "phase": "unavailable",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\nOFFLINE sentence preserved",
+          "shared": "",
+          "etag": "cc3eabc9f2b353f0a1b3a29f9e5f6bf0",
+          "members": []
+        },
+        {
+          "editorText": "# Verify\n\nfirst line\nONLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "clean",
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\n",
+          "shared": "# Verify\n\nfirst line\nONLINE sentence preserved",
+          "etag": "b4c23cccaea0b7f8b36f65a4f73e8494",
+          "members": []
+        }
+      ],
+      "diagnostic": true
+    }
+  ],
+  "errors": [
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: the server responded with a status of 400 (Bad Request)"
+    },
+    {
+      "user": "bo",
+      "status": 400,
+      "body": "{\"code\":\"CONFLICT\",\"message\":\"That file changed somewhere else while you were editing it.\",\"currentEtag\":\"36f4460f117811ef571e33d3610b81e5\"}"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    }
+  ]
+}

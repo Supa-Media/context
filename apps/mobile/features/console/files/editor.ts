@@ -202,6 +202,15 @@ export type EditorAction =
     }
   | { type: "closed" }
   | { type: "edited"; text: string }
+  | {
+      type: "collaboration";
+      text: string;
+      etag: string | null;
+      status: "offline" | "storing" | "local" | "syncing" | "saved" | "error" | "unavailable" | "revoked";
+    pending: number;
+    recovery?: { baseline: string; desired: string; baseEtag?: string | null };
+    legacyAdopted?: { path: string; text: string; baseEtag: string };
+    }
   | { type: "saveStarted" }
   /** No connection, so the draft went into the queue instead of the bucket. */
   | { type: "saveQueued"; message: string }
@@ -337,6 +346,22 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
               : "dirty";
       return { ...state, draft: action.text, status, message: undefined };
     }
+
+    case "collaboration":
+      if (state.path === null || state.readOnly) return state;
+      return {
+        ...state,
+        draft: action.text,
+        ...(action.status === "saved" && action.pending === 0
+          ? {
+              baseline: action.text,
+              etag: action.etag,
+              status: "saved" as const,
+              fromCache: undefined,
+              message: undefined,
+            }
+          : {}),
+      };
 
     case "saveQueued":
       return {

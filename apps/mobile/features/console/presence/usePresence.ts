@@ -68,6 +68,7 @@ import {
   savesToBucket,
   type PresencePhase,
 } from "./session";
+import type { DurableCollaboration } from "../collaboration/durable";
 
 /** How often a caret move is sent, at most. */
 const CURSOR_THROTTLE_MS = 120;
@@ -150,6 +151,8 @@ export interface Presence {
    * whole feature exists to remove — reintroduced from the other end.
    */
   canWrite: boolean;
+  /** Durable prose synchronization, when the open note uses collaboration v2. */
+  collaboration?: DurableCollaboration;
   /**
    * Tell the room this client just wrote the note to the bucket at `etag`.
    *
@@ -275,7 +278,11 @@ export function usePresence(options: {
    * `.excalidraw.md` into one would put a multi-megabyte compressed payload in
    * the room's log to no purpose.
    */
-  mode?: "text" | "drawing";
+  mode?: "text" | "drawing" | "presence";
+  /** Durable prose uses this socket for carets only; legacy Y frames are disabled. */
+  durable?: boolean;
+  /** A v2 commit notification triggers an authorized HTTP read repair. */
+  onCommitted?: (frame: { documentId: string; update?: string; etag: string }) => void;
   /** Elements from a peer, or replayed on join. Drawing mode only. */
   onDrawing?: (elements: unknown[]) => void;
   /** The room is asking for a full scene, because the log is getting long. */
@@ -321,6 +328,8 @@ export function usePresence(options: {
   onDrawingCompact.current = options.onDrawingCompact;
   const onPeerPointers = useRef(options.onPeerPointers);
   onPeerPointers.current = options.onPeerPointers;
+  const onCommitted = useRef(options.onCommitted);
+  onCommitted.current = options.onCommitted;
   /*
     Where each peer's pointer is, in a ref rather than in the reducer.
 
@@ -398,7 +407,7 @@ export function usePresence(options: {
       does so immediately. Batching here is what would turn "I see the letter
       appear" into "I see the sentence appear".
     */
-    const document = mode === "drawing" ? null : createSharedDoc({
+    const document = mode === "drawing" || mode === "presence" ? null : createSharedDoc({
       onLocalUpdateBytes: (update) => {
         const live = socket.current;
         if (!live || live.readyState !== WebSocket.OPEN) return;
@@ -423,21 +432,40 @@ export function usePresence(options: {
     */
     settled.current = false;
     pointers.current = new Map();
+    let cachedGrant: { accessToken: string; expiresAt: number } | null = null;
+    let connecting = false;
 
     const connect = async (attempt: number) => {
-      if (cancelled) return;
+      if (cancelled || connecting || socket.current !== null) return;
+      connecting = true;
       let token: string;
       try {
-        const granted = await mint({ workspaceId: workspaceId as never });
-        token = granted.accessToken;
+        if (cachedGrant !== null && cachedGrant.expiresAt - Date.now() > 60_000) {
+          token = cachedGrant.accessToken;
+        } else {
+          const granted = await mint({ workspaceId: workspaceId as never });
+          cachedGrant = granted;
+          token = granted.accessToken;
+        }
       } catch {
-        // No token, no presence — and no retry. A mint that failed is either a
-        // rate limit or a session that is gone, and neither is fixed by asking
-        // again in a loop.
-        if (!cancelled) dispatch({ type: "unavailable" });
+        connecting = false;
+        // Minting can fail while the app is waking or the gateway is rolling
+        // out. Keep the editor usable and retry with the same bounded backoff
+        // as a dropped socket; unlike a definitive socket authorization
+        // refusal, this is not terminal and must not strand the room forever.
+        if (!cancelled) {
+          dispatch({ type: "dropped" });
+          timers.current.reconnect = window.setTimeout(() => {
+            timers.current.reconnect = undefined;
+            void connect(attempt + 1);
+          }, reconnectDelayMs(attempt + 1));
+        }
         return;
       }
-      if (cancelled) return;
+      if (cancelled) {
+        connecting = false;
+        return;
+      }
 
       let live: WebSocket;
       try {
@@ -447,12 +475,21 @@ export function usePresence(options: {
             notePath: path,
             token,
             colorSeed: seed.current || "tab",
+            ...(options.durable ? { collaborationVersion: 2 as const } : {}),
           }),
         );
       } catch {
-        if (!cancelled) dispatch({ type: "unavailable" });
+        connecting = false;
+        if (!cancelled) {
+          dispatch({ type: "dropped" });
+          timers.current.reconnect = window.setTimeout(() => {
+            timers.current.reconnect = undefined;
+            void connect(attempt + 1);
+          }, reconnectDelayMs(attempt + 1));
+        }
         return;
       }
+      connecting = false;
       socket.current = live;
 
       live.onopen = () => {
@@ -602,6 +639,11 @@ export function usePresence(options: {
             from this client is checked against what is in the bucket.
           */
           onExternalWrite.current?.({ path, etag: frame.etag });
+          return;
+        }
+
+        if (frame.t === "committed") {
+          onCommitted.current?.(frame);
           return;
         }
 
@@ -796,10 +838,24 @@ export function usePresence(options: {
       };
     };
 
+    const retryNow = () => {
+      if (cancelled || socket.current !== null) return;
+      if (timers.current.reconnect !== undefined) {
+        window.clearTimeout(timers.current.reconnect);
+        timers.current.reconnect = undefined;
+      }
+      void connect(0);
+    };
     void connect(0);
+    window.addEventListener("online", retryNow);
+    window.addEventListener("focus", retryNow);
+    window.addEventListener("visibilitychange", retryNow);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("online", retryNow);
+      window.removeEventListener("focus", retryNow);
+      window.removeEventListener("visibilitychange", retryNow);
       closeSocket(true);
       for (const timer of toolCarets.values()) window.clearTimeout(timer);
       toolCarets.clear();
@@ -811,7 +867,7 @@ export function usePresence(options: {
     // text document at all. It is derived from the path and so moves with it,
     // but a dependency that is true by coincidence is one that stops being
     // true without anybody noticing.
-  }, [active, workspaceId, origin, notePath, mode, mint, closeSocket, clearTimers, settle]);
+  }, [active, workspaceId, origin, notePath, mode, options.durable, mint, closeSocket, clearTimers, settle]);
 
   /**
    * Send a caret, at most every `CURSOR_THROTTLE_MS`.

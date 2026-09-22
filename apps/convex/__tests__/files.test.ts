@@ -2373,7 +2373,9 @@ describe("the offline mirror sees exactly what its reader may", () => {
         workspaceId: f.workspaceId,
         path: entry.path,
       });
-      expect(entry.etag).toBe(read.etag);
+      // The manifest carries provider freshness; collaborative reads expose
+      // an opaque editing revision. They are separate bases by design.
+      expect(entry.etag).toBe((read as { rawEtag?: string }).rawEtag ?? read.etag);
     }
   });
 
@@ -3050,7 +3052,7 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
     expect(written.conflictCheck).toBe("read-compare");
   });
 
-  test("the conflict reaches the client with the current etag", async () => {
+  test("a retained base merges an unseen save instead of clobbering it", async () => {
     const f = await fixture();
     const as = asUser(f.t, f.owner);
     const first = await as.action(api.functions.files.readNote, {
@@ -3060,23 +3062,19 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
     await as.action(api.functions.files.writeNote, {
       workspaceId: f.workspaceId,
       path: first.path,
-      text: "# Theirs\n",
+      text: "# Shared\nBody\nHuman edit\n",
       expectedEtag: first.etag,
     });
 
-    const error = await captureError(() =>
-      as.action(api.functions.files.writeNote, {
-        workspaceId: f.workspaceId,
-        path: first.path,
-        text: "# Mine\n",
-        expectedEtag: first.etag,
-      }),
-    );
-    expect(errorCode(error)).toBe("CONFLICT");
-    const data = (error as { data: { currentEtag?: string; message: string } }).data;
-    expect(data.currentEtag).toBeTruthy();
-    expect(data.message).toMatch(/changed somewhere else/);
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Theirs\n");
+    const merged = await as.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: first.path,
+      text: "# Shared\nBody\nAgent edit\n",
+      expectedEtag: first.etag,
+    });
+    expect(merged.etag).toMatch(/^c2\./);
+    expect(f.backend.snapshot()["1-projects/shared.md"]).toContain("Human edit");
+    expect(f.backend.snapshot()["1-projects/shared.md"]).toContain("Agent edit");
   });
 
   /*
@@ -3139,7 +3137,11 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
       to: "1-projects/renamed.md",
       expectedEtag: read.etag,
     });
-    expect(moved.etag).toBe(f.backend.objects.get("1-projects/renamed.md")!.etag);
+    const renamed = await as.action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/renamed.md",
+    });
+    expect(moved.etag).toBe(renamed.etag);
   });
 
   test("a backend that ignores If-Match still reports it, and the write says how it was checked", async () => {

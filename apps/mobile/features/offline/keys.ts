@@ -94,7 +94,9 @@ export type ScopedKind =
   /** A note's body and etag as last read from the bucket. */
   | "note"
   /** One folder's listing. */
-  | "listing";
+  | "listing"
+  /** Durable CRDT state and pending updates for a collaboration-owned note. */
+  | "collaboration";
 
 /**
  * The person's own typing, which no clearance produced.
@@ -147,7 +149,7 @@ export type Kind = ScopedKind | UnscopedKind;
   rather than a key that silently parses the wrong way. The sets `parseKey`
   checks are derived from them, so the two representations cannot disagree.
 */
-const SCOPED: Record<ScopedKind, true> = { note: true, listing: true };
+const SCOPED: Record<ScopedKind, true> = { note: true, listing: true, collaboration: true };
 const UNSCOPED: Record<UnscopedKind, true> = { draft: true, outbox: true, context: true };
 
 /**
@@ -166,6 +168,7 @@ const UNSCOPED: Record<UnscopedKind, true> = { draft: true, outbox: true, contex
 const OWN_TYPING: Record<Kind, boolean> = {
   note: false,
   listing: false,
+  collaboration: true,
   draft: true,
   outbox: true,
   context: false,

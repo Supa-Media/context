@@ -7,8 +7,9 @@
 # least covered in CI, which is how two HIGH-severity bugs reached a pull
 # request with a green check.
 #
-# It runs on bare node with no install step, because apps/mcp has no
-# dependencies and we intend to keep it that way (see CONTRIBUTING.md).
+# The gateway installs one explicit dependency boundary: the shared
+# collaboration engine. Other standalone packages below retain their own
+# dependency policies.
 name: MCP Gateway
 
 # No `paths:` filter on pull_request, deliberately.
@@ -44,6 +45,8 @@ on:
     branches: [main]
     paths:
       - "apps/mcp/**"
+      - "packages/collaboration/**"
+      - "pnpm-lock.yaml"
       # The meetings core, because `Test Meetings Core` below is its only CI
       # anywhere and a push run that skipped it would leave the package with
       # none on `main`. The pull-request trigger has no filter and covers the
@@ -79,21 +82,24 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # Required. setup-node defaults this to true, detects pnpm from the
-          # root package.json's `packageManager` field, and shells out to
-          # `pnpm` to resolve its cache directory. This workflow deliberately
-          # never installs pnpm, so the step dies with "Unable to locate
-          # executable file: pnpm" before the suite ever runs.
+          # pnpm is installed below; do not try to locate its cache before then.
           package-manager-cache: false
 
-      # No `pnpm install`. If this ever needs one, a dependency crept into the
-      # gateway and that is the thing to fix.
+      # Yjs is confined to the explicit collaboration package boundary.
       - name: Worker fetch options workerd implements
         run: node scripts/check-worker-fetch-options.mjs
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install the collaboration engine
+        run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
 
       - name: Run test suite
         working-directory: apps/mcp
         run: node test/test.mjs
+
+      - name: Test collaboration storage and recovery
+        run: pnpm --filter @context/collaboration test
 
   decryptor:
     name: Test Offline Decryptor
@@ -685,35 +691,39 @@ jobs:
           PY
 
   no-dependencies:
-    name: Gateway stays dependency-free
+    name: Gateway dependency boundary
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
 
-      - name: Assert apps/mcp declares no dependencies
+      - name: Assert the gateway's explicit dependency boundary
         run: |
           set -euo pipefail
-          for field in dependencies optionalDependencies peerDependencies bundleDependencies; do
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const manifest = JSON.parse(readFileSync('apps/mcp/package.json', 'utf8'));
+          assert.deepEqual(manifest.dependencies, { '@context/collaboration': 'workspace:*' });
+          JS
+          for field in optionalDependencies peerDependencies bundleDependencies; do
             declared=$(node -p "JSON.stringify(require('./apps/mcp/package.json').$field || {})")
             if [ "$declared" != "{}" ]; then
               echo "apps/mcp declared $field: $declared"
               echo ""
-              echo "The gateway is the piece users self-host, and a dependency is"
-              echo "something that can break under them or quietly change what"
-              echo "happens to their notes. Propose it in an issue first."
+              echo "Only the approved @context/collaboration workspace dependency is allowed."
               exit 1
             fi
           done
-          echo "OK — no dependencies in any field."
+          echo "OK — only the approved collaboration dependency."
 
-      # The real invariant is "apps/mcp/src imports nothing but its own files".
+      # Source imports are relative except for the approved collaboration package.
       #
       # This was a grep until it matched prose: a comment reading
       # `… from "not yours"` is not an import. The check is now a script that
       # strips comments and only looks at statement positions, and it
       # self-tests — a guard nobody has checked is not a guard.
-      - name: Assert apps/mcp/src imports only relative paths
+      - name: Assert source imports obey the dependency boundary
         run: |
           node scripts/check-gateway-imports.mjs --self-test
           node scripts/check-gateway-imports.mjs apps/mcp/src

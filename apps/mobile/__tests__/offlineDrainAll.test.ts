@@ -42,7 +42,7 @@
 import { beforeEach, describe, expect, test } from "@jest/globals";
 import { getOutbox, putOutbox } from "../features/offline/cache";
 import { drainOtherContexts, workspacesWithQueues } from "../features/offline/drainAll";
-import { keyFor } from "../features/offline/keys";
+import { keyFor, scopedKeyFor } from "../features/offline/keys";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
 import { emptyOutbox, enqueue, opsOf, queueMove, type Outbox } from "../features/offline/outbox";
 import type { WriteOutcome } from "../features/offline/sync";
@@ -130,6 +130,23 @@ describe("which queues a pass takes", () => {
     const reports = await drainOtherContexts(store, null, deps(r.write));
 
     expect(reports.map((report) => report.workspaceId)).toEqual([OTHER]);
+  });
+
+  test("a persisted collaboration record parks the legacy queue", async () => {
+    await putOutbox(store, queued(OTHER, "note.md"));
+    await store.set(scopedKeyFor("collaboration", "team", OTHER, "note.md"), JSON.stringify({
+      version: 1,
+      documentId: "doc-1",
+      etag: "c2-1",
+      snapshot: "",
+      pending: [],
+    }));
+    const r = recorder();
+
+    await drainOtherContexts(store, OPEN, deps(r.write));
+
+    expect(r.calls).toEqual([]);
+    expect((await getOutbox(store, OTHER)).writes).toHaveLength(1);
   });
 });
 

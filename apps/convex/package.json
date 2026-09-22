@@ -15,7 +15,8 @@
     "@resvg/resvg-wasm": "^2.6.2",
     "@supa-media/convex": "^1.3.0",
     "convex": "^1.31.3",
-    "satori": "0.29.0"
+    "satori": "0.29.0",
+    "@context/collaboration": "workspace:*"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

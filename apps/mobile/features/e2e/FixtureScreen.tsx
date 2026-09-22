@@ -1,3 +1,4 @@
+import { CollaborationFixture } from "./collaboration/Fixture";
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
@@ -18,6 +19,8 @@ import { VaultImportFixture } from "../onboarding/VaultImportFixture";
  * framework's own guardrails fail the build for it.
  */
 export interface FixtureParams {
+  note?: string | string[];
+  user?: string | string[];
   checkout?: string | string[];
   screen?: string | string[];
   /**
@@ -43,6 +46,7 @@ function first(value: string | string[] | undefined): string | undefined {
 }
 
 export function FixtureScreen({ params }: { params: FixtureParams }) {
+  if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
 
   /*

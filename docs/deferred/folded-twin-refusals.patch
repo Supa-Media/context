@@ -192,8 +192,7 @@ index 705445c..e69f966 100644
    const isPublishing =
      scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
    if (isPublishing && args.confirm_team_publish !== true) {
-@@ -7041,6 +7081,11 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
-     );
+@@ -7041,3 +7081,8 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
    }
    const current = effectiveVisibility(path, rules, overrides);
 +  // Reachable only at owner scope: a team caller writing over a private fold is
@@ -202,8 +201,6 @@ index 705445c..e69f966 100644
 +    return toolError(FOLDED_TWIN_REFUSAL);
 +  }
    if (current === visibility) {
-     return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${obj.etag}`);
-   }
 @@ -7125,6 +7170,10 @@ async function toolSetFolderVisibility(store, scope, args) {
      // may be widening. Compacting one away is the same failure the paragraph
      // above describes, with a group in place of `private`.

@@ -130,6 +130,8 @@ export function classifyWriteFailure(error: FileError): WriteOutcome {
 
 export interface DrainDeps {
   write: (write: PendingWrite) => Promise<WriteOutcome>;
+  /** Leave writes owned by another persistence protocol queued. */
+  shouldWrite?: (write: PendingWrite) => boolean;
   /**
    * Sends one op. Optional so a caller that has only edits to send — a test of
    * the edit half — need not invent one; without it ops are left exactly as
@@ -231,6 +233,7 @@ export async function drainOutbox(
     let held = false;
     const write = unit.write;
     if (write !== undefined) {
+      if (deps.shouldWrite !== undefined && !deps.shouldWrite(write)) continue;
       if (write.state !== "pending") {
         held = true;
       } else {

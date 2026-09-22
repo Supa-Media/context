@@ -361,6 +361,8 @@ export function useFileBrowser(options: {
   // captured when the row was rendered.
   const editorRef = useRef(editor);
   editorRef.current = editor;
+  /** Paths whose prose is owned by the durable collaboration controller. */
+  const collaborationPaths = useRef(new Set<string>());
 
   /*
     The selection, readable from a callback that outlives the render that made
@@ -770,6 +772,7 @@ export function useFileBrowser(options: {
     workspaceId,
     tier: options.tier,
     write: sendQueued,
+    shouldWrite: (write) => !collaborationPaths.current.has(write.path),
     onWritten: onDrained,
     op: sendQueuedOpTracked,
     onOpDone: onOpDrained,
@@ -2014,7 +2017,7 @@ export function useFileBrowser(options: {
    */
   const save = useCallback(() => {
     const current = editorRef.current;
-    if (current.path === null || current.readOnly) return;
+    if (current.path === null || current.readOnly || collaborationPaths.current.has(current.path)) return;
     performSave(current.path, current.draft, current.etag);
   }, [performSave]);
 
@@ -2042,6 +2045,7 @@ export function useFileBrowser(options: {
     (path: string) => {
       const current = editorRef.current;
       if (current.path !== path) return;
+      if (collaborationPaths.current.has(path)) return;
       if (!autosaves(current)) return;
       performSave(path, current.draft, current.etag);
     },
@@ -2322,6 +2326,7 @@ export function useFileBrowser(options: {
       const current = editorRef.current;
       dispatch({ type: "edited", text });
       if (current.path === null || current.readOnly) return;
+      if (collaborationPaths.current.has(current.path)) return;
 
       /*
         And, unless the state says otherwise, scheduled to be written to the
@@ -2359,6 +2364,26 @@ export function useFileBrowser(options: {
       });
     },
     [autosave],
+  );
+
+  const setCollaborationOwned = useCallback((path: string, owned: boolean) => {
+    if (owned) collaborationPaths.current.add(path);
+    else if (offlineRef.current.pendingFor(path) === undefined) collaborationPaths.current.delete(path);
+  }, []);
+
+  const setCollaborationDraft = useCallback((text: string) => {
+    const current = editorRef.current;
+    if (current.path === null || current.readOnly) return;
+    dispatch({ type: "edited", text });
+  }, []);
+  const setCollaborationState = useCallback(
+    (next: { text: string; etag: string | null; status: "offline" | "storing" | "local" | "syncing" | "saved" | "error" | "unavailable" | "revoked"; pending: number; recovery?: { baseline: string; desired: string; baseEtag?: string | null }; legacyAdopted?: { path: string; text: string; baseEtag: string } }) => {
+      if (next.legacyAdopted !== undefined) {
+        offlineRef.current.adoptLegacy(next.legacyAdopted);
+      }
+      dispatch({ type: "collaboration", ...next });
+    },
+    [],
   );
 
   const dismissNotice = useCallback(() => setNotice(null), []);
@@ -4099,6 +4124,9 @@ export function useFileBrowser(options: {
       search,
       editor,
       setDraft,
+      setCollaborationOwned,
+      setCollaborationDraft,
+      setCollaborationState,
       save,
       onExternalWrite,
       onSaved,
@@ -4258,6 +4286,8 @@ export function useFileBrowser(options: {
       selectedPath,
       opening,
       setDraft,
+      setCollaborationOwned,
+      setCollaborationDraft,
       setVisibility,
       shareWithGroup,
       setScope,

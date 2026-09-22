@@ -1832,16 +1832,15 @@ export async function runPresenceChecks(check) {
         notice?.name === roomKey("ws_presence", "1-projects/roadmap.md"),
     );
     check(
-      "...and carries the text it stored and the version it produced",
-      // The etag is the half that makes this more than a redraw: whoever merges
-      // it saves next against the version the tool left, rather than raising a
-      // conflict about a change already in the text being saved.
+      "...and carries only the committed document identity and version",
+      // The room sends a re-fetch hint. It never receives content or update
+      // bytes that could outlive the socket's authorization lease.
       (() => {
         const body = JSON.parse(notice?.body ?? "null");
         return (
-          body?.text === "the roadmap, for everyone here\n\nand a line an agent added\n" &&
-          typeof body.etag === "string" &&
-          body.etag.length > 0
+          typeof body?.documentId === "string" && body.documentId.length > 0 &&
+          typeof body.etag === "string" && body.etag.length > 0 &&
+          !("text" in body) && !("update" in body)
         );
       })(),
     );

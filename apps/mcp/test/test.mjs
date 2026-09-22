@@ -36,6 +36,7 @@ import { runLinkChecks } from "./links.test.mjs";
 import { runActivityChecks } from "./activity.test.mjs";
 import { runForwardingChecks } from "./forwarding.test.mjs";
 import { runPresenceChecks } from "./presence.test.mjs";
+import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
@@ -2440,10 +2441,25 @@ check(
 // -- etag CAS + history
 const read1 = (await call("priv-token", "read_note", { path: "index.md" }))?.content?.[0]?.text;
 const etag = read1?.match(/etag: (\S+)/)?.[1];
+const beforeVersionlessWrite = storedText("index.md");
+const versionlessWrite = await call("priv-token", "write_note", {
+  path: "index.md",
+  content: "an agent replacement with no version",
+});
+check(
+  "an existing collaborative note requires the exact version the agent read",
+  versionlessWrite.isError &&
+    versionlessWrite.content[0].text.includes("expected_etag") &&
+    storedText("index.md") === beforeVersionlessWrite,
+);
 const wOk = await call("priv-token", "write_note", { path: "index.md", content: "v2", expected_etag: etag });
 check("CAS write with fresh etag ok", !wOk.isError);
 const wStale = await call("priv-token", "write_note", { path: "index.md", content: "v3", expected_etag: etag });
-check("CAS write with stale etag conflicts", wStale.isError && wStale.content[0].text.includes("conflict"));
+const afterStaleMerge = (await call("priv-token", "read_note", { path: "index.md" })).content[0].text;
+check(
+  "a retained stale collaboration base is merged instead of rejected",
+  !wStale.isError && afterStaleMerge.includes("v2") && afterStaleMerge.includes("v3"),
+);
 check(
   "an overwrite writes no history snapshot",
   ![...objects.keys()].some((k) => k.startsWith(".history/"))
@@ -4641,6 +4657,7 @@ await suite("runChatContributionStoreChecks", () => runChatContributionStoreChec
 // its own buckets, and it installs and restores the fetch global itself, so it
 // runs here rather than inside a block that owns that global.
 await suite("runPresenceChecks", () => runPresenceChecks(check));
+await suite("runCollaborationChecks", () => runCollaborationChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

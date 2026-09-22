@@ -38,6 +38,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A moved note leaves a forwarding address, and it is a trail rather than an index
 - A live editing room holds note text, and the enumeration does not list it
 
+## [Customer-owned collaboration](./collaboration.md)
+
+- Markdown and essential editing history stay in customer storage
+- One Yjs merge implementation for people, agents, and offline devices
+- Permissions, stable identity, and verification are release gates
+
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
 - A plan belongs to a workspace, never to a person

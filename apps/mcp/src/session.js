@@ -261,6 +261,9 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // editor in the product appeared to be joining — and, because ingestion is on
   // the apex, would hold the mailbox too.
   "presence",
+  // The collaboration HTTP transport. Keeping it in the top-level namespace
+  // prevents `/collaboration` from being parsed as a workspace slug.
+  "collaboration",
 ]);
 
 /* --------------------------- session resolution --------------------------- */

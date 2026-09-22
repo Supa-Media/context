@@ -336,8 +336,10 @@ export function NoteEditor({
     editor cannot read it, let alone write it — which makes this the affordance
     and not the guard. A pencil that leads to a refusal is worse than no pencil.
   */
+  const durableReady = presence?.collaboration?.ready !== false;
   const editable =
     canEdit &&
+    durableReady &&
     !state.readOnly &&
     !reading &&
     !(state.path === ACTIVITY_PATH && !activityEditable);
@@ -390,6 +392,11 @@ export function NoteEditor({
   const [openedAt] = useState(() => Date.now());
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
+  // A collaborative binding owns the whole Y.Text, including frontmatter.
+  // Slicing its display or prefixing an edit would change shared coordinates.
+  const bodyOnly = compact && presence?.collaboration === undefined;
+  const collaborativeChange = presence?.collaboration?.onChange ?? onChange;
+  const collaborativeVersionedChange = presence?.collaboration?.onVersionedChange;
   /*
     The accessory bar's two inputs. `focused` is state because it decides what
     renders; the handle is a ref because it decides nothing — re-rendering the
@@ -577,7 +584,16 @@ export function NoteEditor({
     "Saving…", "Saved" — which is a claim you can read without anything
     standing over the note. See `status.ts`'s `saveChip`.
   */
-  const durability = statusLine(state);
+  const collaborationStatus = presence?.collaboration?.status;
+  const durability =
+    presence?.collaboration?.message ??
+    (collaborationStatus === "local"
+      ? "Saved on this device; syncing soon."
+      : collaborationStatus === "syncing"
+        ? "Syncing to your bucket…"
+        : collaborationStatus === "saved"
+          ? "Saved in your bucket"
+          : statusLine(state));
   const decision =
     state.status === "error" || state.status === "conflict" || state.status === "queued";
   /*
@@ -882,7 +898,7 @@ export function NoteEditor({
               the same live-preview rule every other mark follows: out of the
               way while you read, there the moment you go to it.
             */
-            value={compact ? body : state.draft}
+            value={bodyOnly ? body : state.draft}
             editable={editable}
             presence={presence}
             /*
@@ -893,7 +909,17 @@ export function NoteEditor({
               `noteAccessory.test.ts` presses B and asserts the YAML block is
               still in front of what arrives.
             */
-            onChange={compact ? (next) => onChange(frontmatter + next) : onChange}
+            onChange={bodyOnly ? (next) => collaborativeChange(frontmatter + next) : collaborativeChange}
+            onVersionedChange={
+              collaborativeVersionedChange === undefined
+                ? undefined
+                : (next, base) =>
+                    collaborativeVersionedChange(
+                      bodyOnly ? frontmatter + next : next,
+                      base,
+                    )
+            }
+            documentRevision={presence?.collaboration?.revision}
             onSave={onSave}
             controls={(api) => {
               controls.current = api;

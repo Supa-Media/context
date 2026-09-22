@@ -72,6 +72,13 @@
 export const PRESENCE_PROTOCOL_VERSION = 1;
 
 /**
+ * HTTP-committed collaboration sockets use the existing room only for
+ * presence and delivery of committed snapshots.  They never participate in
+ * the legacy in-room Yjs log protocol.
+ */
+export const COLLABORATION_PROTOCOL_VERSION = 2;
+
+/**
  * How many editors may sit in one room.
  *
  * Presence is a thing you glance at. Past a couple of dozen carets the feature

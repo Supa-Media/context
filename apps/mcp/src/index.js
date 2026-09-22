@@ -100,6 +100,15 @@ import {
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { roomKey } from "./presence.js";
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
+import {
+  commitUpdate as commitCollaborationUpdate,
+  eligible as collaborationEligible,
+  moveDocument as moveCollaborationDocument,
+  readDocument as readCollaborationDocument,
+  replaceText as replaceCollaborationText,
+  sealDocument as sealCollaborationDocument,
+  supported as collaborationSupported,
+} from "@context/collaboration";
 import { validateArguments } from "./toolArguments.js";
 import {
   handleMeetings,
@@ -242,6 +251,16 @@ const GRANOLA_PENDING_PREFIX = `${GRANOLA_EVENTS_PREFIX}pending/`;
 const GRANOLA_COMPLETED_PREFIX = `${GRANOLA_EVENTS_PREFIX}completed/`;
 const PROPOSAL_PENDING_PREFIX = `${PROPOSAL_PREFIX}pending/`;
 const PROPOSAL_REVIEWED_PREFIX = `${PROPOSAL_PREFIX}reviewed/`;
+
+// Collaboration carries a bounded JSON envelope around a bounded Yjs update.
+// Keep the request cap above the note cap for base64 and JSON overhead while
+// refusing an unbounded body before parsing or handing it to the merge engine.
+const MAX_COLLABORATION_REQUEST_BYTES = 4_000_000;
+const MAX_COLLABORATION_UPDATE_CHARS = 2_900_000;
+// Keep this equal to the engine's pre-materialization ceiling. The route
+// checks the raw note before initialization and the engine checks the merged
+// text before commit, so a successful commit can never become a late 413.
+const MAX_COLLABORATION_NOTE_BYTES = 4 * 1024 * 1024;
 /*
  * `SEARCH_SUBREQUEST_BUDGET` (everything one search may spend on storage: the
  * index sync, its conditional write, and the fresh read behind every snippet)
@@ -916,7 +935,13 @@ async function route(request, env, ctx) {
     // the MCP transport paths only, and `handleMeetings` answers a wrong method
     // with a meeting error naming the route.
     const meetingRoute = matchMeetingRoute(path);
-    if (path === "/mcp" || path === "/inbox" || path === "/agent" || meetingRoute) {
+    if (
+      path === "/mcp" ||
+      path === "/inbox" ||
+      path === "/agent" ||
+      path === "/collaboration" ||
+      meetingRoute
+    ) {
       if (!meetingRoute && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
@@ -1145,6 +1170,11 @@ async function route(request, env, ctx) {
         }
       };
 
+      if (path === "/collaboration") {
+        store.actor = actorFor(session);
+        return handleCollaboration(request, store, session, origin);
+      }
+
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one
       // nothing calls. That makes "a capture-only credential reaches exactly
@@ -1325,6 +1355,293 @@ export default {
 };
 
 /**
+ * HTTP collaboration transport.
+ *
+ * Authentication, workspace selection, storage binding and the initial read
+ * scope are established by `route`, exactly as for `/mcp`.  This function is
+ * deliberately a small adapter around the collaboration package: privacy is
+ * checked before the engine sees a path, and only ordinary Markdown notes are
+ * admitted.  The engine owns document identity, merge history and CAS
+ * materialization in the customer's bucket.
+ */
+async function handleCollaboration(request, store, session, origin) {
+  if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  if (!hasScope(session, SCOPE_READ)) return json({ error: "forbidden" }, 403);
+
+  const length = Number(request.headers.get("content-length"));
+  if (Number.isFinite(length) && length > MAX_COLLABORATION_REQUEST_BYTES) {
+    return json({ error: "request_too_large" }, 413);
+  }
+
+  let body;
+  try {
+    const bounded = await readBoundedRequestBytes(request, MAX_COLLABORATION_REQUEST_BYTES);
+    if (bounded === null) return json({ error: "request_too_large" }, 413);
+    body = JSON.parse(new TextDecoder().decode(bounded));
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  const keys = Object.keys(body);
+  if (keys.some((key) => !["path", "documentId", "update", "replacement"].includes(key))) {
+    return json({ error: "invalid_request" }, 400);
+  }
+  const path = normalizePath(body.path);
+  if (!path || !path.endsWith(".md") || isPlumbing(path)) {
+    return json({ error: "invalid_path" }, 400);
+  }
+
+  const hasDocumentId = Object.prototype.hasOwnProperty.call(body, "documentId");
+  const hasUpdate = Object.prototype.hasOwnProperty.call(body, "update");
+  const hasReplacement = Object.prototype.hasOwnProperty.call(body, "replacement");
+  const isUpdate = hasDocumentId || hasUpdate || hasReplacement;
+  const isReplacement = hasReplacement && !hasDocumentId && !hasUpdate;
+  if (hasReplacement && (!isReplacement || body.replacement === null ||
+      typeof body.replacement !== "object" || Array.isArray(body.replacement) ||
+      Object.keys(body.replacement).some((key) => !["expectedEtag", "text"].includes(key)) ||
+      typeof body.replacement.expectedEtag !== "string" ||
+      body.replacement.expectedEtag.length === 0 || body.replacement.expectedEtag.length > 512 ||
+      typeof body.replacement.text !== "string" ||
+      new TextEncoder().encode(body.replacement.text).byteLength > MAX_COLLABORATION_NOTE_BYTES)) {
+    return json({ error: "invalid_replacement" }, 400);
+  }
+  if (isUpdate) {
+    if (!isReplacement && (!hasDocumentId || !hasUpdate || typeof body.documentId !== "string" ||
+        body.documentId.length === 0 || body.documentId.length > 256 ||
+        typeof body.update !== "string" || body.update.length === 0 ||
+        body.update.length > MAX_COLLABORATION_UPDATE_CHARS ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(body.update))) {
+      return json({ error: "invalid_update" }, 400);
+    }
+    if (!hasScope(session, SCOPE_WRITE)) {
+      return json({ error: "forbidden" }, 403);
+    }
+  }
+
+  const privacy = await loadPrivacyState(store);
+  if (privacy.error) return json({ error: "not_found" }, 404);
+  const { rules, overrides } = privacy;
+  // Probe every request before reading content, including hidden and missing
+  // paths.  A collaboration read must never become an existence oracle.
+  let effectivePath = path;
+  let visible = canSee(effectivePath, session.scope, rules, overrides);
+  let present = await probeWithLegacyFallback(store, effectivePath);
+
+  if (!visible) return json({ error: "not_found" }, 404);
+
+  // A moved collaborative head remains the authority for an offline client
+  // holding the old path. Let the engine reveal only its destination marker,
+  // then re-authorize that destination before reading or accepting content.
+  // Hidden/private destinations and internal trash are deliberately terminal
+  // 404s, so this cannot become a path or trash existence oracle.
+  if (!present && collaborationSupported(store)) {
+    const visited = new Set([effectivePath]);
+    for (let hop = 0; hop < 8 && !present; hop += 1) {
+      try {
+        await readCollaborationDocument(store, effectivePath);
+        present = true;
+        break;
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String(error.code)
+          : "";
+        const destination = error && typeof error === "object" && "destination" in error
+          ? normalizePath(error.destination)
+          : null;
+        if (code !== "MOVED" || !destination || visited.has(destination) ||
+            !destination.endsWith(".md") || isPlumbing(destination) ||
+            !canSee(destination, session.scope, rules, overrides)) {
+          break;
+        }
+        visited.add(destination);
+        effectivePath = destination;
+        visible = true;
+        // A moved destination need not have raw Markdown: it may itself be an
+        // alias to a later head. Keep following the collaboration identity
+        // until a raw destination exists or a live engine head answers.
+        present = await probeWithLegacyFallback(store, destination);
+      }
+    }
+  }
+  if (!visible || !present) return json({ error: "not_found" }, 404);
+
+  // Check the stored bytes before the engine initializes a document. Encrypted
+  // and drawing notes stay outside this plaintext collaboration capability.
+  const stored = await getWithLegacyFallback(store, effectivePath);
+  if (!stored) return json({ error: "not_found" }, 404);
+  const storedText = await stored.text();
+  if (!collaborationEligible(effectivePath, storedText) ||
+      new TextEncoder().encode(storedText).byteLength > MAX_COLLABORATION_NOTE_BYTES) {
+    return json({ error: "unsupported_note" }, 409);
+  }
+
+  if (!collaborationSupported(store)) {
+    return json({ error: "collaboration_unavailable" }, 501);
+  }
+
+  // An update must go directly to commitUpdate. A preceding read can report
+  // DEPENDENCY_PENDING for an out-of-order offline operation; reading that
+  // state here would reject the corrective update that would satisfy the
+  // dependency and permanently strand the document. The raw note checks above
+  // already establish eligibility before the engine sees the request.
+  if (!isUpdate) {
+    let current;
+    try {
+      current = await readCollaborationDocument(store, effectivePath);
+    } catch {
+      return json({ error: "collaboration_unavailable" }, 503);
+    }
+    if (!collaborationEligible(path, current.text) ||
+        new TextEncoder().encode(current.text).byteLength > MAX_COLLABORATION_NOTE_BYTES) {
+      return json({ error: "unsupported_note" }, 409);
+    }
+    return json(current);
+  }
+
+  let result;
+  try {
+    result = isReplacement
+      ? await replaceCollaborationText(store, effectivePath, {
+          expectedEtag: body.replacement.expectedEtag,
+          text: body.replacement.text,
+        })
+      : await commitCollaborationUpdate(store, effectivePath, {
+          documentId: body.documentId,
+          update: body.update,
+        });
+  } catch (error) {
+    return collaborationErrorResponse(error);
+  }
+  if (typeof result?.text !== "string" ||
+      new TextEncoder().encode(result.text).byteLength > MAX_COLLABORATION_NOTE_BYTES) {
+    return json({ error: "note_too_large" }, 413);
+  }
+  // A dependency-only retry or an idempotent update may return the current
+  // snapshot unchanged. Those are successful protocol operations, but they
+  // are not user-visible note changes and must not manufacture activity,
+  // audit, or search-projection work.
+  if (result.text !== storedText) {
+    const visibility = effectiveVisibility(effectivePath, rules, overrides);
+    await recordChange(store, "update_note", session.scope, [effectivePath], {
+      etag: result.etag,
+      visibility,
+      team_visible: visibility === "team",
+      content_bytes: byteSize(result.text),
+      previous_bytes: byteSize(storedText),
+    });
+    await projectWrittenNoteAfterResponse(store, {
+      path: effectivePath,
+      content: result.text,
+      version: result.etag,
+      visibility,
+    });
+  }
+  await announceCommittedToPresence(store, effectivePath, result);
+  return json(result);
+}
+
+function collaborationErrorResponse(error) {
+  const code = error && typeof error === "object" && "code" in error
+    ? String(error.code)
+    : "";
+  if (code === "BASE_MISSING" || code === "GENERATION_MISMATCH") {
+    return json({ error: code }, 409);
+  }
+  let message = "";
+  try {
+    message = error instanceof Error ? String(error.message).toLowerCase() : "";
+  } catch {
+    message = "";
+  }
+  if (message.includes("update") || message.includes("base64") || message.includes("invalid")) {
+    return json({ error: "invalid_update" }, 400);
+  }
+  if (message.includes("generation") || message.includes("revision") || message.includes("etag") ||
+      message.includes("conflict") || message.includes("base")) {
+    return json({ error: "conflict" }, 409);
+  }
+  return json({ error: "collaboration_unavailable" }, 503);
+}
+
+/** Read at most `limit` bytes without buffering an oversized chunked body. */
+async function readBoundedRequestBytes(request, limit) {
+  const length = Number(request.headers.get("content-length"));
+  if (Number.isFinite(length) && length > limit) return null;
+  if (!request.body || typeof request.body.getReader !== "function") {
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    return bytes.byteLength > limit ? null : bytes;
+  }
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      const chunk = part.value instanceof Uint8Array ? part.value : new Uint8Array(part.value);
+      total += chunk.byteLength;
+      if (total > limit) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The body is already refused; cancellation is best effort.
+        }
+        return null;
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Some test Request bodies do not expose a releasable lock.
+    }
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+/** Broadcast one committed snapshot to v2 presence sockets, best-effort. */
+async function announceCommittedToPresence(store, path, result) {
+  const rooms = store.presenceRooms;
+  const workspaceId = store.actor?.workspaceId;
+  if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
+  if (!result || typeof result.documentId !== "string" || typeof result.etag !== "string") return;
+  const run = async () => {
+    try {
+      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, path)));
+      await room.fetch("https://presence.invalid/committed", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          documentId: result.documentId,
+          etag: result.etag,
+        }),
+      });
+    } catch {
+      // A room is a live view. The bucket commit already succeeded, and a
+      // reconnect reads the authoritative snapshot from the bucket.
+    }
+  };
+  if (typeof store.defer === "function") {
+    try {
+      store.defer(run());
+      return;
+    } catch {
+      // Fall through for self-hosted shims without a working waitUntil.
+    }
+  }
+  await run();
+}
+
+/**
  * `GET /presence?note=<path>` — the socket that says who else has this note
  * open, and where their carets are.
  *
@@ -1437,12 +1754,16 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
   const room = env.PRESENCE_ROOM.get(
     env.PRESENCE_ROOM.idFromName(roomKey(session.workspaceId, notePath)),
   );
+  const collaborationV2 = url.searchParams.get("collaboration") === "2";
   const headers = new Headers(request.headers);
   headers.set(
     "x-presence-member",
     JSON.stringify({
       name: presenceDisplayName(session),
-      colorSeed: url.searchParams.get("seed"),
+      // v2 identities are server-derived for the entire socket lifetime;
+      // accepting a client colour seed there would let the client influence
+      // its room identity even though the committed path is authenticated.
+      colorSeed: collaborationV2 ? null : url.searchParams.get("seed"),
       /*
         **Whether this caller may change the note, decided here and only here.**
 
@@ -5530,10 +5851,28 @@ async function recordActivity(store, change) {
     // this file has no business growing.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const existing = await store.get(ACTIVITY_PATH);
-      const current = existing ? await existing.text() : "";
+      const stored = existing ? await existing.text() : "";
+      let collaborationBase = null;
+      try {
+        collaborationBase = existing
+          ? await generatedCollaborationBase(store, ACTIVITY_PATH, stored)
+          : null;
+      } catch {
+        continue;
+      }
+      const current = collaborationBase?.text ?? stored;
       const next = nextActivityFile(current, { ...change, actor });
       // The common answer: nothing substantial, or a line that already says it.
       if (!next) return;
+      // The activity file names private paths and is always private. Validate
+      // and tighten that ACL before either write authority commits its bytes.
+      const state = await loadPrivacyState(store);
+      if (
+        !state.error &&
+        effectiveVisibility(ACTIVITY_PATH, state.rules, state.overrides) !== "private"
+      ) {
+        await persistExactVisibility(store, ACTIVITY_PATH, "private", state.rules);
+      }
       const conditional =
         existing === null
           ? store.capabilities?.conditionalCreate === true
@@ -5542,9 +5881,16 @@ async function recordActivity(store, change) {
           : store.capabilities?.conditionalWrite === true
             ? { etagMatches: existing.etag }
             : null;
-      const put = conditional
-        ? await store.put(ACTIVITY_PATH, next.text, { onlyIf: conditional })
-        : await store.put(ACTIVITY_PATH, next.text);
+      let put;
+      try {
+        put = collaborationBase
+          ? await writeGeneratedNote(store, ACTIVITY_PATH, next.text, collaborationBase)
+          : conditional
+            ? await store.put(ACTIVITY_PATH, next.text, { onlyIf: conditional })
+            : await store.put(ACTIVITY_PATH, next.text);
+      } catch {
+        continue;
+      }
       if (put === null) continue;
       /*
         THE FILE IS PRIVATE, AND THAT IS CHECKED RATHER THAN ASSUMED.
@@ -5563,13 +5909,6 @@ async function recordActivity(store, change) {
         write that is actually happening — never on the common path, where
         `nextActivityFile` has already decided there is nothing to say.
       */
-      const state = await loadPrivacyState(store);
-      if (
-        !state.error &&
-        effectiveVisibility(ACTIVITY_PATH, state.rules, state.overrides) !== "private"
-      ) {
-        await persistExactVisibility(store, ACTIVITY_PATH, "private", state.rules);
-      }
       /*
         Across the boundary: this context changed, at this tier. It is what
         lights the dot on this workspace's mark in somebody else's console, and
@@ -6394,6 +6733,29 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   const opened = await openStoredNote(store, stored);
   if (!opened.ok) return encryptedNoteRefusal(path);
   const marker = opened.encrypted ? "\nencryption: v1" : "";
+  let collaboration = null;
+  if (!opened.encrypted && collaborationSupported(store) && collaborationEligible(path, opened.text)) {
+    try {
+      // During a large logical folder move the requested destination is a
+      // virtual overlay while the Markdown and collaboration head still live
+      // at the physical source. Read that one authority and continue to report
+      // the logical destination to the caller.
+      collaboration = await readCollaborationDocument(store, physicalPath);
+    } catch {
+      // Once a supported store has initialized collaboration state, the
+      // engine's materialized text is authoritative. Serving the raw object
+      // after a state read fails could hand an agent stale bytes which its next
+      // write would overwrite or reject. Fail closed without exposing bucket
+      // state details.
+      return toolError("this note cannot be opened safely for collaborative editing right now");
+    }
+  }
+  // The full Yjs snapshot is for the JSON file/browser surface. MCP agents
+  // only need the stable document identity and opaque base etag; including
+  // megabytes of base64 in prose needlessly consumes their context budget.
+  const collaborationMarker = collaboration
+    ? `\ndocument_id: ${collaboration.documentId}`
+    : "";
   /*
    * A DRAWING IS DESCRIBED, NOT DUMPED.
    *
@@ -6417,13 +6779,14 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
         "write_note will not overwrite it with text.*"
     );
   }
+  const actualText = collaboration?.text ?? opened.text;
   return toolText(
-    `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}${marker}` +
+    `etag: ${collaboration?.etag ?? obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}${marker}${collaborationMarker}` +
       // Said out loud rather than served silently: a caller that arrived on a
       // stale address is holding one somewhere, and the next write must use
       // the path it is being given rather than the one it asked for.
       `${path === requested ? "" : `\nmoved_from: ${requested}`}` +
-      `${drawingEmbedLine(opened.text)}\n\n${opened.text}`
+      `${drawingEmbedLine(actualText)}\n\n${actualText}`
   );
 }
 
@@ -6637,6 +7000,30 @@ async function generatedNoteFor(store, text, storedText) {
   return await generatedNoteBytes(text, storedText, (plaintext) =>
     sealNoteContent(store, plaintext, storedText),
   );
+}
+
+/**
+ * Store a generated note without orphaning an already initialized document.
+ * New paths and ineligible/encrypted notes retain their legacy write path;
+ * existing eligible plaintext notes use the collaboration CAS instead.
+ */
+async function generatedCollaborationBase(store, path, previousText) {
+  if (typeof previousText === "string" && collaborationSupported(store) &&
+      collaborationEligible(path, previousText)) {
+    return readCollaborationDocument(store, path);
+  }
+  return null;
+}
+
+async function writeGeneratedNote(store, path, body, collaborationBase = null) {
+  if (collaborationBase) {
+    return replaceCollaborationText(store, path, {
+      documentId: collaborationBase.documentId,
+      expectedEtag: collaborationBase.etag,
+      text: body,
+    });
+  }
+  return store.put(path, body);
 }
 
 /** The text currently stored at `key`, or `null` where there is nothing there. */
@@ -6883,8 +7270,48 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
    * body and pays nothing for this.
    */
   const storedBody = existing ? await existing.text() : null;
+  const collaborationEligibleExisting = Boolean(
+    existing && collaborationSupported(store) && collaborationEligible(path, storedBody),
+  );
+  if (collaborationEligibleExisting && expectedEtag === undefined) {
+    return toolError(
+      `conflict: a collaboratively edited note already exists at ${path}; re-read it and include expected_etag to update it`,
+    );
+  }
+  let collaborationResult = null;
+  if (collaborationEligibleExisting) {
+    try {
+      const base = await readCollaborationDocument(store, path);
+      // The opaque etag is the version the caller actually read. A retained
+      // older version can be merged; deriving a fresh base here would silently
+      // turn an agent's stale full-body replacement into an overwrite of an
+      // unseen human edit.
+      if (desiredVisibility === "private") {
+        await persistExactVisibility(store, path, "private", rules);
+      }
+      collaborationResult = await replaceCollaborationText(store, path, {
+        documentId: base.documentId,
+        expectedEtag,
+        text: content,
+      });
+    } catch (error) {
+      // A supported ordinary note has one write authority: the collaboration
+      // engine. Do not fall back to the legacy raw put after a merge failure.
+      const message = (() => {
+        try {
+          return error instanceof Error ? String(error.message).toLowerCase() : "";
+        } catch {
+          return "";
+        }
+      })();
+      if (message.includes("update") || message.includes("invalid")) {
+        return toolError("invalid collaborative update");
+      }
+      return toolError("conflict: note changed while it was being merged; re-read and try again");
+    }
+  }
   if (existing) {
-    if (expectedEtag && existing.etag !== expectedEtag) {
+    if (expectedEtag && !collaborationResult && existing.etag !== expectedEtag) {
       // The conflict body is what the caller must merge into, so it is the
       // *plaintext* where the note is encrypted. Handing back an envelope would
       // be telling a client to merge its change into base64 — and then storing
@@ -6918,7 +7345,7 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
    * frontmatter is not access control" — applied to the second thing
    * frontmatter must not be allowed to decide.
    */
-  let body = content;
+  let body = collaborationResult?.text ?? content;
   if (storedBody !== null && isEncryptedNote(storedBody)) {
     const sealed = await sealNoteContent(store, content, storedBody);
     // No key, so this write cannot preserve the encryption the note already
@@ -6931,10 +7358,12 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
   const action = existing ? "update_note" : "create_note";
   // Tighten the ACL before content becomes visible. For team publishing, keep
   // the private ACL in place until the content write has completed.
-  if (desiredVisibility === "private") {
+  if (desiredVisibility === "private" && !collaborationResult) {
     await persistExactVisibility(store, path, "private", rules);
   }
-  const put = await store.put(path, body);
+  const put = collaborationResult
+    ? { etag: collaborationResult.etag }
+    : await store.put(path, body);
   if (desiredVisibility === "team") {
     await persistExactVisibility(store, path, "team", rules);
   }
@@ -6957,18 +7386,22 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
   });
   await projectWrittenNoteAfterResponse(store, {
     path,
-    content,
+    content: body,
     version: put.etag,
     visibility: desiredVisibility,
   });
   // And anybody who has this note open right now, so an agent's write appears
   // in their editor as it lands rather than as a conflict later.
-  await announceWriteToPresence(store, {
-    path,
-    content,
-    etag: put.etag,
-    actor: await presenceActor(store.actor),
-  });
+  if (collaborationResult) {
+    await announceCommittedToPresence(store, path, collaborationResult);
+  } else {
+    await announceWriteToPresence(store, {
+      path,
+      content: body,
+      etag: put.etag,
+      actor: await presenceActor(store.actor),
+    });
+  }
   // After the note is safely stored, never before: a response file for a note
   // whose own write then failed is a file referring to a form that does not
   // exist.
@@ -7223,9 +7656,24 @@ async function readFormResponses(store, config, responsesPath) {
   const stored = await object.text();
   const opened = await openStoredNote(store, stored);
   if (!opened.ok) return { refusal: encryptedNoteRefusal(responsesPath) };
-  const parsed = parseResponsesFile(opened.text, config);
+  let text = opened.text;
+  let collaboration = null;
+  if (collaborationSupported(store) && collaborationEligible(responsesPath, text)) {
+    try {
+      collaboration = await readCollaborationDocument(store, responsesPath);
+      text = collaboration.text;
+    } catch {
+      return { refusal: toolError("this response file cannot be updated safely right now") };
+    }
+  }
+  const parsed = parseResponsesFile(text, config);
   if (parsed.error) return { refusal: toolError(parsed.error) };
-  return { etag: object.etag, stored, responses: parsed.responses };
+  return {
+    etag: collaboration?.etag ?? object.etag,
+    stored,
+    responses: parsed.responses,
+    ...(collaboration ? { collaboration } : {}),
+  };
 }
 
 /**
@@ -7290,7 +7738,23 @@ async function mutateFormResponses(store, scope, rules, overrides, args, action,
       if (sealed === null) return encryptedNoteRefusal(responsesPath);
       body = sealed;
     }
-    const put = await store.put(responsesPath, body, { onlyIf: { etagMatches: current.etag } });
+    let put;
+    if (current.collaboration) {
+      try {
+        put = await replaceCollaborationText(store, responsesPath, {
+          documentId: current.collaboration.documentId,
+          expectedEtag: current.etag,
+          text: rendered,
+        });
+      } catch {
+        // The collaboration engine owns the CAS and can merge a concurrent
+        // editor update. A failed merge is retried from a fresh read below;
+        // never fall back to a raw put that would orphan the document state.
+        continue;
+      }
+    } else {
+      put = await store.put(responsesPath, body, { onlyIf: { etagMatches: current.etag } });
+    }
     // A refused conditional write means somebody else landed a response between
     // our read and our write. Nothing of theirs is lost: the next pass reads
     // their row and re-applies ours on top.
@@ -8154,14 +8618,22 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
   const existing = await getWithLegacyFallback(store, path);
   if (!existing) return toolError("not found");
   const expectedEtag = args?.expected_etag;
-  if (expectedEtag && existing.etag !== expectedEtag) {
-    return toolError(
-      `conflict: note changed since you read it (current etag ${existing.etag}). Re-read and try again.`,
-    );
-  }
-
   const stored = await existing.text();
   const alreadyEncrypted = isEncryptedNote(stored);
+  let collaborationBase = null;
+  if (!alreadyEncrypted && collaborationSupported(store) && collaborationEligible(path, stored)) {
+    try {
+      collaborationBase = await readCollaborationDocument(store, path);
+    } catch {
+      return toolError("this note cannot be transitioned safely right now; nothing was changed");
+    }
+  }
+  const currentEtag = collaborationBase?.etag ?? existing.etag;
+  if (expectedEtag && currentEtag !== expectedEtag) {
+    return toolError(
+      `conflict: note changed since you read it (current etag ${currentEtag}). Re-read and try again.`,
+    );
+  }
   if (alreadyEncrypted === args.encrypted) {
     return toolText(
       `unchanged: ${path} is already ${args.encrypted ? "encrypted" : "stored as plain markdown"}`,
@@ -8185,7 +8657,27 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
     body = opened.text;
   }
 
-  const put = await store.put(path, body, { onlyIf: { etagMatches: existing.etag } });
+  let put;
+  if (args.encrypted && collaborationBase) {
+    try {
+      const sealed = await sealCollaborationDocument(store, path, {
+        documentId: collaborationBase.documentId,
+        expectedEtag: collaborationBase.etag,
+        text: body,
+      });
+      put = { etag: sealed.etag };
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "";
+      if (["BASE_MISSING", "CONFLICT", "GENERATION_MISMATCH", "SEAL_CONFLICT", "CONCURRENT_WRITE"].includes(code)) {
+        return toolError("conflict: note changed while it was being encrypted; re-read and try again");
+      }
+      return toolError("this note cannot be encrypted safely right now; nothing was changed");
+    }
+  } else {
+    put = await store.put(path, body, { onlyIf: { etagMatches: existing.etag } });
+  }
   if (!put) {
     // Only where the backend honours it. A `null` here means the note changed
     // between the read and the write, and a full-body rewrite that overwrites
@@ -8978,14 +9470,25 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
   if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
   const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
-  if (args.expected_etag && obj.etag !== args.expected_etag) {
+  let currentEtag = obj.etag;
+  if (args.expected_etag && collaborationSupported(store)) {
+    const stored = await obj.text();
+    if (!isEncryptedNote(stored) && collaborationEligible(path, stored)) {
+      try {
+        currentEtag = (await readCollaborationDocument(store, path)).etag;
+      } catch {
+        return toolError("this note cannot be checked safely right now; re-read and retry");
+      }
+    }
+  }
+  if (args.expected_etag && currentEtag !== args.expected_etag) {
     return toolError(
-      `conflict: note changed since you read it (current etag ${obj.etag}); re-read and retry`
+      `conflict: note changed since you read it (current etag ${currentEtag}); re-read and retry`
     );
   }
   const current = effectiveVisibility(path, rules, overrides);
   if (current === visibility) {
-    return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${obj.etag}`);
+    return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${currentEtag}`);
   }
   if (visibility === "team") {
     if (args.confirm_team_publish !== true) {
@@ -8998,12 +9501,12 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
   await recordChange(store, "set_visibility", scope, [path], {
     from: current,
     to: visibility,
-    etag: obj.etag,
+    etag: currentEtag,
     // Do not reveal that a formerly private filename existed, even after an
     // explicitly confirmed publish.
     team_visible: current === "team" && visibility === "team",
   });
-  return toolText(`visibility changed: ${path}\nfrom: ${current}\nto: ${visibility}\netag: ${obj.etag}`);
+  return toolText(`visibility changed: ${path}\nfrom: ${current}\nto: ${visibility}\netag: ${currentEtag}`);
 }
 
 async function toolSetFolderVisibility(store, scope, args) {
@@ -10624,12 +11127,23 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   if (insideArchive(path, roots)) return toolText("already archived");
   const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
+  const sourceText = await obj.text();
+  let collaborationBase = null;
+  if (collaborationSupported(store) && store.capabilities?.conditionalDelete === true &&
+      !isEncryptedNote(sourceText) && collaborationEligible(path, sourceText)) {
+    try {
+      collaborationBase = await readCollaborationDocument(store, path);
+    } catch {
+      return toolError("this note cannot be archived safely right now; re-read and retry");
+    }
+  }
   if (scope !== "private" && !expectedEtag) {
     return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
   }
-  if (expectedEtag && obj.etag !== expectedEtag) {
+  const currentEtag = collaborationBase?.etag ?? obj.etag;
+  if (expectedEtag && currentEtag !== expectedEtag) {
     return toolError(
-      `conflict: note changed since you read it (current etag ${obj.etag}); re-read and retry`
+      `conflict: note changed since you read it (current etag ${currentEtag}); re-read and retry`
     );
   }
   const stamp = timestampSlug();
@@ -10639,6 +11153,45 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     return writePermissionError("archive destination");
   }
   if (await getWithLegacyFallback(store, dest)) return toolError("conflict: archive destination already exists");
+
+  if (collaborationBase) {
+    if (store.capabilities?.conditionalDelete !== true) {
+      return toolError("this storage cannot safely archive a collaboratively edited note");
+    }
+    if (destinationVisibility === "private") {
+      await persistExactVisibility(store, dest, "private", rules);
+    }
+    let moved;
+    try {
+      moved = await moveCollaborationDocument(store, path, dest, {
+        expectedEtag: collaborationBase.etag,
+      });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "DESTINATION_EXISTS"].includes(code)) {
+        return toolError("conflict: note changed since it was read; re-read and retry");
+      }
+      return toolError("this note cannot be archived safely right now; nothing was changed");
+    }
+    if (destinationVisibility === "team") {
+      try {
+        await persistExactVisibility(store, dest, "team", rules);
+      } catch {
+        return toolError("archive completed, but its visibility could not be recorded; ask the owner to repair the archive rule");
+      }
+    }
+    await clearExactVisibility(store, path);
+    await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
+    const references = await rewriteReferences(store, scope, rules, overrides, new Map([[path, dest]]));
+    await recordChange(store, "archive_note", scope, [path, dest], {
+      visibility: destinationVisibility,
+      team_visible: destinationVisibility === "team",
+      references: references.capped ? "not-rewritten" : references.links,
+    });
+    return toolText(
+      `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)
+    );
+  }
   const body = await obj.arrayBuffer();
   if (destinationVisibility === "private") {
     await persistExactVisibility(store, dest, "private", rules);
@@ -10754,7 +11307,9 @@ async function rewriteReferences(store, scope, rules, overrides, renames, { writ
     const fromPath = wasAt.get(key) ?? key;
     const object = await getWithLegacyFallback(store, key);
     if (!object) continue;
-    const text = await object.text();
+    const storedText = await object.text();
+    const collaborationBase = await generatedCollaborationBase(store, key, storedText);
+    const text = collaborationBase?.text ?? storedText;
     /*
       AN ENCRYPTED NOTE'S STORED BYTES ARE NEVER REWRITTEN.
 
@@ -10786,7 +11341,15 @@ async function rewriteReferences(store, scope, rules, overrides, renames, { writ
       one here would put back the write amplification that decision measured,
       on somebody else's bill, for a rollback nothing can read.
     */
-    await store.put(key, rewritten.text);
+    if (collaborationBase) {
+      await replaceCollaborationText(store, key, {
+        documentId: collaborationBase.documentId,
+        expectedEtag: collaborationBase.etag,
+        text: rewritten.text,
+      });
+    } else {
+      await store.put(key, rewritten.text);
+    }
   }
   return { notes, links, capped: false };
 }
@@ -10827,9 +11390,20 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
 
   const sourceObject = await getWithLegacyFallback(store, source);
   if (!sourceObject) return toolError("not found");
-  if (expectedSourceEtag && sourceObject.etag !== expectedSourceEtag) {
+  const sourceText = await sourceObject.text();
+  let collaborationBase = null;
+  if (collaborationSupported(store) && store.capabilities?.conditionalDelete === true &&
+      !isEncryptedNote(sourceText) && collaborationEligible(source, sourceText)) {
+    try {
+      collaborationBase = await readCollaborationDocument(store, source);
+    } catch {
+      return toolError("this note cannot be moved safely right now; re-read and retry");
+    }
+  }
+  const currentSourceEtag = collaborationBase?.etag ?? sourceObject.etag;
+  if (expectedSourceEtag && currentSourceEtag !== expectedSourceEtag) {
     return toolError(
-      `conflict: source changed since you read it (current etag ${sourceObject.etag}); re-read and retry`
+      `conflict: source changed since you read it (current etag ${currentSourceEtag}); re-read and retry`
     );
   }
   const unsafeMove = moveSafetyRefusal(store);
@@ -10847,6 +11421,52 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     sourceVisibility,
     visibilityOf(destination, rules)
   );
+
+  if (collaborationBase) {
+    if (store.capabilities?.conditionalDelete !== true) {
+      return toolError("this storage cannot safely move a collaboratively edited note");
+    }
+    if (destinationVisibility !== "team") {
+      try {
+        await persistExactVisibility(store, destination, destinationVisibility, rules);
+      } catch (error) {
+        return toolError(`move aborted before tightening destination: ${error.message}`);
+      }
+    }
+    let moved;
+    try {
+      moved = await moveCollaborationDocument(store, source, destination, {
+        expectedEtag: collaborationBase.etag,
+      });
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "DESTINATION_EXISTS"].includes(code)) {
+        return toolError("conflict: source changed since it was read; re-read and retry");
+      }
+      return toolError("this note cannot be moved safely right now; nothing was changed");
+    }
+    if (destinationVisibility === "team") {
+      try {
+        await persistExactVisibility(store, destination, "team", rules);
+      } catch {
+        return toolError("move completed, but its visibility could not be recorded; ask the owner to repair the destination rule");
+      }
+    }
+    await clearExactVisibility(store, source);
+    await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
+    const references = await rewriteReferences(store, scope, rules, overrides, new Map([[source, destination]]));
+    await recordChange(store, "move_note", scope, [source, destination], {
+      etag: moved.etag,
+      visibility: destinationVisibility,
+      team_visible: sourceVisibility === "team" && destinationVisibility === "team",
+      references: references.capped ? "not-rewritten" : references.links,
+    });
+    return toolText(
+      `moved: ${source} → ${destination} (etag ${moved.etag})\nvisibility: ${destinationVisibility}` +
+        referencesLine(references)
+    );
+  }
+
   // `!== "team"` rather than `=== "private"`, and the computed value rather
   // than the literal. Both halves matter: a group destination is a narrowing,
   // so it must be installed BEFORE the bytes land like any other narrowing —
@@ -11715,8 +12335,11 @@ async function writeInboxCapture(store, capture, { actorScope = "inbox", replace
 
   const note = `${frontmatter.join("\n")}\n\n${bodyParts.join("\n")}`;
   let previous = null;
+  let collaborationBase = null;
   if (existing) {
     previous = await existing.text();
+    collaborationBase = await generatedCollaborationBase(store, key, previous);
+    previous = collaborationBase?.text ?? previous;
     // Idempotency only. An unchanged capture is not re-written; a changed one
     // overwrites, and the version it replaces is kept only if the customer
     // enabled versioning on their bucket.
@@ -11732,7 +12355,7 @@ async function writeInboxCapture(store, capture, { actorScope = "inbox", replace
   // `generatedNoteBytes`.
   const body = await generatedNoteFor(store, note, previous);
   if (body === null) return { path: key, duplicate: false, updated: false, locked: true };
-  await store.put(key, body);
+  await writeGeneratedNote(store, key, body, collaborationBase);
   await recordChange(store, existing ? "inbox_update" : "inbox_capture", actorScope, [key], { source });
   return { path: key, duplicate: false, updated: Boolean(existing) };
 }
@@ -12045,7 +12668,10 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
   // A meeting note regenerated over one somebody encrypted stays encrypted. A
   // note we cannot open is left exactly as it is, and the refusal says so
   // rather than replacing an envelope with plaintext.
-  const body = await generatedNoteFor(store, markdown, await storedTextAt(store, notePath));
+  const previousText = await storedTextAt(store, notePath);
+  const collaborationBase = await generatedCollaborationBase(store, notePath, previousText);
+  const canonicalPreviousText = collaborationBase?.text ?? previousText;
+  const body = await generatedNoteFor(store, markdown, canonicalPreviousText);
   if (body === null) {
     throw new MeetingRefusal(
       409,
@@ -12054,7 +12680,7 @@ async function publishMeetingNote(store, scope, { path, markdown, segmentCount }
     );
   }
   if (visibility === "private") await persistExactVisibility(store, notePath, "private", rules);
-  const put = await store.put(notePath, body);
+  const put = await writeGeneratedNote(store, notePath, body, collaborationBase);
   if (visibility === "team") await persistExactVisibility(store, notePath, "team", rules);
   await recordChange(store, "meeting_note", scope, [notePath], {
     etag: put.etag,
@@ -12746,13 +13372,24 @@ async function syncCalendar(env, store) {
   // source for `store.put("<product path>"` and checks every one against
   // `PRODUCT_MANDATED_PATHS` — a guard that a variable here would silently
   // empty out.
+  const calendarPrevious = await storedTextAt(store, "2-areas/calendar/next-14-days.md");
+  const calendarCollaborationBase = await generatedCollaborationBase(
+    store,
+    "2-areas/calendar/next-14-days.md",
+    calendarPrevious,
+  );
   const calendarBody = await generatedNoteFor(
     store,
     md,
-    await storedTextAt(store, "2-areas/calendar/next-14-days.md"),
+    calendarCollaborationBase?.text ?? calendarPrevious,
   );
   if (calendarBody === null) return;
-  await store.put("2-areas/calendar/next-14-days.md", calendarBody);
+  await writeGeneratedNote(
+    store,
+    "2-areas/calendar/next-14-days.md",
+    calendarBody,
+    calendarCollaborationBase,
+  );
   await recordChange(store, "calendar_sync", "system", ["2-areas/calendar/next-14-days.md"], {
     count: upcoming.length,
   });

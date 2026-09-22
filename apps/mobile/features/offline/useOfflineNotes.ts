@@ -60,6 +60,7 @@ import {
   type PendingWrite,
 } from "./outbox";
 import { drainOutbox, type DrainReport, type OpOutcome, type OpSent, type WriteOutcome } from "./sync";
+import { collaborationOwnedPaths } from "./collaborationOwnership";
 import { useReachability } from "./reachability";
 import type { CacheScope } from "./keys";
 import type { Reachability } from "./copy";
@@ -214,6 +215,8 @@ export interface OfflineNotes {
   queueSave: (save: { path: string; text: string; baseEtag: string | null }) => void;
   /** The person took the bucket's version: the queued draft goes. */
   dropQueued: (path: string) => void;
+  /** Clear only the exact legacy entry acknowledged by collaboration. */
+  adoptLegacy: (adoption: { path: string; text: string; baseEtag: string }) => void;
   /** The person kept theirs: re-base onto the version they were shown. */
   keepQueued: (path: string) => void;
   /** Put a parked refusal back in the queue, unchanged. */
@@ -295,6 +298,8 @@ export function useOfflineNotes(options: {
   tier: VisibilityTier;
   /** Performs one queued write against the control plane. */
   write: (write: PendingWrite) => Promise<WriteOutcome>;
+  /** Keep legacy full-file writes parked while durable collaboration owns a note. */
+  shouldWrite?: (write: PendingWrite) => boolean;
   /** Called for each write that landed, so the editor can take the new etag. */
   onWritten?: (result: { path: string; etag: string }) => void;
   /**
@@ -351,6 +356,7 @@ export function useOfflineNotes(options: {
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftPending = useRef<Draft | null>(null);
   const draining = useRef(false);
+  const collaborationOwnedRef = useRef<Set<string>>(new Set());
 
   /*
     The callbacks below outlive the render that made them — a drain runs
@@ -361,6 +367,8 @@ export function useOfflineNotes(options: {
   */
   const writeRef = useRef(options.write);
   writeRef.current = options.write;
+  const shouldWriteRef = useRef(options.shouldWrite);
+  shouldWriteRef.current = options.shouldWrite;
   const onWrittenRef = useRef(options.onWritten);
   onWrittenRef.current = options.onWritten;
   const opRef = useRef(options.op);
@@ -426,8 +434,9 @@ export function useOfflineNotes(options: {
       setOutbox(emptyOutbox(""));
       return;
     }
-    void getOutbox(store, workspaceId).then((loaded) => {
+    void Promise.all([getOutbox(store, workspaceId), collaborationOwnedPaths(store, workspaceId)]).then(([loaded, owned]) => {
       if (cancelled) return;
+      collaborationOwnedRef.current = owned;
       setOutbox(loaded);
       outboxRef.current = loaded;
       setReady(true);
@@ -638,6 +647,7 @@ export function useOfflineNotes(options: {
     const send = opRef.current;
     void drainOutbox(current, {
       write: (write) => writeRef.current(write),
+      shouldWrite: (write) => !collaborationOwnedRef.current.has(write.path) && (shouldWriteRef.current?.(write) ?? true),
       ...(send === undefined ? {} : { op: (op: PendingOp) => send(op) }),
       now: () => Date.now(),
       onWritten: (result) => onWrittenRef.current?.({ path: result.path, etag: result.etag }),
@@ -891,6 +901,20 @@ export function useOfflineNotes(options: {
       // do, so they are written through rather than debounced.
       dropQueued: (path) =>
         commit(discard(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
+      adoptLegacy: (adoption) => {
+        if (workspaceId === null) return;
+        const path = serverPathOf(outboxRef.current, adoption.path);
+        const queued = find(outboxRef.current, path);
+        if (queued !== undefined && queued.text === adoption.text && queued.baseEtag === adoption.baseEtag) {
+          commit(discard(outboxRef.current, path), true);
+        }
+        void (async () => {
+          const draft = await getDraft(store, workspaceId, adoption.path);
+          if (draft?.text === adoption.text && draft.baseEtag === adoption.baseEtag) {
+            await clearDraft(store, workspaceId, adoption.path);
+          }
+        })().catch(() => {});
+      },
       keepQueued: (path) =>
         commit(forceMine(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
       retryQueued: (path) =>

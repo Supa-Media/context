@@ -60,6 +60,7 @@ import {
 import { yCollab } from "y-codemirror.next";
 import { mayPersist, type SharedDoc } from "../presence/sharedDoc";
 import type { PresenceMember } from "../presence/protocol";
+import type { DurableCollaboration } from "../collaboration/durable";
 import {
   editability,
   editorExtensions,
@@ -171,6 +172,10 @@ export interface LiveEditorProps {
   value: string;
   editable: boolean;
   onChange: (text: string) => void;
+  /** Native WebView edits include the document version they were based on. */
+  onVersionedChange?: (text: string, baseSnapshot: string) => string | void;
+  /** Exact shared-document snapshot rendered into a native editor. */
+  documentRevision?: string;
   /** Save. Wired to Cmd/Ctrl-S, because that is what people press. */
   onSave: () => void;
   accessibilityLabel: string;
@@ -224,6 +229,7 @@ export interface LiveEditorProps {
     settled?: boolean;
     /** Whether this client is the one that writes to the bucket. */
     canWrite: boolean;
+    collaboration?: DurableCollaboration;
   };
   /**
    * Scroll the surface this editor is laid out inside, by `delta` points.
@@ -588,6 +594,8 @@ export function LiveEditor({
    */
   const presenceRef = useRef(presence);
   presenceRef.current = presence;
+  const settledRef = useRef(presence?.settled === true);
+  settledRef.current = presence?.settled === true;
   /**
    * Where the shared document is swapped in.
    *
@@ -1230,10 +1238,9 @@ export function LiveEditor({
       because those two disagree and the room losing is how a loaded note gets
       blanked.
     */
-    const settledEmptyRoom = () =>
-      presence?.settled === true && current.state.doc.length === 0;
+    const settledEmptyRoom = () => settledRef.current && current.state.doc.length === 0;
 
-    if (room.text.length > 0 || settledEmptyRoom()) {
+    if (presence?.collaboration?.ready === true || room.text.length > 0 || settledEmptyRoom()) {
       bind();
     } else {
       watching = true;
