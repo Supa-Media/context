@@ -4,5 +4,5 @@ export const STAGING_DATA_WARNING = "Staging is for testing only. Data may be de
 
 export function StagingPill() {
   if (process.env.EXPO_PUBLIC_SITE_ORIGIN !== "https://staging.context.lc") return null;
-  return <Pill tone="warn" testID="staging-pill">Staging</Pill>;
+  return <Pill tone="warn" style={{ alignSelf: "center" }} testID="staging-pill">Staging</Pill>;
 }
