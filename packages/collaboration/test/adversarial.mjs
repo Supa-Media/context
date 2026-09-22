@@ -213,6 +213,93 @@ test('move recovers when the process disappears after each storage mutation',asy
   }
 });
 
+test('an aborted move clears its prepared destination after the copied body is journaled',async()=>{
+  const store=new Bucket();await store.put('from.md','Original source.');
+  let injected=false;
+  const put=store.put.bind(store);
+  store.put=async(key,value,options={})=>{
+    const result=await put(key,value,options);
+    if(!injected&&key==='to.md'&&options.onlyIf?.absent===true){
+      injected=true;
+      await put('from.md','Source changed during the move.');
+    }
+    return result;
+  };
+  const get=store.get.bind(store);let reads=0;
+  store.get=async(...args)=>{if(++reads>160)throw new Error('move recovery exceeded test operation budget');return get(...args);};
+  await assert.rejects(moveDocument(store,'from.md','to.md'),error=>error.code==='DESTINATION_EXISTS');
+  assert.equal(injected,true);
+  assert.equal(await (await get('from.md')).text(),'Source changed during the move.');
+  await assert.rejects(readDocument(store,'to.md'),error=>error.code==='DOCUMENT_MISSING');
+  assert.ok(reads<160);
+});
+
+test('a recreated destination after an aborted move becomes an independent generation',async()=>{
+  const store=new Bucket();await store.put('from.md','Original source.');
+  let injected=false;
+  const put=store.put.bind(store);
+  store.put=async(key,value,options={})=>{
+    const result=await put(key,value,options);
+    if(!injected&&key==='to.md'&&options.onlyIf?.absent===true){
+      injected=true;
+      await put('from.md','Source changed during the move.');
+    }
+    return result;
+  };
+  await assert.rejects(moveDocument(store,'from.md','to.md'),error=>error.code==='DESTINATION_EXISTS');
+  store.put=put;
+  const recreated=await put('to.md','Independent destination.',{onlyIf:{absent:true}});
+  assert.ok(recreated);
+  const opened=await readDocument(store,'to.md');
+  assert.equal(opened.text,'Independent destination.');
+  assert.equal(await (await store.get('to.md')).text(),'Independent destination.');
+});
+
+test('an edit racing the destination copy is preserved when ownership was not journaled',async()=>{
+  const store=new Bucket();await store.put('from.md','Original source.');
+  let injected=false;
+  const put=store.put.bind(store);
+  store.put=async(key,value,options={})=>{
+    const result=await put(key,value,options);
+    if(!injected&&key==='to.md'&&options.onlyIf?.absent===true){
+      injected=true;
+      queueMicrotask(()=>{void put('to.md','Independent writer.');});
+    }
+    return result;
+  };
+  await assert.rejects(moveDocument(store,'from.md','to.md'),error=>error.code==='DESTINATION_EXISTS');
+  store.put=put;
+  assert.equal(await (await store.get('to.md')).text(),'Independent writer.');
+  assert.equal(await (await store.get('from.md')).text(),'Original source.');
+  const opened=await readDocument(store,'to.md');
+  assert.equal(opened.text,'Independent writer.');
+});
+
+test('an interrupted aborted-move cleanup resumes from its journal',async()=>{
+  const store=new Bucket();await store.put('from.md','Original source.');
+  let injected=false,interruptCleanup=true;
+  const put=store.put.bind(store),remove=store.delete.bind(store);
+  store.put=async(key,value,options={})=>{
+    const result=await put(key,value,options);
+    if(!injected&&key==='to.md'&&options.onlyIf?.absent===true){
+      injected=true;
+      await put('from.md','Source changed during the move.');
+    }
+    return result;
+  };
+  store.delete=async(key,options={})=>{
+    if(interruptCleanup&&key==='to.md'){interruptCleanup=false;throw new Error('simulated cleanup interruption');}
+    return remove(key,options);
+  };
+  await assert.rejects(moveDocument(store,'from.md','to.md'),error=>error.message==='simulated cleanup interruption');
+  store.put=put;store.delete=remove;
+  let reads=0;const get=store.get.bind(store);
+  store.get=async(...args)=>{if(++reads>160)throw new Error('move recovery exceeded test operation budget');return get(...args);};
+  await assert.rejects(readDocument(store,'to.md'),error=>error.code==='DOCUMENT_MISSING');
+  assert.ok(reads<160);
+  assert.equal(await (await get('from.md')).text(),'Source changed during the move.');
+});
+
 test('the plaintext protocol rejects hidden maps and embedded objects',async()=>{
   for(const kind of ['map','embed']) {
     const store=new Bucket();await store.put('note.md','Plain prose.');
