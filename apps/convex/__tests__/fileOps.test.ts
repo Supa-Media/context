@@ -4180,6 +4180,31 @@ describe("resetting a privacy.md that cannot be read", () => {
     });
   });
 
+  test("a missing manifest repair loses to a concurrent conditional create", async () => {
+    const store = memoryStore({ conditional: true }) as MemoryStore & FileStore;
+    store.seed("1-projects/a.md", "# A\n");
+    const winner = renderPrivacyManifest("para");
+    const realPut = store.put.bind(store);
+    let raced = false;
+    store.put = async (key, body, options) => {
+      if (key === PRIVACY_KEY && options?.onlyIf?.absent === true && !raced) {
+        raced = true;
+        // A second repair (or a direct provider writer) wins the one absent
+        // slot before this invocation's create reaches the backend. The first
+        // writer must surface a conflict and leave the winner byte-for-byte.
+        expect(await realPut(key, winner, { onlyIf: { absent: true } })).not.toBeNull();
+      }
+      return realPut(key, body, options);
+    };
+
+    const error = await capture(() =>
+      resetPrivacyManifest(store, { clearance: clearanceOf("private"), now: NOW }),
+    );
+
+    expect(error.code).toBe("CONFLICT");
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(winner);
+  });
+
   test("a manifest that parses is refused — this is not a way to flatten one", async () => {
     const store = bucket();
     await shareProjects(store);

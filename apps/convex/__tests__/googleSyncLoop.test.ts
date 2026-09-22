@@ -44,6 +44,7 @@ import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { readDocument, replaceText } from "@context/collaboration";
 import { S3Store } from "../../mcp/src/store/s3.js";
+import { withLogicalDelete, isLogicalDeleteMarker } from "../../mcp/src/store/logicalDelete.js";
 import {
   DEFAULT_SYNC_INTERVAL_MINUTES,
   MAX_SYNC_BACKOFF_MS,
@@ -1816,11 +1817,11 @@ describe("one pass, end to end, through the credential barrier", () => {
     vi.stubGlobal("fetch", calendarAndBucket({ backend }).fetchImpl);
     await runPass(t, workspaceId, connectionId);
 
-    const store = new S3Store({
+    const store = withLogicalDelete(new S3Store({
       ...FAKE_STORAGE,
       forcePathStyle: true,
       fetchImpl: backend.fetchImpl,
-    });
+    }));
     const initial = await readDocument(store, path);
     const edited = await replaceText(store, path, {
       documentId: initial.documentId,
@@ -1868,7 +1869,8 @@ describe("one pass, end to end, through the credential barrier", () => {
       }).fetchImpl,
     );
     await runPass(t, workspaceId, connectionId);
-    expect(backend.snapshot()[path]).toBeUndefined();
+    expect(isLogicalDeleteMarker(backend.snapshot()[path])).toBe(true);
+    expect(await store.get(path)).toBeNull();
     await expect(readDocument(store, path)).rejects.toMatchObject({ code: "DELETED" });
   });
 

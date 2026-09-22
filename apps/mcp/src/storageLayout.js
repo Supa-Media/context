@@ -8,6 +8,9 @@ import {
 
 const DEFAULT_BATCH_SIZE = 8;
 const MAX_BATCH_SIZE = 8;
+// A logical-delete listing may spend physical pages on hidden tombstones.
+// Keep this bounded, but never mistake an incomplete scan for an empty prefix.
+const MAX_LEGACY_SCAN_PAGES = 100;
 const STATE_BYTE_CAP = 128_000;
 export const STORAGE_LAYOUT_ROLLBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const PRESERVED_CONTENT_TYPES = new Set([
@@ -228,13 +231,14 @@ export async function readStorageLayoutState(store) {
  * first console load, and `Not now` was the only thing that ever ended it.
  *
  * So the question the offer actually rests on is asked directly: is any pre-v1
- * plumbing in this bucket? Nine `list`s capped at one object each, and only
- * ever on the path where there is no state file to read. None of them means
- * the hidden files are already on the current layout, which is `complete` —
- * the same answer a migrated bucket gives, because it is the same fact.
+ * plumbing in this bucket? Each legacy prefix gets a bounded cursor walk, and
+ * only ever on the path where there is no state file to read. Complete walks
+ * with no objects mean the hidden files are already on the current layout,
+ * which is `complete` — the same answer a migrated bucket gives, because it is
+ * the same fact.
  *
- * Read-only, like the rest of this observation: `list` with `limit: 1`, no
- * `put`, no `delete`, no capability requirement.
+ * Read-only, like the rest of this observation: bounded `list` calls with a
+ * generous page hint, no `put`, no `delete`, no capability requirement.
  *
  * A store that will not answer is **not** read as empty. Listing is how the
  * offer gets closed, and closing it on a bucket we could not see into would
@@ -246,8 +250,24 @@ async function hasLegacyPlumbing(store) {
   if (typeof store.list !== "function") return true;
   for (const [legacy] of LEGACY_STORAGE_PREFIXES) {
     try {
-      const page = await store.list({ prefix: legacy, limit: 1 });
-      if ((page?.objects?.length ?? 0) > 0) return true;
+      let cursor;
+      let complete = false;
+      for (let pageNumber = 0; pageNumber < MAX_LEGACY_SCAN_PAGES; pageNumber += 1) {
+        const page = await store.list({ prefix: legacy, cursor, limit: 1_000 });
+        if ((page?.objects?.length ?? 0) > 0) return true;
+        if (!page?.truncated) {
+          complete = true;
+          break;
+        }
+        // An empty truncated page can be a hidden tombstone page. A missing
+        // or repeated cursor is an incomplete answer, so conservatively keep
+        // the migration offer visible.
+        if (!page.cursor || page.cursor === cursor) return true;
+        cursor = page.cursor;
+      }
+      // Reaching the bound is unknown, never evidence that the prefix is
+      // empty. This preserves the safe legacy behavior for huge buckets.
+      if (!complete) return true;
     } catch {
       return true;
     }

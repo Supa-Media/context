@@ -29,6 +29,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3, type MemoryS3Options } from "./storeStub.helpers";
+import { isLogicalDeleteMarker } from "../../mcp/src/store/logicalDelete.js";
 import {
   FAKE_STORAGE,
   type TestConvex,
@@ -677,7 +678,9 @@ describe("Obsidian plugin inventory", () => {
       workspaceId: f.workspaceId,
     });
     expect(after.plugins[0]).toMatchObject({ source: "obsidian", version: "0.9.0" });
-    expect(f.backend.snapshot()).not.toHaveProperty(".context/plugins/virtual-linker/current.json");
+    expect(isLogicalDeleteMarker(
+      f.backend.snapshot()[".context/plugins/virtual-linker/current.json"],
+    )).toBe(true);
     expect(f.backend.snapshot()).toHaveProperty(
       ".context/plugins/virtual-linker/releases/1.1.0/main.js",
     );
@@ -1583,7 +1586,8 @@ describe("Obsidian vault import", () => {
       totalObjects: 215,
       deletedObjects: 100,
     });
-    expect(Object.keys(f.backend.snapshot())).toHaveLength(115);
+    expect(Object.values(f.backend.snapshot()).filter((body) => !isLogicalDeleteMarker(body))).toHaveLength(115);
+    expect(Object.values(f.backend.snapshot()).filter(isLogicalDeleteMarker)).toHaveLength(100);
 
     await owner.action(api.functions.files.clearVaultImportBatch, {
       workspaceId: f.workspaceId,
@@ -1600,7 +1604,8 @@ describe("Obsidian vault import", () => {
       totalObjects: 215,
       deletedObjects: 215,
     });
-    expect(f.backend.snapshot()).toEqual({});
+    expect(Object.values(f.backend.snapshot()).filter((body) => !isLogicalDeleteMarker(body))).toEqual([]);
+    expect(Object.values(f.backend.snapshot()).filter(isLogicalDeleteMarker)).toHaveLength(215);
 
     const complete = await owner.action(api.functions.files.importVaultJobBatch, {
       workspaceId: f.workspaceId,

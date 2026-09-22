@@ -215,13 +215,38 @@ export async function clearVaultBatch(
     );
   }
 
-  const page = await store.list({ limit: VAULT_CLEAR_BATCH_OBJECTS });
-  for (const object of page.objects) await store.delete(object.key);
-  return {
-    mode: "deleted",
-    objects: page.objects.length,
-    complete: page.truncated !== true,
-  };
+  // A logical-delete store can leave a physical tombstone at the front of
+  // the listing. Its filtered page is intentionally empty but still carries
+  // the provider cursor; follow those pages in this invocation so a vault
+  // clear does not make permanent zero-progress passes. We still start from
+  // the beginning on every retry because deleting while paging can otherwise
+  // skip live keys.
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
+    const page = await store.list({ cursor, limit: 1_000 });
+    if ((page.objects?.length ?? 0) > 0) {
+      const batch = page.objects.slice(0, VAULT_CLEAR_BATCH_OBJECTS);
+      for (const object of batch) await store.delete(object.key);
+      return {
+        mode: "deleted",
+        objects: batch.length,
+        complete:
+          page.truncated !== true && page.objects.length <= VAULT_CLEAR_BATCH_OBJECTS,
+      };
+    }
+    if (!page.truncated) return { mode: "deleted", objects: 0, complete: true };
+    if (!page.cursor || page.cursor === cursor) {
+      throw new FileOpError(
+        "LISTING_INCOMPLETE",
+        "Context could not finish clearing this bucket. Try again before replacing it.",
+      );
+    }
+    cursor = page.cursor;
+  }
+  throw new FileOpError(
+    "FOLDER_TOO_LARGE",
+    "This bucket is too large to clear safely in this flow.",
+  );
 }
 
 /**
@@ -2147,8 +2172,25 @@ async function historyKeysFor(
 
 /** Does this path name a folder (something has keys under it)? */
 async function isFolder(store: FileStore, path: string): Promise<boolean> {
-  const listing = await store.list({ prefix: `${path}/`, limit: 1 });
-  return (listing.objects ?? []).length > 0 || (listing.delimitedPrefixes ?? []).length > 0;
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
+    const listing = await store.list({ prefix: `${path}/`, cursor, limit: 1_000 });
+    if ((listing.objects ?? []).length > 0 || (listing.delimitedPrefixes ?? []).length > 0) {
+      return true;
+    }
+    if (!listing.truncated) return false;
+    if (!listing.cursor || listing.cursor === cursor) {
+      throw new FileOpError(
+        "LISTING_INCOMPLETE",
+        "Context could not determine whether this path is a folder.",
+      );
+    }
+    cursor = listing.cursor;
+  }
+  throw new FileOpError(
+    "FOLDER_TOO_LARGE",
+    "This folder is too large to inspect safely in this flow.",
+  );
 }
 
 export interface MoveResult {
@@ -4462,7 +4504,9 @@ export async function resetPrivacyManifest(
     store.capabilities?.conditionalWrite === true && state.etag !== null;
   const put = conditional
     ? await store.put(PRIVACY_KEY, text, { onlyIf: { etagMatches: state.etag! } })
-    : await store.put(PRIVACY_KEY, text);
+    : state.text === null && store.capabilities?.conditionalCreate === true
+      ? await store.put(PRIVACY_KEY, text, { onlyIf: { absent: true } })
+      : await store.put(PRIVACY_KEY, text);
   if (put === null) {
     // Somebody repaired it — or fixed it by hand in Obsidian — between our read
     // and our write. Theirs stands; re-reading is the console's next move
