@@ -119,7 +119,10 @@ async function inspect(object, key) {
   // Some providers replace MIME metadata. Recognize the reserved exact body
   // too, buffering a candidate only once. A known different byte size cannot
   // be a marker and keeps native R2's lazy body untouched.
-  const stampCandidate = isMarkdownPath(key) && isMarkdownContentType(contentType);
+  // A provider/proxy may return a stamped Markdown object as text/plain or
+  // with no MIME metadata. The footer is the generation discriminator; MIME
+  // is validated only on writes, never used to hide a valid stamp.
+  const stampCandidate = isMarkdownPath(key);
   if (contentType !== LOGICAL_DELETE_CONTENT_TYPE && !stampCandidate &&
       typeof object.size === "number" && object.size !== MARKER_BODY_BYTES) {
     return { object, marker: null };
@@ -288,6 +291,14 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
         return store.put(key, stamped.value, putOptions(stamped.options, { etagMatches: inspected.object.etag }));
       }
       if (options.onlyIf?.etagMatches !== undefined && options.onlyIf.etagMatches !== inspected.object.etag) return null;
+      // Internal lifecycle metadata has historically used unconditional puts.
+      // Once its key is represented by a tombstone, preserve that API while
+      // fencing the replacement against the marker generation. User paths
+      // still require an explicit absent recreation to avoid reviving stale
+      // writers over a logical delete.
+      if (isInternalMetadataPath(key) && canLogicalWrite) {
+        return store.put(key, value, putOptions(options, { etagMatches: inspected.object.etag }));
+      }
       // A caller must explicitly recreate a logically deleted path with an
       // absent precondition. Do not let an old unconditional writer overwrite
       // a generation fence.

@@ -193,16 +193,29 @@ test("stamps Markdown recreations so content-hash ETags cannot ABA-delete them",
   const restored = await restarted.put("note.md", body, { onlyIf: { etagMatches: changedEtag } });
   assert.notEqual(restored.etag, changedEtag);
   assert.equal(await (await restarted.get("note.md")).text(), body);
+  // A restart through an adapter that drops MIME metadata must still recover
+  // the generation footer and keep subsequent writes stamped.
+  raw.objects.get("note.md").contentType = "text/plain";
+  const mimeRestarted = withLogicalDelete(raw);
+  assert.equal(await (await mimeRestarted.get("note.md")).text(), body);
+  const mimeWrite = await mimeRestarted.put("note.md", "mime update", {
+    onlyIf: { etagMatches: restored.etag },
+  });
+  assert.ok(mimeWrite);
+  assert.match(new TextDecoder().decode(raw.objects.get("note.md").body), /<!-- context-generation:v1:[0-9a-f]{32} -->$/);
+  assert.equal(await mimeRestarted.put("note.md", "stale", {
+    onlyIf: { etagMatches: restored.etag },
+  }), null);
 
   await restarted.put("copy.md", "old copy");
   const copyBefore = await restarted.get("copy.md");
   await restarted.delete("copy.md", { onlyIf: { etagMatches: copyBefore.etag } });
   const copied = await restarted.copy("note.md", "copy.md", {
     onlyIf: { absent: true },
-    sourceOnlyIf: { etagMatches: restored.etag },
+    sourceOnlyIf: { etagMatches: mimeWrite.etag },
   });
   assert.ok(copied);
-  assert.equal(await (await restarted.get("copy.md")).text(), body);
+  assert.equal(await (await restarted.get("copy.md")).text(), "mime update");
 });
 
 test("internal JSON metadata recreates without a Markdown footer", async () => {
@@ -213,8 +226,10 @@ test("internal JSON metadata recreates without a Markdown footer", async () => {
   const store = withLogicalDelete(raw);
   const before = await store.get(key);
   await store.delete(key, { onlyIf: { etagMatches: before.etag } });
-  await store.put(key, body, { onlyIf: { absent: true }, contentType: "application/json" });
+  const recreated = await store.put(key, body, { contentType: "application/json" });
+  assert.ok(recreated);
   assert.equal(new TextDecoder().decode(raw.objects.get(key).body), body);
+  assert.equal(await store.put(key, "stale", { onlyIf: { etagMatches: before.etag }, contentType: "application/json" }), null);
 });
 
 test("simultaneous stamped Markdown recreates still have one CAS winner", async () => {
