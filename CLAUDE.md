@@ -204,17 +204,13 @@ change that would break a non-negotiable, or work framed as a spike — each a
 statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
-**Merging deploys, and that is the point rather than a reason to hold.** `main`
-pushes the Convex functions, the gateway Worker and an OTA update on its own,
-so an agent that merges is shipping — which is what "finished" has always meant
-here. It is never grounds for stopping at a green branch to check first: the
-confirmation an outward-facing action would otherwise need was given by this
-paragraph. What stops you is unchanged — red CI, a conflict that needs a guess,
-a non-negotiable in the way. What a merge cannot do on its own is a separate
-ask and is not covered: a native build, a store submission, rotating a secret.
-The first two now have a workflow — `deploy-mobile-native.yml` — and it is
-`workflow_dispatch` only, which restates this rather than changing it: shipping
-a binary is still a decision somebody takes, not something a merge does.
+**Merging deploys to staging; production is a separate manual action.** Every
+merge to `main` runs `Deploy Staging`. Finish the PR and verify staging without
+asking again. Production requires an explicit request to run `Deploy to
+Production`, which deploys the run's fixed `main` commit only after that commit
+has passed staging. Do not trigger production as a side effect of merging.
+Desktop releases, native builds, store submissions and secret rotation remain
+separate explicit actions. See [staging](./docs/staging.md).
 
 **A session that fanned work out to several agents is not finished when the
 agents are.** Subagents do not open pull requests; whoever dispatched them owns

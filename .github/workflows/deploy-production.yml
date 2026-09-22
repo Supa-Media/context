@@ -1,0 +1,73 @@
+name: Deploy to Production
+
+# Promote the commit selected by this manual run, after it passed staging.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+jobs:
+  validate:
+    name: Require a successful staging deployment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: node scripts/production-release.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  convex:
+    needs: validate
+    uses: ./.github/workflows/deploy-convex.yml
+    secrets: inherit
+
+  gateway:
+    needs: convex
+    uses: ./.github/workflows/deploy-mcp.yml
+    secrets: inherit
+
+  email:
+    needs: convex
+    uses: ./.github/workflows/deploy-email-worker.yml
+    secrets: inherit
+
+  transcribe:
+    needs: convex
+    uses: ./.github/workflows/deploy-transcribe-worker.yml
+    secrets: inherit
+
+  egress:
+    needs: convex
+    uses: ./.github/workflows/deploy-egress-service.yml
+    secrets: inherit
+
+  sentry:
+    needs: validate
+    uses: ./.github/workflows/deploy-sentry-worker.yml
+    secrets: inherit
+
+  web:
+    needs: [gateway, email, transcribe, egress]
+    uses: ./.github/workflows/deploy-web.yml
+    secrets: inherit
+
+  router:
+    needs: web
+    uses: ./.github/workflows/deploy-router.yml
+    secrets: inherit
+
+  mobile-update:
+    needs: router
+    uses: ./.github/workflows/deploy-mobile-update.yml
+    secrets: inherit

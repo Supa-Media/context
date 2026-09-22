@@ -243,8 +243,9 @@ jobs:
       # bridge, and the control plane imports plenty of the gateway — so its
       # deploy has to notice when any of that changes. It stopped noticing, for
       # six source trees, and nothing said so; see the script's header.
-      - name: A Convex deploy is triggered by everything it bundles
+      - name: Releases require staging and cover everything Convex bundles
         run: |
+          node --test scripts/production-release.test.mjs
           node scripts/check-convex-deploy-paths.mjs --self-test
           node scripts/check-convex-deploy-paths.mjs
 

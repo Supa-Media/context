@@ -3,20 +3,8 @@ name: Deploy Desktop (build the Mac app)
 # A `.dmg` of the meeting recorder, built on a Mac runner — signed and notarised
 # when the credentials exist, and honestly unsigned when they do not.
 #
-# ## Why `main` triggers it
-#
-# The desktop app is the native shell for the same product runtime the mobile
-# app updates over the air. A merge that changes the shell or a package bundled
-# into it should reach installed Macs once the same release gates below pass:
-# tests, typecheck, signing, notarisation, icon verification and an actual app
-# launch. If a release is bad, the fix is another merge and another release,
-# not a hand-maintained queue of desktop changes.
-#
-# The manual dispatch path remains for artifact-only builds and for an explicit
-# release of the committed package version. The automatic push path is stricter:
-# it only publishes when the build is signed and notarised, and it stamps the
-# ephemeral checkout with a monotonically increasing patch version before
-# packaging so `electron-updater` sees the release as newer.
+# Desktop builds and releases are manual. Use the publish input to release a
+# signed, notarised build; a merge to main only deploys staging.
 #
 # ## Signed or not, and what the difference costs
 #
@@ -49,21 +37,6 @@ name: Deploy Desktop (build the Mac app)
 # that with.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/desktop/**"
-      - "packages/desktop-bridge/**"
-      - "packages/hook/**"
-      - "packages/communications/**"
-      - "packages/meetings/**"
-      - "apps/mcp/**"
-      - "packages/collaboration/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".npmrc"
-      - ".github/workflows/deploy-desktop.yml"
   workflow_dispatch:
     inputs:
       reason:
@@ -343,21 +316,11 @@ jobs:
             echo "notarized=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Whether this run may create a release, decided once rather than
-      # inlined into the Build step below. A push to `main` is a publish
-      # request; a manual dispatch is one only when its `publish` input says
-      # so. Either way, a release still requires a signed and notarised build.
-      # A manual publish request that cannot deliver that is a warning and an
-      # artifact-only build, never a failure — the same honesty this file
-      # already gives an unsigned dispatch. An automatic push with missing
-      # credentials also lands as artifact-only rather than a broken public
-      # release; the red build is the missing release, not an unsigned app
-      # uploaded to everyone.
+      # Only an explicit publish input can create a signed, notarised release.
       - name: Decide whether to publish
         id: decide
         env:
-          PUBLISH_REQUESTED: ${{ github.event_name == 'push' || inputs.publish == true }}
-          EVENT_NAME: ${{ github.event_name }}
+          PUBLISH_REQUESTED: ${{ inputs.publish == true }}
           SIGNED: ${{ steps.certificate.outputs.signed }}
           NOTARIZED: ${{ steps.notarize_check.outputs.notarized }}
         run: |
@@ -368,10 +331,6 @@ jobs:
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
             if [ "$PUBLISH_REQUESTED" = "true" ]; then
-              if [ "$EVENT_NAME" = "push" ]; then
-                echo "::error::A desktop-relevant push to main is an automatic release request, but this build is $( [ "$SIGNED" = "true" ] && echo unnotarised || echo unsigned ). Fix the production signing/notarisation secrets or revert the desktop change."
-                exit 1
-              fi
               echo "::warning::publish was requested but this build is $( [ "$SIGNED" = "true" ] && echo unnotarised || echo unsigned ) — uploading an artifact only, no release."
             fi
           fi
@@ -379,8 +338,7 @@ jobs:
       # The app version that goes into Info.plist, latest-mac.yml and the tag.
       #
       # Artifact-only manual dispatches keep the committed
-      # `apps/desktop/package.json` version. Any run that will publish — an
-      # automatic `push` release or a manual dispatch with `publish: true` —
+      # `apps/desktop/package.json` version. Any manual dispatch with `publish: true`
       # patches only this runner's checkout to `<major>.<minor>.<run_number>`.
       # That gives every release a semver-increasing version without
       # committing release-number churn back to `main`, and it keeps the Build

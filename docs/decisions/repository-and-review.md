@@ -157,3 +157,21 @@ re-opens it the next time somebody adds an import. Dropping the checker leaves
 the filter unverified again, which is the state it was already in. Checking the
 reverse direction — a path covering nothing — would fail CI for something
 harmless and get the whole guard deleted.
+
+## Main deploys staging; production requires a manual release
+
+Decided 2026-09-22: every merge to `main` deploys staging, matching Togather's
+release flow. `Deploy to Production` is an explicit manual action, and refuses
+a commit without a successful staging deployment. Component deploy workflows
+are reusable jobs called from that action at the same commit. Convex precedes
+services, and services precede the web app and OTA. Desktop releases and native
+store builds remain separately requested manual actions.
+
+The standing instruction to finish and merge green PRs remains; it no longer
+authorizes an automatic production deployment. `production-release.test.mjs`
+checks that no deployment workflow except staging has an automatic trigger,
+and proves failed, pending and mismatched staging runs cannot pass promotion.
+
+The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
+push covers every bundled file, including future packages. Production deploys
+the whole backend when explicitly promoted, so it has no path filter to drift.

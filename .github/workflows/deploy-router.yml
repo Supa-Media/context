@@ -1,5 +1,5 @@
 # Deploy context-router — the Cloudflare Worker fronting https://context.lc —
-# on every merge to `main`.
+# when called by the manual production workflow.
 #
 # The router is the front door: every request for the web app and every request
 # in the sign-in flow passes through it. A broken deploy takes the whole site
@@ -12,14 +12,7 @@
 name: Deploy Router (production)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "infra/router/**"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".github/workflows/deploy-router.yml"
-  workflow_dispatch:
+  workflow_call:
 
 # Never on `pull_request`: a deploy triggered by a pull request from a branch
 # pushed HERE would run unreviewed code with the account's Cloudflare
