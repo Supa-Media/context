@@ -98,6 +98,10 @@ jobs:
         working-directory: apps/mcp
         run: node test/test.mjs
 
+      - name: Test live relay grant permissions
+        working-directory: apps/mcp
+        run: node --test test/liveGrantAccess.test.js
+
       - name: Test collaboration storage and recovery
         run: pnpm --filter @context/collaboration test
 
