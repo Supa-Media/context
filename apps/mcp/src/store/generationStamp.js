@@ -1,4 +1,8 @@
-import { eligible } from "@context/collaboration";
+// Import only the dependency-free path predicate. Importing the collaboration
+// package root here would pull Yjs into every storage-adapter consumer,
+// including the email Worker that shares these adapters but does not merge
+// documents.
+import { eligibleForStorageStamp } from "../../../../packages/collaboration/src/eligibility.js";
 import { isEncryptedNote, parseEncryptedNote } from "../encryption.js";
 
 /**
@@ -32,7 +36,7 @@ export function isInternalMetadataPath(path) {
 
 /** Eligible plaintext or validated encrypted Markdown may carry a stamp. */
 export function isStampEligible(path, text) {
-  if (typeof text !== "string" || !eligible(normalizedMarkdownPath(path), "")) return false;
+  if (typeof text !== "string" || !eligibleForStorageStamp(normalizedMarkdownPath(path), "")) return false;
   if (isEncryptedNote(text)) {
     try {
       parseEncryptedNote(text);
@@ -41,7 +45,7 @@ export function isStampEligible(path, text) {
       return false;
     }
   }
-  return eligible(normalizedMarkdownPath(path), text);
+  return eligibleForStorageStamp(normalizedMarkdownPath(path), text);
 }
 
 /**

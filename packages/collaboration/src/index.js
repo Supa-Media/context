@@ -1,5 +1,8 @@
 import * as Y from "yjs";
 import { diffChars as provenDiffChars } from "diff";
+import { eligible } from "./eligibility.js";
+
+export { eligible } from "./eligibility.js";
 
 const SCHEMA_VERSION = 1;
 const ROOT = ".context/collaboration/v1";
@@ -370,20 +373,6 @@ function trashOriginalPath(path) {
 
 function lifecyclePath(path, internalTrash) {
   return eligible(path, "") || (internalTrash === true && eligible(trashOriginalPath(path), ""));
-}
-
-/** Whether a path and its stored text are supported by the plaintext editor. */
-export function eligible(path, text = "") {
-  if (typeof path !== "string" || typeof text !== "string" || path.length === 0 || path.startsWith("/") || !path.endsWith(".md")) return false;
-  const parts = path.split("/");
-  const basename = parts.at(-1) || "";
-  if (parts.some((part) => part === "" || part.startsWith("."))) return false;
-  if (basename === "privacy.md") return false;
-  if (/\.(?:excalidraw(?:\.md)?|excalidraw\.json)$/i.test(basename)) return false;
-  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-  const frontmatterEnd = body.startsWith("---") ? body.indexOf("\n---", 3) : -1;
-  if (frontmatterEnd >= 0 && /^\s*context_encryption\s*:\s*v?\d+\s*$/m.test(body.slice(3, frontmatterEnd))) return false;
-  return true;
 }
 
 function assertTextSize(text) {
