@@ -77,6 +77,15 @@ import { MANAGED_BUCKET_PREFIX, managedAccountId } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
 import { isProductionTestAccount } from "./lib/testAccount";
 
+/** Server-only: the platform URL must match the deployment selected by staging CI. */
+function stagingStorageIsFree(): boolean {
+  const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
+  return process.env.APP_ENV === "staging" &&
+    process.env.APP_ORIGIN === "https://staging.context.lc" &&
+    Boolean(deployment) &&
+    process.env.CONVEX_CLOUD_URL === `https://${deployment}.convex.cloud`;
+}
+
 /** How long a minted checkout or portal URL stays usable from our side. */
 const SESSION_TTL_MS = 15 * 60 * 1000;
 
@@ -177,7 +186,7 @@ function deploymentSells(): boolean {
  * The throw is still the right behaviour where provisioning itself reads it.
  */
 function deploymentProvidesManagedStorage(): boolean {
-  if (!deploymentSells()) return false;
+  if (!stagingStorageIsFree() && !deploymentSells()) return false;
   try {
     return managedAccountId() !== null;
   } catch {
@@ -298,6 +307,7 @@ export const status = query({
     ),
     /** Exact production CUJ account; owner only. */
     isTestAccount: v.optional(v.boolean()),
+    stagingFreeStorage: v.optional(v.boolean()),
   }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
@@ -331,8 +341,8 @@ export const status = query({
       // is a configuration fact, and a public function may not reach the key
       // that would make the answer complete. A deployment with a price id and
       // no payment key fails at the checkout with our own sentence.
-      configured: deploymentSells(),
-      priceCents: PREMIUM_PRICE_CENTS,
+      configured: stagingStorageIsFree() || deploymentSells(),
+      priceCents: stagingStorageIsFree() ? 0 : PREMIUM_PRICE_CENTS,
       currency: PREMIUM_CURRENCY,
       interval: PREMIUM_INTERVAL,
       ceilingBytes: MANAGED_STORAGE_CEILING_BYTES,
@@ -364,15 +374,16 @@ export const status = query({
         ? migration?.objectsProcessedInPhase
         : undefined,
       managedMigrationPhase: isOwner ? migration?.phase : undefined,
+      stagingFreeStorage: stagingStorageIsFree(),
       isTestAccount: isOwner ? isProductionTestAccount(user) : undefined,
     };
   },
 });
 
 /**
- * Activate Premium without Stripe for the one dedicated production CUJ user.
- * The exact verified identity is checked server-side; the client flag is only
- * presentation. Every workspace is still independently selected and owned.
+ * Activate selected services without Stripe on staging, or for the dedicated
+ * production CUJ user. Both exceptions are checked server-side; client flags
+ * are presentation only. Every workspace is still independently selected and owned.
  */
 export const activateTestPremium = mutation({
   args: { workspaceId: v.id("workspaces") },
@@ -381,7 +392,7 @@ export const activateTestPremium = mutation({
     const userId = await requireUserId(ctx);
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
     const user = await ctx.db.get(userId);
-    if (!isProductionTestAccount(user)) {
+    if (!stagingStorageIsFree() && !isProductionTestAccount(user)) {
       throw new ConvexError({ code: "FORBIDDEN", message: "This test upgrade is not available." });
     }
 
@@ -398,6 +409,7 @@ export const activateTestPremium = mutation({
     if (plan === null) {
       throw new ConvexError({ code: "PLAN_MISSING", message: "Choose Premium features first." });
     }
+    if (plan.status === "active") return { active: true };
     await ctx.db.patch(plan._id, { status: "active", updatedAt: now });
 
     if (selected.managedStorage) {
@@ -422,7 +434,7 @@ export const activateTestPremium = mutation({
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: userId,
-      action: "billing.test_plan_activated",
+      action: stagingStorageIsFree() ? "billing.staging_plan_activated" : "billing.test_plan_activated",
       details: { managedStorage: selected.managedStorage, fastSearch: selected.fastSearch },
     });
     return { active: true };
@@ -569,6 +581,10 @@ export const startCheckout = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    if (stagingStorageIsFree()) {
+      throw new ConvexError({ code: "STAGING_NO_PAYMENT", message: "Storage is free on staging. Reload the app to create your bucket without payment." });
+    }
 
     const plan = await planFor(ctx, args.workspaceId);
     if (!hasAnyEntitlement(selectionOf(plan))) {

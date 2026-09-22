@@ -7,6 +7,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { StorageChoice } from "../../console/storage/StorageChoice";
 import type { ConnectFormValues } from "../../console/storage/connect";
 import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
+import { ManagedSettling } from "../../onboarding/steps/ManagedSettling";
 import { connectProgressLabel, type ConnectState } from "../../onboarding/verify";
 import type { ManagedOffer } from "../../onboarding/useManagedOffer";
 import { storageLede, WORKSPACE_AFTER_PAY } from "../create";
@@ -96,10 +97,14 @@ export function WorkspaceStorageStepBody({
   const progress = connectProgressLabel(connectState);
   const busy = connectState.kind === "binding" || connectState.kind === "verifying";
 
-  /*
-    There is no settling screen in this flow, and that is not an omission: the
-    person is at Stripe or at the workspace's console by then, never here.
-  */
+  if (managed?.mode === "settling") {
+    return <ManagedSettling
+      state={{ paid: managed.paid, stagingFreeStorage: managed.status?.stagingFreeStorage,
+        storageReady: connectState.kind === "connected", slow: managed.slow, failure: managed.provisionFailure }}
+      contextName={`@${slug}`} onUseOwnStorage={managed.back} onRetry={managed.retry}
+    />;
+  }
+
   if (managed !== null && managed.mode === "confirm" && managed.status !== null) {
     return (
       <ManagedConfirm
@@ -135,7 +140,7 @@ export function WorkspaceStorageStepBody({
           managed={
             managed === null || !managed.available
               ? undefined
-              : { price: managed.price, onChoose: managed.choose }
+              : { price: managed.price, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
           }
         />
       )}

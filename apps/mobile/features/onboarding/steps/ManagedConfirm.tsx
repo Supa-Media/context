@@ -95,6 +95,7 @@ export function ManagedConfirm({
   onBack: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const free = status.stagingFreeStorage === true;
   const price = formatPrice(status);
   const chosen = status.selected.managedStorage || status.selected.fastSearch;
 
@@ -102,8 +103,8 @@ export function ManagedConfirm({
     <View>
       <Text variant="rowTitle">Context keeps your notes</Text>
       <Text variant="rowSub" style={styles.lede}>
-        You are subscribing to the services we run for this context. You are not buying
-        your files — those are yours either way, and always leave with you.
+        {free ? "Create a dedicated bucket for this staging workspace. No payment or card is required."
+          : "You are subscribing to the services we run for this context. You are not buying your files — those are yours either way, and always leave with you."}
       </Text>
 
       {/*
@@ -142,12 +143,12 @@ export function ManagedConfirm({
           the one somebody would be right to feel misled by later.
         */}
         <Hint style={styles.gap}>
-          <Text variant="rowSub">{EARLY_TESTER_PRICE_NOTE}</Text>
+          <Text variant="rowSub">{free ? "Free for testing on staging." : EARLY_TESTER_PRICE_NOTE}</Text>
         </Hint>
         <Hint style={styles.gap}>
           <Text variant="rowSub">
-            Billed monthly. Cancel any time from this context&apos;s settings; cancelling
-            never deletes a note. Up to {formatBytes(status.ceilingBytes)} of notes and
+            {free ? "No subscription. " : "Billed monthly. Cancel any time from this context’s settings; cancelling never deletes a note. "}
+            Up to {formatBytes(status.ceilingBytes)} of notes and
             attachments — stored bytes are not metered yet, and we will tell you long
             before it matters.
           </Text>
@@ -155,9 +156,9 @@ export function ManagedConfirm({
       </Card>
 
       <View style={styles.gap}>
-        <Text variant="eyebrow">What happens after you pay</Text>
+        <Text variant="eyebrow">{free ? "What happens next" : "What happens after you pay"}</Text>
         <View style={styles.steps}>
-          {afterPay.map((line, index) => (
+          {(free ? FIRST_RUN_AFTER_PAY.slice(1) : afterPay).map((line, index) => (
             <View key={line} style={styles.stepRow}>
               {/*
                 Numbered, because this genuinely is a sequence — three things
@@ -196,14 +197,14 @@ export function ManagedConfirm({
         */}
         <Button
           label={
-            state === "opening"
+            free ? (state === "opening" ? "Creating…" : "Create staging storage") : state === "opening"
               ? "Opening…"
               : state === "ready"
                 ? "Continue to Stripe"
                 : "Continue"
           }
           accessibilityLabel={
-            state === "ready"
+            free ? "Create staging storage without payment" : state === "ready"
               ? "Open the payment page, which is hosted by Stripe"
               : "Continue to payment"
           }
@@ -223,7 +224,7 @@ export function ManagedConfirm({
         {state === "opening" ? <ActivityIndicator size="small" /> : null}
       </Row>
       <Text variant="foot" style={styles.foot}>
-        Payment is handled by Stripe. We never see your card.
+{free ? "This workspace uses staging storage." : "Payment is handled by Stripe. We never see your card."}
       </Text>
 
       {/*

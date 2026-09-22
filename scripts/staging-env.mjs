@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 export function validateStaging(env) {
+  if (env.APP_ENV !== "staging") throw new Error("APP_ENV must be staging.");
   const deployment = env.STAGING_CONVEX_DEPLOYMENT;
   if (!deployment || !/^[a-z0-9-]+$/.test(deployment)) throw new Error('STAGING_CONVEX_DEPLOYMENT must name the staging deployment.');
   if (env.CONVEX_DEPLOY_KEY?.split('|')[0] !== `prod:${deployment}`) throw new Error('Deploy key does not target the staging deployment.');
@@ -12,7 +13,7 @@ export function validateStaging(env) {
   }
 }
 
-export const backendKeys = ['APP_ORIGIN', 'GATEWAY_SECRET', 'STORAGE_SECRET_ENCRYPTION_KEY', 'STORAGE_SECRET_ENCRYPTION_KEY_ID', 'JWT_PRIVATE_KEY', 'JWKS', 'ADMIN_EMAILS', 'AUTH_EMAIL_FROM', 'RESEND_API_KEY', 'EMAIL_WORKER_SECRET', 'TRANSCRIBE_WORKER_SECRET', 'TRANSCRIBE_WORKER_URL', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MAIL_CONNECT_ENABLED', 'CALENDAR_CONNECT_ENABLED', 'DROPBOX_APP_KEY', 'DROPBOX_APP_SECRET', 'PLUGIN_EGRESS_URL', 'PLUGIN_EGRESS_SECRET', 'STRIPE_PRICE_ID', 'STRIPE_WEBHOOK_SECRET', 'MANAGED_R2_ACCOUNT_ID'];
+export const backendKeys = ['APP_ENV', 'STAGING_CONVEX_DEPLOYMENT', 'APP_ORIGIN', 'GATEWAY_SECRET', 'STORAGE_SECRET_ENCRYPTION_KEY', 'STORAGE_SECRET_ENCRYPTION_KEY_ID', 'JWT_PRIVATE_KEY', 'JWKS', 'ADMIN_EMAILS', 'AUTH_EMAIL_FROM', 'RESEND_API_KEY', 'EMAIL_WORKER_SECRET', 'TRANSCRIBE_WORKER_SECRET', 'TRANSCRIBE_WORKER_URL', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MAIL_CONNECT_ENABLED', 'CALENDAR_CONNECT_ENABLED', 'DROPBOX_APP_KEY', 'DROPBOX_APP_SECRET', 'PLUGIN_EGRESS_URL', 'PLUGIN_EGRESS_SECRET', 'STRIPE_PRICE_ID', 'STRIPE_WEBHOOK_SECRET', 'MANAGED_R2_ACCOUNT_ID'];
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   validateStaging(process.env);
