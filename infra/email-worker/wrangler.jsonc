@@ -172,5 +172,18 @@
 
   "observability": {
     "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "context-email-staging",
+      "vars": {
+        "INGEST_DOMAIN": "staging.context.lc",
+        "NATIVE_BINDINGS": "",
+        "AUTH_SERVICE_ID": "mx.cloudflare.net",
+        "LOG_ARC_SHAPE": "",
+        "OPERATIONS_MAILBOX": "",
+        "MAX_MESSAGE_BYTES": "5000000"
+      }
+    }
   }
 }

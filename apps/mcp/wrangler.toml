@@ -180,3 +180,26 @@ max_batch_timeout = 5
 #
 # [triggers]
 # crons = ["0 5 * * *"]
+
+# Staging shares code with production, but owns its queue and presence objects.
+[env.staging]
+name = "context-mcp-staging"
+workers_dev = true
+
+[env.staging.vars]
+PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
+ALLOWED_ORIGINS = "https://staging.context.lc"
+SEARCH_SUBREQUEST_BUDGET = "600"
+
+[[env.staging.durable_objects.bindings]]
+name = "PRESENCE_ROOM"
+class_name = "PresenceRoom"
+
+[[env.staging.queues.producers]]
+binding = "GATEWAY_JOBS"
+queue = "context-gateway-jobs-staging"
+
+[[env.staging.queues.consumers]]
+queue = "context-gateway-jobs-staging"
+max_batch_size = 1
+max_batch_timeout = 5

@@ -44,7 +44,7 @@ module.exports = ({ config }) => {
 
   return {
     ...config,
-    name: "Context",
+    name: process.env.APP_ENV === "staging" ? "Context Staging" : "Context",
     slug: "context",
     version: "1.0.0",
     scheme: "context",

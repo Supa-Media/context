@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+test('staging gateway has its own origins, queue and presence namespace', () => {
+  const config = read('apps/mcp/wrangler.toml').split('[env.staging]')[1];
+  assert.ok(config, 'staging environment must exist');
+  assert.match(config, /name = "context-mcp-staging"/);
+  assert.match(config, /PUBLIC_ORIGIN = "https:\/\/mcp-staging.context.lc"/);
+  assert.match(config, /ALLOWED_ORIGINS = "https:\/\/staging.context.lc"/);
+  assert.equal((config.match(/queue = "context-gateway-jobs-staging"/g) || []).length, 2);
+  assert.doesNotMatch(config, /queue = "context-gateway-jobs"|script_name/);
+  assert.match(config, /\[\[env.staging.durable_objects.bindings\]\]/);
+});
+test('staging native builds use staging credentials', () => {
+  const workflow = read('.github/workflows/deploy-mobile-native.yml');
+  assert.match(workflow, /environment: \$\{\{ inputs.profile \}\}/);
+});
+test('staging profile sets both the gateway and sharing origin', () => {
+  const eas = JSON.parse(read('apps/mobile/eas.json'));
+  assert.equal(eas.build.staging.env.EXPO_PUBLIC_MCP_URL, 'https://mcp-staging.context.lc/mcp');
+  assert.equal(eas.build.staging.env.EXPO_PUBLIC_SITE_ORIGIN, 'https://staging.context.lc');
+});
+
+const { validateStaging } = await import('./staging-env.mjs');
+const valid = {
+  STAGING_CONVEX_DEPLOYMENT: 'staging-example-123',
+  CONVEX_DEPLOY_KEY: 'prod:staging-example-123|fake-test-key',
+  EXPO_PUBLIC_CONVEX_URL: 'https://staging-example-123.convex.cloud',
+  CONTROL_PLANE_URL: 'https://staging-example-123.convex.site',
+  APP_ORIGIN: 'https://staging.context.lc',
+  GATEWAY_SECRET: 'test', STORAGE_SECRET_ENCRYPTION_KEY: 'test',
+  JWT_PRIVATE_KEY: 'test', JWKS: 'test', EMAIL_WORKER_SECRET: 'test',
+  TRANSCRIBE_WORKER_SECRET: 'test', TRANSCRIBE_WORKER_URL: 'https://transcribe.example.invalid',
+};
+test('staging refuses production or mismatched secrets before deploying', () => {
+  assert.doesNotThrow(() => validateStaging(valid));
+  for (const changed of [
+    { CONVEX_DEPLOY_KEY: 'prod:production-example-456|fake-test-key' },
+    { CONTROL_PLANE_URL: 'https://production-example-456.convex.site' },
+    { EXPO_PUBLIC_CONVEX_URL: 'https://production-example-456.convex.cloud' },
+    { APP_ORIGIN: 'https://context.lc' },
+    { STAGING_CONVEX_DEPLOYMENT: '' },
+    { JWT_PRIVATE_KEY: '' },
+  ]) assert.throws(() => validateStaging({ ...valid, ...changed }));
+});
