@@ -11241,12 +11241,18 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     return toolError(`batch move aborted before deleting sources: ${error.message}`);
   }
 
+  const retiredMoves = [];
   try {
     for (const move of preflight) {
       const retired = await retireMovedSource(store, move.source, move.etag);
       if (retired !== "retired") throw new Error(`source changed during cleanup: ${move.source}`);
+      retiredMoves.push(move);
     }
   } catch (error) {
+    // The change that happened, before the error that reports it. See
+    // `recordPartialMove`: this state cannot be rolled back, so the only
+    // question left is whether the trail accounts for it.
+    await recordPartialMove(store, "move_notes", scope, preflight, retiredMoves);
     return toolError(
       `batch move partially applied; source cleanup stopped before all sources were deleted: ${error.message}`
     );
@@ -11280,6 +11286,64 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     }
   );
   return toolText(`moved notes: ${preflight.length}\n${planText}` + referencesLine(references));
+}
+
+/**
+ * The row a partly-applied batch owes.
+ *
+ * ## Why an error path writes an audit row at all
+ *
+ * The batch doors copy every destination first and then retire the sources one
+ * at a time. A retire that fails partway cannot be rolled back — earlier
+ * sources are already gone — so the tool reports `partially applied`, and for
+ * a while it reported that and nothing else: **the bucket had changed and the
+ * trail said nothing had happened.**
+ *
+ * The single-note door needs no equivalent, and the difference is the whole
+ * argument: every post-mutation failure in `toolMoveNote` deletes the
+ * destination it created before returning, so there is no change to account
+ * for. Here there is one, and this gateway already states the principle at a
+ * system path — without the re-probe's audit line *"the owner would find probe
+ * objects appearing and disappearing under `.context/` in a bucket they are
+ * told they own, with nothing in their trail that accounts for it."* A caller
+ * with write access can produce this state deliberately by racing a write
+ * against its own batch, which is exactly the case a trail exists for.
+ *
+ * So the row describes what is true afterwards rather than what was asked for:
+ * the pairs that completed, the destinations left standing beside a source
+ * that is still there, and the counts. `partial: true` is what lets a reader
+ * tell this row from the whole move it looks like.
+ */
+async function recordPartialMove(store, action, scope, planned, applied) {
+  const appliedSources = new Set(applied.map((move) => move.source));
+  const stranded = planned.filter((move) => !appliedSources.has(move.source));
+  await recordChange(
+    store,
+    action,
+    scope,
+    [
+      ...applied.flatMap((move) => [move.source, move.destination]),
+      ...stranded.map((move) => move.destination),
+    ],
+    {
+      partial: true,
+      moved: applied.length,
+      planned: planned.length,
+      copies_without_source_removed: stranded.length,
+      /*
+        The same event-time decision its success twin makes, over the same set.
+
+        `list_changes` shows a team connection only the rows whose
+        `team_visible` was true when they were written, and anything without
+        the flag fails closed. Omitting it here would have been safe and wrong
+        in a quieter way: a partly-applied move of team notes would vanish from
+        the trail of the very people it affected, while the owner saw it. The
+        flag is computed over every planned move, so one private destination
+        among them keeps the whole row owner-only.
+      */
+      team_visible: planned.every((move) => move.visibility === "team"),
+    },
+  );
 }
 
 async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destinationArg, dryRun) {
@@ -11417,13 +11481,18 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
     return toolError(`move aborted before deleting sources: ${error.message}`);
   }
 
+  const retiredFolderMoves = [];
   for (const move of moves) {
     const retired = await retireMovedSource(store, move.source, move.etag);
     if (retired !== "retired") {
+      // Same reason as the batch door above, and the same helper: the copies
+      // are written and some sources are gone, so the trail owes a row.
+      await recordPartialMove(store, "move_folder", scope, moves, retiredFolderMoves);
       return toolError(
         `folder move partially applied; source cleanup stopped before all sources were deleted: ${move.source}`
       );
     }
+    retiredFolderMoves.push(move);
   }
   for (const { source: path } of moves) await clearExactVisibility(store, path).catch(() => {});
   /*
