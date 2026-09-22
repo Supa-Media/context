@@ -113,7 +113,7 @@ jobs:
         run: node scripts/build-drawing-editor.mjs
       - name: Export staging web
         working-directory: apps/mobile
-        run: pnpm exec expo export --platform web
+        run: pnpm exec expo export --platform web --clear
       - name: Deploy staging web alias
         working-directory: apps/mobile
         run: eas deploy --alias staging --environment=preview --non-interactive
