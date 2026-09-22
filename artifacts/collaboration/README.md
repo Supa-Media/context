@@ -7,8 +7,10 @@ implementation, before the fixes on this branch.
 The same mounted-editor runner now exercises the durable collaboration
 implementation and writes `implementation-results.json`. Those results are
 separate from the baseline. Screenshots show the most recent implementation
-run. Work is still in review; these local results do not establish production
-sign-in or native behavior.
+run. The checked-in local run passed 42 checks before the final aborted-move
+recovery fix; final-head CI reruns this same browser gate and uploads its own
+evidence. These local results do not establish production sign-in or native
+behavior.
 
 ## What was exercised
 
