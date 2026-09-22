@@ -1,4 +1,3 @@
-import { StagingNotice } from "../features/app/StagingNotice";
 import { Slot } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
@@ -158,7 +157,6 @@ function AppGround() {
           the handshake and the argument for it.
         */}
         <RootShellTitleBand />
-        <StagingNotice />
         <View style={{ flex: 1, minHeight: 0 }}>
           <ErrorBoundary>
             <Slot />

@@ -392,5 +392,7 @@ Context pays the underlying Cloudflare usage. This replaces the proposal to hand
 out credentials for connecting production-managed buckets to staging.
 
 All staging-created managed buckets use the `staging-` prefix for operator
-cleanup. Staging is disposable: warn persistently in the app and before storage
-activation that data may be deleted at any time and must not hold vital information.
+cleanup. Staging is disposable: identify it with a compact Staging pill beside
+the console storage badge, and warn before storage activation that data may be
+deleted at any time and must not hold vital information. The full-width app
+banner was removed at the owner’s request.
