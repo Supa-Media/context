@@ -75,7 +75,6 @@ import {
   mergeLinkPaths,
   parentPath,
   isMarkdown,
-  withoutSortPrefix,
 } from "./paths";
 import { raceTimeout } from "../storage/timeout";
 import { useOfflineNotes } from "../../offline/useOfflineNotes";
@@ -212,6 +211,13 @@ const STALE_LISTING_MESSAGE =
  * reason — there the string is a destination being chosen, not a place being
  * reported.
  */
+/*
+  Its own function rather than `paths.ts`'s `folderLabel`, and the name is
+  shared deliberately: that one labels a folder's *name*, this one names a
+  *place* in a sentence and has the root's wording to give. Both are contained
+  — this one through `displayPath` — so the three toasts below that used to
+  trim a name by hand now go through a container either way.
+*/
 function folderLabel(folder: string): string {
   return folder === "" ? "the root of your context" : displayPath(folder);
 }
@@ -2722,7 +2728,7 @@ export function useFileBrowser(options: {
         const queued = offlineRef.current.queueFolder(path);
         if (!queued.ok) return setNotice(claimedMessage(name));
         setExpanded((current) => new Set([...current, path]));
-        queuedToast(`New folder ${withoutSortPrefix(name)}. Waiting to sync.`, queued.undo);
+        queuedToast(`New folder ${folderLabel(name)}. Waiting to sync.`, queued.undo);
         return;
       }
       /*
@@ -3178,7 +3184,7 @@ export function useFileBrowser(options: {
           // read this. (`rename`'s own `was`, above, keeps the whole name on
           // disk: that message is the undo of a rename, so the name it will
           // put back is exactly the point.)
-          message: `Archived ${withoutSortPrefix(baseName(path))}.`,
+          message: `Archived ${folderLabel(baseName(path))}.`,
           // The inverse is a move, not an "unarchive": `archiveEntry` puts the
           // file under a timestamped folder in `4-archive/`, so the way back is
           // to move it out of there to where it was. `restoreTargetFor` reads
@@ -3210,7 +3216,7 @@ export function useFileBrowser(options: {
         const result = await trashEntry({ workspaceId: workspaceId!, path });
         return {
           touched: [path, result.to],
-          message: `Moved ${withoutSortPrefix(baseName(path))} to trash.`,
+          message: `Moved ${folderLabel(baseName(path))} to trash.`,
           undo: () => {
             void run(async () => {
               await restoreTrashEntry({
