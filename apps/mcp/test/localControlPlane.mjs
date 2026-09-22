@@ -76,6 +76,7 @@ const PEOPLE = [
 ];
 
 const WORKSPACE_ID = "ws_local_verify";
+const grantIdFor = (person) => `grant_${person.client ?? person.user}`;
 
 export async function startLocalControlPlane({ port, gatewaySecret, bindingName }) {
   const byHash = new Map();
@@ -112,7 +113,7 @@ export async function startLocalControlPlane({ port, gatewaySecret, bindingName 
         if (!person) return send(200, { session: null });
         return send(200, {
           session: {
-            grantId: `grant_${person.user}`,
+            grantId: grantIdFor(person),
             // A client per person by default; a tool brings its own, which is
             // what makes it a different client of the same account.
             clientId: person.client ?? `client_${person.user}`,
@@ -145,6 +146,25 @@ export async function startLocalControlPlane({ port, gatewaySecret, bindingName 
             ],
           },
         });
+      }
+
+      if (req.url === "/gateway/sessions/by-grant") {
+        if (typeof parsed.expectedWorkspaceId !== "string" || !Array.isArray(parsed.grantIds) || parsed.grantIds.length > 24 || parsed.grantIds.some((one) => typeof one !== "string")) {
+          return send(400, { error: "malformed_batch" });
+        }
+        const sessions = parsed.grantIds.map((grantId) => {
+          const person = [...byHash.values()].find((one) => grantIdFor(one) === grantId);
+          if (!person || parsed.expectedWorkspaceId !== WORKSPACE_ID) return null;
+          return {
+            grantId,
+            workspaceId: WORKSPACE_ID,
+            scopes: person.scopes,
+            role: person.role,
+            kind: "shared",
+            grantedNames: [],
+          };
+        });
+        return send(200, { sessions });
       }
 
       if (req.url === "/gateway/binding") {
