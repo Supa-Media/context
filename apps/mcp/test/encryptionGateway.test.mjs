@@ -137,6 +137,7 @@ import {
 } from "../src/encryption.js";
 import { parseLinks } from "../src/links.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { createWorkerCtx } from "./workerCtx.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -192,17 +193,35 @@ function makeBucket() {
       async delete(key) {
         objects.delete(key);
       },
-      async list({ prefix } = {}) {
-        const listed = [...objects.keys()]
-          .filter((key) => !prefix || key.startsWith(prefix))
-          .sort()
-          .map((key) => ({
+      async list({ prefix = "", delimiter, cursor, limit = 1000 } = {}) {
+        const keys = [...objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+        const start = cursor ? keys.findIndex((key) => key > cursor) : 0;
+        if (start === -1) return { objects: [], delimitedPrefixes: [], truncated: false };
+        const listed = [];
+        const prefixes = new Set();
+        let index = start;
+        for (let spent = 0; index < keys.length && spent < limit; index += 1, spent += 1) {
+          const key = keys[index];
+          const remainder = key.slice(prefix.length);
+          const slash = delimiter ? remainder.indexOf(delimiter) : -1;
+          if (slash !== -1) {
+            prefixes.add(`${prefix}${remainder.slice(0, slash + 1)}`);
+            continue;
+          }
+          listed.push({
             key,
             size: objects.get(key).bytes.length,
             uploaded: new Date(),
             etag: objects.get(key).etag,
-          }));
-        return { objects: listed, truncated: false };
+          });
+        }
+        const truncated = index < keys.length;
+        return {
+          objects: listed,
+          delimitedPrefixes: [...prefixes],
+          truncated,
+          cursor: truncated ? keys[index - 1] : undefined,
+        };
       },
     },
     controls,
@@ -354,6 +373,7 @@ export async function runEncryptionGatewayChecks(check) {
 
     let id = 0;
     async function call(token, name, args = {}) {
+      const { ctx, settle } = createWorkerCtx();
       const res = await worker.fetch(
         new Request("https://x/mcp", {
           method: "POST",
@@ -366,9 +386,11 @@ export async function runEncryptionGatewayChecks(check) {
           }),
         }),
         env,
-        { waitUntil() {} },
+        ctx,
       );
-      return (await res.json()).result;
+      const result = (await res.json()).result;
+      await settle();
+      return result;
     }
     const textOf = (result) => result?.content?.[0]?.text ?? "";
     const readA = (key) => {

@@ -141,7 +141,7 @@ const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  index.md: team\n  1-projects: team\n\n" +
-  "note_overrides:\n  1-projects/rates.md: private\n```\n\n" +
+  "note_overrides:\n  1-projects/rates.md: private\n  1-projects/marker-sized.md: private\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 function createBucket() {
@@ -156,15 +156,18 @@ function createBucket() {
     deterministic check instead of a flaky timing one.
   */
   const ops = { get: 0, list: 0, put: 0, delete: 0 };
+  const fetched = [];
   const trips = () => ops.get + ops.list + ops.put + ops.delete;
   return {
     ops,
     trips,
+    fetched,
     seed(key, body) {
       objects.set(key, { body, etag: `e${++etags}`, uploaded: new Date() });
     },
     async get(key) {
       ops.get += 1;
+      fetched.push(key);
       const stored = objects.get(key);
       if (!stored) return null;
       return {
@@ -1505,6 +1508,9 @@ export async function runPresenceChecks(check) {
     bucket.seed("index.md", "# front page");
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
     bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
+    const markerBody = `context.logical-delete.v1.${"0".repeat(32)}.${"0".repeat(64)}`;
+    bucket.seed("1-projects/marker-sized.md", "MARKERSIZESECRET".padEnd(markerBody.length, "x"));
+    bucket.seed("1-projects/deleted.md", markerBody);
     // Plumbing that really is in the bucket. Seeded rather than assumed absent,
     // because the question this answers is whether the route refuses a
     // plumbing key *that exists* — a refusal that only happens because nothing
@@ -1639,6 +1645,22 @@ export async function runPresenceChecks(check) {
     check(
       "a team connection cannot join a private note's room",
       privateNote.status === 404,
+    );
+    bucket.fetched.length = 0;
+    const markerSizedPrivate = await presenceRequest(
+      env,
+      TEAM_TOKEN,
+      "?note=1-projects/marker-sized.md",
+    );
+    check(
+      "a hidden marker-sized note is refused without fetching its bytes",
+      markerSizedPrivate.status === 404 && !bucket.fetched.includes("1-projects/marker-sized.md"),
+    );
+    const callsBeforeDeleted = rooms.calls.length;
+    const deletedNote = await presenceRequest(env, OWNER_TOKEN, "?note=1-projects/deleted.md");
+    check(
+      "an authorized caller still opens no room for a logical tombstone",
+      deletedNote.status === 404 && rooms.calls.length === callsBeforeDeleted,
     );
     const missingNote = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/nothing.md");
     check(

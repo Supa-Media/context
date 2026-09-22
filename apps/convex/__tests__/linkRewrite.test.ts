@@ -205,6 +205,10 @@ describe("a walk that could not be finished says so", () => {
       ...store,
       async list(options: Parameters<FileStore["list"]>[0]) {
         const page = await store.list(options);
+        // The scenario is an incomplete whole-bucket reference walk. Keep
+        // exact-path and child-prefix probes truthful so movePath can classify
+        // the source/destination before the walk reports its capped result.
+        if ((options?.prefix ?? "") !== "") return page;
         return { ...page, truncated: true, cursor: undefined };
       },
     } as MemoryStore & FileStore;

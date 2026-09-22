@@ -136,20 +136,41 @@ const bucket = {
   async delete(key) {
     objects.delete(key);
   },
-  async list({ prefix, cursor, limit } = {}) {
-    const listed = [...objects.keys()]
-      .filter((k) => !prefix || k.startsWith(prefix))
-      .sort()
-      // `etag` per listed object mirrors what R2 and S3 both report, and the
-      // search index's staleness diff is built on it. Without it every note
-      // compares unequal on every sync and the backfill never converges.
-      .map((key) => ({
-        key,
-        size: objects.get(key).bytes.length,
-        uploaded: new Date(),
-        etag: objects.get(key).etag,
-      }));
-    return { objects: listed, truncated: false };
+  async list({ prefix = "", delimiter, cursor, limit = 1000 } = {}) {
+    const entries = [];
+    const seenPrefixes = new Set();
+    for (const key of [...objects.keys()].filter((candidate) => candidate.startsWith(prefix)).sort()) {
+      const remainder = key.slice(prefix.length);
+      const split = delimiter ? remainder.indexOf(delimiter) : -1;
+      if (split >= 0) {
+        const child = `${prefix}${remainder.slice(0, split + delimiter.length)}`;
+        if (!seenPrefixes.has(child)) {
+          seenPrefixes.add(child);
+          entries.push({ prefix: child });
+        }
+        continue;
+      }
+      entries.push({
+        object: {
+          key,
+          size: objects.get(key).bytes.length,
+          uploaded: new Date(),
+          // `etag` per listed object mirrors what R2 and S3 both report, and
+          // the search index's staleness diff is built on it. Without it every
+          // note compares unequal on every sync and the backfill never converges.
+          etag: objects.get(key).etag,
+        },
+      });
+    }
+    const start = cursor === undefined ? 0 : Number(cursor);
+    const page = entries.slice(start, start + limit);
+    const truncated = start + page.length < entries.length;
+    return {
+      objects: page.flatMap((entry) => entry.object ? [entry.object] : []),
+      delimitedPrefixes: page.flatMap((entry) => entry.prefix ? [entry.prefix] : []),
+      truncated,
+      ...(truncated ? { cursor: String(start + page.length) } : {}),
+    };
   },
 };
 
@@ -2768,6 +2789,14 @@ check(
   "team move_note moves within team scope with a production one-use body",
   !moveNote.isError && objects.has("1-projects/portable/renamed.md") &&
     isLogicalDeleteMarker(storedText("1-projects/portable/a.md"))
+);
+const staleFetchAfterRename = await call("pub-token", "fetch", {
+  id: "1-projects/portable/a.md",
+});
+check(
+  "fetch forwards an old path after its source becomes a logical-delete marker",
+  succeeded(staleFetchAfterRename) &&
+    JSON.parse(staleFetchAfterRename.content[0].text).text === "portable a"
 );
 const moveConflict = await call("pub-token", "move_note", {
   source: "1-projects/portable/renamed.md",

@@ -104,7 +104,11 @@ export function makeBucket() {
         // through, rather than `new Date()` at list time, which would make
         // every object look freshly written on every single listing and
         // defeat that detection entirely.
-        objects.set(key, { bytes, etag, uploaded: new Date() });
+        objects.set(key, {
+          bytes,
+          etag,
+          uploaded: new Date(),
+        });
         return { etag };
       },
       async delete(key) {
@@ -401,7 +405,10 @@ export async function runEncryptionRotationChecks(check) {
     check(
       "the call that COMPLETES a rotation reads a small, roughly constant number of objects, " +
         "not one per note in the bucket — the ceiling the persisted cursor removes",
-      readsDuringCompletingCall <= 5,
+      // Six is the fixed plumbing cost: privacy and progress reads, the one
+      // stuck note, progress cleanup's read plus marker-CAS read, and audit.
+      // None scales with the 205-note bucket this call is proving complete.
+      readsDuringCompletingCall <= 6,
     );
 
     const remainingOnK1 = [...a.objects.keys()].filter(

@@ -92,6 +92,7 @@
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
+import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { SEARCH_INDEX_KEY, createSearchBudget, syncIndex } from "../src/search/maintain.js";
 import { parseIndex } from "../src/search/indexer.js";
 import { MAX_RESULTS } from "../src/search/query.js";
@@ -139,7 +140,7 @@ const PRIVACY_MANIFEST =
 function createBucket() {
   const objects = new Map();
   let etags = 0;
-  const counts = { get: 0, put: 0, list: 0, delete: 0, puts: [], deletes: [], noteGets: [], getKeys: [] };
+  const counts = { get: 0, head: 0, put: 0, list: 0, delete: 0, puts: [], deletes: [], noteGets: [], getKeys: [] };
   const failGetKeys = new Set();
 
   const api = {
@@ -149,6 +150,7 @@ function createBucket() {
     listEtags: true,
     resetCounts() {
       counts.get = 0;
+      counts.head = 0;
       counts.put = 0;
       counts.list = 0;
       counts.delete = 0;
@@ -159,7 +161,7 @@ function createBucket() {
     },
     /** Every store op one call spent, which is what the budget is about. */
     get ops() {
-      return counts.get + counts.put + counts.list + counts.delete;
+      return counts.get + counts.head + counts.put + counts.list + counts.delete;
     },
     seed(key, body, uploaded = new Date()) {
       objects.set(key, { body, etag: `e${++etags}`, uploaded });
@@ -179,6 +181,13 @@ function createBucket() {
         text: async () => stored.body,
         arrayBuffer: async () => new TextEncoder().encode(stored.body).buffer,
       };
+    },
+    async head(key) {
+      counts.head += 1;
+      const stored = objects.get(key);
+      return stored
+        ? { etag: stored.etag, size: new TextEncoder().encode(stored.body).byteLength }
+        : null;
     },
     async put(key, value, options = {}) {
       counts.put += 1;
@@ -420,13 +429,13 @@ export async function runSearchV2IntegrationChecks(check) {
         )
     );
 
-    // (d) v1's object is dead weight the moment a manifest exists, and the
-    // delete is one blind op on the pass that first creates one — never a
-    // probe on every search.
+    // (d) v1's object is dead weight the moment a manifest exists. Logical
+    // deletion leaves a content-free marker in the physical bucket, so assert
+    // the logical outcome and the one marker write rather than raw absence.
     check(
       "v1's object is deleted on the pass that first creates a manifest, and not probed again",
-      main.objects.get(LEGACY_V1_KEY) === undefined &&
-        main.counts.deletes.filter((key) => key === LEGACY_V1_KEY).length === 1 &&
+      isLogicalDeleteMarker(main.objects.get(LEGACY_V1_KEY)?.body) &&
+        main.counts.puts.filter((key) => key === LEGACY_V1_KEY).length === 1 &&
         (await (async () => {
           main.resetCounts();
           await searchText(env, MAIN_OWNER_TOKEN, { query: "narwhal" });

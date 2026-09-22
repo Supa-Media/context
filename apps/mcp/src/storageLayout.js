@@ -294,8 +294,19 @@ async function hasLegacyPlumbing(store) {
  * caller asks for text, so a `get` for a record the caller may not see puts
  * its bytes in the worker.
  */
-export async function objectExists(store, key) {
+export async function objectExists(store, key, { metadataOnly = false } = {}) {
   try {
+    if (metadataOnly) {
+      if (typeof store.existsMetadata === "function") {
+        return Boolean(await store.existsMetadata(key));
+      }
+      if (typeof store.head === "function") {
+        const object = await store.head(key);
+        if (object !== undefined) return object !== null;
+      }
+      const page = await store.list({ prefix: key, limit: 4 });
+      return (page?.objects || []).some((object) => object.key === key);
+    }
     if (typeof store.exists === "function") return Boolean(await store.exists(key));
     const page = await store.list({ prefix: key, limit: 4 });
     return (page?.objects || []).some((object) => object.key === key);

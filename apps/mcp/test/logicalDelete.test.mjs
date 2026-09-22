@@ -272,6 +272,48 @@ test("simultaneous stamped Markdown recreates still have one CAS winner", async 
   assert.ok(["first", "second"].includes(await (await store.get("note.md")).text()));
 });
 
+test("an exact-version write reuses bounded inspection metadata and refreshes the generation stamp", async () => {
+  const raw = new RawStore();
+  raw.seed("note.md", "old");
+  const store = withLogicalDelete(raw);
+  const original = await store.get("note.md");
+  await store.delete("note.md", { onlyIf: { etagMatches: original.etag } });
+  await store.put("note.md", "recreated", { onlyIf: { absent: true } });
+
+  const opened = await store.get("note.md");
+  const physicalBefore = new TextDecoder().decode(raw.objects.get("note.md").body);
+  let redundantGets = 0;
+  const rawGet = raw.get.bind(raw);
+  raw.get = async (key) => {
+    redundantGets += 1;
+    return rawGet(key);
+  };
+  const written = await store.put("note.md", "updated", {
+    onlyIf: { etagMatches: opened.etag },
+  });
+  raw.get = rawGet;
+
+  assert.ok(written);
+  assert.equal(redundantGets, 0);
+  const physicalAfter = new TextDecoder().decode(raw.objects.get("note.md").body);
+  assert.match(physicalAfter, /<!-- context-generation:v1:[0-9a-f]{32} -->$/);
+  assert.notEqual(physicalAfter, physicalBefore);
+  assert.equal(await (await store.get("note.md")).text(), "updated");
+});
+
+test("a remote change after a cached read still defeats the provider CAS", async () => {
+  const raw = new RawStore();
+  raw.seed("note.md", "before");
+  const store = withLogicalDelete(raw);
+  const opened = await store.get("note.md");
+  await raw.put("note.md", "remote change");
+
+  assert.equal(await store.put("note.md", "stale local change", {
+    onlyIf: { etagMatches: opened.etag },
+  }), null);
+  assert.equal(await (await store.get("note.md")).text(), "remote change");
+});
+
 test("verified physical delete stores a marker instead of relying on ABA-prone delete", async () => {
   const raw = new HashEtagStore();
   raw.capabilities.conditionalDelete = true;
@@ -288,7 +330,7 @@ test("verified physical delete stores a marker instead of relying on ABA-prone d
   assert.equal(await store.get("note.md"), null);
 });
 
-test("unknown head metadata falls back to the provider existence probe", async () => {
+test("unknown head metadata uses a marker-aware read instead of the provider existence probe", async () => {
   const raw = new RawStore();
   raw.seed("ordinary.md", "text");
   raw.head = async () => undefined;
@@ -299,7 +341,18 @@ test("unknown head metadata falls back to the provider existence probe", async (
   };
   const store = withLogicalDelete(raw);
   assert.equal(await store.exists("ordinary.md"), true);
-  assert.equal(probed, 1);
+  assert.equal(probed, 0);
+});
+
+test("unknown head metadata still hides a physical logical-delete marker", async () => {
+  const raw = new RawStore();
+  raw.seed("note.md", "text");
+  raw.head = async () => undefined;
+  raw.exists = async () => true;
+  const store = withLogicalDelete(raw);
+  const before = await store.get("note.md");
+  await store.delete("note.md", { onlyIf: { etagMatches: before.etag } });
+  assert.equal(await store.exists("note.md"), false);
 });
 
 test("unsupported Markdown recreation over a marker is refused", async () => {
@@ -458,16 +511,54 @@ test("capability downgrade keeps existing markers hidden and refuses unsafe recr
   assert.equal(await downgraded.delete("note.md"), undefined);
 });
 
-test("listing scans past a marker-only page instead of reporting a false empty page", async () => {
+test("listing preserves a marker-only page cursor for the caller to follow", async () => {
   const raw = new RawStore();
   raw.seed("a.md", "old");
   raw.seed("b.md", "later");
   const store = withLogicalDelete(raw);
   const before = await store.get("a.md");
   await store.delete("a.md", { onlyIf: { etagMatches: before.etag } });
-  const page = await store.list({ prefix: "", limit: 1 });
-  assert.deepEqual(page.objects.map(({ key }) => key), ["b.md"]);
-  assert.equal(page.truncated, false);
+  const first = await store.list({ prefix: "", limit: 1 });
+  assert.deepEqual(first.objects, []);
+  assert.equal(first.truncated, true);
+  assert.equal(first.cursor, "1");
+  const second = await store.list({ prefix: "", cursor: first.cursor, limit: 1 });
+  assert.deepEqual(second.objects.map(({ key }) => key), ["b.md"]);
+  assert.equal(second.truncated, false);
+});
+
+test("delimited-prefix visibility rethrows provider failures", async () => {
+  const raw = new RawStore();
+  raw.seed("folder/note.md", "old");
+  const store = withLogicalDelete(raw);
+  const before = await store.get("folder/note.md");
+  await store.delete("folder/note.md", { onlyIf: { etagMatches: before.etag } });
+  const list = raw.list.bind(raw);
+  raw.list = async (options = {}) => {
+    if (options.prefix === "folder/") throw new Error("provider unavailable");
+    return list(options);
+  };
+  await assert.rejects(() => store.list({ delimiter: "/" }), /provider unavailable/);
+});
+
+test("delimited-prefix visibility rejects a repeated physical cursor", async () => {
+  const raw = new RawStore();
+  raw.seed("folder/note.md", "old");
+  const store = withLogicalDelete(raw);
+  const before = await store.get("folder/note.md");
+  await store.delete("folder/note.md", { onlyIf: { etagMatches: before.etag } });
+  const list = raw.list.bind(raw);
+  raw.list = async (options = {}) => {
+    if (options.prefix === "folder/") {
+      return {
+        objects: [{ key: "folder/note.md", size: raw.objects.get("folder/note.md").body.byteLength }],
+        truncated: true,
+        cursor: "same-cursor",
+      };
+    }
+    return list(options);
+  };
+  await assert.rejects(() => store.list({ delimiter: "/" }), /no progress/);
 });
 
 test("partially filtered pages retain their cursor without dropping later live objects", async () => {
@@ -508,4 +599,29 @@ test("a provider that replaces MIME metadata cannot expose a retired object", as
   assert.deepEqual((await store.list()).objects, []);
   assert.ok(await store.put("note.md", "new text", { onlyIf: { absent: true } }));
   assert.equal(await (await store.get("note.md")).text(), "new text");
+});
+
+test("privacy metadata recreation keeps exact logical text and avoids hash-etag ABA", async () => {
+  const raw = new HashEtagStore();
+  raw.pauseBeforeFirstMarkerCheck = false;
+  const manifest = "---\nrole: privacy-manifest\n---\n\n# Privacy Map\n";
+  raw.objects.set("privacy.md", {
+    body: new TextEncoder().encode(manifest),
+    etag: await hashText(manifest),
+    contentType: "text/markdown; charset=utf-8",
+  });
+  const store = withLogicalDelete(raw);
+  const before = await store.get("privacy.md");
+  const oldEtag = before.etag;
+  await store.delete("privacy.md", { onlyIf: { etagMatches: oldEtag } });
+  assert.equal(await store.get("privacy.md"), null);
+
+  const recreated = await store.put("privacy.md", manifest, { onlyIf: { absent: true } });
+  assert.ok(recreated);
+  assert.notEqual(recreated.etag, oldEtag);
+  assert.equal(await (await store.get("privacy.md")).text(), manifest);
+  assert.match(
+    new TextDecoder().decode(raw.objects.get("privacy.md").body),
+    /<!-- context-generation:v1:[0-9a-f]{32} -->$/,
+  );
 });

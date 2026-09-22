@@ -236,7 +236,7 @@ const PRIVACY_MANIFEST =
 function createBucket() {
   const objects = new Map();
   let etags = 0;
-  const counts = { get: 0, put: 0, list: 0, noteGets: [] };
+  const counts = { get: 0, head: 0, put: 0, list: 0, noteGets: [] };
   const failGetKeys = new Set();
   let onBeforePut = null;
 
@@ -251,13 +251,14 @@ function createBucket() {
     },
     resetCounts() {
       counts.get = 0;
+      counts.head = 0;
       counts.put = 0;
       counts.list = 0;
       counts.noteGets = [];
     },
     /** Every store op one call spent, which is what the budget is about. */
     get ops() {
-      return counts.get + counts.put + counts.list;
+      return counts.get + counts.head + counts.put + counts.list;
     },
     seed(key, body, uploaded = new Date()) {
       objects.set(key, { body, etag: `e${++etags}`, uploaded });
@@ -276,6 +277,13 @@ function createBucket() {
         text: async () => stored.body,
         arrayBuffer: async () => new TextEncoder().encode(stored.body).buffer,
       };
+    },
+    async head(key) {
+      counts.head += 1;
+      const stored = objects.get(key);
+      return stored
+        ? { etag: stored.etag, size: new TextEncoder().encode(stored.body).byteLength }
+        : null;
     },
     async put(key, value, options = {}) {
       counts.put += 1;

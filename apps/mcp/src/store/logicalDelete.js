@@ -12,7 +12,14 @@ const MARKER_VERSION = "context.logical-delete.v1";
 const MARKER_PREFIX = `${MARKER_VERSION}.`;
 const HEX = /^[0-9a-f]{64}$/;
 const MAX_RETRIES = 3;
-const MAX_LIST_PAGES = 1000;
+// Delimited-prefix visibility is the one place the wrapper must look past a
+// physical page. Keep that probe bounded to the same 100-page ceiling as the
+// gateway's ordinary storage walks; ordinary list callers own their traversal.
+const MAX_PREFIX_SCAN_PAGES = 100;
+// One request may rotate a full 200-note batch. Remember only whether those
+// exact versions carried a generation footer, never their text, so the
+// conditional writes derived from those reads do not fetch every body twice.
+const INSPECTION_CACHE_LIMIT = 256;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -191,19 +198,27 @@ function stampedWrite(key, value, options, inspected) {
 }
 
 async function hasVisibleObject(prefix, store) {
-  let cursor;
-  for (let pageNumber = 0; pageNumber < MAX_LIST_PAGES; pageNumber += 1) {
-    const page = await store.list({ prefix, cursor, limit: 1000 });
-    for (const listed of page.objects || []) {
-      if (listed.size !== undefined && listed.size !== MARKER_BODY_BYTES) return true;
-      const inspected = await inspect(await store.get(listed.key), listed.key);
-      if (inspected && !inspected.marker) return true;
+  try {
+    let cursor;
+    for (let pageNumber = 0; pageNumber < MAX_PREFIX_SCAN_PAGES; pageNumber += 1) {
+      const page = await store.list({ prefix, cursor, limit: 1000 });
+      for (const listed of page.objects || []) {
+        if (listed.size !== undefined && listed.size !== MARKER_BODY_BYTES) return true;
+        const inspected = await inspect(await store.get(listed.key), listed.key);
+        if (inspected && !inspected.marker) return true;
+      }
+      if (!page.truncated) return false;
+      if (!page.cursor || page.cursor === cursor) throw new Error("logical-delete prefix listing made no progress");
+      cursor = page.cursor;
     }
-    if (!page.truncated) return false;
-    if (!page.cursor || page.cursor === cursor) throw new Error("logical-delete prefix listing made no progress");
-    cursor = page.cursor;
+    throw new Error("logical-delete prefix listing exceeded its safety bound");
+  } catch (error) {
+    // The parent listing already disclosed this prefix. If a provider refuses
+    // to walk it (for example, an unsafe legacy key), retain the prefix rather
+    // than turning one bad folder into a failed root listing or hiding it.
+    if (error instanceof Error && /^unsafe storage prefix: a prefix /.test(error.message)) return true;
+    throw error;
   }
-  throw new Error("logical-delete prefix listing exceeded its safety bound");
 }
 
 function putOptions(options, onlyIf) {
@@ -224,8 +239,53 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
   const canLogicalWrite =
     store.capabilities?.conditionalWrite === true && store.capabilities?.conditionalCreate === true;
   const canWriteMarkers = logicalDelete === true && canLogicalWrite;
-
-  const rawGet = (key) => store.get(key);
+  let chargeExtraOperation = null;
+  const inspections = new Map();
+  const rememberInspection = (key, inspected) => {
+    const etag = inspected?.object?.etag;
+    if (inspected?.marker || typeof etag !== "string" || !etag) return;
+    inspections.delete(key);
+    inspections.set(key, { etag, stamped: Boolean(inspected.stamp) });
+    if (inspections.size > INSPECTION_CACHE_LIMIT) {
+      inspections.delete(inspections.keys().next().value);
+    }
+  };
+  const beginRawOperation = () => {
+    let first = true;
+    const before = () => {
+      if (first) {
+        first = false;
+        return;
+      }
+      chargeExtraOperation?.();
+    };
+    return {
+      get(key) {
+        before();
+        return store.get(key);
+      },
+      head(key) {
+        before();
+        return store.head(key);
+      },
+      exists(key) {
+        before();
+        return store.exists(key);
+      },
+      list(options) {
+        before();
+        return store.list(options);
+      },
+      put(key, value, options) {
+        before();
+        return store.put(key, value, options);
+      },
+      delete(key, options) {
+        before();
+        return store.delete(key, options);
+      },
+    };
+  };
 
   const wrapped = Object.assign(Object.create(Object.getPrototypeOf(store), Object.getOwnPropertyDescriptors(store)), {
     capabilities: {
@@ -233,45 +293,105 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
       conditionalDelete: physicalDelete || canWriteMarkers,
       serverSideCopy: false,
     },
+    setExtraOperationCharge(callback) {
+      const previous = chargeExtraOperation;
+      chargeExtraOperation = typeof callback === "function" ? callback : null;
+      return () => {
+        chargeExtraOperation = previous;
+      };
+    },
+    /**
+     * Physical existence without reading object bytes.
+     *
+     * Authorization probes deliberately use this view before they know the
+     * caller may read a path. It may conservatively report a tombstone as
+     * present when a provider dropped its marker metadata; the authorized
+     * path can then use `exists` to resolve that ambiguity safely.
+     */
+    async existsMetadata(key) {
+      if (typeof store.exists === "function") return Boolean(await store.exists(key));
+      if (typeof store.head === "function") {
+        const object = await store.head(key);
+        if (object !== undefined) return object !== null;
+      }
+      const page = await store.list({ prefix: key, limit: 4 });
+      return (page?.objects || []).some((object) => object.key === key);
+    },
     ...(typeof store.removeEmptyFolder === "function"
       ? { removeEmptyFolder: store.removeEmptyFolder.bind(store) }
       : {}),
 
     async get(key) {
-      const object = await rawGet(key);
+      const raw = beginRawOperation();
+      const object = await raw.get(key);
       if (object === null) return object;
       const inspected = await inspect(object, key);
-      return inspected.marker ? null : logicalObject(inspected.object, inspected.stamp);
+      if (inspected.marker) return null;
+      rememberInspection(key, inspected);
+      return logicalObject(inspected.object, inspected.stamp);
     },
 
     async exists(key) {
+      const raw = beginRawOperation();
       if (typeof store.head === "function") {
-        const object = await store.head(key);
+        const object = await raw.head(key);
         if (object === null) return false;
         if (object === undefined) {
-          if (typeof store.exists === "function") return store.exists(key);
-          return (await this.get(key)) !== null;
+          // A provider without metadata support may still report a physical
+          // tombstone from its ordinary existence probe. Always go through
+          // the logical read in this branch so deleted notes stay hidden.
+          const fallback = await raw.get(key);
+          const inspected = await inspect(fallback, key);
+          return inspected !== null && !inspected.marker;
         }
         if (contentTypeOf(object) === LOGICAL_DELETE_CONTENT_TYPE) return false;
         if (object.size === undefined) {
-          if (typeof store.exists === "function") return store.exists(key);
-          return true;
+          // Unknown size is also not enough to distinguish a marker. The
+          // marker-aware read is the only safe fallback when metadata is
+          // incomplete or a proxy dropped it.
+          const fallback = await raw.get(key);
+          const inspected = await inspect(fallback, key);
+          return inspected !== null && !inspected.marker;
         }
         if (object.size !== MARKER_BODY_BYTES) return true;
-        const inspected = await inspect(await rawGet(key), key);
+        const inspected = await inspect(await raw.get(key), key);
         return inspected !== null && !inspected.marker;
       }
-      if (typeof store.exists === "function") return store.exists(key);
-      return (await this.get(key)) !== null;
+      const object = await raw.get(key);
+      const inspected = await inspect(object, key);
+      return inspected !== null && !inspected.marker;
     },
 
     async put(key, value, options = {}) {
+      const cached = inspections.get(key);
+      inspections.delete(key);
       if (markerValue(value, options.contentType)) throw new Error("reserved logical-delete marker body");
-      const current = await rawGet(key);
+      // Lifecycle records are not user Markdown generations. Their caller's
+      // exact etag is already the provider CAS proof, and bypassing the
+      // wrapper's marker inspection avoids a redundant read on every index,
+      // audit, and rotation-progress write. User paths keep the read so a
+      // stamped generation can never be replaced blindly.
+      if (isInternalMetadataPath(key) && options.onlyIf?.etagMatches !== undefined && options.onlyIf?.absent !== true) {
+        return store.put(key, value, options);
+      }
+      // `get` already inspected this exact physical version. Its etag remains
+      // the provider CAS precondition, so a concurrent remote write still
+      // refuses this put; the cached bit only says whether the replacement
+      // needs a fresh generation footer. No customer text is retained here.
+      if (
+        options.onlyIf?.absent !== true &&
+        typeof options.onlyIf?.etagMatches === "string" &&
+        cached?.etag === options.onlyIf.etagMatches
+      ) {
+        const stamped = stampedWrite(key, value, options, cached.stamped ? { stamp: true } : null);
+        return store.put(key, stamped.value, stamped.options);
+      }
+      const raw = beginRawOperation();
+      const current = await raw.get(key);
       const inspected = await inspect(current, key);
       if (!inspected?.marker) {
         const stamped = stampedWrite(key, value, options, inspected);
-        return store.put(key, stamped.value, stamped.options);
+        return raw.put(key, stamped.value, stamped.options);
       }
 
       if (options.onlyIf?.absent === true) {
@@ -291,7 +411,7 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
                 unsupportedRecreation(key, value);
                 throw new Error("cannot recreate an unsupported object over a logical tombstone");
               })();
-        return store.put(key, stamped.value, putOptions(stamped.options, { etagMatches: inspected.object.etag }));
+        return raw.put(key, stamped.value, putOptions(stamped.options, { etagMatches: inspected.object.etag }));
       }
       if (options.onlyIf?.etagMatches !== undefined && options.onlyIf.etagMatches !== inspected.object.etag) return null;
       // Internal lifecycle metadata has historically used unconditional puts.
@@ -300,7 +420,7 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
       // still require an explicit absent recreation to avoid reviving stale
       // writers over a logical delete.
       if (isInternalMetadataPath(key) && canLogicalWrite) {
-        return store.put(key, value, putOptions(options, { etagMatches: inspected.object.etag }));
+        return raw.put(key, value, putOptions(options, { etagMatches: inspected.object.etag }));
       }
       // A caller must explicitly recreate a logically deleted path with an
       // absent precondition. Do not let an old unconditional writer overwrite
@@ -309,8 +429,10 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
     },
 
     async delete(key, options = {}) {
+      inspections.delete(key);
+      const raw = beginRawOperation();
       for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
-        const current = await rawGet(key);
+        const current = await raw.get(key);
         const inspected = await inspect(current, key);
         if (!inspected) return null;
         if (inspected.marker) {
@@ -324,10 +446,10 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
           // Preserve the provider's existing behavior for ordinary objects.
           // Its advertised capability remains false when not verified; core
           // lifecycle operations refuse it. Existing markers never reach here.
-          return store.delete?.(key, options);
+          return raw.delete?.(key, options);
         }
         const body = await markerBody(inspected.object.etag);
-        const written = await store.put(key, body, putOptions({ contentType: LOGICAL_DELETE_CONTENT_TYPE }, {
+        const written = await raw.put(key, body, putOptions({ contentType: LOGICAL_DELETE_CONTENT_TYPE }, {
           etagMatches: inspected.object.etag,
         }));
         if (written) return;
@@ -337,38 +459,29 @@ export function withLogicalDelete(store, { logicalDelete = true } = {}) {
     },
 
     async list(options = {}) {
+      const raw = beginRawOperation();
       const objects = [];
       const delimitedPrefixes = [];
       const seenPrefixes = new Set();
-      let cursor = options.cursor;
-      let page = null;
-      let finished = false;
-      for (let pageNumber = 0; pageNumber < MAX_LIST_PAGES; pageNumber += 1) {
-        page = await store.list({ ...options, ...(cursor === undefined ? {} : { cursor }) });
-        for (const listed of page.objects || []) {
-          if (listed.size !== undefined && listed.size !== MARKER_BODY_BYTES) {
-            objects.push(listed);
-          } else {
-            const object = await rawGet(listed.key);
-            const inspected = await inspect(object, listed.key);
-            if (inspected && !inspected.marker) objects.push(listed);
-          }
+      // Preserve the provider's page boundary. Fetching more physical pages
+      // here used to fill a caller's limit after hiding markers, which silently
+      // consumed its pagination budget and could drop a cursor's tail. An
+      // empty filtered page is meaningful: callers must follow its cursor.
+      const page = await raw.list(options);
+      for (const listed of page.objects || []) {
+        if (listed.size !== undefined && listed.size !== MARKER_BODY_BYTES) {
+          objects.push(listed);
+        } else {
+          const object = await raw.get(listed.key);
+          const inspected = await inspect(object, listed.key);
+          if (inspected && !inspected.marker) objects.push(listed);
         }
-        for (const prefix of page.delimitedPrefixes || []) {
-          if (seenPrefixes.has(prefix) || !(await hasVisibleObject(prefix, store))) continue;
-          seenPrefixes.add(prefix);
-          delimitedPrefixes.push(prefix);
-        }
-        // Return the complete filtered physical page with that page's cursor.
-        // Filling a limit from the next page would discard its unreturned tail.
-        if (objects.length > 0 || delimitedPrefixes.length > 0 || !page.truncated) {
-          finished = true;
-          break;
-        }
-        if (!page.cursor || page.cursor === cursor) throw new Error("logical-delete listing made no progress");
-        cursor = page.cursor;
       }
-      if (!finished || page === null) throw new Error("logical-delete listing exceeded its safety bound");
+      for (const prefix of page.delimitedPrefixes || []) {
+        if (seenPrefixes.has(prefix) || !(await hasVisibleObject(prefix, raw))) continue;
+        seenPrefixes.add(prefix);
+        delimitedPrefixes.push(prefix);
+      }
       return {
         ...page,
         objects,

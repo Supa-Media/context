@@ -72,6 +72,7 @@ const MANIFEST =
   "  2-areas/feedback: @supa-owners\n  3-resources: team\n  3-resources/board: @supa-owners\n" +
   "  0-inbox: team\n  4-archive: team\n\n" +
   "note_overrides:\n  1-projects/rates.md: @supa-leads\n" +
+  "  1-projects/marker-sized.md: @supa-leads\n" +
   "  0-inbox/contacts/dan.md: @supa-leads\n" +
   "  1-projects/reserved.md: @supa-leads\n" +
   "  3-resources/board/Minutes.md: @supa-owners\n```\n\n" +
@@ -231,6 +232,11 @@ export async function runPrivacyGroupChecks(check) {
     bucket.seed("index.md", "# front page");
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
     bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
+    const markerSizedPrivate = "MARKERSIZESECRET".padEnd(
+      `context.logical-delete.v1.${"0".repeat(32)}.${"0".repeat(64)}`.length,
+      "x",
+    );
+    bucket.seed("1-projects/marker-sized.md", markerSizedPrivate);
     bucket.seed("2-areas/feedback/q3.md", "FEEDBACKSECRET the q3 review");
     bucket.seed("0-inbox/contacts/dan.md", "CONTACTSECRET dan's page");
 
@@ -320,6 +326,18 @@ export async function runPrivacyGroupChecks(check) {
     check(
       "a refused read never fetches the note's bytes, only its metadata",
       !bucket.fetched.includes("1-projects/rates.md")
+    );
+    bucket.fetched.length = 0;
+    await callTool(env, TEAM_TOKEN, "read_note", { path: "1-projects/marker-sized.md" });
+    check(
+      "a refused marker-sized read still never fetches the hidden note's bytes",
+      !bucket.fetched.includes("1-projects/marker-sized.md"),
+    );
+    bucket.fetched.length = 0;
+    await callTool(env, TEAM_TOKEN, "fetch", { id: "1-projects/marker-sized.md" });
+    check(
+      "a refused marker-sized fetch still never fetches the hidden note's bytes",
+      !bucket.fetched.includes("1-projects/marker-sized.md"),
     );
 
     const costs = Object.values(refusalCosts);

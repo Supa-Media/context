@@ -409,7 +409,7 @@ function moveProgressFromText(text) {
  * manifest, a listing that will not finish in fewer, a shard, and a write.
  * Below it the pass would spend a request on a round trip that lands nothing.
  */
-const DEFERRED_SYNC_FLOOR = 8;
+const DEFERRED_SYNC_FLOOR = 14;
 /**
  * Store operations one note costs the D1 projection: the bucket read, plus one
  * request per statement (`upsertStatements` emits three deletes, the `notes`
@@ -1787,7 +1787,14 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
   // So the probe runs for everyone and its answer is combined afterwards. It
   // is metadata either way — the body still never enters the worker, for a
   // path the caller may not see least of all.
-  const present = await objectExists(store, notePath);
+  const physicallyPresent = await objectExists(store, notePath, { metadataOnly: true });
+  // A provider that dropped marker metadata can only tell us that bytes exist.
+  // Resolve that ambiguity through the logical view after authorization, so a
+  // tombstone opens no room without fetching a hidden note on behalf of a
+  // caller who may not read it.
+  const present = visible && physicallyPresent
+    ? await objectExists(store, notePath)
+    : physicallyPresent;
   if (!visible || !present) return json({ error: "not_found" }, 404);
 
   const room = env.PRESENCE_ROOM.get(
@@ -5138,9 +5145,9 @@ async function listVisibleNoteKeysWithMoves(store, scope, rules, overrides, pref
  */
 const PRESENT = Object.freeze({ present: true });
 async function probeWithLegacyFallback(store, key) {
-  if (await objectExists(store, key)) return PRESENT;
+  if (await objectExists(store, key, { metadataOnly: true })) return PRESENT;
   const legacy = legacyStorageKey(key);
-  if (legacy && (await objectExists(store, legacy))) return PRESENT;
+  if (legacy && (await objectExists(store, legacy, { metadataOnly: true }))) return PRESENT;
   return null;
 }
 
@@ -5161,9 +5168,9 @@ async function getVisibleMovedNote(store, scope, rules, overrides, path, fetchOn
     if (!source) continue;
     if (!canSee(source, scope, rules, overrides)) return { object: null, physicalPath: path };
     const destinationObject = await fetchOne(store, path);
-    if (destinationObject) return { object: destinationObject, physicalPath: path };
+    if (destinationObject) return { object: destinationObject, physicalPath: path, logicalMove: true };
     const sourceObject = await fetchOne(store, source);
-    if (sourceObject) return { object: sourceObject, physicalPath: source };
+    if (sourceObject) return { object: sourceObject, physicalPath: source, logicalMove: true };
   }
   return { object: await fetchOne(store, path), physicalPath: path };
 }
@@ -6728,6 +6735,11 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   // bytes are. A note caught mid-move answers at its source and is reported at
   // its destination, so conflating the two reports the wrong address.
   let physicalPath = found.physicalPath;
+  let logicalMove = found.logicalMove === true;
+  // Metadata may describe a deletion marker. Resolve only authorized bytes
+  // before deciding whether the old path needs forwarding.
+  let obj = seen && present ? await getWithLegacyFallback(store, physicalPath) : null;
+  if (seen && present && !obj) present = false;
   if (!present || !seen) {
     /*
       A STALE PATH IS FORWARDED, BUT ONLY AFTER IT HAS MISSED.
@@ -6752,16 +6764,20 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
       const landed = await getVisibleMovedNote(
         store, scope, rules, overrides, forwarded, probeWithLegacyFallback,
       );
-      if (landed.object && !present) {
-        present = true;
-        path = forwarded;
-        physicalPath = landed.physicalPath;
+      if (landed.object && !present && seen) {
+        const landedObject = await getWithLegacyFallback(store, landed.physicalPath);
+        if (landedObject) {
+          present = true;
+          path = forwarded;
+          physicalPath = landed.physicalPath;
+          logicalMove = landed.logicalMove === true;
+          obj = landedObject;
+        }
       }
     }
   }
   // Both questions, asked once, in one place.
   if (!seen || !present) return toolError("not found");
-  const obj = await getWithLegacyFallback(store, physicalPath);
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // Decrypted here, at request time, and nowhere else. The caller is handed the
@@ -6773,12 +6789,10 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   if (!opened.ok) return encryptedNoteRefusal(path);
   const marker = opened.encrypted ? "\nencryption: v1" : "";
   let collaboration = null;
-  if (!opened.encrypted && collaborationSupported(store) && collaborationEligible(path, opened.text)) {
+  if (!logicalMove && !opened.encrypted && collaborationSupported(store) && collaborationEligible(path, opened.text)) {
     try {
-      // During a large logical folder move the requested destination is a
-      // virtual overlay while the Markdown and collaboration head still live
-      // at the physical source. Read that one authority and continue to report
-      // the logical destination to the caller.
+      // Reads must not create a collaboration identity while the raw
+      // large-folder materializer still owns the path.
       collaboration = await readCollaborationDocument(store, physicalPath);
     } catch {
       // Once a supported store has initialized collaboration state, the
@@ -10221,7 +10235,12 @@ function budgetedStore(store, budget, reserve = 0) {
   return {
     get(key) {
       spend();
-      return getWithLegacyFallback(store, key);
+      return getWithLegacyFallback(store, key, {
+        beforeFallback: () => {
+          spend();
+          return true;
+        },
+      });
     },
     list(options) {
       spend();
@@ -10441,6 +10460,18 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
   const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
+  // Logical-delete stores may need a raw read before a conditional write, or
+  // extra marker/prefix probes while filtering a list. Their public operation
+  // is already prepaid by the search budget; charge only those additional
+  // physical calls so the hard Worker ceiling measures what the provider sees.
+  if (typeof store.setExtraOperationCharge === "function") {
+    store.setExtraOperationCharge(() => {
+      if (budget.take(0)) return;
+      const error = new Error("search budget exhausted");
+      error[BUDGET_EXHAUSTED] = true;
+      throw error;
+    });
+  }
   /*
     `activity.md` is not indexed, and that is not an oversight.
 
@@ -11087,7 +11118,7 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
       `these is not proof the content is gone, only that this search cannot reach all of it: ` +
       `${shown.join(", ")}${rest ? ` (+${rest} more)` : ""}]`;
   }
-  if (found.degraded && found.totalCount > found.scannedCount) {
+  if (found.degraded && (found.totalCount > found.scannedCount || found.totalIsFloor)) {
     out += `\n\n[note: scanned ${found.scannedCount} of ${found.totalCount}${
       found.totalIsFloor ? "+" : ""
     } notes — narrow with a prefix if needed]`;
@@ -11165,7 +11196,7 @@ async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
     against 3.
   */
   const seen = canSee(path, scope, rules, overrides);
-  const { object: present, physicalPath } = await getVisibleMovedNote(
+  const found = await getVisibleMovedNote(
     store,
     scope,
     rules,
@@ -11173,8 +11204,36 @@ async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
     path,
     probeWithLegacyFallback,
   );
+  let present = Boolean(found.object);
+  let physicalPath = found.physicalPath;
+  // Metadata can report a logical-delete marker as present. Resolve the
+  // authorized logical object before deciding whether the stale path needs
+  // forwarding, exactly as read_note does; otherwise a tombstone suppresses
+  // the forwarding lookup and the fetch ends as a false not-found.
+  let obj = seen && present ? await getWithLegacyFallback(store, physicalPath) : null;
+  if (seen && present && !obj) present = false;
+  if (!seen || !present) {
+    const forwarded = forwardPath(await readForwarding(store), path);
+    if (forwarded !== path && canSee(forwarded, scope, rules, overrides)) {
+      const landed = await getVisibleMovedNote(
+        store,
+        scope,
+        rules,
+        overrides,
+        forwarded,
+        probeWithLegacyFallback,
+      );
+      if (landed.object && seen && !present) {
+        const landedObject = await getWithLegacyFallback(store, landed.physicalPath);
+        if (landedObject) {
+          present = true;
+          physicalPath = landed.physicalPath;
+          obj = landedObject;
+        }
+      }
+    }
+  }
   if (!seen || !present) return toolError("not found");
-  const obj = await getWithLegacyFallback(store, physicalPath);
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // The same decrypt `read_note` does, because this is `read_note` wearing
