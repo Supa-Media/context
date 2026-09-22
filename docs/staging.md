@@ -4,9 +4,19 @@ The staging app is served at `https://staging.context.lc`, with MCP at
 `https://mcp-staging.context.lc/mcp` and an EAS Update channel named `staging`.
 It has a separate Convex deployment in the existing Context project.
 
-`Deploy Staging` deploys changes merged into `main`; it can also be run manually
-against a selected branch. Production deployment workflows keep their existing
-triggers. Staging is not a promotion gate for production.
+Every merge to `main` runs `Deploy Staging`; it can also be run manually
+against a selected branch. Merging never deploys production.
+
+To release, open **Actions → Deploy to Production → Run workflow** and select
+`main`. The action requires a successful staging deployment for that exact
+commit, then deploys Convex, the Workers, web, router and production OTA. All
+jobs use the commit fixed when the action started, even if `main` moves while
+it runs. Production builds use production credentials; staging data is not
+copied. A failed deployment can be retried with GitHub's **Re-run failed jobs**.
+
+The component production workflows are reusable jobs called by this manual
+action. Desktop builds/releases and native store builds/submissions remain
+separate manual workflows. This release action does not build native binaries.
 
 ## Deployment configuration
 

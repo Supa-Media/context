@@ -1,5 +1,5 @@
 # Deploy `context-email` — the Cloudflare Email Worker behind <username>@context.lc
-# — on every merge to `main`.
+# — when called by the manual production workflow.
 #
 # Modelled on deploy-mcp.yml and deploy-router.yml: the suite is a hard gate, a
 # preflight names a missing secret instead of letting wrangler fail opaquely,
@@ -33,19 +33,7 @@
 name: Deploy Email Worker (production)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "infra/email-worker/**"
-      # The email bundle imports the shared storage adapters and path rules.
-      - "apps/mcp/src/**"
-      - "apps/convex/functions/lib/names.ts"
-      - "apps/convex/functions/lib/ingestion.ts"
-      - "packages/shared/**"
-      - "packages/collaboration/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/deploy-email-worker.yml"
-  workflow_dispatch:
+  workflow_call:
 
 # Never on `pull_request`: a deploy triggered by a pull request from a branch
 # pushed HERE would run unreviewed code with the account's Cloudflare

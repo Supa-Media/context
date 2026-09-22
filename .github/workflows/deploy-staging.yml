@@ -4,13 +4,6 @@ name: Deploy Staging
 on:
   push:
     branches: [main]
-    paths:
-      - "apps/**"
-      - "packages/**"
-      - "infra/**"
-      - "scripts/staging-*.mjs"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/deploy-staging.yml"
   workflow_dispatch:
 
 concurrency:

@@ -1,6 +1,6 @@
 name: Deploy Mobile Update (OTA)
 
-# Publishes an EAS Update (over-the-air JS bundle) on merge to main, so installed
+# Publishes an EAS Update (over-the-air JS bundle) through the manual production workflow, so installed
 # builds with a matching runtimeVersion pick it up without a native rebuild.
 #
 # IMPORTANT: build-time public env vars (EXPO_PUBLIC_*) MUST be present here too.
@@ -17,13 +17,7 @@ name: Deploy Mobile Update (OTA)
 # wrong project, so the preflight below refuses to continue without it.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/mobile/**"
-      - "packages/shared/**"
-      - ".github/workflows/deploy-mobile-update.yml"
-  workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: deploy-mobile-update-production

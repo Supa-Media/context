@@ -1,4 +1,4 @@
-# Deploy the MCP gateway Worker (apps/mcp) on every merge to `main`.
+# Deploy the MCP gateway Worker (apps/mcp) when called by the manual production workflow.
 #
 # The gateway decrypts and uses customers' storage credentials, so its suite is
 # a hard gate: the deploy job does not start unless every check passes. That is
@@ -25,14 +25,7 @@
 name: Deploy MCP Gateway (production)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/mcp/**"
-      - "packages/collaboration/**"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/deploy-mcp.yml"
-  workflow_dispatch:
+  workflow_call:
 
 # Never on `pull_request`: a deploy triggered by a pull request from a branch
 # pushed HERE would run unreviewed code with the account's Cloudflare
