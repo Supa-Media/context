@@ -666,7 +666,7 @@ export function useFileBrowser(options: {
    * queued draft was typed against — which the drain has just superseded — and
    * your very next Save conflicts you against your own write of a moment ago.
    */
-  const onDrained = useCallback((result: { path: string; etag: string }) => {
+  const onDrained = useCallback((result: { path: string; etag: string; shownAt?: string }) => {
     const current = editorRef.current;
     const generation = openRun.current;
     /*
@@ -674,7 +674,7 @@ export function useFileBrowser(options: {
       note renamed here is sent to the note's old name, ahead of the rename,
       and the editor holding it is open at the new one.
     */
-    const shownAt = offlineRef.current.localPathOf(result.path);
+    const shownAt = result.shownAt ?? offlineRef.current.localPathOf(result.path);
     if (current.path !== result.path && current.path !== shownAt) return;
     const newer = offlineRef.current.pendingFor(result.path) !== undefined;
     if (!newer) dispatch({ type: "queueSettled", etag: result.etag });

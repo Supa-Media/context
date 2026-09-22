@@ -301,7 +301,7 @@ export function useOfflineNotes(options: {
   /** Keep legacy full-file writes parked while durable collaboration owns a note. */
   shouldWrite?: (write: PendingWrite) => boolean;
   /** Called for each write that landed, so the editor can take the new etag. */
-  onWritten?: (result: { path: string; etag: string }) => void;
+  onWritten?: (result: { path: string; etag: string; shownAt?: string }) => void;
   /**
    * Performs one queued op. Optional for the callers with nothing but edits —
    * without it, ops are left in the queue untouched.
@@ -652,7 +652,6 @@ export function useOfflineNotes(options: {
       now: () => Date.now(),
       onOpDone: (done) => {
         rememberOpDone(done);
-        onOpDoneRef.current?.(done);
       },
     })
       .then(({ outbox: next, report }) => {
@@ -663,6 +662,11 @@ export function useOfflineNotes(options: {
           than replacing it — is what stops a save made mid-drain from being
           silently dropped.
         */
+        // Keep aliases before completed moves leave the queue. The editor may
+        // already show the destination while this write used the source name.
+        const shownPaths = new Map(report.sent.map((sent) => [
+          sent.path, localPathOf(outboxRef.current, sent.path),
+        ]));
         commit(
           reconcile(outboxRef.current, next, report, { id: newOpId, now: Date.now() }),
           true,
@@ -671,8 +675,11 @@ export function useOfflineNotes(options: {
         // queued while this request was in flight before it marks a create
         // settled or upgrades it to a canonical collaboration generation.
         for (const sent of report.sent) {
-          onWrittenRef.current?.({ path: sent.path, etag: sent.etag });
+          onWrittenRef.current?.({ path: sent.path, etag: sent.etag, shownAt: shownPaths.get(sent.path) });
         }
+        // Writes land before moves. Deliver their acknowledgements in that
+        // order so a move can advance the version the write just established.
+        for (const done of report.ops.done) onOpDoneRef.current?.(done);
         setLastDrain(report);
         /*
           What was sent is in the bucket now, at the etag the write returned,
