@@ -60,6 +60,7 @@ export interface PremiumStatus {
   hasStripeCustomer?: boolean;
   /** Dedicated production CUJ account; never trusted by the server. */
   isTestAccount?: boolean;
+  stagingFreeStorage?: boolean;
   notes?: number;
   notesTruncated?: boolean;
   notesCountedAt?: number;
@@ -492,7 +493,7 @@ export function premiumControl(view: PremiumView): PremiumControl {
   const status = view.status;
   if (status === null) return "none";
   if (!status.canManage) return "none";
-  if (status.isTestAccount === true && status.status === "active")
+  if ((status.isTestAccount === true || status.stagingFreeStorage === true) && status.status === "active")
     return "none";
   if (status.hasStripeCustomer === true) {
     return view.manageBilling === undefined ? "none" : "manage";
@@ -667,8 +668,9 @@ export function formatPrice(
     either fake one or grow a second formatter. A second formatter is how `$5`
     ends up typed into a marketing page and left there when the constant moves.
   */
-  status: Pick<PremiumStatus, "priceCents" | "currency" | "interval">,
+  status: Pick<PremiumStatus, "priceCents" | "currency" | "interval" | "stagingFreeStorage">,
 ): string {
+  if (status.stagingFreeStorage === true) return "Free on staging";
   const amount = status.priceCents / 100;
   const rendered =
     status.currency.toLowerCase() === "usd"

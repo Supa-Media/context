@@ -33,7 +33,7 @@ export function StorageChoice({
   /** Set from first-run, so the callback can hand the person back to it. */
   dropboxResumeTo?: "onboarding";
   /** Absent unless billing says this deployment can provision the storage. */
-  managed?: { price: string; onChoose: () => void };
+  managed?: { price: string; stagingFreeStorage?: boolean; onChoose: () => void };
 }) {
   const dropbox = useDropboxStart(workspaceId, { resumeTo: dropboxResumeTo });
   return (
@@ -71,7 +71,7 @@ export function StorageChoiceBody({
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   onCancel?: () => void;
   dropboxNote?: string;
-  managed?: { price: string; onChoose: () => void };
+  managed?: { price: string; stagingFreeStorage?: boolean; onChoose: () => void };
 }) {
   const styles = useThemedStyles(makeStyles);
   const [ownOpen, setOwnOpen] = useState(false);
@@ -105,7 +105,7 @@ export function StorageChoiceBody({
           <ChoiceCard
             testID="choose-managed"
             title="Context-managed Premium storage"
-            sub={`Get 50 GB for this context. Context sets it up and keeps it running. ${EARLY_TESTER_PRICE_SHORT}`}
+            sub={`Get 50 GB for this context. Context sets it up and keeps it running. ${managed.stagingFreeStorage ? "Free on staging; no payment required." : EARLY_TESTER_PRICE_SHORT}`}
             badge={managed.price}
             badgeTone="neutral"
             selected={false}

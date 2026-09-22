@@ -379,3 +379,18 @@ the creator, and the first-run return sentence kept out of this flow.
   members and the panel explains rather than offering. "Absent, not disabled"
   would be better and needs a change to the settings catalogue's shared
   contract.
+
+## Staging storage bypass (2026-09-22)
+
+Staging testers can provision dedicated managed buckets without paying or supplying
+a card. The backend checks its environment, app origin and platform deployment URL;
+ordinary production owners cannot use this bypass. Existing workspace caps and
+owner authorization remain in force, and no production buckets are reused.
+The UI says storage is free on staging and proceeds directly to provisioning.
+Selected services use the normal entitlement machinery; fast search is still opt-in.
+Context pays the underlying Cloudflare usage. This replaces the proposal to hand
+out credentials for connecting production-managed buckets to staging.
+
+All staging-created managed buckets use the `staging-` prefix for operator
+cleanup. Staging is disposable: warn persistently in the app and before storage
+activation that data may be deleted at any time and must not hold vital information.

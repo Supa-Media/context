@@ -50,3 +50,25 @@ flags can remain disabled while registration is pending. Email ingestion uses
 `context-email-staging`; deploying the Worker does not change production MX.
 Billing requires Stripe test credentials and a staging webhook; never populate
 staging `appSecrets` with a live Stripe key or production provisioning tokens.
+
+## Free managed storage
+
+Workspace owners can create managed buckets on staging without entering Stripe
+or supplying a card. The normal workspace limits, tenant checks, credential
+encryption and bucket verification still apply. Staging creates its own buckets;
+it does not connect or copy production workspace data. This is free to testers;
+Context still pays Cloudflare for the storage and operations.
+
+The backend requires `APP_ENV=staging`, the staging app origin, and its own
+platform-provided `CONVEX_CLOUD_URL` to match `STAGING_CONVEX_DEPLOYMENT` before
+allowing the bypass. The staging sync sets these deployment selectors; a client
+flag or request origin cannot enable it. Ordinary production owners still need
+payment. Selected services activate through the existing test activation path,
+with a distinct staging audit event; fast search remains an explicit opt-in.
+
+Every managed bucket created by staging is named `staging-ctx-<workspaceId>`;
+production retains `ctx-<workspaceId>`. Inspect and select only the `staging-`
+prefix when cleaning up test storage. Deleting a bucket leaves its workspace
+binding in Convex, so the app may report missing storage afterwards.
+A persistent staging banner and the storage activation screens warn that data
+may be deleted at any time and must never be the only copy of vital information.

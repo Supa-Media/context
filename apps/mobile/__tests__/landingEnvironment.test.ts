@@ -1,3 +1,5 @@
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
+
 describe('landing MCP endpoint follows the deployed environment', () => {
   const before = process.env.EXPO_PUBLIC_MCP_URL;
   afterEach(() => {

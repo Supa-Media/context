@@ -52,7 +52,7 @@ import { ConvexError } from "convex/values";
 
 import { internal } from "../_generated/api";
 import { action, internalMutation, internalQuery } from "../_generated/server";
-import { MANAGED_BUCKET_PREFIX } from "./lib/managedStorage";
+import { managedBucketName } from "./lib/managedStorage";
 import { normalizePath } from "./lib/fileOps";
 import { findName } from "./lib/nameClaims";
 import { cancellationMakesReadOnly } from "./lib/premium";
@@ -166,7 +166,7 @@ export const collectContextWritable = internalQuery({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
     if (binding === null) return false;
-    const managed = binding.bucket === `${MANAGED_BUCKET_PREFIX}${String(args.workspaceId)}`;
+    const managed = binding.bucket === managedBucketName(args.workspaceId);
     const plan = await ctx.db
       .query("workspacePlans")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))

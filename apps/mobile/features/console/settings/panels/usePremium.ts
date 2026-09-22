@@ -85,7 +85,7 @@ export function usePremium(options: {
 
   const upgrade = useCallback(async () => {
     if (workspaceId === null) return;
-    if (status?.isTestAccount === true) {
+    if (status?.stagingFreeStorage === true || status?.isTestAccount === true) {
       await convex.mutation(api.functions.billing.activateTestPremium, {
         workspaceId,
       });
@@ -95,7 +95,7 @@ export function usePremium(options: {
       workspaceId,
     });
     setSessionId(started.sessionId);
-  }, [convex, status?.isTestAccount, workspaceId]);
+  }, [convex, status?.isTestAccount, status?.stagingFreeStorage, workspaceId]);
 
   const manageBilling = useCallback(async () => {
     if (workspaceId === null) return;

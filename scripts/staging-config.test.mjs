@@ -22,8 +22,9 @@ test('staging profile sets both the gateway and sharing origin', () => {
   assert.equal(eas.build.staging.env.EXPO_PUBLIC_SITE_ORIGIN, 'https://staging.context.lc');
 });
 
-const { validateStaging } = await import('./staging-env.mjs');
+const { validateStaging, backendKeys } = await import('./staging-env.mjs');
 const valid = {
+  APP_ENV: 'staging',
   STAGING_CONVEX_DEPLOYMENT: 'example-deployment',
   CONVEX_DEPLOY_KEY: 'prod:example-deployment|fake-test-key',
   EXPO_PUBLIC_CONVEX_URL: 'https://example-deployment.convex.cloud',
@@ -41,6 +42,12 @@ test('staging refuses production or mismatched secrets before deploying', () => 
     { EXPO_PUBLIC_CONVEX_URL: 'https://your-deployment.convex.cloud' },
     { APP_ORIGIN: 'https://context.lc' },
     { STAGING_CONVEX_DEPLOYMENT: '' },
+    { APP_ENV: 'production' },
     { JWT_PRIVATE_KEY: '' },
   ]) assert.throws(() => validateStaging({ ...valid, ...changed }));
+});
+
+test('staging sync supplies both backend deployment selectors', () => {
+  assert.ok(backendKeys.includes('APP_ENV'));
+  assert.ok(backendKeys.includes('STAGING_CONVEX_DEPLOYMENT'));
 });

@@ -189,6 +189,15 @@ export function useManagedOffer(options: {
 
   const proceed = useCallback(() => {
     if (workspaceId === null) return;
+    if (status?.stagingFreeStorage === true) {
+      setOpening(true);
+      setFailure(undefined);
+      void convex.mutation(api.functions.billing.activateTestPremium, { workspaceId })
+        .then(() => setMode("settling"))
+        .catch(() => setFailure("That did not go through. Check your connection and try again."))
+        .finally(() => setOpening(false));
+      return;
+    }
     // Second press, once there is a page: this is the one that leaves.
     if (session?.status === "ready" && session.url !== undefined) {
       leaveTo(session.url);
@@ -205,7 +214,7 @@ export function useManagedOffer(options: {
         setFailure("That did not go through. Check your connection and try again."),
       )
       .finally(() => setOpening(false));
-  }, [convex, origin, session, workspaceId]);
+  }, [convex, origin, session, status?.stagingFreeStorage, workspaceId]);
 
   const retry = useCallback(() => {
     if (workspaceId === null) return;

@@ -1649,3 +1649,66 @@ describe("whether managed storage can be offered at all", () => {
     }
   });
 });
+
+describe("free staging storage", () => {
+  function staging() {
+    vi.stubEnv("APP_ENV", "staging");
+    vi.stubEnv("APP_ORIGIN", "https://staging.context.lc");
+    vi.stubEnv("STAGING_CONVEX_DEPLOYMENT", "example-deployment");
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://example-deployment.convex.cloud");
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, "0123456789abcdef0123456789abcdef");
+  }
+
+  test("an ordinary staging owner activates a bucket once without Stripe", async () => {
+    staging();
+    try {
+      const t = setupTest();
+      const { owner, workspaceId } = await context(t, "free-stage");
+      await asUser(t, owner).mutation(api.functions.billing.setEntitlements, {
+        workspaceId, managedStorage: true, fastSearch: false,
+      });
+      expect(await asUser(t, owner).query(api.functions.billing.status, { workspaceId }))
+        .toMatchObject({ stagingFreeStorage: true, priceCents: 0, configured: true, managedStorageAvailable: true, isTestAccount: false });
+      await expect(asUser(t, owner).mutation(api.functions.billing.startCheckout, { workspaceId }))
+        .rejects.toMatchObject({ data: expect.objectContaining({ code: "STAGING_NO_PAYMENT" }) });
+      await asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId });
+      const scheduled = await t.run(ctx => ctx.db.system.query("_scheduled_functions").collect());
+      await asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId });
+      expect(await t.run(ctx => ctx.db.system.query("_scheduled_functions").collect())).toHaveLength(scheduled.length);
+      expect(await t.run(ctx => ctx.db.query("billingSessions").collect())).toEqual([]);
+      expect(await asUser(t, owner).query(api.functions.billing.status, { workspaceId }))
+        .toMatchObject({ status: "active", active: { managedStorage: true, fastSearch: false }, managedProvisioning: "running", hasStripeCustomer: false });
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  test.each([
+    ["APP_ENV", "production"],
+    ["APP_ORIGIN", "https://context.lc"],
+    ["CONVEX_CLOUD_URL", "https://your-deployment.convex.cloud"],
+    ["STAGING_CONVEX_DEPLOYMENT", ""],
+  ])("%s mismatch cannot bypass the production payment gate", async (key, value) => {
+    staging();
+    vi.stubEnv(key, value);
+    try {
+      const t = setupTest();
+      const { owner, workspaceId } = await context(t, "stage-denied");
+      await chooseBoth(t, owner, workspaceId);
+      expect(await asUser(t, owner).query(api.functions.billing.status, { workspaceId }))
+        .toMatchObject({ stagingFreeStorage: false, priceCents: 500 });
+      await expect(asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId }))
+        .rejects.toMatchObject({ data: expect.objectContaining({ code: "FORBIDDEN" }) });
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  test("staging editors cannot activate another owner's workspace", async () => {
+    staging();
+    try {
+      const t = setupTest();
+      const { owner, workspaceId } = await context(t, "stage-owner-only");
+      const editor = await createUser(t, "stage-editor@example.invalid");
+      await addMember(t, workspaceId, editor, "editor");
+      await chooseBoth(t, owner, workspaceId);
+      await expect(asUser(t, editor).mutation(api.functions.billing.activateTestPremium, { workspaceId })).rejects.toThrow();
+    } finally { vi.unstubAllEnvs(); }
+  });
+});
