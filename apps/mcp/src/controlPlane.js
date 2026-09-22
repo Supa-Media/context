@@ -128,6 +128,24 @@
  * fail the resolution if that write fails.
  *
  * ----------------------------------------------------------------------------
+ * 1a. POST /gateway/sessions/by-grant — re-check a room's current members
+ * ----------------------------------------------------------------------------
+ * request:
+ *   { "expectedWorkspaceId": "<workspaceId>",
+ *     "grantIds": ["<opaque grant id>", ...] } // unique, at most 24
+ *
+ * This is authorization metadata only. It returns no token, storage binding,
+ * person or client identity, privacy rule, path, or note content. Rows are
+ * aligned with the request and a stale or invalid grant is `null`.
+ *
+ * response 200:
+ *   { "sessions": [
+ *       { "grantId", "workspaceId", "scopes", "role", "kind",
+ *         "grantedNames"?: ["group-name"] } | null,
+ *       ...
+ *   ] }
+ *
+ * ----------------------------------------------------------------------------
  * 2. POST /gateway/binding — fetch a workspace's storage binding
  * ----------------------------------------------------------------------------
  * request:
@@ -686,6 +704,18 @@ export function createControlPlane(env, options = {}) {
      */
     async resolveSession(accessToken) {
       return required(await post("/gateway/session", { accessToken }), "session");
+    },
+
+    /** Re-authorize the bounded set of grants currently seated in one room. */
+    async resolveGrantSessions(expectedWorkspaceId, grantIds) {
+      const sessions = required(
+        await post("/gateway/sessions/by-grant", { expectedWorkspaceId, grantIds }),
+        "sessions"
+      );
+      if (!Array.isArray(sessions) || sessions.length !== grantIds.length) {
+        throw new ControlPlaneError("malformed grant sessions");
+      }
+      return sessions;
     },
 
     /**

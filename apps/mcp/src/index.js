@@ -86,6 +86,7 @@ import {
   reachForRole,
   writesAnywhere,
   participatesInForms,
+  accessForLiveGrant,
 } from "./session.js";
 import {
   emptyResponsesFile,
@@ -1323,7 +1324,13 @@ async function route(request, env, ctx) {
  * the Workers runtime wants either way, and it keeps that contract strict
  * rather than teaching it a new shape to tolerate.
  */
-export const PresenceRoom = PresenceRoomDurableObject;
+class AuthorizedPresenceRoom extends PresenceRoomDurableObject {
+  async authorizeLiveRelay(input) {
+    return authorizeLiveRelay(this.env, input);
+  }
+}
+
+export const PresenceRoom = AuthorizedPresenceRoom;
 
 export default {
   async fetch(request, env, ctx) {
@@ -1740,6 +1747,14 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
   const url = new URL(request.url);
   const notePath = normalizePath(url.searchParams.get("note"));
   if (!notePath) return json({ error: "invalid_path" }, 400);
+  const collaborationV2 = url.searchParams.get("collaboration") === "2";
+  const requestedDocumentId = url.searchParams.get("documentId");
+  if (
+    collaborationV2 && requestedDocumentId !== null &&
+    (!requestedDocumentId || requestedDocumentId.length > 256)
+  ) {
+    return json({ error: "invalid_document" }, 400);
+  }
 
   const controlPlane = createControlPlane(env);
   let session;
@@ -1767,7 +1782,17 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
   }
 
   const { rules, overrides } = await loadPrivacyState(store);
-  const visible = canSee(notePath, session.scope, rules, overrides);
+  // Legacy presence deliberately under-shares group notes. Durable console
+  // collaboration carries the console grant's freshly resolved group names,
+  // on the same terms as its HTTP document reads; ordinary OAuth grants have
+  // no names to pass and cannot gain group visibility here.
+  const visible = canSee(
+    notePath,
+    session.scope,
+    rules,
+    overrides,
+    collaborationV2 ? session.grantedGroups : undefined,
+  );
   // **Existence is checked, and checked by listing rather than by reading.**
   //
   // Without this the route answers 200 for any path inside a team folder,
@@ -1809,11 +1834,22 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
     : physicallyPresent;
   if (!visible || !present) return json({ error: "not_found" }, 404);
 
+  let documentId = null;
+  if (collaborationV2 && requestedDocumentId !== null) {
+    const head = await collaborationHead(store, notePath);
+    if (head?.status !== "active" || head.documentId !== requestedDocumentId) {
+      return json({ error: "document_changed" }, 409);
+    }
+    documentId = requestedDocumentId;
+  }
+
   const room = env.PRESENCE_ROOM.get(
     env.PRESENCE_ROOM.idFromName(roomKey(session.workspaceId, notePath)),
   );
-  const collaborationV2 = url.searchParams.get("collaboration") === "2";
-  const headers = new Headers(request.headers);
+  // Only the two headers the room consumes cross the internal boundary. In
+  // particular, the bearer/cookie and browser websocket negotiation headers
+  // from the public request are not forwarded into the Durable Object.
+  const headers = new Headers({ Upgrade: "websocket" });
   headers.set(
     "x-presence-member",
     JSON.stringify({
@@ -1852,9 +1888,121 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
         which is exactly the distinction that has to be drawn.
       */
       clientKey: await presenceClientKey(session.actorClientId),
+      ...(collaborationV2
+        ? {
+            grantId: session.grantId,
+            workspaceId: session.workspaceId,
+            workspaceSlug: session.workspaceSlug,
+            path: notePath,
+            // Old v2 clients did not send the generation. They retain roster,
+            // caret and committed-hint compatibility but are ineligible for
+            // plaintext live relay until they reconnect with an upgraded URL.
+            documentId,
+          }
+        : {}),
     }),
   );
-  return await room.fetch(new Request(request.url, { method: "GET", headers }));
+  // The browser compatibility transport carries its bearer in the public URL.
+  // The room has no use for it after the gateway resolves the session, so the
+  // internal request is rebuilt on a fixed origin and contains no token, note
+  // path, or other caller-controlled URL material.
+  const roomUrl = collaborationV2
+    ? "https://presence.invalid/presence?collaboration=2"
+    : "https://presence.invalid/presence";
+  return await room.fetch(new Request(roomUrl, { method: "GET", headers }));
+}
+
+/**
+ * Re-authorize one speculative collaboration update without persisting it.
+ *
+ * The sender proves itself with the bearer carried by this frame. Recipients
+ * are the bounded live roster and are re-checked by opaque grant id in one
+ * control-plane request. The only bucket reads are the current privacy state,
+ * logical existence, and collaboration head; update bytes never leave the
+ * room and this path never writes the bucket.
+ */
+async function authorizeLiveRelay(env, { sender, accessToken, documentId, recipients }) {
+  const refused = { sender: false, recipients: new Set() };
+  if (
+    !sender || typeof sender !== "object" ||
+    typeof sender.grantId !== "string" || !sender.grantId ||
+    typeof sender.workspaceId !== "string" || !sender.workspaceId ||
+    typeof sender.path !== "string" || !sender.path ||
+    typeof sender.clientKey !== "string" || !sender.clientKey ||
+    typeof documentId !== "string" || !documentId || documentId !== sender.documentId ||
+    typeof accessToken !== "string" || accessToken.length < 20 || accessToken.length > 4096 ||
+    !Array.isArray(recipients) || recipients.length > 23
+  ) {
+    return refused;
+  }
+
+  const controlPlane = createControlPlane(env);
+  let session;
+  let store;
+  try {
+    session = await resolveSession(accessToken, sender.workspaceSlug || null, controlPlane);
+    if (
+      session.grantId !== sender.grantId || session.workspaceId !== sender.workspaceId ||
+      !hasScope(session, SCOPE_READ) || !hasScope(session, SCOPE_WRITE) ||
+      await presenceClientKey(session.actorClientId) !== sender.clientKey
+    ) {
+      return refused;
+    }
+    store = await storeForSession(session, env, controlPlane);
+  } catch {
+    return refused;
+  }
+
+  const uniqueGrantIds = [...new Set(recipients.map((recipient) => recipient?.grantId))];
+  if (uniqueGrantIds.some((grantId) => typeof grantId !== "string" || !grantId)) return refused;
+
+  let privacy;
+  let head;
+  let physicallyPresent;
+  let rows;
+  try {
+    [privacy, head, physicallyPresent, rows] = await Promise.all([
+      loadPrivacyState(store),
+      collaborationHead(store, sender.path),
+      objectExists(store, sender.path, { metadataOnly: true }),
+      uniqueGrantIds.length > 0
+        ? controlPlane.resolveGrantSessions(sender.workspaceId, uniqueGrantIds)
+        : Promise.resolve([]),
+    ]);
+  } catch {
+    return refused;
+  }
+  if (
+    privacy.error || !physicallyPresent || head?.status !== "active" || head.documentId !== documentId ||
+    !canSee(sender.path, session.scope, privacy.rules, privacy.overrides, session.grantedGroups)
+  ) {
+    return refused;
+  }
+  // Resolve a possible logical-delete marker only after the freshly resolved
+  // sender may see the note. Metadata-only probing above must never download a
+  // hidden note body on behalf of a revoked or narrowed grant.
+  try {
+    if (!await objectExists(store, sender.path)) return refused;
+  } catch {
+    return refused;
+  }
+
+  const accessByGrant = new Map();
+  for (let index = 0; index < uniqueGrantIds.length; index += 1) {
+    const access = accessForLiveGrant(rows[index], sender.workspaceId);
+    if (access?.grantId === uniqueGrantIds[index]) accessByGrant.set(access.grantId, access);
+  }
+  const allowed = new Set();
+  for (const recipient of recipients) {
+    const access = accessByGrant.get(recipient.grantId);
+    if (
+      access && hasScope(access, SCOPE_READ) &&
+      canSee(sender.path, access.scope, privacy.rules, privacy.overrides, access.grantedGroups)
+    ) {
+      allowed.add(recipient.id);
+    }
+  }
+  return { sender: true, recipients: allowed };
 }
 
 

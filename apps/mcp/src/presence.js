@@ -72,8 +72,8 @@
 export const PRESENCE_PROTOCOL_VERSION = 1;
 
 /**
- * HTTP-committed collaboration sockets use the existing room only for
- * presence and delivery of committed snapshots.  They never participate in
+ * Durable collaboration sockets carry presence, content-free commit notices,
+ * and separately authorized transient live updates. They never participate in
  * the legacy in-room Yjs log protocol.
  */
 export const COLLABORATION_PROTOCOL_VERSION = 2;
@@ -123,6 +123,7 @@ export const MAX_CLIENT_FRAME_BYTES = 1024;
  */
 export const MAX_UPDATE_BYTES = 32 * 1024;
 export const MAX_SNAPSHOT_BYTES = 512 * 1024;
+export const MAX_ACCESS_TOKEN_BYTES = 4096;
 
 /**
  * How many updates a room keeps before it asks for a snapshot.
@@ -248,6 +249,29 @@ export function decodeClientFrame(raw) {
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return { ok: false, reason: "not_object" };
+  }
+  if (parsed.t === "live") {
+    if (
+      typeof parsed.documentId !== "string" || parsed.documentId.length === 0 ||
+      parsed.documentId.length > 256 || typeof parsed.d !== "string" || parsed.d.length === 0 ||
+      typeof parsed.accessToken !== "string" || parsed.accessToken.length < 20 ||
+      frameBytes(parsed.accessToken) > MAX_ACCESS_TOKEN_BYTES
+    ) {
+      return { ok: false, reason: "bad_live_update" };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(parsed.d)) return { ok: false, reason: "not_base64" };
+    if (frameBytes(parsed.d) > MAX_UPDATE_BYTES) return { ok: false, reason: "too_large" };
+    return {
+      ok: true,
+      msg: {
+        t: "live",
+        documentId: parsed.documentId,
+        d: parsed.d,
+        // Consumed by the room's authorization call and never serialized,
+        // stored, logged, or included in the outgoing frame.
+        accessToken: parsed.accessToken,
+      },
+    };
   }
   if (parsed.t === "cursor") {
     // Same cap, checked before the branch returns. A caret frame that is not

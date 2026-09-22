@@ -42,6 +42,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - Markdown and essential editing history stay in customer storage
 - One Yjs merge implementation for people, agents, and offline devices
+- Live delivery is independent of saving
 - Permissions, stable identity, and verification are release gates
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)

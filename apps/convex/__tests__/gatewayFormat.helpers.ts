@@ -151,7 +151,18 @@ export function gatewayInternals(): GatewayInternals {
       if (name[1] !== "as") imported.add(name[1]);
     }
   }
-  const declared = imported.size > 0 ? `var ${[...imported].join(", ")};\n` : "";
+  // Defining the gateway's authorized room subclass needs a constructible base
+  // even though these tests only extract privacy functions. Fail loudly if a
+  // tested helper ever tries to use this unrelated network dependency.
+  const declared =
+    (imported.size > 0 ? `var ${[...imported].join(", ")};\n` : "") +
+    (imported.has("PresenceRoomDurableObject")
+      ? `PresenceRoomDurableObject = class GatewayFormatPresenceRoomBase {\n` +
+        `  constructor() {\n` +
+        `    throw new Error("the privacy extraction must not instantiate the presence room");\n` +
+        `  }\n` +
+        `};\n`
+      : "");
 
   const body =
     declared +

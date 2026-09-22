@@ -107,7 +107,10 @@
  * thing they were.** Both were found by sabotage and neither by reading.
  */
 
-import worker from "../src/index.js";
+import worker, {
+  PresenceRoom as GatewayPresenceRoom,
+  presenceClientKey,
+} from "../src/index.js";
 import { PresenceRoom } from "../src/presenceRoom.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -141,7 +144,7 @@ const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  index.md: team\n  1-projects: team\n\n" +
-  "note_overrides:\n  1-projects/rates.md: private\n  1-projects/marker-sized.md: private\n```\n\n" +
+  "note_overrides:\n  1-projects/rates.md: private\n  1-projects/marker-sized.md: private\n  1-projects/group.md: @writers\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 function createBucket() {
@@ -232,6 +235,8 @@ function createRoomNamespaceStub() {
             name: id.name,
             member: asRequest.headers.get("x-presence-member"),
             url: asRequest.url,
+            authorization: asRequest.headers.get("authorization"),
+            cookie: asRequest.headers.get("cookie"),
             body: asRequest.method === "POST" ? await asRequest.text() : null,
           });
           return new Response("joined", { status: 200 });
@@ -337,6 +342,30 @@ export async function runPresenceChecks(check) {
   check("an array frame is refused", decodeClientFrame("[1,2,3]").ok === false);
   check("a null frame is refused", decodeClientFrame("null").ok === false);
   check("an unknown frame type is refused", decodeClientFrame('{"t":"edit"}').ok === false);
+  const liveToken = `cat_live_${"x".repeat(24)}`;
+  const decodedLive = decodeClientFrame(JSON.stringify({
+    t: "live",
+    documentId: "doc_live",
+    d: "QUJD",
+    accessToken: liveToken,
+    clientKey: "a client cannot choose this",
+  }));
+  check(
+    "a bounded live update carries transient authorization to the room",
+    decodedLive.ok === true && decodedLive.msg.documentId === "doc_live" &&
+      decodedLive.msg.d === "QUJD" && decodedLive.msg.accessToken === liveToken &&
+      !("clientKey" in decodedLive.msg),
+  );
+  check(
+    "a live update without a real bearer is refused",
+    decodeClientFrame(JSON.stringify({
+      t: "live", documentId: "doc_live", d: "QUJD", accessToken: "short",
+    })).ok === false,
+  );
+  check(
+    "a live update cannot omit its document generation",
+    decodeClientFrame(JSON.stringify({ t: "live", d: "QUJD", accessToken: liveToken })).ok === false,
+  );
   check(
     "a caret position that is not a position becomes null, not a guess",
     /*
@@ -578,12 +607,24 @@ export async function runPresenceChecks(check) {
   */
   const fakeSocket = () => {
     const sent = [];
+    const closed = [];
     let attachment = null;
+    let readyState = 1;
     return {
       sent,
+      closed,
+      get readyState() {
+        return readyState;
+      },
+      setReadyState(value) {
+        readyState = value;
+      },
       frames: () => sent.map((text) => JSON.parse(text)),
       send: (text) => sent.push(text),
-      close: () => {},
+      close(code, reason) {
+        closed.push({ code, reason });
+        readyState = 3;
+      },
       serializeAttachment: (value) => {
         attachment = value;
       },
@@ -681,6 +722,62 @@ export async function runPresenceChecks(check) {
     check(
       "the room tells a client joining an occupied room not to seed",
       secondWelcome?.seed === false,
+    );
+
+    /* -------- closing sockets are not members after hibernation ---------- */
+
+    const reconnecting = fakeRoomRuntime();
+    const oldSocket = fakeSocket();
+    const firstTab = fakeSocket();
+    const secondTab = fakeSocket();
+    const attachedMember = (id) => ({
+      id,
+      name: "@bo",
+      color: "#123456",
+      canWrite: true,
+      seen: Date.now(),
+      deadline: Number.MAX_SAFE_INTEGER,
+    });
+    oldSocket.serializeAttachment(attachedMember("old-connection"));
+    firstTab.serializeAttachment(attachedMember("first-tab"));
+    secondTab.serializeAttachment(attachedMember("second-tab"));
+    // Cloudflare may retain this socket in getWebSockets() while completing
+    // the close handshake. Constructing the room object afterwards models a
+    // hibernation wake, when no in-memory closed-socket set survives.
+    oldSocket.setReadyState(2);
+    reconnecting.open.push(oldSocket, firstTab, secondTab);
+    const wokeRoom = new PresenceRoom(reconnecting.state, {});
+    const wokeRoster = roster(wokeRoom.roomFromSockets());
+    check(
+      "a closing socket retained across hibernation is absent from the rebuilt roster",
+      wokeRoster.length === 2 && wokeRoster.every((member) => member.id !== "old-connection"),
+    );
+    check(
+      "two open tabs belonging to the same person remain two legitimate members",
+      wokeRoster.map((member) => member.name).every((name) => name === "@bo") &&
+        new Set(wokeRoster.map((member) => member.id)).size === 2,
+    );
+    wokeRoom.broadcast({ t: "leave", id: "somebody-else" });
+    check(
+      "a closing socket retained by the runtime receives no later room frames",
+      oldSocket.sent.length === 0 && firstTab.sent.length === 1 && secondTab.sent.length === 1,
+    );
+    await wokeRoom.webSocketClose(oldSocket, 1000, "bye");
+    check(
+      "the close callback completes the closing handshake while the runtime still retains the socket",
+      oldSocket.closed.length === 1 && oldSocket.closed[0].code === 1000 &&
+        oldSocket.closed[0].reason === "bye" && reconnecting.open.includes(oldSocket) &&
+        !wokeRoom.roomFromSockets().members.has("old-connection"),
+    );
+
+    const erroredSocket = fakeSocket();
+    erroredSocket.serializeAttachment(attachedMember("errored-open-socket"));
+    reconnecting.open.push(erroredSocket);
+    await wokeRoom.webSocketError(erroredSocket);
+    check(
+      "a logically released socket is excluded even before readyState changes",
+      erroredSocket.readyState === 1 &&
+        !wokeRoom.roomFromSockets().members.has("errored-open-socket"),
     );
 
     // A room whose members have all gone but whose log has not yet been swept:
@@ -1396,6 +1493,126 @@ export async function runPresenceChecks(check) {
       writerSocket.sent.length === writerFramesBeforeEdit &&
         (await askingRoom.readLog()).length === logBeforeEdit,
     );
+
+    /* ---------------- v2 speculative updates are freshly authorized ------ */
+
+    class RelayRoom extends PresenceRoom {
+      constructor(state, authorize) {
+        super(state, {});
+        this.authorize = authorize;
+        this.authorizations = [];
+      }
+      async authorizeLiveRelay(input) {
+        this.authorizations.push(input);
+        return this.authorize(input);
+      }
+    }
+    const relayRuntime = fakeRoomRuntime();
+    const relayRoom = new RelayRoom(relayRuntime.state, async () => ({
+      sender: true,
+      recipients: new Set(["recipient-live"]),
+    }));
+    const relayAttachment = (id, grantId, clientKey, documentId = "doc-live") => ({
+      id,
+      grantId,
+      clientKey,
+      workspaceId: "ws-live",
+      workspaceSlug: "live",
+      path: "1-projects/live.md",
+      documentId,
+      collaborationVersion: 2,
+      canWrite: true,
+      deadline: Date.now() + 60_000,
+      seen: Date.now(),
+    });
+    const liveSender = fakeSocket();
+    const liveRecipient = fakeSocket();
+    const revokedRecipient = fakeSocket();
+    liveSender.serializeAttachment(relayAttachment("sender-live", "grant-sender", "client-sender"));
+    liveRecipient.serializeAttachment(relayAttachment("recipient-live", "grant-recipient", "client-recipient"));
+    revokedRecipient.serializeAttachment(relayAttachment("recipient-revoked", "grant-revoked", "client-revoked"));
+    relayRuntime.open.push(liveSender, liveRecipient, revokedRecipient);
+    await relayRoom.webSocketMessage(liveSender, JSON.stringify({
+      t: "live", documentId: "doc-live", d: "QUJD", accessToken: liveToken,
+    }));
+    const deliveredLive = liveRecipient.frames().find((frame) => frame.t === "live");
+    check(
+      "a freshly authorized live update reaches only the authorized recipient",
+      deliveredLive?.t === "live" && deliveredLive.documentId === "doc-live" &&
+        deliveredLive.d === "QUJD" && deliveredLive.clientKey === "client-sender" &&
+        revokedRecipient.frames().every((frame) => frame.t !== "live") &&
+        revokedRecipient.closed.length === 1,
+    );
+    check(
+      "the relay bearer is consumed by authorization and never sent or attached",
+      relayRoom.authorizations[0]?.accessToken === liveToken &&
+        !JSON.stringify(deliveredLive).includes(liveToken) &&
+        !JSON.stringify(liveSender.deserializeAttachment()).includes(liveToken) &&
+        (await relayRoom.readLog()).length === 0,
+    );
+    const authorizationsBeforeWrongDocument = relayRoom.authorizations.length;
+    await relayRoom.webSocketMessage(liveSender, JSON.stringify({
+      t: "live", documentId: "doc-other", d: "REVG", accessToken: liveToken,
+    }));
+    check(
+      "a live update for another document is refused before authorization",
+      relayRoom.authorizations.length === authorizationsBeforeWrongDocument &&
+        liveRecipient.frames().every((frame) => frame.d !== "REVG"),
+    );
+
+    const burstRuntime = fakeRoomRuntime();
+    let activeAuthorizations = 0;
+    let maximumAuthorizations = 0;
+    const burstRoom = new RelayRoom(burstRuntime.state, async () => {
+      activeAuthorizations += 1;
+      maximumAuthorizations = Math.max(maximumAuthorizations, activeAuthorizations);
+      await new Promise((resolve) => setTimeout(resolve, 3));
+      activeAuthorizations -= 1;
+      return { sender: true, recipients: new Set(["burst-recipient"]) };
+    });
+    const burstSender = fakeSocket();
+    const burstRecipient = fakeSocket();
+    burstSender.serializeAttachment(relayAttachment("burst-sender", "grant-burst", "client-burst"));
+    burstRecipient.serializeAttachment(relayAttachment("burst-recipient", "grant-peer", "client-peer"));
+    burstRuntime.open.push(burstSender, burstRecipient);
+    await Promise.all(
+      Array.from({ length: 10 }, (_, index) => burstRoom.webSocketMessage(
+        burstSender,
+        JSON.stringify({
+          t: "live",
+          documentId: "doc-live",
+          d: btoa(`key-${index}`),
+          accessToken: liveToken,
+        }),
+      )),
+    );
+    check(
+      "overlapping keystrokes are all relayed within the per-socket concurrency bound",
+      burstRecipient.frames().filter((frame) => frame.t === "live").length === 10 &&
+        maximumAuthorizations > 1 && maximumAuthorizations <= 8,
+    );
+
+    const closingRuntime = fakeRoomRuntime();
+    let finishAuthorization;
+    const closingRoom = new RelayRoom(closingRuntime.state, () => new Promise((resolve) => {
+      finishAuthorization = resolve;
+    }));
+    const closingSender = fakeSocket();
+    const closingRecipient = fakeSocket();
+    closingSender.serializeAttachment(relayAttachment("closing-sender", "grant-sender", "client-sender"));
+    closingRecipient.serializeAttachment(relayAttachment("closing-recipient", "grant-peer", "client-peer"));
+    closingRuntime.open.push(closingSender, closingRecipient);
+    const pendingRelay = closingRoom.webSocketMessage(closingSender, JSON.stringify({
+      t: "live", documentId: "doc-live", d: "R0hJ", accessToken: liveToken,
+    }));
+    await Promise.resolve();
+    closingRoom.dropSocket(closingRecipient, 4401, "reauthorize");
+    finishAuthorization({ sender: true, recipients: new Set(["closing-recipient"]) });
+    await pendingRelay;
+    check(
+      "a recipient closed while authorization is in flight receives no late plaintext",
+      closingRecipient.frames().every((frame) => frame.t !== "live"),
+    );
   } finally {
     if (previousPair === undefined) delete globalThis.WebSocketPair;
     else globalThis.WebSocketPair = previousPair;
@@ -1451,7 +1668,7 @@ export async function runPresenceChecks(check) {
       capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       status: "active",
     });
-    await controlPlane.addGrant({
+    const ownerGrantId = await controlPlane.addGrant({
       accessToken: OWNER_TOKEN,
       workspaceId: "ws_presence",
       role: "owner",
@@ -1459,7 +1676,7 @@ export async function runPresenceChecks(check) {
       clientId: "mcp_client_presence_owner",
       userId: "user_presence_owner",
     });
-    await controlPlane.addGrant({
+    const teamGrantId = await controlPlane.addGrant({
       accessToken: TEAM_TOKEN,
       workspaceId: "ws_presence",
       role: "editor",
@@ -1470,6 +1687,26 @@ export async function runPresenceChecks(check) {
       // to be mistaken for the host's handle. It must lose to the verified one.
       clientName: "@presencetest",
       alsoMemberOf: [{ workspaceId: "ws_teamhome", role: "owner" }],
+    });
+    const consoleGroupToken = `cat_presence_console_group_${"0".repeat(10)}`;
+    await controlPlane.addGrant({
+      accessToken: consoleGroupToken,
+      workspaceId: "ws_presence",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "context_console",
+      userId: "user_presence_console_group",
+      grantedNamesByWorkspace: { ws_presence: ["writers"] },
+    });
+    const oauthGroupToken = `cat_presence_oauth_group_${"0".repeat(12)}`;
+    await controlPlane.addGrant({
+      accessToken: oauthGroupToken,
+      workspaceId: "ws_presence",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "ordinary_oauth_client",
+      userId: "user_presence_oauth_group",
+      grantedNamesByWorkspace: { ws_presence: ["writers"] },
     });
     await controlPlane.addGrant({
       accessToken: OTHER_TOKEN,
@@ -1507,7 +1744,31 @@ export async function runPresenceChecks(check) {
     bucket.seed("privacy.md", MANIFEST);
     bucket.seed("index.md", "# front page");
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
+    bucket.seed("1-projects/live.md", "the live collaboration note");
+    bucket.seed("1-projects/group.md", "the writers group note");
+    const livePathDigest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode("1-projects/live.md"),
+    );
+    const livePathHash = [...new Uint8Array(livePathDigest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    bucket.seed(
+      `.context/collaboration/v1/heads/${livePathHash}.json`,
+      JSON.stringify({ status: "active", documentId: "doc-route-live" }),
+    );
     bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
+    const ratesPathDigest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode("1-projects/rates.md"),
+    );
+    const ratesPathHash = [...new Uint8Array(ratesPathDigest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    bucket.seed(
+      `.context/collaboration/v1/heads/${ratesPathHash}.json`,
+      JSON.stringify({ status: "active", documentId: "doc-private-live" }),
+    );
     const markerBody = `context.logical-delete.v1.${"0".repeat(32)}.${"0".repeat(64)}`;
     bucket.seed("1-projects/marker-sized.md", "MARKERSIZESECRET".padEnd(markerBody.length, "x"));
     bucket.seed("1-projects/deleted.md", markerBody);
@@ -1528,6 +1789,80 @@ export async function runPresenceChecks(check) {
       OTHER_BUCKET: otherBucket,
       PRESENCE_ROOM: rooms,
     };
+
+    /* -- the production room performs the whole live authorization path ---- */
+
+    const productionRuntime = fakeRoomRuntime();
+    const productionRoom = new GatewayPresenceRoom(productionRuntime.state, env);
+    const productionSender = fakeSocket();
+    const productionRecipient = fakeSocket();
+    const productionDeadline = Date.now() + 60_000;
+    productionSender.serializeAttachment({
+      id: "production-sender",
+      name: "@teamhome",
+      color: "#3b82f6",
+      canWrite: true,
+      clientKey: await presenceClientKey("mcp_client_presence_team"),
+      grantId: teamGrantId,
+      workspaceId: "ws_presence",
+      workspaceSlug: "presencetest",
+      path: "1-projects/live.md",
+      documentId: "doc-route-live",
+      collaborationVersion: 2,
+      deadline: productionDeadline,
+      seen: Date.now(),
+    });
+    productionRecipient.serializeAttachment({
+      id: "production-recipient",
+      name: "@presencetest",
+      color: "#ec4899",
+      canWrite: true,
+      clientKey: await presenceClientKey("mcp_client_presence_owner"),
+      grantId: ownerGrantId,
+      workspaceId: "ws_presence",
+      workspaceSlug: "presencetest",
+      path: "1-projects/live.md",
+      documentId: "doc-route-live",
+      collaborationVersion: 2,
+      deadline: productionDeadline,
+      seen: Date.now(),
+    });
+    productionRuntime.open.push(productionSender, productionRecipient);
+    await productionRoom.webSocketMessage(productionSender, JSON.stringify({
+      t: "live",
+      documentId: "doc-route-live",
+      d: "QUJD",
+      accessToken: TEAM_TOKEN,
+    }));
+    check(
+      "the production room authorizes and relays one current-generation update",
+      productionRecipient.frames().some(
+        (frame) => frame.t === "live" && frame.documentId === "doc-route-live" &&
+          frame.d === "QUJD" && !JSON.stringify(frame).includes(TEAM_TOKEN),
+      ),
+    );
+    const narrowedRuntime = fakeRoomRuntime();
+    const narrowedRoom = new GatewayPresenceRoom(narrowedRuntime.state, env);
+    const narrowedSender = fakeSocket();
+    narrowedSender.serializeAttachment({
+      ...productionSender.deserializeAttachment(),
+      id: "narrowed-sender",
+      path: "1-projects/rates.md",
+      documentId: "doc-private-live",
+    });
+    narrowedRuntime.open.push(narrowedSender);
+    bucket.fetched.length = 0;
+    await narrowedRoom.webSocketMessage(narrowedSender, JSON.stringify({
+      t: "live",
+      documentId: "doc-private-live",
+      d: "REVG",
+      accessToken: TEAM_TOKEN,
+    }));
+    check(
+      "fresh privacy revocation closes the sender without fetching hidden note bytes",
+      narrowedSender.closed.length === 1 &&
+        !bucket.fetched.includes("1-projects/rates.md"),
+    );
 
     /* -- non-vacuity: the happy path actually reaches a room --------------- */
 
@@ -1590,6 +1925,72 @@ export async function runPresenceChecks(check) {
         JSON.parse(rooms.calls.at(-1)?.member || "null")?.name === "Someone's Claude",
     );
     check("the colour seed is carried through", member?.colorSeed === "tab-a");
+
+    const oldV2 = await presenceRequest(
+      env,
+      TEAM_TOKEN,
+      "?note=1-projects/live.md&collaboration=2",
+      { headers: { Cookie: "browser-secret=must-not-cross" } },
+    );
+    const oldV2Call = rooms.calls.at(-1);
+    const oldV2Member = JSON.parse(oldV2Call?.member || "null");
+    check(
+      "an older v2 socket without a document id keeps presence but cannot receive live text",
+      oldV2.status === 200 && oldV2Member?.documentId === null &&
+        oldV2Call?.url === "https://presence.invalid/presence?collaboration=2",
+    );
+    check(
+      "the internal room handshake carries no public bearer or cookie",
+      oldV2Call?.authorization === null && oldV2Call?.cookie === null &&
+        !oldV2Call?.url.includes(TEAM_TOKEN) && !oldV2Call?.url.includes("1-projects"),
+    );
+
+    const currentV2 = await presenceRequest(
+      env,
+      TEAM_TOKEN,
+      "?note=1-projects/live.md&collaboration=2&documentId=doc-route-live",
+    );
+    const currentV2Member = JSON.parse(rooms.calls.at(-1)?.member || "null");
+    check(
+      "a current v2 socket is pinned to server-derived room and generation metadata",
+      currentV2.status === 200 && currentV2Member?.grantId &&
+        currentV2Member.workspaceId === "ws_presence" &&
+        currentV2Member.path === "1-projects/live.md" &&
+        currentV2Member.documentId === "doc-route-live",
+    );
+    const beforeStaleV2 = rooms.calls.length;
+    const staleV2 = await presenceRequest(
+      env,
+      TEAM_TOKEN,
+      "?note=1-projects/live.md&collaboration=2&documentId=doc-stale",
+    );
+    check(
+      "a stale document generation opens no room",
+      staleV2.status === 409 && rooms.calls.length === beforeStaleV2,
+    );
+    const consoleGroupV2 = await presenceRequest(
+      env,
+      consoleGroupToken,
+      "?note=1-projects/group.md&collaboration=2",
+    );
+    const ordinaryGroupV2 = await presenceRequest(
+      env,
+      oauthGroupToken,
+      "?note=1-projects/group.md&collaboration=2",
+    );
+    const consoleGroupV1 = await presenceRequest(
+      env,
+      consoleGroupToken,
+      "?note=1-projects/group.md",
+    );
+    check(
+      "durable console presence honors live group clearance without widening OAuth grants",
+      consoleGroupV2.status === 200 && ordinaryGroupV2.status === 404,
+    );
+    check(
+      "legacy presence keeps its deliberate group under-share",
+      consoleGroupV1.status === 404,
+    );
 
     /* -- read opens the socket; write is a separate question --------------- */
 

@@ -27,6 +27,38 @@ last browser does not permit deletion of customer editing history. Every
 device keeps its own pending edits until the storage acknowledgement covers
 them. A local persistence failure must be visible.
 
+## Live delivery is independent of saving
+
+For durable prose, each locally persisted Yjs edit can travel immediately over
+its presence socket. It does not wait for the bucket commit or replace the
+HTTP save queue. A socket receipt never means Saved. Writable recipients keep
+received operations in their own durable queue as well: if they type against
+an uncommitted peer insertion, those dependencies must survive the author
+closing their browser. Read-only recipients retain received operations locally
+but cannot publish them; a fresh bucket read confirms when they are saved.
+
+The relay does not store an authoritative document. Each frame carries a
+transient bearer to authorize the sender and obtain the workspace's storage
+binding through the existing two-proof boundary. It is not logged, attached to
+the socket, stored, or forwarded to peers. Socket attachments contain only
+server-derived grant, workspace, path, and document identities. A bounded
+control-plane lookup freshly checks recipient grants and memberships; current
+privacy rules and the active document generation decide delivery. Permission
+failures close ineligible recipients before content is sent. Old clients
+without a pinned document identity receive only content-free commit notices.
+
+Network and authorization latency still apply. This path removes bucket writes
+and a second document fetch from normal live typing; it does not promise a
+fixed production delay. Lost relay messages are repaired from the durable
+bucket state. Large updates can fall back to that same path.
+
+Cursors encode positions against the durable editor document, including empty
+notes, and reannounce the current selection after socket reconnects. The
+presence chip shows peer names and a count of other editors. Acceptance checks
+must inspect those rendered elements and require separately typed characters
+to appear in another browser while durable writes are deliberately held;
+eventual convergence alone does not verify the live editing experience.
+
 ## One merge implementation
 
 `packages/collaboration` owns Yjs and the operation-to-Markdown adapter. This is

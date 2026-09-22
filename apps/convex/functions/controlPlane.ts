@@ -111,7 +111,20 @@ async function resolveLiveGrant(
       q.eq("hashedAccessToken", hashedAccessToken),
     )
     .unique();
-  if (grant === null || grant.status !== "active") return null;
+  return grant === null ? null : await validateLiveGrantRecord(ctx, grant);
+}
+
+/**
+ * Re-check a grant row that was selected by some other credential.  The
+ * batch presence route receives grant ids from the already-authorized gateway,
+ * so it cannot use the access-token lookup above; it must still apply exactly
+ * the same live checks before exposing any context metadata.
+ */
+async function validateLiveGrantRecord(
+  ctx: QueryCtx,
+  grant: Doc<"oauthGrants">,
+): Promise<LiveGrant | null> {
+  if (grant.status !== "active") return null;
 
   if (
     typeof grant.accessTokenExpiresAt !== "number" ||
@@ -273,6 +286,83 @@ async function contextsForGrant(
 
   return rows;
 }
+
+/**
+ * Resolve a bounded batch of already-issued grants for the live relay.
+ *
+ * The caller supplies a grant id only as a candidate.  Every row is validated
+ * against current membership, client registration, expiry and the current
+ * context set before it is returned.  Invalid entries deliberately become
+ * null in their original position so a stale peer grant cannot suppress valid
+ * peers in the same relay request.
+ */
+export const resolveLivePresenceGrants = internalQuery({
+  args: {
+    expectedWorkspaceId: v.string(),
+    grantIds: v.array(v.string()),
+  },
+  returns: v.array(
+    v.union(
+      v.null(),
+      v.object({
+        grantId: v.id("oauthGrants"),
+        workspaceId: v.id("workspaces"),
+        scopes: v.array(v.string()),
+        role: v.string(),
+        kind: v.union(v.literal("personal"), v.literal("shared")),
+        grantedNames: v.optional(v.array(v.string())),
+      }),
+    ),
+  ),
+  handler: async (ctx, args) => {
+    if (
+      args.grantIds.length > 24 ||
+      new Set(args.grantIds).size !== args.grantIds.length
+    ) {
+      // The HTTP route rejects this shape before reaching the query. Keep the
+      // internal function bounded too for callers in this module and future
+      // tests that invoke it directly.
+      return [];
+    }
+
+    const rawWorkspaceId = args.expectedWorkspaceId;
+    const targetWorkspaceId = ctx.db.normalizeId("workspaces", rawWorkspaceId);
+    if (targetWorkspaceId === null) return args.grantIds.map(() => null);
+    return await Promise.all(
+      args.grantIds.map(async (grantId): Promise<{
+        grantId: Id<"oauthGrants">;
+        workspaceId: Id<"workspaces">;
+        scopes: string[];
+        role: string;
+        kind: "personal" | "shared";
+        grantedNames?: string[];
+      } | null> => {
+        const normalizedGrantId = ctx.db.normalizeId("oauthGrants", grantId);
+        if (normalizedGrantId === null) return null;
+        const grant = await ctx.db.get(normalizedGrantId);
+        if (grant === null) return null;
+        const live = await validateLiveGrantRecord(ctx, grant);
+        if (live === null) return null;
+
+        const target = (await contextsForGrant(ctx, live)).find(
+          (row) => row.workspaceId === targetWorkspaceId,
+        );
+        if (target === undefined) return null;
+
+        return {
+          grantId: live.grant._id,
+          workspaceId: target.workspaceId,
+          scopes: live.grant.scopes,
+          role: target.role,
+          kind: target.kind,
+          ...(target.grantedNames === undefined
+            ? {}
+            : { grantedNames: target.grantedNames }),
+        };
+      }),
+    );
+  },
+});
 
 /**
  * Resolve an access token to the session that serves one MCP request.
