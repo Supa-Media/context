@@ -214,6 +214,11 @@ async function main() {
     if(!response.ok) throw new Error(`raw read failed ${response.status}`);
     return await response.json();
   };
+  const rawMarker = async (path) => {
+    const response = await fetch(`${GATEWAY}/__fixture/action`,{method:"POST",headers:{"content-type":"application/json","x-fixture-user":"ana"},body:JSON.stringify({name:"readRawPhysical",args:{path}})});
+    if(!response.ok) throw new Error(`physical read failed ${response.status}`);
+    return await response.json();
+  };
 
   const textOf = (result) =>
     (result?.content ?? []).map((part) => part.text ?? "").join("\n");
@@ -460,11 +465,11 @@ async function main() {
       const moveText=textOf(moved);
       const movedOk=!moved.isError&&moveText.startsWith("moved:");
       check("agent rename preserves the collaborative document",movedOk,JSON.stringify({moved,moveText}).slice(0,500));
-      const [oldAfterMove,newAfterMove]=await Promise.all([rawNote(path),rawNote(destination)]);
+      const [oldAfterMove,newAfterMove,oldMarker]=await Promise.all([rawNote(path),rawNote(destination),rawMarker(path)]);
       let destinationRead="";
       if(movedOk) destinationRead=textOf(await callTool(ANA,"read_note",{path:destination}));
       const destinationDocumentId=destinationRead.match(/^document_id: (.+)$/m)?.[1] ?? null;
-      check("rename lands the same document before reconnect",movedOk&&oldAfterMove===null&&newAfterMove?.text===read.split("\n\n").slice(1).join("\n\n")&&destinationDocumentId===originalDocumentId,JSON.stringify({oldAfterMove,newAfterMove,originalDocumentId,destinationDocumentId}).slice(0,800));
+      check("rename lands the same document before reconnect",movedOk&&oldAfterMove===null&&newAfterMove?.text===read.split("\n\n").slice(1).join("\n\n")&&destinationDocumentId===originalDocumentId&&oldMarker?.contentType==="application/x-context-logical-tombstone"&&oldMarker.text.startsWith("context.logical-delete.v1."),JSON.stringify({oldAfterMove,newAfterMove,oldMarker,originalDocumentId,destinationDocumentId}).slice(0,1000));
       b.reconnect();await b.context.setOffline(false);
       const follows=await until(async()=>{
         const doc=await rawNote(destination);return doc?.text.includes("OFFLINE THROUGH RENAME") && (await state(b.page)).collaboration?.pending===0;

@@ -1,6 +1,6 @@
 // Test-only entry point. No production config references it.
 import worker, { PresenceRoom } from "../../src/index.js";
-import { R2Store } from "../../src/store/r2.js";
+import { storeForBinding } from "../../src/store/factory.js";
 import { listFolder, readFile, writeFile, trashPath, restoreTrashedPath } from "../../../convex/functions/lib/fileOps";
 export { PresenceRoom };
 export default {
@@ -12,7 +12,23 @@ export default {
     const user = request.headers.get("x-fixture-user");
     if (!["ana","bo","reader"].includes(user ?? "")) return new Response("{}",{status:401,headers});
     const { name, args } = await request.json() as any;
-    const store = new R2Store(env.LOCAL_BUCKET);
+    const store = storeForBinding(
+      {
+        provider: "r2-binding",
+        bindingName: "LOCAL_BUCKET",
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false },
+      },
+      { NATIVE_BINDINGS: "LOCAL_BUCKET", LOCAL_BUCKET: env.LOCAL_BUCKET },
+    );
+    const rawStore = storeForBinding(
+      {
+        provider: "r2-binding",
+        bindingName: "LOCAL_BUCKET",
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false },
+      },
+      { NATIVE_BINDINGS: "LOCAL_BUCKET", LOCAL_BUCKET: env.LOCAL_BUCKET },
+      { rawObjects: true },
+    );
     const clearance = { scope: "team" as const, names: new Set<string>() };
     try {
       let value: any;
@@ -21,6 +37,13 @@ export default {
         case "listFiles": value = await listFolder(store, { path:args.path, clearance }); break;
         case "readNote": value = await readFile(store, { path:args.path, clearance }); break;
         case "readRaw": { const object = await store.get(args.path); value = object ? {text:await object.text(),etag:object.etag} : null; break; }
+        case "readRawPhysical": {
+          const object = await rawStore.get(args.path);
+          value = object
+            ? { text: await object.text(), etag: object.etag, contentType: object.contentType ?? object.httpMetadata?.contentType }
+            : null;
+          break;
+        }
         case "writeNote":
           if(user === "reader") throw Object.assign(new Error("read only"),{code:"FORBIDDEN"});
           value = await writeFile(store,{...args,clearance,now:Date.now()}); break;
