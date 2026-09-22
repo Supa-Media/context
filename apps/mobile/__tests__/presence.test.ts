@@ -29,6 +29,7 @@ import { describe, expect, test } from "@jest/globals";
 import {
   clampToDocument,
   cursorFrame,
+  liveUpdateFrame,
   decodeServerFrame,
   presenceSocketUrl,
   type PresenceMember,
@@ -55,6 +56,7 @@ import {
   seedSharedDoc,
 } from "../features/console/presence/sharedDoc";
 import { applyExternalWrite } from "../features/console/presence/externalWrite";
+import { cursorPositions } from "../features/console/presence/sync";
 import { newDrawing, serializeDrawing } from "@context/drawings";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -93,6 +95,29 @@ function live(members: PresenceMember[]): PresenceState {
 }
 
 describe("the presence wire", () => {
+  test("live edits carry a generation and transient authorization, but peer frames cannot expose credentials", () => {
+    expect(JSON.parse(liveUpdateFrame("doc-1", "AQID", "secret"))).toEqual({
+      t: "live", documentId: "doc-1", d: "AQID", accessToken: "secret",
+    });
+    const frame = { t: "live", documentId: "doc-1", d: "AQID", clientKey: "peer", accessToken: "secret" };
+    expect(decodeServerFrame(JSON.stringify(frame))).toEqual({
+      t: "live", documentId: "doc-1", d: "AQID", clientKey: "peer",
+    });
+    for (const over of [{ documentId: "" }, { d: "?" }, { d: "A".repeat(32 * 1024 + 1) }, { clientKey: null }]) {
+      expect(decodeServerFrame(JSON.stringify({ ...frame, ...over }))).toBeNull();
+    }
+  });
+  test("durable cursor positions use the externally owned shared document", () => {
+    const shared = createSharedDoc({});
+    seedSharedDoc(shared, "hello world");
+    const positions = cursorPositions(shared.text, 3, 8);
+    expect(positions.anchor).toBeTruthy();
+    expect(positions.head).toBeTruthy();
+    expect(positions.anchor).not.toBe(positions.head);
+    expect(cursorPositions(null, 3, 8)).toEqual({ anchor: null, head: null });
+    shared.destroy();
+  });
+
   test("a frame that is not one is ignored rather than thrown on", () => {
     expect(decodeServerFrame("not json")).toBeNull();
     expect(decodeServerFrame("[1,2]")).toBeNull();
@@ -106,6 +131,21 @@ describe("the presence wire", () => {
     // not understand draws a roster it cannot justify.
     expect(decodeServerFrame('{"t":"welcome","v":99,"you":"m1","members":[]}')).toBeNull();
     expect(decodeServerFrame('{"t":"welcome","v":1,"you":"m1","members":[]}')).not.toBeNull();
+  });
+
+  test("a durable v2 welcome populates existing peers without ever authorizing legacy seeding", () => {
+    const frame = decodeServerFrame(JSON.stringify({
+      t: "welcome", v: 2, you: "me", seed: true,
+      members: [{ id: "me", name: "@bo", w: true }, { id: "existing", name: "@ana", w: true }],
+    }));
+    expect(frame).toMatchObject({ t: "welcome", seed: false });
+    const state = presenceReducer({ ...initialPresenceState, notePath: "a.md" }, {
+      type: "frame", notePath: "a.md", frame: frame!,
+    });
+    expect(state.phase).toBe("live");
+    expect(state.you).toBe("me");
+    expect(state.members.map((peer) => peer.name)).toEqual(["@ana"]);
+    expect(presenceSummary(state)).toBe("1 here");
   });
 
   test("a member without an id is dropped from the roster rather than drawn", () => {

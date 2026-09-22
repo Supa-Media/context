@@ -2406,6 +2406,7 @@ describe("the gateway's HTTP routes", () => {
    */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
+    "/gateway/sessions/by-grant": "gatewaySessionsByGrant",
     "/gateway/binding": "gatewayBinding",
     "/gateway/search-index/progress": "gatewaySearchIndexProgress",
     "/gateway/jobs/create": "gatewayJobsCreate",

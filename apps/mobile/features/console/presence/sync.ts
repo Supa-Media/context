@@ -174,6 +174,19 @@ export function cursorPosition(text: Y.Text, index: number): string | null {
   }
 }
 
+/** Encode both ends of a local selection against the current shared text. */
+export function cursorPositions(
+  text: Y.Text | null,
+  anchor: number,
+  head: number,
+): { anchor: string | null; head: string | null } {
+  if (text === null) return { anchor: null, head: null };
+  return {
+    anchor: cursorPosition(text, anchor),
+    head: cursorPosition(text, head),
+  };
+}
+
 /** Turn a peer's relative position back into an offset in this document. */
 export function cursorOffset(encoded: string, doc: Y.Doc): number | null {
   try {

@@ -321,6 +321,36 @@ export function createControlPlaneStub(options = {}) {
         });
       }
 
+      case "/gateway/sessions/by-grant": {
+        if (
+          typeof body.expectedWorkspaceId !== "string" ||
+          !Array.isArray(body.grantIds) || body.grantIds.length > 24 ||
+          new Set(body.grantIds).size !== body.grantIds.length
+        ) {
+          return new Response(JSON.stringify({ error: "malformed_batch" }), { status: 400 });
+        }
+        return ok({
+          sessions: body.grantIds.map((grantId) => {
+            const grant = grants.get(grantId);
+            if (!grant || grant.status !== "active" || grant.expiresAt <= Date.now()) return null;
+            const target = coveredContexts(grant).find(
+              (entry) => entry.workspaceId === body.expectedWorkspaceId,
+            );
+            if (!target) return null;
+            return {
+              grantId,
+              workspaceId: target.workspaceId,
+              scopes: grant.scopes,
+              role: target.role,
+              kind: target.kind,
+              ...(target.grantedNames === undefined
+                ? {}
+                : { grantedNames: target.grantedNames }),
+            };
+          }),
+        });
+      }
+
       case "/gateway/binding": {
         // Proof #2: a live user grant. The *set* of contexts comes from THAT,
         // never from the caller. `expectedWorkspaceId` picks one of them, and

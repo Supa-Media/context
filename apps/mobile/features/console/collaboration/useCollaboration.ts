@@ -1,5 +1,5 @@
 import { useAction } from "convex/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@context/convex/_generated/api";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import type { CacheScope } from "../../offline/keys";
@@ -8,6 +8,7 @@ import {
   type DurableCollaboration,
   type DurableStatus,
   type CollaborationResponse,
+  type LiveUpdate,
 } from "./durable";
 
 export interface UseCollaborationOptions {
@@ -141,6 +142,7 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
       legacyDraft: options.legacyDraft?.(),
       transport,
       online: () => typeof navigator === "undefined" || navigator.onLine !== false,
+      canWrite: () => callbacks.current.editable,
       onText: (text) => {
         if (!stopped) callbacks.current.onText(text);
       },
@@ -162,6 +164,8 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
           onChange: (text) => next.changeForHook(text),
           onVersionedChange: (text, base) => next.changeVersionedForHook(text, base),
           repair: () => next.repairForHook(),
+          subscribeLiveUpdates: (listener) => next.subscribeLiveUpdates(listener),
+          receiveLiveUpdate: (documentId, update) => next.receiveLiveUpdate(documentId, update),
         });
         callbacks.current.onState?.({
           text: nextState.text,
@@ -202,6 +206,8 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
   }, [active, options.endpoint, mint, options.path, options.scope, options.workspaceId]);
 
   const current = controller.current;
+  const subscribeLiveUpdates = useCallback((listener: (frame: LiveUpdate) => void) =>
+    current?.subscribeLiveUpdates(listener) ?? (() => {}), [current]);
   const message = state.recovery === undefined ? statusMessage(state.status) : "An older offline draft needs review before it can sync.";
   return useMemo(
     () => {
@@ -222,11 +228,13 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
           return current.applyLocalUpdate(documentId, update);
         },
         repair: () => current.repairForHook(),
+        subscribeLiveUpdates,
+        receiveLiveUpdate: (documentId, update) => current.receiveLiveUpdate(documentId, update),
         ...(message === undefined ? {} : { message }),
       };
     },
     // generation makes controller state changes visible; state itself carries the public values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active, current, generation, message, state],
+    [active, current, generation, message, state, subscribeLiveUpdates],
   );
 }

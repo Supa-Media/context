@@ -31,6 +31,132 @@ function options(transport: { mint: () => Promise<string>; request: (token: stri
 }
 
 describe("durable collaboration", () => {
+  test("each locally persisted edit is relayed before the bucket acknowledges it", async () => {
+    const base = response("doc-live", "hello");
+    const controller = new DurableCollaborationController(options({
+      mint: async () => "grant",
+      request: async (_token, body) => body.update ? new Promise(() => {}) : base,
+    }));
+    await controller.start();
+    const received: string[] = [];
+    const unsubscribe = controller.subscribeLiveUpdates((frame) => received.push(frame.update));
+    controller.changeForHook("hello!");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(received).toHaveLength(1);
+    expect(controller.state.pending).toBe(1);
+    expect(controller.state.status).not.toBe("saved");
+    const peer = createSharedDoc({});
+    peer.applyRemote(base.update);
+    peer.applyRemote(received[0]);
+    expect(peer.markdown()).toBe("hello!");
+    unsubscribe();
+    peer.destroy();
+    controller.stop();
+  });
+
+  test("a received live edit is durable locally without echoing or claiming a bucket save", async () => {
+    const base = response("doc-live", "hello");
+    const store = memoryStore();
+    const controller = new DurableCollaborationController(options({
+      mint: async () => "grant",
+      request: async (_token, body) => body.update ? new Promise(() => {}) : base,
+    }, store));
+    await controller.start();
+    const echoes: unknown[] = [];
+    controller.subscribeLiveUpdates((frame) => echoes.push(frame));
+    const peer = createSharedDoc({});
+    peer.applyRemote(base.update);
+    const before = Y.encodeStateVector(peer.doc);
+    peer.text.insert(peer.text.length, " peer");
+    const update = Buffer.from(Y.encodeStateAsUpdate(peer.doc, before)).toString("base64");
+    expect(controller.receiveLiveUpdate("wrong-generation", update)).toBe(false);
+    expect(controller.receiveLiveUpdate("doc-live", update)).toBe(true);
+    expect(controller.receiveLiveUpdate("doc-live", update)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(controller.state.text).toBe("hello peer");
+    expect(controller.state.pending).toBe(1);
+    expect(controller.state.status).not.toBe("saved");
+    expect(echoes).toEqual([]);
+    controller.stop();
+    const reopened = new DurableCollaborationController({
+      ...options({ mint: async () => "grant", request: async () => base }, store),
+      online: () => false,
+    });
+    await reopened.start();
+    expect(reopened.state.text).toBe("hello peer");
+    expect(reopened.state.pending).toBe(1);
+    reopened.stop();
+    peer.destroy();
+  });
+
+  test("read-only live recipients never publish, and saved waits for the server's matching state", async () => {
+    const server = createSharedDoc({});
+    server.text.insert(0, "hello");
+    const requests: unknown[] = [];
+    const controller = new DurableCollaborationController({
+      ...options({ mint: async () => "grant", request: async (_token, body) => {
+        requests.push(body);
+        return { documentId: "doc-live", etag: "server", update: server.snapshot(), text: server.markdown() };
+      } }),
+      canWrite: () => false,
+    });
+    await controller.start();
+    const peer = createSharedDoc({});
+    peer.applyRemote(server.snapshot());
+    const before = Y.encodeStateVector(peer.doc);
+    peer.text.insert(peer.text.length, " peer");
+    const update = Buffer.from(Y.encodeStateAsUpdate(peer.doc, before)).toString("base64");
+    controller.receiveLiveUpdate("doc-live", update);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(requests).toHaveLength(1);
+    controller.repairForHook();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(controller.state.status).not.toBe("saved");
+    expect(controller.state.pending).toBe(1);
+    server.applyRemote(update);
+    controller.repairForHook();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(controller.state.status).toBe("saved");
+    expect(controller.state.pending).toBe(0);
+    expect(requests.every((body) => !(body as { update?: string }).update)).toBe(true);
+    controller.stop(); peer.destroy(); server.destroy();
+  });
+
+  test("out-of-order live edits and deletes survive reload and settle against server history", async () => {
+    const server = new Y.Doc({ gc: false });
+    server.getText("note").insert(0, "hello");
+    const serverResponse = () => ({ documentId: "doc-live", etag: "server",
+      update: Buffer.from(Y.encodeStateAsUpdate(server)).toString("base64"), text: server.getText("note").toString() });
+    const store = memoryStore();
+    const setup = { ...options({ mint: async () => "grant", request: async () => serverResponse() }, store), canWrite: () => false };
+    const first = new DurableCollaborationController(setup);
+    await first.start();
+    const peer = createSharedDoc({});
+    peer.applyRemote(serverResponse().update);
+    const updates: string[] = [];
+    peer.doc.on("update", (update: Uint8Array) => updates.push(Buffer.from(update).toString("base64")));
+    peer.text.insert(5, " A");
+    peer.text.insert(7, "B");
+    peer.text.delete(0, 2);
+    // A later edit can arrive first when authorization reads finish out of order.
+    first.receiveLiveUpdate("doc-live", updates[1]);
+    first.receiveLiveUpdate("doc-live", updates[2]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    first.stop();
+    const reopened = new DurableCollaborationController(setup);
+    await reopened.start();
+    reopened.receiveLiveUpdate("doc-live", updates[0]);
+    expect(reopened.state.text).toBe("llo AB");
+    expect(reopened.state.pending).toBeGreaterThan(0);
+    for (const update of updates) Y.applyUpdate(server, Buffer.from(update, "base64"));
+    reopened.repairForHook();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(reopened.state.text).toBe("llo AB");
+    expect(reopened.state.pending).toBe(0);
+    expect(reopened.state.status).toBe("saved");
+    reopened.stop(); peer.destroy(); server.destroy();
+  });
+
   test("cold open uses the server Yjs snapshot once without duplicating text", async () => {
     const bodies: unknown[] = [];
     const controller = new DurableCollaborationController(

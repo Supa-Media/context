@@ -334,15 +334,12 @@ export function PresenceChip({ presence }: { presence: Presence }) {
   if (presence.summary === "") return null;
 
   const shown = presence.members.slice(0, 4);
+  const label = presenceChipLabel(presence);
 
   return (
     <View
       accessible
-      accessibilityLabel={
-        presence.members.length === 0
-          ? presence.summary
-          : `${presence.summary}: ${presence.members.map((one) => one.name).join(", ")}`
-      }
+      accessibilityLabel={label}
       testID="presence-chip"
       style={styles.row}
     >
@@ -362,9 +359,23 @@ export function PresenceChip({ presence }: { presence: Presence }) {
           </Text>
         </View>
       ))}
-      <Pill tone={presence.phase === "reconnecting" ? "warn" : "neutral"}>{presence.summary}</Pill>
+      <Pill tone={presence.phase === "reconnecting" ? "warn" : "neutral"}>{label}</Pill>
     </View>
   );
+}
+
+/**
+ * The chip names the people represented by its avatars and says that the
+ * count is about other editors. The account avatar in the console chrome is
+ * the current person, so `1 here` was ambiguous about whether it counted them.
+ */
+export function presenceChipLabel(presence: Pick<Presence, "phase" | "members" | "summary">): string {
+  if (presence.phase === "reconnecting") return "Reconnecting";
+  if (presence.members.length === 0) return presence.summary;
+  const names = presence.members.slice(0, 2).map((member) => member.name).join(", ");
+  const extra = presence.members.length > 2 ? ` +${presence.members.length - 2}` : "";
+  const count = presence.members.length === 1 ? "1 other here" : `${presence.members.length} others here`;
+  return `${names}${extra} · ${count}`;
 }
 
 /**

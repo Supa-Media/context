@@ -648,6 +648,49 @@ export function reachForRole(session, role) {
 }
 
 /**
+ * Normalize the deliberately small session row returned for a live socket.
+ *
+ * The control plane re-reads the grant and membership; this module still owns
+ * the role/scope clamp. Keeping that clamp here prevents the websocket path
+ * from growing a second definition of what an editor, member, or owner may do.
+ * `null` is the ordinary answer for a revoked or otherwise stale grant. Any
+ * malformed non-null row also fails closed rather than being coerced.
+ */
+export function accessForLiveGrant(raw, expectedWorkspaceId) {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (typeof raw.grantId !== "string" || !raw.grantId) return null;
+  if (typeof raw.workspaceId !== "string" || raw.workspaceId !== expectedWorkspaceId) return null;
+  if (!Array.isArray(raw.scopes) || raw.scopes.some((scope) => typeof scope !== "string")) {
+    return null;
+  }
+  if (typeof raw.role !== "string" || !raw.role) return null;
+  if (raw.kind !== "personal" && raw.kind !== "shared") return null;
+  if (
+    raw.grantedNames !== undefined &&
+    (!Array.isArray(raw.grantedNames) || raw.grantedNames.some((name) => typeof name !== "string"))
+  ) {
+    return null;
+  }
+  const grantedGroups = new Set();
+  for (const name of raw.grantedNames || []) {
+    const normalized = name.trim().replace(/^@/, "").toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalized)) return null;
+    grantedGroups.add(`@${normalized}`);
+  }
+  const scopes = effectiveScopes(raw.scopes, raw.role);
+  return {
+    grantId: raw.grantId,
+    workspaceId: raw.workspaceId,
+    role: raw.role,
+    kind: raw.kind,
+    scopes,
+    scope: visibilityTierForGrant(scopes, raw.role),
+    grantedGroups,
+  };
+}
+
+/**
  * Whether this connection reads at the private tier in ANY context it covers.
  *
  * `writesAnywhere`'s argument, for the other tier. A tool that only an owner

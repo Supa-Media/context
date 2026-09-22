@@ -317,6 +317,38 @@ export const gatewaySession = gatewayRoute(async (ctx, body) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Resolve a bounded set of grants for the live presence relay.  The gateway
+ * already holds the grant ids from its authenticated clients; this route
+ * re-authorizes each id against current Convex state and returns only the
+ * metadata needed to choose a relay room.  A bad grant occupies its original
+ * slot as null so one revoked peer cannot hide valid peers in the batch.
+ */
+export const gatewaySessionsByGrant = gatewayRoute(async (ctx, body) => {
+  const expectedWorkspaceId = stringField(body, "expectedWorkspaceId");
+  const grantIds = stringArrayField(body, "grantIds");
+  if (
+    expectedWorkspaceId === null ||
+    grantIds === null ||
+    grantIds.length > 24 ||
+    expectedWorkspaceId.length > 256 ||
+    grantIds.some((grantId) => grantId.length > 256) ||
+    new Set(grantIds).size !== grantIds.length
+  ) {
+    return json({ error: "malformed_batch" }, 400);
+  }
+
+  const sessions = await ctx.runQuery(
+    internal.functions.controlPlane.resolveLivePresenceGrants,
+    { expectedWorkspaceId, grantIds },
+  );
+  return json({ sessions });
+});
+
+/* -------------------------------------------------------------------------- */
 /* 2. POST /gateway/binding — fetch a workspace's storage binding            */
 /* -------------------------------------------------------------------------- */
 
@@ -1559,6 +1591,11 @@ export const gatewayUsage = gatewayRoute(async (ctx, body) => {
 // POST only, every one of them. The contract has no GET shape, and a GET would
 // put a token in a URL — in a log, in a referrer, in browser history.
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
+http.route({
+  path: "/gateway/sessions/by-grant",
+  method: "POST",
+  handler: gatewaySessionsByGrant,
+});
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
 http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
 http.route({

@@ -32,7 +32,11 @@ export interface DurableCollaboration {
   repair: () => void;
   message?: string;
   shared: SharedDoc | null;
+  subscribeLiveUpdates?: (listener: (frame: LiveUpdate) => void) => () => void;
+  receiveLiveUpdate?: (documentId: string, update: string) => boolean;
 }
+
+export interface LiveUpdate { documentId: string; update: string }
 
 export interface CollaborationResponse {
   documentId: string;
@@ -60,6 +64,7 @@ export interface DurableControllerOptions {
   online?: () => boolean;
   store?: ReturnType<typeof openStore>;
   now?: () => number;
+  canWrite?: () => boolean;
 }
 
 interface Persisted {
@@ -218,6 +223,7 @@ export class DurableCollaborationController {
   private stopped = false;
   private flushing = false;
   private persistFailed = false;
+  private readonly liveListeners = new Set<(frame: LiveUpdate) => void>();
 
   constructor(options: DurableControllerOptions) {
     this.options = options;
@@ -243,6 +249,8 @@ export class DurableCollaborationController {
       onChange: (text) => this.change(text),
       onVersionedChange: (text, base) => this.changeFromSnapshot(base, text),
       repair: () => void this.readRemote(),
+      subscribeLiveUpdates: (listener) => this.subscribeLiveUpdates(listener),
+      receiveLiveUpdate: (documentId, update) => this.receiveLiveUpdate(documentId, update),
     };
   }
 
@@ -279,6 +287,53 @@ export class DurableCollaborationController {
   repairForHook(): void {
     if (this.record.recovery !== undefined) void this.replaceRecovery();
     else void this.readRemote();
+  }
+
+  /** A live receipt is not a bucket acknowledgment. Keep it recoverable locally. */
+  receiveLiveUpdate(documentId: string, update: string): boolean {
+    if (this.stopped || !this.readyState || this.statusState === "revoked" ||
+        this.statusState === "unavailable" || documentId !== this.record.documentId) return false;
+    try {
+      const bytes = fromBase64(update);
+      Y.decodeUpdate(bytes);
+      const before = this.doc.snapshot();
+      Y.applyUpdate(this.doc.doc, bytes, Symbol("live-remote"));
+      if (before === this.doc.snapshot()) return true;
+      // A writable peer can finish persisting an operation if its original
+      // author closes. The same Yjs identities make those retries idempotent.
+      // Read-only peers retain it but never publish it to the bucket.
+      this.record.pending.push({ id: this.id(), update });
+      const persisted = this.persist();
+      this.emit("storing");
+      this.options.onText(this.doc.markdown());
+      void persisted.then((ok) => {
+        if (ok && !this.stopped && this.statusState !== "revoked") this.emit("local");
+      });
+      this.scheduleFlush();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  subscribeLiveUpdates(listener: (frame: LiveUpdate) => void): () => void {
+    this.liveListeners.add(listener);
+    return () => { this.liveListeners.delete(listener); };
+  }
+
+  private matchesConfirmedSnapshot(update: string): boolean {
+    const confirmed = new Y.Doc();
+    try {
+      Y.applyUpdate(confirmed, fromBase64(update));
+      // Normalize both through Yjs: server history keeps deleted structures,
+      // while browser documents may garbage-collect them. Text equality alone
+      // cannot establish that the same operation identities were committed.
+      return toBase64(Y.encodeStateAsUpdate(confirmed)) === this.doc.snapshot();
+    } catch {
+      return false;
+    } finally {
+      confirmed.destroy();
+    }
   }
 
   async start(): Promise<void> {
@@ -334,6 +389,7 @@ export class DurableCollaborationController {
 
   stop(): void {
     this.stopped = true;
+    this.liveListeners.clear();
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     if (this.repairTimer !== null) clearTimeout(this.repairTimer);
     this.doc.destroy();
@@ -469,7 +525,15 @@ export class DurableCollaborationController {
     const persisted = this.persist();
     this.emit("storing");
     void persisted.then((ok) => {
-      if (ok && !this.stopped && this.statusState !== "revoked") this.emit("local");
+      if (ok && !this.stopped && this.statusState !== "revoked") {
+        this.emit("local");
+        if (this.record.documentId !== null && this.options.canWrite?.() !== false) {
+          const frame = { documentId: this.record.documentId, update: toBase64(update) };
+          for (const listener of this.liveListeners) {
+            try { listener(frame); } catch { /* The durable queue still retries. */ }
+          }
+        }
+      }
     });
     this.options.onText(this.doc.markdown());
     this.scheduleFlush();
@@ -525,6 +589,7 @@ export class DurableCollaborationController {
         return;
       }
       this.record.etag = response.etag;
+      if (this.matchesConfirmedSnapshot(response.update)) this.record.pending = [];
       this.options.onText(this.doc.markdown());
       if (!(await this.persist())) return;
       this.emit(this.record.pending.length > 0 ? "syncing" : "saved");
@@ -537,7 +602,7 @@ export class DurableCollaborationController {
   }
 
   private async flush(): Promise<void> {
-    if (this.flushing || this.stopped || this.record.pending.length === 0 || this.statusState === "revoked") return;
+    if (this.flushing || this.stopped || this.record.pending.length === 0 || this.statusState === "revoked" || this.options.canWrite?.() === false) return;
     if (this.options.online?.() === false) {
       this.emit("offline");
       return;

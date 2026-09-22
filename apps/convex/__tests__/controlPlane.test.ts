@@ -33,7 +33,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
@@ -58,6 +59,10 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                   */
@@ -245,6 +250,7 @@ describe("the gateway secret is necessary", () => {
     const { t } = await twoConnectedTenants();
     for (const path of [
       "/gateway/session",
+      "/gateway/sessions/by-grant",
       "/gateway/binding",
       "/gateway/provider",
       "/gateway/clients/register",
@@ -396,6 +402,163 @@ describe("the gateway secret is never sufficient", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("/gateway/session", () => {
+  test("resolves live relay grant metadata and preserves invalid batch slots", async () => {
+    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: aliceWs,
+        grantIds: [grantA, "not-a-grant-id", aliceWs],
+      }),
+    );
+
+    expect(body.sessions).toEqual([
+      {
+        grantId: grantA,
+        workspaceId: aliceWs,
+        scopes: ["context:read", "context:write"],
+        role: "owner",
+        kind: "personal",
+      },
+      null,
+      null,
+    ]);
+  });
+
+  test("rechecks grant state and rejects malformed batches", async () => {
+    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    await t.run((ctx) => ctx.db.patch(grantA, { status: "revoked" }));
+
+    const revoked = await bodyOf(
+      await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: aliceWs,
+        grantIds: [grantA],
+      }),
+    );
+    expect(revoked).toEqual({ sessions: [null] });
+
+    const duplicateResponse = await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: aliceWs,
+        grantIds: [grantA, grantA],
+      });
+    expect(duplicateResponse.status).toBe(400);
+    expect(await bodyOf(duplicateResponse)).toEqual({ error: "malformed_batch" });
+
+    const oversizedResponse = await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: aliceWs,
+        grantIds: Array.from({ length: 25 }, (_, index) => `grant-${index}`),
+      });
+    expect(oversizedResponse.status).toBe(400);
+    expect(await bodyOf(oversizedResponse)).toEqual({ error: "malformed_batch" });
+  });
+
+  test("requires a live target membership, client and expiry", async () => {
+    const { t, alice, bob, aliceWs, bobWs, grantA } = await twoConnectedTenants();
+
+    // The grant's own user is not a member of Bob's context yet.
+    expect(
+      (await bodyOf(
+        await gatewayPost(t, "/gateway/sessions/by-grant", {
+          expectedWorkspaceId: bobWs,
+          grantIds: [grantA],
+        }),
+      )).sessions,
+    ).toEqual([null]);
+
+    await addMember(t, bobWs, alice, "member", bob);
+    const shared = await bodyOf(
+      await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: bobWs,
+        grantIds: [grantA],
+      }),
+    );
+    expect(shared.sessions).toEqual([
+      {
+        grantId: grantA,
+        workspaceId: bobWs,
+        scopes: ["context:read", "context:write"],
+        role: "member",
+        kind: "personal",
+      },
+    ]);
+
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace_user", (q) =>
+          q.eq("workspaceId", bobWs).eq("userId", alice),
+        )
+        .unique();
+      if (membership !== null) await ctx.db.delete(membership._id);
+    });
+    expect(
+      (await bodyOf(
+        await gatewayPost(t, "/gateway/sessions/by-grant", {
+          expectedWorkspaceId: bobWs,
+          grantIds: [grantA],
+        }),
+      )).sessions,
+    ).toEqual([null]);
+
+    const expiredGrant = await seedConnectedClient(t, {
+      workspaceId: aliceWs,
+      userId: alice,
+      clientId: CLIENT_A,
+      accessToken: token("expired_batch"),
+      expiresAt: Date.now() - 1,
+    });
+    expect(
+      (await bodyOf(
+        await gatewayPost(t, "/gateway/sessions/by-grant", {
+          expectedWorkspaceId: aliceWs,
+          grantIds: [expiredGrant],
+        }),
+      )).sessions,
+    ).toEqual([null]);
+
+    await t.run(async (ctx) => {
+      const client = await ctx.db
+        .query("oauthClients")
+        .withIndex("by_clientId", (q) => q.eq("clientId", CLIENT_A))
+        .unique();
+      if (client !== null) await ctx.db.delete(client._id);
+    });
+    expect(
+      (await bodyOf(
+        await gatewayPost(t, "/gateway/sessions/by-grant", {
+          expectedWorkspaceId: aliceWs,
+          grantIds: [grantA],
+        }),
+      )).sessions,
+    ).toEqual([null]);
+  });
+
+  test("reports the pinned context as a member without console group clearance", async () => {
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    const { t, alice, aliceWs, grantA } = await twoConnectedTenants();
+    const staff = await createUser(t, "staff@example.invalid");
+    const pinned = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, {
+      kind: "shared",
+      displayName: "Context",
+    });
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: pinned,
+        grantIds: [grantA],
+      }),
+    );
+    expect(body.sessions).toEqual([
+      {
+        grantId: grantA,
+        workspaceId: pinned,
+        scopes: ["context:read", "context:write"],
+        role: "member",
+        kind: "shared",
+      },
+    ]);
+    expect(JSON.stringify(body)).not.toContain(aliceWs);
+  });
+
   test("a console session carries live group names, while a narrow OAuth grant carries none", async () => {
     const t = setupTest();
     const owner = await createUser(t, "group-owner@example.invalid");
@@ -422,6 +585,16 @@ describe("/gateway/session", () => {
     expect((consoleSession.session as any).workspaces[0].grantedNames).toEqual([
       "group-home-readers",
     ]);
+    const relayGrantId = (consoleSession.session as any).grantId as string;
+    const relay = await bodyOf(
+      await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: workspaceId,
+        grantIds: [relayGrantId],
+      }),
+    );
+    expect((relay.sessions as any[])[0].grantedNames).toEqual([
+      "group-home-readers",
+    ]);
 
     // The membership is read on every resolution. Removing it must retract the
     // live name from an already-issued console token on the next request.
@@ -434,6 +607,13 @@ describe("/gateway/session", () => {
       await gatewayPost(t, "/gateway/session", { accessToken: consoleGrant.accessToken }),
     );
     expect((afterRemoval.session as any).workspaces[0].grantedNames).toEqual([]);
+    const relayAfterRemoval = await bodyOf(
+      await gatewayPost(t, "/gateway/sessions/by-grant", {
+        expectedWorkspaceId: workspaceId,
+        grantIds: [relayGrantId],
+      }),
+    );
+    expect((relayAfterRemoval.sessions as any[])[0].grantedNames).toEqual([]);
 
     // A normal OAuth grant may have the same person, workspace and role, but
     // its consent is narrower and must never acquire console-only group names.

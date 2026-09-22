@@ -97,6 +97,10 @@ export function useNoteRoom(options: {
     onExternalWrite: options.onExternalWrite,
     mode: drawing ? "drawing" : options.durable ? "presence" : "text",
     durable: options.durable === true && !drawing,
+    documentId: collaboration?.documentId,
+    shared: collaboration?.shared ?? null,
+    subscribeLiveUpdates: collaboration?.subscribeLiveUpdates,
+    onLiveUpdate: (documentId, update) => collaboration?.receiveLiveUpdate?.(documentId, update),
     onCommitted: (frame) => {
       if (collaboration?.etag !== frame.etag) collaboration?.repair();
     },
