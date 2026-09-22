@@ -48,10 +48,8 @@
 # lint-command comment each record a version of "a check that is green because
 # it did not execute".
 #
-# It is a separate workflow from mcp.yml on purpose. mcp.yml states that it
-# "runs on bare node with no install step, because apps/mcp has no
-# dependencies and we intend to keep it that way"; this job needs the control
-# plane's dependencies, and putting it there would make that sentence false.
+# This separate job installs the full control-plane and app dependencies;
+# mcp.yml installs only the gateway's approved collaboration dependency tree.
 name: Gateway Contracts
 
 # No `paths:` filter on pull_request, deliberately — the same reasoning as
@@ -78,6 +76,7 @@ on:
       - "apps/convex/**"
       - "apps/mobile/**"
       - "packages/shared/**"
+      - "packages/collaboration/**"
       - ".github/workflows/gateway-contracts.yml"
 
 permissions:

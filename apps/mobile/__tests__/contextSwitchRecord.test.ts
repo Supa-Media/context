@@ -83,6 +83,11 @@ jest.mock("../features/console/presence/usePresence", () => ({
   // nothing at all about breadcrumbs.
   usePresence: () => ({ members: [], phase: "idle", summary: "", report: () => {} }),
 }));
+jest.mock("../features/console/collaboration/useCollaboration", () => ({
+  // This harness verifies context/place pairing and deliberately has no
+  // Convex provider or collaboration transport.
+  useCollaboration: () => undefined,
+}));
 
 
 const { ConsoleDataProvider } =

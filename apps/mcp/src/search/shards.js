@@ -182,7 +182,9 @@ const LIST_PAGE_LIMIT = 1000;
  */
 const MANIFEST_WRITE_RESERVE = 2;
 /** Nor spend a shard's last op on a fetch whose result that shard cannot store. */
-const SHARD_WRITE_RESERVE = 1;
+// Creating an index object may need a marker check before the provider write.
+// Reserve both operations so the pass can commit what it has indexed.
+const SHARD_WRITE_RESERVE = 2;
 /** Nor let the listing consume everything a backfill would have used. */
 const FETCH_FLOOR = 2;
 /** Fetched in parallel, indexed in list order once a wave lands — see the wave loop. */
@@ -1933,8 +1935,10 @@ export async function syncShardedIndex(
   // the maps empty, which makes every listed note look stale: the whole bucket
   // is re-indexed into the shards it already lives in. Slow and correct, and it
   // converges, which is the direction an unknown falls everywhere in this file.
+  let externalDocmapExisted = false;
   if (manifest && !manifest.docmapLoaded && ops.take(reserve)) {
     const storedDocmap = await store.get(DOCMAP_KEY);
+    externalDocmapExisted = Boolean(storedDocmap);
     if (storedDocmap) {
       const bytes = await storedDocmap.arrayBuffer();
       const docsByShard =
@@ -1956,7 +1960,14 @@ export async function syncShardedIndex(
     ? manifest.stats.reduce((count, entry) => count + (entry.docCount > 0 ? 1 : 0), 0)
     : 0;
   const perShard = Number.isFinite(walkReserve) ? Math.max(0, Math.floor(walkReserve)) : 0;
-  const callerReserve = reserve + perShard * occupiedShards;
+  // If the first pass had no room to retire v1, it deliberately left the
+  // recoverable docmap cache absent as the retry signal. A later pass holding
+  // that signal keeps both physical marker operations through its writes.
+  const legacyCleanupNeeded =
+    !manifestExisted || Boolean(manifest && !migratingFromV2 && !externalDocmapExisted);
+  const legacyCleanupReserve = manifestExisted && legacyCleanupNeeded ? 2 : 0;
+  const postCleanupReserve = reserve + perShard * occupiedShards;
+  const callerReserve = postCleanupReserve + legacyCleanupReserve;
   const backfillCap = Number.isFinite(backfillOps) ? Math.max(0, Math.floor(backfillOps)) : Infinity;
   let fetchedNotes = 0;
 
@@ -2426,31 +2437,34 @@ export async function syncShardedIndex(
       // bookkeeping for the *next* pass, and a caller that lost a snippet read
       // to it would have paid for that pass out of its own answer.
       committed = written !== null;
-      if (written !== null && docmapChanged && ops.remaining > callerReserve) {
-        const docmap = serializeDocmap(manifest);
-        if (!exceedsUtf8Bytes(docmap, manifestCap) && ops.take(callerReserve)) {
-          await store.put(DOCMAP_KEY, docmap);
-        }
-      }
-      // `take(reserve)` rather than the manifest write's `take(0)`: that write
-      // is the pass's whole point and may spend the last op there is, but this
-      // is housekeeping on an object nothing reads any more, and a caller that
-      // lost a snippet read to it would have paid for tidiness out of its own
-      // answer. The cost of that choice is stated rather than hidden: this runs
-      // only on the pass that creates a manifest, so a first pass with no op to
-      // spare leaves v1's object behind for good — dead weight in the
-      // customer's bucket, which is what it already was.
-      if (written !== null && !manifestExisted && ops.take(callerReserve)) {
-        // v1's object, once and only once — on the pass that first creates a
-        // manifest. `delete` is one op, idempotent and 404-tolerant in both
-        // adapters, which is why this is a blind delete rather than a `get` to
-        // find out: a `get` costs a read of a possibly-huge object to learn
-        // something the delete does not need to know. A backend that refuses it
-        // leaves dead weight, never a broken pass.
+      // Do the v1 retirement before the recoverable docmap cache. If
+      // the first pass spends its final two physical operations on the docmap,
+      // a missing docmap is the bounded retry signal for the next pass.
+      // A logical delete reads the current object and then writes a
+      // conditional tombstone. Reserve both physical operations so the v1
+      // object is not left visible because the marker write exhausted budget.
+      let legacyCleanupSettled = !legacyCleanupNeeded;
+      if (written !== null && legacyCleanupNeeded && ops.take(postCleanupReserve + 1)) {
+        // Deletion is idempotent, including an already-retired marker. Leave
+        // the docmap absent on refusal so a later pass can retry cleanup.
         try {
           await store.delete(LEGACY_V1_KEY);
+          legacyCleanupSettled = true;
         } catch {
           // Nothing depends on it being gone.
+        }
+      }
+      // A logical put of a new docmap also needs its marker check plus the
+      // provider write. Keep both outside the caller's snippet reserve; if
+      // they do not fit, the manifest-ahead/docmap-behind state self-heals on
+      // the next pass as described above.
+      if (
+        written !== null && legacyCleanupSettled && docmapChanged &&
+        ops.remaining > postCleanupReserve + 1
+      ) {
+        const docmap = serializeDocmap(manifest);
+        if (!exceedsUtf8Bytes(docmap, manifestCap) && ops.take(postCleanupReserve + 1)) {
+          await store.put(DOCMAP_KEY, docmap);
         }
       }
     }

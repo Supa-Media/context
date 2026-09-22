@@ -176,6 +176,7 @@ export async function startLocalControlPlane({ port, gatewaySecret, bindingName 
   await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
   return {
     people: PEOPLE,
+    revoke: async (token) => byHash.delete(await sha256Hex(token)),
     workspaceId: WORKSPACE_ID,
     close: () => new Promise((resolve) => server.close(resolve)),
   };

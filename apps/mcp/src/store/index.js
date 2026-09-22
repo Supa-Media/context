@@ -139,6 +139,7 @@ export function assertSafeEtag(value) {
  */
 export const MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
 export const ATTACHMENT_CONTENT_TYPE = "application/octet-stream";
+export const LOGICAL_DELETE_CONTENT_TYPE = "application/x-context-logical-tombstone";
 
 export const WRITABLE_CONTENT_TYPES = new Set([
   MARKDOWN_CONTENT_TYPE,
@@ -149,6 +150,7 @@ export const WRITABLE_CONTENT_TYPES = new Set([
   "image/heic",
   "image/heif",
   ATTACHMENT_CONTENT_TYPE,
+  LOGICAL_DELETE_CONTENT_TYPE,
 ]);
 
 /**

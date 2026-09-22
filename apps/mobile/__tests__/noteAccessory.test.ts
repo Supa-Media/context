@@ -79,6 +79,7 @@ type MockControls = {
 interface MockEditorProps {
   value: string;
   onChange: (text: string) => void;
+  onVersionedChange?: (text: string, revision: string) => void;
   controls?: (api: MockControls | null) => void;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -212,7 +213,11 @@ beforeEach(() => {
  */
 function mountEditor(
   width: number,
-  { state = stateFor(), canEdit = true }: { state?: EditorState; canEdit?: boolean } = {},
+  { state = stateFor(), canEdit = true, presence }: {
+    state?: EditorState;
+    canEdit?: boolean;
+    presence?: import("../features/console/presence/usePresence").Presence;
+  } = {},
 ) {
   const changes: string[] = [];
 
@@ -244,6 +249,7 @@ function mountEditor(
       createElement(NoteEditor, {
         state,
         canEdit,
+        presence,
         onChange: (text: string) => changes.push(text),
         onSave: jest.fn() as () => void,
         onDiscard: jest.fn() as () => void,
@@ -384,6 +390,28 @@ describe("when the bar is on screen", () => {
 });
 
 describe("what the keys do", () => {
+  test("a phone's collaborative editor preserves full-document coordinates and opaque revisions", () => {
+    const changes: string[] = [];
+    const versioned: [string, string][] = [];
+    const presence = {
+      phase: "idle",
+      collaboration: {
+        ready: true,
+        status: "saved",
+        onChange: (text: string) => changes.push(text),
+        onVersionedChange: (text: string, revision: string) => versioned.push([text, revision]),
+      },
+    } as unknown as import("../features/console/presence/usePresence").Presence;
+    const app = mountEditor(390, { presence });
+    expect(app.editor().value).toBe(FILE);
+    app.focus();
+    mockSelection.start = FILE.indexOf("first");
+    mockSelection.end = mockSelection.start + "first".length;
+    app.press(app.find("note-accessory-bold"));
+    expect(changes).toEqual([FILE.replace("first", "**first**")]);
+    app.editor().onVersionedChange?.(FILE, "opaque-yjs-snapshot");
+    expect(versioned).toEqual([[FILE, "opaque-yjs-snapshot"]]);
+  });
   /**
    * THE ONE THAT WOULD COST SOMEBODY THEIR DATA.
    *

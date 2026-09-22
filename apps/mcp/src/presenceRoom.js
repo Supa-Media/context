@@ -44,6 +44,8 @@ import {
   HEARTBEAT_MS,
   MEMBER_IDLE_MS,
   PRESENCE_PROTOCOL_VERSION,
+  COLLABORATION_PROTOCOL_VERSION,
+  MAX_SNAPSHOT_BYTES,
   admit,
   applyCursor,
   colorFor,
@@ -100,6 +102,19 @@ export class PresenceRoom {
    * sends arrives over the socket, below, where it is treated as hostile.
    */
   async fetch(request) {
+    const requestUrl = new URL(request.url);
+    const collaborationV2 = requestUrl.searchParams.get("collaboration") === "2";
+
+    /*
+      The v2 socket is a live delivery/presence overlay for the HTTP
+      collaboration endpoint.  It must never inherit the legacy room log:
+      that log contains opaque client-authored updates from v1 clients and is
+      not the authority for a v2 document.
+    */
+    if (requestUrl.pathname === "/committed") {
+      return await this.handleCommitted(request);
+    }
+
     /*
       **A tool wrote this note. One member is asked to merge it.**
 
@@ -118,7 +133,7 @@ export class PresenceRoom {
       use to choose who saves — and everybody else receives the merge as the
       ordinary edit it becomes.
     */
-    if (new URL(request.url).pathname === "/external") {
+    if (requestUrl.pathname === "/external") {
       if (request.method !== "POST") return new Response(null, { status: 405 });
       let notice;
       try {
@@ -318,6 +333,7 @@ export class PresenceRoom {
         Opaque and stable; see `presenceClientKey` in the gateway.
       */
       clientKey: typeof intent.clientKey === "string" ? intent.clientKey : null,
+      collaborationVersion: collaborationV2 ? COLLABORATION_PROTOCOL_VERSION : PRESENCE_PROTOCOL_VERSION,
       eligibleToCompact: false,
       deadline: now + PRESENCE_SOCKET_MAX_MS,
     };
@@ -346,19 +362,19 @@ export class PresenceRoom {
       room whose log survived the last person leaving must not seed either —
       the replay is about to hand it the text.
     */
-    const log = await this.readLog();
-    const seed = room.members.size === 1 && log.length === 0;
+    const log = collaborationV2 ? [] : await this.readLog();
+    const seed = collaborationV2 ? false : room.members.size === 1 && log.length === 0;
 
     server.send(
       JSON.stringify({
         t: "welcome",
-        v: PRESENCE_PROTOCOL_VERSION,
+        v: collaborationV2 ? COLLABORATION_PROTOCOL_VERSION : PRESENCE_PROTOCOL_VERSION,
         you: seated.member.id,
         heartbeatMs: HEARTBEAT_MS,
         idleMs: MEMBER_IDLE_MS,
         reconnectAfterMs: PRESENCE_SOCKET_MAX_MS,
         members: roster(room),
-        seed,
+        ...(collaborationV2 ? {} : { seed }),
       }),
     );
     this.broadcast({ t: "join", member: publicMember(seated.member) }, server);
@@ -375,7 +391,7 @@ export class PresenceRoom {
       After the welcome, so a client has its own identity before any edit
       arrives, and in one frame rather than N so a join is one round trip.
     */
-    if (log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
+    if (!collaborationV2 && log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
 
     /*
       This socket has now been handed everything the room holds, so a snapshot
@@ -413,6 +429,16 @@ export class PresenceRoom {
 
     if (decoded.msg.t === "bye") {
       this.dropSocket(ws, 1000, "bye");
+      return;
+    }
+
+    // v2 clients receive snapshots only from the authorized HTTP commit path.
+    // In particular, do not let a client smuggle a legacy Yjs update or
+    // snapshot into the room and have it appear as a committed document.
+    if (
+      attachment.collaborationVersion === COLLABORATION_PROTOCOL_VERSION &&
+      (decoded.msg.t === "y" || decoded.msg.t === "snap" || decoded.msg.t === "ask")
+    ) {
       return;
     }
 
@@ -605,6 +631,47 @@ export class PresenceRoom {
     if (!moved) return;
     ws.serializeAttachment({ ...attachment, a: moved.a, h: moved.h, seen: now });
     this.broadcast({ t: "cursor", id: moved.id, a: moved.a, h: moved.h }, ws);
+  }
+
+  /**
+   * Internal-only delivery from the gateway's committed HTTP update path.
+   * Durable Objects are not internet-addressable; the gateway is the only
+   * caller.  The snapshot is deliberately not appended to the legacy log:
+   * customer storage and the collaboration engine are the v2 authority.
+   */
+  async handleCommitted(request) {
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    let notice;
+    try {
+      notice = await request.json();
+    } catch {
+      return new Response(null, { status: 400 });
+    }
+    const documentId = typeof notice?.documentId === "string" ? notice.documentId : "";
+    const etag = typeof notice?.etag === "string" ? notice.etag : "";
+    if (
+      !documentId || documentId.length > 256 ||
+      !etag || etag.length > 128 || !/^[A-Za-z0-9._:+/=-]+$/.test(etag)
+    ) {
+      return new Response(null, { status: 400 });
+    }
+    // A committed frame is only a change hint. Clients must re-authorize over
+    // HTTP before fetching the snapshot; sending update bytes over a socket
+    // whose lease may outlive a revoked grant would leak new note content.
+    const payload = JSON.stringify({ t: "committed", documentId, etag });
+    let delivered = 0;
+    for (const ws of this.state.getWebSockets()) {
+      const attachment = ws.deserializeAttachment();
+      if (attachment?.collaborationVersion !== COLLABORATION_PROTOCOL_VERSION) continue;
+      try {
+        ws.send(payload);
+        delivered += 1;
+      } catch {
+        // The close callback removes dead sockets; one dead peer must not
+        // prevent a committed update reaching the remaining editors.
+      }
+    }
+    return json({ delivered });
   }
 
   async webSocketClose(ws) {
@@ -800,6 +867,10 @@ export class PresenceRoom {
     for (const ws of this.state.getWebSockets()) {
       const attachment = ws.deserializeAttachment();
       if (!attachment || attachment.canWrite !== true) continue;
+      // Legacy external merges are intentionally kept out of v2 rooms.  A v2
+      // client receives durable committed snapshots through /committed; it
+      // must never apply the legacy text merge as another local operation.
+      if (attachment.collaborationVersion === COLLABORATION_PROTOCOL_VERSION) continue;
       if (typeof attachment.id !== "string") continue;
       if (bestId === null || attachment.id < bestId) {
         best = ws;
@@ -811,8 +882,14 @@ export class PresenceRoom {
 
   broadcast(message, except) {
     const text = JSON.stringify(message);
+    const legacyDocumentFrame =
+      message?.t === "y" || message?.t === "snap" || message?.t === "ask" || message?.t === "saved";
     for (const ws of this.state.getWebSockets()) {
       if (ws === except) continue;
+      if (legacyDocumentFrame) {
+        const attachment = ws.deserializeAttachment();
+        if (attachment?.collaborationVersion === COLLABORATION_PROTOCOL_VERSION) continue;
+      }
       try {
         ws.send(text);
       } catch {

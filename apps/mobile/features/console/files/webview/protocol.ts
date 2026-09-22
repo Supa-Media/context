@@ -170,7 +170,13 @@ export type ToGuest =
    * discarded, or a conflict is resolved — never as an echo of typing, which is
    * what would reset the selection. See `echoes`.
    */
-  | { v: number; type: "doc"; text: string }
+  | { v: number; type: "doc"; text: string; revision?: string }
+  /** Update the guest's base revision without replacing its rendered text. */
+  | { v: number; type: "revision"; revision: string }
+  /** Canonical Yjs state for the durable native editor. */
+  | { v: number; type: "crdtSnapshot"; documentId: string; update: string }
+  /** Tear down any durable binding while the next document is loading. */
+  | { v: number; type: "crdtReset" }
   /** `false` for `privacy.md`, and for a member who may read but not write. */
   | { v: number; type: "editable"; editable: boolean }
   /**
@@ -305,7 +311,9 @@ export type ToHost =
   /** The editor is mounted and listening. Nothing is sent to it before this. */
   | { v: number; type: "ready" }
   /** The document changed because a person changed it. */
-  | { v: number; type: "change"; text: string }
+  | { v: number; type: "change"; text: string; baseRevision?: string }
+  /** A local Yjs update from the durable native editor. */
+  | { v: number; type: "crdtUpdate"; documentId: string; update: string }
   /** `Mod-s`, which only a hardware keyboard can produce on iOS. */
   | { v: number; type: "save" }
   /**
@@ -489,6 +497,9 @@ export function decode<T extends ToGuest | ToHost>(
 
 export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "doc",
+  "revision",
+  "crdtSnapshot",
+  "crdtReset",
   "editable",
   "theme",
   "inset",
@@ -506,6 +517,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "ready",
   "change",
+  "crdtUpdate",
   "save",
   "focus",
   "height",

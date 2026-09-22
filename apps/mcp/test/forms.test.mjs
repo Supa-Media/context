@@ -92,6 +92,7 @@
  */
 
 import worker from "../src/index.js";
+import { readDocument, replaceText } from "@context/collaboration";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -182,6 +183,7 @@ function createBucket() {
   let trips = 0;
   const bucket = {
     objects,
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     trips: () => trips,
     /** Fires once, on the next get of this key, before the value is returned. */
     interceptGet: null,
@@ -205,7 +207,7 @@ function createBucket() {
       if (bucket.interceptGet && bucket.interceptGet.key === key) {
         const fire = bucket.interceptGet;
         bucket.interceptGet = null;
-        fire.run(bucket);
+        await fire.run(bucket);
       }
       return {
         etag: snapshot.etag,
@@ -1680,8 +1682,13 @@ export async function runFormChecks(check) {
       // re-applied over theirs rather than replacing it.
       bucket.interceptGet = {
         key: path,
-        run(store) {
-          const current = store.text(path);
+        async run(store) {
+          // Every writer now uses the same document authority. Land the other
+          // response through that engine rather than mutating raw Markdown
+          // behind it, which would model an unsupported writer and be repaired
+          // from durable collaboration state by design.
+          const base = await readDocument(store, path);
+          const current = base.text;
           const cfg = parseFormBlocks(REQUESTS_NOTE)[0].config;
           const parsed = parseResponsesFile(current, cfg);
           parsed.responses.push({
@@ -1691,7 +1698,11 @@ export async function runFormChecks(check) {
             values: { title: "landed in between", area: "mcp" },
             votes: [],
           });
-          store.seed(path, renderResponsesFile(cfg, parsed.responses));
+          await replaceText(store, path, {
+            documentId: base.documentId,
+            expectedEtag: base.etag,
+            text: renderResponsesFile(cfg, parsed.responses),
+          });
         },
       };
       const raced = await call(env, MEMBER_TOKEN, "submit_form", {

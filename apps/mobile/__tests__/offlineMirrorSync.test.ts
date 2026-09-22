@@ -56,6 +56,7 @@ interface Remote {
   path: string;
   text: string;
   etag: string;
+  rawEtag?: string;
   visibility?: OpenNote["visibility"];
   encrypted?: boolean;
 }
@@ -63,7 +64,7 @@ interface Remote {
 function manifestOf(notes: readonly Remote[]): ManifestEntry[] {
   return notes.map((note) => ({
     path: note.path,
-    etag: note.etag,
+    etag: note.rawEtag ?? note.etag,
     size: note.text.length,
     visibility: note.visibility ?? "private",
     inherited: note.visibility ?? "private",
@@ -77,6 +78,7 @@ function noteOf(remote: Remote): OpenNote & { encrypted: boolean } {
     path: remote.path,
     text: remote.text,
     etag: remote.etag,
+    ...(remote.rawEtag === undefined ? {} : { rawEtag: remote.rawEtag }),
     visibility: remote.visibility ?? "private",
     inherited: remote.visibility ?? "private",
     exception: false,
@@ -165,6 +167,44 @@ describe("a sync puts every note on the device", () => {
     ]);
     expect((await mirroredNote(store, "private", W1, "1-projects/pilot.md"))?.value.text).toBe(
       "pilot v2\n",
+    );
+  });
+
+  test("a collaboration etag compares with its raw storage token", async () => {
+    buckets[W1] = [
+      {
+        path: "1-projects/live.md",
+        text: "shared\n",
+        etag: "c2-doc:r1",
+        rawEtag: "raw-1",
+      },
+    ];
+    await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    expect((await mirroredNote(store, "private", W1, "1-projects/live.md"))?.value).toEqual(
+      expect.objectContaining({ etag: "c2-doc:r1", rawEtag: "raw-1", text: "shared\n" }),
+    );
+    calls = [];
+
+    // The collaboration generation is unchanged, and the provider token is
+    // still the same, so a second sync must not download the body again.
+    await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    expect(calls.filter((call) => call.startsWith("read:"))).toEqual([]);
+
+    // A provider change invalidates the mirror even when the collaboration
+    // version happened to be represented by the same document revision.
+    buckets[W1]![0] = {
+      path: "1-projects/live.md",
+      text: "shared from peer\n",
+      etag: "c2-doc:r2",
+      rawEtag: "raw-2",
+    };
+    calls = [];
+    await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    expect(calls.filter((call) => call.startsWith("read:"))).toEqual([
+      `read:${W1}:1-projects/live.md`,
+    ]);
+    expect((await mirroredNote(store, "private", W1, "1-projects/live.md"))?.value.rawEtag).toBe(
+      "raw-2",
     );
   });
 

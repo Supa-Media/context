@@ -86,6 +86,12 @@ jest.mock("../features/console/presence/usePresence", () => ({
   // nothing at all about breadcrumbs.
   usePresence: () => ({ members: [], phase: "idle", summary: "", report: () => {} }),
 }));
+jest.mock("../features/console/collaboration/useCollaboration", () => ({
+  // Collaboration is outside this route-recording harness. The production
+  // hook requires ConvexProvider; this test intentionally supplies only the
+  // file/context state needed to verify breadcrumb dismissal.
+  useCollaboration: () => undefined,
+}));
 
 
 const { ConsoleDataProvider } =

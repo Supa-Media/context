@@ -264,6 +264,18 @@ export interface FileBrowser {
 
   editor: EditorState;
   setDraft: (text: string) => void;
+  /** Mark an open prose note as owned by the durable collaboration controller. */
+  setCollaborationOwned?: (path: string, owned: boolean) => void;
+  /** Update the editor from the durable controller without creating a legacy draft. */
+  setCollaborationDraft?: (text: string) => void;
+  setCollaborationState?: (state: {
+    text: string;
+    etag: string | null;
+    status: "offline" | "storing" | "local" | "syncing" | "saved" | "error" | "unavailable" | "revoked";
+    pending: number;
+    recovery?: { baseline: string; desired: string; baseEtag?: string | null };
+    legacyAdopted?: { path: string; text: string; baseEtag: string };
+  }) => void;
   save: () => void;
   /**
    * A tool wrote the open note, and the live room has already merged it.

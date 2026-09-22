@@ -128,6 +128,7 @@
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
+import { withLogicalDelete } from "../src/store/logicalDelete.js";
 import {
   FENCE_LANGUAGE,
   indexableText,
@@ -136,6 +137,7 @@ import {
 } from "../src/encryption.js";
 import { parseLinks } from "../src/links.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { createWorkerCtx } from "./workerCtx.mjs";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -155,6 +157,7 @@ const PASSPHRASE_VECTOR = JSON.parse(
 /** A bucket stub with the same shape `test.mjs`'s has, and no more. */
 function makeBucket() {
   const objects = new Map();
+  const controls = { crashAfterEncryptedWrite: null };
   let etagCounter = 0;
   const encoder = new TextEncoder();
   return {
@@ -180,24 +183,48 @@ function makeBucket() {
               : new Uint8Array(value);
         const etag = `e${++etagCounter}`;
         objects.set(key, { bytes, etag });
+        if (controls.crashAfterEncryptedWrite === key &&
+            isEncryptedNote(new TextDecoder().decode(bytes))) {
+          controls.crashAfterEncryptedWrite = null;
+          throw new Error("injected crash after ciphertext write");
+        }
         return { etag };
       },
       async delete(key) {
         objects.delete(key);
       },
-      async list({ prefix } = {}) {
-        const listed = [...objects.keys()]
-          .filter((key) => !prefix || key.startsWith(prefix))
-          .sort()
-          .map((key) => ({
+      async list({ prefix = "", delimiter, cursor, limit = 1000 } = {}) {
+        const keys = [...objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+        const start = cursor ? keys.findIndex((key) => key > cursor) : 0;
+        if (start === -1) return { objects: [], delimitedPrefixes: [], truncated: false };
+        const listed = [];
+        const prefixes = new Set();
+        let index = start;
+        for (let spent = 0; index < keys.length && spent < limit; index += 1, spent += 1) {
+          const key = keys[index];
+          const remainder = key.slice(prefix.length);
+          const slash = delimiter ? remainder.indexOf(delimiter) : -1;
+          if (slash !== -1) {
+            prefixes.add(`${prefix}${remainder.slice(0, slash + 1)}`);
+            continue;
+          }
+          listed.push({
             key,
             size: objects.get(key).bytes.length,
             uploaded: new Date(),
             etag: objects.get(key).etag,
-          }));
-        return { objects: listed, truncated: false };
+          });
+        }
+        const truncated = index < keys.length;
+        return {
+          objects: listed,
+          delimitedPrefixes: [...prefixes],
+          truncated,
+          cursor: truncated ? keys[index - 1] : undefined,
+        };
       },
     },
+    controls,
   };
 }
 
@@ -346,6 +373,7 @@ export async function runEncryptionGatewayChecks(check) {
 
     let id = 0;
     async function call(token, name, args = {}) {
+      const { ctx, settle } = createWorkerCtx();
       const res = await worker.fetch(
         new Request("https://x/mcp", {
           method: "POST",
@@ -358,9 +386,11 @@ export async function runEncryptionGatewayChecks(check) {
           }),
         }),
         env,
-        { waitUntil() {} },
+        ctx,
       );
-      return (await res.json()).result;
+      const result = (await res.json()).result;
+      await settle();
+      return result;
     }
     const textOf = (result) => result?.content?.[0]?.text ?? "";
     const readA = (key) => {
@@ -372,8 +402,10 @@ export async function runEncryptionGatewayChecks(check) {
       return entry ? new TextDecoder().decode(entry.bytes) : undefined;
     };
 
-    const storeA = new R2Store(a.bucket);
-    const storeB = new R2Store(b.bucket);
+    // Match the production factory: R2's physical API has no conditional
+    // delete, so the effective store supplies CAS-safe logical deletion.
+    const storeA = withLogicalDelete(new R2Store(a.bucket));
+    const storeB = withLogicalDelete(new R2Store(b.bucket));
     for (const store of [storeA, storeB]) {
       await store.put("privacy.md", PRIVACY);
       await store.put("index.md", "# front page\n");
@@ -436,6 +468,41 @@ export async function runEncryptionGatewayChecks(check) {
         /already encrypted/.test(textOf(again)) &&
         readA("1-projects/team-secret.md") === storedSecret,
     );
+
+    await storeA.put("1-projects/crash-retry.md", "# crash retry\n\nplaintext history\n");
+    a.controls.crashAfterEncryptedWrite = "1-projects/crash-retry.md";
+    const crashedSeal = await call(OWNER_A, "set_encryption", {
+      path: "1-projects/crash-retry.md",
+      encrypted: true,
+    });
+    const strandedEnvelope = readA("1-projects/crash-retry.md");
+    const sealingHead = [...a.objects]
+      .filter(([key]) => key.startsWith(".context/collaboration/v1/heads/"))
+      .map(([, value]) => JSON.parse(new TextDecoder().decode(value.bytes)))
+      .find((head) => head.status === "sealing");
+    check("a crash can land ciphertext while the collaboration seal is still pending",
+      crashedSeal?.isError === true && isEncryptedNote(strandedEnvelope) &&
+      typeof sealingHead?.documentId === "string");
+
+    const resumedSeal = await call(OWNER_A, "set_encryption", {
+      path: "1-projects/crash-retry.md",
+      encrypted: true,
+    });
+    const recoveredHead = [...a.objects]
+      .filter(([key]) => key.startsWith(".context/collaboration/v1/heads/"))
+      .map(([, value]) => JSON.parse(new TextDecoder().decode(value.bytes)))
+      .find((head) => head.documentId === sealingHead?.documentId);
+    const recoveredPlaintextKeys = [...a.objects.keys()].filter((key) =>
+      sealingHead?.documentId &&
+      (key.includes(`/documents/${sealingHead.documentId}`) ||
+        key.includes(`/revisions/${sealingHead.documentId}/`)));
+    const purgedPlaintext = (await Promise.all(
+      recoveredPlaintextKeys.map((key) => storeA.get(key)),
+    )).every((value) => value === null);
+    check("retrying already-written ciphertext finishes the seal and purges plaintext history",
+      !resumedSeal?.isError && /already encrypted/.test(textOf(resumedSeal)) &&
+      recoveredHead?.status === "sealed" &&
+      purgedPlaintext);
 
     /* -- (2) reading it back ------------------------------------------------ */
 
@@ -554,7 +621,7 @@ export async function runEncryptionGatewayChecks(check) {
     check(
       "...and its ciphertext is byte-for-byte what it was",
       readA("1-projects/moved-secret.md") === before &&
-        readA("1-projects/team-secret.md") === undefined,
+        await storeA.get("1-projects/team-secret.md") === null,
     );
     const afterMove = await call(OWNER_A, "read_note", { path: "1-projects/moved-secret.md" });
     check(
@@ -1535,10 +1602,11 @@ export async function runEncryptionGatewayChecks(check) {
       !keylessRotate?.isError && /nothing to rotate/.test(textOf(keylessRotate)),
     );
 
-    // Three WORKSPACE-encrypted notes exist by this point:
+    // Four WORKSPACE-encrypted notes exist by this point:
     // `1-projects/vault/private-secret.md` (encrypted in section (3) and never
     // decrypted), `1-projects/conflict.md` (left encrypted by section (12)),
-    // and the one section (14) re-sealed while proving the write guard.
+    // the one section (14) re-sealed while proving the write guard, and the
+    // crash-recovery fixture above whose sealing journal was resumed.
     // `1-projects/moved-secret.md`, moved in section (6), was decrypted again
     // in section (10) and is plaintext.
     //
@@ -1558,7 +1626,7 @@ export async function runEncryptionGatewayChecks(check) {
       "rotation reports what it did and completes in one call for a small context",
       !rotated?.isError &&
         /rotation complete: k1 → k2/.test(textOf(rotated)) &&
-        /3 note\(s\) re-wrapped/.test(textOf(rotated)),
+        /4 note\(s\) re-wrapped/.test(textOf(rotated)),
     );
     check(
       "a passphrase-locked note is passed over by the walk, byte for byte, and does not stall it",
@@ -1588,14 +1656,14 @@ export async function runEncryptionGatewayChecks(check) {
 
     // Calling the tool again with no rotation in progress starts a FRESH one
     // (k2 -> k3) — rotation has no "already rotated, do nothing" state, only
-    // "a walk is in progress" or not. Both live notes move again, and the
+    // "a walk is in progress" or not. All four live notes move again, and the
     // walk completes in the same call for a context this small.
     const rotateAgain = await call(OWNER_A, "rotate_encryption_keys", {});
     check(
       "rotating again with no walk in progress starts and completes a fresh rotation",
       !rotateAgain?.isError &&
         /rotation complete: k2 → k3/.test(textOf(rotateAgain)) &&
-        /3 note\(s\) re-wrapped/.test(textOf(rotateAgain)),
+        /4 note\(s\) re-wrapped/.test(textOf(rotateAgain)),
     );
     check(
       "...and the locked note is still exactly what it was, two rotations later",

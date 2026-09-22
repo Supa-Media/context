@@ -25,7 +25,9 @@
  */
 
 import { EditorView } from "@codemirror/view";
-import { Compartment } from "@codemirror/state";
+import { Compartment, StateEffect } from "@codemirror/state";
+import * as Y from "yjs";
+import { yCollab } from "y-codemirror.next";
 import {
   editability,
   editorStateFor,
@@ -249,6 +251,7 @@ export function mountGuest(
    * `protocol.ts`.
    */
   let latest = "";
+  let latestRevision = "";
   /**
    * The editor starts refusing writes and is told otherwise by the host.
    *
@@ -269,6 +272,29 @@ export function mountGuest(
    * without reconfiguring the editor. See `coveredBottom`.
    */
   let inset = 0;
+
+  /** The durable binding is installed only after its canonical snapshot. */
+  const crdtCompartment = new Compartment();
+  const remoteOrigin = { nativeRemote: true };
+  let crdt: {
+    documentId: string;
+    doc: Y.Doc;
+    text: Y.Text;
+    onUpdate: (update: Uint8Array, origin: unknown) => void;
+  } | null = null;
+  let crdtReady = false;
+  // Durable mode stays read-only between document navigation and its
+  // canonical snapshot. This is separate from `crdt !== null`: a reset has no
+  // binding, but must not fall back to the legacy text editor.
+  let durableMode = false;
+  let applyingRemote = false;
+
+  const bytesFromBase64 = (value: string): Uint8Array => {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  };
 
   const handlers: HandlerRef = {
     current: {
@@ -326,8 +352,8 @@ export function mountGuest(
   let imageToken = 0;
 
   /** Base64 for the bridge, chunked so a large paste cannot blow the stack. */
-  const base64Of = (bytes: ArrayBuffer): string => {
-    const view = new Uint8Array(bytes);
+  const base64Of = (bytes: ArrayBuffer | Uint8Array): string => {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     let binary = "";
     const CHUNK = 0x8000;
     for (let index = 0; index < view.length; index += CHUNK) {
@@ -474,9 +500,99 @@ export function mountGuest(
     }),
     parent: root,
   });
+  // Keep the binding independently reconfigurable from editorSetup's stable
+  // update listener. It starts empty and read-only until the canonical state.
+  view.dispatch({ effects: StateEffect.appendConfig.of(crdtCompartment.of([])) });
 
+  const effectiveEditable = (): boolean =>
+    editable && (!durableMode || (crdt !== null && crdtReady));
+  const configureEditable = (): void => {
+    view.dispatch({ effects: editableCompartment.reconfigure(editability(effectiveEditable())) });
+  };
+
+  const destroyCrdt = (): void => {
+    const current = crdt;
+    crdt = null;
+    crdtReady = false;
+    if (current !== null) {
+      current.doc.off("update", current.onUpdate);
+      current.doc.destroy();
+      view.dispatch({
+        effects: [
+          crdtCompartment.reconfigure([]),
+          editableCompartment.reconfigure(editability(effectiveEditable())),
+        ],
+      });
+    } else {
+      configureEditable();
+    }
+  };
+
+  const applyCrdtSnapshot = (documentId: string, encoded: string): void => {
+    durableMode = true;
+    if (crdt !== null && crdt.documentId === documentId) {
+      try {
+        applyingRemote = true;
+        Y.applyUpdate(crdt.doc, bytesFromBase64(encoded), remoteOrigin);
+      } catch {
+        return;
+      } finally {
+        applyingRemote = false;
+      }
+      crdtReady = true;
+      latest = crdt.text.toString();
+      forms.generation = (forms.generation ?? 0) + 1;
+      heights.request();
+      configureEditable();
+      return;
+    }
+
+    destroyCrdt();
+    const doc = new Y.Doc();
+    const text = doc.getText("note");
+    try {
+      Y.applyUpdate(doc, bytesFromBase64(encoded), remoteOrigin);
+    } catch {
+      doc.destroy();
+      return;
+    }
+    const onUpdate = (update: Uint8Array, origin: unknown): void => {
+      if (applyingRemote || origin === remoteOrigin || crdt?.documentId !== documentId) return;
+      bridge.post({
+        v: PROTOCOL_VERSION,
+        type: "crdtUpdate",
+        documentId,
+        update: base64Of(update),
+      });
+    };
+    crdt = { documentId, doc, text, onUpdate };
+    crdtReady = false;
+    doc.on("update", onUpdate);
+    latest = text.toString();
+    latestRevision = "";
+    forms.generation = (forms.generation ?? 0) + 1;
+    // Seed CodeMirror before installing yCollab. Its initial synchronisation
+    // reads the editor buffer; doing this in the opposite order would turn the
+    // canonical seed into a fresh local insertion and emit an update.
+    replaceDocument(view, latest);
+    view.dispatch({
+      effects: [
+        crdtCompartment.reconfigure(yCollab(text, null)),
+        editableCompartment.reconfigure(editability(false)),
+      ],
+    });
+    crdtReady = true;
+    configureEditable();
+    heights.request();
+  };
+
+  let changeBaseRevision = "";
+  let changePending = false;
   const changes = coalesce(
-    () => bridge.post({ v: PROTOCOL_VERSION, type: "change", text: latest }),
+    () => {
+      bridge.post({ v: PROTOCOL_VERSION, type: "change", text: latest, baseRevision: changeBaseRevision });
+      changePending = false;
+    },
     schedule,
   );
 
@@ -504,12 +620,23 @@ export function mountGuest(
       // Recorded synchronously even though the post is deferred: this is what
       // an incoming `doc` is compared against, and a stale copy of it is the
       // caret jumping to the end of the note.
+      if (!changePending) changeBaseRevision = latestRevision;
+      changePending = true;
       latest = text;
       // A change on a note the viewer may not write should be impossible —
       // `EditorState.readOnly` refuses commands, paste and drop. If one gets
       // here anyway it is not reported, because reporting it is what turns a
       // failed edit into a dirty draft and a Save that will be refused.
-      if (!acceptsChange(editable)) return;
+      if (!acceptsChange(effectiveEditable())) return;
+      // In durable mode y-codemirror has already produced the Yjs update and
+      // the Y.Doc observer owns the bridge message. The text callback remains
+      // useful for layout and legacy mode, but must never send a second full
+      // text edit for the same transaction.
+      if (crdt !== null) {
+        heights.request();
+        carets.request();
+        return;
+      }
       changes.request();
       // An edit is the commonest way both of these move: a line added makes the
       // document taller, and the caret is wherever the typing left it. The
@@ -524,8 +651,14 @@ export function mountGuest(
   const apply = (message: ToGuest): void => {
     switch (message.type) {
       case "doc": {
+        // A legacy doc is an explicit mode switch. Tear down the old Y.Doc even
+        // when its rendered text happens to be identical.
+        durableMode = false;
+        if (crdt !== null) destroyCrdt();
+        else configureEditable();
         if (echoes(message.text, latest)) return;
         latest = message.text;
+        latestRevision = message.revision ?? "";
         forms.generation = (forms.generation ?? 0) + 1;
         // Not an edit, the one write a read-only note still accepts, and not an
         // entry in the undo history. All three live in `replaceDocument`.
@@ -535,11 +668,19 @@ export function mountGuest(
         heights.request();
         return;
       }
+      case "revision":
+        latestRevision = message.revision;
+        return;
+      case "crdtSnapshot":
+        applyCrdtSnapshot(message.documentId, message.update);
+        return;
+      case "crdtReset":
+        durableMode = true;
+        destroyCrdt();
+        return;
       case "editable": {
         editable = message.editable;
-        view.dispatch({
-          effects: editableCompartment.reconfigure(editability(message.editable)),
-        });
+        configureEditable();
         return;
       }
       case "theme": {
@@ -697,7 +838,7 @@ export function mountGuest(
          */
         const command = decodeCommand(message.command);
         if (command === null) return;
-        if (!acceptsCommand(editable, command)) return;
+        if (!acceptsCommand(effectiveEditable(), command)) return;
         runCommand(view, command);
         return;
       }
@@ -783,6 +924,7 @@ export function mountGuest(
       owner.removeEventListener("selectionchange", onSelectionChange);
       view.dom.removeEventListener("focusin", onFocus);
       view.dom.removeEventListener("focusout", onBlur);
+      destroyCrdt();
       view.destroy();
     },
   };

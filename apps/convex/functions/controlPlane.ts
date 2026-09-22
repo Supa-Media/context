@@ -70,6 +70,8 @@ import {
   type StorageCapabilities,
 } from "./storage";
 import { getMembership } from "./lib/workspaceAuth";
+import { grantedNamesFor } from "./lib/grantedNames";
+import { CONSOLE_CLIENT_ID } from "./agentGrant";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
 interface LiveGrant {
@@ -192,14 +194,30 @@ async function contextsForGrant(
   ctx: QueryCtx,
   live: LiveGrant,
 ): Promise<
-  Array<{ workspaceId: Id<"workspaces">; slug: string; role: string; kind: "personal" | "shared" }>
+  Array<{
+    workspaceId: Id<"workspaces">;
+    slug: string;
+    role: string;
+    kind: "personal" | "shared";
+    grantedNames?: string[];
+  }>
 > {
-  const own = {
+  const includeGrantedNames = live.grant.clientId === CONSOLE_CLIENT_ID;
+  const own: {
+    workspaceId: Id<"workspaces">;
+    slug: string;
+    role: string;
+    kind: "personal" | "shared";
+    grantedNames?: string[];
+  } = {
     workspaceId: live.workspace._id,
     slug: live.workspace.slug,
     role: live.role,
     kind: live.workspace.kind,
   };
+  if (includeGrantedNames) {
+    own.grantedNames = await grantedNamesFor(ctx, own.workspaceId, live.grant.userId);
+  }
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", live.grant.userId))
@@ -221,12 +239,22 @@ async function contextsForGrant(
     // A membership row pointing at a workspace that is gone is skipped rather
     // than reported: the reach it would name does not exist.
     if (workspace === null) continue;
-    rows.push({
+    const row = {
       workspaceId: workspace._id,
       slug: workspace.slug,
       role: membership.role,
       kind: workspace.kind,
-    });
+    } as {
+      workspaceId: Id<"workspaces">;
+      slug: string;
+      role: string;
+      kind: "personal" | "shared";
+      grantedNames?: string[];
+    };
+    if (includeGrantedNames) {
+      row.grantedNames = await grantedNamesFor(ctx, workspace._id, live.grant.userId);
+    }
+    rows.push(row);
   }
 
   // See the header. Last, after the cap, and skipped when a real membership
@@ -235,7 +263,13 @@ async function contextsForGrant(
     ctx,
     new Set(rows.map((row) => row.workspaceId)),
   );
-  if (pinned !== null) rows.push(pinned);
+  if (pinned !== null) {
+    rows.push(
+      includeGrantedNames
+        ? { ...pinned, grantedNames: [] }
+        : pinned,
+    );
+  }
 
   return rows;
 }
@@ -295,6 +329,10 @@ export const resolveGrantByAccessToken = internalQuery({
           slug: v.string(),
           role: v.string(),
           kind: v.union(v.literal("personal"), v.literal("shared")),
+          // Only the first-party console grant carries this live, per-request
+          // clearance. Older and ordinary OAuth grants omit it and therefore
+          // resolve to no group visibility in the gateway.
+          grantedNames: v.optional(v.array(v.string())),
         }),
       ),
     }),

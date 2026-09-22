@@ -2,11 +2,11 @@
   "name": "@context/mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "Context MCP gateway — a Cloudflare Worker serving a customer-owned markdown bucket over MCP",
+  "description": "Context MCP gateway \u2014 a Cloudflare Worker serving a customer-owned markdown bucket over MCP",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "node test/test.mjs",
+    "test": "node test/test.mjs && node --test test/logicalDelete.test.mjs test/storeHead.test.mjs test/encryptedGenerationFooter.test.mjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "typecheck": "echo \"no typecheck (plain JS worker)\" && exit 0",
@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "wrangler": "^4.124.0"
+  },
+  "dependencies": {
+    "@context/collaboration": "workspace:*"
   }
 }

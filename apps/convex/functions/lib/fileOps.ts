@@ -80,6 +80,15 @@ import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
 import { answerFromProjection, pageDepth } from "../../../mcp/src/search/d1/serve.js";
+import {
+  eligible as collaborationEligible,
+  moveDocument as moveCollaborationDocument,
+  readDocument as readCollaborationDocument,
+  replaceText as replaceCollaborationText,
+  sealDocument as sealCollaborationDocument,
+  supported as collaborationSupported,
+  tombstoneDocument as tombstoneCollaborationDocument,
+} from "@context/collaboration";
 // The projection, on the same terms. `projectPass`, `loadCensus` and
 // `progressFrom` take a store, a census, a `visibilityOf` and a budget and
 // know nothing about a gateway request — which is what makes the control
@@ -206,13 +215,38 @@ export async function clearVaultBatch(
     );
   }
 
-  const page = await store.list({ limit: VAULT_CLEAR_BATCH_OBJECTS });
-  for (const object of page.objects) await store.delete(object.key);
-  return {
-    mode: "deleted",
-    objects: page.objects.length,
-    complete: page.truncated !== true,
-  };
+  // A logical-delete store can leave a physical tombstone at the front of
+  // the listing. Its filtered page is intentionally empty but still carries
+  // the provider cursor; follow those pages in this invocation so a vault
+  // clear does not make permanent zero-progress passes. We still start from
+  // the beginning on every retry because deleting while paging can otherwise
+  // skip live keys.
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
+    const page = await store.list({ cursor, limit: 1_000 });
+    if ((page.objects?.length ?? 0) > 0) {
+      const batch = page.objects.slice(0, VAULT_CLEAR_BATCH_OBJECTS);
+      for (const object of batch) await store.delete(object.key);
+      return {
+        mode: "deleted",
+        objects: batch.length,
+        complete:
+          page.truncated !== true && page.objects.length <= VAULT_CLEAR_BATCH_OBJECTS,
+      };
+    }
+    if (!page.truncated) return { mode: "deleted", objects: 0, complete: true };
+    if (!page.cursor || page.cursor === cursor) {
+      throw new FileOpError(
+        "LISTING_INCOMPLETE",
+        "Context could not finish clearing this bucket. Try again before replacing it.",
+      );
+    }
+    cursor = page.cursor;
+  }
+  throw new FileOpError(
+    "FOLDER_TOO_LARGE",
+    "This bucket is too large to clear safely in this flow.",
+  );
 }
 
 /**
@@ -842,6 +876,7 @@ function compareKeys(a: string, b: string): number {
   return x.length - y.length;
 }
 
+
 /**
  * Every object in the bucket this caller may see, with its version — what the
  * offline mirror is built from.
@@ -956,6 +991,8 @@ export interface FileContents {
   path: string;
   text: string;
   etag: string;
+  /** Provider object version, retained for mirror freshness checks. */
+  rawEtag?: string;
   visibility: Visibility;
   inherited: Visibility;
   exception: boolean;
@@ -974,6 +1011,9 @@ export interface FileContents {
    * See `functions/lib/noteEncryption.ts` for why that is deliberate.
    */
   encrypted: boolean;
+  /** Stable collaboration generation and complete Yjs base for supported notes. */
+  documentId?: string;
+  update?: string;
 }
 
 export async function readFile(
@@ -1037,15 +1077,30 @@ async function readVisibleFile(
   // `readOnly` is forced, so an older console that ignores `encrypted` still
   // refuses to put it in a textarea.
   const encrypted = isEncryptedNote(text);
+  let collaboration: { documentId: string; update: string; text: string; etag: string; rawEtag: string } | null = null;
+  if (!encrypted && collaborationSupported(store) && collaborationEligible(path, text)) {
+    try {
+      collaboration = await readCollaborationDocument(store, path);
+    } catch {
+      throw new FileOpError(
+        "STORAGE_UNSAFE",
+        "This note cannot be opened safely for collaborative editing right now.",
+      );
+    }
+  }
   return {
     path,
-    text,
-    etag: object.etag,
+    text: collaboration?.text ?? text,
+    etag: collaboration?.etag ?? object.etag,
+    ...(collaboration ? { rawEtag: collaboration.rawEtag } : {}),
     visibility: described.visibility,
     inherited: described.inherited,
     exception: described.exception,
     readOnly: described.readOnly || encrypted,
     encrypted,
+    ...(collaboration
+      ? { documentId: collaboration.documentId, update: collaboration.update }
+      : {}),
   };
 }
 
@@ -1382,14 +1437,69 @@ export async function writeFile(
    * of the etag, and answering `CONFLICT` first would tell somebody to reload
    * and try again at a write that can never succeed.
    */
+  const existingText = existing !== null ? await existing.text() : null;
   if (existing !== null) {
-    const existingText = await existing.text();
-    if (isEncryptedNote(existingText) && !canReplaceEncryptedNote(existingText, options.text)) {
+    if (isEncryptedNote(existingText!) && !canReplaceEncryptedNote(existingText!, options.text)) {
       throw new FileOpError(
         "NOTE_ENCRYPTED",
         "That note is encrypted. Its content is stored as ciphertext and can only be edited through a client that can decrypt it.",
         existing.etag,
       );
+    }
+  }
+
+  let collaborationResult: {
+    documentId: string;
+    update: string;
+    text: string;
+    etag: string;
+  } | null = null;
+  let sealedResult: { etag: string; bytes: number } | null = null;
+  if (
+    existing !== null &&
+    !isEncryptedNote(existingText!) &&
+    collaborationSupported(store)
+  ) {
+    if (collaborationEligible(path, existingText!) && options.expectedEtag !== undefined) {
+      try {
+        const base = await readCollaborationDocument(store, path);
+        if (isEncryptedNote(options.text)) {
+          const sealed = await sealCollaborationDocument(store, path, {
+            documentId: base.documentId,
+            expectedEtag: options.expectedEtag,
+            text: options.text,
+          });
+          sealedResult = { etag: sealed.etag, bytes: byteLength(options.text) };
+        } else {
+          collaborationResult = await replaceCollaborationText(store, path, {
+            documentId: base.documentId,
+            expectedEtag: options.expectedEtag,
+            text: options.text,
+          });
+        }
+      } catch (error) {
+        // An old/raw or forged base is still the ordinary stale-save conflict
+        // at this API boundary. Do not turn it into STORAGE_FAILED merely
+        // because the collaboration engine has a more precise internal code.
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+        if (["BASE_MISSING", "CONFLICT", "GENERATION_MISMATCH", "SEAL_CONFLICT", "CONCURRENT_WRITE"].includes(code)) {
+          throw new FileOpError(
+            "CONFLICT",
+            "That file changed somewhere else while you were editing it.",
+            existing.etag,
+          );
+        }
+        if (code === "UNSUPPORTED_STORAGE" || code === "STORAGE_WRITE_FAILED" || code === "CORRUPT_STATE") {
+          throw new FileOpError(
+            "STORAGE_UNSAFE",
+            "This note cannot be saved safely for collaborative editing.",
+            existing.etag,
+          );
+        }
+        throw error;
+      }
     }
   }
 
@@ -1406,7 +1516,7 @@ export async function writeFile(
       "CONFLICT",
       "That file was deleted somewhere else while you were editing it.",
     );
-  } else if (existing.etag !== options.expectedEtag) {
+  } else if (!collaborationResult && !sealedResult && existing.etag !== options.expectedEtag) {
     throw new FileOpError(
       "CONFLICT",
       "That file changed somewhere else while you were editing it.",
@@ -1440,11 +1550,15 @@ export async function writeFile(
    */
   const conditionalCreate =
     existing === null && store.capabilities?.conditionalCreate === true;
-  const put = conditional
-    ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
-    : conditionalCreate
-      ? await store.put(path, options.text, { onlyIf: { absent: true } })
-      : await store.put(path, options.text);
+  const put = sealedResult
+    ? { etag: sealedResult.etag }
+    : collaborationResult
+    ? { etag: collaborationResult.etag }
+    : conditional
+      ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
+      : conditionalCreate
+        ? await store.put(path, options.text, { onlyIf: { absent: true } })
+        : await store.put(path, options.text);
 
   if (put === null) {
     // The backend rejected the precondition: somebody wrote between our read
@@ -1464,7 +1578,7 @@ export async function writeFile(
   return {
     path,
     etag: put.etag,
-    bytes: byteLength(options.text),
+    bytes: sealedResult?.bytes ?? byteLength(collaborationResult?.text ?? options.text),
     conflictCheck: conditional || conditionalCreate ? "conditional" : "read-compare",
   };
 }
@@ -2058,8 +2172,25 @@ async function historyKeysFor(
 
 /** Does this path name a folder (something has keys under it)? */
 async function isFolder(store: FileStore, path: string): Promise<boolean> {
-  const listing = await store.list({ prefix: `${path}/`, limit: 1 });
-  return (listing.objects ?? []).length > 0 || (listing.delimitedPrefixes ?? []).length > 0;
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
+    const listing = await store.list({ prefix: `${path}/`, cursor, limit: 1_000 });
+    if ((listing.objects ?? []).length > 0 || (listing.delimitedPrefixes ?? []).length > 0) {
+      return true;
+    }
+    if (!listing.truncated) return false;
+    if (!listing.cursor || listing.cursor === cursor) {
+      throw new FileOpError(
+        "LISTING_INCOMPLETE",
+        "Context could not determine whether this path is a folder.",
+      );
+    }
+    cursor = listing.cursor;
+  }
+  throw new FileOpError(
+    "FOLDER_TOO_LARGE",
+    "This folder is too large to inspect safely in this flow.",
+  );
 }
 
 export interface MoveResult {
@@ -2463,6 +2594,91 @@ export async function movePath(
 
   assertMoveDestinationsVisible(pairs, options.clearance, state);
 
+  // A plaintext Markdown note on a supported bucket is owned by the
+  // collaboration head once it is opened. Preserve that identity through a
+  // rename instead of copying its materialization and leaving the head at the
+  // old path. Folders and ineligible files continue through the structural
+  // legacy path because the engine intentionally only names individual notes.
+  if (!sourceIsFolder && collaborationSupported(store)) {
+    const sourceObject = await store.get(from);
+    if (sourceObject !== null) {
+      const sourceText = await sourceObject.text();
+      if (!isEncryptedNote(sourceText) && collaborationEligible(from, sourceText)) {
+        if (store.capabilities?.conditionalDelete !== true) {
+          throw new FileOpError(
+            "STORAGE_UNSAFE",
+            "This storage cannot safely move a collaboratively edited note.",
+          );
+        }
+        if ((await store.get(to)) !== null) {
+          throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
+        }
+        const destinationVisibility = narrowerVisibility(
+          effectiveVisibility(from, state.rules, state.overrides),
+          visibilityOf(to, state.rules),
+        );
+        // Install any narrowing before moveDocument materializes bytes at the
+        // destination. The source rule remains in place until remapPrivacy
+        // runs after success; on failure a stale narrowing is safe to leave.
+        if (destinationVisibility !== "team") {
+          await mutateManifest(store, (current) => ({
+            rules: current.rules,
+            overrides: nextOverrides(
+              to,
+              narrowerVisibility(
+                destinationVisibility,
+                effectiveVisibility(to, current.rules, current.overrides),
+              ) ?? "private",
+              current.rules,
+              current.overrides,
+            ),
+          }));
+        }
+        let moved;
+        try {
+          moved = await moveCollaborationDocument(store, from, to, {
+            ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+          });
+        } catch (error) {
+          const code = error && typeof error === "object" && "code" in error
+            ? String((error as { code?: unknown }).code)
+            : "";
+          if (code === "CONFLICT" || code === "BASE_MISSING" || code === "GENERATION_MISMATCH") {
+            throw new FileOpError("CONFLICT", changedElsewhere, sourceObject.etag);
+          }
+          if (code === "DESTINATION_EXISTS") throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
+          if (code === "UNSUPPORTED_STORAGE") {
+            throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely move a collaboratively edited note.");
+          }
+          throw error;
+        }
+        const movedPairs = [{ source: from, destination: to }];
+        await remapPrivacy(store, {
+          moves: [{ from, to }],
+          folderMove: null,
+          survivors: [],
+        });
+        await recordForwarding(store, [{ from, to, kind: "note" as const }], { now: options.now });
+        let finalEtag = moved.etag;
+        const references = await rewriteReferences(store, {
+          clearance: options.clearance,
+          state,
+          renames: new Map(movedPairs.map((pair) => [pair.source, pair.destination])),
+          onRewritten: (key, etag) => {
+            if (key === to) finalEtag = etag;
+          },
+        });
+        return {
+          from,
+          to,
+          paths: [to],
+          references,
+          etag: finalEtag,
+        };
+      }
+    }
+  }
+
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
       // This message names the path back, which is safe only because the guard
@@ -2492,7 +2708,75 @@ export async function movePath(
     either guess or drop the check.
   */
   let movedEtag: string | undefined;
+  // Folder moves carry individual note heads. Move those notes through the
+  // lifecycle first, and only use the byte-copy path for ineligible files.
+  // Preflight the capability before the first pair so a provider without
+  // conditional delete cannot leave a half-moved folder.
+  const collaborativePairs = new Set<string>();
+  if (sourceIsFolder && collaborationSupported(store)) {
+    const candidates: Array<{
+      pair: (typeof pairs)[number];
+      visibility: Visibility;
+    }> = [];
+    for (const pair of pairs) {
+      const object = await store.get(pair.source);
+      if (object === null) continue;
+      const text = await object.text();
+      if (!isEncryptedNote(text) && collaborationEligible(pair.source, text)) {
+        candidates.push({
+          pair,
+          visibility: narrowerVisibility(
+            effectiveVisibility(pair.source, state.rules, state.overrides),
+            visibilityOf(pair.destination, state.rules),
+          ) ?? "private",
+        });
+      }
+    }
+    if (candidates.length > 0 && store.capabilities?.conditionalDelete !== true) {
+      throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely move collaboratively edited notes.");
+    }
+    if (candidates.length > 0) {
+      await mutateManifest(store, (current) => {
+        let next = current.overrides;
+        for (const candidate of candidates) {
+          if (candidate.visibility === "team") continue;
+          next = nextOverrides(
+            candidate.pair.destination,
+            narrowerVisibility(
+              candidate.visibility,
+              effectiveVisibility(
+                candidate.pair.destination,
+                current.rules,
+                next,
+              ),
+            ) ?? "private",
+            current.rules,
+            next,
+          );
+        }
+        return { rules: current.rules, overrides: next };
+      });
+    }
+    for (const candidate of candidates) {
+      try {
+        await moveCollaborationDocument(store, candidate.pair.source, candidate.pair.destination);
+        collaborativePairs.add(candidate.pair.source);
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+        if (code === "CONFLICT" || code === "BASE_MISSING" || code === "GENERATION_MISMATCH") {
+          throw new FileOpError("CONFLICT", "A note changed somewhere else while this folder was moving.");
+        }
+        if (code === "DESTINATION_EXISTS") throw new FileOpError("DESTINATION_EXISTS", "A destination changed while this folder was moving.");
+        if (code === "UNSUPPORTED_STORAGE") throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely move collaboratively edited notes.");
+        throw error;
+      }
+    }
+  }
+
   for (const pair of pairs) {
+    if (collaborativePairs.has(pair.source)) continue;
     const object = await store.get(pair.source);
     if (object === null) {
       // Vanished mid-move. Nothing to carry — unless this move was asked
@@ -2675,6 +2959,8 @@ export interface ContextMoveObject {
   bytes: ArrayBuffer;
   /** What the source held when it was read. The delete is conditional on it. */
   etag: string;
+  /** Exact collaboration revision to tombstone after the other context lands it. */
+  collaborationEtag?: string;
   /**
    * The source's effective visibility, collapsed to the two tiers.
    *
@@ -2918,8 +3204,9 @@ export async function exportContextMoveBatch(
     looked += 1;
     const object = await store.get(key);
     if (object === null) continue; // deleted underneath us; nothing to carry
-    const bytes = await object.arrayBuffer();
-    if (key.endsWith(".md") && isEncryptedNote(new TextDecoder().decode(bytes))) {
+    let bytes = await object.arrayBuffer();
+    const sourceText = key.endsWith(".md") ? new TextDecoder().decode(bytes) : null;
+    if (sourceText !== null && isEncryptedNote(sourceText)) {
       /*
         AN ENCRYPTED NOTE IS ENCRYPTED TO *THIS* CONTEXT'S KEY.
 
@@ -2933,12 +3220,33 @@ export async function exportContextMoveBatch(
       skipped.push({ path: key, reason: "encrypted" });
       continue;
     }
+    let collaborationEtag: string | undefined;
+    if (sourceText !== null && collaborationSupported(store) &&
+        collaborationEligible(key, sourceText)) {
+      if (store.capabilities?.conditionalDelete !== true) {
+        throw new FileOpError(
+          "STORAGE_UNSAFE",
+          "This storage cannot safely retire a collaboratively edited note. Nothing from this batch was removed.",
+        );
+      }
+      try {
+        const base = await readCollaborationDocument(store, key);
+        bytes = new TextEncoder().encode(base.text).buffer;
+        collaborationEtag = base.etag;
+      } catch {
+        throw new FileOpError(
+          "CONFLICT",
+          "A note changed while this context move was reading it. Nothing from this batch was removed.",
+        );
+      }
+    }
     carried += bytes.byteLength;
     objects.push({
       source: key,
       destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
       bytes,
       etag: object.etag,
+      ...(collaborationEtag === undefined ? {} : { collaborationEtag }),
       sourceVisibility:
         effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",
     });
@@ -3224,14 +3532,25 @@ function assertDestinationCanLand(store: FileStore): void {
 
 export async function deleteMovedSources(
   store: FileStore,
-  options: { sources: readonly { path: string; etag: string }[] },
+  options: { sources: readonly { path: string; etag: string; collaborationEtag?: string }[] },
 ): Promise<{ deleted: string[]; conflicts: string[] }> {
   const deleted: string[] = [];
   const conflicts: string[] = [];
   for (const source of options.sources) {
-    const retired = await retireMovedSource(store, source.path, source.etag);
-    if (retired === "retired") deleted.push(source.path);
-    else conflicts.push(source.path);
+    if (source.collaborationEtag !== undefined) {
+      try {
+        await tombstoneCollaborationDocument(store, source.path, {
+          expectedEtag: source.collaborationEtag,
+        });
+        deleted.push(source.path);
+      } catch {
+        conflicts.push(source.path);
+      }
+    } else {
+      const retired = await retireMovedSource(store, source.path, source.etag);
+      if (retired === "retired") deleted.push(source.path);
+      else conflicts.push(source.path);
+    }
   }
 
   if (deleted.length > 0) {
@@ -3365,13 +3684,32 @@ async function rewriteReferences(
     notes += 1;
     links += rewritten.changed;
     /*
-      No snapshot. Version history is the customer's object versioning — see
-      `docs/decisions/storage-and-credentials.md` — and adding one back for this
-      path alone would restore the write amplification that decision removed
-      from every other one.
+      A migrated note's Markdown is a materialization of its collaboration
+      head. Route that rewrite through the same retained-base operation so a
+      backlink repair cannot be discarded by the next collaborative read.
+      Unmigrated or ineligible objects retain the ordinary raw write path.
     */
-    const put = await store.put(key, rewritten.text);
-    if (put?.etag) options.onRewritten?.(key, put.etag);
+    let etag: string | undefined;
+    if (collaborationSupported(store) && collaborationEligible(key, text) && !isEncryptedNote(text)) {
+      try {
+        const current = await readCollaborationDocument(store, key);
+        const replaced = await replaceCollaborationText(store, key, {
+          documentId: current.documentId,
+          expectedEtag: current.etag,
+          text: rewritten.text,
+        });
+        etag = replaced.etag;
+      } catch {
+        // A migrated note must never fall back to a raw PUT. A move may have
+        // changed its path between the listing and this repair; leaving the
+        // repair pending is safer than overwriting a head at an old revision.
+        continue;
+      }
+    } else {
+      const put = await store.put(key, rewritten.text);
+      etag = put?.etag;
+    }
+    if (etag) options.onRewritten?.(key, etag);
   }
   return { notes, links, capped: false };
 }
@@ -3486,7 +3824,16 @@ export async function copyPath(
   for (const pair of pairs) {
     const object = await store.get(pair.source);
     if (object === null) throw notFound();
-    await store.put(pair.destination, await object.text());
+    const sourceText = await object.text();
+    let body = sourceText;
+    if (collaborationSupported(store) && !isEncryptedNote(sourceText) && collaborationEligible(pair.source, sourceText)) {
+      try {
+        body = (await readCollaborationDocument(store, pair.source)).text;
+      } catch {
+        throw new FileOpError("STORAGE_UNSAFE", "This note cannot be copied safely for collaborative editing.");
+      }
+    }
+    await store.put(pair.destination, body);
   }
 
   await copyPrivacy(
@@ -3679,13 +4026,49 @@ export async function trashPath(
     read-compare bucket has, and what lands in it is recoverable from the trash
     rather than gone.
   */
-  if (options.expectedEtag !== undefined && source !== null && source.etag !== options.expectedEtag) {
+  const sourceText = source === null ? null : await source.text();
+  const sourceIsCollaborative =
+    !sourceIsFolder && sourceText !== null && collaborationSupported(store) &&
+    !isEncryptedNote(sourceText) && collaborationEligible(path, sourceText);
+  if (options.expectedEtag !== undefined && source !== null && !sourceIsCollaborative && source.etag !== options.expectedEtag) {
     throw new FileOpError(
       "CONFLICT",
       "That note changed somewhere else after this was asked for.",
       source.etag,
     );
   }
+
+  // A migrated note moves into the real hidden trash path with its head and
+  // document identity intact. The lifecycle API admits this path only through
+  // its internalTrash capability; public collaboration reads still reject it.
+  if (sourceIsCollaborative && source !== null && sourceText !== null) {
+      if (store.capabilities?.conditionalDelete !== true) {
+        throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely trash a collaboratively edited note.");
+      }
+      let destination = `${TRASH_ROOT}/${timestampSlug(options.now)}/${path}`;
+      for (let attempt = 2; await hiddenKeysAt(store, destination).then((keys) => keys.length > 0) && attempt <= 100; attempt += 1) {
+        destination = `${TRASH_ROOT}/${timestampSlug(options.now)}-${attempt}/${path}`;
+      }
+      let moved;
+      try {
+        moved = await moveCollaborationDocument(store, path, destination, {
+          internalTrash: true,
+          ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+        });
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+        if (code === "CONFLICT" || code === "BASE_MISSING" || code === "GENERATION_MISMATCH") {
+          throw new FileOpError("CONFLICT", "That note changed somewhere else after this was asked for.", source.etag);
+        }
+        if (code === "UNSUPPORTED_STORAGE") {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely trash a collaboratively edited note.");
+        }
+        throw error;
+      }
+      return { from: path, to: destination, paths: [destination], etag: moved.etag };
+    }
 
   const stamp = timestampSlug(options.now);
   let destination = `${TRASH_ROOT}/${stamp}/${path}`;
@@ -3697,7 +4080,38 @@ export async function trashPath(
     source: key,
     destination: sourceIsFolder ? `${destination}${key.slice(path.length)}` : destination,
   }));
-  await movePairs(store, pairs);
+  const collaborativePairs = new Set<string>();
+  if (collaborationSupported(store)) {
+    const candidates: Array<(typeof pairs)[number]> = [];
+    for (const pair of pairs) {
+      const object = await store.get(pair.source);
+      if (object === null) continue;
+      const text = await object.text();
+      if (!isEncryptedNote(text) && collaborationEligible(pair.source, text)) candidates.push(pair);
+    }
+    if (candidates.length > 0 && store.capabilities?.conditionalDelete !== true) {
+      throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely trash collaboratively edited notes.");
+    }
+    for (const pair of candidates) {
+      try {
+        await moveCollaborationDocument(store, pair.source, pair.destination, { internalTrash: true });
+        collaborativePairs.add(pair.source);
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+        if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH"].includes(code)) {
+          throw new FileOpError("CONFLICT", "A note changed somewhere else while this folder was being trashed.");
+        }
+        if (code === "UNSUPPORTED_STORAGE") {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely trash collaboratively edited notes.");
+        }
+        throw error;
+      }
+    }
+  }
+  const legacyPairs = pairs.filter((pair) => !collaborativePairs.has(pair.source));
+  if (legacyPairs.length > 0) await movePairs(store, legacyPairs);
   return { from: path, to: destination, paths: pairs.map((pair) => pair.destination) };
 }
 
@@ -3716,13 +4130,51 @@ export async function restoreTrashedPath(
   const state = await loadPrivacyState(store);
   if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
   const sources = await hiddenKeysAt(store, from);
+  if (sources.length === 0 && collaborationSupported(store)) {
+    throw notFound();
+  }
   if (sources.length === 0) throw notFound();
   const sourceIsFolder = sources.length > 1 || sources[0] !== from;
   const pairs = sources.map((source) => ({
     source,
     destination: sourceIsFolder ? `${to}${source.slice(from.length)}` : to,
   }));
-  await movePairs(store, pairs);
+  const collaborativePairs = new Set<string>();
+  if (collaborationSupported(store)) {
+    const candidates: Array<(typeof pairs)[number]> = [];
+    for (const pair of pairs) {
+      const object = await store.get(pair.source);
+      if (object === null) continue;
+      const text = await object.text();
+      // A trash key is plumbing and is intentionally ineligible at the public
+      // engine boundary. The retained document is still the ordinary note at
+      // its restore destination; use that path for the eligibility check while
+      // passing internalTrash to the lifecycle move below.
+      if (!isEncryptedNote(text) && collaborationEligible(pair.destination, text)) candidates.push(pair);
+    }
+    if (candidates.length > 0 && store.capabilities?.conditionalDelete !== true) {
+      throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely restore a collaboratively edited note.");
+    }
+    for (const pair of candidates) {
+      try {
+        await moveCollaborationDocument(store, pair.source, pair.destination, { internalTrash: true });
+        collaborativePairs.add(pair.source);
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+        if (["CONFLICT", "BASE_MISSING", "GENERATION_MISMATCH", "MOVED"].includes(code)) {
+          throw new FileOpError("CONFLICT", "That note changed somewhere else while it was in the trash.");
+        }
+        if (code === "UNSUPPORTED_STORAGE") {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely restore a collaboratively edited note.");
+        }
+        throw error;
+      }
+    }
+  }
+  const legacyPairs = pairs.filter((pair) => !collaborativePairs.has(pair.source));
+  if (legacyPairs.length > 0) await movePairs(store, legacyPairs);
   return { from, to, paths: pairs.map((pair) => pair.destination) };
 }
 
@@ -3844,7 +4296,45 @@ export async function deletePath(
   // there, where reporting "deleted 0 files" would say one is present.
   if (targetIsFolder && keys.length === 0) throw notFound();
 
+  // Tombstone migrated plaintext notes before the legacy delete loop. This
+  // retains their CRDT history for lifecycle accounting and prevents a stale
+  // collaboration head from resurrecting the materialized Markdown later.
+  const collaborationDeleted = new Set<string>();
+  if (collaborationSupported(store)) {
+    const candidates: string[] = [];
+    for (const key of keys) {
+      const object = await store.get(key);
+      if (object === null) continue;
+      const text = await object.text();
+      if (!isEncryptedNote(text) && collaborationEligible(key, text)) candidates.push(key);
+    }
+    if (candidates.length > 0 && store.capabilities?.conditionalDelete !== true) {
+      throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely delete a collaboratively edited note.");
+    }
+    for (const key of candidates) {
+      try {
+        await tombstoneCollaborationDocument(store, key, {
+          ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+          permanent: true,
+        });
+        collaborationDeleted.add(key);
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+        if (code === "CONFLICT" || code === "BASE_MISSING" || code === "GENERATION_MISMATCH") {
+          throw new FileOpError("CONFLICT", "That file changed somewhere else while you were editing it.");
+        }
+        if (code === "UNSUPPORTED_STORAGE") {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely delete a collaboratively edited note.");
+        }
+        throw error;
+      }
+    }
+  }
+
   for (const key of keys) {
+    if (collaborationDeleted.has(key)) continue;
     const removed = options.expectedEtag === undefined
       ? await store.delete(key)
       : await store.delete(key, { onlyIf: { etagMatches: options.expectedEtag } });
@@ -4014,7 +4504,9 @@ export async function resetPrivacyManifest(
     store.capabilities?.conditionalWrite === true && state.etag !== null;
   const put = conditional
     ? await store.put(PRIVACY_KEY, text, { onlyIf: { etagMatches: state.etag! } })
-    : await store.put(PRIVACY_KEY, text);
+    : state.text === null && store.capabilities?.conditionalCreate === true
+      ? await store.put(PRIVACY_KEY, text, { onlyIf: { absent: true } })
+      : await store.put(PRIVACY_KEY, text);
   if (put === null) {
     // Somebody repaired it — or fixed it by hand in Obsidian — between our read
     // and our write. Theirs stands; re-reading is the console's next move

@@ -58,6 +58,11 @@ breaking one, stop and say so rather than working around it.
    million buckets, and anything low forces prefix tenancy and ends the exit
    promise with it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
+   Collaboration history under `.context/collaboration/` is customer-owned essential
+   data, needed to merge offline edits; it is backed up and exported with the
+   notes. Accepted edits may briefly precede their Markdown rendering, and a
+   completed save/export must include them. This is the explicit exception
+   approved for automatic collaboration; see [collaboration](./docs/decisions/collaboration.md).
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket
    layout — `index.md` and `privacy.md` at root, Context-owned plumbing under
@@ -108,7 +113,10 @@ packages/hook/   `npx @supa-media/context-hook` — the session-end hook that sa
 
 Originally a single-tenant personal `brain` Worker — a deployment name, and one
 of the few places the retired noun survives; being generalized in place.
-Zero npm dependencies — keep it that way. It runs on the Workers runtime, so use
+The gateway has one explicit runtime dependency boundary: `@context/collaboration`,
+which owns Yjs merging and the customer-bucket editing history. Other gateway
+code stays dependency-free. This exception implements the owner-approved shared
+saving model; see [collaboration](./docs/decisions/collaboration.md). It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
 an in-memory store stub: fast, offline, currently 4,116 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.

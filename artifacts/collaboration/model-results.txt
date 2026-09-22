@@ -1,0 +1,74 @@
+TAP version 13
+# (node:6027) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/lilseyi/Code/context-wt/collaboration-model/apps/mobile/features/console/presence/sharedDoc.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /Users/lilseyi/Code/context-wt/collaboration-model/apps/mobile/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: people editing distinct spans retain both changes
+ok 1 - people editing distinct spans retain both changes
+  ---
+  duration_ms: 5.497125
+  type: 'test'
+  ...
+# Subtest: empty documents converge without waiting for nonempty text
+ok 2 - empty documents converge without waiting for nonempty text
+  ---
+  duration_ms: 1.107334
+  type: 'test'
+  ...
+# Subtest: agent edit based on its read keeps unseen human text
+ok 3 - agent edit based on its read keeps unseen human text
+  ---
+  duration_ms: 0.499166
+  type: 'test'
+  ...
+# Subtest: production replacement adapter loses unseen human text in the same race
+ok 4 - production replacement adapter loses unseen human text in the same race
+  ---
+  duration_ms: 0.28375
+  type: 'test'
+  ...
+# Subtest: offline persisted CRDT restored after reload merges with online work
+ok 5 - offline persisted CRDT restored after reload merges with online work
+  ---
+  duration_ms: 0.476708
+  type: 'test'
+  ...
+# Subtest: server materializes an agent edit with no browser present
+ok 6 - server materializes an agent edit with no browser present
+  ---
+  duration_ms: 0.23125
+  type: 'test'
+  ...
+# Subtest: duplicate and reversed delivery cannot duplicate content
+ok 7 - duplicate and reversed delivery cannot duplicate content
+  ---
+  duration_ms: 1.547834
+  type: 'test'
+  ...
+# Subtest: compacted journal survives coordinator restart without reseeding
+ok 8 - compacted journal survives coordinator restart without reseeding
+  ---
+  duration_ms: 0.82125
+  type: 'test'
+  ...
+# Subtest: contradictory concurrent replacements converge but do not infer intent
+ok 9 - contradictory concurrent replacements converge but do not infer intent
+  ---
+  duration_ms: 0.741167
+  type: 'test'
+  ...
+# Subtest: undo can remove my work while preserving someone else’s
+ok 10 - undo can remove my work while preserving someone else’s
+  ---
+  duration_ms: 0.859959
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 191.194375

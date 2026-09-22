@@ -49,6 +49,7 @@
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
+import { readDocument, replaceText } from "@context/collaboration";
 import {
   codeRanges,
   dirOf,
@@ -328,6 +329,7 @@ async function runWiredChecks(check) {
   let etagCounter = 0;
   const encoder = new TextEncoder();
   const bucket = {
+    beforePut: null,
     async get(key) {
       if (!objects.has(key)) return null;
       const { bytes, etag } = objects.get(key);
@@ -337,7 +339,17 @@ async function runWiredChecks(check) {
         arrayBuffer: async () => bytes.slice().buffer,
       };
     },
-    async put(key, value) {
+    async put(key, value, options = {}) {
+      if (bucket.beforePut) {
+        const hook = bucket.beforePut;
+        if (hook.key === key) {
+          bucket.beforePut = null;
+          await hook.run();
+        }
+      }
+      const current = objects.get(key);
+      if (options?.onlyIf?.etagMatches && current?.etag !== options.onlyIf.etagMatches) return null;
+      if (options?.onlyIf?.etagDoesNotMatch === "*" && current) return null;
       const bytes =
         typeof value === "string"
           ? encoder.encode(value)
@@ -491,6 +503,32 @@ async function runWiredChecks(check) {
     // `.history/` entry here would put the write amplification back for one
     // tool.
     ![...objects.keys()].some((key) => key.startsWith(".history/"))
+  );
+
+  /* -- a generated rewrite keeps a human edit that races its commit -------- */
+
+  await store.put("1-projects/race-target.md", "# target\n");
+  await store.put("2-areas/race-ref.md", "# ref\n\n[[1-projects/race-target]]\n");
+  const raceBase = await readDocument(store, "2-areas/race-ref.md");
+  bucket.beforePut = {
+    key: `.context/collaboration/v1/documents/${raceBase.documentId}.json`,
+    async run() {
+      await replaceText(store, "2-areas/race-ref.md", {
+        documentId: raceBase.documentId,
+        expectedEtag: raceBase.etag,
+        text: `${raceBase.text}\nA human inserted this while the move was rewriting links.\n`,
+      });
+    },
+  };
+  const racedMove = await call(OWNER, "move_note", {
+    source: "1-projects/race-target.md",
+    destination: "1-projects/race-target-renamed.md",
+  });
+  check(
+    "a generated link rewrite merges a human edit that lands after its read",
+    !racedMove?.isError &&
+      read("2-areas/race-ref.md")?.includes("[[1-projects/race-target-renamed]]") &&
+      read("2-areas/race-ref.md")?.includes("A human inserted this"),
   );
 
   /* -- move_folder: the notes inside it get their own links recomputed ----- */

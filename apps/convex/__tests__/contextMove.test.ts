@@ -33,6 +33,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { readDocument, replaceText } from "@context/collaboration";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import {
@@ -173,10 +174,18 @@ async function runMove(
       });
       if (landed.landed.length > 0) {
         const removed = await deleteMovedSources(source, {
-          sources: landed.landed.map((entry) => ({
-            path: entry.source,
-            etag: exported.objects.find((object) => object.source === entry.source)!.etag,
-          })),
+          sources: landed.landed.map((entry) => {
+            const exportedObject = exported.objects.find(
+              (object) => object.source === entry.source,
+            )!;
+            return {
+              path: entry.source,
+              etag: exportedObject.etag,
+              ...(exportedObject.collaborationEtag === undefined
+                ? {}
+                : { collaborationEtag: exportedObject.collaborationEtag }),
+            };
+          }),
         });
         moved.push(...removed.deleted);
         conflicts.push(...removed.conflicts);
@@ -485,6 +494,56 @@ describe("the folders a destination picker is offered", () => {
 });
 
 describe("what a cross-context move refuses to do", () => {
+  test("a collaborative source is revision-fenced and tombstoned after landing", async () => {
+    const source = bucket(["1-projects"]);
+    const destination = bucket(["work"]);
+    source.seed("1-projects/pay.md", "# first\n");
+    const original = await readDocument(source, "1-projects/pay.md");
+
+    const exported = await exportContextMoveBatch(source, {
+      from: "1-projects/pay.md",
+      to: "work/pay.md",
+      clearance: OWNER,
+    });
+    expect(exported.objects[0]?.collaborationEtag).toBe(original.etag);
+
+    await replaceText(source, "1-projects/pay.md", {
+      expectedEtag: original.etag,
+      text: "# second\n",
+    });
+    await importContextMoveBatch(destination, {
+      objects: exported.objects,
+      clearance: OWNER,
+    });
+    const refused = await deleteMovedSources(source, {
+      sources: [{
+        path: "1-projects/pay.md",
+        etag: exported.objects[0]!.etag,
+        collaborationEtag: exported.objects[0]!.collaborationEtag,
+      }],
+    });
+    expect(refused).toEqual({ deleted: [], conflicts: ["1-projects/pay.md"] });
+    expect(source.snapshot()["1-projects/pay.md"]).toBe("# second\n");
+
+    const current = await exportContextMoveBatch(source, {
+      from: "1-projects/pay.md",
+      to: "work/pay-again.md",
+      clearance: OWNER,
+    });
+    const removed = await deleteMovedSources(source, {
+      sources: [{
+        path: "1-projects/pay.md",
+        etag: current.objects[0]!.etag,
+        collaborationEtag: current.objects[0]!.collaborationEtag,
+      }],
+    });
+    expect(removed).toEqual({ deleted: ["1-projects/pay.md"], conflicts: [] });
+
+    source.seed("1-projects/pay.md", "# recreated\n");
+    const recreated = await readDocument(source, "1-projects/pay.md");
+    expect(recreated.documentId).not.toBe(original.documentId);
+  });
+
   test("it will not overwrite something already at the destination", async () => {
     const source = bucket(["1-projects"]);
     const destination = bucket(["work"]);
@@ -506,28 +565,28 @@ describe("what a cross-context move refuses to do", () => {
   test("a note edited between the copy and the delete keeps the newer text", async () => {
     const source = bucket(["1-projects"]);
     const destination = bucket(["work"]);
-    source.seed("1-projects/pay.md", "# first\n");
+    source.seed("1-projects/pay.txt", "first\n");
 
     const exported = await exportContextMoveBatch(source, {
-      from: "1-projects/pay.md",
-      to: "work/pay.md",
+      from: "1-projects/pay.txt",
+      to: "work/pay.txt",
       clearance: OWNER,
     });
     // Somebody saves the note in the source context while the batch is in the
     // air. The etag the export took is now stale.
-    source.seed("1-projects/pay.md", "# second\n");
+    source.seed("1-projects/pay.txt", "second\n");
 
     const landed = await importContextMoveBatch(destination, {
       objects: exported.objects,
       clearance: OWNER,
     });
     const removed = await deleteMovedSources(source, {
-      sources: [{ path: "1-projects/pay.md", etag: exported.objects[0]!.etag }],
+      sources: [{ path: "1-projects/pay.txt", etag: exported.objects[0]!.etag }],
     });
 
     expect(removed.deleted).toEqual([]);
-    expect(removed.conflicts).toEqual(["1-projects/pay.md"]);
-    expect(source.snapshot()["1-projects/pay.md"]).toBe("# second\n");
+    expect(removed.conflicts).toEqual(["1-projects/pay.txt"]);
+    expect(source.snapshot()["1-projects/pay.txt"]).toBe("second\n");
 
     // The rollback the orchestrator performs: the stale copy goes, and it goes
     // conditionally, so it cannot take anything else with it.
@@ -555,42 +614,42 @@ describe("what a cross-context move refuses to do", () => {
     */
     const source = bucket(["1-projects"], "personal", { ignoreIfMatchOnDelete: true });
     const destination = bucket(["work"]);
-    source.seed("1-projects/pay.md", "# first\n");
+    source.seed("1-projects/pay.txt", "first\n");
     expect(source.capabilities.conditionalDelete).toBe(false);
 
     const exported = await exportContextMoveBatch(source, {
-      from: "1-projects/pay.md",
-      to: "work/pay.md",
+      from: "1-projects/pay.txt",
+      to: "work/pay.txt",
       clearance: OWNER,
     });
-    source.seed("1-projects/pay.md", "# second\n");
+    source.seed("1-projects/pay.txt", "second\n");
 
     const removed = await deleteMovedSources(source, {
-      sources: [{ path: "1-projects/pay.md", etag: exported.objects[0]!.etag }],
+      sources: [{ path: "1-projects/pay.txt", etag: exported.objects[0]!.etag }],
     });
 
     expect(removed.deleted).toEqual([]);
-    expect(removed.conflicts).toEqual(["1-projects/pay.md"]);
+    expect(removed.conflicts).toEqual(["1-projects/pay.txt"]);
     // The newer text, not a zero-byte marker and not nothing.
-    expect(source.snapshot()["1-projects/pay.md"]).toBe("# second\n");
+    expect(source.snapshot()["1-projects/pay.txt"]).toBe("second\n");
   });
 
   test("on that same storage an untouched source is still retired", async () => {
     const source = bucket(["1-projects"], "personal", { ignoreIfMatchOnDelete: true });
     const destination = bucket(["work"]);
-    source.seed("1-projects/pay.md", "# Pay\n");
+    source.seed("1-projects/pay.txt", "Pay\n");
 
     const result = await runMove(source, destination, {
-      from: "1-projects/pay.md",
-      to: "work/pay.md",
+      from: "1-projects/pay.txt",
+      to: "work/pay.txt",
     });
 
     // The substitute has to do the ordinary job too: a guard that refused every
     // move on R2 is the bug this replaced.
     expect(result.failure).toBeNull();
-    expect(result.moved).toEqual(["1-projects/pay.md"]);
-    expect(source.objects.has("1-projects/pay.md")).toBe(false);
-    expect(destination.snapshot()["work/pay.md"]).toBe("# Pay\n");
+    expect(result.moved).toEqual(["1-projects/pay.txt"]);
+    expect(source.objects.has("1-projects/pay.txt")).toBe(false);
+    expect(destination.snapshot()["work/pay.txt"]).toBe("Pay\n");
   });
 
   test("storage that can do neither is refused before anything is copied", async () => {

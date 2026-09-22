@@ -37,6 +37,13 @@ on:
     branches: [main]
     paths:
       - "infra/email-worker/**"
+      # The email bundle imports the shared storage adapters and path rules.
+      - "apps/mcp/src/**"
+      - "apps/convex/functions/lib/names.ts"
+      - "apps/convex/functions/lib/ingestion.ts"
+      - "packages/shared/**"
+      - "packages/collaboration/**"
+      - "pnpm-lock.yaml"
       - ".github/workflows/deploy-email-worker.yml"
   workflow_dispatch:
 

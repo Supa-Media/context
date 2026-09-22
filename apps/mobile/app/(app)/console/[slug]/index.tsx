@@ -14,6 +14,8 @@ import { useRememberPlace } from "../../../../features/console/useLastPlace";
 import { useNoteAddress } from "../../../../features/console/useNoteAddress";
 import { useNoteUrl } from "../../../../features/console/useNoteUrl";
 import { BrowsePane } from "../../../../features/console/panes/BrowsePane";
+import { selectedContext } from "../../../../features/console/types";
+import { visibilityTierForRole } from "../../../../features/console/visibility";
 
 /**
  * `/console/@:slug` — a context's default view, opened on one note.
@@ -67,6 +69,7 @@ export default function ContextBrowseRoute() {
   const slug = useContextSlug(data);
   const params = useLocalSearchParams<{ note?: string | string[] }>();
   const note = noteFromQuery(params.note);
+  const viewedContext = selectedContext(data);
   /*
     The same `?note=` value, read again for its other half: `noteHref`'s
     anchor is embedded as `path#anchor` in this one query value rather than a
@@ -125,6 +128,10 @@ export default function ContextBrowseRoute() {
       socket on every keystroke.
     */
     textForSeed: () => data.files.editor.draft,
+    legacyDraft: () =>
+      data.files.editor.draft !== data.files.editor.baseline
+        ? { baseline: data.files.editor.baseline, desired: data.files.editor.draft, baseEtag: data.files.editor.draftBase ?? data.files.editor.etag }
+        : undefined,
     /*
       An MCP client wrote this note while it was open. Presence has already
       merged that write into the shared document; what is left is the
@@ -138,6 +145,21 @@ export default function ContextBrowseRoute() {
       would announce it.
     */
     onSaved: data.files.onSaved,
+    // Durable collaboration is a protocol capability advertised by the
+    // bucket's generation marker. Older/legacy notes, encrypted notes and
+    // newly-created local notes keep the ordinary editor until a read returns
+    // a verified c2 generation; a gateway 404 during rollout therefore cannot
+    // turn the legacy writer into an unsafe raw fallback.
+    durable:
+      data.files.editor.path?.endsWith(".md") === true &&
+      !data.files.editor.path.endsWith(".excalidraw.md") &&
+      data.files.editor.encrypted !== true &&
+      data.files.editor.etag?.startsWith("c2.") === true,
+    canEdit: data.files.canEdit,
+    scope: visibilityTierForRole(viewedContext?.role) === "private" ? "private" : "team",
+    onCollaborationOwned: data.files.setCollaborationOwned,
+    onCollaborationText: data.files.setCollaborationDraft,
+    onCollaborationState: data.files.setCollaborationState,
   });
 
   return (
@@ -180,4 +202,3 @@ export default function ContextBrowseRoute() {
     />
   );
 }
-

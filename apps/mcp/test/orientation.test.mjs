@@ -49,6 +49,7 @@
  */
 
 import worker from "../src/index.js";
+import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { MANIFEST_KEY, loadIndexManifest, serializeManifest } from "../src/search/shards.js";
@@ -478,11 +479,18 @@ export async function runOrientationChecks(check) {
     const fiveKey = [...bucket.objects.keys()].find((key) =>
       key.endsWith("/2-areas/handbook.md")
     );
+    const { body: sourceAfterArchive } = await rpc(env, OWNER_TOKEN, "tools/call", {
+      name: "read_note",
+      arguments: { path: "2-areas/handbook.md" },
+    });
     check(
       "archive_note files into the archive this layout actually has",
       archivedFive?.result?.isError !== true &&
         fiveKey?.startsWith("5-archive/") &&
-        !bucket.objects.has("2-areas/handbook.md")
+        isLogicalDeleteMarker(bucket.objects.get("2-areas/handbook.md")?.body) &&
+        sourceAfterArchive?.result?.isError !== true &&
+        sourceAfterArchive?.result?.content?.[0]?.text.includes(`path: ${fiveKey}`) &&
+        sourceAfterArchive?.result?.content?.[0]?.text.includes("moved_from: 2-areas/handbook.md")
     );
     check(
       "and it did not invent a 4-archive beside it",

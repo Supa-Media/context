@@ -138,6 +138,9 @@ describe("an MCP session covers the pinned context", () => {
       role: "member",
       kind: "shared",
     });
+    // The pinned fallback is reachable for ordinary OAuth grants, but it
+    // never inherits the console grant's live group clearance.
+    expect(covered!.grantedNames).toBeUndefined();
   });
 
   test("the grant's own context is still first, and the pin is last", async () => {
