@@ -633,3 +633,114 @@ const oddError = parsePluginSandboxMessage({
 assert.strictEqual(oddError.error, null, "an error that is not a string is no error");
 
 console.log("obsidian runtime protocol: ok");
+
+/* ======================================================================
+   THE PLUGIN'S TEXT IS DRAWN WHERE CONTEXT SPEAKS IN ITS OWN VOICE.
+
+   A status bar item is rendered in a card beside the Stop button; a notice and
+   a command's error are rendered as the console's own sentences. Every one of
+   those strings is the plugin's, and the parser bounded them by LENGTH alone.
+
+   Length is not the hazard. U+202E RIGHT-TO-LEFT OVERRIDE reverses the
+   rendering of everything after it, so a plugin could reach out of its own
+   card and rearrange the words around it — including the row holding the
+   control somebody presses to stop it. The guest's own
+   `.replace(/\s+/g, ' ')` is not a filter either: `\s` matches no format
+   character at all.
+
+   So every plugin-authored display string is now CONTAINED rather than
+   cleaned, by `packages/shared/src/displayText.cjs`. Contained, not stripped,
+   because the value is the plugin's words and altering them is not this
+   layer's business; what is this layer's business is that they cannot reach
+   the layer above.
+   ====================================================================== */
+{
+  const RLO = String.fromCharCode(0x202e);
+  const FSI = String.fromCharCode(0x2068);
+  const PDI = String.fromCharCode(0x2069);
+  const PDF = String.fromCharCode(0x202c);
+  const SHY = String.fromCharCode(0x00ad);
+  const BEL = String.fromCharCode(0x0007);
+  const LS = String.fromCharCode(0x2028);
+
+  const statusWith = (text) =>
+    parsePluginSandboxMessage(
+      {
+        source: "context-plugin-sandbox",
+        version: 1,
+        nonce: "secret",
+        type: "status-bar",
+        items: [{ id: "status-1", text }],
+      },
+      "secret",
+    ).items[0].text;
+
+  assert.equal(
+    statusWith(`412${RLO} words`),
+    `${FSI}412${RLO} words${PDI}`,
+    "an override in a status bar item is contained",
+  );
+  // The control, and the reason the check above is not simply "it wrapped
+  // everything": an ordinary item is byte-identical, so nothing lands in a
+  // comparison, a snapshot or somebody's clipboard that was not there before.
+  assert.equal(statusWith("412 words"), "412 words", "ordinary text is untouched");
+  // A container the contents can end is not a container. A PDI inside the
+  // value would close the isolate early and hand everything after it the
+  // reach this exists to deny.
+  assert.equal(
+    statusWith(`a${PDI}b${RLO}c`),
+    `${FSI}ab${RLO}c${PDI}`,
+    "a pop inside the value cannot end the container",
+  );
+  assert.equal(
+    statusWith(`a${PDF}b${RLO}c`),
+    `${FSI}ab${RLO}c${PDI}`,
+    "and neither can a pop-directional-formatting",
+  );
+  // An isolate cannot contain a line break: it breaks the label's line from
+  // inside the container as readily as outside it.
+  assert.equal(statusWith(`a${BEL}b${LS}c`), "abc", "what cannot be contained is removed");
+  // U+00AD SOFT HYPHEN is a format character that the hand-written range list
+  // in the console's presence protocol does not cover. Containment does not
+  // depend on having enumerated it.
+  assert.equal(
+    statusWith(`soft${SHY}hyphen`),
+    `${FSI}soft${SHY}hyphen${PDI}`,
+    "a format character nobody enumerated is contained too",
+  );
+  // The cap measures the text, not the container: a caller that asked for 120
+  // characters of plugin words gets 120 of them plus the two that hold them.
+  const long = statusWith(`${RLO}${"t".repeat(900)}`);
+  assert.equal(long.length, 122, "the container is not counted against the cap");
+  assert.ok(long.startsWith(FSI) && long.endsWith(PDI), "and it is still closed");
+
+  const noticed = parsePluginSandboxMessage(
+    {
+      source: "context-plugin-sandbox",
+      version: 1,
+      nonce: "secret",
+      type: "notice",
+      message: `done${RLO} really`,
+    },
+    "secret",
+  );
+  assert.equal(noticed.message, `${FSI}done${RLO} really${PDI}`, "a notice is contained");
+
+  const failed = parsePluginSandboxMessage(
+    {
+      source: "context-plugin-sandbox",
+      version: 1,
+      nonce: "secret",
+      type: "command-result",
+      id: "command-1",
+      ok: false,
+      error: `broke${RLO} badly`,
+    },
+    "secret",
+  );
+  assert.equal(
+    failed.error,
+    `${FSI}broke${RLO} badly${PDI}`,
+    "a command's error is contained",
+  );
+}

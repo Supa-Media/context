@@ -19,6 +19,8 @@
  * is writing in.
  */
 
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+
 /** Matches `PRESENCE_PROTOCOL_VERSION` in the gateway. */
 export const PRESENCE_PROTOCOL_VERSION = 1;
 
@@ -161,7 +163,26 @@ function name(value: unknown): string {
     .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "")
     .trim();
   if (cleaned.length === 0) return "Someone";
-  return cleaned.length > 64 ? cleaned.slice(0, 64) : cleaned;
+  /*
+    AND THEN CONTAINED, BECAUSE THE LIST ABOVE IS A BLOCKLIST.
+
+    Everything it removes, it removes because somebody enumerated it — and the
+    enumeration is short by at least **U+061C ARABIC LETTER MARK**, which the
+    bidi algorithm acts on, and the U+FFF9-FFFB annotation set. A list reaches
+    exactly as far as it reaches.
+
+    `isolateForDisplay` does not depend on recognising the character: whatever
+    survives is wrapped so it resolves its own direction and cannot reach the
+    caret labels, the member list or the note it is drawn over. One spelling of
+    that property for the whole product, in `packages/shared`, rather than a
+    third private copy — see its header.
+
+    Additive on purpose. The removals above are a *name* policy (a zero-width
+    name is a look-alike, which is a different problem), and nothing that was
+    cleaned before stops being cleaned.
+  */
+  const bounded = cleaned.length > 64 ? cleaned.slice(0, 64) : cleaned;
+  return isolateForDisplay(bounded);
 }
 
 /** An encoded relative position from a peer, or `null` if it is not one. */
