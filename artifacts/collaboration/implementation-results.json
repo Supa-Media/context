@@ -68,13 +68,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-f14015db-c899-47ea-b649-ef816364925c.r-48588d61-3f76-40e4-a056-2e58ba2af049"
+            "etag": "c2.doc-dee6b5f0-9fe9-4363-aaed-57ff241ef17c.r-b7b47971-534b-49d5-9550-af3c02a2ac2e"
           },
           "phase": "live",
           "saver": true,
           "draft": "EMPTY note now has text",
           "shared": "EMPTY note now has text",
-          "etag": "c2.doc-f14015db-c899-47ea-b649-ef816364925c.r-48588d61-3f76-40e4-a056-2e58ba2af049",
+          "etag": "c2.doc-dee6b5f0-9fe9-4363-aaed-57ff241ef17c.r-b7b47971-534b-49d5-9550-af3c02a2ac2e",
           "members": [
             "@bo"
           ]
@@ -98,13 +98,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-f14015db-c899-47ea-b649-ef816364925c.r-48588d61-3f76-40e4-a056-2e58ba2af049"
+            "etag": "c2.doc-dee6b5f0-9fe9-4363-aaed-57ff241ef17c.r-b7b47971-534b-49d5-9550-af3c02a2ac2e"
           },
           "phase": "live",
           "saver": true,
           "draft": "EMPTY note now has text",
           "shared": "EMPTY note now has text",
-          "etag": "c2.doc-f14015db-c899-47ea-b649-ef816364925c.r-48588d61-3f76-40e4-a056-2e58ba2af049",
+          "etag": "c2.doc-dee6b5f0-9fe9-4363-aaed-57ff241ef17c.r-b7b47971-534b-49d5-9550-af3c02a2ac2e",
           "members": []
         }
       ],
@@ -113,7 +113,7 @@
     {
       "label": "agent write accepted against saved base",
       "passed": true,
-      "detail": "written: 1-projects/agent-race.md (etag c2.doc-e6403395-492d-4bb2-8c78-e9ee540c61b2.r-7c1d05ca-a06a-42e0-a990-528e9ca285a6)\nvisibility: team"
+      "detail": "written: 1-projects/agent-race.md (etag c2.doc-685402f5-7d9c-43d1-aa3f-d5e4d9ad3ad6.r-28972d2d-da84-4648-819c-2d1fe1b7ccf3)\nvisibility: team"
     },
     {
       "label": "agent edit preserves concurrent unsaved human sentence",
@@ -142,13 +142,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-e6403395-492d-4bb2-8c78-e9ee540c61b2.r-5f6a2aa2-45d2-4a42-94d2-c864170d4017"
+            "etag": "c2.doc-685402f5-7d9c-43d1-aa3f-d5e4d9ad3ad6.r-ebfa9481-211c-4f7e-b40a-c3d3ac8ab190"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
           "shared": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
-          "etag": "c2.doc-e6403395-492d-4bb2-8c78-e9ee540c61b2.r-5f6a2aa2-45d2-4a42-94d2-c864170d4017",
+          "etag": "c2.doc-685402f5-7d9c-43d1-aa3f-d5e4d9ad3ad6.r-ebfa9481-211c-4f7e-b40a-c3d3ac8ab190",
           "members": [
             "@bo"
           ]
@@ -172,13 +172,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-e6403395-492d-4bb2-8c78-e9ee540c61b2.r-5f6a2aa2-45d2-4a42-94d2-c864170d4017"
+            "etag": "c2.doc-685402f5-7d9c-43d1-aa3f-d5e4d9ad3ad6.r-ebfa9481-211c-4f7e-b40a-c3d3ac8ab190"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
           "shared": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
-          "etag": "c2.doc-e6403395-492d-4bb2-8c78-e9ee540c61b2.r-5f6a2aa2-45d2-4a42-94d2-c864170d4017",
+          "etag": "c2.doc-685402f5-7d9c-43d1-aa3f-d5e4d9ad3ad6.r-ebfa9481-211c-4f7e-b40a-c3d3ac8ab190",
           "members": []
         }
       ],
@@ -215,13 +215,13 @@
         "collaboration": {
           "status": "saved",
           "pending": 0,
-          "etag": "c2.doc-a8dd911b-572a-4c70-9c38-f5da95a31ce7.r-cc42faec-41ba-472a-afc3-cc6d0cb4f1da"
+          "etag": "c2.doc-5148f8b7-5c6c-4bf4-9a61-5054ce8d1d85.r-1dc99509-557e-42aa-90c3-c7341a73476b"
         },
         "phase": "live",
         "saver": true,
         "draft": "# Verify\n\nfirst line\n\nBEFORE handoff\nSURVIVOR saves",
         "shared": "# Verify\n\nfirst line\n\nBEFORE handoff\nSURVIVOR saves",
-        "etag": "c2.doc-a8dd911b-572a-4c70-9c38-f5da95a31ce7.r-cc42faec-41ba-472a-afc3-cc6d0cb4f1da",
+        "etag": "c2.doc-5148f8b7-5c6c-4bf4-9a61-5054ce8d1d85.r-1dc99509-557e-42aa-90c3-c7341a73476b",
         "members": []
       },
       "diagnostic": true
@@ -268,13 +268,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-7b8ebcca-2e7f-416b-808b-019871e7dbb7.r-d065a83d-cae8-4ea8-824b-cdbcf7626d80"
+            "etag": "c2.doc-0471cb82-6ae8-4bdc-9807-f4dd2870b2a8.r-66d18340-e34b-4e5b-9f91-b5e7e12165d9"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
           "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
-          "etag": "c2.doc-7b8ebcca-2e7f-416b-808b-019871e7dbb7.r-d065a83d-cae8-4ea8-824b-cdbcf7626d80",
+          "etag": "c2.doc-0471cb82-6ae8-4bdc-9807-f4dd2870b2a8.r-66d18340-e34b-4e5b-9f91-b5e7e12165d9",
           "members": []
         },
         {
@@ -296,13 +296,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-7b8ebcca-2e7f-416b-808b-019871e7dbb7.r-d065a83d-cae8-4ea8-824b-cdbcf7626d80"
+            "etag": "c2.doc-0471cb82-6ae8-4bdc-9807-f4dd2870b2a8.r-66d18340-e34b-4e5b-9f91-b5e7e12165d9"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
           "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
-          "etag": "c2.doc-7b8ebcca-2e7f-416b-808b-019871e7dbb7.r-d065a83d-cae8-4ea8-824b-cdbcf7626d80",
+          "etag": "c2.doc-0471cb82-6ae8-4bdc-9807-f4dd2870b2a8.r-66d18340-e34b-4e5b-9f91-b5e7e12165d9",
           "members": [
             "@bo",
             "@bo"
@@ -358,13 +358,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-a3beef35-4161-44c3-8ed6-5ea41be0b806.r-f255e48f-5070-4d29-89d9-17f7cc64d499"
+            "etag": "c2.doc-9bad39cc-7963-45ba-b695-1a58eb4c3a0b.r-470f4aa4-6c26-456a-afd3-597b809595e1"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
           "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
-          "etag": "c2.doc-a3beef35-4161-44c3-8ed6-5ea41be0b806.r-f255e48f-5070-4d29-89d9-17f7cc64d499",
+          "etag": "c2.doc-9bad39cc-7963-45ba-b695-1a58eb4c3a0b.r-470f4aa4-6c26-456a-afd3-597b809595e1",
           "members": []
         },
         {
@@ -386,13 +386,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-a3beef35-4161-44c3-8ed6-5ea41be0b806.r-f255e48f-5070-4d29-89d9-17f7cc64d499"
+            "etag": "c2.doc-9bad39cc-7963-45ba-b695-1a58eb4c3a0b.r-470f4aa4-6c26-456a-afd3-597b809595e1"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
           "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
-          "etag": "c2.doc-a3beef35-4161-44c3-8ed6-5ea41be0b806.r-f255e48f-5070-4d29-89d9-17f7cc64d499",
+          "etag": "c2.doc-9bad39cc-7963-45ba-b695-1a58eb4c3a0b.r-470f4aa4-6c26-456a-afd3-597b809595e1",
           "members": [
             "@bo"
           ]
@@ -452,13 +452,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-c6836791-424b-4a38-9a60-96b04b2d9996.r-25e029df-b40f-449e-b46b-0bf05d741211"
+            "etag": "c2.doc-08d993b7-8292-485b-90ae-bd14a73f885f.r-554401c8-1053-47d7-b766-f71711057b70"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
           "shared": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
-          "etag": "c2.doc-c6836791-424b-4a38-9a60-96b04b2d9996.r-25e029df-b40f-449e-b46b-0bf05d741211",
+          "etag": "c2.doc-08d993b7-8292-485b-90ae-bd14a73f885f.r-554401c8-1053-47d7-b766-f71711057b70",
           "members": []
         },
         {
@@ -480,13 +480,13 @@
           "collaboration": {
             "status": "saved",
             "pending": 0,
-            "etag": "c2.doc-c6836791-424b-4a38-9a60-96b04b2d9996.r-25e029df-b40f-449e-b46b-0bf05d741211"
+            "etag": "c2.doc-08d993b7-8292-485b-90ae-bd14a73f885f.r-554401c8-1053-47d7-b766-f71711057b70"
           },
           "phase": "live",
           "saver": true,
           "draft": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
           "shared": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
-          "etag": "c2.doc-c6836791-424b-4a38-9a60-96b04b2d9996.r-25e029df-b40f-449e-b46b-0bf05d741211",
+          "etag": "c2.doc-08d993b7-8292-485b-90ae-bd14a73f885f.r-554401c8-1053-47d7-b766-f71711057b70",
           "members": []
         },
         {
@@ -514,12 +514,12 @@
     {
       "label": "agent rename preserves the collaborative document",
       "passed": true,
-      "detail": "{\"moved\":{\"content\":[{\"type\":\"text\",\"text\":\"moved: 1-projects/offline-rename.md → 1-projects/renamed.md (etag c2.doc-cbe7e4e3-6163-4fa1-bafb-7c7a528fcbfb.r0)\\nvisibility: team\"}]},\"moveText\":\"moved: 1-projects/offline-rename.md → 1-projects/renamed.md (etag c2.doc-cbe7e4e3-6163-4fa1-bafb-7c7a528fcbfb.r0)\\nvisibility: team\"}"
+      "detail": "{\"moved\":{\"content\":[{\"type\":\"text\",\"text\":\"moved: 1-projects/offline-rename.md → 1-projects/renamed.md (etag c2.doc-378b582b-6de3-4954-8944-3a4b07627b3c.r0)\\nvisibility: team\"}]},\"moveText\":\"moved: 1-projects/offline-rename.md → 1-projects/renamed.md (etag c2.doc-378b582b-6de3-4954-8944-3a4b07627b3c.r0)\\nvisibility: team\"}"
     },
     {
       "label": "rename lands the same document before reconnect",
       "passed": true,
-      "detail": "{\"oldAfterMove\":null,\"newAfterMove\":{\"text\":\"# Verify\\n\\nfirst line\\n\",\"etag\":\"b4c23cccaea0b7f8b36f65a4f73e8494\"},\"originalDocumentId\":\"doc-cbe7e4e3-6163-4fa1-bafb-7c7a528fcbfb\",\"destinationDocumentId\":\"doc-cbe7e4e3-6163-4fa1-bafb-7c7a528fcbfb\"}"
+      "detail": "{\"oldAfterMove\":null,\"newAfterMove\":{\"text\":\"# Verify\\n\\nfirst line\\n\",\"etag\":\"b4c23cccaea0b7f8b36f65a4f73e8494\"},\"oldMarker\":{\"text\":\"context.logical-delete.v1.254fce70daa712649bef9415603e39ed.cb988247c50f5e547e062c1ddce3b2a3cd914b9f56b75960e51973f8ca89b693\",\"etag\":\"37c1898311a3f2df2c570105299e5e1e\",\"contentType\":\"application/x-context-logical-tombstone\"},\"originalDocumentId\":\"doc-378b582b-6de3-4954-8944-3a4b07627b3c\",\"destinationDocumentId\":\"doc-378b582b-6de3-4954-8944-3a4b07627b3c\"}"
     },
     {
       "label": "offline changes follow a renamed note automatically",
@@ -601,19 +601,19 @@
       "message": "Failed to load resource: net::ERR_FAILED"
     },
     {
-      "user": "ana",
-      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
-    },
-    {
-      "user": "bo",
-      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
-    },
-    {
       "user": "bo",
       "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
     },
     {
       "user": "ana",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "bo",
       "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
     },
     {
@@ -626,7 +626,7 @@
     },
     {
       "user": "bo",
-      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-rename.md&seed=4jyq8kls2yumucteo83&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-rename.md&seed=h3f5bv27g5muczkjq6&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
     },
     {
       "user": "bo",
@@ -634,31 +634,31 @@
     },
     {
       "user": "bo",
-      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=3cydc5su1a6muctep48&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
-    },
-    {
-      "user": "bo",
       "message": "Failed to load resource: the server responded with a status of 404 (Not Found)"
     },
     {
       "user": "bo",
-      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=3cydc5su1a6muctep48&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=8qagsimqi1nmuczkkpg&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
     },
     {
       "user": "bo",
-      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=3cydc5su1a6muctep48&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=8qagsimqi1nmuczkkpg&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
     },
     {
       "user": "bo",
-      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=3cydc5su1a6muctep48&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=8qagsimqi1nmuczkkpg&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
     },
     {
       "user": "bo",
-      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=3cydc5su1a6muctep48&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=8qagsimqi1nmuczkkpg&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
     },
     {
       "user": "bo",
-      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=3cydc5su1a6muctep48&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=8qagsimqi1nmuczkkpg&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=8qagsimqi1nmuczkkpg&collaboration=2' failed: Error during WebSocket handshake: Unexpected response code: 404"
     },
     {
       "user": "bo",
