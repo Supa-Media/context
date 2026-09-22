@@ -1353,12 +1353,101 @@ describe("storage going away takes the projection with it", () => {
     expect(storageMoved(here, { provider: "dropbox", dropboxAccountId: "dbid:x" })).toBe(true);
     // A first connect has nothing to have moved from.
     expect(storageMoved(null, here)).toBe(false);
-    // A half-built row names nowhere, and nowhere is not evidence of anything.
-    expect(storageMoved({ provider: "s3" }, here)).toBe(false);
+    /*
+      A ROW THAT EXISTS AND NAMES NOWHERE IS A MOVE.
+
+      This read `false` — "a half-built row names nowhere, and nowhere is not
+      evidence of anything" — and that is the wrong half of the sentence to
+      act on. `storageAddress` returning `null` does not mean the notes stayed
+      put; it means we cannot tell, and the two answers to "cannot tell" cost
+      very different things. Keeping it keeps a D1 database of one bucket's
+      note text attached to a binding for another one, which is the exact
+      outcome this describe block exists to prevent. Releasing it costs a
+      re-provision of a disposable derivative on a row that was already
+      half-built.
+
+      It is reachable rather than hypothetical: `recordConnectFailure` writes
+      `provider: "dropbox"` over a non-connected row without an account id,
+      so a workspace whose S3 binding is in `error` and whose projection is
+      `ready` comes out of one failed Dropbox connect with an address nothing
+      can read. The integration test below walks exactly that.
+
+      `null` — no row at all — stays `false`: a first connect has nothing to
+      have moved from, and that is a different fact from a row that names
+      nowhere.
+    */
+    expect(storageMoved({ provider: "s3" }, here)).toBe(true);
+    expect(storageMoved({ provider: "dropbox" }, here)).toBe(true);
     // Dropbox is addressed by account, so the same account is the same place.
     const dbx = { provider: "dropbox", dropboxAccountId: "dbid:one" };
     expect(storageMoved(dbx, { ...dbx })).toBe(false);
     expect(storageMoved(dbx, { ...dbx, dropboxAccountId: "dbid:two" })).toBe(true);
+  });
+
+  test("a failed Dropbox connect does not strand the old bucket's notes", async () => {
+    /*
+      THE DOOR THIS DESCRIBE BLOCK LEFT OPEN, WALKED END TO END.
+
+      Every step is an ordinary thing a person does:
+
+        1. S3 bucket, fast search on, the projection holds their notes.
+        2. The binding goes to `error` — a rotated key, a provider hiccup.
+        3. They press Connect Dropbox and the sign-in takes too long.
+           `recordConnectFailure` patches `provider: "dropbox"` onto the row
+           and leaves the S3 fields where they are. There is no account id, so
+           `storageAddress` can no longer read the row.
+        4. They give up on Dropbox and connect a DIFFERENT bucket.
+
+      At step 4 the row names somewhere new and the projection still holds the
+      old bucket's note text — titles, headings, body chunks — with `optedIn`
+      and `ready` untouched, so the gateway goes on answering searches out of
+      it. The customer has revoked our key on the bucket those notes came from.
+    */
+    const t = setupTest();
+    const { owner, workspaceId } = await bound(t, "rebind-unreadable", "old-bucket");
+
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, { status: "error" });
+    });
+
+    await t.mutation(internal.functions.dropboxConnect.recordConnectFailure, {
+      workspaceId,
+      boundBy: owner,
+      errorCode: "DROPBOX_CODE_EXPIRED",
+    });
+
+    // The shape that does it: a provider with no address, over a bucket that
+    // still has a projection.
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      expect(binding?.provider).toBe("dropbox");
+      expect(binding?.dropboxAccountId).toBeUndefined();
+      expect(binding?.bucket).toBe("old-bucket");
+    });
+    expect((await bindingRow(t, workspaceId))?.status).toBe("ready");
+
+    await t.mutation(internal.functions.storage.applyBinding, {
+      actorUserId: owner,
+      workspaceId,
+      provider: "s3",
+      endpoint: "https://s3.example.invalid",
+      region: "auto",
+      bucket: "a-different-bucket",
+      accessKeyId: "AKIAEXAMPLEEXAMPLE01",
+      encryptedSecretAccessKey: "not-a-real-envelope",
+      forcePathStyle: true,
+    });
+
+    const row = await bindingRow(t, workspaceId);
+    expect(row?.optedIn).toBe(false);
+    expect(row?.status).toBe("releasing");
   });
 
   test("disconnecting a context with no index is an ordinary disconnect", async () => {
