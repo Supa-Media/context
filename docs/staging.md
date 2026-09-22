@@ -70,5 +70,6 @@ Every managed bucket created by staging is named `staging-ctx-<workspaceId>`;
 production retains `ctx-<workspaceId>`. Inspect and select only the `staging-`
 prefix when cleaning up test storage. Deleting a bucket leaves its workspace
 binding in Convex, so the app may report missing storage afterwards.
-A persistent staging banner and the storage activation screens warn that data
-may be deleted at any time and must never be the only copy of vital information.
+A compact Staging pill beside the console storage badge identifies the environment.
+Storage activation screens warn that data may be deleted at any time and must
+never be the only copy of vital information.

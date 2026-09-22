@@ -1,3 +1,4 @@
+import { StagingPill } from "../../../features/app/StagingNotice";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { checkoutOutcomeFrom } from "@context/shared";
@@ -1121,6 +1122,7 @@ export default function ConsoleLayout() {
                       : () => router.push(settingsHref(current.slug))
                 }
               />
+              <StagingPill />
             </>
           )
         }
