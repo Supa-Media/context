@@ -63,6 +63,12 @@ import { createServer } from "node:http";
  */
 export const HOOK_SCOPE = "context:capture";
 export const ORIENT_SCOPE = "context:read context:capture";
+/**
+ * What `login` asks for: read and write, so the CLI's own commands can search,
+ * read and write notes and the capture hook can post (write implies capture for
+ * an owner or editor). Still never `context:private`.
+ */
+export const LOGIN_SCOPE = "context:read context:write";
 
 /** How long a person gets to finish the browser half before we give up. */
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;

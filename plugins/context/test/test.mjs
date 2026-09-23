@@ -71,11 +71,12 @@ import {
   registerClient,
   HOOK_SCOPE,
   ORIENT_SCOPE,
+  LOGIN_SCOPE,
 } from "../src/oauth.js";
 import { endpointKey, credentialEndpointKey, saveEndpoint } from "../src/config.js";
 import { clientById, installHook, uninstallHook, HOOK_MARKER } from "../src/install.js";
 import { callTool, listWorkspaces } from "../src/mcp.js";
-import { writeSetting } from "../src/settings.js";
+import { readSettings, writeSetting } from "../src/settings.js";
 
 let failures = 0;
 function check(label, condition) {
@@ -1435,6 +1436,99 @@ check("callTool returns the tool's text", called?.text.includes("12 notes visibl
 server.state.orientFails = true;
 check("...and null when nothing usable came back", (await callTool({ url: server.endpoint, token: helperToken, name: "orient" })) === null);
 server.state.orientFails = false;
+
+// -- login: read and write, never private, and the personal workspace recorded
+
+server.state.workspaces = [
+  { slug: "me", role: "owner", kind: "personal", current: true },
+  { slug: "team", role: "editor", kind: "shared", current: false },
+];
+said.length = 0;
+const loginRegistrations = server.state.registered.length;
+await commands.login({
+  endpoint: server.endpoint,
+  configPath,
+  openBrowser: (href) => server.state.approve(href),
+  log,
+});
+const loginScope = server.state.lastAuthorize.searchParams.get("scope");
+check("login asks for read and write", loginScope === LOGIN_SCOPE && LOGIN_SCOPE === "context:read context:write");
+check("login never asks for private notes", !loginScope.includes("context:private"));
+check("login registers a client that declares the scope it asks for", server.state.registered.length === loginRegistrations + 1 && server.state.registered.at(-1).scope === LOGIN_SCOPE);
+check("login records which workspace is personal", (await readSettings()).personal === "me");
+check("login lists the workspaces it reaches", said.join("\n").includes("@me") && said.join("\n").includes("@team"));
+check("login prints no token", !said.join("\n").includes("access_") && !said.join("\n").includes("refresh_"));
+
+server.state.workspaces = null;
+said.length = 0;
+await commands.login({ endpoint: server.endpoint, configPath, openBrowser: (href) => server.state.approve(href), log });
+check("against an older gateway login still succeeds and says what it could not learn", /could not list your workspaces/i.test(said.join("\n")));
+server.state.workspaces = [
+  { slug: "me", role: "owner", kind: "personal", current: true },
+  { slug: "team", role: "editor", kind: "shared", current: false },
+];
+
+// -- link and unlink
+
+const linkDir = join(home, "work", "linked");
+await mkdir(join(linkDir, ".git", "info"), { recursive: true });
+await commands.link({ workspace: "@team", cwd: linkDir, endpoint: server.endpoint, configPath, log });
+check("link writes the project file with the workspace", JSON.parse(await readFile(join(linkDir, ".context.json"), "utf8")).workspace === "team");
+let linkRefusal = null;
+try {
+  await commands.link({ workspace: "@stranger", cwd: linkDir, endpoint: server.endpoint, configPath, log });
+} catch (error) {
+  linkRefusal = error.message;
+}
+check("link refuses a workspace this sign-in does not reach", /does not reach @stranger/.test(linkRefusal || ""));
+await commands.link({ workspace: "team", cwd: linkDir, private: true, endpoint: server.endpoint, configPath, log });
+check(
+  "a private link keeps the file out of git through .git/info/exclude",
+  (await readFile(join(linkDir, ".git", "info", "exclude"), "utf8")).split("\n").includes(".context.json")
+);
+await commands.unlink({ cwd: linkDir, log });
+check("unlink removes the binding", (await readFile(join(linkDir, ".context.json"), "utf8").catch(() => "{}")).includes("team") === false);
+
+// -- config
+
+await commands.config({ action: "set", key: "capture", value: "off", log });
+said.length = 0;
+await commands.config({ action: "list", cwd: home, log });
+check("config list shows each value and where it came from", said.some((line) => /capture\s+off\s+\(user\)/.test(line)));
+let configRefusal = null;
+try {
+  await commands.config({ action: "set", key: "endpoint", value: "ftp://nope", log });
+} catch (error) {
+  configRefusal = error.message;
+}
+check("config refuses an invalid value", /invalid value for endpoint/.test(configRefusal || ""));
+await commands.config({ action: "set", key: "capture", value: null, log });
+
+// -- two hooks refreshing at once
+
+/*
+  Refresh tokens rotate, and the stub, like the gateway, refuses a spent one.
+  Two session-end hooks for two sessions closing together both find the
+  access token expired; without a lock the second spends the refresh token
+  the first just rotated and the sign-in is lost.
+*/
+const agedAgain = JSON.parse(await readFile(configPath, "utf8"));
+agedAgain.endpoints[`${server.origin}/mcp`].expiresAt = Date.now() - 1000;
+await writeFile(configPath, JSON.stringify(agedAgain));
+const parallel = await Promise.allSettled([
+  commands.accessTokenFor({ endpoint: server.endpoint, configPath }),
+  commands.accessTokenFor({ endpoint: server.endpoint, configPath }),
+]);
+check(
+  "two parallel refreshes both succeed with one usable token",
+  parallel.every((outcome) => outcome.status === "fulfilled") && parallel[0].value === parallel[1].value
+);
+
+// -- logout
+
+said.length = 0;
+await commands.logout({ endpoint: server.endpoint, configPath, log });
+check("logout forgets the stored sign-in", (await readFile(configPath, "utf8")).includes("refresh_") === false);
 
 server.close();
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

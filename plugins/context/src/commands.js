@@ -14,11 +14,13 @@ import {
   defaultConfigPath,
   endpointKey,
   credentialEndpointKey,
+  baseEndpoint,
 } from "./config.js";
 import { installHook, uninstallHook, clientById } from "./install.js";
 import { fetchOrientation, startContext } from "./orient.js";
 import {
   HOOK_SCOPE,
+  LOGIN_SCOPE,
   ORIENT_SCOPE,
   authorizeUrl,
   createPkce,
@@ -30,11 +32,12 @@ import {
   stateMatches,
 } from "./oauth.js";
 import { captureBody, transcriptToMarkdown } from "./transcript.js";
-import { resolveSettings, workspaceUrl } from "./settings.js";
+import { PROJECT_FILE, normalizeWorkspace, resolveSettings, workspaceUrl, writeSetting } from "./settings.js";
+import { listWorkspaces } from "./mcp.js";
 import { homedir } from "node:os";
-import { resolve as resolvePath, sep } from "node:path";
+import { join, resolve as resolvePath, sep } from "node:path";
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, open, readFile, stat, unlink as unlinkFile, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 
 /**
@@ -90,6 +93,8 @@ export async function install({
 export async function authorize({
   endpoint,
   orient = false,
+  scope: requestedScope,
+  clientLabel = "Context hook",
   configPath = defaultConfigPath(),
   fetchImpl = fetch,
   openBrowser,
@@ -101,7 +106,7 @@ export async function authorize({
   // observer that this machine is installing against that endpoint.
   credentialEndpointKey(endpoint);
   const discovery = await discover(endpoint, { fetchImpl });
-  const scope = orient ? ORIENT_SCOPE : HOOK_SCOPE;
+  const scope = requestedScope || (orient ? ORIENT_SCOPE : HOOK_SCOPE);
   const existing = await loadEndpoint(endpoint, configPath);
   // A change of scope is a new authorization, and re-using a client registered
   // for the narrower one would ask for something it never declared. Widening
@@ -109,7 +114,7 @@ export async function authorize({
   let clientId = existing?.scope === scope ? existing.clientId : null;
   if (!clientId) {
     const registration = await registerClient(discovery, {
-      clientName: `Context hook (${hostname()})${orient ? " — orienting" : ""}`,
+      clientName: `${clientLabel} (${hostname()})${orient ? " — orienting" : ""}`,
       // Declared, not assumed. The comment above is only true if the new client
       // says what it is about to ask for.
       scope,
@@ -190,23 +195,182 @@ export async function accessTokenFor({ endpoint, configPath, fetchImpl = fetch }
     throw new Error("the stored session has expired — run: npx -y @supa-media/context install");
   }
 
-  const discovery = await discover(endpoint, { fetchImpl });
-  const tokens = await refreshTokens(
-    discovery,
-    { clientId: record.clientId, refreshToken: record.refreshToken },
-    { fetchImpl }
-  );
-  await saveEndpoint(
-    endpoint,
-    {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken || record.refreshToken,
-      expiresAt: tokens.expiresAt,
-      scope: tokens.scope || record.scope,
-    },
-    configPath
-  );
-  return tokens.accessToken;
+  // One refresh at a time per credentials file. Refresh tokens rotate and the
+  // gateway treats a spent one as a replay, so two hooks refreshing together
+  // (two sessions closing at once) would lose the sign-in. Whoever waits
+  // re-reads the file and uses the token the other one stored.
+  const release = await acquireLock(`${configPath}.lock`);
+  try {
+    const current = await loadEndpoint(endpoint, configPath);
+    if (current?.accessToken && Number(current.expiresAt) > Date.now()) return current.accessToken;
+    if (!current?.refreshToken) {
+      throw new Error("the stored session has expired — run: npx -y @supa-media/context login");
+    }
+    const discovery = await discover(endpoint, { fetchImpl });
+    const tokens = await refreshTokens(
+      discovery,
+      { clientId: current.clientId, refreshToken: current.refreshToken },
+      { fetchImpl }
+    );
+    await saveEndpoint(
+      endpoint,
+      {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken || current.refreshToken,
+        expiresAt: tokens.expiresAt,
+        scope: tokens.scope || current.scope,
+      },
+      configPath
+    );
+    return tokens.accessToken;
+  } finally {
+    await release();
+  }
+}
+
+/**
+ * An exclusive lock file, created with `wx` so only one process wins.
+ *
+ * A lock older than `staleMs` belonged to a process that died holding it and is
+ * taken over rather than waited on forever.
+ */
+async function acquireLock(path, { waitMs = 10_000, staleMs = 30_000 } = {}) {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      const handle = await open(path, "wx", 0o600);
+      await handle.close();
+      return () => unlinkFile(path).catch(() => {});
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const age = await stat(path).then((info) => Date.now() - info.mtimeMs).catch(() => 0);
+      if (age > staleMs) {
+        await unlinkFile(path).catch(() => {});
+        continue;
+      }
+      if (Date.now() > deadline) throw new Error("another Context process is refreshing the sign-in; try again");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+}
+
+/**
+ * Sign in with read and write, then learn which workspaces that reaches.
+ *
+ * The personal workspace is recorded so captures land in this person's own
+ * inbox even from a project bound to a shared one. An older gateway cannot
+ * list workspaces; the sign-in still works and captures then go to the
+ * workspace it was approved for.
+ */
+export async function login({ endpoint, configPath = defaultConfigPath(), fetchImpl = fetch, openBrowser, log = console.log }) {
+  const { settings } = await resolveSettings({ flags: { endpoint } });
+  const base = baseEndpoint(settings.endpoint);
+  await authorize({
+    endpoint: base,
+    scope: LOGIN_SCOPE,
+    clientLabel: "Context CLI",
+    configPath,
+    fetchImpl,
+    openBrowser,
+    log,
+  });
+  const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
+  const workspaces = await listWorkspaces({ url: base, token, fetchImpl });
+  log(`Signed in to ${endpointKey(base)}.`);
+  if (!workspaces) {
+    log("Could not list your workspaces (this server is older than that). Captures go to the");
+    log("workspace this sign-in was approved for.");
+    return { workspaces: null };
+  }
+  const personal = workspaces.find((entry) => entry.kind === "personal");
+  if (personal) await writeSetting("personal", personal.slug);
+  log("Workspaces this sign-in reaches:");
+  for (const entry of workspaces) {
+    log(`  @${entry.slug}  ${entry.kind}, ${entry.role}${entry.slug === personal?.slug ? "  (captures go here)" : ""}`);
+  }
+  return { workspaces };
+}
+
+export async function logout({ endpoint, configPath = defaultConfigPath(), log = console.log }) {
+  const { settings } = await resolveSettings({ flags: { endpoint } });
+  const forgotten = await forgetEndpoint(settings.endpoint, configPath);
+  log(forgotten ? "Signed out: the stored sign-in is deleted from this machine." : "There was no stored sign-in.");
+  log("The grant itself is revoked from Connections in the Context console.");
+  return { forgotten };
+}
+
+/**
+ * Bind a folder to a workspace by writing `.context.json` there.
+ *
+ * The workspace must be one this sign-in reaches, so a typo is caught here and
+ * not at the end of somebody's session. `private` keeps the file out of git
+ * through `.git/info/exclude`, which is this clone's alone.
+ */
+export async function link({ workspace, cwd = process.cwd(), private: keepPrivate = false, endpoint, configPath = defaultConfigPath(), fetchImpl = fetch, log = console.log }) {
+  const slug = normalizeWorkspace(workspace);
+  if (!slug) throw new Error("name a workspace: context-lc link @slug");
+  const { settings } = await resolveSettings({ flags: { endpoint }, cwd });
+  const base = baseEndpoint(settings.endpoint);
+  const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
+  const workspaces = await listWorkspaces({ url: base, token, fetchImpl });
+  if (workspaces && !workspaces.some((entry) => entry.slug === slug)) {
+    throw new Error(`this sign-in does not reach @${slug}. It reaches: ${workspaces.map((entry) => `@${entry.slug}`).join(", ")}`);
+  }
+  const path = join(cwd, PROJECT_FILE);
+  const current = JSON.parse(await readFile(path, "utf8").catch(() => "{}"));
+  await writeFile(path, `${JSON.stringify({ ...current, workspace: slug }, null, 2)}\n`);
+  if (keepPrivate) await excludeFromGit(cwd, PROJECT_FILE);
+  log(`Linked ${cwd} to @${slug}${keepPrivate ? " (kept out of git)" : ""}.`);
+  if (!workspaces) log("Could not check that name against your workspaces (older server).");
+  return { path, workspace: slug };
+}
+
+export async function unlink({ cwd = process.cwd(), log = console.log }) {
+  const path = join(cwd, PROJECT_FILE);
+  const current = JSON.parse(await readFile(path, "utf8").catch(() => "{}"));
+  delete current.workspace;
+  if (Object.keys(current).length) await writeFile(path, `${JSON.stringify(current, null, 2)}\n`);
+  else await unlinkFile(path).catch(() => {});
+  log(`Unlinked ${cwd}.`);
+  return { path };
+}
+
+async function excludeFromGit(cwd, name) {
+  const excludePath = join(cwd, ".git", "info", "exclude");
+  // Only inside a git repository, and only this clone's own exclude file.
+  const isRepo = await stat(join(cwd, ".git")).then((info) => info.isDirectory()).catch(() => false);
+  if (!isRepo) return false;
+  const existing = await readFile(excludePath, "utf8").catch(() => "");
+  await mkdir(join(cwd, ".git", "info"), { recursive: true });
+  if (existing.split("\n").includes(name)) return true;
+  await writeFile(excludePath, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${name}\n`);
+  return true;
+}
+
+/** `config list | get <key> | set <key> <value>`. `null` or an empty value unsets. */
+export async function config({ action = "list", key, value, cwd = process.cwd(), log = console.log }) {
+  if (action === "set") {
+    const parsed =
+      value === null || value === undefined || value === "" || value === "null"
+        ? null
+        : key === "captureExclude"
+          ? String(value).split(",").map((entry) => entry.trim()).filter(Boolean)
+          : value;
+    await writeSetting(key, parsed);
+    log(parsed === null ? `${key} unset` : `${key} = ${JSON.stringify(parsed)}`);
+    return;
+  }
+  const { settings, sources, projectFile } = await resolveSettings({ cwd });
+  if (action === "get") {
+    if (!(key in settings)) throw new Error(`unknown setting "${key}"`);
+    log(Array.isArray(settings[key]) ? settings[key].join(",") : String(settings[key] ?? ""));
+    return;
+  }
+  for (const [name, current] of Object.entries(settings)) {
+    const shown = Array.isArray(current) ? current.join(",") || "(none)" : current ?? "(none)";
+    log(`${name.padEnd(15)} ${shown}  (${sources[name]})`);
+  }
+  if (projectFile) log(`project file: ${projectFile}`);
 }
 
 /**

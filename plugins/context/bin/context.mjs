@@ -12,24 +12,26 @@ import { CLIENTS } from "../src/install.js";
 
 const DEFAULT_ENDPOINT = "https://mcp.context.lc/mcp";
 
-const USAGE = `Save what an AI coding session learned into your Context.
+const USAGE = `Context in your coding agents, and your notes from the terminal.
 
-  npx @supa-media/context install      sign in, then add the hooks to your client
-  npx @supa-media/context status       show whether this machine is signed in
-  npx @supa-media/context uninstall    remove the hook and forget the credential
-  npx @supa-media/context capture      run by the hook itself; reads stdin
-  npx @supa-media/context session-start run by the hook itself; reads stdin
+  npx @supa-media/context login              sign in (read and write; never private notes)
+  npx @supa-media/context logout             delete this machine's stored sign-in
+  npx @supa-media/context link @workspace    bind this folder to a workspace (.context.json)
+      --private                              ...and keep that file out of git
+  npx @supa-media/context unlink             remove this folder's binding
+  npx @supa-media/context config list        every setting and where it came from
+  npx @supa-media/context config get <key>
+  npx @supa-media/context config set <key> <value>   (empty value unsets)
+  npx @supa-media/context install            add the session hooks to your client
+  npx @supa-media/context status             show whether this machine is signed in
+  npx @supa-media/context uninstall          remove the hooks and forget the sign-in
 
 Options
   --endpoint <url>   your MCP endpoint (default ${DEFAULT_ENDPOINT})
   --client <id>      ${Object.keys(CLIENTS).join(", ")} (default claude-code)
-  --orient           inject your actual orientation at session start instead of
-                     an instruction to fetch it. Asks for read access on a
-                     credential that lives on this machine unattended.
 
-By default the hooks ask for capture access only: they can add to your inbox
-and cannot read a single note. Revoke them from Connections in the Context
-console.`;
+Settings: endpoint, workspace, capture (on|off), captureExclude (comma-separated
+folders), captureTo (personal|workspace), orient (instruction|live).`;
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -64,6 +66,21 @@ async function main() {
   };
 
   switch (command) {
+    case "login":
+      await commands.login({ endpoint: args.endpoint });
+      return 0;
+    case "logout":
+      await commands.logout({ endpoint: args.endpoint });
+      return 0;
+    case "link":
+      await commands.link({ workspace: args._[1], private: args.private === true, endpoint: args.endpoint });
+      return 0;
+    case "unlink":
+      await commands.unlink({});
+      return 0;
+    case "config":
+      await commands.config({ action: args._[1] || "list", key: args._[2], value: args._[3] });
+      return 0;
     case "install":
       await commands.install(options);
       return 0;
