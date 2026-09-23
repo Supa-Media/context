@@ -1553,6 +1553,30 @@ check(
   parallel.every((outcome) => outcome.status === "fulfilled") && parallel[0].value === parallel[1].value
 );
 
+// -- a read+write sign-in does not turn on live orientation by itself
+
+/*
+  login's grant can read, so the start hook COULD inject the orientation. It
+  does only when the person chose it (orient: live): the default is the
+  instruction to call orient, the same as before.
+*/
+const loginStart = await commands.sessionStart({
+  endpoint: server.endpoint,
+  configPath,
+  stdin: [JSON.stringify({ session_id: "s4", source: "startup", cwd: home })],
+  emit,
+});
+check("after login, session start still injects the instruction by default", loginStart.live === false);
+await writeSetting("orient", "live");
+const chosenLiveStart = await commands.sessionStart({
+  endpoint: server.endpoint,
+  configPath,
+  stdin: [JSON.stringify({ session_id: "s5", source: "startup", cwd: home })],
+  emit,
+});
+check("...and the live orientation once orient is set to live", chosenLiveStart.live === true);
+await writeSetting("orient", null);
+
 // -- tools from the terminal, built from the gateway's own list
 
 said.length = 0;

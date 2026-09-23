@@ -483,7 +483,11 @@ export async function sessionStart({
     const record = await loadEndpoint(endpoint, configPath);
     // No point spending a round trip to be told no. A capture-only grant cannot
     // read, and asking anyway would put an error in the logs on every session.
-    if (record && String(record.scope || "").includes("context:read")) {
+    // Live orientation is the person's choice (orient: live). The one exception
+    // is a grant made by the old `install --orient`, which asked for exactly
+    // that and nothing else.
+    const wantsLive = settings.orient === "live" || record?.scope === ORIENT_SCOPE;
+    if (record && wantsLive && String(record.scope || "").includes("context:read")) {
       const token = await accessTokenFor({ endpoint, configPath, fetchImpl });
       orientation = await fetchOrientation({ endpoint: workspaceUrl(endpoint, workspace), token, fetchImpl });
     }
@@ -516,7 +520,8 @@ export async function status({ endpoint, configPath = defaultConfigPath(), cwd =
   const scope = record.scope || HOOK_SCOPE;
   log(`Signed in for ${endpointKey(endpoint)}`);
   log(`  scope:   ${scope}`);
-  log(`  start:   ${scope.includes("context:read") ? "injects your orientation" : "tells the agent to call orient"}`);
+  const live = (settings.orient === "live" || scope === ORIENT_SCOPE) && scope.includes("context:read");
+  log(`  start:   ${live ? "injects your orientation" : "tells the agent to call orient"}`);
   log(`  client:  ${record.clientId}`);
   log(`  expires: ${record.expiresAt ? new Date(record.expiresAt).toISOString() : "unknown"}`);
   return { signedIn: true };
