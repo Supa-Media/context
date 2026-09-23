@@ -10,8 +10,8 @@ export const PERSONAS = ["alpha", "beta", "gamma", "delta", "epsilon"] as const;
 type Persona = typeof PERSONAS[number];
 type Role = "owner" | "editor" | "member";
 export const FIXTURES: { slug: string; name: string; owner: Persona; kind: "personal" | "shared"; roles: Partial<Record<Persona, Role>> }[] = [
-  { slug: "alpha-morgan", name: "Alpha Morgan", owner: "alpha", kind: "personal", roles: { alpha: "owner" } },
-  { slug: "delta-brooks", name: "Delta Brooks", owner: "delta", kind: "personal", roles: { delta: "owner" } },
+  { slug: "alpha", name: "Alpha Morgan", owner: "alpha", kind: "personal", roles: { alpha: "owner" } },
+  { slug: "delta", name: "Delta Brooks", owner: "delta", kind: "personal", roles: { delta: "owner" } },
   { slug: "lumio", name: "Lumio", owner: "alpha", kind: "shared", roles: { alpha: "owner", beta: "editor", gamma: "member" } },
   { slug: "maison-solenne", name: "Maison Solenne", owner: "delta", kind: "shared", roles: { delta: "owner", alpha: "editor", beta: "member" } },
   { slug: "common-ground", name: "Common Ground", owner: "delta", kind: "shared", roles: { delta: "owner", beta: "editor", gamma: "member" } },
@@ -45,7 +45,7 @@ export const prepare = internalMutation({
           slug: fixture.slug, displayName: fixture.name, createdBy: users[fixture.owner],
           kind: fixture.kind, structureTemplate: "para", createdAt: now, updatedAt: now,
         });
-        await claimName(ctx, fixture.slug, users[fixture.owner], { kind: "workspace", workspaceId });
+        await claimName(ctx, fixture.slug, users[fixture.owner], { kind: "workspace", workspaceId }, fixture.slug === "alpha" ? { stagingPersona: "alpha" } : {});
       }
       const id = workspaceId!;
       const memberships = await ctx.db.query("workspaceMembers").withIndex("by_workspace", q => q.eq("workspaceId", id)).collect();

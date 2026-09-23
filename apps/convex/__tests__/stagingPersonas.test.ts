@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { claimName } from "../functions/lib/nameClaims";
 import { api, internal } from "../_generated/api";
 import { setupTest, asUser, createUser } from "./fixtures.helpers";
 
@@ -23,7 +24,7 @@ describe("isolated staging fixtures", () => {
   test("seeds exactly five personas, preserves IDs, resets invitation acceptance", async () => {
     const t = setupTest();
     const first = await t.mutation(internal.functions.stagingPersonas.prepare, {});
-    expect(first.workspaces).toHaveLength(5);
+    expect(first.workspaces.map(w => w.slug)).toEqual(["alpha", "delta", "lumio", "maison-solenne", "common-ground"]);
     const second = await t.mutation(internal.functions.stagingPersonas.prepare, {});
     expect(second).toEqual(first);
     const users = await t.run(ctx => ctx.db.query("users").collect());
@@ -41,6 +42,18 @@ describe("isolated staging fixtures", () => {
     await t.mutation(internal.functions.stagingPersonas.prepare, { reset: true });
     expect(await epsilon.query(api.functions.workspaces.listMyWorkspaces, {})).toHaveLength(0);
     expect(await epsilon.query(api.functions.invitations.listMyInvitations, {})).toHaveLength(1);
+  });
+  test.each(["production", "wrong-owner"])("reserved-name exception refuses %s", async scenario => {
+    const t = setupTest();
+    if (scenario === "production") vi.stubEnv("APP_ENV", "production");
+    const userId = await createUser(t, scenario === "wrong-owner" ? "other@example.test" : "alpha@supa.media");
+    await expect(t.run(async ctx => {
+      const workspaceId = await ctx.db.insert("workspaces", {
+        slug: "alpha", displayName: "Alpha", kind: "personal", createdBy: userId,
+        structureTemplate: "para", createdAt: Date.now(), updatedAt: Date.now(),
+      });
+      return claimName(ctx, "alpha", userId, { kind: "workspace", workspaceId }, { stagingPersona: "alpha" });
+    })).rejects.toThrow(/reserved/);
   });
   test("name collisions roll back all fixture creation", async () => {
     const t = setupTest();

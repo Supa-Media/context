@@ -35,13 +35,13 @@ export const stagingNotes = {
     '2-areas/fundraising/autumn-plan.md': note('Autumn fundraising plan', 'Synthetic campaign target: $12,000.\n\n| Milestone | Date | Owner |\n| --- | --- | --- |\n| Draft program story | Sep 30 | Beta |\n| Review campaign page | Oct 7 | Delta |\n| Share progress update | Oct 21 | Beta |\n\nExplain the program, its costs and how outcomes will be reported. This workspace has no real donor records.'),
     '2-areas/meetings/2026-09-23-programs.md': note('Program review · September 23', 'Attendees: Delta, Beta, Gamma\n\n## Decisions\n- Keep the pilot to one neighborhood.\n- Use aggregate feedback in public reporting.\n\n## Actions\n- [ ] Beta: publish the volunteer shift plan\n- [ ] Delta: review the illustrative budget\n- [ ] Gamma: walk through the volunteer guide'),
   },
-  'alpha-morgan': {
+  'alpha': {
     'index.md': note('Alpha Morgan', 'Fictional staging persona: product founder at Lumio and campaign collaborator at Maison Solenne.\n\nThis personal workspace is private.\n\n- [[1-projects/weekly-plan|Weekly plan]]\n- [[2-areas/learning/notes|Learning notes]]'),
     '1-projects/weekly-plan.md': note('Weekly plan', '- [ ] Review Lumio’s pilot scope\n- [ ] Prepare Maison Solenne’s campaign shot list\n- [x] Make time for a long walk\n\nPersonal priority: finish one thing before starting another.'),
     '2-areas/learning/notes.md': note('Learning notes', 'Private fixture marker: ALPHA-PERSONAL-ONLY.\n\nThis note must not appear in Beta, Gamma, Delta or Epsilon’s workspace list or search.'),
     '0-inbox/quick-capture.md': note('Quick capture', 'Try a shorter weekly review: what moved, what is blocked, what happens next.'),
   },
-  'delta-brooks': {
+  'delta': {
     'index.md': note('Delta Brooks', 'Fictional staging persona: creative director at Maison Solenne and program lead at Common Ground.\n\nThis personal workspace is private.\n\n- [[1-projects/weekly-plan|Weekly plan]]\n- [[2-areas/reflections/notes|Reflection notes]]'),
     '1-projects/weekly-plan.md': note('Weekly plan', '- [ ] Approve the Autumn Edit samples\n- [ ] Review Common Ground’s volunteer plan\n- [ ] Reserve a morning for creative research'),
     '2-areas/reflections/notes.md': note('Reflection notes', 'Private fixture marker: DELTA-PERSONAL-ONLY.\n\nA useful week leaves the team with fewer open questions and a clear next step.'),
