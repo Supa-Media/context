@@ -505,6 +505,18 @@ describe("every route is reachable, or says why not", () => {
       "/e2e-fixture",
       "/invite/[token]",
       "/note/[...address]",
+      /*
+        Two dev-only design-review routes for the redesigned onboarding
+        screens. Nothing in the app links here — reviewers open the URL by
+        hand to see a step in isolation with mock props. The state machine
+        that decides which step a user actually sees, and the wiring from
+        each step's callbacks to the controller mutations, are still in the
+        real onboarding surface at `/welcome`. When the redesign is wired
+        into that flow, whether these two stay in the tree is a
+        maintainability question, not a routing one.
+      */
+      "/preview/onboarding",
+      "/preview/onboarding/[step]",
       "/s/[token]",
     ]);
     for (const entry of exempt) {
