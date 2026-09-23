@@ -57,6 +57,7 @@
  */
 
 import { createServer } from "node:http";
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1500,7 +1501,8 @@ server.state.workspaces = [
 // -- link and unlink
 
 const linkDir = join(home, "work", "linked");
-await mkdir(join(linkDir, ".git", "info"), { recursive: true });
+await mkdir(linkDir, { recursive: true });
+spawnSync("git", ["init", "-q"], { cwd: linkDir });
 await commands.link({ workspace: "@team", cwd: linkDir, endpoint: server.endpoint, configPath, log });
 check("link writes the project file with the workspace", JSON.parse(await readFile(join(linkDir, ".context.json"), "utf8")).workspace === "team");
 let linkRefusal = null;
@@ -1515,6 +1517,29 @@ check(
   "a private link keeps the file out of git through .git/info/exclude",
   (await readFile(join(linkDir, ".git", "info", "exclude"), "utf8")).split("\n").includes(".context.json")
 );
+/*
+  A worktree (or a submodule) has a `.git` FILE pointing at its git directory,
+  not a `.git` folder. Asking git where the exclude file is covers both; the
+  first version looked for a folder, found none, skipped the exclude, and
+  still said "kept out of git".
+*/
+const mainRepo = join(home, "work", "main-repo");
+await mkdir(mainRepo, { recursive: true });
+const git = (args, cwd) => spawnSync("git", args, { cwd, encoding: "utf8" });
+git(["init", "-q"], mainRepo);
+git(["-c", "user.email=t@example.test", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"], mainRepo);
+const worktree = join(home, "work", "a-worktree");
+git(["worktree", "add", "-q", worktree], mainRepo);
+said.length = 0;
+await commands.link({ workspace: "team", cwd: worktree, private: true, endpoint: server.endpoint, configPath, log });
+const ignored = git(["check-ignore", "-q", ".context.json"], worktree).status === 0;
+check("a private link inside a git worktree is really ignored by git", ignored);
+const plainDir = join(home, "work", "not-a-repo");
+await mkdir(plainDir, { recursive: true });
+said.length = 0;
+await commands.link({ workspace: "team", cwd: plainDir, private: true, endpoint: server.endpoint, configPath, log });
+check("outside a git repository, a private link says it could not keep the file out of git", /not a git repository/i.test(said.join("\n")));
+
 await commands.unlink({ cwd: linkDir, log });
 check("unlink removes the binding", (await readFile(join(linkDir, ".context.json"), "utf8").catch(() => "{}")).includes("team") === false);
 

@@ -8,6 +8,7 @@
  */
 
 import { createServer } from "node:http";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -126,7 +127,8 @@ check("install says sessions are captured, and how to stop it", said.join("\n").
 // -- project scope names the workspace
 
 const repo = join(home, "work", "repo");
-await mkdir(join(repo, ".git", "info"), { recursive: true });
+await mkdir(repo, { recursive: true });
+spawnSync("git", ["init", "-q"], { cwd: repo });
 calls.length = 0;
 upserts.length = 0;
 await install({ scope: "project", yes: true, workspace: "@team", agents: ["claude-code", "cursor"], endpoint, home, cwd: repo, run, addMcp, log });
@@ -143,7 +145,8 @@ check("a project install is committed, so it is not added to git's exclude", !(a
 // -- local scope keeps the binding out of git
 
 const mine = join(home, "work", "private-repo");
-await mkdir(join(mine, ".git", "info"), { recursive: true });
+await mkdir(mine, { recursive: true });
+spawnSync("git", ["init", "-q"], { cwd: mine });
 await install({ scope: "local", yes: true, workspace: "me", agents: ["cursor"], endpoint, home, cwd: mine, run, addMcp, log });
 check("a local install keeps .context.json out of git", (await readFile(join(mine, ".git", "info", "exclude"), "utf8")).includes(".context.json"));
 

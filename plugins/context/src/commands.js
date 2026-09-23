@@ -35,7 +35,8 @@ import { captureBody, transcriptToMarkdown } from "./transcript.js";
 import { PROJECT_FILE, normalizeWorkspace, resolveSettings, workspaceUrl, writeSetting } from "./settings.js";
 import { callTool, listTools, listWorkspaces } from "./mcp.js";
 import { homedir } from "node:os";
-import { join, resolve as resolvePath, sep } from "node:path";
+import { dirname, join, resolve as resolvePath, sep } from "node:path";
+import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, stat, unlink as unlinkFile, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -319,8 +320,9 @@ export async function link({ workspace, cwd = process.cwd(), private: keepPrivat
   const path = join(cwd, PROJECT_FILE);
   const current = JSON.parse(await readFile(path, "utf8").catch(() => "{}"));
   await writeFile(path, `${JSON.stringify({ ...current, workspace: slug }, null, 2)}\n`);
-  if (keepPrivate) await excludeFromGit(cwd, PROJECT_FILE);
-  log(`Linked ${cwd} to @${slug}${keepPrivate ? " (kept out of git)" : ""}.`);
+  const excluded = keepPrivate ? await excludeFromGit(cwd, PROJECT_FILE) : false;
+  log(`Linked ${cwd} to @${slug}${excluded ? " (kept out of git)" : ""}.`);
+  if (keepPrivate && !excluded) log(`${cwd} is not a git repository, so ${PROJECT_FILE} could not be kept out of git.`);
   if (!workspaces) log("Could not check that name against your workspaces (older server).");
   return { path, workspace: slug };
 }
@@ -336,13 +338,15 @@ export async function unlink({ cwd = process.cwd(), log = console.log }) {
 }
 
 async function excludeFromGit(cwd, name) {
-  const excludePath = join(cwd, ".git", "info", "exclude");
-  // Only inside a git repository, and only this clone's own exclude file.
-  const isRepo = await stat(join(cwd, ".git")).then((info) => info.isDirectory()).catch(() => false);
-  if (!isRepo) return false;
+  // Git says where this checkout's exclude file is: `.git/info/exclude` in a
+  // plain clone, somewhere under the main repository for a worktree or a
+  // submodule, whose `.git` is a file rather than a folder.
+  const located = spawnSync("git", ["rev-parse", "--git-path", "info/exclude"], { cwd, encoding: "utf8" });
+  if (located.status !== 0 || !located.stdout.trim()) return false;
+  const excludePath = resolvePath(cwd, located.stdout.trim());
   const existing = await readFile(excludePath, "utf8").catch(() => "");
-  await mkdir(join(cwd, ".git", "info"), { recursive: true });
   if (existing.split("\n").includes(name)) return true;
+  await mkdir(dirname(excludePath), { recursive: true });
   await writeFile(excludePath, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${name}\n`);
   return true;
 }
