@@ -292,6 +292,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
   not a place a person can read
 - A build is what shipped, not what merged — two "the fix did not work" reports
   were one build
+- A resumed meeting is a new part spliced into the note it already has
 
 ## [Communications](./communications.md)
 

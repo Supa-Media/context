@@ -7,6 +7,7 @@ import { api } from "@context/convex/_generated/api";
 import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
+import { ResumeBar } from "../../features/meetings/components/ResumeBar";
 import { useMeetingsSetup, useTranscriptionClient } from "../../features/meetings/useMeetings";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { useRememberedContexts } from "../../features/offline/useRememberedContexts";
@@ -210,6 +211,13 @@ export default function AppLayout() {
         in one 66pt of glass.
       */}
       <StrandedBar bottomInset={insets.bottom} />
+      {/*
+        Last, and in the same slot. It never draws beside either of the two
+        above — it stands down while anything records and while any meeting is
+        stranded — so, like them, the order is the guarantee and the condition
+        is the reason.
+      */}
+      <ResumeBar bottomInset={insets.bottom} />
     </View>
   );
 }

@@ -18,6 +18,8 @@ import { notesOnlyOnDevice, pendingSteps } from "./record";
 import type { MeetingRecord } from "./record";
 import { MEETINGS_ROUTE } from "./route";
 import { useMeetingsSnapshot } from "./useMeetings";
+import { continuationFromRecord, mayResume, meetingIdOf } from "./resume";
+import { useResumeMeeting } from "./useResumeMeeting";
 import { endedAudioLine, transcriptIncompleteLine } from "./keptAudio";
 
 /**
@@ -542,8 +544,26 @@ function Landing({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const router = useRouter();
+  const snapshot = useMeetingsSnapshot();
+  const resume = useResumeMeeting();
   const { session } = record;
   const href = noteEditorHref(record);
+  /*
+    Pick it back up, on the page of a meeting that is in the bucket — the
+    same rules the bar and the note ask (`resume.ts`), so this is offered for
+    as long as the meeting exists and never while a part of it is still on
+    its way or anything is recording.
+  */
+  const continues =
+    session.state === "complete" &&
+    mayResume({
+      records: snapshot.records,
+      live: snapshot.live,
+      canContinue: snapshot.canContinue,
+      meetingId: meetingIdOf(record),
+    })
+      ? continuationFromRecord(snapshot.records, record)
+      : null;
 
   /*
     WHICH OF THESE IS TRUE IS NOT THIS SCREEN'S TO DECIDE.
@@ -754,6 +774,22 @@ function Landing({ record }: { record: MeetingRecord }) {
           has none. No slug, no honest link — so no button, rather than one
           that guesses a context and opens somebody else's.
         */}
+        {continues === null ? null : (
+          <Pressable
+            onPress={() =>
+              void resume({ continues, title: session.title, destination: record.destination })
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Resume recording this meeting, into the same note"
+            style={({ pressed }) => [styles.action, styles.resume, pressed && styles.pressed]}
+            testID="meeting-resume"
+          >
+            <Icon name="undo" size={15} color={colors.ground} />
+            <Text variant="mini" style={styles.resumeLabel}>
+              Resume recording
+            </Text>
+          </Pressable>
+        )}
         {href === null ? null : (
           <Pressable
             onPress={() => router.push(href)}
@@ -891,6 +927,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   landingCrit: { borderColor: colors.critBorder, backgroundColor: colors.critWash },
   landingCritTitle: { color: colors.critText },
   landingText: { flex: 1, minWidth: 0, gap: 3 },
+  /* Teal, never red: picking a meeting back up is a continuation, not a repair. */
+  resume: { backgroundColor: colors.accent, borderColor: colors.accent },
+  resumeLabel: { color: colors.ground, fontWeight: "600" },
   path: {
     fontFamily: fonts.mono,
     fontSize: t.label,

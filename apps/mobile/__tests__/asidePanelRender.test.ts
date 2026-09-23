@@ -50,12 +50,14 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 // `mock`-prefixed so `jest.mock`'s hoisted factory may close over them.
 let mockLive: unknown = null;
 let mockRecords: unknown[] = [];
+let mockCanContinue = false;
 const mockCalls: { name: string; args: unknown[] }[] = [];
 
 jest.mock("../features/meetings/useMeetings", () => ({
   useMeetingsSnapshot: () => ({
     live: mockLive,
     records: mockRecords,
+    canContinue: mockCanContinue,
     ending: null,
     audio: {},
     offline: false,
@@ -88,6 +90,7 @@ jest.mock("../features/meetings/controller", () => {
       resume: record("resume"),
       retry: record("retry"),
       retryFinalize: record("retryFinalize"),
+      continueMeeting: record("continueMeeting"),
     },
   };
 });
@@ -203,6 +206,7 @@ afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockLive = null;
+  mockCanContinue = false;
   mockRecords = [];
   mockCalls.length = 0;
 });
@@ -629,6 +633,35 @@ describe("a meeting that never reached the bucket", () => {
     expect(panel.text()).not.toContain("has not been written");
     expect(panel.text()).toContain("this device cannot address it");
     expect(panel.find("aside-meeting-retry")).toBeNull();
+  });
+
+  test("a filed meeting can be picked back up, into the note it already has", () => {
+    mockRecords = [filed()];
+    mockCanContinue = true;
+    const panel = mount({ onOpenNote: () => undefined });
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+    panel.press("aside-meeting-resume");
+
+    const call = mockCalls.find((c) => c.name === "continueMeeting");
+    expect(call?.args[0]).toMatchObject({
+      title: "Leads call",
+      continues: {
+        path: "0-inbox/meetings/2026-09-18-leads-call.md",
+        meetingId: "m0",
+        offsetMs: 2_460_000,
+        part: 2,
+      },
+    });
+  });
+
+  test("but not where this device's writer cannot add to a note", () => {
+    mockRecords = [filed()];
+    mockCanContinue = false;
+    const panel = mount({ onOpenNote: () => undefined });
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+    expect(panel.find("aside-meeting-resume")).toBeNull();
   });
 
   test("a filed meeting keeps its door to the editor and grows no landing", () => {

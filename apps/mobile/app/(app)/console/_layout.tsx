@@ -111,6 +111,13 @@ import { agentPage } from "../../../features/agent/page";
 import { useOpenNote } from "../../../features/agent/openNote";
 import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
 import { useCarriesMeeting } from "../../../features/meetings/carried";
+import {
+  continuationFromNote,
+  destinationForNote,
+  mayResume,
+  type NoteResumeOffer,
+} from "../../../features/meetings/resume";
+import { useResumeMeeting } from "../../../features/meetings/useResumeMeeting";
 import { CreateButton } from "../../../features/console/CreateButton";
 import { ConsoleLiveMeeting } from "../../../features/console/ConsoleLiveMeeting";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
@@ -650,7 +657,7 @@ export default function ConsoleLayout() {
     because a folded panel still carries it — in the title bar. See
     `features/meetings/carried.ts`.
   */
-  useCarriesMeeting(hasAside);
+  useCarriesMeeting(hasAside, showMeetings);
 
   const places = useContextPlaces();
   const contextHrefFrom = useContextHref(data.contexts);
@@ -763,7 +770,8 @@ export default function ConsoleLayout() {
     and a second caller filling one field from a different source is how two
     surfaces end up describing different rooms.
   */
-  const liveMeeting = useMeetingsSnapshot().live;
+  const meetingsSnapshot = useMeetingsSnapshot();
+  const liveMeeting = meetingsSnapshot.live;
   const openNote = useOpenNote();
   /**
    * WHERE THE PERSON IS, FOR THE AGENT — BUILT ONCE.
@@ -816,6 +824,51 @@ export default function ConsoleLayout() {
     endpoint: data.endpoint,
   });
 
+  const resumeMeeting = useResumeMeeting();
+  /**
+   * The open note's offer to pick its meeting back up — see
+   * `VoiceHost.noteResume`.
+   *
+   * Built here because this is where the recorder and the context meet: the
+   * pane knows the note, and nothing below this layout knows whether this
+   * device can continue a meeting (`canContinue`), whether one is recording,
+   * or which context a part started from this note would be addressed to.
+   *
+   * No offer on the demo console, which has no recorder, to somebody who
+   * cannot write the note the part would be added to, or before the recorder
+   * has read what this device holds — a part in flight it has not loaded yet
+   * is exactly what `mayResume` exists to refuse over.
+   */
+  const noteResume = useCallback(
+    (path: string, markdown: string): NoteResumeOffer | null => {
+      if (data.demo || !data.files.canEdit || !insideContext || current === null) return null;
+      if (meetingsSnapshot.status !== "ready") return null;
+      const found = continuationFromNote(path, markdown);
+      if (found === null) return null;
+      if (
+        !mayResume({
+          records: meetingsSnapshot.records,
+          live: meetingsSnapshot.live,
+          canContinue: meetingsSnapshot.canContinue,
+          meetingId: found.continues.meetingId,
+        })
+      ) {
+        return null;
+      }
+      return {
+        recordedMs: found.continues.offsetMs,
+        part: found.continues.part,
+        onResume: () =>
+          void resumeMeeting({
+            continues: found.continues,
+            title: found.title,
+            destination: destinationForNote(current.slug, path),
+          }),
+      };
+    },
+    [data.demo, data.files.canEdit, insideContext, current, meetingsSnapshot, resumeMeeting],
+  );
+
   const voiceHost = useMemo<VoiceHost>(
     () => ({
       page: {
@@ -854,8 +907,9 @@ export default function ConsoleLayout() {
         see `VoiceHost.createButton`.
       */
       createButton: !phone,
+      noteResume,
     }),
-    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo, phone],
+    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo, phone, noteResume],
   );
 
   /**

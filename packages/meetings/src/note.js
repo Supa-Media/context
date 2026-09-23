@@ -452,6 +452,62 @@ function flagsByTurn(flags, turns) {
 }
 
 /**
+ * The lines under `## Transcript`: the turns, with the wearer's flags in them.
+ *
+ * Shared by `renderMeetingNote` and `continueMeetingNote`, so a part added to a
+ * note later is drawn by the same code as the part the note was written with.
+ * `offsetMs` is how much of the meeting was already recorded before this
+ * session began — zero for a note's first part — and it moves every clock, so
+ * the second part of a 31-minute meeting reads `[31:02]` rather than `[00:02]`.
+ *
+ * @param {MeetingSession} session
+ * @param {number} offsetMs
+ * @param {number} [maxGapMs]
+ * @returns {{body: string[], machine: boolean}}
+ */
+function transcriptBody(session, offsetMs, maxGapMs) {
+  const shift = Number.isFinite(offsetMs) && offsetMs > 0 ? offsetMs : 0;
+  const segments = (session.transcript ?? []).map((segment) =>
+    shift === 0 ? segment : { ...segment, startMs: segment.startMs + shift, endMs: segment.endMs + shift }
+  );
+  const flags = (session.flags ?? []).map((flag) =>
+    shift === 0 || !flag || typeof flag.at !== "number" ? flag : { ...flag, at: flag.at + shift }
+  );
+  const turns = groupIntoTurns(segments, { maxGapMs });
+  /*
+    A flag sits *after* the turn it was pressed during — you press during a
+    sentence, and the mark reads as a note on what was just said — except for
+    one pressed before anybody spoke, which has no turn to follow and leads.
+    A meeting with flags and no transcript still writes them: the press
+    happened, and the heading stays the last one this renderer wrote.
+  */
+  const byTurn = flagsByTurn(flags, turns);
+  const body = [];
+  const push = (line) => {
+    if (body.length) body.push("");
+    body.push(line);
+  };
+  for (const flag of byTurn.get(-1) ?? []) push(renderFlag(flag));
+  for (let i = 0; i < turns.length; i += 1) {
+    push(renderTurn(turns[i]));
+    for (const flag of byTurn.get(i) ?? []) push(renderFlag(flag));
+  }
+  /*
+    The caveat leads the section, and only where there is a machine transcript.
+
+    `turns.length` rather than `body.length`: a meeting with flags and no
+    transcript writes a body — the presses happened — and none of it came from
+    an engine, so there is nothing there to caveat. And `transcriptionLabel`
+    rather than a truthiness check on the field, because `none` and `unknown`
+    are both real values that mean no engine named itself, and a note that
+    cannot say what produced its words must not claim one did.
+  */
+  const machine =
+    turns.length > 0 && TRANSCRIPTION_ENGINES.includes(transcriptionLabel(session.transcription ?? null));
+  return { body, machine };
+}
+
+/**
  * The whole note.
  *
  * @param {MeetingSession} session
@@ -462,7 +518,6 @@ export function renderMeetingNote(session, options = {}) {
   if (!session || typeof session !== "object") throw new TypeError("renderMeetingNote needs a session");
 
   const updated = options.now ?? new Date().toISOString();
-  const turns = groupIntoTurns(session.transcript ?? [], { maxGapMs: options.maxGapMs });
 
   // Keyed off FRONTMATTER_KEYS so the documented order and the written order
   // cannot drift: the on-bucket layout is a stable format, not an internal
@@ -507,38 +562,7 @@ export function renderMeetingNote(session, options = {}) {
   out.push(`# ${title}`, "");
   out.push(SUMMARY_HEADING, "", ...summary.split("\n"), "");
   out.push(NOTES_HEADING, "", ...notes.split("\n"), "");
-  /*
-    The transcript, with the wearer's flags in it.
-
-    A flag sits *after* the turn it was pressed during — you press during a
-    sentence, and the mark reads as a note on what was just said — except for
-    one pressed before anybody spoke, which has no turn to follow and leads.
-    A meeting with flags and no transcript still writes them: the press
-    happened, and the heading stays the last one this renderer wrote.
-  */
-  const byTurn = flagsByTurn(session.flags ?? [], turns);
-  const body = [];
-  const push = (line) => {
-    if (body.length) body.push("");
-    body.push(line);
-  };
-  for (const flag of byTurn.get(-1) ?? []) push(renderFlag(flag));
-  for (let i = 0; i < turns.length; i += 1) {
-    push(renderTurn(turns[i]));
-    for (const flag of byTurn.get(i) ?? []) push(renderFlag(flag));
-  }
-  /*
-    The caveat leads the section, and only where there is a machine transcript.
-
-    `turns.length` rather than `body.length`: a meeting with flags and no
-    transcript writes a body — the presses happened — and none of it came from
-    an engine, so there is nothing there to caveat. And `transcriptionLabel`
-    rather than a truthiness check on the field, because `none` and `unknown`
-    are both real values that mean no engine named itself, and a note that
-    cannot say what produced its words must not claim one did.
-  */
-  const machine =
-    turns.length > 0 && TRANSCRIPTION_ENGINES.includes(transcriptionLabel(session.transcription ?? null));
+  const { body, machine } = transcriptBody(session, 0, options.maxGapMs);
   out.push(
     TRANSCRIPT_HEADING,
     "",
@@ -622,4 +646,246 @@ export function splitTranscript(markdown) {
     head: head.endsWith("\n") || head === "" ? head : `${head}\n`,
     transcript: sectionBody(lines, transcript, lines.length),
   };
+}
+
+/* ------------------------------ continuation ----------------------------- */
+
+/*
+ * A MEETING PICKED BACK UP IS ADDED TO THE NOTE IT ALREADY IS.
+ *
+ * Somebody stops a meeting, the note lands, and ten minutes later the meeting
+ * starts again. What they want is the same file with both halves in it — not
+ * a second note beside the first. So a resumed recording is a *part*: a new
+ * session with its own id (its segment ids name it, which is what the identity
+ * guards check), recorded like any other, and written by splicing it into the
+ * note that is already in the bucket.
+ *
+ * Spliced, not re-rendered. The note has been the customer's since it landed:
+ * they may have fixed a name in the summary, added a line under `## My notes`
+ * in Obsidian, retitled it. Rendering the whole file again from what this
+ * device remembers would put back what they changed, and the device that
+ * resumes may not be the one that recorded the first part at all. Everything
+ * already in the file stays byte for byte, except three frontmatter values
+ * that describe the meeting as a whole — `updated`, `ended` and `duration` —
+ * which now describe more of it.
+ *
+ * The seam is written into the transcript as one line, because the gap between
+ * the parts was not recorded and the note may not pretend otherwise. It also
+ * carries the part's own start, to the second, and that is what makes the
+ * write idempotent: a retry after a write whose answer was lost finds its own
+ * seam already in the file and adds nothing (`continuesMeetingNote`).
+ */
+
+/** How a seam line starts, so a reader of the file can find every one. */
+export const RESUMED_PREFIX = "_Resumed ";
+
+/**
+ * @typedef {Object} MeetingPart
+ * @property {MeetingSession} session  The part's own session: its transcript
+ *   and flags count from the moment it started, like any session's.
+ * @property {number} offsetMs  How much of the meeting the note already held
+ *   when this part began. Every clock in the part is moved by it.
+ * @property {string|null} previousEndedAt  When the meeting last stopped, as
+ *   the note said at the moment it was resumed, or null when it did not say.
+ */
+
+/**
+ * The part's start, as the seam prints it: `2026-09-21 14:14:03 UTC`.
+ *
+ * UTC because every clock in the frontmatter is UTC, and a file that mixes the
+ * recording device's zone into one line is a file whose times disagree with
+ * each other. To the second because the seam is also the part's identity.
+ *
+ * @param {string} startedAt
+ * @returns {string}
+ */
+function seamStamp(startedAt) {
+  const ms = Date.parse(startedAt);
+  if (!Number.isFinite(ms)) return String(startedAt);
+  const iso = new Date(ms).toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`;
+}
+
+/**
+ * The line between two parts of one meeting.
+ *
+ * @param {MeetingPart} part
+ * @returns {string}
+ */
+export function resumeSeam(part) {
+  const stamp = seamStamp(part.session.startedAt);
+  const started = Date.parse(part.session.startedAt);
+  const stopped = part.previousEndedAt === null ? NaN : Date.parse(part.previousEndedAt);
+  const gap =
+    Number.isFinite(started) && Number.isFinite(stopped) && started >= stopped
+      ? `, ${formatDuration(started - stopped)} after it stopped`
+      : "";
+  return `${RESUMED_PREFIX}${stamp}${gap}._`;
+}
+
+/**
+ * Whether this part is already in the note.
+ *
+ * Keyed on the seam's stamp rather than the whole line, so a retry still finds
+ * its part if the "after it stopped" half would now be worded differently.
+ *
+ * @param {string} markdown
+ * @param {MeetingPart} part
+ * @returns {boolean}
+ */
+export function continuesMeetingNote(markdown, part) {
+  const marker = `${RESUMED_PREFIX}${seamStamp(part.session.startedAt)}`;
+  return String(markdown ?? "")
+    .split("\n")
+    .some((line) => line.startsWith(marker));
+}
+
+/**
+ * Rewrite one `key: value` line inside the frontmatter, if the key is there.
+ *
+ * A key the person deleted stays deleted: putting it back is a change to their
+ * file that nothing asked for.
+ *
+ * @param {string[]} lines
+ * @param {number} frontmatterEnd
+ * @param {string} key
+ * @param {string} value
+ */
+function setFrontmatter(lines, frontmatterEnd, key, value) {
+  for (let i = 1; i < frontmatterEnd; i += 1) {
+    if (lines[i].startsWith(`${key}:`)) {
+      lines[i] = `${key}: ${yamlScalar(value)}`;
+      return;
+    }
+  }
+}
+
+/**
+ * The note with this part added to it.
+ *
+ * The part's typed notes go at the end of `## My notes`, verbatim; its
+ * transcript goes at the end of the file — which is the end of `## Transcript`,
+ * the heading this renderer always writes last — after the seam. A note that
+ * has lost either heading gets it back rather than losing the part.
+ *
+ * @param {string} markdown  The note as it is in the bucket now.
+ * @param {MeetingPart} part
+ * @param {{now?: string, maxGapMs?: number}} [options]
+ * @returns {string}
+ */
+export function continueMeetingNote(markdown, part, options = {}) {
+  if (!part || !part.session || typeof part.session !== "object") {
+    throw new TypeError("continueMeetingNote needs a part");
+  }
+  const { session } = part;
+  const offsetMs = Number.isFinite(part.offsetMs) && part.offsetMs > 0 ? part.offsetMs : 0;
+  const { frontmatterEnd, notes, summary, transcript, lines } = indexSections(markdown);
+  const out = [...lines];
+
+  if (frontmatterEnd > 0) {
+    setFrontmatter(out, frontmatterEnd, "updated", options.now ?? new Date().toISOString());
+    if (session.endedAt) setFrontmatter(out, frontmatterEnd, "ended", session.endedAt);
+    setFrontmatter(out, frontmatterEnd, "duration", formatDuration(offsetMs + (session.recordedMs ?? 0)));
+  }
+
+  /*
+    The transcript first, because it goes at the very end and so moves no
+    index the notes insertion below still needs.
+  */
+  const { body, machine } = transcriptBody(session, offsetMs, options.maxGapMs);
+  const alreadyCaveated = out.includes(TRANSCRIPT_CAVEAT);
+  const added = [
+    resumeSeam(part),
+    "",
+    ...(machine && !alreadyCaveated ? [TRANSCRIPT_CAVEAT, ""] : []),
+    ...(body.length ? body : [TRANSCRIPT_PLACEHOLDER]),
+  ];
+  while (out.length > 0 && out[out.length - 1] === "") out.pop();
+  const appendAt = out.length;
+  if (transcript === -1) out.push("", TRANSCRIPT_HEADING);
+  out.push("", ...added, "");
+
+  const typed = typeof session.notes === "string" ? session.notes.replace(/\s+$/, "") : "";
+  if (typed.trim() !== "") {
+    if (notes === -1) {
+      /*
+        No `## My notes` in the file any more. It goes back in above the
+        transcript, where the renderer puts it, rather than the part's notes
+        being dropped because the person tidied the heading away.
+      */
+      const at = transcript === -1 ? appendAt + 1 : transcript;
+      out.splice(at, 0, NOTES_HEADING, "", ...typed.split("\n"), "");
+    } else {
+      // The section runs to whichever of our headings comes next, as `parseMeetingNote` reads it.
+      const bounds = [summary, transcript].filter((index) => index > notes);
+      const end = bounds.length ? Math.min(...bounds) : appendAt;
+      let last = end - 1;
+      while (last > notes && out[last] === "") last -= 1;
+      out.splice(last + 1, 0, "", ...typed.split("\n"));
+    }
+  }
+
+  return out.join("\n");
+}
+
+/**
+ * What a meeting note says about the meeting, for offering to resume it.
+ *
+ * `null` for anything that is not a meeting note — no `type: meeting`, no
+ * `meeting-id` — which includes an encrypted note, whose frontmatter is inside
+ * the envelope.
+ *
+ * `recordedMs` is read from the file rather than remembered, because the
+ * device resuming a meeting need not be the one that recorded it: the larger
+ * of `duration` and the last clock in the transcript. `duration` is written to
+ * the minute, so the next part's clocks start where the file says the meeting
+ * got to, not a minute before its last turn.
+ *
+ * @param {string} markdown
+ * @returns {{meetingId: string, title: string, endedAt: string|null, recordedMs: number, parts: number}|null}
+ */
+export function meetingNoteFacts(markdown) {
+  const text = String(markdown ?? "");
+  const parsed = parseMeetingNote(text);
+  if (parsed.frontmatter.type !== "meeting") return null;
+  const meetingId = parsed.frontmatter["meeting-id"];
+  if (typeof meetingId !== "string" || meetingId === "") return null;
+
+  const ended = parsed.frontmatter.ended;
+  let lastClock = 0;
+  let parts = 1;
+  for (const line of (parsed.transcript ?? "").split("\n")) {
+    if (line.startsWith(RESUMED_PREFIX)) parts += 1;
+    const clock = /^\*\*\[(?:(\d+):)?(\d{2}):(\d{2})\]/.exec(line);
+    if (clock) {
+      const ms = ((Number(clock[1] ?? 0) * 60 + Number(clock[2])) * 60 + Number(clock[3])) * 1000;
+      if (ms > lastClock) lastClock = ms;
+    }
+  }
+
+  return {
+    meetingId,
+    title: parsed.title,
+    endedAt: typeof ended === "string" && ended !== "" ? ended : null,
+    recordedMs: Math.max(parseDuration(parsed.frontmatter.duration), lastClock),
+    parts,
+  };
+}
+
+/**
+ * `formatDuration`, backwards: `45s`, `31m`, `1h 05m`. Anything else is zero.
+ *
+ * @param {unknown} value
+ * @returns {number}
+ */
+export function parseDuration(value) {
+  if (typeof value !== "string") return 0;
+  const text = value.trim();
+  let match = /^(\d+)s$/.exec(text);
+  if (match) return Number(match[1]) * 1000;
+  match = /^(\d+)m$/.exec(text);
+  if (match) return Number(match[1]) * 60_000;
+  match = /^(\d+)h (\d{1,2})m$/.exec(text);
+  if (match) return (Number(match[1]) * 60 + Number(match[2])) * 60_000;
+  return 0;
 }

@@ -190,7 +190,7 @@ async function run(
     return { events: [] };
   }
 
-  const ack = await deps.gateway.finalize(to, record.session);
+  const ack = await deps.gateway.finalize(to, record.session, record.continues ?? null);
   /*
     `IngestAck.folderRejected` says the folder this meeting named is not where
     the note is — refused as a key, or already claimed by an earlier finalize.

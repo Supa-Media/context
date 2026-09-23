@@ -14,7 +14,7 @@ import { TransportMark } from "./components/TransportMark";
 import { NotesPad } from "./components/NotesPad";
 import { MeetingTitleField } from "./components/MeetingTitleField";
 import { meetings, recordElapsedMs } from "./controller";
-import { attendeeCount, clock, sourceLabel, timeOfDay } from "./format";
+import { attendeeCount, clock, duration, sourceLabel, timeOfDay } from "./format";
 import { liveAudioLine } from "./keptAudio";
 import type { MeetingRecord } from "./record";
 import { isSynced } from "./record";
@@ -211,12 +211,36 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
           "outside the window" the same condition rather than two that have to
           be kept in step. `docs/decisions/meetings.md` carries the argument.
         */}
-        <MeetingTitleField
-          initialValue={session.title}
-          onChangeText={onChangeTitle}
-          placeholder={UNTITLED_MEETING}
-          testID="meeting-title"
-        />
+        {/*
+          A part of a meeting that already has a note is not renamed here. The
+          part is spliced into that note, which keeps the heading somebody may
+          have already corrected (`continueMeetingNote`), so a field here would
+          take a new name and put it nowhere. The note is where it is renamed.
+        */}
+        {record.continues === undefined ? (
+          <MeetingTitleField
+            initialValue={session.title}
+            onChangeText={onChangeTitle}
+            placeholder={UNTITLED_MEETING}
+            testID="meeting-title"
+          />
+        ) : (
+          <Text style={styles.continuedTitle} numberOfLines={2} testID="meeting-title-static">
+            {session.title}
+          </Text>
+        )}
+        {record.continues === undefined ? null : (
+          <View style={styles.continued} testID="meeting-continues">
+            <View style={[styles.fact, styles.factResume]}>
+              <Text variant="pill" style={styles.factResumeText} testID="meeting-continues-chip">
+                {`Part ${record.continues.part} · adding to ${duration(record.continues.offsetMs)} already recorded`}
+              </Text>
+            </View>
+            <Text variant="mono" style={styles.continuedPath} numberOfLines={1} testID="meeting-continues-path">
+              {`→ ${record.continues.path}`}
+            </Text>
+          </View>
+        )}
         <View style={styles.facts}>
           <Fact label={timeOfDay(session.startedAt)} />
           <Fact label={peopleLabel(attendeeCount(session.attendees))} />
@@ -606,6 +630,19 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     letterSpacing: tracking(t.title, -0.03),
   },
   facts: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
+  /** `MeetingTitleField`'s own look, without the field. */
+  continuedTitle: {
+    fontFamily: fonts.display,
+    fontSize: t.h2,
+    lineHeight: 30,
+    letterSpacing: tracking(t.h2, -0.03),
+    fontWeight: "600",
+    color: colors.text,
+  },
+  continued: { gap: 6, alignItems: "flex-start" },
+  factResume: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+  factResumeText: { color: colors.accentText, fontSize: t.meta },
+  continuedPath: { color: colors.muted, fontSize: t.meta },
   fact: {
     flexDirection: "row",
     alignItems: "center",
