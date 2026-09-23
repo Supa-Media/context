@@ -47,14 +47,12 @@ const BOARDS = [
     // A pointer's `+` is pressed; a phone's sheet is drawn open.
     steps: { desktop: ["console-create"] },
     ready: { desktop: "menu-item-resume-meeting", phone: "create-row-resume-meeting" },
-    closeUp: { desktop: "menu-sheet" },
   },
   {
     name: "plus-menu-recent",
     query: "surface=menu&note=0",
     steps: { desktop: ["console-create"] },
     ready: { desktop: "menu-item-resume-meeting", phone: "create-row-resume-meeting" },
-    closeUp: { desktop: "menu-sheet" },
   },
   {
     name: "aside-panel",

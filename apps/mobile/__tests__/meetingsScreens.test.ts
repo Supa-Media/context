@@ -84,6 +84,8 @@ const { saveMeeting } =
   require("../features/meetings/local") as typeof import("../features/meetings/local");
 const { seedSession } =
   require("../features/meetings/session") as typeof import("../features/meetings/session");
+const { continuationFromRecord } =
+  require("../features/meetings/resume") as typeof import("../features/meetings/resume");
 const { PROTOCOL_VERSION: MEETING_PROTOCOL_VERSION } =
   require("../features/meetings/protocol") as typeof import("../features/meetings/protocol");
 const { currentEpoch } =
@@ -425,6 +427,43 @@ describe("the live screen is a notepad with a recorder attached", () => {
     // And the transcript really did arrive — otherwise this test proves nothing.
     expect(meetings.getSnapshot().live?.session.transcript).toHaveLength(2);
     mounted.unmount();
+  });
+
+  test("a resumed meeting does not say when this part started", async () => {
+    /*
+      Its clock carries on from where the note left off, so the part's own
+      start time beside it would say the meeting began a minute ago.
+    */
+    await configure();
+    let first = "";
+    await act(async () => {
+      first = await meetings.start({ title: "Reboot Camp" });
+      meetings.setNotes(first, "before the break");
+      await meetings.end();
+    });
+
+    const landed = meetings.getSnapshot().records.find((r) => r.session.id === first)!;
+    expect(landed.session.state).toBe("complete");
+    const continues = continuationFromRecord(meetings.getSnapshot().records, landed)!;
+    let second: string | null = null;
+    await act(async () => {
+      second = await meetings.continueMeeting({ continues, title: "Reboot Camp", destination: null });
+    });
+    const resumed = mount(createElement(LiveMeetingScreen, { meetingId: second! }));
+    expect(resumed.container.querySelector('[data-testid="meeting-clock"]')).not.toBeNull();
+    expect(resumed.container.querySelector('[data-testid="meeting-started-at"]')).toBeNull();
+    resumed.unmount();
+
+    await act(async () => {
+      await meetings.end();
+    });
+    let fresh = "";
+    await act(async () => {
+      fresh = await meetings.start({ title: "Something else" });
+    });
+    const plain = mount(createElement(LiveMeetingScreen, { meetingId: fresh }));
+    expect(plain.container.querySelector('[data-testid="meeting-started-at"]')).not.toBeNull();
+    plain.unmount();
   });
 
   test("the transcript is a chip, not a column", async () => {

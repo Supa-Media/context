@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { layout, radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
@@ -28,13 +29,18 @@ export function RecordButton({
   testID: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  // A pointer gets the pressed fill on hover, as `Button` does: an unlabelled
+  // disc that does not answer the pointer reads as decoration.
+  const [hovered, setHovered] = useState(false);
   return (
     <View style={styles.recordSlot}>
       <Pressable
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
-        style={({ pressed }) => [styles.record, pressed && styles.recordPressed]}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        style={({ pressed }) => [styles.record, (pressed || hovered) && styles.recordPressed]}
         testID={testID}
       >
         <View style={styles.recordDot} aria-hidden />

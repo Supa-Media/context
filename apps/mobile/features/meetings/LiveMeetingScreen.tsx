@@ -230,7 +230,14 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
           </Text>
         )}
         <View style={styles.facts}>
-          <Fact label={timeOfDay(session.startedAt)} />
+          {/*
+            When this part started, which is not when the meeting did: beside a
+            clock that carries on from 31:04 it would say the meeting began a
+            minute ago. The title and the clock carry a resumed meeting.
+          */}
+          {record.continues === undefined ? (
+            <Fact label={timeOfDay(session.startedAt)} testID="meeting-started-at" />
+          ) : null}
           <Fact label={peopleLabel(attendeeCount(session.attendees))} />
           <SourceChip label={sourceLabel(session.source)} detected={session.source.kind !== "unknown"} />
         </View>
@@ -550,10 +557,10 @@ function SyncChip({ record, syncing }: { record: MeetingRecord; syncing: boolean
  * announce itself correctly: "3 people" is a sentence, and an unlabelled person
  * glyph beside a bare "3" is not.
  */
-function Fact({ label }: { label: string }) {
+function Fact({ label, testID }: { label: string; testID?: string }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.fact}>
+    <View style={styles.fact} testID={testID}>
       <Text variant="rowSub" style={styles.factText}>
         {label}
       </Text>
