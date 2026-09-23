@@ -18,6 +18,8 @@
  * in the list say "Wrote" and "Read", in the past tense, for the same reason.
  */
 
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+
 export type AgentMarkKind = "read" | "write";
 
 export interface AgentMark {
@@ -154,10 +156,22 @@ export function agoShort(at: number, now: number): string {
   return `${Math.round(seconds / 60)}m`;
 }
 
-/** The note's name without its folders or `.md`, for a line that has little room. */
+/**
+ * The note's name without its folders or `.md`, for a line that has little room.
+ *
+ * **Contained here rather than at each caller**, because every use of this is a
+ * display: the agent row's line, and that row's accessibility label. Never a
+ * key, never a comparison. A note's name comes out of a bucket Context does not
+ * own — an editor in a shared workspace picks filenames, and so do Obsidian's
+ * sync plugin and the provider's console — so one U+202E in one reverses the
+ * rendering of the rest of the row it is drawn in, beside "Wrote", the agent's
+ * name and the timestamp. `isolateForDisplay` adds nothing to a name with
+ * nothing hostile in it. `displayContainment.test.ts` is the list of every
+ * boundary that draws a string Context did not choose, and this is on it.
+ */
 export function noteName(path: string): string {
   const base = path.split("/").pop() ?? path;
-  return base.endsWith(".md") ? base.slice(0, -3) : base;
+  return isolateForDisplay(base.endsWith(".md") ? base.slice(0, -3) : base);
 }
 
 /**

@@ -28,6 +28,7 @@ import { describe, expect, test } from "@jest/globals";
 import { crumbsFor } from "../features/console/files/crumbs";
 import { noteHeading } from "../features/console/files/frontmatter";
 import { displayName, displayPath, folderLabel } from "../features/console/files/paths";
+import { describeAgent, noteName } from "../features/console/agents/agentActivity";
 import { linkPromptMessage } from "../features/console/files/linkPrompt";
 import { statusSegments } from "../features/console/files/status";
 import { tabLabel } from "../features/console/files/tabs";
@@ -171,6 +172,39 @@ describe("the console contains a name it did not choose", () => {
     expect(source).toContain("Linking.openURL(url)");
   });
 
+  test("the agent sidebar's note name — noteName", () => {
+    /*
+      `noteName` exists only to draw: three call sites, all a `<Text>` or an
+      accessibility label, and none of them a key. So it contains at its own
+      exit, the way `crumbsFor` and `tabLabel` do, rather than each caller
+      remembering to.
+    */
+    expect(noteName(`1-projects/${HOSTILE}`)).toBe(`${FSI}sei${RLO}fdp${PDI}`);
+    expect(noteName(`1-projects/${ORDINARY}`)).toBe("seifdp");
+    // A path with no folder, and one whose leaf keeps an extension it is not
+    // `.md` — both are still only ever drawn.
+    expect(noteName(ORDINARY)).toBe("seifdp");
+    expect(noteName("1-projects/diagram.png")).toBe("diagram.png");
+  });
+
+  test("the agent row's line — describeAgent", () => {
+    const agent = (over: Record<string, unknown>) =>
+      describeAgent({
+        id: "a:0123456789abcdef", name: "An agent", color: "#112233",
+        at: 0, kind: "read", path: `1-projects/${ORDINARY}`, reads: 1, writes: 0,
+        ...over,
+      } as never);
+    expect(agent({ kind: "write", writes: 1, path: `1-projects/${HOSTILE}` })).toBe(
+      `Wrote ${FSI}sei${RLO}fdp${PDI}`,
+    );
+    expect(agent({ path: `1-projects/${HOSTILE}` })).toBe(`Read ${FSI}sei${RLO}fdp${PDI}`);
+    // The app's own words stay outside the container, and the counted forms
+    // name no note at all, so they are byte-identical.
+    expect(agent({})).toBe("Read seifdp");
+    expect(agent({ reads: 4 })).toBe("Read 4 notes");
+    expect(agent({ kind: "write", writes: 4 })).toBe("Wrote 4 notes");
+  });
+
   /*
     AND THE ENUMERATION STAYS AN ENUMERATION.
 
@@ -203,6 +237,46 @@ describe("the console contains a name it did not choose", () => {
     const found = execFileSync(
       "grep",
       ["-rl", "--include=*.ts", "--include=*.tsx", "withoutSortPrefix(", "features"],
+      { cwd: `${__dirname}/..`, encoding: "utf8" },
+    )
+      .split("\n")
+      .filter((line) => line !== "")
+      .filter((file) => !allowed.has(file));
+    expect(found).toEqual([]);
+  });
+
+  /*
+    AND THE ENUMERATION'S ENFORCEMENT STAYS AN ENUMERATION TOO.
+
+    The check above greps for `withoutSortPrefix(`, which finds a new display
+    site that *reuses* the trim. The thirteenth and fourteenth sites did not:
+    the link dialog drew a whole URL, and the agent sidebar wrote its own
+    `noteName` out of `path.split("/").pop()` — so the guard written to catch
+    this on the day it is written could not see either.
+
+    A guard keyed to one helper's name catches copies and not alternatives,
+    which is the same blocklist shape as the thing this whole file is about.
+    So this one is keyed to the *idiom* instead: taking a path apart to get a
+    leaf is how a display name gets made, wherever somebody writes it.
+
+    A file on this list is a decision somebody made once, not a pass.
+  */
+  test("no component takes a note's base name for display itself", () => {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const allowed = new Set([
+      // Contains at its own exit, and is checked for it above.
+      "features/console/agents/agentActivity.ts",
+      // A name inside an archive, not a label. Containing it would put two
+      // invisible characters into the filename somebody unzips.
+      "features/console/files/zip.ts",
+      // A key for the offline mirror, compared rather than drawn.
+      "features/offline/mirrorSearch.ts",
+    ]);
+    const found = execFileSync(
+      "grep",
+      ["-rl", "--include=*.ts", "--include=*.tsx", "\\.split(\"/\")\\.pop()", "features"],
       { cwd: `${__dirname}/..`, encoding: "utf8" },
     )
       .split("\n")
