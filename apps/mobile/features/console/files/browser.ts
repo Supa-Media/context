@@ -565,6 +565,32 @@ export interface FileBrowser {
   archive: (path: string) => void;
   /** Recoverable delete: moves the entry into the archive-backed trash and offers Undo. */
   destroy: (path: string) => void;
+  /**
+   * The tree's multi-selection, acted on as one operation.
+   *
+   * Not `move` in a loop, and the difference is visible: every call to a
+   * single-path method is its own `run`, and a newer `run` supersedes an older
+   * one — it clears the older one's toast, skips its refresh and takes the
+   * busy flag from it. Five moves in a row was one toast offering to undo the
+   * fifth and a tree that had reloaded one folder of the five.
+   *
+   * So each of these is one `run` that works through its paths in order and
+   * says one sentence about the lot, with one Undo that puts back everything
+   * that went. A path that fails stops the batch there, and the sentence says
+   * how far it got rather than calling a half-done batch a failure — the ones
+   * before it have already happened.
+   *
+   * Callers pass the paths they mean: `selection.ts`'s `topmost` has already
+   * dropped anything inside a folder that is also in the batch.
+   */
+  moveMany: (paths: readonly string[], destinationFolder: string) => void;
+  /** `copyTo` for several paths — the ⌥-drop of a multi-selection. */
+  copyManyTo: (paths: readonly string[], destinationFolder: string) => void;
+  /** `archive` for several paths, or "Restore" for several archived ones. */
+  archiveMany: (paths: readonly string[]) => void;
+  restoreMany: (paths: readonly string[]) => void;
+  /** `destroy` for several paths: one trip to the trash, one Undo. */
+  destroyMany: (paths: readonly string[]) => void;
   setVisibility: (path: string, kind: "file" | "folder", visibility: SettableVisibility) => void;
   /**
    * Point one note **or folder** at a group or a person, by name.

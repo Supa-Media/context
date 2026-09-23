@@ -410,23 +410,21 @@ describe("the visibility submenu", () => {
     for (const child of submenu?.items ?? []) expect(child.items).toBeUndefined();
   });
 
-  test("a uniform selection still gets one", () => {
-    const files = menu({
-      kind: "selection",
-      rows: [note("1-projects/a.md"), note("1-projects/b.md")],
-    });
-    expect(labels(find(files, "visibility")?.items ?? [])).toEqual([
-      "Make private",
-      "Share with the team",
-      "Use the folder's setting",
-    ]);
-    // A selection names how much it touches, the same rule Archive and Delete
-    // follow — "here" is one folder and would read as one for two of them.
-    const folders = menu({ kind: "selection", rows: [dir("1-projects"), dir("2-areas")] });
-    expect(labels(find(folders, "visibility")?.items ?? [])).toEqual([
-      "Make everything in 2 folders private",
-      "Share everything in 2 folders with the team",
-    ]);
+  /**
+   * Not yet, even a uniform one. Each row is its own write to `privacy.md`
+   * with no batch form and no single Undo, so a "Share 3 items with the team"
+   * that stopped after the second would leave a privacy change half made —
+   * the one item where half made is a disclosure. This used to assert the
+   * plural labels for a menu nothing could open; the tree can open it now,
+   * and nothing could run it.
+   */
+  test("a selection gets none, uniform or not", () => {
+    for (const rows of [
+      [note("1-projects/a.md"), note("1-projects/b.md")],
+      [dir("1-projects"), dir("2-areas")],
+    ]) {
+      expect(find(menu({ kind: "selection", rows }), "visibility")).toBeUndefined();
+    }
   });
 
   /** An item that applies to some of what is selected is a partial success. */
@@ -491,23 +489,23 @@ describe("a selection is a different menu, not the same one applied three times"
 
   test("every label says how many things it is about to touch", () => {
     expect(find(three, "moveTo")?.label).toBe("Move 3 items to…");
-    expect(find(three, "copy")?.label).toBe("Copy 3 items");
-    expect(find(three, "cut")?.label).toBe("Cut 3 items");
     expect(find(three, "copyPath")?.label).toBe("Copy 3 paths");
     expect(find(three, "archive")?.label).toBe("Archive 3 items");
     expect(find(three, "delete")?.label).toBe("Move 3 items to trash");
   });
 
   test("the whole list, in order", () => {
-    expect(ids(three)).toEqual([
-      "moveTo",
-      "copy",
-      "cut",
-      "copyPath",
-      "visibility",
-      "archive",
-      "delete",
-    ]);
+    expect(ids(three)).toEqual(["moveTo", "copyPath", "archive", "delete"]);
+  });
+
+  /**
+   * The clipboard holds one path (`clipboard.ts`), so "Copy 3 items" would
+   * put the first on it and paste one. ⌥-dragging the selection is how
+   * several are copied at once.
+   */
+  test("copy and cut are gone, because the clipboard holds one path", () => {
+    expect(find(three, "copy")).toBeUndefined();
+    expect(find(three, "cut")).toBeUndefined();
   });
 
   /**
@@ -997,14 +995,6 @@ describe("the visibility submenu marks the setting that is in force", () => {
     for (const item of items) expect(item.checked).toBeUndefined();
   });
 
-  test("a selection has no single state to mark", () => {
-    const items =
-      find(
-        menu({ kind: "selection", rows: [note("a.md"), note("b.md", { marker: "team" })] }),
-        "visibility",
-      )?.items ?? [];
-    for (const item of items) expect(item.checked).toBeUndefined();
-  });
 });
 
 describe("what a note follows is named, because a verb cannot carry it", () => {

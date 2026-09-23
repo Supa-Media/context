@@ -50,12 +50,14 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 // `mock`-prefixed so `jest.mock`'s hoisted factory may close over them.
 let mockLive: unknown = null;
 let mockRecords: unknown[] = [];
+let mockCanContinue = false;
 const mockCalls: { name: string; args: unknown[] }[] = [];
 
 jest.mock("../features/meetings/useMeetings", () => ({
   useMeetingsSnapshot: () => ({
     live: mockLive,
     records: mockRecords,
+    canContinue: mockCanContinue,
     ending: null,
     audio: {},
     offline: false,
@@ -72,6 +74,7 @@ jest.mock("../features/meetings/useMeetings", () => ({
 jest.mock("../features/meetings/controller", () => {
   const actual = jest.requireActual("../features/meetings/controller") as {
     recordElapsedMs: unknown;
+    meetingElapsedMs: unknown;
   };
   const record = (name: string) => (...args: unknown[]) => {
     mockCalls.push({ name, args });
@@ -79,6 +82,7 @@ jest.mock("../features/meetings/controller", () => {
   };
   return {
     recordElapsedMs: actual.recordElapsedMs,
+    meetingElapsedMs: actual.meetingElapsedMs,
     meetings: {
       setTitle: record("setTitle"),
       setNotes: record("setNotes"),
@@ -88,6 +92,7 @@ jest.mock("../features/meetings/controller", () => {
       resume: record("resume"),
       retry: record("retry"),
       retryFinalize: record("retryFinalize"),
+      continueMeeting: record("continueMeeting"),
     },
   };
 });
@@ -203,6 +208,7 @@ afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockLive = null;
+  mockCanContinue = false;
   mockRecords = [];
   mockCalls.length = 0;
 });
@@ -230,10 +236,11 @@ function mount(
     act(() => root.unmount());
     container.remove();
   });
-  act(() => {
+  const engine = createStubEngine();
+  const render = () =>
     root.render(
       createElement(AsidePanel, {
-        engine: createStubEngine(),
+        engine,
         place: PLACE,
         asked: options.asked ?? null,
         started: options.started ?? null,
@@ -241,13 +248,15 @@ function mount(
         onOpenNote: options.onOpenNote === undefined ? () => {} : options.onOpenNote,
       }),
     );
-  });
+  act(render);
   const find = (testId: string) =>
     container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   return {
     container,
     find,
     text: () => container.textContent ?? "",
+    /** Render again, after a `mock` snapshot value has changed under the panel. */
+    rerender: () => act(render),
     press: (testId: string) => {
       const node = find(testId);
       if (node === null) throw new Error(`no element with testID ${testId}`);
@@ -629,6 +638,62 @@ describe("a meeting that never reached the bucket", () => {
     expect(panel.text()).not.toContain("has not been written");
     expect(panel.text()).toContain("this device cannot address it");
     expect(panel.find("aside-meeting-retry")).toBeNull();
+  });
+
+  test("a filed meeting can be picked back up, into the note it already has", () => {
+    mockRecords = [filed()];
+    mockCanContinue = true;
+    const panel = mount({ onOpenNote: () => undefined });
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+    /*
+      The live card's quiet half, not a second primary: Open the note is the
+      row's default action, and Resume is marked by the record dot rather than
+      a colour of its own.
+    */
+    expect(panel.find("aside-meeting-resume")?.textContent).toBe("Resume");
+    expect(panel.find("aside-meeting-resume")?.getAttribute("aria-label")).toBe(
+      "Resume recording this meeting",
+    );
+    panel.press("aside-meeting-resume");
+
+    const call = mockCalls.find((c) => c.name === "continueMeeting");
+    expect(call?.args[0]).toMatchObject({
+      title: "Leads call",
+      continues: {
+        path: "0-inbox/meetings/2026-09-18-leads-call.md",
+        meetingId: "m0",
+        offsetMs: 2_460_000,
+        part: 2,
+      },
+    });
+  });
+
+  test("but not where this device's writer cannot add to a note", () => {
+    mockRecords = [filed()];
+    mockCanContinue = false;
+    const panel = mount({ onOpenNote: () => undefined });
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+    expect(panel.find("aside-meeting-resume")).toBeNull();
+  });
+
+  test("stopping leaves the panel on the meeting that just ended, one press from Resume", () => {
+    mockLive = recording();
+    mockCanContinue = true;
+    const panel = mount({ onOpenNote: () => undefined });
+    panel.press("aside-tab-meetings");
+    expect(panel.find("aside-live-meeting")).not.toBeNull();
+
+    const saved = filed();
+    mockLive = null;
+    mockRecords = [{ ...saved, session: { ...saved.session, id: "m1", title: "Pricing sync" } }];
+    panel.rerender();
+
+    expect(panel.find("aside-live-meeting")).toBeNull();
+    expect(panel.find("aside-meeting-open-note")).not.toBeNull();
+    expect(panel.find("aside-meeting-resume")).not.toBeNull();
+    expect(panel.text()).toContain("Pricing sync");
   });
 
   test("a filed meeting keeps its door to the editor and grows no landing", () => {

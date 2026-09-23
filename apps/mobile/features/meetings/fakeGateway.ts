@@ -1,4 +1,5 @@
 import type { MeetingDestination } from "./destination";
+import type { MeetingContinuation } from "./record";
 import { MeetingGatewayError, type MeetingsGateway } from "./gateway";
 import { ERRORS } from "./protocol";
 import type {
@@ -53,6 +54,13 @@ export interface FakeGateway extends MeetingsGateway {
   withholdNotePath(count: number): void;
   /** How many notes this gateway has written. Idempotency's observable. */
   notesWritten(): number;
+  /**
+   * The continuation each finalize carried, by session id — what a resumed
+   * part asked to be added to. A part this fake could not splice is filed as
+   * a note of its own, which is what every writer does with `continues` it
+   * cannot act on, so a test can tell the two apart by the path it got back.
+   */
+  readonly continued: Map<string, MeetingContinuation>;
 }
 
 export function fakeGateway(
@@ -74,8 +82,12 @@ export function fakeGateway(
      * contradicting.
      */
     refusesFolder?: (folder: string) => boolean;
+    /** Whether this fake adds a resumed part to the note it names. Default `true`. */
+    canContinue?: boolean;
   } = {},
 ): FakeGateway {
+  const canContinue = options.canContinue ?? true;
+  const continued = new Map<string, MeetingContinuation>();
   const held = new Map<string, MeetingSession>();
   const segments = new Map<string, Map<string, TranscriptSegment>>();
   const calls: string[] = [];
@@ -210,6 +222,8 @@ export function fakeGateway(
   return {
     held,
     calls,
+    continued,
+    canContinue,
     failNext(code, message = "refused") {
       queuedFailure = { code, message };
     },
@@ -264,8 +278,9 @@ export function fakeGateway(
       return ack(next);
     },
 
-    async finalize(to, incoming) {
+    async finalize(to, incoming, continues) {
       gate("finalize");
+      if (continues) continued.set(incoming.id, continues);
       /*
         The id, not the object. This fake stands in for the *gateway*, which
         holds the session it was posted and answers about that one — a fake that
@@ -298,7 +313,8 @@ export function fakeGateway(
       const next: MeetingSession = {
         ...session,
         state: "complete",
-        notePath: notePathFor(session, refused ? null : to),
+        notePath:
+          continues && canContinue ? continues.path : notePathFor(session, refused ? null : to),
         enhanced: session.enhanced ?? enhancedFrom(session),
       };
       held.set(sessionId, next);

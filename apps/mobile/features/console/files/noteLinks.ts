@@ -1,4 +1,5 @@
-import { RangeSetBuilder, type Extension } from "@codemirror/state";
+import { RangeSetBuilder, type EditorState, type Extension } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
 import {
   Decoration,
   EditorView,
@@ -11,6 +12,9 @@ import {
 import { indexByName, parseLinks, resolveLink } from "@context/shared/src/links";
 
 import { selectionTouches } from "./livePreview";
+import { webUrl } from "./webUrl";
+
+export { webUrl } from "./webUrl";
 
 /**
  * A link to another note is a link you can follow.
@@ -73,6 +77,17 @@ import { selectionTouches } from "./livePreview";
  * otherwise, so there is nothing to open — the alternative would be underlining
  * a word and doing nothing when it is clicked.
  *
+ * ## A web link opens too
+ *
+ * `[site](https://example.com)`, `<https://…>` and a bare `https://…` were
+ * drawn as links and a click put the caret in them — the owner's words:
+ * "clicking on a [regular](link.com) does not work". They follow on the same
+ * click, with the same two ways into their text, and open wherever the host
+ * says (`onOpenUrl`): a new tab on the web, the real browser from the desktop
+ * shell, and on a phone after a sheet naming the address, because that is the
+ * one message the web view sends that leaves the app. What counts as a web
+ * address is `webUrl.ts`, which allow-lists the scheme.
+ *
  * Resolution is `@context/shared`'s — the same engine that rewrites these links
  * when a note moves, so what the editor calls a link and what a rename follows
  * are the same set by construction. They would otherwise drift into a state
@@ -108,6 +123,12 @@ export interface NoteLinkContext {
   paths?: readonly string[];
   /** A click, a ⌘-click, a middle-click, or a tap. */
   onOpen: (path: string, mode: NoteLinkOpen) => void;
+  /**
+   * A link out of the bucket was clicked — a web page or an email address,
+   * already checked by `webUrl`. Absent means this surface cannot open one,
+   * and such a link then takes the caret like any other text.
+   */
+  onOpenUrl?: (url: string) => void;
 }
 
 /**
@@ -156,6 +177,12 @@ export function noteLinksIn(
       draw, for a different reason, and they are one branch here because the
       resulting behaviour is the same: leave the text alone.
     */
+    /*
+      `[site](example.com/page)` is a web page somebody forgot the scheme on,
+      not a note in a folder called `example.com` — see `webUrl`. Left to
+      `webLinkAt`, which opens it, rather than drawn as a note that is not there.
+    */
+    if (link.kind === "inline" && webUrl(link.target) !== null) continue;
     const path = resolveLink(link, context.path, byName);
     if (path === null) continue;
     spans.push({ ...widen(text, link), path });
@@ -189,6 +216,47 @@ function widen(text: string, link: { kind: string; start: number; end: number })
 /** The link under a position, or `null`. */
 export function noteLinkAt(spans: readonly NoteLinkSpan[], pos: number): NoteLinkSpan | null {
   return spans.find((span) => pos >= span.from && pos <= span.to) ?? null;
+}
+
+/** A link out of the bucket, and what opening it opens. */
+export interface WebLinkSpan {
+  from: number;
+  to: number;
+  url: string;
+}
+
+/**
+ * The web link at `pos`, as the grammar reads the document, or `null`.
+ *
+ * Three shapes: `[label](https://…)`, `<https://…>`, and a bare `https://…`
+ * or `www.…` that GFM makes a link on its own. The span is the whole construct,
+ * as with a note link, because the words are what a person aims at.
+ *
+ * From the syntax tree rather than from `parseLinks`, because the question is
+ * what live preview has *drawn* as a link, and it draws what the tree says.
+ */
+export function webLinkAt(state: EditorState, pos: number): WebLinkSpan | null {
+  let found: WebLinkSpan | null = null;
+  syntaxTree(state).iterate({
+    from: pos,
+    to: pos,
+    enter(node) {
+      if (found !== null || node.name === "Image") return false;
+      if (node.name === "Link" || node.name === "Autolink") {
+        const target = node.node.getChild("URL");
+        const url = target === null ? null : webUrl(state.sliceDoc(target.from, target.to));
+        if (url !== null) found = { from: node.from, to: node.to, url };
+        return false;
+      }
+      if (node.name === "URL") {
+        const url = webUrl(state.sliceDoc(node.from, node.to));
+        if (url !== null) found = { from: node.from, to: node.to, url };
+        return false;
+      }
+      return undefined;
+    },
+  });
+  return found;
 }
 
 /**
@@ -289,7 +357,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
 
   const tooltip = hoverTooltip((view, pos): Tooltip | null => {
     const span = noteLinkAt(spansOf(view), pos);
-    if (span === null) return null;
+    if (span === null) return webTooltip(view, pos);
     return {
       pos: span.from,
       end: span.to,
@@ -313,6 +381,30 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       },
     };
   });
+
+  /** The same card over a web link: where it goes, and how to edit it instead. */
+  const webTooltip = (view: EditorView, pos: number): Tooltip | null => {
+    if (ref.current.onOpenUrl === undefined) return null;
+    const web = webLinkAt(view.state, pos);
+    if (web === null) return null;
+    return {
+      pos: web.from,
+      end: web.to,
+      above: true,
+      create: () => {
+        const dom = document.createElement("div");
+        dom.className = "cm-note-link-tooltip";
+        const name = document.createElement("span");
+        name.className = "cm-note-link-name";
+        name.textContent = web.url;
+        const hint = document.createElement("span");
+        hint.className = "cm-note-link-hint";
+        hint.textContent = "Click to open · ⌥ edit";
+        dom.append(name, hint);
+        return { dom };
+      },
+    };
+  };
 
   /**
    * Whether this link is currently showing its source, with a caret in it.
@@ -339,13 +431,34 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   const ranges = (view: EditorView): { from: number; to: number }[] =>
     view.state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
 
-  const editing = (view: EditorView, span: NoteLinkSpan): boolean =>
+  const editing = (view: EditorView, span: { from: number; to: number }): boolean =>
     view.hasFocus && selectionTouches(span, ranges(view));
 
-  const linkAtCoords = (view: EditorView, x: number, y: number): NoteLinkSpan | null => {
+  /**
+   * What is under the pointer: a note to open, a web address to open, or
+   * nothing. A note link wins where both could answer, because the note
+   * resolver is the one that knows this bucket.
+   *
+   * A web link is only offered when the surface can open one — without
+   * `onOpenUrl` it stays text the caret goes into, which is what it was.
+   */
+  const targetAtCoords = (
+    view: EditorView,
+    x: number,
+    y: number,
+  ): { from: number; to: number; path?: string; url?: string } | null => {
     const pos = view.posAtCoords({ x, y });
     if (pos === null) return null;
-    return noteLinkAt(spansOf(view), pos);
+    const note = noteLinkAt(spansOf(view), pos);
+    if (note !== null) return note;
+    if (ref.current.onOpenUrl === undefined) return null;
+    return webLinkAt(view.state, pos);
+  };
+
+  /** Follow what `targetAtCoords` found. */
+  const follow = (target: { path?: string; url?: string }, mode: NoteLinkOpen): void => {
+    if (target.path !== undefined) ref.current.onOpen(target.path, mode);
+    else if (target.url !== undefined) ref.current.onOpenUrl?.(target.url);
   };
 
   /*
@@ -363,7 +476,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     recognisers has an opinion, and it is not ambiguous, so there is nothing to
     ask about.
   */
-  let tap: { x: number; y: number; path: string; startedAt: number } | null = null;
+  let tap: { x: number; y: number; path?: string; url?: string; startedAt: number } | null = null;
   const forget = () => {
     tap = null;
   };
@@ -379,7 +492,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         click belongs to the caret.
       */
       if (event.altKey) return false;
-      const span = linkAtCoords(view, event.clientX, event.clientY);
+      const span = targetAtCoords(view, event.clientX, event.clientY);
       if (span === null) return false;
       // The link is unfolded to its source and somebody is working inside it.
       if (editing(view, span)) return false;
@@ -390,14 +503,14 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         still do.
       */
       event.preventDefault();
-      ref.current.onOpen(span.path, opensBehind(event, navigatorAgent()) ? "background" : "foreground");
+      follow(span, opensBehind(event, navigatorAgent()) ? "background" : "foreground");
       return true;
     },
     touchstart(event, view) {
       forget();
       if (event.touches.length !== 1) return false;
       const touch = event.touches[0]!;
-      const span = linkAtCoords(view, touch.clientX, touch.clientY);
+      const span = targetAtCoords(view, touch.clientX, touch.clientY);
       if (span === null) return false;
       /*
         THE PHONE'S WAY INTO A LINK'S TEXT, and without it there is none.
@@ -414,7 +527,13 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         pointer spends, without the modifier.
       */
       if (editing(view, span)) return false;
-      tap = { x: touch.clientX, y: touch.clientY, path: span.path, startedAt: Date.now() };
+      tap = {
+        x: touch.clientX,
+        y: touch.clientY,
+        path: span.path,
+        url: span.url,
+        startedAt: Date.now(),
+      };
       // Deliberately `false`: the touch keeps behaving like a touch — the note
       // still scrolls, the caret still lands — until `touchend` decides it was
       // a tap. Claiming the event here would break scrolling over any note
@@ -432,7 +551,8 @@ export function noteLinks(ref: NoteLinkRef): Extension {
     },
     touchend(event) {
       if (tap === null) return false;
-      const { path, startedAt } = tap;
+      const { startedAt } = tap;
+      const target = tap;
       forget();
       // Held too long: a selection, and the platform's to finish.
       if (Date.now() - startedAt > TAP_MAX_MS) return false;
@@ -442,7 +562,7 @@ export function noteLinks(ref: NoteLinkRef): Extension {
         caret in it — the arriving note scrolled to wherever the finger was.
       */
       event.preventDefault();
-      ref.current.onOpen(path, "foreground");
+      follow(target, "foreground");
       return true;
     },
     touchcancel() {

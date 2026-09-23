@@ -75,6 +75,17 @@ export const UNKNOWN_SPEAKER = "Speaker";
  * guard does what its own rationale calls worse than the alternative.
  */
 export const MAX_SEGMENT_ID_CHARS = 200;
+/**
+ * How long a speaker label may be.
+ *
+ * Bounded for the reason the id is: the record lives under `.meetings/`, which
+ * `isPlumbing` hides from every note surface at every tier including the
+ * owner's, so an unbounded field there grows a session invisibly to the person
+ * paying for it. Truncated rather than refused, because a speaker is a label
+ * and not a merge key — refusing would drop the turn, which is worse than
+ * shortening a name.
+ */
+export const MAX_SPEAKER_CHARS = 120;
 
 /**
  * Coerce one segment into the shape the rest of the package may assume, or
@@ -109,7 +120,19 @@ export function normalizeSegment(input) {
   const text = String(raw.text ?? "").replace(/\s+/g, " ").trim();
   if (!text) return null;
 
-  const speaker = typeof raw.speaker === "string" && raw.speaker.trim() ? raw.speaker.trim() : null;
+  /*
+    Collapsed like the text above, and for a second reason as well as its own.
+
+    `renderTurn` writes `**[clock] <speaker>** — <text>`, so a newline here
+    ends that line early and whatever follows begins a line of its own in the
+    customer's note. One of the lines it could begin is a `_Resumed <stamp>`
+    seam, which `continuesMeetingNote` reads as "this part is already in the
+    file" — so a forged one drops a part that really was recorded, silently.
+    `\s+` covers CR, LF and the line and paragraph separators together, which
+    a hand-written control-character class is the usual way to miss.
+  */
+  const label = typeof raw.speaker === "string" ? raw.speaker.replace(/\s+/g, " ").trim() : "";
+  const speaker = label ? label.slice(0, MAX_SPEAKER_CHARS) : null;
   const channel = typeof raw.channel === "string" && CHANNELS.has(raw.channel) ? raw.channel : "mixed";
 
   let confidence = null;

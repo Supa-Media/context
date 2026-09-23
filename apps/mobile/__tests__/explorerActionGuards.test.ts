@@ -377,6 +377,11 @@ function browser(
     canDownload: true,
     archive: record("archive"),
     destroy: record("destroy"),
+    moveMany: record("moveMany"),
+    copyManyTo: record("copyManyTo"),
+    archiveMany: record("archiveMany"),
+    restoreMany: record("restoreMany"),
+    destroyMany: record("destroyMany"),
     setVisibility: record("setVisibility"),
     shareWithGroup: () => {},
     setScope: record("setScope"),
@@ -1062,5 +1067,135 @@ describe("a drop is performed only when dnd.ts permits it", () => {
     // or `setDialog`, so `overlayOpen` never changes and the mount effect's one
     // entry is still the only one.
     expect(refused.calls.props).toEqual([{ name: "onOverlayChange", args: [false] }]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                              several rows at once                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⌘/ctrl-click and shift-click, through the mounted tree.
+ *
+ * `selection.ts` has the rules and `treeInteractions.test.ts` has the click
+ * reaching them; what only a mounted `Explorer` can show is that the pick then
+ * reaches the menu and the drag as **one** batch call — and that a gesture on
+ * a row outside the pick acts on that row alone, never on the rows still
+ * drawn picked beside it.
+ */
+describe("a pick is acted on as one batch", () => {
+  /** Where a real click lands: the drawn name, inside the pressable. */
+  function clickRow(container: HTMLElement, name: string, init: MouseEventInit = {}): void {
+    const label = [...rowNode(container, name).querySelectorAll("*")].find(
+      (node) => node.textContent === displayName(name) && node.children.length === 0,
+    );
+    if (label === undefined) throw new Error(`no label for ${name}`);
+    act(() => {
+      label.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, ...init }),
+      );
+    });
+  }
+
+  function pickTwo(container: HTMLElement): void {
+    // jsdom is not a Mac, so ctrl is the toggle key.
+    clickRow(container, "note.md", { ctrlKey: true });
+    clickRow(container, "other.md", { ctrlKey: true });
+  }
+
+  test("right-clicking a picked row offers the plural menu, and trash takes all of them", () => {
+    const editor = mount(true);
+    pickTwo(editor.container);
+    openRowMenu(editor.container, "note.md");
+    pressMenuItem("Move 2 items to trash");
+
+    expect(editor.calls.entries).toEqual([
+      { name: "destroyMany", args: [["note.md", "other.md"]] },
+    ]);
+  });
+
+  test("shift-click picks the range between", () => {
+    const editor = mount(true);
+    clickRow(editor.container, "2-areas", { ctrlKey: true });
+    clickRow(editor.container, "other.md", { shiftKey: true });
+    openRowMenu(editor.container, "note.md");
+    pressMenuItem("Move 3 items to trash");
+
+    expect(editor.calls.entries).toEqual([
+      { name: "destroyMany", args: [["2-areas", "note.md", "other.md"]] },
+    ]);
+  });
+
+  test("dragging a picked row carries the whole pick, as one move", () => {
+    const editor = mount(true);
+    pickTwo(editor.container);
+    drag(rowNode(editor.container, "other.md"), rowNode(editor.container, "1-projects"));
+
+    expect(editor.calls.entries).toEqual([
+      { name: "moveMany", args: [["note.md", "other.md"], "1-projects"] },
+    ]);
+  });
+
+  test("a right-click outside the pick is that row's menu, and ends the pick", () => {
+    const editor = mount(true);
+    clickRow(editor.container, "2-areas", { ctrlKey: true });
+    clickRow(editor.container, "other.md", { ctrlKey: true });
+    openRowMenu(editor.container, "note.md");
+    pressMenuItem("Move to trash");
+
+    expect(editor.calls.entries).toEqual([{ name: "destroy", args: ["note.md"] }]);
+
+    // And the pick is gone: a row that was in it now gets its own menu.
+    openRowMenu(editor.container, "other.md");
+    expect(document.body.textContent).not.toContain("Move 2 items to trash");
+  });
+
+  test("a drag of a row outside the pick moves that row alone", () => {
+    const editor = mount(true);
+    clickRow(editor.container, "2-areas", { ctrlKey: true });
+    clickRow(editor.container, "other.md", { ctrlKey: true });
+    drag(rowNode(editor.container, "note.md"), rowNode(editor.container, "1-projects"));
+
+    expect(editor.calls.entries).toEqual([{ name: "move", args: ["note.md", "1-projects"] }]);
+  });
+
+  test("a plain click puts the pick down", () => {
+    const editor = mount(true);
+    pickTwo(editor.container);
+    clickRow(editor.container, "note.md");
+    openRowMenu(editor.container, "note.md");
+
+    expect(document.body.textContent).not.toContain("Move 2 items to trash");
+    expect(document.body.textContent).toContain("Move to trash");
+  });
+
+  test("Escape puts the pick down", () => {
+    const editor = mount(true);
+    pickTwo(editor.container);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    openRowMenu(editor.container, "note.md");
+
+    expect(document.body.textContent).not.toContain("Move 2 items to trash");
+  });
+
+  test("moving a pick asks where, once, for all of them", () => {
+    const editor = mount(true);
+    pickTwo(editor.container);
+    openRowMenu(editor.container, "note.md");
+    pressMenuItem("Move 2 items to…");
+
+    expect(document.body.textContent).toContain("Move 2 items");
+    expect(editor.calls.entries).toEqual([]);
+  });
+
+  test("a read-only console picks nothing it could write", () => {
+    const reader = mount(false);
+    pickTwo(reader.container);
+    openRowMenu(reader.container, "note.md");
+
+    expect(document.body.textContent).not.toContain("to trash");
+    expect(reader.calls.entries).toEqual([]);
   });
 });

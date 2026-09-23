@@ -4355,10 +4355,125 @@ back to `retrySync` in the recovery path restores the defect this section
 opens with, and the check that fails is `the retry actually asks the gateway
 again, rather than stamping a clock`.
 
-**Still open, and deliberately a separate change:** resuming a meeting into the
+**Resolved by the next section (2026-09-23), and the paragraph kept for the
+argument:** resuming a meeting into the
 same note. The client state table allows `failed -> recording` and nothing emits
 it; the gateway short-circuits a finalize on an already-complete session rather
 than rewriting the claimed path, which is what keeps a crash-retry from forking
 somebody's bucket into near-duplicates. Continuing a meeting therefore needs a
 way to tell a retry from a continuation, and that is a gateway decision with the
 customer's bucket on the other side of it.
+
+## A resumed meeting is a new part spliced into the note it already has (2026-09-23)
+
+Somebody stops a meeting for a break, its note lands, and the meeting starts
+again. The design (the resume offer on the note, a floating bar, the recording
+view) asked for one file and one meeting out of that. What was built, and why
+each piece is the shape it is:
+
+**A part is a new session, not the old one reopened.** The paragraph above
+names the trap: the gateway short-circuits a finalize on a `complete` session so
+a crash-retry cannot fork the bucket, and the client state table never emits
+`complete -> recording`. Reopening would mean weakening the one guard that
+keeps retries idempotent. So `complete` stays terminal, and a part is a fresh
+session with its own id and clock, carrying `MeetingRecord.continues`: the
+note's path, the meeting it continues (the first part's `meeting-id`), how much
+was already recorded (`offsetMs`), when it stopped, and which part this is.
+`continues` is client-local like `destination` and is validated on the way back
+off disk (`parseContinuation`: a safe `.md` path, a real meeting id, a
+non-negative offset, a part of at least 2).
+
+**The part is spliced into the note, never re-rendered over it.** The note has
+been the customer's since it landed: they may have corrected the summary,
+retitled it, or typed under `## My notes`. `continueMeetingNote`
+(`packages/meetings/src/note.js`) is a pure function of the current text and the
+part. It rewrites only `updated`, `ended` and `duration`, and only if those
+lines are still there, because a key somebody deleted stays deleted. It appends
+the part's notes after the last line of `## My notes` and its transcript after a
+seam at the end of `## Transcript`, with clocks and flags moved by `offsetMs` so
+the meeting reads as one. The seam line,
+`_Resumed 2026-09-21 14:14:03 UTC, 18m after it stopped._`, is also the
+idempotency marker. This write is an overwrite by design, so the create-only
+rule that makes a first finalize safe does not apply. A part whose seam is
+already in the note is a part whose write landed and whose answer was lost, and
+`continuesMeetingNote` answers that without writing again.
+
+**Read, splice, write back with the etag that was read.** The phone's writer
+(`convexGateway.continueInto`) reads the note through `files.readNote`, which
+follows the forwarding ledger, so a note that was moved is still found. It
+writes through `files.writeNote` with `expectedEtag`, which merges through the
+collaboration engine from that exact base. Somebody typing into the note
+between the read and the write turns the write into a `CONFLICT`, and the
+writer reads and splices again, three times, then hands the part back to the
+queue as `unavailable` with a sentence of its own (`noteBusy`). It never
+overwrites.
+
+**When there is no note to add to, the part is filed as its own note.** That
+covers a note that was deleted, is encrypted, is read-only to this person, or
+whose `meeting-id` is not this meeting. It is worse than one file and still
+acceptable: the part is somebody's meeting, and a missing destination is never a
+reason to lose it. The id comparison is the guard against splicing one meeting
+into another note that took its path.
+
+**Only a writer that can do this offers it.** `MeetingsGateway.canContinue` is
+true on the phone and web writer (`convexGateway`, when it was given
+`readNote`). The desktop shell and the HTTP gateway do not continue notes yet,
+say so, and nothing offers Resume over them, because an offer that says "same
+file, one meeting" over a writer that would file a second note is a false
+claim. A part that reaches such a writer anyway is filed as its own note.
+
+**One set of rules for every surface** (`features/meetings/resume.ts`). A
+meeting is offered back only when it is saved, nothing is recording, no part of
+the same meeting is still on its way or stuck, and the writer can continue.
+A part in flight belongs to the red bar and its Retry, and a second part on top
+of an unlanded first would splice out of order. The next part continues from
+the newest part that landed. From the note itself, the offset and part number
+are read off the file (`meetingNoteFacts`), because another device may have
+added a part this one never saw.
+
+**Two places: the meeting and the `+` (redesigned 2026-09-23).** The first
+version offered Resume on five surfaces: a floating teal bar, a teal band in
+the note, buttons on the meeting page and in the panel, and a "Part N" chip on
+the recording view. The owner called it "SO ugly", and the rule that came out
+of that is in [app-and-console](./app-and-console.md): no UI ships without a
+design audit first. The audit found one verb drawn five times, the accent used
+as a status colour, the hero button used four times, the undo glyph standing
+in for recording, and copy about parts and files. Resume now lives in two
+places, both built from existing parts:
+
+- **The meeting itself.** On a phone, the meeting's page carries the same
+  record disc as the meetings list (`RecordButton`), standing down while
+  anything is stranded. In the console's Meetings panel, a past meeting has
+  the live card's own button pair: "Open the note" and a quiet "Resume" marked
+  with the red record dot. Stop & save leaves the panel on the meeting that
+  just ended, so Resume sits one row below where Stop was.
+- **The `+`.** A "Resume meeting" row sits directly above New meeting in both
+  `+`s (the console menu and the phone sheet), because the failure it prevents
+  is pressing New meeting and getting a second note. When the open note is a
+  meeting note that may be continued, the row says "Adds to this note." and
+  continues that note, which also covers a meeting another device recorded.
+  Otherwise it names the newest meeting on this device, within
+  `RESUME_RECENT_WINDOW_MS` (two hours, a default picked for "a break in the
+  middle of a meeting", not decided by the owner). `resumeRowFor` decides.
+
+Nothing is drawn until somebody goes to record, so nothing needs dismissing,
+and `resumeDismissed` is gone (old records carrying it still load). Continuity
+is shown rather than explained: a resumed meeting's clock, and the stamps on
+notes typed during it, run on the meeting's time (`meetingElapsedMs`), so part
+two opens at 31:04 and not 0:00. The word "part" is never on screen. While a
+part records, its title is not editable, because the heading it lands under
+is the note's.
+
+The meetings list and the panel's Recent list show one row per meeting
+(`oneRowPerMeeting`), the newest part, with the whole meeting's length.
+
+**Still open:** a later part's own page shows only that part's summary and
+transcript; the desktop and HTTP writers do not continue.
+
+**What a "simplification" would cost.** Re-rendering the note from the device's
+records instead of splicing erases every edit the person made between parts.
+Dropping `expectedEtag` makes the write create-only and every resume fails.
+Skipping the seam check adds the part twice on every lost answer. Dropping
+`continues` from the controller's event fold, the bug this change first shipped
+with in its own branch, files every part as a second note.
+`meetingsResume.test.ts` and `continuation.test.mjs` fail for each of these.

@@ -1,5 +1,6 @@
+import { safeNotePath } from "../console/nav";
 import { parseDestination, type MeetingDestination } from "./destination";
-import { ERRORS } from "./protocol";
+import { ERRORS, isMeetingId } from "./protocol";
 import type { MeetingSession, TranscriptSegment } from "./protocol";
 import { hasNothingCaptured } from "./session";
 
@@ -61,6 +62,37 @@ export interface MeetingAck {
   notes: string | null;
   /** Finalize has been accepted; the gateway owns the note from here. */
   finalized: boolean;
+}
+
+/**
+ * The note a resumed recording is added to.
+ *
+ * A meeting picked back up is not the first session reopened. `complete` stays
+ * terminal, by the contract and for its reason — once the note is in the
+ * bucket, the note is the meeting. What resuming makes is a **part**: a new
+ * session, with its own id, recorded exactly like any other, whose finalize
+ * splices it into the note that is already there (`continueMeetingNote` in
+ * `@context/meetings/note`) instead of creating one.
+ *
+ * Client-local like `destination`, and for the same reason: it is this
+ * device's knowledge of where a request it has not made yet is going, and the
+ * session that request carries is the contract's shape, not widened here.
+ * Written once, when Resume is pressed, from whatever answered "what is this
+ * meeting so far" at that moment — the note itself, or this device's own
+ * record of the part before — and never re-derived at finalize, when the note
+ * may have moved on.
+ */
+export interface MeetingContinuation {
+  /** Where the note was when Resume was pressed. The finalize reads it there. */
+  path: string;
+  /** The meeting the note says it is: its first part's id, from `meeting-id`. */
+  meetingId: string;
+  /** How much of the meeting the note already held. Every clock in this part moves by it. */
+  offsetMs: number;
+  /** When the meeting last stopped, for the seam's "18m after it stopped". */
+  previousEndedAt: string | null;
+  /** Which part this is — 2 for the first resume. Drawn, never written. */
+  part: number;
 }
 
 export interface MeetingRecord {
@@ -131,6 +163,11 @@ export interface MeetingRecord {
    * they are.
    */
   interrupted?: true;
+  /**
+   * This recording is a later part of a meeting whose note already exists.
+   * Absent for an ordinary meeting. See `MeetingContinuation`.
+   */
+  continues?: MeetingContinuation;
   /** ISO timestamp the currently-open recording interval started at. */
   runningSince: string | null;
   /** When anything about this record last changed, for ordering a restore. */
@@ -499,6 +536,7 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
   if (record.workspaceId !== workspaceId) return null;
   if (!isSession(record.session)) return null;
   const acked = isAck(record.acked) ? record.acked : emptyAck();
+  const continues = parseContinuation(record.continues);
   return {
     version: MEETING_RECORD_VERSION,
     workspaceId,
@@ -523,6 +561,14 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
     ...(record.folderRejected === true ? { folderRejected: true as const } : {}),
     // Narrowed the same way, and for the same reason.
     ...(record.interrupted === true ? { interrupted: true as const } : {}),
+    /*
+      Re-validated for `destination`'s reason: the path becomes a key in a read
+      and a write against the customer's own bucket. A continuation that will
+      not parse is dropped rather than the record, which leaves an ordinary
+      meeting — its finalize then files the part as a note of its own, which
+      loses nothing.
+    */
+    ...(continues === null ? {} : { continues }),
     acked,
     runningSince: typeof record.runningSince === "string" ? record.runningSince : null,
     updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,
@@ -531,6 +577,20 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
     lastError: record.lastError,
     retriedAt: typeof record.retriedAt === "number" ? record.retriedAt : undefined,
   };
+}
+
+/** A continuation read back off a device, or `null` for anything that is not one. */
+export function parseContinuation(value: unknown): MeetingContinuation | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { path, meetingId, offsetMs, previousEndedAt, part } = value as Record<string, unknown>;
+  if (typeof path !== "string" || path === "" || safeNotePath(path) !== path || !path.endsWith(".md")) return null;
+  if (!isMeetingId(meetingId)) return null;
+  if (typeof offsetMs !== "number" || !Number.isFinite(offsetMs) || offsetMs < 0) return null;
+  if (previousEndedAt !== null && (typeof previousEndedAt !== "string" || !Number.isFinite(Date.parse(previousEndedAt)))) {
+    return null;
+  }
+  if (typeof part !== "number" || !Number.isInteger(part) || part < 2) return null;
+  return { path, meetingId: meetingId as string, offsetMs, previousEndedAt, part };
 }
 
 function isSession(value: unknown): value is MeetingSession {

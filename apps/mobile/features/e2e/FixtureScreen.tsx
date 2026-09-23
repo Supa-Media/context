@@ -2,6 +2,7 @@ import { CollaborationFixture } from "./collaboration/Fixture";
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
+import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
@@ -19,6 +20,10 @@ import { VaultImportFixture } from "../onboarding/VaultImportFixture";
  * framework's own guardrails fail the build for it.
  */
 export interface FixtureParams {
+  /**
+   * `screen=collaboration`: which note. `screen=resume&surface=menu`: `0` draws
+   * the console with no meeting note open.
+   */
   note?: string | string[];
   user?: string | string[];
   checkout?: string | string[];
@@ -38,6 +43,8 @@ export interface FixtureParams {
   slow?: string | string[];
   failed?: string | string[];
   available?: string | string[];
+  /** `screen=resume`: which Resume surface to draw. See `ResumeFixture`. */
+  surface?: string | string[];
 }
 
 /** Expo hands a repeated query parameter back as an array. */
@@ -60,6 +67,17 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // why it is a separate screen rather than a flag on the one above.
   if (first(params.screen) === "app-frame-visual") {
     return <AppFrameVisualFixture panel={first(params.panel) === "meetings"} />;
+  }
+
+  // Every surface that offers a stopped meeting back. See its own header.
+  if (first(params.screen) === "resume") {
+    const surface = first(params.surface);
+    return (
+      <ResumeFixture
+        surface={isResumeSurface(surface) ? surface : "menu"}
+        noteOpen={first(params.note) !== "0"}
+      />
+    );
   }
 
   /*

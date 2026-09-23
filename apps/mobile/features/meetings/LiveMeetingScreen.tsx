@@ -13,7 +13,7 @@ import { LiveWaveform } from "./components/LiveWaveform";
 import { TransportMark } from "./components/TransportMark";
 import { NotesPad } from "./components/NotesPad";
 import { MeetingTitleField } from "./components/MeetingTitleField";
-import { meetings, recordElapsedMs } from "./controller";
+import { meetingElapsedMs, meetings } from "./controller";
 import { attendeeCount, clock, sourceLabel, timeOfDay } from "./format";
 import { liveAudioLine } from "./keptAudio";
 import type { MeetingRecord } from "./record";
@@ -211,14 +211,33 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
           "outside the window" the same condition rather than two that have to
           be kept in step. `docs/decisions/meetings.md` carries the argument.
         */}
-        <MeetingTitleField
-          initialValue={session.title}
-          onChangeText={onChangeTitle}
-          placeholder={UNTITLED_MEETING}
-          testID="meeting-title"
-        />
+        {/*
+          A part of a meeting that already has a note is not renamed here. The
+          part is spliced into that note, which keeps the heading somebody may
+          have already corrected (`continueMeetingNote`), so a field here would
+          take a new name and put it nowhere. The note is where it is renamed.
+        */}
+        {record.continues === undefined ? (
+          <MeetingTitleField
+            initialValue={session.title}
+            onChangeText={onChangeTitle}
+            placeholder={UNTITLED_MEETING}
+            testID="meeting-title"
+          />
+        ) : (
+          <Text style={styles.continuedTitle} numberOfLines={2} testID="meeting-title-static">
+            {session.title}
+          </Text>
+        )}
         <View style={styles.facts}>
-          <Fact label={timeOfDay(session.startedAt)} />
+          {/*
+            When this part started, which is not when the meeting did: beside a
+            clock that carries on from 31:04 it would say the meeting began a
+            minute ago. The title and the clock carry a resumed meeting.
+          */}
+          {record.continues === undefined ? (
+            <Fact label={timeOfDay(session.startedAt)} testID="meeting-started-at" />
+          ) : null}
           <Fact label={peopleLabel(attendeeCount(session.attendees))} />
           <SourceChip label={sourceLabel(session.source)} detected={session.source.kind !== "unknown"} />
         </View>
@@ -343,7 +362,7 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             */}
             <LiveWaveform live={hearing} testID="meeting-level" />
             <Text style={styles.clock} testID="meeting-clock">
-              {clock(recordElapsedMs(record, now === 0 ? Date.now() : now))}
+              {clock(meetingElapsedMs(record, now === 0 ? Date.now() : now))}
             </Text>
           </View>
 
@@ -538,10 +557,10 @@ function SyncChip({ record, syncing }: { record: MeetingRecord; syncing: boolean
  * announce itself correctly: "3 people" is a sentence, and an unlabelled person
  * glyph beside a bare "3" is not.
  */
-function Fact({ label }: { label: string }) {
+function Fact({ label, testID }: { label: string; testID?: string }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.fact}>
+    <View style={styles.fact} testID={testID}>
       <Text variant="rowSub" style={styles.factText}>
         {label}
       </Text>
@@ -606,6 +625,15 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     letterSpacing: tracking(t.title, -0.03),
   },
   facts: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
+  /** `MeetingTitleField`'s own look, without the field. */
+  continuedTitle: {
+    fontFamily: fonts.display,
+    fontSize: t.h2,
+    lineHeight: 30,
+    letterSpacing: tracking(t.h2, -0.03),
+    fontWeight: "600",
+    color: colors.text,
+  },
   fact: {
     flexDirection: "row",
     alignItems: "center",

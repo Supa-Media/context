@@ -2842,6 +2842,41 @@ navigation is six in `noteAddress.test.ts`; making `arrived` an alias for
 `visited` is three in `noteHistory.test.ts`; and taking `‹ ›` back out of the
 breadcrumb is four in `browseHistoryButtons.test.ts`.
 
+### A web link opens on a click, and only a web scheme opens
+
+"Clicking on a [regular](link.com) does not work." It did not: the editor
+followed links to other notes and nothing else, so `[site](https://…)`,
+`<https://…>` and a bare `https://…` were drawn as links and a click put the
+caret in them.
+
+**A web link now follows on the same click a note link does**, with the same
+two ways into its text (⌥-click, or clicking a link already showing its
+source). It opens in a new tab on the web — `noopener`, because this tab holds
+somebody's notes — and in the person's real browser from the desktop shell,
+whose `setWindowOpenHandler` already allowed only `http(s)`.
+
+**What opens is allow-listed in one place, `webUrl.ts`: `https:`, `http:` and
+`mailto:`.** Every host this string reaches acts on `javascript:`, `file:` or
+another app's scheme. A target with no scheme is a web page only when its host
+ends in a short list of TLDs — `[site](example.com)` is how people write one,
+and CommonMark reads it as a relative path — and the list leaves out the TLDs
+that are also attachment extensions (`.ai`, `.sh`, `.app`, `.me`), because
+"anything with a dot" would claim `report.pdf`. `webUrl` never calls `new URL`:
+the native host re-checks the guest's answer by calling it again and comparing,
+and React Native's `URL` disagrees with a browser's (it appends `/` to
+`mailto:`).
+
+**On a phone, opening one is asked about first, naming the address.** The
+`open-url` message is the one thing the WebView sends that leaves the app — the
+channel `NAVIGATION_ORIGINS` exists to keep shut — so a script in the WebView
+that should not exist must not be able to post a note to a URL nobody read.
+The host re-runs the allow-list, and `LiveEditor.tsx` shows the sheet.
+Removing the sheet to save a tap reopens that channel.
+
+`webLinks.test.ts` pins all three: the allow-list (three failures if it accepts
+any scheme), the host's re-check (one), and that the note resolver no longer
+claims `[x](example.com/page)` as a missing note (one).
+
 ### A route with no way in is a route nobody has
 
 Twice this product has shipped a complete, tested, working feature that nothing
@@ -7431,3 +7466,69 @@ sabotaged to confirm the right one fails.
   after the first is bound in name only.
 - Binding an empty room writes the note twice when the seed lands, or blanks it
   if the document is reconciled to a room that has nothing in it yet.
+
+## Several rows are one operation, and a pick is what the keyboard acts on
+
+⌘-click (ctrl-click off a Mac) and shift-click pick rows in the file tree, and
+a right-click, a drag or a row chord on a picked row acts on the whole pick.
+`selection.ts` holds the click rules, `useFileBrowser`'s `…Many` methods the
+batches.
+
+**A batch is one `run`, never a loop over the single-path methods.** Each
+single call is its own `run`, and a newer `run` supersedes an older one: it
+clears the older one's toast, skips its refresh and takes the busy flag. Five
+moves in a row was one toast offering to undo the fifth. So a batch works
+through its paths in order inside one `run`, says one sentence, and offers one
+Undo that inverts every step last first. The first failure stops it: nothing
+done is an ordinary failure, something done is a **notice** saying how far it
+got and no Undo — `run` already reserves the notice for a half-failure, and an
+Undo for the part that happened reads as an Undo of the whole. `bulkFileOps.test.ts`.
+
+**With a pick up, a row chord acts on the pick or on nothing.** The open note
+is still `selectedPath` underneath, but it is not what the tree draws selected
+any more; ⌘⇧⌫ trashing it while three other rows sat highlighted would delete a
+row nobody was looking at. So the pick is held by the console layout beside
+`Shortcuts`, and the single-target chords (rename, duplicate, copy, cut) do
+nothing while it is up. `rowCommands.test.ts`, "with several rows picked".
+
+**The selection menu offers move, archive or restore, copy paths and trash —
+not copy, cut or visibility.** The clipboard holds one path, so "Copy 3 items"
+would paste one. Visibility has no batch write and no single Undo, so a "Share
+3 items with the team" that stopped after the second would leave a privacy
+change half made; that is the one item where half made is a disclosure, and it
+waits for a server-side batch. `fileMenu.test.ts`.
+
+A pick holds only rows on screen: collapsing a folder drops what was picked
+inside it, and a folder with a picked note inside it moves as one path.
+Moving into another context stays one item at a time — `moveToContext` has no
+batch form and no Undo.
+
+## No UI ships without a design audit first (2026-09-23)
+
+The owner, on the first meeting-Resume UI: "SO ugly, never ship anything like
+that without having a UI/UX subagent audit and design based on a principle of
+simplicity, beauty, not making things feel clunky, and making things feel like
+it naturally just fits there." That version was built straight from a feature
+spec: one verb on five surfaces, a floating teal bar, a teal band in the note,
+and the hero button four times. Every piece passed its tests, and nobody looked
+at the surfaces together before they merged.
+
+So any change that adds or changes user-facing UI gets a design pass before it
+is built, and a second look at screenshots of the built result before it
+merges. The pass audits against those four words, and in practice that means:
+
+- **One place per verb**, where the thing it acts on already is. A second
+  entry point needs a reason that the first one cannot serve.
+- **Nothing drawn until it is reached for.** An offer that costs no pixels
+  until somebody goes to use it never needs a dismiss.
+- **No new styles.** Reuse the component the neighbours use, the way they use
+  it. The accent means "here, active, yours" and is never a status; the white
+  hero button is the landing page's.
+- **Show, don't explain.** Copy about the plumbing (parts, files, paths) is a
+  sign the UI is explaining a gap it could close.
+- **Screenshots, both densities, both schemes**, shown to the owner. A surface
+  that is not reachable in a browser gets a fixture (`features/e2e/`) so that
+  it can be photographed; `scripts/capture-resume-shots.mjs` is the example.
+
+What a "simplification" would cost: skipping the pass is how the Resume UI
+shipped, and how it was rebuilt the same day.

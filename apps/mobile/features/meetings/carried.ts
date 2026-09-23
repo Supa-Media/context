@@ -37,6 +37,17 @@ import { useEffect, useSyncExternalStore } from "react";
 let carried = false;
 const listeners = new Set<() => void>();
 
+/**
+ * How the surface carrying meetings brings one into view, while it is.
+ *
+ * A meeting started from somewhere other than that surface's own button —
+ * resuming one from the floating bar, or from its note — has to land where the
+ * meetings are shown: the console's panel when there is one, the meeting's own
+ * page when there is not. The console registers the first through
+ * `useCarriesMeeting`; nothing registered means the page.
+ */
+let shower: (() => void) | null = null;
+
 export function setMeetingCarried(next: boolean): void {
   if (next === carried) return;
   carried = next;
@@ -67,9 +78,23 @@ export function useMeetingCarried(): boolean {
  * right panel at all, so a phone-width console shows the meeting nowhere and
  * the floating bar is still the whole indicator there.
  */
-export function useCarriesMeeting(carries: boolean): void {
+export function useCarriesMeeting(carries: boolean, show?: () => void): void {
   useEffect(() => {
     setMeetingCarried(carries);
     return () => setMeetingCarried(false);
   }, [carries]);
+  useEffect(() => {
+    if (!carries || show === undefined) return;
+    shower = show;
+    return () => {
+      if (shower === show) shower = null;
+    };
+  }, [carries, show]);
+}
+
+/** Bring the running meeting into view on the carrying surface. `false` when nothing carries it. */
+export function showCarriedMeeting(): boolean {
+  if (!carried || shower === null) return false;
+  shower();
+  return true;
 }

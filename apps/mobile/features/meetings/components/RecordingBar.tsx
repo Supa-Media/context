@@ -5,7 +5,7 @@ import { fonts, layout, pointerType as t, radii } from "../../design/tokens";
 import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChrome";
 import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { Text } from "../../design/components/Text";
-import { meetings, recordElapsedMs } from "../controller";
+import { meetingElapsedMs, meetings } from "../controller";
 import { meetingHref } from "../route";
 import { clock } from "../format";
 import { useMeetingCarried } from "../carried";
@@ -153,7 +153,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
   if (pathname === meetingHref(live.session.id)) return null;
 
   const paused = live.session.state === "paused";
-  const elapsed = clock(recordElapsedMs(live, now === 0 ? Date.now() : now));
+  const elapsed = clock(meetingElapsedMs(live, now === 0 ? Date.now() : now));
   /*
     The drain `end()` is sitting in, named for this meeting — see
     `MeetingsSnapshot.ending`. The bar is still up while it runs, because the

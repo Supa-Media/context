@@ -237,6 +237,26 @@ export function sharesBreakingWarning(
   return `${subject[0]!.toUpperCase()}${subject.slice(1)} to this note. ${verb} it breaks ${breaks} — a share follows the path, not the note.`;
 }
 
+/**
+ * `sharesBreakingWarning` for a multi-selection moved or archived as one.
+ *
+ * Counted by note rather than by link, because the question the dialog is
+ * asking is "which of these am I about to break", and the answer to that is a
+ * number of the things picked. One picked note is the single sentence, word
+ * for word, so a batch of one reads exactly as the row's own dialog does.
+ */
+export function sharesBreakingWarningMany(
+  shares: readonly NoteShare[] | undefined,
+  paths: readonly string[],
+  verb: "Moving" | "Archiving",
+): string | null {
+  if (paths.length === 1) return sharesBreakingWarning(shares, paths[0]!, verb);
+  const shared = paths.filter((path) => (sharesFor(shares, path)?.length ?? 0) > 0).length;
+  if (shared === 0) return null;
+  const subject = shared === 1 ? "One of these has" : `${shared} of these have`;
+  return `${subject} links out to people. ${verb} them breaks those links — a share follows the path, not the note.`;
+}
+
 
 /* -------------------------------------------------------------------------- *
  * Two kinds of link, and the difference is the whole thing

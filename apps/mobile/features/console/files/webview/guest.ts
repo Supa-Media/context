@@ -316,6 +316,7 @@ export function mountGuest(
     current: {
       path: null,
       onOpen: (path, mode) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path, mode }),
+      onOpenUrl: (url) => bridge.post({ v: PROTOCOL_VERSION, type: "open-url", url }),
     },
   };
 

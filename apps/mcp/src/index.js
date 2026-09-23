@@ -557,6 +557,34 @@ const ORIENT_INDEX_CHAR_CAP = 6_000;
  * the reason somebody's context window filled up.
  */
 const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
+/**
+ * How far into the connect-time instructions the person's own context must
+ * finish, whatever their bucket looks like.
+ *
+ * **Clients cut this payload, and they cut the end.** Observed 2026-09-23 in a
+ * Claude Code session connected to this gateway: the instructions reached the
+ * model cut off after 4,083 characters, mid-rule, with a `[truncated]` marker.
+ * The static argument alone is over 5,000, and the sketch — the front page,
+ * the top level, the other workspaces — used to be appended after all of it.
+ * So the one part of this payload that answers a question about the person was
+ * the part no truncating client ever delivered, and a fresh conversation there
+ * started with a sales pitch for a context and none of the context.
+ *
+ * The order is therefore the feature: a short call to action, then the
+ * sketch, then the stakes and the rules, which every tool description and
+ * `orient` repeat at the moment they apply and which can afford to be the part
+ * that is cut. The budget sits under the observed cut with room for a client
+ * that is stricter, and every piece of the sketch is capped so the budget
+ * holds for a front page of any length, a root of any width and a person in
+ * any number of workspaces.
+ */
+const INSTRUCTIONS_SKETCH_BUDGET = 3_500;
+/** Characters of top-level names in the sketch; the rest are counted. */
+const INSTRUCTIONS_LAYOUT_CHAR_CAP = 600;
+/** Characters of other workspaces' names; the rest are counted, and `orient` lists them. */
+const INSTRUCTIONS_REACH_CHAR_CAP = 400;
+/** A name is somebody's own text; one absurd one may not spend a line's budget alone. */
+const INSTRUCTIONS_NAME_CHAR_CAP = 64;
 
 /**
  * What every client is told at connect time — legacy in `initialize`, modern in
@@ -600,7 +628,7 @@ const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
  * here. They are one customer's house rules, they live in that customer's
  * `index.md`, and `orient` hands them over. Ours is the product's rules only.
  */
-const SERVER_INSTRUCTIONS = `# READ THIS BEFORE YOU ANSWER ANYTHING ELSE
+const INSTRUCTIONS_HEAD = `# READ THIS BEFORE YOU ANSWER ANYTHING ELSE
 
 This user has connected their own context to you: the notes they keep about
 their work, their projects, the people around them, their decisions and their
@@ -611,9 +639,14 @@ call away.**
 ## CALL \`orient\` FIRST. EVERY SESSION. BEFORE YOUR FIRST REAL ANSWER.
 
 One call. It returns their front page, what they touched most recently, and a
-map of everything this connection can see.
+map of everything this connection can see.`;
 
-**Skipping it is not a neutral choice, it is a worse answer.** Without it you
+/**
+ * The rest of the connect-time argument: the stakes, writing back, and the
+ * rules. It comes *after* the sketch of the person's own context, never before
+ * it — see `INSTRUCTIONS_SKETCH_BUDGET` for why the order is the feature.
+ */
+const INSTRUCTIONS_BODY = `**Skipping it is not a neutral choice, it is a worse answer.** Without it you
 are answering from this conversation alone, about somebody who has already
 written down the thing you are about to guess at. You will be generic where
 they are specific. You will re-ask what they already answered. You will
@@ -685,6 +718,9 @@ stop paying.
    all, and who may read the answers is the answers note's own visibility, so say
    where it will land before you make it.`;
 
+/** The static instructions, whole: what a connection gets when no sketch can be built. */
+const SERVER_INSTRUCTIONS = `${INSTRUCTIONS_HEAD}\n\n${INSTRUCTIONS_BODY}`;
+
 /**
  * The working half of `orient` — short on purpose.
  *
@@ -724,7 +760,7 @@ const ORIENT_OPERATING_CONTRACT = `## Working here
 
 /**
  * The instructions a specific connection is given, with a live sketch of the
- * context appended.
+ * context between the call to action and the rest of the argument.
  *
  * The static text above can tell an agent that this server is worth calling.
  * Only the customer's own front page can tell it *what is in here*, and that is
@@ -766,7 +802,11 @@ async function instructionsForSession(store, session) {
       .filter(({ key }) => isVisibleNote(key, scope, rules, overrides))
       .map(({ key }) => key)
       .sort();
-    const layout = [...folders, ...rootNotes];
+    const layout = namedWithRest(
+      [...folders, ...rootNotes],
+      INSTRUCTIONS_LAYOUT_CHAR_CAP,
+      "more"
+    );
     /*
       The other contexts this connection reaches, named at connect time.
 
@@ -779,18 +819,30 @@ async function instructionsForSession(store, session) {
     */
     const others = (store.contexts || []).filter((entry) => !entry.current);
     const reach = others.length
-      ? "\n\nThis person can also reach " +
-        others.map((entry) => entry.name).join(", ") +
+      ? "This person can also reach " +
+        namedWithRest(
+          others.map((entry) => entry.name),
+          INSTRUCTIONS_REACH_CHAR_CAP,
+          "more, which orient lists"
+        ).join(", ") +
         ". Every tool takes an optional `context` argument naming one of those; " +
         "what you may do there is decided by their role there, not by this connection."
       : "";
-    if (!layout.length && !frontPage) return SERVER_INSTRUCTIONS + reach;
+    if (!layout.length && !frontPage) {
+      return reach
+        ? `${INSTRUCTIONS_HEAD}\n\n${reach}\n\n${INSTRUCTIONS_BODY}`
+        : SERVER_INSTRUCTIONS;
+    }
 
     const sketch = [
       "\n\nWHAT IS IN HERE (a snapshot taken when this connection opened; call " +
         "`orient` for the live version, with note counts and recent activity)",
     ];
     if (layout.length) sketch.push(`Top level: ${layout.join(", ")}`);
+    // Ahead of the front page, because it is one short line and the front page
+    // is the piece a cap cuts: a person whose own page is a signpost to another
+    // workspace needs the name of that workspace more than the signpost's end.
+    if (reach) sketch.push(reach);
     if (frontPage) {
       sketch.push(`Their front page, \`index.md\`:\n\n${frontPage}`);
     } else {
@@ -799,10 +851,35 @@ async function instructionsForSession(store, session) {
           "writing one with them is a good early contribution."
       );
     }
-    return SERVER_INSTRUCTIONS + sketch.join("\n\n") + reach;
+    // The sketch sits between the call to action and the argument — see
+    // `INSTRUCTIONS_SKETCH_BUDGET` for why it may not go last.
+    return `${INSTRUCTIONS_HEAD}${sketch.join("\n\n")}\n\n${INSTRUCTIONS_BODY}`;
   } catch {
     return SERVER_INSTRUCTIONS;
   }
+}
+
+/**
+ * As many names as fit in `charCap`, each capped, and a count of the rest.
+ *
+ * Every list in the connect-time sketch goes through this, so the sketch has a
+ * length bound that does not depend on anybody's bucket or membership — see
+ * `INSTRUCTIONS_SKETCH_BUDGET`.
+ */
+function namedWithRest(names, charCap, restLabel) {
+  const shown = [];
+  let spent = 0;
+  for (const name of names) {
+    const capped =
+      name.length > INSTRUCTIONS_NAME_CHAR_CAP ? `${name.slice(0, INSTRUCTIONS_NAME_CHAR_CAP)}…` : name;
+    // `, ` between names is part of what the line spends.
+    const cost = capped.length + 2;
+    if (spent + cost > charCap) break;
+    shown.push(capped);
+    spent += cost;
+  }
+  const rest = names.length - shown.length;
+  return rest > 0 ? [...shown, `(+${rest} ${restLabel})`] : shown;
 }
 
 /**

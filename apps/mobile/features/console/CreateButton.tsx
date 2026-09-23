@@ -48,6 +48,7 @@ export function CreateButton({
   onNewDrawing,
   onNewFolder,
   onNewChat,
+  resume = null,
   bottomInset = 0,
 }: {
   /** The phone's bottom row is on screen; this stands down. See the header. */
@@ -77,6 +78,17 @@ export function CreateButton({
    * than present, then taken away.
    */
   onNewChat: (() => void) | null;
+  /**
+   * Carry on recording a meeting that already has a note, or `null` when there
+   * is none to carry on.
+   *
+   * Offered here because this is the moment it is for: somebody about to press
+   * New meeting for a meeting that stopped a minute ago gets a second note, and
+   * the row that prevents it sits one above that press. At any other time it is
+   * not drawn at all, so it never needs dismissing. `resumeRowFor` decides which
+   * meeting, and the detail says which.
+   */
+  resume?: { detail: string; onResume: () => void } | null;
   /**
    * The safe area under this edge, as `VoiceButton` took it and for the same
    * reason: `useSafeAreaInsets` throws outside a `SafeAreaProvider`, and this
@@ -139,13 +151,14 @@ export function CreateButton({
     (id: string) => {
       setOpen(false);
       setAnchor(undefined);
+      if (id === "resume-meeting") resume?.onResume();
       if (id === "new-meeting") onNewMeeting();
       if (id === "new-note") onNewNote();
       if (id === "new-drawing") onNewDrawing();
       if (id === "new-folder") onNewFolder();
       if (id === "new-chat") onNewChat?.();
     },
-    [onNewChat, onNewDrawing, onNewFolder, onNewMeeting, onNewNote],
+    [onNewChat, onNewDrawing, onNewFolder, onNewMeeting, onNewNote, resume],
   );
 
   if (compact) return null;
@@ -170,6 +183,9 @@ export function CreateButton({
           {...(anchor === undefined ? {} : { anchor })}
           title="Create"
           items={[
+            ...(resume === null
+              ? []
+              : [{ id: "resume-meeting", label: "Resume meeting", detail: resume.detail }]),
             {
               id: "new-meeting",
               label: "New meeting",

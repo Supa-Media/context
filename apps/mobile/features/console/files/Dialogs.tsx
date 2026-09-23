@@ -96,6 +96,7 @@ export function CreatePrompt({
   onCreateFolder,
   onNewMeeting,
   onNewChat,
+  onResumeMeeting = null,
 }: {
   folder: string;
   /**
@@ -117,6 +118,12 @@ export function CreatePrompt({
   onNewMeeting: (() => void) | null;
   /** `null` with no engine behind it, or no model key connected. */
   onNewChat: (() => void) | null;
+  /**
+   * Carry on a meeting that already has a note — `CreateButton`'s `resume`,
+   * with the same detail under it. `null` when there is none to carry on, and
+   * then the row is not drawn.
+   */
+  onResumeMeeting?: { detail: string; onResume: () => void } | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [naming, setNaming] = useState(false);
@@ -143,6 +150,7 @@ export function CreatePrompt({
           canEdit,
           chat: onNewChat !== null,
           meeting: onNewMeeting !== null,
+          resume: onResumeMeeting !== null,
         }).map((row) => (
           <PressRow
             key={row}
@@ -162,12 +170,18 @@ export function CreatePrompt({
               if (row === "new-drawing") onCreateDrawing();
               if (row === "new-chat") onNewChat?.();
               if (row === "new-meeting") onNewMeeting?.();
+              if (row === "resume-meeting") onResumeMeeting?.onResume();
             }}
             style={styles.choiceRow}
             hoverStyle={styles.listRowHover}
+            testID={`create-row-${row}`}
           >
             <Text variant="body">{ROW_TITLES[row]}</Text>
-            <Text variant="paneSub">{ROW_SUBS[row]}</Text>
+            <Text variant="paneSub">
+              {row === "resume-meeting" && onResumeMeeting !== null
+                ? onResumeMeeting.detail
+                : ROW_SUBS[row]}
+            </Text>
           </PressRow>
         ))}
       </View>
@@ -184,6 +198,7 @@ export function CreatePrompt({
  * them ends up meaning something else.
  */
 const ROW_LABELS: Record<CreateRow, string> = {
+  "resume-meeting": "Resume meeting",
   "new-meeting": "New meeting",
   "new-note": "New note",
   "new-drawing": "New drawing",
@@ -193,6 +208,7 @@ const ROW_LABELS: Record<CreateRow, string> = {
 
 /** The word on the row. Shorter than the label: the sheet has a title. */
 const ROW_TITLES: Record<CreateRow, string> = {
+  "resume-meeting": "Resume meeting",
   "new-meeting": "Meeting",
   "new-note": "Note",
   "new-drawing": "Drawing",
@@ -200,7 +216,9 @@ const ROW_TITLES: Record<CreateRow, string> = {
   "new-chat": "Chat",
 };
 
+/** What each row does. Resume's names the meeting, so it is passed in. */
 const ROW_SUBS: Record<CreateRow, string> = {
+  "resume-meeting": "Carries on the meeting you last recorded.",
   "new-meeting": "Records into your inbox. It asks before it listens.",
   "new-note": "A markdown file you can write in.",
   "new-drawing": "An Excalidraw canvas. Opens in Obsidian too.",
@@ -295,7 +313,11 @@ export function MovePicker({
   /** A consequence worth reading before choosing — see `sharesBreakingWarning`. */
   description?: string;
   folders: readonly string[];
-  currentFolder: string;
+  /**
+   * Where the thing is now, marked and not choosable. `null` for a batch whose
+   * items are in different folders, where no one folder is "where it is now".
+   */
+  currentFolder: string | null;
   /**
    * Other contexts this can go to. Empty is the ordinary case — one context,
    * or somebody who does not own this one — and the row of context buttons is

@@ -17,8 +17,10 @@ import {
   isSynced,
   reopenFinalize,
   retrySync,
+  type MeetingContinuation,
   type MeetingRecord,
 } from "./record";
+import { mayResume } from "./resume";
 import type {
   Attendee,
   MeetingDevice,
@@ -195,6 +197,13 @@ export interface MeetingsSnapshot {
    * explicit "offline" is `true`; unknown is `false`, as it is everywhere else.
    */
   offline: boolean;
+  /**
+   * Whether the writer this device holds can add a resumed part to the note it
+   * continues — `MeetingsGateway.canContinue`, carried here so a screen can
+   * decide whether to offer Resume without holding the gateway. See
+   * `resume.ts`.
+   */
+  canContinue: boolean;
 }
 
 export interface ConfigureInput {
@@ -250,6 +259,28 @@ export interface StartInput {
    * what it was asked.
    */
   systemAudio?: boolean;
+  /**
+   * This recording is a later part of a meeting whose note exists. Set by
+   * `continueMeeting` and by nothing else; see `MeetingContinuation`.
+   */
+  continues?: MeetingContinuation;
+}
+
+/** What `continueMeeting` needs: what it continues, and what to call it on the screen. */
+export interface ContinueInput {
+  continues: MeetingContinuation;
+  /**
+   * The meeting's title as the note has it now. Drawn on the live screen and
+   * never written: the note keeps whatever heading it has, because a part is
+   * added to a note and does not rename one.
+   */
+  title: string;
+  /**
+   * The context the note is in. The same meaning `StartInput.destination` has
+   * — `null` is this person's own workspace — and it is what resolves the
+   * workspace the note is read from and written back to.
+   */
+  destination: MeetingDestination | null;
 }
 
 /** How long typing waits before it is written to the device. */
@@ -328,6 +359,7 @@ const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   backgroundCaptureWarning: null,
   audio: Object.freeze({}),
   offline: false,
+  canContinue: false,
 });
 
 function constantTimeEqual(expected: string, supplied: string): boolean {
@@ -414,6 +446,8 @@ export class MeetingsController {
   async configure(input: ConfigureInput): Promise<void> {
     if (this.config?.workspaceId === input.workspaceId) {
       this.config = { ...input, recorder: this.retainedRecorder(input.recorder) };
+      const canContinue = input.gateway.canContinue === true;
+      if (this.snapshot.canContinue !== canContinue) this.set({ ...this.snapshot, canContinue });
       return;
     }
 
@@ -432,6 +466,7 @@ export class MeetingsController {
       status: "loading",
       capture: input.recorder.capability,
       offline: this.offlineNow,
+      canContinue: input.gateway.canContinue === true,
     });
 
     const { records, unreadable } = await loadMeetings(input.store, input.workspaceId);
@@ -752,6 +787,7 @@ export class MeetingsController {
         later, by which time the sheet that asked is gone.
       */
       destination: input.destination ?? null,
+      ...(input.continues === undefined ? {} : { continues: input.continues }),
       acked: emptyAck(),
       runningSince: null,
       updatedAt: now,
@@ -827,6 +863,38 @@ export class MeetingsController {
     }
 
     return id;
+  }
+
+  /**
+   * Pick a stopped meeting back up: record a new part that is added to its note.
+   *
+   * A part is an ordinary recording in every way but where it lands, so this
+   * is `start` with a continuation on the record — the recorder, the notepad,
+   * the lock screen and the queue do not know the difference, and the writer
+   * is the only thing that does (`MeetingsGateway.finalize`'s `continues`).
+   * The first part is not reopened: `complete` stays terminal.
+   *
+   * Refused, with `null`, wherever `mayResume` says no — something is already
+   * recording, a part of this meeting has not landed yet, or this device's
+   * writer cannot add to a note. The surfaces ask the same question before
+   * they draw the offer; this is the answer holding when two presses race.
+   */
+  async continueMeeting(input: ContinueInput): Promise<string | null> {
+    if (
+      !mayResume({
+        records: this.snapshot.records,
+        live: this.snapshot.live,
+        canContinue: this.snapshot.canContinue,
+        meetingId: input.continues.meetingId,
+      })
+    ) {
+      return null;
+    }
+    return this.start({
+      title: input.title,
+      destination: input.destination ?? undefined,
+      continues: input.continues,
+    });
   }
 
   async pause(): Promise<void> {
@@ -1439,6 +1507,10 @@ export class MeetingsController {
       // that closes an interrupted recording is itself an event through here,
       // so a flag set beside it would be erased by the fold that set it.
       ...(existing?.interrupted === true ? { interrupted: true as const } : {}),
+      // Carried for the same reason, and the cost of dropping it is worse: a
+      // part that forgot what it continues is filed as a second note of the
+      // same meeting. `meetingsResume.test.ts` fails if this goes.
+      ...(existing?.continues === undefined ? {} : { continues: existing.continues }),
       acked: existing?.acked ?? emptyAck(),
       runningSince: after.runningSince,
       updatedAt: config.now?.() ?? Date.now(),
@@ -1672,6 +1744,19 @@ export const meetings = new MeetingsController();
 /** Elapsed time for a record, re-exported so screens need one import. */
 export function recordElapsedMs(record: MeetingRecord, now: number): number {
   return elapsedMs({ session: record.session, runningSince: record.runningSince }, now);
+}
+
+/**
+ * How far into the meeting a record is: its own elapsed time, plus what the
+ * meeting already held before it when it is a later part (`continues`).
+ *
+ * The clock a person reads. A resumed meeting is the same meeting still
+ * running, so every clock and every typed-note stamp picks up where the note
+ * left off — at 31:04, not 0:00 — which is also what the transcript the
+ * writer splices in says (`continueMeetingNote` moves it by the same offset).
+ */
+export function meetingElapsedMs(record: MeetingRecord, now: number): number {
+  return (record.continues?.offsetMs ?? 0) + recordElapsedMs(record, now);
 }
 
 /** The session a screen is about, or `null`. */
