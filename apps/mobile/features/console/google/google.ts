@@ -103,6 +103,13 @@ export function parseGoogleCallback(params: {
   return { kind: "ready", code, state };
 }
 
+export function googleE2ECompletionSecret(params: {
+  completionSecret?: string | string[];
+}): string | null {
+  if (process.env.EXPO_PUBLIC_E2E_FIXTURE !== "1") return null;
+  return firstParam(params.completionSecret);
+}
+
 function errorCodeOf(error: unknown): string | undefined {
   const data = (error as { data?: unknown } | null)?.data;
   if (typeof data !== "object" || data === null || !("code" in data)) return undefined;
