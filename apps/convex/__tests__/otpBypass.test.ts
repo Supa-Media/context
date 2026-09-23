@@ -29,22 +29,22 @@ import {
 const staging = {
   APP_ENV: "staging",
   APP_ORIGIN: "https://staging.context.lc",
-  STAGING_CONVEX_DEPLOYMENT: "fixture-deployment-000",
-  CONVEX_CLOUD_URL: "https://fixture-deployment-000.convex.cloud",
-  CONVEX_SITE_URL: "https://fixture-deployment-000.convex.site",
+  STAGING_CONVEX_DEPLOYMENT: "example-deployment",
+  CONVEX_CLOUD_URL: "https://example-deployment.convex.cloud",
+  CONVEX_SITE_URL: "https://example-deployment.convex.site",
 };
 
 /** An ordinary deployment that is not staging: no selectors, a live origin. */
 const production = {
   APP_ENV: "production",
   APP_ORIGIN: "https://app.example.invalid",
-  CONVEX_SITE_URL: "https://fixture-other-000.convex.site",
+  CONVEX_SITE_URL: "https://your-deployment.convex.site",
 };
 
 /** What a self-hosted deployment looks like: none of the staging selectors. */
 const selfHost = {
   APP_ORIGIN: "https://notes.example.invalid",
-  CONVEX_SITE_URL: "https://fixture-selfhost-000.convex.site",
+  CONVEX_SITE_URL: "https://your-deployment.convex.site",
 };
 
 /**
@@ -77,7 +77,7 @@ describe("where the development OTP bypass is allowed to exist", () => {
       expect(devOtpBypassAllowed(broken), `${leg} alone must close the gate`).toBe(false);
     }
     expect(
-      devOtpBypassAllowed({ ...staging, CONVEX_CLOUD_URL: "https://elsewhere.convex.cloud" }),
+      devOtpBypassAllowed({ ...staging, CONVEX_CLOUD_URL: "https://your-deployment.convex.cloud" }),
     ).toBe(false);
     expect(devOtpBypassAllowed({ ...staging, APP_ORIGIN: "https://context.lc" })).toBe(false);
   });
