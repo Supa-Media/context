@@ -129,6 +129,31 @@ Three properties of the survey are load-bearing:
   merely less curious. Note that a thrown handler is answered with a JSON-RPC
   error over HTTP 200, so "the handshake returned 200" does not test this.
 
+**The sketch goes second, never last, and it has a length bound.** Clients cut
+the instructions payload from the end: on 2026-09-23 a Claude Code session
+connected to this gateway delivered 4,083 characters of it and marked the rest
+truncated. The static argument alone is over 5,000 characters, and the sketch
+used to be appended after all of it, so on such a client a fresh conversation
+got the case for reading a context and none of the context. The order is now a
+short call to action (`INSTRUCTIONS_HEAD`, under 600 characters, `orient`
+named inside the first 500), then the sketch, then the stakes and the rules
+(`INSTRUCTIONS_BODY`). The body is the part that can afford to be cut: the
+rules that change behaviour mid-session are repeated by `orient` and by the
+tool descriptions at the moment they apply. Every piece of the sketch is capped
+(front page 1,200 characters, top-level names 600, other workspaces 400, any one
+name 64), so the whole sketch ends inside `INSTRUCTIONS_SKETCH_BUDGET` (3,500)
+for any bucket and any membership; the worst case measures about 3,240.
+Putting the sketch back at the end, or lifting any one cap, fails `the whole
+sketch ends inside the budget, under the cut a client was seen making` or one of
+its neighbours in `test/orientation.test.mjs`.
+
+What reaches a model at connect differs by client and changes often, so this
+bound is written against a cut we observed rather than one a vendor documents.
+Reports as of 2026-09 (not verified here) say ChatGPT reads instructions and
+weighs roughly the first 512 characters, and that claude.ai does not pass them
+to the model at all, which leaves tool descriptions as the only connect-time
+surface there. Recheck before building on either.
+
 ### Recency ranks attention, and automated capture is collapsed, not excluded
 
 "Recently updated" exists to answer one question — where has this person's
