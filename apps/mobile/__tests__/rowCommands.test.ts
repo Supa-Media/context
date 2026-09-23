@@ -277,6 +277,8 @@ describe("carrying an intent out", () => {
       paste: (f: string) => calls.push(`paste:${f}`),
       move: (p: string, f: string) => calls.push(`move:${p}->${f}`),
       destroy: (p: string) => calls.push(`trash:${p}`),
+      destroyMany: (ps: readonly string[]) => calls.push(`trashMany:${ps.join(",")}`),
+      restoreMany: (ps: readonly string[]) => calls.push(`restoreMany:${ps.join(",")}`),
       createUntitled: (f: string, kind: "note" | "drawing") =>
         calls.push(`createUntitled:${kind}:${f}`),
     };
@@ -335,5 +337,92 @@ describe("carrying an intent out", () => {
     applyRowIntent(intentForRowCommand("deleteForever", at(NOTE))!, s.files, s.onDialog);
     expect(s.calls).toEqual([`trash:${NOTE}`]);
     expect(s.dialogs).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                          a chord on a multi-selection                      */
+/* -------------------------------------------------------------------------- */
+
+describe("with several rows picked, a chord acts on the picked rows", () => {
+  /**
+   * The open note is still `selectedPath` underneath a pick, and it is not
+   * what the tree draws selected any more. ⌘⇧⌫ trashing it while three other
+   * rows sat highlighted is the defect these pin: a keystroke that deletes a
+   * row nobody was looking at.
+   */
+  const PICKED = ["1-projects/a.md", "1-projects/b.md"];
+  const picking = (picked: readonly string[] = PICKED) => ({ ...at(NOTE), picked });
+
+  function spy() {
+    const calls: string[] = [];
+    const dialogs: RowIntent[] = [];
+    const record = (name: string) => (arg: unknown) => calls.push(`${name}:${String(arg)}`);
+    const files = {
+      duplicate: record("duplicate"),
+      copy: record("copy"),
+      cut: record("cut"),
+      paste: record("paste"),
+      move: record("move"),
+      destroy: record("trash"),
+      destroyMany: (ps: readonly string[]) => calls.push(`trashMany:${ps.join(",")}`),
+      restoreMany: (ps: readonly string[]) => calls.push(`restoreMany:${ps.join(",")}`),
+      createUntitled: record("createUntitled"),
+    };
+    return { calls, dialogs, files, onDialog: (d: RowIntent) => dialogs.push(d) };
+  }
+
+  test("⌘⇧⌫ trashes every picked row, and never the open note", () => {
+    const s = spy();
+    const intent = intentForRowCommand("deleteForever", picking());
+    expect(intent).toEqual({ kind: "trashMany", paths: PICKED });
+    applyRowIntent(intent!, s.files, s.onDialog);
+    expect(s.calls).toEqual([`trashMany:${PICKED.join(",")}`]);
+  });
+
+  test("⌘⇧M asks where, for all of them", () => {
+    expect(intentForRowCommand("moveTo", picking())).toEqual({ kind: "moveMany", paths: PICKED });
+  });
+
+  test("⌘⌫ archives them, or restores them when every one is archived", () => {
+    expect(intentForRowCommand("archive", picking())).toEqual({
+      kind: "archiveMany",
+      paths: PICKED,
+    });
+    const archived = [
+      "4-archive/2026-08-26T09-14-02-113Z/1-projects/a.md",
+      "4-archive/2026-08-26T09-14-02-113Z/1-projects/b.md",
+    ];
+    expect(intentForRowCommand("archive", picking(archived))).toEqual({
+      kind: "restoreMany",
+      paths: archived,
+    });
+    // One that is not archived: archive them all, as the menu does.
+    expect(intentForRowCommand("archive", picking([archived[0]!, NOTE]))?.kind).toBe(
+      "archiveMany",
+    );
+  });
+
+  test("the single-target chords do nothing rather than act on the open note", () => {
+    for (const command of ["rename", "duplicate", "copy", "cut"] as const) {
+      expect(intentForRowCommand(command, picking())).toBeNull();
+    }
+  });
+
+  test("one read-only row refuses the lot", () => {
+    for (const command of ["deleteForever", "moveTo", "archive"] as const) {
+      expect(intentForRowCommand(command, picking([NOTE, "privacy.md"]))).toBeNull();
+    }
+  });
+
+  test("a read-only console answers nothing, picked or not", () => {
+    expect(intentForRowCommand("deleteForever", { ...picking(), canEdit: false })).toBeNull();
+  });
+
+  test("a pick of one is no pick: the chord acts on the open note as before", () => {
+    expect(intentForRowCommand("deleteForever", picking([PICKED[0]!]))).toEqual({
+      kind: "trash",
+      path: NOTE,
+    });
   });
 });

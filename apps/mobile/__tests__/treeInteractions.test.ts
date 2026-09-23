@@ -71,6 +71,8 @@ afterEach(() => {
 function mountTree(options: {
   canEdit?: boolean;
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
+  onSelect?: (path: string) => void;
+  onPick?: (path: string, gesture: "toggle" | "range") => void;
   drag?: unknown;
 } = {}) {
   Object.defineProperty(document.documentElement, "clientWidth", {
@@ -95,10 +97,11 @@ function mountTree(options: {
       createElement(FileTree, {
         rows: ROWS,
         canEdit: options.canEdit ?? true,
-        onSelect: () => {},
+        onSelect: options.onSelect ?? (() => {}),
         onToggle: () => {},
         onCycleVisibility: () => {},
         onMenu: options.onMenu,
+        onPick: options.onPick,
         drag: options.drag as never,
       } as never),
     );
@@ -120,7 +123,17 @@ function mountTree(options: {
     return node;
   };
 
-  return { container, rowFor };
+  /** The row's drawn name — inside the pressable, where a real click lands. */
+  const labelFor = (name: string): HTMLElement => {
+    const drawn = displayName(name);
+    const label = Array.from(container.querySelectorAll("*")).find(
+      (node) => node.textContent === drawn && node.children.length === 0,
+    );
+    if (label === undefined) throw new Error(`no row labelled ${name}`);
+    return label as HTMLElement;
+  };
+
+  return { container, rowFor, labelFor };
 }
 
 const DRAG = {
@@ -575,5 +588,99 @@ describe("the row's listeners are removed when it lets go of a node", () => {
     expect(node.getAttribute("draggable")).toBe("true");
 
     node.remove();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("a modified click picks instead of opening", () => {
+  /**
+   * react-native-web's `Pressable` fires `onPress` from `click` and hands it no
+   * modifiers, so a ⌘-click used to be an ordinary click: it opened the note.
+   * These dispatch the click where a real one lands — on the name, inside the
+   * pressable — so the capture listener on the row has to win the race to it
+   * for the pick to happen *and* the open not to.
+   *
+   * jsdom is not a Mac, so ctrl is the toggle key here; `isApplePlatform` is
+   * the one place that decides which key it is.
+   */
+  function click(target: HTMLElement, init: MouseEventInit = {}) {
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, ...init });
+    act(() => {
+      target.dispatchEvent(event);
+    });
+    return event;
+  }
+
+  test("ctrl-click toggles the row and does not open it", () => {
+    const picks: string[] = [];
+    const opened: string[] = [];
+    const tree = mountTree({
+      onSelect: (path) => opened.push(path),
+      onPick: (path, gesture) => picks.push(`${gesture}:${path}`),
+      drag: DRAG,
+    });
+
+    click(tree.labelFor("plan.md"), { ctrlKey: true });
+
+    expect(picks).toEqual(["toggle:1-projects/plan.md"]);
+    expect(opened).toEqual([]);
+  });
+
+  test("shift-click picks a range, and shift wins over ctrl", () => {
+    const picks: string[] = [];
+    const tree = mountTree({ onPick: (path, gesture) => picks.push(`${gesture}:${path}`) });
+
+    click(tree.labelFor("plan.md"), { shiftKey: true });
+    click(tree.labelFor("plan.md"), { shiftKey: true, ctrlKey: true });
+
+    expect(picks).toEqual(["range:1-projects/plan.md", "range:1-projects/plan.md"]);
+  });
+
+  test("a plain click still opens, and picks nothing", () => {
+    const picks: string[] = [];
+    const opened: string[] = [];
+    const tree = mountTree({
+      onSelect: (path) => opened.push(path),
+      onPick: (path) => picks.push(path),
+    });
+
+    click(tree.labelFor("plan.md"));
+
+    expect(opened).toEqual(["1-projects/plan.md"]);
+    expect(picks).toEqual([]);
+  });
+
+  test("with nowhere to pick into, a modified click is an ordinary one", () => {
+    const opened: string[] = [];
+    const tree = mountTree({ onSelect: (path) => opened.push(path) });
+
+    click(tree.labelFor("plan.md"), { ctrlKey: true });
+
+    expect(opened).toEqual(["1-projects/plan.md"]);
+  });
+
+  /**
+   * The browser starts a text selection from the last click to a shift-click,
+   * which would wash every name in between in blue over the very rows being
+   * picked. Only where there is a pick to make — elsewhere shift-drag is the
+   * browser's, and stays so.
+   */
+  test("shift-mousedown does not start a text selection, where it picks", () => {
+    const withPick = mountTree({ onPick: () => {} });
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, shiftKey: true });
+    act(() => {
+      withPick.labelFor("plan.md").dispatchEvent(down);
+    });
+    expect(down.defaultPrevented).toBe(true);
+  });
+
+  test("and leaves it alone where it does not", () => {
+    const without = mountTree({});
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, shiftKey: true });
+    act(() => {
+      without.labelFor("plan.md").dispatchEvent(down);
+    });
+    expect(down.defaultPrevented).toBe(false);
   });
 });

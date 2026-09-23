@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon, type IconName } from "../../design/components/Icon";
@@ -29,7 +37,7 @@ import {
 import { ShareDialog } from "./ShareDialog";
 import type { AudienceContext } from "../privacy/audience";
 import { consoleOrigin } from "./shareOrigin";
-import { sharesBreakingWarning } from "./shares";
+import { sharesBreakingWarning, sharesBreakingWarningMany } from "./shares";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
 import { setListingOrder, useListingOrder } from "./listingOrder";
@@ -38,6 +46,7 @@ import { runMenuAction, type ActionContext, type Dialog } from "./actions";
 import { useRightClick } from "./rightClick";
 import { baseName, folderLabel, parentPath } from "./paths";
 import { itemsFromListings, rank } from "./palette";
+import { NO_PICK, pick, topmost, visiblePick, type PickGesture, type TreePick } from "./selection";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
 import type { AccessMember, AccessRow, RemovalRoute } from "./access";
 import type { RecipientGroup } from "./recipients";
@@ -104,6 +113,8 @@ export function Explorer({
   contextLabel,
   onOpenPinned,
   onOverlayChange,
+  pick: pickProp,
+  onPickChange,
   access,
   workspaces,
   activity,
@@ -175,6 +186,16 @@ export function Explorer({
    */
   onOverlayChange?: (open: boolean) => void;
   /**
+   * The rows picked with ⌘/ctrl-click and shift-click — see `selection.ts`.
+   *
+   * Held by the caller when it passes these, because the console's keyboard
+   * handler sits above this region and a chord like ⌘⇧⌫ has to act on the
+   * rows drawn selected rather than on the open note behind them. Without
+   * them the tree keeps its own, which is every mount but the console's.
+   */
+  pick?: TreePick;
+  onPickChange?: Dispatch<SetStateAction<TreePick>>;
+  /**
    * What has changed in this context, and how much of it this person has seen.
    *
    * Absent on the demo console and on any console with no control plane behind
@@ -205,6 +226,9 @@ export function Explorer({
   const [drag, setDrag] = useState<DragSource | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  const [ownPick, setOwnPick] = useState<TreePick>(NO_PICK);
+  const picked = pickProp ?? ownPick;
+  const setPicked = onPickChange ?? setOwnPick;
   /**
    * Whether the activity list is up, and the moment it was opened.
    *
@@ -269,11 +293,12 @@ export function Explorer({
     setDrag(null);
     setDropTarget(null);
     setRefusal(null);
-  }, [contextLabel]);
+    setPicked(NO_PICK);
+  }, [contextLabel, setPicked]);
 
 
 
-  const rows = useMemo(
+  const treeRows = useMemo(
     () =>
       buildTreeRows({
         listings: files.listings,
@@ -282,6 +307,89 @@ export function Explorer({
         descending,
       }),
     [descending, files.expanded, files.listings, files.selectedPath],
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /*                         picking several rows                             */
+  /* ---------------------------------------------------------------------- */
+
+  /** The rows a range is measured over: the tree as drawn, top to bottom. */
+  const order = useMemo(
+    () =>
+      treeRows
+        .filter((row) => row.kind === "file" || row.kind === "folder")
+        .map((row) => row.path),
+    [treeRows],
+  );
+
+  /*
+    A collapsed folder takes what was picked inside it out of the pick — see
+    `visiblePick`. Written back rather than only filtered on read, because the
+    console's keyboard handler reads the same state and must not trash a row
+    this tree is no longer drawing. `visiblePick` hands back the same object
+    when nothing changed, which is what keeps this from looping.
+  */
+  useEffect(() => {
+    setPicked((current) => visiblePick(current, order));
+  }, [order, setPicked]);
+
+  /*
+    Opening something else ends the pick. The open note is what the tree
+    draws selected when nothing is picked, so this is the tree going back to
+    showing the one row a keystroke will act on — whichever way the note was
+    opened, including from the palette or a link, where no row was clicked.
+  */
+  useEffect(() => {
+    setPicked(NO_PICK);
+  }, [files.selectedPath, setPicked]);
+
+  const shown = visiblePick(picked, order);
+
+  /** One row is drawn selected, or the picked rows are — never both. */
+  const rows = useMemo(
+    () =>
+      shown.paths.size === 0
+        ? treeRows
+        : treeRows.map((row) =>
+            row.selected === shown.paths.has(row.path)
+              ? row
+              : { ...row, selected: shown.paths.has(row.path) },
+          ),
+    [shown, treeRows],
+  );
+
+  /** The picked rows, outermost only, in tree order — what a batch acts on. */
+  const pickedRows = useMemo(() => {
+    const byPath = new Map(rows.map((row) => [row.path, row]));
+    return topmost(shown.paths, order).flatMap((path) => {
+      const row = byPath.get(path);
+      return row === undefined ? [] : [row];
+    });
+  }, [order, rows, shown]);
+
+  /*
+    Escape puts a pick down, the way it does in every file manager. Listened
+    for only while there is a pick and nothing modal is up — Escape on an open
+    menu or dialog is that overlay's, and it should close the menu rather
+    than also drop the rows the menu was about. Never consumed: whatever else
+    Escape means where focus is, it still means.
+  */
+  const picking = shown.paths.size > 0;
+  useEffect(() => {
+    if (!picking || overlayOpen || typeof document === "undefined") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPicked(NO_PICK);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [overlayOpen, picking, setPicked]);
+
+  const onPick = useCallback(
+    (path: string, gesture: PickGesture) =>
+      setPicked((current) =>
+        pick(visiblePick(current, order), gesture, path, order, files.selectedPath),
+      ),
+    [files.selectedPath, order, setPicked],
   );
 
   const matches = useMemo(() => {
@@ -311,10 +419,13 @@ export function Explorer({
    */
   const select = useCallback(
     (path: string) => {
+      // A plain click ends a pick, even on the row already open — that is
+      // the click that says "just this one".
+      setPicked(NO_PICK);
       files.select(path);
       if (frame.closesOnSelect) frame.closeOverlays();
     },
-    [files, frame],
+    [files, frame, setPicked],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -388,9 +499,25 @@ export function Explorer({
     // Named without its sort number, the way the row it came out of is: a menu
     // headed `1-projects` over a row reading `projects` is a menu the reader
     // has to match up to the thing they just pressed.
-    (row: TreeRow, anchor: { x: number; y: number }) =>
-      openTarget({ kind: "row", row }, folderLabel(baseName(row.path)), anchor),
-    [openTarget],
+    (row: TreeRow, anchor: { x: number; y: number }) => {
+      /*
+        Right-clicking one of several picked rows is a menu for all of them;
+        right-clicking a row outside the pick is a menu for that row, and ends
+        the pick — the way Finder and VS Code both answer it. Leaving the pick
+        drawn under a menu for some other row would put two answers to "what
+        will this act on" on screen at once.
+      */
+      if (pickedRows.length > 1 && shown.paths.has(row.path)) {
+        return openTarget(
+          { kind: "selection", rows: pickedRows },
+          `${pickedRows.length} items`,
+          anchor,
+        );
+      }
+      if (shown.paths.size > 0) setPicked(NO_PICK);
+      return openTarget({ kind: "row", row }, folderLabel(baseName(row.path)), anchor);
+    },
+    [openTarget, pickedRows, setPicked, shown],
   );
 
   /**
@@ -434,8 +561,13 @@ export function Explorer({
   );
 
   const runAction = useCallback(
-    (id: MenuActionId, target: MenuTarget) => runMenuAction(id, target, menuActions),
-    [menuActions],
+    (id: MenuActionId, target: MenuTarget) => {
+      runMenuAction(id, target, menuActions);
+      // The pick has been spent on whatever was chosen — copying its paths
+      // aside, which leaves the rows where they were and still picked.
+      if (target.kind === "selection" && id !== "copyPath") setPicked(NO_PICK);
+    },
+    [menuActions, setPicked],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -448,8 +580,21 @@ export function Explorer({
       canDrag: (row) => !row.readOnly && row.kind !== "loading" && row.kind !== "empty",
       canDrop: (row) => row.kind === "folder",
       onDragStart: (path) => {
-        const entry = findEntry(files.listings, path);
-        setDrag({ paths: [path], readOnly: entry?.readOnly ?? false });
+        /*
+          Picking up one of several picked rows picks up all of them, the way
+          every file manager does; picking up any other row is a drag of that
+          row alone, and ends the pick for the same reason a right-click
+          outside it does.
+        */
+        const carried =
+          pickedRows.length > 1 && shown.paths.has(path)
+            ? pickedRows.map((row) => row.path)
+            : [path];
+        if (carried.length === 1 && shown.paths.size > 0) setPicked(NO_PICK);
+        setDrag({
+          paths: carried,
+          readOnly: carried.some((each) => findEntry(files.listings, each)?.readOnly ?? false),
+        });
       },
       onDragOver: (path) => setDropTarget(path),
       onDragLeave: (path) => setDropTarget((current) => (current === path ? null : current)),
@@ -463,13 +608,35 @@ export function Explorer({
         setDropTarget(null);
         if (source === null) return;
 
-        const verdict = verdictFor(source, { kind: "folder", path }, modifiers, files.listings);
+        /*
+          Picked rows already in the drop folder stay where they are rather
+          than refusing the whole drop as "already there" — dragging three
+          notes from two folders into one of those two is a move of the ones
+          that are elsewhere. A copy keeps them all: a copy into its own folder
+          is a duplicate, and legal. Dropping only rows that are already there
+          keeps the refusal, which is the answer a single row gets.
+        */
+        const elsewhere = source.paths.filter((each) => parentPath(each) !== path);
+        const moving =
+          modifiers.includes("copy") || elsewhere.length === 0
+            ? source
+            : { ...source, paths: elsewhere };
+        const verdict = verdictFor(moving, { kind: "folder", path }, modifiers, files.listings);
         if (!verdict.ok) {
           // The refusal is the product of `dnd.ts`, said in words rather than
           // by the row simply springing back. A drop that fails silently
           // teaches nothing.
           setMenu(null);
           setRefusal(verdict.reason);
+          return;
+        }
+        if (verdict.moves.length > 1) {
+          // One operation with one Undo, not a loop — see `moveMany` in
+          // `browser.ts`. The browser re-checks the same rules on the way in.
+          const from = verdict.moves.map((move) => move.from);
+          if (verdict.action === "copy") files.copyManyTo(from, path);
+          else files.moveMany(from, path);
+          setPicked(NO_PICK);
           return;
         }
         for (const move of verdict.moves) {
@@ -487,7 +654,7 @@ export function Explorer({
         }
       },
     };
-  }, [files, drag]);
+  }, [files, drag, pickedRows, setPicked, shown]);
 
   const counts = loadedCounts(files.listings);
   /*
@@ -769,11 +936,13 @@ export function Explorer({
             canSetVisibility={files.canSetVisibility}
             onSelect={select}
             onToggle={(path) => {
+              setPicked(NO_PICK);
               files.toggleFolder(path);
               files.select(path);
             }}
             onCycleVisibility={(row) => cycleVisibility(files, row)}
             onMenu={openMenu}
+            onPick={onPick}
             drag={dragHandlers}
             dropTarget={dropTarget}
             pendingStateFor={files.pending?.stateFor}
@@ -1252,6 +1421,50 @@ export function ExplorerDialogs({
         />
       );
       }
+    case "moveMany":
+      return (
+        <MovePicker
+          title={`Move ${dialog.paths.length} items`}
+          description={sharesBreakingWarningMany(files.shares, dialog.paths, "Moving") ?? undefined}
+          // No picked folder can be its own destination, nor anywhere inside
+          // one — the same filter the single move applies, over every path.
+          folders={loadedFolders(files.listings).filter(
+            (folder) =>
+              !dialog.paths.some((path) => path === folder || folder.startsWith(`${path}/`)),
+          )}
+          // Where they all already are, when they are all in one place.
+          currentFolder={commonParent(dialog.paths)}
+          /*
+            No other contexts. A move into another context is its own server
+            action with no batch form and no Undo (`moveToContext`), so a batch
+            of them would be several long-running moves that finish at
+            different times. Absent rather than offered one at a time.
+          */
+          onCancel={onClose}
+          onConfirm={(folder) => {
+            onClose();
+            files.moveMany(dialog.paths, folder);
+          }}
+        />
+      );
+    case "archiveMany":
+      return (
+        <Confirm
+          title={`Archive ${dialog.paths.length} items`}
+          body={[
+            `These move into 4-archive/ with their original paths kept inside, so you can move them straight back. Nothing is deleted.`,
+            sharesBreakingWarningMany(files.shares, dialog.paths, "Archiving"),
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          confirmLabel="Archive them"
+          onCancel={onClose}
+          onConfirm={() => {
+            onClose();
+            files.archiveMany(dialog.paths);
+          }}
+        />
+      );
     case "archive":
       return (
         /*
@@ -1278,6 +1491,12 @@ export function ExplorerDialogs({
         />
       );
   }
+}
+
+/** The folder every path is in, or `null` when they are not all in one. */
+function commonParent(paths: readonly string[]): string | null {
+  const parents = new Set(paths.map(parentPath));
+  return parents.size === 1 ? [...parents][0]! : null;
 }
 
 function IconButton({

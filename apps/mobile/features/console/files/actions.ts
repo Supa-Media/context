@@ -52,6 +52,13 @@ export type Dialog =
   | { kind: "rename"; path: string }
   | { kind: "move"; path: string }
   | { kind: "archive"; path: string }
+  /**
+   * The tree's multi-selection, moved or archived as one. Separate kinds
+   * rather than `path` widened to a list, so every existing arm that reads
+   * `dialog.path` stays a single path by type.
+   */
+  | { kind: "moveMany"; paths: readonly string[] }
+  | { kind: "archiveMany"; paths: readonly string[] }
   | { kind: "share"; path: string }
   | null;
 
@@ -108,13 +115,13 @@ export interface ActionTarget {
  * What this menu was opened on, as the dispatcher needs it — or `null` where
  * there is nothing single to act on.
  *
- * **A selection returns `null` on purpose.** `menu.ts` models a multi-row menu
- * and writes its labels in the plural, but nothing in the console opens one
- * yet: the tree has no multi-selection to open it *from*. Picking the first row
- * and acting on that would be the worst of the three available behaviours — an
- * "Archive 3 items" that archives one is the partial success `menu.ts`'s own
- * header says this menu exists to avoid. So it declines, and the day a
- * selection exists this is the function that grows an arm for it.
+ * **A selection of several returns `null` on purpose.** Picking the first row
+ * and acting on that would be the worst available behaviour — an "Archive 3
+ * items" that archives one is the partial success `menu.ts`'s own header says
+ * this menu exists to avoid. `runMenuAction` sends a selection to
+ * `runSelectionAction` instead, which acts on every row or on none. A
+ * selection of one is that row: `menu.ts` offers it the row's menu, so it has
+ * to run the row's actions.
  */
 export function actionTargetOf(target: MenuTarget): ActionTarget | null {
   switch (target.kind) {
@@ -132,7 +139,43 @@ export function actionTargetOf(target: MenuTarget): ActionTarget | null {
       };
     }
     case "selection":
-      return null;
+      return target.rows.length === 1 ? actionTargetOf({ kind: "row", row: target.rows[0]! }) : null;
+  }
+}
+
+/**
+ * Run one menu item against several rows.
+ *
+ * Only the items `menu.ts` offers a selection have an arm here; everything
+ * else is a no-op, never "the first row's" action. Each arm is one call that
+ * takes every path — `moveMany`, `destroyMany` and the rest are one operation
+ * with one Undo, where a loop over the single-path methods would be several
+ * that supersede one another (`browser.ts` has the whole argument).
+ */
+function runSelectionAction(
+  id: MenuActionId,
+  paths: readonly string[],
+  context: ActionContext,
+): void {
+  const { files } = context;
+  switch (id) {
+    case "moveTo":
+      context.setDialog({ kind: "moveMany", paths });
+      return;
+    case "archive":
+      context.setDialog({ kind: "archiveMany", paths });
+      return;
+    case "restore":
+      files.restoreMany(paths);
+      return;
+    case "delete":
+      files.destroyMany(paths);
+      return;
+    case "copyPath":
+      context.writeClipboard(paths.join("\n"));
+      return;
+    default:
+      return;
   }
 }
 
@@ -150,6 +193,14 @@ export function runMenuAction(
   target: MenuTarget,
   context: ActionContext,
 ): void {
+  if (target.kind === "selection" && target.rows.length > 1) {
+    runSelectionAction(
+      id,
+      target.rows.map((row) => row.path),
+      context,
+    );
+    return;
+  }
   const at = actionTargetOf(target);
   if (at === null) return;
   const { path, folder, kind } = at;
