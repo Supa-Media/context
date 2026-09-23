@@ -144,3 +144,16 @@ in the product reaches those operations.
 Migration, native delivery, structural changes, and permission failures remain
 release gates. A successful local fake-account run is not evidence that the
 production sign-in or membership service was exercised.
+
+## Console grants are shared within a browser, independent across browsers
+
+The editor, presence socket and agent share one in-memory, workspace-keyed
+console grant cache. Concurrent requests share the same pending mint, and
+switching notes reuses the live grant. Account changes discard the cache;
+no bearer is persisted. Each loaded console has an ephemeral instance id.
+The backend replaces grants only within the same user, workspace and instance,
+so opening another browser cannot revoke an editor's token. Expired first-party
+rows can be reused to keep the connections list bounded by recent instances.
+Legacy clients without an instance id retain their replacement behavior.
+Membership checks, scope clamping, expiry, revocation and the per-user mint
+limit still apply. An instance id is a cache identity, never authority.

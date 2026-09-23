@@ -34,6 +34,8 @@ jobs:
         run: |
           if [ "$RESET_FIXTURES" = "true" ]; then
             node scripts/staging-personas.mjs --reset
+            node scripts/staging-logos.mjs --reset
           else
             node scripts/staging-personas.mjs
+            node scripts/staging-logos.mjs
           fi

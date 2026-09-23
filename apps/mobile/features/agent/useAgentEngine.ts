@@ -1,6 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { useAction } from "convex/react";
-import { api } from "@context/convex/_generated/api";
+import { useCallback, useMemo, useState } from "react";
+import { useConsoleGrant } from "./useConsoleGrant";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { NO_PROVIDER, type AgentEngine } from "./engine";
 import {
@@ -30,14 +29,9 @@ import type { AgentPage } from "./page";
  * a credential sitting on the device for somebody else to find — which is the
  * sentence non-negotiable #1 ends with.
  *
- * A ref and not state, deliberately: the token changing is not something any
- * pixel depends on, and putting it in state would re-render the panel — and
- * every child holding a draft — each time one is minted.
- *
- * **A ref outlives the props that filled it**, which is why the workspace is
- * stored beside the token: the console switches context without remounting,
- * so "the token is still alive" is not the same question as "the token is for
- * the context being asked about". See `token` below.
+ * The in-memory session cache is shared with the editor and presence socket,
+ * keyed by workspace, so those consumers do not invalidate each other's grant.
+ * Nothing is persisted and an account change gets a new cache.
  *
  * ## Why the refusal on 401 is a re-mint and not a retry loop
  *
@@ -53,25 +47,7 @@ export function useAgentEngine(options: {
   /** The MCP endpoint the console already shows, e.g. `https://…/mcp`. */
   endpoint: string | null;
 }): AgentEngine {
-  const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
-  /**
-   * The live grant, and **which context it is a grant for**.
-   *
-   * The workspace is held beside the token rather than inferred from the
-   * closure, because this ref outlives the value of `workspaceId` that filled
-   * it: switching context in the console is a `setState` inside the layout,
-   * not a remount, so the hook keeps its ref straight across the switch. A
-   * check on expiry alone reads "still alive" as "still the right one", and
-   * the gateway resolves the session from the token — so the next turn is
-   * answered out of the context the person just left, for the rest of that
-   * hour, while `place.context` in the same request names the one they are in.
-   *
-   * One slot and not a map, deliberately. A cache per workspace would keep a
-   * live credential in memory for a context nobody is looking at, which is the
-   * thing the header above says this hook does not do; a switch back costs one
-   * round trip on a session the person already holds.
-   */
-  const token = useRef<{ value: string; expiresAt: number; workspaceId: string } | null>(null);
+  const mint = useConsoleGrant();
   const route = options.endpoint === null ? null : agentEndpoint(options.endpoint);
   const workspaceId = options.workspaceId;
   /**
@@ -99,21 +75,7 @@ export function useAgentEngine(options: {
    */
   const tokenFor = useCallback(
     async (force: boolean): Promise<string> => {
-      const held = token.current;
-      if (
-        !force &&
-        held !== null &&
-        held.workspaceId === workspaceId &&
-        held.expiresAt - 60_000 > Date.now()
-      ) {
-        return held.value;
-      }
-      const minted = await mint({ workspaceId: workspaceId as Id<"workspaces"> });
-      token.current = {
-        value: minted.accessToken,
-        expiresAt: minted.expiresAt,
-        workspaceId: workspaceId as string,
-      };
+      const minted = await mint({ workspaceId: workspaceId as Id<"workspaces"> }, force);
       return minted.accessToken;
     },
     [mint, workspaceId],

@@ -1,6 +1,5 @@
-import { useAction } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "@context/convex/_generated/api";
+import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import type { CacheScope } from "../../offline/keys";
 import {
@@ -64,7 +63,7 @@ function statusMessage(status: DurableStatus): string | undefined {
 
 /** Bind one note to the durable gateway protocol; presence remains a UI overlay. */
 export function useCollaboration(options: UseCollaborationOptions): DurableCollaboration | undefined {
-  const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
+  const mint = useConsoleGrant();
   const controller = useRef<DurableCollaborationController | null>(null);
   const callbacks = useRef(options);
   callbacks.current = options;
@@ -94,12 +93,9 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     const origin = gatewayOriginFrom(endpoint);
     if (origin === null) return;
     let stopped = false;
-    let tokenCache: { value: string; expiresAt: number } | null = null;
     const transport = {
       mint: async () => {
-        if (tokenCache !== null && tokenCache.expiresAt - Date.now() > 60_000) return tokenCache.value;
         const grant = await mint({ workspaceId: workspaceId as never });
-        tokenCache = { value: grant.accessToken, expiresAt: grant.expiresAt };
         return grant.accessToken;
       },
       request: async (token: string, body: { path: string; documentId?: string; update?: string; replacement?: { expectedEtag: string; text: string } }): Promise<CollaborationResponse> => {
