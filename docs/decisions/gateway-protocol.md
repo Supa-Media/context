@@ -761,6 +761,61 @@ deliberately not covered.** There is no event to hang a notice on, and inventing
 one would mean polling the bucket. Those land the way they always have: the next
 read shows them, and a conflicting save raises a conflict.
 
+### Agent activity is announced from finished tool calls, never streamed
+
+Decided 2026-09-23. A person looking at a workspace should be able to see that
+agents are working in it, and where. The gateway is stateless toward MCP
+clients: an agent holds no socket and has no session to start or end. So what
+the console can show is limited to what a *finished* tool call tells the
+gateway:
+
+- **read**: `read_note` or `fetch` returned a note;
+- **write**: `write_note` stored one;
+- **active**: either of those within the last five minutes.
+
+It does not show "writing now" or "about to edit this section". The model
+finishes the text before it calls the tool, so nothing reaches us until the
+whole write does. A live stream of an agent's typing would need a different
+kind of tool (chunked writes, or an optional `begin_edit(path, section,
+intent)`) that agents could skip. The UI could never rely on it, so it is not
+built.
+
+**Where it is drawn, and why so little of it.** A file tree row carries one
+small square: outlined for "an agent read this", filled for "an agent wrote
+this". It never shows an avatar, so a workspace with a hundred agents has the
+same sidebar as one with two. A closed folder carries the mark of what is under
+it, by the rule the "new" dot already uses. The foot of the tree adds one line,
+"N agents active", only while there are any, and that line opens the list of
+who. In a durable note, the agent's committed write is tinted and signed with
+its caret for as long as it is in the roster.
+
+**The log is in memory, per workspace, and filtered per caller.**
+`agentActivity.js` keeps one workspace's events in one `PresenceRoom`
+instance keyed `activity:<workspaceId>`. That key cannot be a note room's,
+because `roomKey` percent-encodes the workspace id. The log is never written
+to Durable Object storage. It is pruned to the window on every access and
+lost on eviction, which costs a few dots that were about to fade. It holds
+paths, and paths are the customer's data, so they get the same bound as a
+presence attachment: live, bounded, and gone when unused. `GET
+/agent-activity` authorizes like `/presence` (same token, clamp and
+`privacy.md`, no groups). It filters every event through `canSee` for the
+caller **before** counting, so a team member sees neither a private path nor
+an agent whose only work was private. The console's own client
+(`context_console`) is never recorded, or a person opening a note would
+appear in their own tree as a robot.
+
+**A durable room names the agent; each client finds the span.** A v2 room
+hands nobody the text, so the v1 design, where one client merges and reports
+the caret, does not apply. `write_note` passes the actor on the committed
+notice. The room adds `agent: { id, name, color }` unless a client already
+seated in the room made the write. Each client then takes the span from the
+Yjs event its own authorized HTTP read produced. No position crosses the wire,
+so no peer can report a caret on an agent's behalf.
+
+What would break it: storing the log, filtering after aggregation, keying the
+log by anything but the session's workspace, or recording the console. Each
+is sabotage-tested in `apps/mcp/test/agentActivity.test.mjs`.
+
 ### A drawing merges by element, and by Excalidraw's own rules
 
 A `.excalidraw.md` file is Markdown wrapped around one enormous compressed

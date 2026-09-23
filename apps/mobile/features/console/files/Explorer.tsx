@@ -20,6 +20,8 @@ import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { loadedCounts } from "./contextFoot";
 import { ActivityList } from "../activity/ActivityList";
+import { AgentList, AgentStack } from "../agents/AgentList";
+import { agentMarkRows, agentsLine, type AgentActivityView } from "../agents/agentActivity";
 import {
   ACTIVITY_PATH,
   emptyLine,
@@ -118,6 +120,7 @@ export function Explorer({
   access,
   workspaces,
   activity,
+  agents,
 }: {
   files: FileBrowser;
   /**
@@ -204,6 +207,13 @@ export function Explorer({
    * already there and adds a dot to rows that are already drawn.
    */
   activity?: ActivityView;
+  /**
+   * Which notes agents read or wrote in the last few minutes, from
+   * `useAgentActivity`. Absent where there is no gateway, and then the tree
+   * draws no agent marks and the foot has no agents line — exactly the
+   * column as it was.
+   */
+  agents?: AgentActivityView;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -237,6 +247,8 @@ export function Explorer({
    * clock read during render makes "4 min" tick over mid-scroll.
    */
   const [activityOpen, setActivityOpen] = useState<number | null>(null);
+  /** The agents list, and the moment it was opened, on the same terms. */
+  const [agentsOpen, setAgentsOpen] = useState<number | null>(null);
 
   /*
     Tell the frame while this region owns something modal, so the keyboard goes
@@ -683,6 +695,17 @@ export function Explorer({
         : markedRows(activity.unseenPaths, files.expanded),
     [activity, files.expanded],
   );
+  const agentMarks = useMemo(
+    () => (agents === undefined ? undefined : agentMarkRows(agents.marks, files.expanded)),
+    [agents, files.expanded],
+  );
+  const agentsLabel = agentsLine(agents);
+  /*
+    The popovers sit above the foot, and the foot is one line taller while
+    agents are active. Without this the list would cover the line that opened
+    it.
+  */
+  const sheetLift = agentsLabel === null ? null : { bottom: 76 + AGENTS_LINE_HEIGHT };
 
   /**
    * Putting the filter away, which must also clear it.
@@ -950,6 +973,7 @@ export function Explorer({
             dropTarget={dropTarget}
             pendingStateFor={files.pending?.stateFor}
             markedPaths={markedPaths}
+            agentMarks={agentMarks}
           />
         )}
 
@@ -1009,11 +1033,47 @@ export function Explorer({
         the list is read, which is also what makes "caught up" visible without
         a word for it.
       */}
+      {/*
+        AGENTS, WHEN THERE ARE ANY, AND NOT A LINE OTHERWISE.
+
+        One line however many agents are working, so a workspace with a
+        hundred of them has the same sidebar as one with two. Who they are is
+        one press away; the tree's squares say where. Above the counts line
+        because it is the more current of the two: minutes rather than since
+        you last looked.
+      */}
+      {agents !== undefined && agentsLabel !== null ? (
+        <PressRow
+          accessibilityLabel={`${agentsLabel}. Show which`}
+          onPress={() => {
+            setActivityOpen(null);
+            setAgentsOpen((open) => (open === null ? Date.now() : null));
+          }}
+          ariaExpanded={agentsOpen !== null}
+          ariaHasPopup="menu"
+          radius={radii.sm}
+          style={StyleSheet.flatten([styles.foot, styles.footPress])}
+          hoverStyle={styles.matchHover}
+          testID="explorer-agents"
+        >
+          <AgentStack agents={agents.agents} />
+          <Text variant="treeMeta" numberOfLines={1} style={styles.footGrow}>
+            {agentsLabel}
+          </Text>
+          <Icon
+            name={agentsOpen === null ? "chevronUp" : "chevronDown"}
+            size={11}
+            color={colors.chromeMuted}
+          />
+        </PressRow>
+      ) : null}
+
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow
           accessibilityLabel={`${activityLabel}. Show what changed`}
           onPress={() => {
             const opening = activityOpen === null;
+            setAgentsOpen(null);
             setActivityOpen(opening ? Date.now() : null);
             // Re-read on the way in. The entries arrived when this console
             // did, and everything that has happened since — including this
@@ -1091,7 +1151,7 @@ export function Explorer({
         this column already drives, and closes.
       */}
       {activity !== undefined && activityOpen !== null ? (
-        <View style={styles.activitySheet} testID="explorer-activity-list">
+        <View style={[styles.activitySheet, sheetLift]} testID="explorer-activity-list">
           <ScrollView style={styles.activityScroll}>
             <ActivityList
               entries={activity.entries}
@@ -1121,6 +1181,21 @@ export function Explorer({
             </Text>
             <Icon name="chevronRight" size={11} color={colors.chromeMuted} />
           </PressRow>
+        </View>
+      ) : null}
+
+      {agents !== undefined && agentsOpen !== null && agentsLabel !== null ? (
+        <View style={[styles.activitySheet, sheetLift]} testID="explorer-agents-list">
+          <ScrollView style={styles.activityScroll}>
+            <AgentList
+              agents={agents.agents}
+              now={agentsOpen}
+              onOpen={(path) => {
+                setAgentsOpen(null);
+                files.select(path);
+              }}
+            />
+          </ScrollView>
         </View>
       ) : null}
 
@@ -1556,6 +1631,9 @@ function inheritedOf(files: FileBrowser, path: string): Visibility {
   }
   return "private";
 }
+
+/** One foot line: 5pt padding either side of a `treeMeta` line, and its rule. */
+const AGENTS_LINE_HEIGHT = 28;
 
 const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   explorer: { flex: 1, minHeight: 0 },

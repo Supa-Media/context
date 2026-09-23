@@ -23,6 +23,7 @@ import {
   MAX_UPDATE_BYTES,
   decodeClientFrame,
 } from "../../mcp/src/presence.js";
+import { PresenceRoom } from "../../mcp/src/presenceRoom.js";
 import {
   agentCursorFrame,
   agentPointerFrame,
@@ -565,5 +566,24 @@ describe("what the room sends, the client reads", () => {
     // contained, because this change is additive.
     expect(named("an\u202ea")).toBe("ana");
     expect(named("an\u0007a")).toBe("ana");
+  });
+});
+
+describe("the room's agent attribution reaches the editor", () => {
+  test("a committed frame the room builds names the same agent the client draws", () => {
+    // The room's own method, not a literal of what it might send.
+    const room = new PresenceRoom({ getWebSockets: () => [] }, {});
+    const wire = JSON.stringify({
+      t: "committed",
+      documentId: "doc",
+      etag: "c2.doc.1",
+      ...room.committedAgent({ id: "0123456789abcdef", name: "Somebody's Claude" }),
+    });
+    const frame = decodeServerFrame(wire);
+    expect(frame?.t).toBe("committed");
+    const agent = frame && frame.t === "committed" ? frame.agent : undefined;
+    expect(agent?.id).toBe("a:0123456789abcdef");
+    expect(agent?.name).toContain("Somebody's Claude");
+    expect(agent?.color).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });

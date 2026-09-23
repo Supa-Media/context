@@ -1,5 +1,6 @@
 import type { MirrorStatus } from "../offline/mirrorStatus";
 import type { ActivityView } from "./activity/activity";
+import type { AgentActivityView } from "./agents/agentActivity";
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
 import type { ContextPluginsView } from "./plugins/contextPlugins";
@@ -369,6 +370,12 @@ export interface ConsoleData {
    * had before the feature existed: the note count, unchanged.
    */
   activity?: ActivityView;
+  /**
+   * Which notes agents read or wrote in the selected context in the last few
+   * minutes, filtered by the gateway to what this person may see. Absent on
+   * the demo console and until the first answer lands.
+   */
+  agents?: AgentActivityView;
   /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.

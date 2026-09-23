@@ -92,7 +92,11 @@ export function isTransportPath(path) {
     path === "/inbox" ||
     path === "/agent" ||
     path === "/presence" ||
-    path === "/collaboration"
+    path === "/collaboration" ||
+    // Authenticated and read by the console from a browser. It changes
+    // nothing, but it names notes, so a page on another origin must not be
+    // able to ask it with somebody else's token.
+    path === "/agent-activity"
   );
 }
 

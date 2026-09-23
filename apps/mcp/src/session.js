@@ -264,6 +264,9 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // The collaboration HTTP transport. Keeping it in the top-level namespace
   // prevents `/collaboration` from being parsed as a workspace slug.
   "collaboration",
+  // Which notes agents touched recently, for the console's file tree. Also in
+  // the control plane's RESERVED_NAMES, for the reason `presence` is.
+  "agent-activity",
 ]);
 
 /* --------------------------- session resolution --------------------------- */

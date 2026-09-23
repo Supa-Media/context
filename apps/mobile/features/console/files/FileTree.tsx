@@ -9,6 +9,8 @@ import type { SyncMark } from "./pendingMarks";
 import type { PickGesture } from "./selection";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
+import { AgentMark, withAgentMark } from "../agents/AgentMark";
+import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
@@ -90,6 +92,7 @@ export function FileTree({
   dropTarget = null,
   pendingStateFor,
   markedPaths,
+  agentMarks,
 }: {
   rows: readonly TreeRow[];
   /**
@@ -129,6 +132,12 @@ export function FileTree({
    * marks nothing.
    */
   markedPaths?: ReadonlySet<string>;
+  /**
+   * Rows an agent read or wrote in the last few minutes, from
+   * `agentMarkRows`. The same nearest-open-row rule as `markedPaths`.
+   * Absent on a console with no gateway, which marks nothing.
+   */
+  agentMarks?: ReadonlyMap<string, AgentMarkKind>;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -159,6 +168,7 @@ export function FileTree({
             isDropTarget={dropTarget === row.path}
             sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
             marked={markedPaths?.has(row.path) ?? false}
+            agent={agentMarks?.get(row.path) ?? null}
           />
         );
       })}
@@ -196,6 +206,7 @@ function FileRow({
   isDropTarget,
   sync,
   marked,
+  agent,
 }: {
   row: TreeRow;
   /**
@@ -216,6 +227,8 @@ function FileRow({
   sync: SyncMark | null;
   /** Something under this row changed since this person last caught up. */
   marked: boolean;
+  /** An agent read or wrote this row (or something under it) just now. */
+  agent: AgentMarkKind | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -259,11 +272,12 @@ function FileRow({
       */}
       {row.selected ? <View style={styles.selectedBar} aria-hidden /> : null}
       <PressRow
-        accessibilityLabel={
+        accessibilityLabel={withAgentMark(
           marked
             ? `${withSyncMark(describeRow(row), sync)}, new`
-            : withSyncMark(describeRow(row), sync)
-        }
+            : withSyncMark(describeRow(row), sync),
+          agent,
+        )}
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
         radius={radii.sm}
@@ -320,6 +334,13 @@ function FileRow({
           "somebody else changed this" is about them and earlier.
         */}
         {marked ? <View style={styles.newDot} aria-hidden /> : null}
+        {/*
+          The agent mark, last: it is about somebody else's tool and the
+          last few minutes, the least urgent of the three. Its words are in
+          the row's own name above, because a button's name replaces its
+          children's. See `AgentMark` for the shape.
+        */}
+        {agent === null ? null : <AgentMark kind={agent} />}
       </PressRow>
 
       <VisibilityControl
