@@ -2249,7 +2249,12 @@ export async function runPresenceChecks(check) {
       summary: "an agent writing a note somebody has open",
       expected_etag: roadmapRead.match(/^etag: (\S+)/)?.[1],
     });
-    const notice = rooms.calls.slice(writesBefore).find((call) => call.body !== null);
+    // The committed notice specifically: the same write, and the read before
+    // it, also post to the workspace's activity log (`agentActivity.js`),
+    // which is a different object and a different question.
+    const notice = rooms.calls
+      .slice(writesBefore)
+      .find((call) => call.body !== null && call.url.endsWith("/committed"));
     check(
       "a tool's write tells the room for that note, in that workspace",
       // The room key is derived from the session's own workspace and the path
