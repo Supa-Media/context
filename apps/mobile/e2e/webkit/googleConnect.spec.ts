@@ -1,5 +1,13 @@
 import { expect, test } from "@playwright/test";
 
+// The exported app registers its production service worker. Once it controls
+// this page, Playwright cannot intercept the callback action request with
+// `page.route`, so WebKit can race into a real DNS lookup for the deliberately
+// invalid fixture host. This spec is about the browser HTTP action path, not
+// service-worker behavior (covered by offlineShell.spec.ts), so keep the
+// request observable by Playwright here.
+test.use({ serviceWorkers: "block" });
+
 test("Google callback completes through the real browser HTTP action route", async ({ page }) => {
   const actionRequests: Array<{ url: string; body: unknown }> = [];
 
@@ -24,9 +32,7 @@ test("Google callback completes through the real browser HTTP action route", asy
     "/connect/google?code=google-code&state=google-state&completionSecret=google-completion-secret",
   );
 
-  await expect(page.getByRole("heading", { name: "Google is connected" })).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(page.getByRole("heading", { name: "Google is connected" })).toBeVisible();
   expect(actionRequests).toHaveLength(1);
   expect(actionRequests[0]?.body).toMatchObject({
     path: "functions/googleConnect:completeGoogleConnect",
