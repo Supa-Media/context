@@ -58,6 +58,11 @@ import { createSearchBudget } from "../src/search/maintain.js";
 const OWNER_TOKEN = `cat_orientation_owner_${"0".repeat(14)}`;
 const TEAM_TOKEN = `cat_orientation_member_${"0".repeat(13)}`;
 const BROKEN_TOKEN = `cat_orientation_broken_${"0".repeat(13)}`;
+const WIDE_TOKEN = `cat_orientation_wide_${"0".repeat(15)}`;
+/** Where the person's context must have finished — `INSTRUCTIONS_SKETCH_BUDGET`. */
+const SKETCH_BUDGET = 3_500;
+/** Where a Claude Code session was seen cutting this payload, 2026-09-23. */
+const OBSERVED_CLIENT_CUT = 4_083;
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
@@ -166,6 +171,7 @@ export async function runOrientationChecks(check) {
   try {
     const bucket = createBucket();
     const dead = createDeadBucket();
+    const wide = createBucket();
 
     for (const [workspace, slug, binding] of [
       ["ws_large", "large", "LARGE_BUCKET"],
@@ -194,6 +200,36 @@ export async function runOrientationChecks(check) {
       clientId: "mcp_client_orientation_member",
       userId: "user_orientation_member",
     });
+    // The worst case the connect sketch has to fit: a long front page, a wide
+    // root, and a person in more workspaces than anyone names in one line —
+    // every name long enough to meet the per-name cap, so each line is limited
+    // by its character budget rather than by its count.
+    controlPlane.addWorkspace("ws_wide", "wide", {
+      provider: "r2-binding",
+      bindingName: "WIDE_BUCKET",
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      status: "active",
+    });
+    const wideMemberships = [];
+    for (let n = 1; n <= 30; n += 1) {
+      const id = `ws_wide_member_${n}`;
+      controlPlane.addWorkspace(id, `${"a-workspace-near-the-name-cap-".repeat(2)}${n}`, {
+        provider: "r2-binding",
+        bindingName: "WIDE_BUCKET",
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+        status: "active",
+      });
+      wideMemberships.push({ workspaceId: id, role: "member" });
+    }
+    await controlPlane.addGrant({
+      accessToken: WIDE_TOKEN,
+      workspaceId: "ws_wide",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_orientation_wide",
+      userId: "user_orientation_wide",
+      alsoMemberOf: wideMemberships,
+    });
     await controlPlane.addGrant({
       accessToken: BROKEN_TOKEN,
       workspaceId: "ws_dead",
@@ -206,9 +242,10 @@ export async function runOrientationChecks(check) {
     const env = {
       CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
       GATEWAY_SECRET,
-      NATIVE_BINDINGS: "LARGE_BUCKET,DEAD_BUCKET",
+      NATIVE_BINDINGS: "LARGE_BUCKET,DEAD_BUCKET,WIDE_BUCKET",
       LARGE_BUCKET: bucket,
       DEAD_BUCKET: dead,
+      WIDE_BUCKET: wide,
     };
 
     bucket.seed("privacy.md", PRIVACY_MANIFEST);
@@ -747,6 +784,89 @@ export async function runOrientationChecks(check) {
         !brokenPrivacy.instructions.includes("WHAT IS IN HERE")
     );
     bucket.seed("privacy.md", PRIVACY_MANIFEST);
+
+    // -- the person's context arrives inside the part a client delivers
+    //
+    // Clients cut this payload from the end: a Claude Code session connected
+    // to this gateway was seen delivering 4,083 characters of it. The sketch
+    // used to follow five thousand characters of static argument, so on such a
+    // client a fresh conversation got the pitch and never the front page.
+    // Moving the sketch back to the end fails every check below but the first.
+    check(
+      "the call to action still opens the connect text",
+      ownerConnect.instructions.indexOf("CALL `orient` FIRST") > -1 &&
+        ownerConnect.instructions.indexOf("CALL `orient` FIRST") < 500
+    );
+    check(
+      "the front page is delivered ahead of the argument and the rules",
+      ownerConnect.instructions.indexOf("Shipping the gateway.") > -1 &&
+        ownerConnect.instructions.indexOf("Shipping the gateway.") <
+          ownerConnect.instructions.indexOf("Skipping it is not a neutral choice") &&
+        ownerConnect.instructions.indexOf("Shipping the gateway.") <
+          ownerConnect.instructions.indexOf("FIVE RULES")
+    );
+    check(
+      "and nothing of the static text is lost by the move",
+      ownerConnect.instructions.includes("FIVE RULES") &&
+        ownerConnect.instructions.includes("Skipping it is not a neutral choice") &&
+        ownerConnect.instructions.includes("WRITE BACK")
+    );
+
+    // Worst case: every piece of the sketch at or past its cap at once.
+    const FRONT_PAGE_END = "WIDE-FRONT-PAGE-CUT-HERE";
+    wide.seed("privacy.md", PRIVACY_MANIFEST);
+    wide.seed(
+      "index.md",
+      `# A long front page\n\n${"Conventions the owner wrote at length. ".repeat(29)}` +
+        `${FRONT_PAGE_END}${"More than any cap allows. ".repeat(300)}`
+    );
+    for (let n = 0; n < 60; n += 1) {
+      wide.seed(`${"folder-near-the-name-cap-".repeat(2)}${String(n).padStart(2, "0")}/note.md`, "x");
+      wide.seed(`root-note-with-a-fairly-long-name-${String(n).padStart(2, "0")}.md`, "x");
+    }
+    // One name longer than anyone would type, which a cap has to shorten.
+    const LONG_FOLDER = `a-${"very-".repeat(60)}long-folder`;
+    wide.seed(`${LONG_FOLDER}/note.md`, "x");
+    const wideConnect = await connect(WIDE_TOKEN);
+    const wideText = wideConnect.instructions;
+    // The front page is the sketch's last piece, so the end of its cut marker
+    // is the end of the sketch. Measured from the sketch's own text rather
+    // than from where the argument resumes, which would pass vacuously if the
+    // sketch were moved back behind the argument.
+    const CUT_MARKER = '[truncated — read the whole thing with read_note("index.md")]';
+    const sketchEnd = wideText.indexOf(CUT_MARKER) + CUT_MARKER.length;
+    check(
+      "a long front page, a wide root and thirty workspaces still connect with a sketch",
+      wideConnect.ok && wideText.includes("WHAT IS IN HERE") && wideText.includes(CUT_MARKER)
+    );
+    check(
+      "the whole sketch ends inside the budget, under the cut a client was seen making",
+      sketchEnd <= SKETCH_BUDGET &&
+        SKETCH_BUDGET < OBSERVED_CLIENT_CUT &&
+        wideText.indexOf("Skipping it is not a neutral choice") > sketchEnd
+    );
+    check(
+      "a name past its cap is shortened, not dropped and not spelled out",
+      wideText.slice(0, sketchEnd).includes(LONG_FOLDER.slice(0, 40)) &&
+        !wideText.includes(LONG_FOLDER)
+    );
+    check(
+      "the front page is cut at its own cap and says where the rest is",
+      wideText.includes(FRONT_PAGE_END) &&
+        !wideText.includes("More than any cap allows. ".repeat(20))
+    );
+    check(
+      "a wide root is named up to a limit and the rest counted",
+      wideText.includes(`${"folder-near-the-name-cap-".repeat(2)}00`) &&
+        !wideText.includes("root-note-with-a-fairly-long-name-59.md") &&
+        /\(\+\d+ more\)/.test(wideText.slice(0, sketchEnd))
+    );
+    check(
+      "thirty workspaces are named up to a limit, the rest counted and left to orient",
+      wideText.includes(`@${"a-workspace-near-the-name-cap-".repeat(2)}`) &&
+        !wideText.includes(`@${"a-workspace-near-the-name-cap-".repeat(2)}30`) &&
+        /\(\+\d+ more, which orient lists\)/.test(wideText.slice(0, sketchEnd))
+    );
 
     // -- automated capture is not attention: the recency collapse
     //

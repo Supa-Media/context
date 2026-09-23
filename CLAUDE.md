@@ -118,7 +118,7 @@ which owns Yjs merging and the customer-bucket editing history. Other gateway
 code stays dependency-free. This exception implements the owner-approved shared
 saving model; see [collaboration](./docs/decisions/collaboration.md). It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
-an in-memory store stub: fast, offline, currently 4,116 checks. **Do not let it
+an in-memory store stub: fast, offline, currently 4,302 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
