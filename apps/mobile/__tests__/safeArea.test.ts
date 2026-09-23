@@ -126,6 +126,11 @@ jest.mock("expo-router", () => {
   };
 });
 
+// These layout fixtures have no authenticated gateway session.
+jest.mock("../features/agent/useConsoleGrant", () => ({
+  useConsoleGrant: () => async () => { throw new Error("No fixture gateway session"); },
+}));
+
 jest.mock("convex/react", () => {
   const actual = jest.requireActual("convex/react") as Record<string, unknown>;
   return {

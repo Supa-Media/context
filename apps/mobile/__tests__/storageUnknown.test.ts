@@ -47,6 +47,11 @@ import { describe, expect, jest, test } from "@jest/globals";
  * encryption -- so a stub that refuses if actually called is enough to let
  * the pane mount.
  */
+// These layout fixtures have no authenticated gateway session.
+jest.mock("../features/agent/useConsoleGrant", () => ({
+  useConsoleGrant: () => async () => { throw new Error("No fixture gateway session"); },
+}));
+
 jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");

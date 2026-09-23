@@ -123,6 +123,11 @@ jest.mock("../features/offline/store", () => ({ openStore: () => mockStore }));
   called here: `VoiceButton` is what would call it, and nothing in this file
   asks the agent anything.
 */
+// These layout fixtures have no authenticated gateway session.
+jest.mock("../features/agent/useConsoleGrant", () => ({
+  useConsoleGrant: () => async () => { throw new Error("No fixture gateway session"); },
+}));
+
 jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");

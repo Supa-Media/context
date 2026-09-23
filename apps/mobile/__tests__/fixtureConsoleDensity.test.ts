@@ -52,6 +52,11 @@ jest.mock("react-native-safe-area-context", () => ({
   is ever actually called is enough to let the pane mount — the same bargain
   `noteChrome.test.ts` makes, for the same reason.
 */
+// These layout fixtures have no authenticated gateway session.
+jest.mock("../features/agent/useConsoleGrant", () => ({
+  useConsoleGrant: () => async () => { throw new Error("No fixture gateway session"); },
+}));
+
 jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
