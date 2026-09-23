@@ -37,6 +37,14 @@ export interface SharedDoc {
   text: Y.Text;
   /** Apply bytes that arrived from the room. */
   applyRemote: (base64: string) => void;
+  /**
+   * Whether a transaction came from `applyRemote`.
+   *
+   * For the durable controller that means an authorized HTTP read, the one
+   * path an agent's committed write arrives by. Optional so a hand-built
+   * document in a test still satisfies the type.
+   */
+  appliedRemotely?: (origin: unknown) => boolean;
   /** The whole document as one update, for compaction and for a late joiner. */
   snapshot: () => string;
   /** The current text, for the client elected to write it to the bucket. */
@@ -99,6 +107,9 @@ export function createSharedDoc(options: {
   return {
     doc,
     text,
+    appliedRemotely(origin: unknown) {
+      return origin === REMOTE;
+    },
     applyRemote(base64: string) {
       try {
         Y.applyUpdate(doc, fromBase64(base64), REMOTE);

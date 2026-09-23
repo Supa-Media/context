@@ -1238,6 +1238,8 @@ export default function ConsoleLayout() {
                 line, exactly as it did before this existed.
               */
               activity={data.activity}
+              // The tree's agent squares and the foot's "N agents active".
+              agents={data.agents}
               /*
                 **No `vault` and no `vaultDetail` any more, and the line they
                 composed has not been deleted — it has moved.**

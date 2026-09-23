@@ -236,7 +236,7 @@ export async function runAgentActivityChecks(check) {
   );
   {
     const log = [];
-    recordActivity(log, { path: "a.md", kind: "read", actor: { id: HEX, name: "Bad‮name\n" } }, now);
+    recordActivity(log, { path: "a.md", kind: "read", actor: { id: HEX, name: "Bad\u202Ename\n" } }, now);
     check(
       "an agent's name is cleaned before anybody is shown it",
       log[0]?.name === "Badname" && log[0]?.id === `a:${HEX}`,

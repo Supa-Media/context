@@ -134,6 +134,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
 - Presence is a read that happens to be a socket
 - Phase 2: the room carries the document, and what that spends
+- Agent activity is announced from finished tool calls, never streamed
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
 

@@ -131,12 +131,25 @@ export type ServerFrame =
    * receives the result as an ordinary edit.
    */
   | { t: "external"; text: string; etag: string | null }
-  /** Durable collaboration changed; the HTTP client performs an authorized read repair. */
-  | { t: "committed"; documentId: string; update?: string; etag: string }
+  /**
+   * Durable collaboration changed; the HTTP client performs an authorized read repair.
+   *
+   * `agent` names the tool whose write this was, when it was one. The room
+   * says who; the client works out where from the update its own HTTP read
+   * fetches, so no peer ever reports a caret on an agent's behalf.
+   */
+  | { t: "committed"; documentId: string; update?: string; etag: string; agent?: CommittedAgent }
   | { t: "live"; documentId: string; d: string; clientKey: string }
   | { t: "pong" };
 
 
+
+/** The tool behind a committed write, as the room named it. */
+export interface CommittedAgent {
+  id: string;
+  name: string;
+  color: string | null;
+}
 
 /**
  * A colour from a peer is drawn into this document, so it is not taken on trust.
@@ -211,6 +224,20 @@ function member(value: unknown): PresenceMember | null {
     canWrite: raw.w === true,
     isAgent: raw.g === true,
   };
+}
+
+/**
+ * The agent on a committed frame, or `null` for none.
+ *
+ * Only the room's own id shape is accepted: `a:` and a 16-digit digest. That
+ * is what keeps an agent's caret from ever sharing an id with a seated member,
+ * whose ids the room mints as uuids.
+ */
+function committedAgent(value: unknown): CommittedAgent | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.id !== "string" || !/^a:[0-9a-f]{16}$/.test(raw.id)) return null;
+  return { id: raw.id, name: name(raw.name), color: color(raw.color) };
 }
 
 /** Parse one frame from the gateway, or `null` if it is not one we act on. */
@@ -308,11 +335,13 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
     typeof frame.documentId === "string" &&
     typeof frame.etag === "string"
   ) {
+    const agent = committedAgent(frame.agent);
     return {
       t: "committed",
       documentId: frame.documentId,
       ...(typeof frame.update === "string" ? { update: frame.update } : {}),
       etag: frame.etag,
+      ...(agent === null ? {} : { agent }),
     };
   }
   if (frame.t === "live") {
