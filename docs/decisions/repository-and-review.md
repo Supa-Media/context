@@ -24,7 +24,7 @@ Open source from the first commit. That raises the bar in three concrete ways:
 
 ## Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 
-`packages/cli` publishes as `@supa-media/context`. It was `@context-lc/hook`
+`plugins/context` publishes as `@supa-media/context`. It was `@context-lc/hook`
 for one PR, before anyone had asked the question out loud, and then
 `@supa-media/context-hook` while all it did was install two session hooks. It
 was renamed again (2026-09-22, with the owner's approval) when it became the
@@ -81,7 +81,7 @@ package ships named for a product before anyone checks whether the org
 already has a publishing story, and it has to be renamed — ideally before its
 first publish, not after, when the old name has downloads depending on it.
 
-**The test that fails if this is reversed:** `packages/cli/test/test.mjs`
+**The test that fails if this is reversed:** `plugins/context/test/test.mjs`
 asserts `package.json`'s `name` starts with `@supa-media/`. Rename the
 package to any other scope, or drop the scope, and that assertion fails —
 loudly, in the same suite that runs before every publish

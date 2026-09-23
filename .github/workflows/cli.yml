@@ -1,7 +1,7 @@
 # The session hook's own CI.
 #
 # Same reason `mcp.yml` exists: the reusable framework pipeline filters on
-# apps/mobile, apps/convex and packages/shared, so nothing under packages/cli
+# apps/mobile, apps/convex and packages/shared, so nothing under plugins/context
 # matches and its suite would never run. That package holds the code that
 # decides **what leaves somebody's machine** — the capture boundary over a
 # session log full of system prompts, reasoning and tool output — and an OAuth
@@ -28,7 +28,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/cli/**"
+      - "plugins/context/**"
       - ".github/workflows/cli.yml"
 
 permissions:
@@ -50,7 +50,7 @@ jobs:
           package-manager-cache: false
 
       - name: Run test suite
-        working-directory: packages/cli
+        working-directory: plugins/context
         run: node test/test.mjs
 
   no-dependencies:
@@ -60,13 +60,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Assert packages/cli declares no runtime dependencies
+      - name: Assert plugins/context declares no runtime dependencies
         run: |
           set -euo pipefail
           for field in dependencies optionalDependencies peerDependencies bundleDependencies; do
-            declared=$(node -p "JSON.stringify(require('./packages/cli/package.json').$field || {})")
+            declared=$(node -p "JSON.stringify(require('./plugins/context/package.json').$field || {})")
             if [ "$declared" != "{}" ]; then
-              echo "packages/cli declared $field: $declared"
+              echo "plugins/context declared $field: $declared"
               echo ""
               echo "This package runs unattended on a user's laptop, holds a"
               echo "credential, and reads their session transcripts. Every"
@@ -86,7 +86,7 @@ jobs:
       # ignored the whole workflow — silently, with no run, no error and no
       # failing check. The first version of this file shipped that way and the
       # PR went green without ever testing the package.
-      - name: "Assert packages/cli imports only node: built-ins and relative paths"
+      - name: "Assert plugins/context imports only node: built-ins and relative paths"
         run: |
           node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs --allow-node-builtins packages/cli/src packages/cli/bin
+          node scripts/check-gateway-imports.mjs --allow-node-builtins plugins/context/src plugins/context/bin

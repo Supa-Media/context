@@ -100,7 +100,7 @@ jobs:
     environment: production
     defaults:
       run:
-        working-directory: packages/cli
+        working-directory: plugins/context
     steps:
       - uses: actions/checkout@v5
 

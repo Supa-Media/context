@@ -7,9 +7,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Supa-Media/context.git",
-    "directory": "packages/cli"
+    "directory": "plugins/context"
   },
-  "homepage": "https://github.com/Supa-Media/context/tree/main/packages/cli#readme",
+  "homepage": "https://github.com/Supa-Media/context/tree/main/plugins/context#readme",
   "bugs": {
     "url": "https://github.com/Supa-Media/context/issues"
   },

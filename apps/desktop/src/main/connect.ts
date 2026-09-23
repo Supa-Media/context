@@ -1,7 +1,7 @@
 /**
  * "Connect this machine to your context" — the browser half, once.
  *
- * Everything OAuth here is `packages/cli`'s. That package already ships a
+ * Everything OAuth here is `plugins/context`'s. That package already ships a
  * reviewed native-client flow against this exact gateway: RFC 9728 discovery,
  * dynamic client registration, a loopback redirect on `127.0.0.1` with the port
  * the OS hands out, PKCE with S256, constant-time state comparison, and a
@@ -134,7 +134,7 @@ export interface ConnectOptions {
   /**
    * How long the loopback listener waits for the approval, in milliseconds.
    *
-   * `packages/cli`'s own window when it is absent, which is what the app
+   * `plugins/context`'s own window when it is absent, which is what the app
    * passes. It is injectable because the timeout is a **guard**: it is what
    * closes a listening socket, and with it the console window's loopback
    * allowance, for a person who walked away from the approve screen. A guard

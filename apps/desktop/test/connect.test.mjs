@@ -10,7 +10,7 @@
  *
  * The authorization server is a `fetchImpl`; the browser is a function that
  * fetches the loopback redirect. Everything in between is the real
- * `packages/cli` flow and a real `http` server on `127.0.0.1`, so what is
+ * `plugins/context` flow and a real `http` server on `127.0.0.1`, so what is
  * asserted here is what happens on a laptop.
  *
  * ## Sabotage record

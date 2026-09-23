@@ -9,7 +9,7 @@
  * the same person, on the same machine, to the same context.
  *
  * #312 moved that screen into this window. This removes it, and removes
- * **only** it. Everything the grant is stays where it was: `packages/cli`'s
+ * **only** it. Everything the grant is stays where it was: `plugins/context`'s
  * flow, dynamic registration of one client per machine, PKCE with S256, a
  * single-use `state`, a loopback listener on the port the OS handed out, and a
  * code exchanged in the main process. What changes is that the person's own

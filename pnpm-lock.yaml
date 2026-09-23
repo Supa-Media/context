@@ -82,7 +82,7 @@ importers:
         version: link:../../packages/meetings
       '@supa-media/context':
         specifier: workspace:*
-        version: link:../../packages/cli
+        version: link:../../plugins/context
       electron-updater:
         specifier: 6.3.9
         version: 6.3.9
@@ -489,8 +489,6 @@ importers:
         specifier: ^4.124.0
         version: 4.126.0(@cloudflare/workers-types@5.20260826.1)
 
-  packages/cli: {}
-
   packages/collaboration:
     dependencies:
       diff:
@@ -533,6 +531,8 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+
+  plugins/context: {}
 
 packages:
 

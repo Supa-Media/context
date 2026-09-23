@@ -171,7 +171,7 @@ Two answers, and you want both:
   session's user-visible messages land in `0-inbox/` on their own. It asks for
   capture access only — it can add to your inbox and cannot read a single note —
   and it shows up in Connections like any other client, revocable on its own.
-  See [`packages/cli`](packages/cli).
+  See [`plugins/context`](plugins/context).
 
 ## Privacy tiers
 
@@ -191,8 +191,7 @@ anonymous tier.
 | `apps/mobile/`    | Expo app (iOS, Android, web) — onboarding and dashboard         |
 | `apps/mcp/`       | The MCP gateway Worker — tools, privacy engine, storage adapter |
 | `packages/shared/`| Types and constants shared across apps                          |
-| `packages/cli/`   | `npx @supa-media/context` — installs Context into your AI tools  |
-| `plugins/context/`| The agent plugin: skills, MCP entry, session hooks              |
+| `plugins/context/`| The agent plugin, and `npx @supa-media/context`, which installs it |
 
 ## Development
 
