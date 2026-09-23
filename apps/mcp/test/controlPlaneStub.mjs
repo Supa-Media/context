@@ -193,6 +193,7 @@ export function createControlPlaneStub(options = {}) {
     clientName = null,
     userId = "user_test",
     alsoMemberOf = [],
+    grantedNamesByWorkspace = {},
     expiresAt,
   }) {
     const grantId = `grant_${++grantCounter}`;
@@ -205,6 +206,7 @@ export function createControlPlaneStub(options = {}) {
       clientName,
       userId,
       alsoMemberOf,
+      grantedNamesByWorkspace,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
     });
@@ -236,12 +238,22 @@ export function createControlPlaneStub(options = {}) {
    * that is not in the set.
    */
   function coveredContexts(grant) {
+    const namesFor = (workspaceId) => {
+      // Match Convex: only the first-party console grant receives live group
+      // names. Ordinary OAuth and pinned reach carry no such authority.
+      if (grant.clientId !== "context_console") return undefined;
+      const names = grant.grantedNamesByWorkspace?.[workspaceId];
+      return Array.isArray(names) ? [...names] : [];
+    };
     const rows = [
       {
         workspaceId: grant.workspaceId,
         slug: workspaces.get(grant.workspaceId)?.slug ?? null,
         role: grant.role,
         kind: workspaces.get(grant.workspaceId)?.kind ?? "personal",
+        ...(namesFor(grant.workspaceId) === undefined
+          ? {}
+          : { grantedNames: namesFor(grant.workspaceId) }),
       },
     ];
     for (const membership of grant.alsoMemberOf || []) {
@@ -251,6 +263,9 @@ export function createControlPlaneStub(options = {}) {
         slug: workspaces.get(membership.workspaceId)?.slug ?? null,
         role: membership.role ?? "member",
         kind: workspaces.get(membership.workspaceId)?.kind ?? "personal",
+        ...(namesFor(membership.workspaceId) === undefined
+          ? {}
+          : { grantedNames: namesFor(membership.workspaceId) }),
       });
     }
     return rows;
@@ -303,6 +318,36 @@ export function createControlPlaneStub(options = {}) {
             defaultWorkspaceId: grant.workspaceId,
             workspaces: coveredContexts(grant),
           },
+        });
+      }
+
+      case "/gateway/sessions/by-grant": {
+        if (
+          typeof body.expectedWorkspaceId !== "string" ||
+          !Array.isArray(body.grantIds) || body.grantIds.length > 24 ||
+          new Set(body.grantIds).size !== body.grantIds.length
+        ) {
+          return new Response(JSON.stringify({ error: "malformed_batch" }), { status: 400 });
+        }
+        return ok({
+          sessions: body.grantIds.map((grantId) => {
+            const grant = grants.get(grantId);
+            if (!grant || grant.status !== "active" || grant.expiresAt <= Date.now()) return null;
+            const target = coveredContexts(grant).find(
+              (entry) => entry.workspaceId === body.expectedWorkspaceId,
+            );
+            if (!target) return null;
+            return {
+              grantId,
+              workspaceId: target.workspaceId,
+              scopes: grant.scopes,
+              role: target.role,
+              kind: target.kind,
+              ...(target.grantedNames === undefined
+                ? {}
+                : { grantedNames: target.grantedNames }),
+            };
+          }),
         });
       }
 
@@ -872,13 +917,25 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
     if (method === "HEAD") {
       const object = objects.get(key);
       if (!object) return new Response("", { status: 404 });
-      return new Response(null, { status: 200, headers: { etag: `"${object.etag}"` } });
+      return new Response(null, {
+        status: 200,
+        headers: {
+          etag: `"${object.etag}"`,
+          ...(object.contentType ? { "content-type": object.contentType } : {}),
+        },
+      });
     }
 
     if (method === "GET") {
       const object = objects.get(key);
       if (!object) return new Response("", { status: 404 });
-      return new Response(object.body, { status: 200, headers: { etag: `"${object.etag}"` } });
+      return new Response(object.body, {
+        status: 200,
+        headers: {
+          etag: `"${object.etag}"`,
+          ...(object.contentType ? { "content-type": object.contentType } : {}),
+        },
+      });
     }
 
     if (method === "PUT") {
@@ -916,7 +973,7 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
           models. See the header note.
         */
         const etag = source.etag;
-        objects.set(key, { body: source.body, etag });
+        objects.set(key, { body: source.body, etag, contentType: source.contentType });
         return new Response(
           `<CopyObjectResult><ETag>&quot;${etag}&quot;</ETag></CopyObjectResult>`,
           { status: 200 }
@@ -934,7 +991,11 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
               init.body instanceof Uint8Array ? init.body : new Uint8Array(init.body)
             );
       const etag = `s${++etagCounter}`;
-      objects.set(key, { body, etag });
+      objects.set(key, {
+        body,
+        etag,
+        contentType: init.headers?.["content-type"],
+      });
       return new Response("", { status: 200, headers: { etag: `"${etag}"` } });
     }
 

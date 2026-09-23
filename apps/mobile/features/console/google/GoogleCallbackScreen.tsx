@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAction } from "convex/react";
-import { api } from "@context/convex/_generated/api";
 import { Button } from "../../design/components/Button";
 import { Card } from "../../design/components/Card";
 import { CenteredScroll } from "../../design/components/CenteredScroll";
@@ -11,7 +9,8 @@ import { Text } from "../../design/components/Text";
 import { clamp, fonts, leading, pointerType as t } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
-import { parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
+import { completeGoogleCallback } from "./completeGoogleCallback";
+import { googleE2ECompletionSecret, parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
 
 export function GoogleCallbackScreen() {
   const styles = useThemedStyles(makeStyles);
@@ -19,12 +18,12 @@ export function GoogleCallbackScreen() {
     code?: string | string[];
     state?: string | string[];
     error?: string | string[];
+    completionSecret?: string | string[];
   }>();
   const callback = useMemo(
     () => parseGoogleCallback(params),
     [params],
   );
-  const complete = useAction(api.functions.googleConnect.completeGoogleConnect);
   const router = useRouter();
   const colors = useColors();
   const { width } = useWindowDimensions();
@@ -37,20 +36,20 @@ export function GoogleCallbackScreen() {
   useEffect(() => {
     if (started.current || callback.kind !== "ready") return;
     started.current = true;
-    const completionSecret = takeGoogleCompletionSecret(callback.state);
+    const completionSecret = takeGoogleCompletionSecret(callback.state) ?? googleE2ECompletionSecret(params);
     if (completionSecret === null) {
       setStatus("failed");
       return;
     }
     void (async () => {
       try {
-        await complete({ state: callback.state, code: callback.code, completionSecret });
+        await completeGoogleCallback({ state: callback.state, code: callback.code, completionSecret });
         setStatus("done");
       } catch {
         setStatus("failed");
       }
     })();
-  }, [callback, complete]);
+  }, [callback, params]);
 
   const headline =
     callback.kind === "cancelled"

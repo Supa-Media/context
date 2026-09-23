@@ -36,7 +36,7 @@ import { setListingOrder, useListingOrder } from "./listingOrder";
 import { itemsFor, type MenuActionId, type MenuTarget } from "./menu";
 import { runMenuAction, type ActionContext, type Dialog } from "./actions";
 import { useRightClick } from "./rightClick";
-import { baseName, parentPath, withoutSortPrefix } from "./paths";
+import { baseName, folderLabel, parentPath } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
 import type { AccessMember, AccessRow, RemovalRoute } from "./access";
@@ -389,7 +389,7 @@ export function Explorer({
     // headed `1-projects` over a row reading `projects` is a menu the reader
     // has to match up to the thing they just pressed.
     (row: TreeRow, anchor: { x: number; y: number }) =>
-      openTarget({ kind: "row", row }, withoutSortPrefix(baseName(row.path)), anchor),
+      openTarget({ kind: "row", row }, folderLabel(baseName(row.path)), anchor),
     [openTarget],
   );
 
@@ -1137,7 +1137,7 @@ export function ExplorerDialogs({
     case "move":
       return (
         <MovePicker
-          title={`Move ${withoutSortPrefix(baseName(dialog.path))}`}
+          title={`Move ${folderLabel(baseName(dialog.path))}`}
           description={sharesBreakingWarning(files.shares, dialog.path, "Moving") ?? undefined}
           folders={loadedFolders(files.listings).filter(
             (folder) => dialog.path !== folder && !folder.startsWith(`${dialog.path}/`),

@@ -807,30 +807,12 @@ export async function runPackagingChecks(check) {
     iconStep !== undefined && /exit 1/.test(iconStep),
   );
 
-  // -- publishing: main pushes, manual input, gated permissions, and idempotency --------
-  /*
-    `docs/decisions/desktop.md`'s fourth "shell updates itself" decision: a
-    `push` to `main` over desktop-relevant paths is now a release request, a
-    manual `publish` dispatch input remains one too, `contents: write` is
-    scoped to the one job that can ever use it, and a refusal to publish a
-    version this workflow already released remains before the build. None of
-    this can be *exercised* here — that needs a Mac, a real certificate and a
-    real GitHub Release — but every one of these has failed silently before in
-    this exact file (see the sabotage record above), so what is checked is the
-    shape that would let it fail silently again.
-  */
+  // -- publishing: explicit manual input, gated permissions, and idempotency --
+  // Main deploys staging only. Desktop publishing still requires a separate
+  // manual request, signing, notarisation and the launch check below.
   check(
-    "a desktop-relevant push to main triggers the desktop deploy workflow",
-    /push:\s*\n\s*branches:\s*\[main\]\s*\n\s*paths:/.test(WORKFLOW) &&
-      /"apps\/desktop\/\*\*"/.test(WORKFLOW) &&
-      /"packages\/desktop-bridge\/\*\*"/.test(WORKFLOW) &&
-      /"packages\/hook\/\*\*"/.test(WORKFLOW) &&
-      /"packages\/communications\/\*\*"/.test(WORKFLOW) &&
-      /"packages\/meetings\/\*\*"/.test(WORKFLOW) &&
-      /"pnpm-lock\.yaml"/.test(WORKFLOW) &&
-      /"package\.json"/.test(WORKFLOW) &&
-      /"pnpm-workspace\.yaml"/.test(WORKFLOW) &&
-      /"\.npmrc"/.test(WORKFLOW),
+    "desktop builds only run on explicit manual dispatch",
+    /^on:\s*\n\s*workflow_dispatch:/m.test(WORKFLOW) && !/^  push:/m.test(WORKFLOW),
   );
   check(
     "a `publish` dispatch input exists and defaults to false",
@@ -847,9 +829,9 @@ export async function runPackagingChecks(check) {
     /actions\/checkout@v5/.test(WORKFLOW) && /persist-credentials:\s*false/.test(WORKFLOW),
   );
   check(
-    "publishing is decided once, from a main push OR the dispatch input, AND both credentials — not the trigger alone",
+    "publishing requires the explicit dispatch input and both signing credentials",
     /PUBLISH_REQUESTED/.test(WORKFLOW) &&
-      /github\.event_name == 'push'/.test(WORKFLOW) &&
+      !/github\.event_name == 'push'/.test(WORKFLOW) &&
       /inputs\.publish == true/.test(WORKFLOW) &&
       /SIGNED/.test(WORKFLOW) &&
       /NOTARIZED/.test(WORKFLOW) &&
@@ -858,11 +840,9 @@ export async function runPackagingChecks(check) {
       ),
   );
   check(
-    "an automatic main release missing signing or notarisation fails red rather than silently becoming artifact-only",
-    /EVENT_NAME: \$\{\{ github\.event_name \}\}/.test(WORKFLOW) &&
-      /\[ "\$EVENT_NAME" = "push" \]/.test(WORKFLOW) &&
-      /::error::A desktop-relevant push to main is an automatic release request/.test(WORKFLOW) &&
-      /exit 1/.test(WORKFLOW),
+    "a manual publish request without signing or notarisation only produces an artifact",
+    /echo "publish=false"/.test(WORKFLOW) &&
+      /::warning::publish was requested/.test(WORKFLOW),
   );
   check(
     "an already-released version refuses to publish again, before the build rather than after",

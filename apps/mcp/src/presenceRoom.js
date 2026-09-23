@@ -35,8 +35,10 @@
  * which re-resolves the grant, re-reads `privacy.md` and re-checks that the
  * caller can still see the note. So a revoked grant, a changed role, or a note
  * that just became private takes effect at the next reconnect and therefore
- * within five minutes — not instantly. That bound is enforced here, by an
- * alarm, rather than being a sentence somebody has to trust.
+ * within five minutes for legacy presence. Durable v2 text has a stronger
+ * boundary: each live frame freshly authorizes both sender and recipients,
+ * while the same deadline still bounds roster/caret membership. Live frames
+ * are transient and never enter the legacy room log.
  */
 
 import {
@@ -44,6 +46,8 @@ import {
   HEARTBEAT_MS,
   MEMBER_IDLE_MS,
   PRESENCE_PROTOCOL_VERSION,
+  COLLABORATION_PROTOCOL_VERSION,
+  MAX_SNAPSHOT_BYTES,
   admit,
   applyCursor,
   colorFor,
@@ -88,6 +92,11 @@ export class PresenceRoom {
   constructor(state, env) {
     this.state = state;
     this.env = env;
+    // Transient only: access tokens wait here solely while at most eight
+    // authorization calls for this socket are in flight. Nothing in this map
+    // is serialized into a socket attachment or Durable Object storage.
+    this.liveRelayQueues = new WeakMap();
+    this.closedLiveSockets = new WeakSet();
   }
 
   /**
@@ -100,6 +109,19 @@ export class PresenceRoom {
    * sends arrives over the socket, below, where it is treated as hostile.
    */
   async fetch(request) {
+    const requestUrl = new URL(request.url);
+    const collaborationV2 = requestUrl.searchParams.get("collaboration") === "2";
+
+    /*
+      The v2 socket is a live delivery/presence overlay for the HTTP
+      collaboration endpoint.  It must never inherit the legacy room log:
+      that log contains opaque client-authored updates from v1 clients and is
+      not the authority for a v2 document.
+    */
+    if (requestUrl.pathname === "/committed") {
+      return await this.handleCommitted(request);
+    }
+
     /*
       **A tool wrote this note. One member is asked to merge it.**
 
@@ -118,7 +140,7 @@ export class PresenceRoom {
       use to choose who saves — and everybody else receives the merge as the
       ordinary edit it becomes.
     */
-    if (new URL(request.url).pathname === "/external") {
+    if (requestUrl.pathname === "/external") {
       if (request.method !== "POST") return new Response(null, { status: 405 });
       let notice;
       try {
@@ -173,7 +195,7 @@ export class PresenceRoom {
         caret at text somebody else wrote.
       */
       const seatedClients = new Set();
-      for (const ws of this.state.getWebSockets()) {
+      for (const ws of this.openSockets()) {
         const held = ws.deserializeAttachment();
         if (typeof held?.clientKey === "string" && held.clientKey) seatedClients.add(held.clientKey);
       }
@@ -269,6 +291,16 @@ export class PresenceRoom {
     if (!intent || typeof intent !== "object") {
       return new Response("missing member", { status: 400 });
     }
+    if (
+      collaborationV2 &&
+      (typeof intent.grantId !== "string" || !intent.grantId ||
+        typeof intent.workspaceId !== "string" || !intent.workspaceId ||
+        typeof intent.path !== "string" || !intent.path ||
+        (intent.documentId !== null &&
+          (typeof intent.documentId !== "string" || !intent.documentId || intent.documentId.length > 256)))
+    ) {
+      return new Response("missing collaboration identity", { status: 400 });
+    }
 
     const now = Date.now();
     const room = this.roomFromSockets();
@@ -318,6 +350,16 @@ export class PresenceRoom {
         Opaque and stable; see `presenceClientKey` in the gateway.
       */
       clientKey: typeof intent.clientKey === "string" ? intent.clientKey : null,
+      ...(collaborationV2
+        ? {
+            grantId: intent.grantId,
+            workspaceId: intent.workspaceId,
+            workspaceSlug: typeof intent.workspaceSlug === "string" ? intent.workspaceSlug : null,
+            path: intent.path,
+            documentId: intent.documentId,
+          }
+        : {}),
+      collaborationVersion: collaborationV2 ? COLLABORATION_PROTOCOL_VERSION : PRESENCE_PROTOCOL_VERSION,
       eligibleToCompact: false,
       deadline: now + PRESENCE_SOCKET_MAX_MS,
     };
@@ -346,19 +388,19 @@ export class PresenceRoom {
       room whose log survived the last person leaving must not seed either —
       the replay is about to hand it the text.
     */
-    const log = await this.readLog();
-    const seed = room.members.size === 1 && log.length === 0;
+    const log = collaborationV2 ? [] : await this.readLog();
+    const seed = collaborationV2 ? false : room.members.size === 1 && log.length === 0;
 
     server.send(
       JSON.stringify({
         t: "welcome",
-        v: PRESENCE_PROTOCOL_VERSION,
+        v: collaborationV2 ? COLLABORATION_PROTOCOL_VERSION : PRESENCE_PROTOCOL_VERSION,
         you: seated.member.id,
         heartbeatMs: HEARTBEAT_MS,
         idleMs: MEMBER_IDLE_MS,
         reconnectAfterMs: PRESENCE_SOCKET_MAX_MS,
         members: roster(room),
-        seed,
+        ...(collaborationV2 ? {} : { seed }),
       }),
     );
     this.broadcast({ t: "join", member: publicMember(seated.member) }, server);
@@ -375,7 +417,7 @@ export class PresenceRoom {
       After the welcome, so a client has its own identity before any edit
       arrives, and in one frame rather than N so a join is one round trip.
     */
-    if (log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
+    if (!collaborationV2 && log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
 
     /*
       This socket has now been handed everything the room holds, so a snapshot
@@ -413,6 +455,21 @@ export class PresenceRoom {
 
     if (decoded.msg.t === "bye") {
       this.dropSocket(ws, 1000, "bye");
+      return;
+    }
+
+    if (decoded.msg.t === "live") {
+      await this.enqueueLiveRelay(ws, decoded.msg);
+      return;
+    }
+
+    // v2 clients receive snapshots only from the authorized HTTP commit path.
+    // In particular, do not let a client smuggle a legacy Yjs update or
+    // snapshot into the room and have it appear as a committed document.
+    if (
+      attachment.collaborationVersion === COLLABORATION_PROTOCOL_VERSION &&
+      (decoded.msg.t === "y" || decoded.msg.t === "snap" || decoded.msg.t === "ask")
+    ) {
       return;
     }
 
@@ -607,12 +664,209 @@ export class PresenceRoom {
     this.broadcast({ t: "cursor", id: moved.id, a: moved.a, h: moved.h }, ws);
   }
 
-  async webSocketClose(ws) {
+  /**
+   * Internal-only delivery from the gateway's committed HTTP update path.
+   * Durable Objects are not internet-addressable; the gateway is the only
+   * caller.  The snapshot is deliberately not appended to the legacy log:
+   * customer storage and the collaboration engine are the v2 authority.
+   */
+  async handleCommitted(request) {
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    let notice;
+    try {
+      notice = await request.json();
+    } catch {
+      return new Response(null, { status: 400 });
+    }
+    const documentId = typeof notice?.documentId === "string" ? notice.documentId : "";
+    const etag = typeof notice?.etag === "string" ? notice.etag : "";
+    if (
+      !documentId || documentId.length > 256 ||
+      !etag || etag.length > 128 || !/^[A-Za-z0-9._:+/=-]+$/.test(etag)
+    ) {
+      return new Response(null, { status: 400 });
+    }
+    // A committed frame is only a change hint. Clients must re-authorize over
+    // HTTP before fetching the snapshot; sending update bytes over a socket
+    // whose lease may outlive a revoked grant would leak new note content.
+    const payload = JSON.stringify({ t: "committed", documentId, etag });
+    let delivered = 0;
+    for (const ws of this.openSockets()) {
+      const attachment = ws.deserializeAttachment();
+      if (attachment?.collaborationVersion !== COLLABORATION_PROTOCOL_VERSION) continue;
+      try {
+        ws.send(payload);
+        delivered += 1;
+      } catch {
+        // The close callback removes dead sockets; one dead peer must not
+        // prevent a committed update reaching the remaining editors.
+      }
+    }
+    return json({ delivered });
+  }
+
+  async enqueueLiveRelay(ws, message) {
+    const attachment = ws.deserializeAttachment();
+    if (
+      attachment?.collaborationVersion !== COLLABORATION_PROTOCOL_VERSION ||
+      !attachment.canWrite || !attachment.documentId ||
+      message.documentId !== attachment.documentId ||
+      typeof this.authorizeLiveRelay !== "function"
+    ) {
+      return;
+    }
+
+    let state = this.liveRelayQueues.get(ws);
+    if (!state) {
+      state = { active: 0, bytes: 0, queue: [] };
+      this.liveRelayQueues.set(ws, state);
+    }
+    const bytes = message.d.length + message.accessToken.length;
+    if (state.active + state.queue.length >= 64 || state.bytes + bytes > 256 * 1024) {
+      state.closed = true;
+      for (const queued of state.queue.splice(0)) queued.resolve();
+      this.dropSocket(ws, CLOSE_REAUTHORIZE, "relay overflow");
+      this.liveRelayQueues.delete(ws);
+      return;
+    }
+    state.bytes += bytes;
+
+    await new Promise((resolve) => {
+      state.queue.push({ message, bytes, resolve });
+      this.pumpLiveRelay(ws, state);
+    });
+  }
+
+  pumpLiveRelay(ws, state) {
+    while (!state.closed && state.active < 8 && state.queue.length > 0) {
+      const item = state.queue.shift();
+      state.active += 1;
+      void this.relayLiveUpdate(ws, item.message)
+        .catch(() => {})
+        .finally(() => {
+          state.active -= 1;
+          state.bytes -= item.bytes;
+          item.resolve();
+          if (state.closed || (state.active === 0 && state.queue.length === 0)) {
+            this.liveRelayQueues.delete(ws);
+          } else {
+            this.pumpLiveRelay(ws, state);
+          }
+        });
+    }
+  }
+
+  async relayLiveUpdate(ws, message) {
+    // Re-read on every frame. Cursor and heartbeat traffic may have updated the
+    // attachment while this frame waited behind another authorization.
+    const sender = ws.deserializeAttachment();
+    if (
+      this.closedLiveSockets.has(ws) ||
+      sender?.collaborationVersion !== COLLABORATION_PROTOCOL_VERSION ||
+      !sender.canWrite || !sender.documentId || message.documentId !== sender.documentId
+    ) {
+      return;
+    }
+    const candidates = [];
+    for (const peer of this.openSockets()) {
+      if (peer === ws) continue;
+      const held = peer.deserializeAttachment();
+      if (
+        held?.collaborationVersion !== COLLABORATION_PROTOCOL_VERSION ||
+        held.workspaceId !== sender.workspaceId || held.path !== sender.path ||
+        held.documentId !== sender.documentId ||
+        typeof held.grantId !== "string" || typeof held.id !== "string"
+      ) {
+        continue;
+      }
+      candidates.push({ socket: peer, id: held.id, grantId: held.grantId });
+    }
+
+    let authorization;
+    try {
+      authorization = await this.authorizeLiveRelay({
+        sender,
+        accessToken: message.accessToken,
+        documentId: message.documentId,
+        recipients: candidates.map(({ id, grantId }) => ({ id, grantId })),
+      });
+    } catch {
+      return;
+    }
+    if (!authorization?.sender) {
+      this.dropSocket(ws, CLOSE_REAUTHORIZE, "reauthorize");
+      return;
+    }
+    const seated = new Set(this.openSockets());
+    const currentSender = ws.deserializeAttachment();
+    if (
+      this.closedLiveSockets.has(ws) || !seated.has(ws) || !currentSender ||
+      Date.now() > currentSender.deadline ||
+      currentSender.id !== sender.id || currentSender.grantId !== sender.grantId ||
+      currentSender.workspaceId !== sender.workspaceId || currentSender.path !== sender.path ||
+      currentSender.documentId !== sender.documentId
+    ) {
+      return;
+    }
+    const allowed = authorization.recipients instanceof Set
+      ? authorization.recipients
+      : new Set(authorization.recipients || []);
+    const payload = JSON.stringify({
+      t: "live",
+      documentId: message.documentId,
+      d: message.d,
+      clientKey: sender.clientKey,
+    });
+    for (const candidate of candidates) {
+      // The batch authorized this exact seated member. A socket can update its
+      // cursor meanwhile, but it cannot change grant, path, or generation and
+      // still receive bytes under the earlier decision.
+      const current = candidate.socket.deserializeAttachment();
+      const stillSame = !this.closedLiveSockets.has(candidate.socket) &&
+        seated.has(candidate.socket) && Date.now() <= current?.deadline &&
+        current?.id === candidate.id && current.grantId === candidate.grantId &&
+        current.workspaceId === sender.workspaceId && current.path === sender.path &&
+        current.documentId === sender.documentId;
+      if (!allowed.has(candidate.id) || !stillSame) {
+        this.dropSocket(candidate.socket, CLOSE_REAUTHORIZE, "reauthorize");
+        continue;
+      }
+      try {
+        candidate.socket.send(payload);
+      } catch {
+        // Its close callback removes it. One dead recipient cannot turn a
+        // successfully authorized update into a retry from the sender.
+      }
+    }
+  }
+
+  async webSocketClose(ws, code, reason) {
+    this.cancelLiveRelay(ws);
     this.releaseSocket(ws);
+    // Before the 2026-04-07 compatibility behavior, Durable Objects had to
+    // answer the closing handshake themselves. Keep doing so explicitly: the
+    // runtime may continue returning a CLOSING socket from getWebSockets(),
+    // but it must not remain a member while that handshake completes.
+    try {
+      ws.close(code, reason);
+    } catch {
+      // Already closed, or a peer supplied a close code the platform will not
+      // echo. Membership was released above either way.
+    }
   }
 
   async webSocketError(ws) {
+    this.cancelLiveRelay(ws);
     this.releaseSocket(ws);
+  }
+
+  cancelLiveRelay(ws) {
+    this.closedLiveSockets.add(ws);
+    const state = this.liveRelayQueues.get(ws);
+    if (!state) return;
+    state.closed = true;
+    for (const queued of state.queue.splice(0)) queued.resolve();
+    this.liveRelayQueues.delete(ws);
   }
 
   /**
@@ -625,7 +879,7 @@ export class PresenceRoom {
     const now = Date.now();
     const room = this.roomFromSockets();
 
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (!attachment) continue;
       if (now > attachment.deadline) {
@@ -699,7 +953,7 @@ export class PresenceRoom {
   async askForSnapshotIfLong() {
     const entries = await this.state.storage.list({ prefix: "u:" });
     if (entries.size < UPDATE_LOG_CAP) return;
-    const sockets = this.state.getWebSockets();
+    const sockets = this.openSockets();
     if (sockets.length === 0) return;
     try {
       sockets[0].send(JSON.stringify({ t: "compact" }));
@@ -719,7 +973,7 @@ export class PresenceRoom {
    */
   roomFromSockets() {
     const room = createRoom();
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (!attachment || typeof attachment.id !== "string") continue;
       room.members.set(attachment.id, {
@@ -797,9 +1051,13 @@ export class PresenceRoom {
   mergerSocket() {
     let best = null;
     let bestId = null;
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (!attachment || attachment.canWrite !== true) continue;
+      // Legacy external merges are intentionally kept out of v2 rooms.  A v2
+      // client receives durable committed snapshots through /committed; it
+      // must never apply the legacy text merge as another local operation.
+      if (attachment.collaborationVersion === COLLABORATION_PROTOCOL_VERSION) continue;
       if (typeof attachment.id !== "string") continue;
       if (bestId === null || attachment.id < bestId) {
         best = ws;
@@ -811,8 +1069,14 @@ export class PresenceRoom {
 
   broadcast(message, except) {
     const text = JSON.stringify(message);
-    for (const ws of this.state.getWebSockets()) {
+    const legacyDocumentFrame =
+      message?.t === "y" || message?.t === "snap" || message?.t === "ask" || message?.t === "saved";
+    for (const ws of this.openSockets()) {
       if (ws === except) continue;
+      if (legacyDocumentFrame) {
+        const attachment = ws.deserializeAttachment();
+        if (attachment?.collaborationVersion === COLLABORATION_PROTOCOL_VERSION) continue;
+      }
       try {
         ws.send(text);
       } catch {
@@ -847,7 +1111,7 @@ export class PresenceRoom {
    * reconnect within the window finds its document still here.
    */
   async dropLogIfEmpty() {
-    if (this.state.getWebSockets().length > 0) return false;
+    if (this.openSockets().length > 0) return false;
     const entries = await this.state.storage.list({ prefix: "u:" });
     if (entries.size === 0) return false;
     await this.state.storage.deleteAll();
@@ -855,6 +1119,7 @@ export class PresenceRoom {
   }
 
   dropSocket(ws, code, reason) {
+    this.cancelLiveRelay(ws);
     this.releaseSocket(ws);
     try {
       ws.close(code, reason);
@@ -864,7 +1129,7 @@ export class PresenceRoom {
   }
 
   closeById(id, code, reason) {
-    for (const ws of this.state.getWebSockets()) {
+    for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
       if (attachment && attachment.id === id) {
         try {
@@ -885,7 +1150,7 @@ export class PresenceRoom {
       cancels the sweep that would have deleted the log, and the note's content
       sits in Durable Object storage with nothing scheduled to ever remove it.
     */
-    if (this.state.getWebSockets().length === 0) {
+    if (this.openSockets().length === 0) {
       const entries = await this.state.storage.list({ prefix: "u:", limit: 1 });
       if (entries.size === 0) return;
     }
@@ -893,6 +1158,20 @@ export class PresenceRoom {
     if (existing === null || existing === undefined) {
       await this.state.storage.setAlarm(Date.now() + PRESENCE_SWEEP_MS);
     }
+  }
+
+  /**
+   * Sockets that still represent seated members.
+   *
+   * Cloudflare may keep returning a socket from `getWebSockets()` while its
+   * close handshake is in the CLOSING state, including after this object has
+   * hibernated and lost its in-memory closed-socket set. WebSocket readyState
+   * is therefore the durable membership boundary; attachments alone are not.
+   */
+  openSockets() {
+    return this.state.getWebSockets().filter(
+      (ws) => ws?.readyState === 1 && !this.closedLiveSockets.has(ws),
+    );
   }
 }
 

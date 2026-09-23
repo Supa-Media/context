@@ -626,13 +626,33 @@ export function storageAddress(
   return `${binding.provider}\u0000${binding.endpoint ?? ""}\u0000${binding.bucket}\u0000${prefix}`;
 }
 
-/** Do these two rows name different places for the notes to be? */
+/**
+ * Do these two rows name different places for the notes to be?
+ *
+ * **No row is not the same as a row that names nowhere**, and the difference
+ * decides which way this fails. A `null` `before` is a first connect: there is
+ * nothing to have moved from, so nothing is released. A row that exists and
+ * whose address `storageAddress` cannot read is the other case — we cannot
+ * tell where its notes were — and "cannot tell" is answered here the way the
+ * rest of this codebase answers it, by taking the cost rather than the risk.
+ * Keeping the projection leaves a D1 database of one bucket's note text
+ * attached to a binding for a different bucket; releasing it costs a rebuild
+ * of a derivative that is disposable by construction.
+ *
+ * It is not a hypothetical shape. `recordConnectFailure` records a failed
+ * Dropbox sign-in by patching `provider: "dropbox"` onto a row that is not
+ * `connected` — with no account id, and with the S3 fields it is written over
+ * left in place — so one expired sign-in on a workspace whose binding is in
+ * `error` is enough to make the address unreadable while its projection is
+ * still `ready`. The next rebind is then a move nothing could see.
+ */
 export function storageMoved(
   before: Parameters<typeof storageAddress>[0],
   after: Parameters<typeof storageAddress>[0],
 ): boolean {
+  if (before === null || before === undefined) return false;
   const from = storageAddress(before);
-  if (from === null) return false;
+  if (from === null) return true;
   return from !== storageAddress(after);
 }
 

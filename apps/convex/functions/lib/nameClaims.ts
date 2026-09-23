@@ -17,6 +17,7 @@
  * silently create a duplicate that nothing downstream expects.
  */
 
+import { stagingStorageIsFree } from "./managedStorage";
 import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
@@ -97,9 +98,19 @@ export async function claimName(
   raw: string,
   claimedBy: Id<"users">,
   target: ClaimTarget,
+  options: { stagingPersona?: "alpha" } = {},
 ): Promise<{ id: Id<"names">; normalized: string }> {
   const availability = await checkAvailability(ctx, raw);
-  if (!availability.available) {
+  // The operator seed uses the reserved @alpha name for its staging persona.
+  let stagingFixture = false;
+  if (options.stagingPersona === "alpha" && raw === "alpha" && stagingStorageIsFree() && target.kind === "workspace") {
+    const user = await ctx.db.get(claimedBy);
+    const workspace = await ctx.db.get(target.workspaceId);
+    stagingFixture = user?.email === "alpha@supa.media" && user.emailVerificationTime !== undefined &&
+      workspace?.kind === "personal" && workspace.createdBy === claimedBy && workspace.slug === "alpha" &&
+      (await findName(ctx, "alpha")) === null;
+  }
+  if (!availability.available && !(availability.reason === "reserved" && stagingFixture)) {
     throw nameRejectionError(availability.normalized, availability.reason);
   }
 

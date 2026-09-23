@@ -1,9 +1,12 @@
 import {
   ATTACHMENT_CONTENT_TYPE,
   MARKDOWN_CONTENT_TYPE,
+  LOGICAL_DELETE_CONTENT_TYPE,
 } from "../../../mcp/src/store/index.js";
+import { isLogicalDeleteMarker } from "../../../mcp/src/store/logicalDelete.js";
 
 interface ReadableObject {
+  contentType?: string;
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
@@ -51,9 +54,12 @@ export async function reconcileMigrationObject(options: {
   }
   const bytes = await sourceRead.arrayBuffer();
   if (bytes.byteLength > options.byteCap) throw new Error("OBJECT_TOO_LARGE");
+  const marker = sourceRead.contentType === LOGICAL_DELETE_CONTENT_TYPE ||
+    (bytes.byteLength < 512 && isLogicalDeleteMarker(new TextDecoder().decode(bytes)));
   const targetRead = await options.target.get(options.key);
   if (
     targetRead !== null &&
+    (!marker || targetRead.contentType === LOGICAL_DELETE_CONTENT_TYPE) &&
     sameBytes(bytes, await targetRead.arrayBuffer())
   ) {
     /*
@@ -70,12 +76,15 @@ export async function reconcileMigrationObject(options: {
     return { copied: 1, changes: 0 };
   }
   await options.target.put(options.key, bytes, {
-    contentType: options.key.toLowerCase().endsWith(".md")
-      ? MARKDOWN_CONTENT_TYPE
-      : ATTACHMENT_CONTENT_TYPE,
+    contentType: marker
+      ? LOGICAL_DELETE_CONTENT_TYPE
+      : options.key.toLowerCase().endsWith(".md")
+        ? MARKDOWN_CONTENT_TYPE
+        : ATTACHMENT_CONTENT_TYPE,
   });
   const verified = await options.target.get(options.key);
-  if (verified === null || !sameBytes(bytes, await verified.arrayBuffer())) {
+  if (verified === null || (marker && verified.contentType !== LOGICAL_DELETE_CONTENT_TYPE) ||
+      !sameBytes(bytes, await verified.arrayBuffer())) {
     throw new Error("VERIFY_FAILED");
   }
   return { copied: 1, changes: 1 };

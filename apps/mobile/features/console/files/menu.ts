@@ -38,7 +38,7 @@
 
 import { describeBinding, type Command } from "../../design/keymap";
 import type { Clipboard } from "./clipboard";
-import { baseName, parentPath, restoreTargetFor, withoutSortPrefix } from "./paths";
+import { baseName, folderLabel, parentPath, restoreTargetFor } from "./paths";
 import type { TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
@@ -433,7 +433,7 @@ export function canPasteInto(clipboard: Clipboard, folder: string): boolean {
  */
 function followDetail(path: string, inherited: Visibility): string {
   const folder = parentPath(path);
-  return `Currently ${inherited} — from ${folder === "" ? "this context" : withoutSortPrefix(baseName(folder))}.`;
+  return `Currently ${inherited} — from ${folder === "" ? "this context" : folderLabel(baseName(folder))}.`;
 }
 
 function visibilityGroup(

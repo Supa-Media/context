@@ -686,10 +686,18 @@ export const advanceContextMove = internalAction({
             grantedNames: source.grantedNames,
             operation: {
               kind: "contextMoveDelete",
-              sources: landed.landed.map((entry) => ({
-                path: entry.source,
-                etag: exported.objects.find((object) => object.source === entry.source)!.etag,
-              })),
+              sources: landed.landed.map((entry) => {
+                const exportedObject = exported.objects.find(
+                  (object) => object.source === entry.source,
+                )!;
+                return {
+                  path: entry.source,
+                  etag: exportedObject.etag,
+                  ...(exportedObject.collaborationEtag === undefined
+                    ? {}
+                    : { collaborationEtag: exportedObject.collaborationEtag }),
+                };
+              }),
             },
           });
           if (removed.kind !== "contextMoveRemoved") return await stop("failed", UNEXPECTED);

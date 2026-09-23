@@ -53,6 +53,9 @@ function repoFile(relative: string): string {
  * exists to make loud.
  */
 const SET_ELSEWHERE: Record<string, string> = {
+  APP_ENV: "synced only by scripts/staging-env.mjs; absent production value keeps the staging bypass disabled",
+  STAGING_CONVEX_DEPLOYMENT: "synced only by scripts/staging-env.mjs from the staging GitHub environment variable",
+  CONVEX_CLOUD_URL: "set by Convex itself on every deployment; used to verify the staging selector",
   CONVEX_SITE_URL: "set by Convex itself on every deployment; nothing to push",
   INGESTION_RECEIVER:
     "flipped by hand once, when Email Routing is actually pointed at the Worker — " +

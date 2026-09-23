@@ -51,40 +51,34 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
+import { parseOnBlock } from "./check-workflow-triggers.mjs";
+
 const ROOT = resolve(import.meta.dirname, "..");
-const WORKFLOW = "apps/convex/../../.github/workflows/deploy-convex.yml";
 const ENTRY_DIR = "apps/convex";
 
 /**
- * The paths listed under this workflow's `push.paths`.
+ * The staging push paths, or every path when the push is unfiltered.
  *
  * Parsed from the `on:` block rather than from the whole file, because the
  * header above talks about paths in prose and a grep would read the prose as
  * configuration — the mistake `check-workflow-triggers.mjs` records having made.
  */
 export function deployPaths(yaml) {
-  const lines = yaml.split("\n");
-  const paths = [];
-  let inOn = false;
-  let inPaths = false;
-  for (const line of lines) {
-    if (/^on:\s*$/.test(line)) { inOn = true; continue; }
-    if (inOn && /^\S/.test(line)) break;
-    if (!inOn) continue;
-    if (/^\s{4,}paths:\s*$/.test(line)) { inPaths = true; continue; }
-    if (inPaths) {
-      const item = line.match(/^\s+-\s+"?([^"\s#]+)"?/);
-      if (item) { paths.push(item[1]); continue; }
-      if (line.trim() !== "" && !line.trim().startsWith("#")) inPaths = false;
-    }
-  }
-  return paths;
+  const triggers = parseOnBlock(yaml, "deploy-staging.yml");
+  if (!triggers.has("push")) return [];
+  const push = triggers.get("push");
+  // An exclusion cannot be represented by the positive coverage check below.
+  if (push && Object.hasOwn(push, "paths-ignore")) return [];
+  if (push && Object.hasOwn(push, "paths")) return Array.isArray(push.paths) ? push.paths : [];
+  return ["**"];
+
 }
 
 /** Does one of the workflow's globs cover this repository-relative file? */
 export function covered(file, paths) {
   return paths.some((pattern) => {
-    // The only two shapes these filters use: a literal file, and a prefix with
+    if (pattern === "**") return true;
+    // In addition to all paths, accept a literal file or a prefix with
     // `**`. Anything more exotic would need a matcher, and a matcher nobody
     // tested is how a guard starts passing for the wrong reason.
     if (pattern.endsWith("/**")) return file.startsWith(pattern.slice(0, -2));
@@ -181,10 +175,10 @@ export function externalFiles() {
 }
 
 function run() {
-  const yaml = readFileSync(resolve(ROOT, ".github/workflows/deploy-convex.yml"), "utf8");
+  const yaml = readFileSync(resolve(ROOT, ".github/workflows/deploy-staging.yml"), "utf8");
   const paths = deployPaths(yaml);
   if (paths.length === 0) {
-    console.error("deploy-convex.yml: could not read any push paths — refusing to pass vacuously.");
+    console.error("deploy-staging.yml: could not read any push paths — refusing to pass vacuously.");
     return 1;
   }
   const missed = externalFiles().filter((file) => !covered(file, paths));
@@ -194,7 +188,7 @@ function run() {
         missed.map((file) => `  ${file}`).join("\n") +
         "\n\nA change to any of them merges, passes CI, and leaves the control plane" +
         "\nrunning the previous copy. Add a covering path to `push.paths` in" +
-        "\n.github/workflows/deploy-convex.yml.",
+        "\n.github/workflows/deploy-staging.yml.",
     );
     return 1;
   }
@@ -204,6 +198,8 @@ function run() {
 
 function selfTest() {
   const problems = [];
+  if (!covered("packages/new-package/index.js", deployPaths("on:\n  push:\n    branches: [main]\n"))) problems.push("unfiltered staging pushes must cover every import");
+  if (deployPaths("on:\n  workflow_call:\n").length) problems.push("manual-only deploy must not count as automatic coverage");
   // The failure this exists for: a real bundled file, a filter that omits it.
   const bundled = externalFiles();
   if (bundled.length === 0) problems.push("found no external imports at all — the walker is not walking");

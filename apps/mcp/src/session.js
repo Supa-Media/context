@@ -261,6 +261,9 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // editor in the product appeared to be joining — and, because ingestion is on
   // the apex, would hold the mailbox too.
   "presence",
+  // The collaboration HTTP transport. Keeping it in the top-level namespace
+  // prevents `/collaboration` from being parsed as a workspace slug.
+  "collaboration",
 ]);
 
 /* --------------------------- session resolution --------------------------- */
@@ -315,6 +318,7 @@ export async function resolveSession(token, slug, controlPlane) {
   // removed — two answers to one question, which is the shape of every
   // privilege bug in this neighbourhood.
   const scopes = effectiveScopes(session.scopes, workspace.role);
+  const grantedGroups = new Set(workspace.grantedNames.map((name) => `@${name}`));
   const resolvedSession = {
     grantId: session.grantId,
     workspaceId: workspace.workspaceId,
@@ -334,6 +338,7 @@ export async function resolveSession(token, slug, controlPlane) {
     actorClientName:
       typeof session.clientName === "string" && session.clientName ? session.clientName : null,
     scopes,
+    grantedGroups,
     /**
      * The grant's own scopes, before this workspace's role clamped them, and
      * the set of contexts this connection may address.
@@ -415,6 +420,7 @@ export function sessionForContext(session, name) {
     role: covered.role,
     scope: visibilityTierForGrant(scopes, covered.role),
     scopes,
+    grantedGroups: new Set((covered.grantedNames || []).map((name) => `@${name}`)),
   };
   Object.defineProperty(sibling, "accessToken", {
     value: session.accessToken,
@@ -465,7 +471,22 @@ function normalizeSession(raw) {
     if (typeof entry.role !== "string" || !entry.role) throw fail();
     const kind = entry.kind === "shared" ? "shared" : "personal";
     const slug = typeof entry.slug === "string" ? entry.slug.toLowerCase() : null;
-    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind };
+    const rawGrantedNames = entry.grantedNames;
+    if (
+      rawGrantedNames !== undefined &&
+      (!Array.isArray(rawGrantedNames) || rawGrantedNames.some((name) => typeof name !== "string"))
+    ) {
+      throw fail();
+    }
+    const grantedNames = (rawGrantedNames || []).map((name) => {
+      // Convex returns the stored name without `@`; accepting the decorated
+      // form here keeps this boundary compatible with older gateway fixtures,
+      // while the set consumed by privacy always has the exact `@name` form.
+      const normalizedName = name.trim().replace(/^@/, "").toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalizedName)) throw fail();
+      return normalizedName;
+    });
+    return { workspaceId: entry.workspaceId, slug, role: entry.role, kind, grantedNames };
   });
   if (typeof defaultWorkspaceId !== "string" || !defaultWorkspaceId) throw fail();
   return {
@@ -623,6 +644,49 @@ export function reachForRole(session, role) {
       they can never hold there sends them round a loop that cannot end.
     */
     grantWrites: new Set(granted).has(SCOPE_WRITE),
+  };
+}
+
+/**
+ * Normalize the deliberately small session row returned for a live socket.
+ *
+ * The control plane re-reads the grant and membership; this module still owns
+ * the role/scope clamp. Keeping that clamp here prevents the websocket path
+ * from growing a second definition of what an editor, member, or owner may do.
+ * `null` is the ordinary answer for a revoked or otherwise stale grant. Any
+ * malformed non-null row also fails closed rather than being coerced.
+ */
+export function accessForLiveGrant(raw, expectedWorkspaceId) {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (typeof raw.grantId !== "string" || !raw.grantId) return null;
+  if (typeof raw.workspaceId !== "string" || raw.workspaceId !== expectedWorkspaceId) return null;
+  if (!Array.isArray(raw.scopes) || raw.scopes.some((scope) => typeof scope !== "string")) {
+    return null;
+  }
+  if (typeof raw.role !== "string" || !raw.role) return null;
+  if (raw.kind !== "personal" && raw.kind !== "shared") return null;
+  if (
+    raw.grantedNames !== undefined &&
+    (!Array.isArray(raw.grantedNames) || raw.grantedNames.some((name) => typeof name !== "string"))
+  ) {
+    return null;
+  }
+  const grantedGroups = new Set();
+  for (const name of raw.grantedNames || []) {
+    const normalized = name.trim().replace(/^@/, "").toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,64}$/.test(normalized)) return null;
+    grantedGroups.add(`@${normalized}`);
+  }
+  const scopes = effectiveScopes(raw.scopes, raw.role);
+  return {
+    grantId: raw.grantId,
+    workspaceId: raw.workspaceId,
+    role: raw.role,
+    kind: raw.kind,
+    scopes,
+    scope: visibilityTierForGrant(scopes, raw.role),
+    grantedGroups,
   };
 }
 

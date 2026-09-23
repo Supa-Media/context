@@ -80,7 +80,14 @@ describe("the endpoint for one context", () => {
       expect(endpointForContext(ENDPOINT, slug)).toBeNull();
     }
     // Routes, not contexts. `t` and `.well-known` are already refused by shape.
-    for (const reserved of ["mcp", "inbox", "oauth", "granola-webhook", "meetings"]) {
+    for (const reserved of [
+      "mcp",
+      "inbox",
+      "oauth",
+      "granola-webhook",
+      "meetings",
+      "collaboration",
+    ]) {
       expect(endpointForContext(ENDPOINT, reserved)).toBeNull();
     }
   });

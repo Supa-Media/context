@@ -4,12 +4,7 @@
 name: Deploy Plugin Egress Service (production)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "infra/egress-service/**"
-      - ".github/workflows/deploy-egress-service.yml"
-  workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: deploy-plugin-egress-production

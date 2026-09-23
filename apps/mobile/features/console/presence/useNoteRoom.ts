@@ -12,6 +12,8 @@
 
 import { useEffect } from "react";
 import { usePresence, type Presence } from "./usePresence";
+import { useCollaboration } from "../collaboration/useCollaboration";
+import type { CacheScope } from "../../offline/keys";
 import { isDrawingPath } from "@context/drawings";
 import {
   useDrawingChannel,
@@ -27,10 +29,18 @@ export function useNoteRoom(options: {
   conflicted: boolean;
   /** The note as this device has it, for the one client that seeds the room. */
   textForSeed: () => string;
+  legacyDraft?: () => { baseline: string; desired: string; baseEtag?: string | null } | undefined;
   /** A tool wrote the open note; move this editor onto the version it left. */
   onExternalWrite: (written: { path: string; etag: string | null }) => void;
   /** Listen for saves this console makes, so the room can be told. */
   onSaved: (handler: (written: { path: string; etag: string }) => void) => () => void;
+  /** The durable prose controller owns note edits when present. */
+  durable?: boolean;
+  canEdit?: boolean;
+  scope?: CacheScope;
+  onCollaborationOwned?: (path: string, owned: boolean) => void;
+  onCollaborationText?: (text: string) => void;
+  onCollaborationState?: (state: { text: string; etag: string | null; status: "offline" | "storing" | "local" | "syncing" | "saved" | "error" | "unavailable" | "revoked"; pending: number; recovery?: { baseline: string; desired: string; baseEtag?: string | null }; legacyAdopted?: { path: string; text: string; baseEtag: string } }) => void;
 }): { presence: Presence; drawingCollaboration: DrawingCollaboration | undefined } {
   const channel = useDrawingChannel();
   const path = options.notePath;
@@ -45,6 +55,29 @@ export function useNoteRoom(options: {
   */
   const drawing = isDrawingPath(path ?? "");
 
+  const collaboration = useCollaboration({
+    workspaceId: options.workspaceId,
+    endpoint: options.endpoint,
+    path,
+    scope: options.scope ?? "team",
+    initialText: options.textForSeed,
+    legacyDraft: options.legacyDraft,
+    editable: options.canEdit === true,
+    enabled: options.durable === true && !drawing && !options.conflicted,
+    onText: (text) => options.onCollaborationText?.(text),
+    onState: (state) => {
+      if (state.status === "loading") return;
+      options.onCollaborationState?.({
+        text: state.text,
+        etag: state.etag,
+        status: state.status,
+        pending: state.pending,
+        ...(state.recovery === undefined ? {} : { recovery: state.recovery }),
+        ...(state.legacyAdopted === undefined ? {} : { legacyAdopted: state.legacyAdopted }),
+      });
+    },
+    onOwned: options.onCollaborationOwned,
+  });
   const presence = usePresence({
     workspaceId: options.workspaceId,
     endpoint: options.endpoint,
@@ -55,14 +88,37 @@ export function useNoteRoom(options: {
       is not being read, and a conflict is a decision the person owes before
       anybody else's caret is worth drawing over it.
     */
-    enabled: !options.conflicted && path !== null && path.endsWith(".md"),
+    enabled:
+      !options.conflicted &&
+      path !== null &&
+      path.endsWith(".md") &&
+      collaboration?.status !== "revoked" && collaboration?.status !== "unavailable",
     textForSeed: options.textForSeed,
     onExternalWrite: options.onExternalWrite,
-    mode: drawing ? "drawing" : "text",
+    mode: drawing ? "drawing" : options.durable ? "presence" : "text",
+    durable: options.durable === true && !drawing,
+    documentId: collaboration?.documentId,
+    shared: collaboration?.shared ?? null,
+    subscribeLiveUpdates: collaboration?.subscribeLiveUpdates,
+    onLiveUpdate: (documentId, update) => collaboration?.receiveLiveUpdate?.(documentId, update),
+    onCommitted: (frame) => {
+      if (collaboration?.etag !== frame.etag) collaboration?.repair();
+    },
     onDrawing: channel.deliverElements,
     onPeerPointers: channel.deliverPeers,
     onDrawingCompact: channel.deliverCompactRequest,
   });
+  useEffect(() => {
+    if (presence.phase !== "live" || collaboration === undefined || typeof window === "undefined") return;
+    collaboration.repair();
+    const repair = () => collaboration.repair();
+    window.addEventListener("focus", repair);
+    window.addEventListener("visibilitychange", repair);
+    return () => {
+      window.removeEventListener("focus", repair);
+      window.removeEventListener("visibilitychange", repair);
+    };
+  }, [presence.phase]);
 
   /*
     A save this console made, told to the room.
@@ -92,7 +148,13 @@ export function useNoteRoom(options: {
   }, [onSaved, announceSaved, path]);
 
   return {
-    presence,
+    presence: {
+      ...presence,
+      shared: collaboration?.shared ?? presence.shared,
+      settled: collaboration?.ready ?? presence.settled,
+      canWrite: collaboration === undefined ? presence.canWrite : options.canEdit === true,
+      collaboration,
+    },
     drawingCollaboration: useDrawingCollaboration(channel, presence, drawing),
   };
 }

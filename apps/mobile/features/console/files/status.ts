@@ -26,6 +26,7 @@
 
 import type { EditorState } from "./editor";
 import type { ConflictCheck } from "./types";
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { connectionLine, queueLine, type SyncFacts } from "../../offline/copy";
 
 /**
@@ -379,7 +380,25 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
     after it rather than as one more fact among them.
   */
   if (editor.path !== null) {
-    segments.push({ id: "path", text: editor.path, tone: "quiet", mono: true });
+    /*
+      Contained, and the one place in this file where that matters: this is a
+      key out of a bucket we do not own, drawn at the leading edge of a row
+      whose other segments are Context's own words. An override in a filename
+      would reverse the sync claim, the word count and the storage label that
+      follow it.
+
+      `isolateForDisplay` adds nothing to a key with nothing hostile in it, so
+      the bar's whole purpose — a real key somebody copies into another client
+      — is untouched for every ordinary note. A key that DOES carry a format
+      character copies with its container, which is the honest cost and is
+      smaller than the misread it prevents.
+    */
+    segments.push({
+      id: "path",
+      text: isolateForDisplay(editor.path),
+      tone: "quiet",
+      mono: true,
+    });
   }
 
   // Counts describe an open note. With nothing open they would be zeroes about

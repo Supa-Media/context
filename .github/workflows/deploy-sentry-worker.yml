@@ -1,12 +1,7 @@
 name: Deploy Sentry Inbox (production)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "infra/sentry-worker/**"
-      - ".github/workflows/deploy-sentry-worker.yml"
-  workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: deploy-sentry-inbox-production

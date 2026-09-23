@@ -58,6 +58,11 @@ breaking one, stop and say so rather than working around it.
    million buckets, and anything low forces prefix tenancy and ends the exit
    promise with it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
+   Collaboration history under `.context/collaboration/` is customer-owned essential
+   data, needed to merge offline edits; it is backed up and exported with the
+   notes. Accepted edits may briefly precede their Markdown rendering, and a
+   completed save/export must include them. This is the explicit exception
+   approved for automatic collaboration; see [collaboration](./docs/decisions/collaboration.md).
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket
    layout — `index.md` and `privacy.md` at root, Context-owned plumbing under
@@ -108,7 +113,10 @@ packages/hook/   `npx @supa-media/context-hook` — the session-end hook that sa
 
 Originally a single-tenant personal `brain` Worker — a deployment name, and one
 of the few places the retired noun survives; being generalized in place.
-Zero npm dependencies — keep it that way. It runs on the Workers runtime, so use
+The gateway has one explicit runtime dependency boundary: `@context/collaboration`,
+which owns Yjs merging and the customer-bucket editing history. Other gateway
+code stays dependency-free. This exception implements the owner-approved shared
+saving model; see [collaboration](./docs/decisions/collaboration.md). It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
 an in-memory store stub: fast, offline, currently 4,116 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
@@ -196,17 +204,13 @@ change that would break a non-negotiable, or work framed as a spike — each a
 statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
-**Merging deploys, and that is the point rather than a reason to hold.** `main`
-pushes the Convex functions, the gateway Worker and an OTA update on its own,
-so an agent that merges is shipping — which is what "finished" has always meant
-here. It is never grounds for stopping at a green branch to check first: the
-confirmation an outward-facing action would otherwise need was given by this
-paragraph. What stops you is unchanged — red CI, a conflict that needs a guess,
-a non-negotiable in the way. What a merge cannot do on its own is a separate
-ask and is not covered: a native build, a store submission, rotating a secret.
-The first two now have a workflow — `deploy-mobile-native.yml` — and it is
-`workflow_dispatch` only, which restates this rather than changing it: shipping
-a binary is still a decision somebody takes, not something a merge does.
+**Merging deploys to staging; production is a separate manual action.** Every
+merge to `main` runs `Deploy Staging`. Finish the PR and verify staging without
+asking again. Production requires an explicit request to run `Deploy to
+Production`, which deploys the run's fixed `main` commit only after that commit
+has passed staging. Do not trigger production as a side effect of merging.
+Desktop releases, native builds, store submissions and secret rotation remain
+separate explicit actions. See [staging](./docs/staging.md).
 
 **A session that fanned work out to several agents is not finished when the
 agents are.** Subagents do not open pull requests; whoever dispatched them owns

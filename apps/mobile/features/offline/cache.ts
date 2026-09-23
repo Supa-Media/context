@@ -494,6 +494,18 @@ export async function waitingOnDevice(
       total.pending += 1;
       continue;
     }
+    if (parsed.kind === "collaboration") {
+      const raw = await store.get(key);
+      try {
+        const value: unknown = raw === null ? null : JSON.parse(raw);
+        const pending = value && typeof value === "object" ? (value as { pending?: unknown }).pending : null;
+        if (Array.isArray(pending) && pending.length > 0) total.pending += 1;
+      } catch {
+        // A malformed collaboration record is not counted as unsent work;
+        // the controller keeps its in-memory queue and clearance deletes it.
+      }
+      continue;
+    }
     if (parsed.kind !== "outbox" || parsed.workspaceId === exceptQueueIn) continue;
     const some = counts(await getOutbox(store, parsed.workspaceId));
     total.pending += some.pending;

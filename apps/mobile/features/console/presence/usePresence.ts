@@ -35,6 +35,7 @@ import {
   askFrame,
   byeFrame,
   cursorFrame,
+  liveUpdateFrame,
   drawFrame,
   savedFrame,
   drawSnapshotFrame,
@@ -49,6 +50,7 @@ import {
 import {
   answerStateVector,
   cursorPosition,
+  cursorPositions,
   encodeSyncStep1,
   encodeUpdate,
   readSyncMessage,
@@ -68,6 +70,7 @@ import {
   savesToBucket,
   type PresencePhase,
 } from "./session";
+import type { DurableCollaboration, LiveUpdate } from "../collaboration/durable";
 
 /** How often a caret move is sent, at most. */
 const CURSOR_THROTTLE_MS = 120;
@@ -150,6 +153,8 @@ export interface Presence {
    * whole feature exists to remove — reintroduced from the other end.
    */
   canWrite: boolean;
+  /** Durable prose synchronization, when the open note uses collaboration v2. */
+  collaboration?: DurableCollaboration;
   /**
    * Tell the room this client just wrote the note to the bucket at `etag`.
    *
@@ -275,7 +280,20 @@ export function usePresence(options: {
    * `.excalidraw.md` into one would put a multi-megabyte compressed payload in
    * the room's log to no purpose.
    */
-  mode?: "text" | "drawing";
+  mode?: "text" | "drawing" | "presence";
+  /** Durable prose relays transient updates separately from confirmed HTTP saves. */
+  durable?: boolean;
+  documentId?: string | null;
+  /**
+   * A document owned by the durable collaboration controller, used only to
+   * encode this editor's caret. The presence socket never creates or destroys
+   * this document. Durable updates arrive through the separate subscription.
+   */
+  shared?: SharedDoc | null;
+  subscribeLiveUpdates?: (listener: (frame: LiveUpdate) => void) => () => void;
+  onLiveUpdate?: (documentId: string, update: string) => void;
+  /** A v2 commit notification triggers an authorized HTTP read repair. */
+  onCommitted?: (frame: { documentId: string; update?: string; etag: string }) => void;
   /** Elements from a peer, or replayed on join. Drawing mode only. */
   onDrawing?: (elements: unknown[]) => void;
   /** The room is asking for a full scene, because the log is getting long. */
@@ -289,11 +307,23 @@ export function usePresence(options: {
   const [state, dispatch] = useReducer(presenceReducer, initialPresenceState);
 
   const socket = useRef<WebSocket | null>(null);
-  const timers = useRef<{ heartbeat?: number; reconnect?: number; reauth?: number }>({});
+  const timers = useRef<{ heartbeat?: number; reconnect?: number; reauth?: number; cursor?: number }>({});
+  const socketToken = useRef<string | null>(null);
+  const selection = useRef<{ anchor: number; head: number } | null>(null);
+  const reportCurrent = useRef<() => void>(() => {});
   const lastSent = useRef<{ at: number; anchor: number; head: number }>({ at: 0, anchor: -1, head: -1 });
   const pending = useRef<{ anchor: number; head: number } | null>(null);
   const seed = useRef<string | null>(null);
   const shared = useRef<SharedDoc | null>(null);
+  const externalShared = useRef<SharedDoc | null>(options.shared ?? null);
+  if (externalShared.current !== (options.shared ?? null)) {
+    externalShared.current = options.shared ?? null;
+    // A relative position is meaningless until it is encoded against the new
+    // document. Re-send the current selection after durable binding or a note
+    // switch even if its numeric offsets did not change.
+    lastSent.current = { at: 0, anchor: -1, head: -1 };
+    pending.current = null;
+  }
   /**
    * Has the room answered for the document currently in `shared`?
    *
@@ -321,6 +351,10 @@ export function usePresence(options: {
   onDrawingCompact.current = options.onDrawingCompact;
   const onPeerPointers = useRef(options.onPeerPointers);
   onPeerPointers.current = options.onPeerPointers;
+  const onLiveUpdate = useRef(options.onLiveUpdate);
+  onLiveUpdate.current = options.onLiveUpdate;
+  const onCommitted = useRef(options.onCommitted);
+  onCommitted.current = options.onCommitted;
   /*
     Where each peer's pointer is, in a ref rather than in the reducer.
 
@@ -338,13 +372,15 @@ export function usePresence(options: {
 
   const { workspaceId, endpoint, notePath, enabled } = options;
   const origin = endpoint === null ? null : gatewayOriginFrom(endpoint);
-  const active = enabled && workspaceId !== null && origin !== null && notePath !== null;
+  const active = enabled && workspaceId !== null && origin !== null && notePath !== null &&
+    (!options.durable || options.documentId != null);
 
   const clearTimers = useCallback(() => {
     const held = timers.current;
     if (held.heartbeat) window.clearInterval(held.heartbeat);
     if (held.reconnect) window.clearTimeout(held.reconnect);
     if (held.reauth) window.clearTimeout(held.reauth);
+    if (held.cursor) window.clearTimeout(held.cursor);
     timers.current = {};
   }, []);
 
@@ -352,6 +388,7 @@ export function usePresence(options: {
     (say: boolean) => {
       const live = socket.current;
       socket.current = null;
+      socketToken.current = null;
       clearTimers();
       if (!live) return;
       try {
@@ -376,6 +413,7 @@ export function usePresence(options: {
     }
 
     let cancelled = false;
+    selection.current = null;
     const path = notePath as string;
     dispatch({ type: "open", notePath: path });
     /*
@@ -398,7 +436,7 @@ export function usePresence(options: {
       does so immediately. Batching here is what would turn "I see the letter
       appear" into "I see the sentence appear".
     */
-    const document = mode === "drawing" ? null : createSharedDoc({
+    const document = mode === "drawing" || mode === "presence" ? null : createSharedDoc({
       onLocalUpdateBytes: (update) => {
         const live = socket.current;
         if (!live || live.readyState !== WebSocket.OPEN) return;
@@ -423,21 +461,40 @@ export function usePresence(options: {
     */
     settled.current = false;
     pointers.current = new Map();
+    let cachedGrant: { accessToken: string; expiresAt: number } | null = null;
+    let connecting = false;
 
     const connect = async (attempt: number) => {
-      if (cancelled) return;
+      if (cancelled || connecting || socket.current !== null) return;
+      connecting = true;
       let token: string;
       try {
-        const granted = await mint({ workspaceId: workspaceId as never });
-        token = granted.accessToken;
+        if (cachedGrant !== null && cachedGrant.expiresAt - Date.now() > 60_000) {
+          token = cachedGrant.accessToken;
+        } else {
+          const granted = await mint({ workspaceId: workspaceId as never });
+          cachedGrant = granted;
+          token = granted.accessToken;
+        }
       } catch {
-        // No token, no presence — and no retry. A mint that failed is either a
-        // rate limit or a session that is gone, and neither is fixed by asking
-        // again in a loop.
-        if (!cancelled) dispatch({ type: "unavailable" });
+        connecting = false;
+        // Minting can fail while the app is waking or the gateway is rolling
+        // out. Keep the editor usable and retry with the same bounded backoff
+        // as a dropped socket; unlike a definitive socket authorization
+        // refusal, this is not terminal and must not strand the room forever.
+        if (!cancelled) {
+          dispatch({ type: "dropped" });
+          timers.current.reconnect = window.setTimeout(() => {
+            timers.current.reconnect = undefined;
+            void connect(attempt + 1);
+          }, reconnectDelayMs(attempt + 1));
+        }
         return;
       }
-      if (cancelled) return;
+      if (cancelled) {
+        connecting = false;
+        return;
+      }
 
       let live: WebSocket;
       try {
@@ -447,16 +504,30 @@ export function usePresence(options: {
             notePath: path,
             token,
             colorSeed: seed.current || "tab",
+            ...(options.durable ? { collaborationVersion: 2 as const, documentId: options.documentId ?? undefined } : {}),
           }),
         );
       } catch {
-        if (!cancelled) dispatch({ type: "unavailable" });
+        connecting = false;
+        if (!cancelled) {
+          dispatch({ type: "dropped" });
+          timers.current.reconnect = window.setTimeout(() => {
+            timers.current.reconnect = undefined;
+            void connect(attempt + 1);
+          }, reconnectDelayMs(attempt + 1));
+        }
         return;
       }
+      connecting = false;
       socket.current = live;
+      socketToken.current = token;
 
       live.onopen = () => {
         if (cancelled) return;
+        // Reconnects use the same document but need a fresh caret frame: the
+        // room discarded the old position when this socket left.
+        lastSent.current = { at: 0, anchor: -1, head: -1 };
+        pending.current = null;
         dispatch({ type: "connected" });
 
         /*
@@ -605,6 +676,16 @@ export function usePresence(options: {
           return;
         }
 
+        if (frame.t === "live") {
+          if (options.durable) onLiveUpdate.current?.(frame.documentId, frame.d);
+          return;
+        }
+
+        if (frame.t === "committed") {
+          onCommitted.current?.(frame);
+          return;
+        }
+
         if (frame.t === "external") {
           /*
             **A tool wrote this note, and this client was asked to merge it.**
@@ -703,6 +784,7 @@ export function usePresence(options: {
         }
 
         if (frame.t === "welcome") {
+          reportCurrent.current();
           /*
             **Seeding, and why the room is the one to decide it.**
 
@@ -784,6 +866,7 @@ export function usePresence(options: {
       live.onclose = () => {
         if (cancelled || socket.current !== live) return;
         socket.current = null;
+        socketToken.current = null;
         clearTimers();
         dispatch({ type: "dropped" });
         const next = attempt + 1;
@@ -796,10 +879,24 @@ export function usePresence(options: {
       };
     };
 
+    const retryNow = () => {
+      if (cancelled || socket.current !== null) return;
+      if (timers.current.reconnect !== undefined) {
+        window.clearTimeout(timers.current.reconnect);
+        timers.current.reconnect = undefined;
+      }
+      void connect(0);
+    };
     void connect(0);
+    window.addEventListener("online", retryNow);
+    window.addEventListener("focus", retryNow);
+    window.addEventListener("visibilitychange", retryNow);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("online", retryNow);
+      window.removeEventListener("focus", retryNow);
+      window.removeEventListener("visibilitychange", retryNow);
       closeSocket(true);
       for (const timer of toolCarets.values()) window.clearTimeout(timer);
       toolCarets.clear();
@@ -811,7 +908,7 @@ export function usePresence(options: {
     // text document at all. It is derived from the path and so moves with it,
     // but a dependency that is true by coincidence is one that stops being
     // true without anybody noticing.
-  }, [active, workspaceId, origin, notePath, mode, mint, closeSocket, clearTimers, settle]);
+  }, [active, workspaceId, origin, notePath, mode, options.durable, options.documentId, mint, closeSocket, clearTimers, settle]);
 
   /**
    * Send a caret, at most every `CURSOR_THROTTLE_MS`.
@@ -822,48 +919,62 @@ export function usePresence(options: {
    * sits still.
    */
   const report = useCallback((anchor: number, head: number) => {
-    // Named for what it is rather than `held`, which the throttle below
-    // already uses for the last caret it sent — the typechecker caught the
-    // shadowing, and two different things under one name in one function is
-    // how the wrong one gets read six months from now.
-    const document = shared.current;
+    selection.current = { anchor, head };
     const live = socket.current;
     if (!live || live.readyState !== WebSocket.OPEN) return;
-    const now = Date.now();
     const held = lastSent.current;
-    if (held.anchor === anchor && held.head === head) return;
-
-    const send = (a: number, h: number) => {
-      try {
-        if (live.readyState === WebSocket.OPEN) {
-          // Relative positions, so a caret stays beside the character its owner
-          // put it next to rather than drifting when somebody types above it.
-          live.send(
-            cursorFrame(
-              document ? cursorPosition(document.text, a) : null,
-              document ? cursorPosition(document.text, h) : null,
-            ),
-          );
-        }
-        lastSent.current = { at: Date.now(), anchor: a, head: h };
-      } catch {
-        // Dropped on the floor: the close handler reconnects and the next
-        // movement re-establishes where this caret is.
-      }
-    };
-
-    if (now - held.at >= CURSOR_THROTTLE_MS) {
-      send(anchor, head);
+    if (held.anchor === anchor && held.head === head) {
+      pending.current = null;
+      if (timers.current.cursor !== undefined) window.clearTimeout(timers.current.cursor);
+      timers.current.cursor = undefined;
       return;
     }
     pending.current = { anchor, head };
-    if (timers.current.heartbeat === undefined && pending.current === null) return;
-    window.setTimeout(() => {
+    const send = () => {
+      timers.current.cursor = undefined;
       const queued = pending.current;
       pending.current = null;
-      if (queued) send(queued.anchor, queued.head);
-    }, CURSOR_THROTTLE_MS - (now - held.at));
+      const currentSocket = socket.current;
+      if (!queued || !currentSocket || currentSocket.readyState !== WebSocket.OPEN) return;
+      try {
+        const document = shared.current ?? externalShared.current;
+        const positions = cursorPositions(document?.text ?? null, queued.anchor, queued.head);
+        currentSocket.send(cursorFrame(positions.anchor, positions.head));
+        lastSent.current = { at: Date.now(), ...queued };
+      } catch {
+        // A reconnect re-announces the current selection.
+      }
+    };
+    if (timers.current.cursor !== undefined) window.clearTimeout(timers.current.cursor);
+    const remaining = CURSOR_THROTTLE_MS - (Date.now() - held.at);
+    if (remaining <= 0) send();
+    else timers.current.cursor = window.setTimeout(send, remaining);
   }, []);
+  reportCurrent.current = () => {
+    const at = selection.current;
+    if (!at) return;
+    lastSent.current = { at: 0, anchor: -1, head: -1 };
+    report(at.anchor, at.head);
+  };
+  useEffect(() => { reportCurrent.current(); }, [options.shared]);
+
+  const subscribeLiveUpdates = options.subscribeLiveUpdates;
+  useEffect(() => {
+    const unsubscribe = subscribeLiveUpdates?.((frame) => {
+      const live = socket.current;
+      const token = socketToken.current;
+      if (!live || live.readyState !== WebSocket.OPEN || !token || frame.update.length > 32 * 1024) return;
+      try {
+        live.send(liveUpdateFrame(frame.documentId, frame.update, token));
+      } catch {
+        // The persisted HTTP queue still owns delivery and the save indicator.
+      }
+    });
+    return unsubscribe;
+    // Bind again when the controller acquires its authoritative document. The
+    // first render can precede that binding even with a stable subscription API.
+  }, [subscribeLiveUpdates, options.documentId]);
+
 
   /*
     The canvas half of the socket.

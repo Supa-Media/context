@@ -1,3 +1,4 @@
+import { STAGING_DATA_WARNING } from "../../../app/StagingNotice";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
@@ -309,6 +310,7 @@ export function PremiumBody({
             )}
           </View>
 
+          {status.stagingFreeStorage ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
           <Row divided style={styles.priceRow}>
             <Text variant="rowSub">Price</Text>
             <Text variant="rowTitle" testID="premium-price">
@@ -323,7 +325,7 @@ export function PremiumBody({
             it would be a promise about a subscription this context no longer
             has. `earlyTesterPriceNote` is the one place that decides.
           */}
-          {earlyTesterPriceNote(state) === null ? null : (
+          {status.stagingFreeStorage || earlyTesterPriceNote(state) === null ? null : (
             <Hint style={styles.hint}>
               <Text variant="rowSub">{earlyTesterPriceNote(state)}</Text>
             </Hint>
@@ -475,14 +477,18 @@ export function PremiumBody({
                 ? "Opening…"
                 : control === "manage"
                   ? "Manage billing"
-                  : status?.isTestAccount === true
+                  : status?.stagingFreeStorage === true
+                    ? "Create staging storage"
+                    : status?.isTestAccount === true
                     ? "Activate test Premium"
                     : "Upgrade this context"
             }
             accessibilityLabel={
               control === "manage"
                 ? "Open the billing portal, where the card, invoices and cancellation live"
-                : status?.isTestAccount === true
+                : status?.stagingFreeStorage === true
+                  ? "Activate selected services on staging without payment"
+                  : status?.isTestAccount === true
                   ? "Activate Premium for this test context without a charge"
                   : "Start a subscription for this context"
             }

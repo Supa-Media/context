@@ -1,0 +1,24 @@
+{
+  "name": "@context/collaboration",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Conflict-safe Yjs collaboration over customer-owned Context storage",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.mjs",
+    "typecheck": "echo \"no typecheck (JSDoc-typed ESM, checked by consumers)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  },
+  "dependencies": {
+    "diff": "^7.0.0",
+    "yjs": "^13.6.32"
+  }
+}

@@ -89,6 +89,7 @@ export function StorageStepBody({
       <ManagedSettling
         state={{
           paid: managed.paid,
+          stagingFreeStorage: managed.status?.stagingFreeStorage,
           storageReady,
           slow: managed.slow,
           failure: managed.provisionFailure,
@@ -140,7 +141,7 @@ export function StorageStepBody({
           managed={
             managed === null || !managed.available
               ? undefined
-              : { price: managed.price, onChoose: managed.choose }
+              : { price: managed.price, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
           }
         />
       )}

@@ -46,6 +46,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 export interface ManagedSettlingState {
   /** The plan has turned active — the webhook landed. */
   paid: boolean;
+  stagingFreeStorage?: boolean;
   /** Storage exists and answers. */
   storageReady: boolean;
   /** Long enough that "a few seconds" has stopped being true. */
@@ -102,9 +103,8 @@ export function ManagedSettling({
           />
         </Row>
         <Text variant="foot" style={styles.foot}>
-          If a second attempt fails too, get in touch and we will set it up by hand. You
-          should not pay for storage you are not using — tell us if you connect your own
-          and we will stop the subscription.
+          {state.stagingFreeStorage ? "If a second attempt fails too, get in touch and we will set it up by hand."
+            : "If a second attempt fails too, get in touch and we will set it up by hand. You should not pay for storage you are not using — tell us if you connect your own and we will stop the subscription."}
         </Text>
       </View>
     );
@@ -112,7 +112,7 @@ export function ManagedSettling({
 
   const steps: Array<{ label: string; state: "done" | "working" | "waiting" }> = [
     {
-      label: state.paid ? "Payment confirmed" : "Confirming your payment",
+      label: state.stagingFreeStorage ? "Free staging storage" : state.paid ? "Payment confirmed" : "Confirming your payment",
       state: state.paid ? "done" : "working",
     },
     {
@@ -129,10 +129,10 @@ export function ManagedSettling({
     <View>
       <View style={styles.head}>
         <Pill tone="ok" leading={<Dot tone="ok" />}>
-          Paid
+          {state.stagingFreeStorage ? "Staging" : "Paid"}
         </Pill>
         <Text variant="rowTitle" role="status">
-          {state.slow ? "Still working" : "Payment received"}
+          {state.slow ? "Still working" : state.stagingFreeStorage ? "Creating staging storage" : "Payment received"}
         </Text>
       </View>
       <Text variant="rowSub" style={styles.lede}>
@@ -168,8 +168,8 @@ export function ManagedSettling({
         <View>
           <Notice style={styles.card} testID="managed-settling-slow">
             <Text variant="rowSub">
-              Your payment is safe and nothing has been lost; we are keeping this screen
-              here until the bucket itself confirms that it is usable.
+              {state.stagingFreeStorage ? "We are keeping this screen here until the bucket confirms that it is usable."
+                : "Your payment is safe and nothing has been lost; we are keeping this screen here until the bucket itself confirms that it is usable."}
             </Text>
           </Notice>
         </View>

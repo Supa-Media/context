@@ -141,3 +141,57 @@ describe("without the variables set", () => {
     );
   });
 });
+
+describe("Context staging personas", () => {
+  const keys = ["APP_ENV", "APP_ORIGIN", "STAGING_CONVEX_DEPLOYMENT", "CONVEX_CLOUD_URL"];
+  let saved: (string | undefined)[];
+  beforeEach(() => {
+    saved = keys.map(key => process.env[key]);
+    process.env.APP_ENV = "staging";
+    process.env.APP_ORIGIN = "https://staging.context.lc";
+    process.env.STAGING_CONVEX_DEPLOYMENT = "example-deployment";
+    process.env.CONVEX_CLOUD_URL = "https://example-deployment.convex.cloud";
+    delete process.env.TEST_OTP_EMAIL;
+    delete process.env.TEST_OTP_CODE;
+  });
+  afterEach(() => keys.forEach((key, i) => {
+    if (saved[i] === undefined) delete process.env[key]; else process.env[key] = saved[i];
+  }));
+  test.each(["alpha", "beta", "gamma", "delta", "epsilon"])("%s signs in without email delivery", async persona => {
+    process.env.RESEND_API_KEY = "test-no-mail-may-be-sent";
+    expect((await requestThenVerify(setupTest(), `${persona}@supa.media`, "000000")).tokens).not.toBeNull();
+  });
+  test.each([
+    ["APP_ENV", "production"], ["APP_ORIGIN", "https://context.lc"],
+    ["STAGING_CONVEX_DEPLOYMENT", ""], ["CONVEX_CLOUD_URL", "https://your-deployment.convex.cloud"],
+  ])("fixed code is disabled when %s mismatches", async (key, value) => {
+    process.env[key] = value;
+    await expect(requestThenVerify(setupTest(), "alpha@supa.media", "000000")).rejects.toThrow(/Could not verify code/);
+  });
+  test.each(["seyi@supa.media", "alpha+extra@supa.media", "alpha@supa.media.attacker.test"])("does not enable %s", async email => {
+    await expect(requestThenVerify(setupTest(), email, "000000")).rejects.toThrow(/Could not verify code/);
+  });
+  test("all five codes can be outstanding simultaneously and are single-use", async () => {
+    const t = setupTest();
+    const emails = ["alpha", "beta", "gamma", "delta", "epsilon"].map(p => `${p}@supa.media`);
+    for (const email of emails) await t.action(api.auth.signIn, { provider: "email", params: { email } });
+    for (const email of emails) {
+      expect((await t.action(api.auth.signIn, { provider: "email", params: { email, code: "000000" } })).tokens).not.toBeNull();
+      await expect(t.action(api.auth.signIn, { provider: "email", params: { email, code: "000000" } })).rejects.toThrow(/Could not verify code/);
+    }
+  });
+  test("expired staging codes are refused", async () => {
+    const t = setupTest();
+    await t.action(api.auth.signIn, { provider: "email", params: { email: "alpha@supa.media" } });
+    await t.run(async ctx => {
+      for (const code of await ctx.db.query("authVerificationCodes").collect()) await ctx.db.patch(code._id, { expirationTime: Date.now() - 1 });
+    });
+    await expect(t.action(api.auth.signIn, { provider: "email", params: { email: "alpha@supa.media", code: "000000" } })).rejects.toThrow(/Could not verify code/);
+  });
+  test("wrong digits and using another address’s code are refused", async () => {
+    const t = setupTest();
+    await t.action(api.auth.signIn, { provider: "email", params: { email: "alpha@supa.media" } });
+    await expect(t.action(api.auth.signIn, { provider: "email", params: { email: "alpha@supa.media", code: "123456" } })).rejects.toThrow(/Could not verify code/);
+    await expect(t.action(api.auth.signIn, { provider: "email", params: { email: "beta@supa.media", code: "000000" } })).rejects.toThrow(/Could not verify code/);
+  });
+});

@@ -141,7 +141,16 @@ describe("the sentence", () => {
       { now: NOW, offline: true },
     );
     expect(line.text).toBe("Not yet downloaded — connect once to put this context on this device");
+    expect(line.short).toBe("Not available offline");
     expect(line.tone).toBe("warn");
+  });
+
+  test("never synced with opened notes says some notes are offline", () => {
+    const line = mirrorLine(
+      { state: "never", notes: 3, bytes: 0, lastSyncedAt: null },
+      { now: NOW, offline: true },
+    );
+    expect(line.short).toBe("Some notes offline");
   });
 
   test("no mirror on this device is said, not hidden", () => {

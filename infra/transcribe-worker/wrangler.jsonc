@@ -190,5 +190,17 @@
 
   "observability": {
     "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "context-transcribe-staging",
+      "workers_dev": true,
+      "ai": { "binding": "AI" },
+      "ratelimits": [{
+        "name": "TRANSCRIBE_RATE_LIMIT",
+        "namespace_id": "1002",
+        "simple": { "limit": 20, "period": 60 }
+      }]
+    }
   }
 }

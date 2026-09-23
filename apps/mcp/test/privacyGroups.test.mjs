@@ -70,8 +70,9 @@ const MANIFEST =
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  index.md: team\n  1-projects: team\n  2-areas: team\n" +
   "  2-areas/feedback: @supa-owners\n  3-resources: team\n  3-resources/board: @supa-owners\n" +
-  "  0-inbox: team\n\n" +
+  "  0-inbox: team\n  4-archive: team\n\n" +
   "note_overrides:\n  1-projects/rates.md: @supa-leads\n" +
+  "  1-projects/marker-sized.md: @supa-leads\n" +
   "  0-inbox/contacts/dan.md: @supa-leads\n" +
   "  1-projects/reserved.md: @supa-leads\n" +
   "  3-resources/board/Minutes.md: @supa-owners\n```\n\n" +
@@ -231,6 +232,11 @@ export async function runPrivacyGroupChecks(check) {
     bucket.seed("index.md", "# front page");
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
     bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
+    const markerSizedPrivate = "MARKERSIZESECRET".padEnd(
+      `context.logical-delete.v1.${"0".repeat(32)}.${"0".repeat(64)}`.length,
+      "x",
+    );
+    bucket.seed("1-projects/marker-sized.md", markerSizedPrivate);
     bucket.seed("2-areas/feedback/q3.md", "FEEDBACKSECRET the q3 review");
     bucket.seed("0-inbox/contacts/dan.md", "CONTACTSECRET dan's page");
 
@@ -320,6 +326,18 @@ export async function runPrivacyGroupChecks(check) {
     check(
       "a refused read never fetches the note's bytes, only its metadata",
       !bucket.fetched.includes("1-projects/rates.md")
+    );
+    bucket.fetched.length = 0;
+    await callTool(env, TEAM_TOKEN, "read_note", { path: "1-projects/marker-sized.md" });
+    check(
+      "a refused marker-sized read still never fetches the hidden note's bytes",
+      !bucket.fetched.includes("1-projects/marker-sized.md"),
+    );
+    bucket.fetched.length = 0;
+    await callTool(env, TEAM_TOKEN, "fetch", { id: "1-projects/marker-sized.md" });
+    check(
+      "a refused marker-sized fetch still never fetches the hidden note's bytes",
+      !bucket.fetched.includes("1-projects/marker-sized.md"),
     );
 
     const costs = Object.values(refusalCosts);
@@ -486,6 +504,108 @@ export async function runPrivacyGroupChecks(check) {
         overridden.trips === inFolderAbsent.trips
     );
 
+    /*
+      AND THE WRITE TOOLS' *READ* REFUSAL, WHICH THE READ SWEEP SKIPPED FOR
+      THE WRONG REASON.
+
+      The sweep that equalised the read tools left `archive_note`, `move_note`
+      and `set_encryption` out, on the grounds that a write tool's refusal is a
+      write refusal and belongs to the separate finding about those. That
+      classified them by the TOOL being a writer instead of by the REFUSAL
+      being a read, and it is wrong: each one's *first* refusal is
+
+          if (!canSee(path, ...)) return toolError("not found");
+
+      — the same three bytes `read_note` says, decided before the bucket is
+      touched, while a path the caller could have seen goes to storage and
+      misses. `writePermissionError` is a different door further in, and the
+      separate write-refusal finding is about that one.
+
+      So these belong with the read doors after all, and they are driven here
+      the same way: same words asserted first, then same cost.
+
+      `set_encryption` is NOT here, and measuring it is why: a team connection
+      is refused by "only a personal connection can encrypt or decrypt a note"
+      before `canSee` is ever consulted, identically and at identical cost for
+      both shapes. It never reaches this door, so there is nothing to equalise
+      — the hypothesis died on contact and this line is the record of it.
+    */
+    const WRITE_DOORS = [
+      { tool: "archive_note", args: (path) => ({ path }) },
+      { tool: "move_note", args: (path) => ({ source: path, destination: "1-projects/moved.md" }) },
+    ];
+    for (const door of WRITE_DOORS) {
+      const cost = async (path) => {
+        const before = bucket.trips();
+        const text = await callTool(env, TEAM_TOKEN, door.tool, door.args(path));
+        return { trips: bucket.trips() - before, text };
+      };
+      const hidden = await cost("1-projects/rates.md");
+      const absent = await cost("1-projects/no-such-note.md");
+      check(
+        `${door.tool}: both answers are the same refusal, so only the cost could tell them apart`,
+        hidden.text === absent.text && /not found/.test(hidden.text)
+      );
+      check(
+        `${door.tool}: refusing a note it may not see costs what refusing an absent one costs `
+          + `(hidden: ${hidden.trips}, absent: ${absent.trips})`,
+        hidden.trips === absent.trips
+      );
+    }
+
+    /*
+      AND THE BATCH SIBLING OF A DOOR ALREADY CLOSED.
+
+      `move_note` was equalised and `move_notes` was not looked at in the same
+      breath, which is the same mistake as sorting a sweep by the tool: the
+      batch form is a second route to the same decision and carries its own
+      copy of it.
+
+        if (!canSee(move.source, ...)) return toolError(`not found: ${source}`);
+        const sourceObject = await getWithLegacyFallback(store, move.source);
+        if (!sourceObject) return toolError(`not found: ${source}`);
+
+      The path in the message is the caller's own argument, so the words give
+      nothing away — the cost does.
+
+      NOT here, and measuring them is why: `move_folder` gates with a FILTER
+      (`.filter(({key}) => canSee(...))`) and has no per-path refusal to
+      equalise, and `set_visibility` / `set_folder_visibility` refuse a team
+      connection with "only a personal connection can change ..." before any
+      path is considered — identical words, identical cost. Three hypotheses,
+      three deaths on contact, recorded so nobody re-files them.
+    */
+    const batchCost = async (path) => {
+      const before = bucket.trips();
+      const text = await callTool(env, TEAM_TOKEN, "move_notes", {
+        // An etag is required before the batch will consider a move at all, and
+        // it is checked long after the gate under test — so any string reaches
+        // `canSee`. Without one, both shapes are refused by the precondition
+        // and the measurement is of a door that never opened. That is exactly
+        // what the first run of this check showed, and the wording assertion
+        // beside the cost one is what caught it.
+        moves: [
+          {
+            source: path,
+            destination: "1-projects/batch-dest.md",
+            expected_source_etag: "e-whatever",
+          },
+        ],
+      });
+      return { trips: bucket.trips() - before, text };
+    };
+    const batchHidden = await batchCost("1-projects/rates.md");
+    const batchAbsent = await batchCost("1-projects/no-such-note.md");
+    check(
+      "move_notes: both answers name only the path the caller supplied",
+      /^not found: /.test(batchHidden.text) && /^not found: /.test(batchAbsent.text)
+    );
+    check(
+      `move_notes: refusing a source it may not see costs what refusing an absent one costs `
+        + `(hidden: ${batchHidden.trips}, absent: ${batchAbsent.trips})`,
+      batchHidden.trips === batchAbsent.trips
+    );
+
     const teamSearch = await callTool(env, TEAM_TOKEN, "search_notes", { query: "FEEDBACKSECRET" });
     check(
       "a group-scoped note's terms do not reach a team connection's search",
@@ -576,11 +696,15 @@ export async function runPrivacyGroupChecks(check) {
       bucket.text("privacy.md").includes("1-projects/rates.md: @supa-leads")
     );
     // The positive control: the confirmation is a real gate, not a refusal.
+    const ratesRead = await callTool(env, OWNER_TOKEN, "read_note", {
+      path: "1-projects/rates.md",
+    });
     const confirmed = await callTool(env, OWNER_TOKEN, "write_note", {
       path: "1-projects/rates.md",
       content: "# rates\n\nRATESECRET what we charge",
       visibility: "team",
       confirm_team_publish: true,
+      expected_etag: ratesRead.match(/^etag: (\S+)/)?.[1],
     });
     check("...and it goes through once the owner confirms", /written/i.test(confirmed));
 

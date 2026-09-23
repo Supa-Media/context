@@ -857,22 +857,19 @@ describe("a folder gets a link too", () => {
    * hardcoded path is caught; a new computed one is not, and no regex over
    * source will change that.
    *
-   * It also reads `index.js` alone. `store.put` appears in `search/shards.js`,
-   * `search/maintain.js` and `store/index.js`, all writing dot-prefixed keys
-   * that `isPlumbing` refuses — safe today, and out of scope by argument now
-   * rather than by silence.
+   * It also reads `index.js` alone. Generated notes pass through
+   * `writeGeneratedNote`, the collaboration-aware write seam, while the
+   * remaining dot-prefixed writes are plumbing refused by `isPlumbing`.
    */
   test("and the calendar path the cron hardcodes", () => {
     const gateway = readFileSync(
       new URL("../../mcp/src/index.js", import.meta.url),
       "utf8",
     );
-    const written = [...gateway.matchAll(/store\.put\("([0-4]-[a-z]+\/[^"]+)"/g)].map(
-      (m) => m[1],
+    expect(gateway).toMatch(
+      /writeGeneratedNote\(\s*store,\s*"2-areas\/calendar\/next-14-days\.md"/s,
     );
-
-    expect(written.length).toBeGreaterThan(0);
-    for (const path of written) expect(PRODUCT_MANDATED_PATHS).toContain(path);
+    expect(PRODUCT_MANDATED_PATHS).toContain("2-areas/calendar/next-14-days.md");
   });
 
   /**

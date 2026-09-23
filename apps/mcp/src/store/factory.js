@@ -76,6 +76,7 @@
 import { R2Store } from "./r2.js";
 import { S3Store } from "./s3.js";
 import { DropboxStore } from "./dropbox.js";
+import { withLogicalDelete } from "./logicalDelete.js";
 
 /**
  * The gateway could not reach a usable bucket for an otherwise valid session.
@@ -130,7 +131,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -152,9 +153,13 @@ export function storeForBinding(binding, env, options = {}) {
   // Verification must observe what the provider actually enforces. Applying
   // yesterday's persisted result first would make a false capability
   // impossible to discover as true on reconnect.
-  return options.probeCapabilities === true
-    ? store
-    : withProbedCapabilities(store, binding);
+  if (options.probeCapabilities === true) return store;
+  const probed = withProbedCapabilities(store, binding);
+  // Managed storage-layout migration explicitly needs the hidden marker
+  // objects themselves. Ordinary gateway callers always receive the logical
+  // view, so this escape hatch is intentionally opt-in.
+  if (options.rawObjects === true) return probed;
+  return withLogicalDelete(probed);
 }
 
 /**

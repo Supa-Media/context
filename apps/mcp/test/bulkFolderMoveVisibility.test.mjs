@@ -196,7 +196,13 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     "...and the move still materializes: the bytes are at the destination",
     primary.get(moved)?.body === "SECRET-0"
   );
-  check("...and the source path is gone", primary.get(witness) === undefined);
+  const oldSource = await callTool(env, TOKEN_OWNER, "read_note", { path: witness });
+  check(
+    "...and the source path forwards to the one live destination",
+    !oldSource?.isError &&
+      textOf(oldSource).includes(`path: ${moved}`) &&
+      textOf(oldSource).includes(`moved_from: ${witness}`),
+  );
 
   const afterMaterialized = await callTool(env, TOKEN_TEAM, "read_note", {
     path: moved,
@@ -210,6 +216,36 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
   check(
     "...while the owner still reads their own note at its new path",
     textOf(ownerReads).includes("SECRET-0")
+  );
+
+  /* ------- 1b. large raw materialization cannot strand active history ----- */
+
+  const ACTIVE_BULK = 501;
+  for (let n = 0; n < ACTIVE_BULK; n += 1) {
+    primary.set(`2-areas/active/note-${String(n).padStart(4, "0")}.md`, {
+      body: `ACTIVE-${n}`,
+      etag: `a${n}`,
+    });
+  }
+  const activeWitness = "2-areas/active/note-0000.md";
+  check(
+    "reading one note in a large folder gives it active collaboration history",
+    textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: activeWitness })).includes("ACTIVE-0"),
+  );
+  const moveMarkersBefore = [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length;
+  const activeRefused = await callTool(env, TOKEN_OWNER, "move_folder", {
+    source: "2-areas/active",
+    destination: "1-projects/active",
+  });
+  check(
+    "a folder past the threshold refuses before moving an active collaborative identity",
+    activeRefused?.isError === true && /active collaborative note/.test(textOf(activeRefused)),
+  );
+  check(
+    "the refusal leaves source bytes, destinations, and move jobs unchanged",
+    primary.get(activeWitness)?.body === "ACTIVE-0" &&
+      !primary.has("1-projects/active/note-0000.md") &&
+      [...primary.keys()].filter((key) => key.startsWith(".context/moves/")).length === moveMarkersBefore,
   );
 
   /* ---------------- 2. the small path, for the same shape ----------------- */

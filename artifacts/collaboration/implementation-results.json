@@ -1,0 +1,896 @@
+{
+  "comparedWith": "c8fd9dce",
+  "results": [
+    {
+      "label": "the note is created through the real MCP save path",
+      "passed": true,
+      "detail": "written: 1-projects/verify.md (etag b4c23cccaea0b7f8b36f65a4f73e8494)\nvisibility: private"
+    },
+    {
+      "label": "the folder is shared with the workspace through the real manifest",
+      "passed": true,
+      "detail": "folder visibility changed\nfolder: 1-projects\nprivacy_etag: 8528a325d8301dc170d045916db975f3\ncurrent_default: private\nres"
+    },
+    {
+      "label": "real React editors join with pre-existing text",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "typing in both mounted editors converges",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "ordinary autosave persists both humans",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "saved status matches the actual bucket and clears the draft",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "reload restores both humans",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "collaboration works after switching to another nonempty note",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "settled empty note relays actual typing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "empty note states",
+      "detail": [
+        {
+          "editorText": "EMPTY note now has text",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-8d63c52e-f3ac-47c1-adef-af5b816129b3.r-1d8626ac-2952-412a-b683-1d78f7e10894"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "EMPTY note now has text",
+          "shared": "EMPTY note now has text",
+          "etag": "c2.doc-8d63c52e-f3ac-47c1-adef-af5b816129b3.r-1d8626ac-2952-412a-b683-1d78f7e10894",
+          "members": [
+            "@bo"
+          ]
+        },
+        {
+          "editorText": "EMPTY note now has text",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-8d63c52e-f3ac-47c1-adef-af5b816129b3.r-1d8626ac-2952-412a-b683-1d78f7e10894"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "EMPTY note now has text",
+          "shared": "EMPTY note now has text",
+          "etag": "c2.doc-8d63c52e-f3ac-47c1-adef-af5b816129b3.r-1d8626ac-2952-412a-b683-1d78f7e10894",
+          "members": [
+            "@ana"
+          ]
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "agent write accepted against saved base",
+      "passed": true,
+      "detail": "written: 1-projects/agent-race.md (etag c2.doc-c770855b-29c6-49ff-844d-c46084cc53c0.r-d5e91c9e-433c-481f-8d76-4440dbed11c8)\nvisibility: team"
+    },
+    {
+      "label": "agent edit preserves concurrent unsaved human sentence",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "agent race states",
+      "detail": [
+        {
+          "editorText": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-c770855b-29c6-49ff-844d-c46084cc53c0.r-e8a77343-fe33-4125-b1f6-db2b837d5fb5"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
+          "shared": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
+          "etag": "c2.doc-c770855b-29c6-49ff-844d-c46084cc53c0.r-e8a77343-fe33-4125-b1f6-db2b837d5fb5",
+          "members": [
+            "@bo"
+          ]
+        },
+        {
+          "editorText": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-c770855b-29c6-49ff-844d-c46084cc53c0.r-e8a77343-fe33-4125-b1f6-db2b837d5fb5"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
+          "shared": "# Agent renamed heading\n\nfirst line\n\nUNSAVED human sentence",
+          "etag": "c2.doc-c770855b-29c6-49ff-844d-c46084cc53c0.r-e8a77343-fe33-4125-b1f6-db2b837d5fb5",
+          "members": [
+            "@ana"
+          ]
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "one editor saves before leaving",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "remaining editor saves after the other leaves",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "handoff state",
+      "detail": {
+        "editorText": "# Verify\n\nfirst line\n\nBEFORE handoff\nSURVIVOR saves",
+        "sync": {
+          "reachability": "online",
+          "counts": {
+            "pending": 0,
+            "conflicted": 0,
+            "rejected": 0
+          },
+          "ready": true,
+          "durable": true,
+          "conditionalWrite": true,
+          "stuckPaths": []
+        },
+        "settled": true,
+        "status": "saved",
+        "collaboration": {
+          "status": "saved",
+          "pending": 0,
+          "etag": "c2.doc-4eaeaa68-da18-4d3b-a9b7-93a030ca3717.r-0564fddf-aaf2-465a-98a1-8d9dac3042f5"
+        },
+        "phase": "live",
+        "saver": true,
+        "draft": "# Verify\n\nfirst line\n\nBEFORE handoff\nSURVIVOR saves",
+        "shared": "# Verify\n\nfirst line\n\nBEFORE handoff\nSURVIVOR saves",
+        "etag": "c2.doc-4eaeaa68-da18-4d3b-a9b7-93a030ca3717.r-0564fddf-aaf2-465a-98a1-8d9dac3042f5",
+        "members": []
+      },
+      "diagnostic": true
+    },
+    {
+      "label": "1-projects/offline.md: offline edits remain visible",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline.md: reconnect merges both without intervention",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline.md: both edits reach actual Markdown storage",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline.md: no conflict decision required",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline.md states",
+      "detail": [
+        {
+          "editorText": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-1c31ac81-d18d-4847-9e02-332196a62fa6.r-5392d656-7ff1-464a-b171-500d2adcb00d"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "etag": "c2.doc-1c31ac81-d18d-4847-9e02-332196a62fa6.r-5392d656-7ff1-464a-b171-500d2adcb00d",
+          "members": [
+            "@ana"
+          ]
+        },
+        {
+          "editorText": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-1c31ac81-d18d-4847-9e02-332196a62fa6.r-5392d656-7ff1-464a-b171-500d2adcb00d"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "etag": "c2.doc-1c31ac81-d18d-4847-9e02-332196a62fa6.r-5392d656-7ff1-464a-b171-500d2adcb00d",
+          "members": [
+            "@bo"
+          ]
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "1-projects/offline-reload.md: offline edits remain visible",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "offline cold reload restores local writing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline-reload.md: reconnect merges both without intervention",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline-reload.md: both edits reach actual Markdown storage",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline-reload.md: no conflict decision required",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "1-projects/offline-reload.md states",
+      "detail": [
+        {
+          "editorText": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-93105b70-dee2-4f92-b06f-533e9faf8fd9.r-977e614c-8c99-4a6b-b4f8-64018b7a2429"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "etag": "c2.doc-93105b70-dee2-4f92-b06f-533e9faf8fd9.r-977e614c-8c99-4a6b-b4f8-64018b7a2429",
+          "members": [
+            "@ana"
+          ]
+        },
+        {
+          "editorText": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-93105b70-dee2-4f92-b06f-533e9faf8fd9.r-977e614c-8c99-4a6b-b4f8-64018b7a2429"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "shared": "# Verify\n\nfirst line\n\nONLINE sentence preserved\nOFFLINE sentence preserved",
+          "etag": "c2.doc-93105b70-dee2-4f92-b06f-533e9faf8fd9.r-977e614c-8c99-4a6b-b4f8-64018b7a2429",
+          "members": [
+            "@bo"
+          ]
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "acknowledgement loss was injected after a real commit",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "lost acknowledgement retries without duplicate text",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "both editor sockets reach a settled live connection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "two named peers reach the live room roster",
+      "passed": true,
+      "detail": "{\"a\":{\"editorText\":\"# Verify\\n\\nfirst line\\n\",\"sync\":{\"reachability\":\"online\",\"counts\":{\"pending\":0,\"conflicted\":0,\"rejected\":0},\"ready\":true,\"durable\":true,\"conditionalWrite\":true,\"stuckPaths\":[]},\"settled\":true,\"status\":\"saved\",\"collaboration\":{\"status\":\"saved\",\"pending\":0,\"etag\":\"c2.doc-00d09339-9ea1-4255-ab9a-dc13f991380d.r0\"},\"phase\":\"live\",\"saver\":true,\"draft\":\"# Verify\\n\\nfirst line\\n\",\"shared\":\"# Verify\\n\\nfirst line\\n\",\"etag\":\"c2.doc-00d09339-9ea1-4255-ab9a-dc13f991380d.r0\",\"members\":[\"@bo\"]},\"b\":{\"editorText\":\"# Verify\\n\\nfirst line\\n\",\"sync\":{\"reachability\":\"online\",\"counts\":{\"pending\":0,\"conflicted\":0,\"rejected\":0},\"ready\":true,\"durable\":true,\"conditionalWrite\":true,\"stuckPaths\":[]},\"settled\":true,\"status\":\"saved\",\"collaboration\":{\"status\":\"saved\",\"pending\":0,\"etag\":\"c2.doc-00d09339-9ea1-4255-ab9a-dc13f991380d.r0\"},\"phase\":\"live\",\"saver\":true,\"draft\":\"# Verify\\n\\nfirst line\\n\",\"shared\":\"# Verify\\n\\nfirst line\\n\",\"etag\":\"c2.doc-00d09339-9ea1-4255-ab9a-dc13f991380d.r0\",\"membe"
+    },
+    {
+      "label": "presence indicators render exactly one named peer each",
+      "passed": true,
+      "detail": "{\"aChip\":\"@bo · 1 other here\",\"bChip\":\"@ana · 1 other here\"}"
+    },
+    {
+      "label": "remote caret and peer name render in the other editor",
+      "passed": true,
+      "detail": "[{\"name\":\"@bo\",\"left\":319,\"top\":256.40625}]"
+    },
+    {
+      "label": "remote caret moves when the named peer moves",
+      "passed": true,
+      "detail": "{\"firstCaret\":{\"name\":\"@bo\",\"left\":319,\"top\":256.40625},\"movedCaret\":{\"name\":\"@bo\",\"left\":377.375,\"top\":284.40625}}"
+    },
+    {
+      "label": "reconnect keeps the named peer and restores its stationary caret",
+      "passed": true,
+      "detail": "{\"bReconnected\":true,\"movedCaret\":{\"name\":\"@bo\",\"left\":377.375,\"top\":284.40625},\"returnedCaret\":{\"name\":\"@bo\",\"left\":377.375,\"top\":284.40625},\"bState\":{\"editorText\":\"# Verify\\n\\nfirst line\\n\",\"sync\":{\"reachability\":\"online\",\"counts\":{\"pending\":0,\"conflicted\":0,\"rejected\":0},\"ready\":true,\"durable\":true,\"conditionalWrite\":true,\"stuckPaths\":[]},\"settled\":true,\"status\":\"saved\",\"collaboration\":{\"status\":\"saved\",\"pending\":0,\"etag\":\"c2.doc-00d09339-9ea1-4255-ab9a-dc13f991380d.r0\"},\"phase\":\"live\",\"saver\":true,\"draft\":\"# Verify\\n\\nfirst line\\n\",\"shared\":\"# Verify\\n\\nfirst line\\n\",\"etag\":\"c2.doc-00d09339-9ea1-4255-ab9a-dc13f991380d.r0\",\"members\":[\"@ana\"]}}"
+    },
+    {
+      "label": "presence caret positions",
+      "detail": {
+        "firstCaret": {
+          "name": "@bo",
+          "left": 319,
+          "top": 256.40625
+        },
+        "movedCaret": {
+          "name": "@bo",
+          "left": 377.375,
+          "top": 284.40625
+        },
+        "aChip": "@bo · 1 other here",
+        "bChip": "@ana · 1 other here",
+        "bReconnected": true,
+        "caretAfterReconnect": true,
+        "samePosition": true
+      },
+      "diagnostic": true
+    },
+    {
+      "label": "each-keystroke sockets reach a settled live connection",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "each-keystroke room rosters are ready before typing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "peer renders typed character K before its durable ACK",
+      "passed": true,
+      "detail": "{\"typed\":\"K\",\"timings\":[{\"character\":\"K\",\"rendered\":true,\"elapsedMs\":33,\"liveReceived\":1}],\"routeError\":null}"
+    },
+    {
+      "label": "live relay delivers character K before its durable ACK",
+      "passed": true,
+      "detail": "{\"typed\":\"K\",\"liveReceived\":1,\"timings\":[{\"character\":\"K\",\"rendered\":true,\"elapsedMs\":33,\"liveReceived\":1}]}"
+    },
+    {
+      "label": "durable collaboration write is deliberately held before the next character",
+      "passed": true,
+      "detail": "{\"durableWrites\":1,\"durableAcks\":0,\"routeError\":null}"
+    },
+    {
+      "label": "Saved does not claim the first delayed character",
+      "passed": true,
+      "detail": "{\"editorText\":\"# Verify\\n\\nfirst line\\nK\",\"sync\":{\"reachability\":\"online\",\"counts\":{\"pending\":0,\"conflicted\":0,\"rejected\":0},\"ready\":true,\"durable\":true,\"conditionalWrite\":true,\"stuckPaths\":[]},\"settled\":true,\"status\":\"dirty\",\"collaboration\":{\"status\":\"syncing\",\"pending\":1,\"etag\":\"c2.doc-bcbc6c2f-6718-4418-b6fc-5aee98c8ca49.r0\"},\"phase\":\"live\",\"saver\":true,\"draft\":\"# Verify\\n\\nfirst line\\nK\",\"shared\":\"# Verify\\n\\nfirst line\\nK\",\"etag\":\"c2.doc-bcbc6c2f-6718-4418-b6fc-5aee98c8ca49.r0\",\"members\":[\"@bo\"]}"
+    },
+    {
+      "label": "Markdown reads remain possible while the first ACK is held",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "peer renders typed character E before its durable ACK",
+      "passed": true,
+      "detail": "{\"typed\":\"KE\",\"timings\":[{\"character\":\"K\",\"rendered\":true,\"elapsedMs\":33,\"liveReceived\":1},{\"character\":\"E\",\"rendered\":true,\"elapsedMs\":32,\"liveReceived\":1}],\"routeError\":null}"
+    },
+    {
+      "label": "live relay delivers character E before its durable ACK",
+      "passed": true,
+      "detail": "{\"typed\":\"KE\",\"liveReceived\":1,\"timings\":[{\"character\":\"K\",\"rendered\":true,\"elapsedMs\":33,\"liveReceived\":1},{\"character\":\"E\",\"rendered\":true,\"elapsedMs\":32,\"liveReceived\":1}]}"
+    },
+    {
+      "label": "peer renders typed character Y before its durable ACK",
+      "passed": true,
+      "detail": "{\"typed\":\"KEY\",\"timings\":[{\"character\":\"K\",\"rendered\":true,\"elapsedMs\":33,\"liveReceived\":1},{\"character\":\"E\",\"rendered\":true,\"elapsedMs\":32,\"liveReceived\":1},{\"character\":\"Y\",\"rendered\":true,\"elapsedMs\":29,\"liveReceived\":1}],\"routeError\":null}"
+    },
+    {
+      "label": "live relay delivers character Y before its durable ACK",
+      "passed": true,
+      "detail": "{\"typed\":\"KEY\",\"liveReceived\":1,\"timings\":[{\"character\":\"K\",\"rendered\":true,\"elapsedMs\":33,\"liveReceived\":1},{\"character\":\"E\",\"rendered\":true,\"elapsedMs\":32,\"liveReceived\":1},{\"character\":\"Y\",\"rendered\":true,\"elapsedMs\":29,\"liveReceived\":1}]}"
+    },
+    {
+      "label": "all character delivery happened before any durable ACK",
+      "passed": true,
+      "detail": "{\"durableWrites\":2,\"durableAcks\":0,\"routeError\":null}"
+    },
+    {
+      "label": "Saved does not claim an ACK while the write is held",
+      "passed": true,
+      "detail": "{\"editorText\":\"# Verify\\n\\nfirst line\\nKEY\",\"sync\":{\"reachability\":\"online\",\"counts\":{\"pending\":0,\"conflicted\":0,\"rejected\":0},\"ready\":true,\"durable\":true,\"conditionalWrite\":true,\"stuckPaths\":[]},\"settled\":true,\"status\":\"dirty\",\"collaboration\":{\"status\":\"local\",\"pending\":3,\"etag\":\"c2.doc-bcbc6c2f-6718-4418-b6fc-5aee98c8ca49.r0\"},\"phase\":\"live\",\"saver\":true,\"draft\":\"# Verify\\n\\nfirst line\\nKEY\",\"shared\":\"# Verify\\n\\nfirst line\\nKEY\",\"etag\":\"c2.doc-bcbc6c2f-6718-4418-b6fc-5aee98c8ca49.r0\",\"members\":[\"@bo\"]}"
+    },
+    {
+      "label": "held durable writes eventually acknowledge",
+      "passed": true,
+      "detail": "{\"durableWrites\":2,\"durableAcks\":2,\"routeError\":null}"
+    },
+    {
+      "label": "saved state follows the actual delayed ACK",
+      "passed": true,
+      "detail": "{\"editorText\":\"# Verify\\n\\nfirst line\\nKEY\",\"sync\":{\"reachability\":\"online\",\"counts\":{\"pending\":0,\"conflicted\":0,\"rejected\":0},\"ready\":true,\"durable\":true,\"conditionalWrite\":true,\"stuckPaths\":[]},\"settled\":true,\"status\":\"saved\",\"collaboration\":{\"status\":\"saved\",\"pending\":0,\"etag\":\"c2.doc-bcbc6c2f-6718-4418-b6fc-5aee98c8ca49.r-f301b0a7-2073-46aa-a7a6-ef8f016a6263\"},\"phase\":\"live\",\"saver\":true,\"draft\":\"# Verify\\n\\nfirst line\\nKEY\",\"shared\":\"# Verify\\n\\nfirst line\\nKEY\",\"etag\":\"c2.doc-bcbc6c2f-6718-4418-b6fc-5aee98c8ca49.r-f301b0a7-2073-46aa-a7a6-ef8f016a6263\",\"members\":[\"@bo\"]}"
+    },
+    {
+      "label": "all separately typed characters reach Markdown",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "fast per-character burst renders before either durable ACK",
+      "passed": true,
+      "detail": "{\"burst\":\"FAST\",\"burstRendered\":true,\"burstLiveReceived\":4,\"durableWrites\":6,\"durableAcks\":4,\"burstStartedWrites\":4,\"burstStartedAcks\":4}"
+    },
+    {
+      "label": "fast burst emits one live relay frame per character",
+      "passed": true,
+      "detail": "{\"burst\":\"FAST\",\"burstLiveReceived\":4}"
+    },
+    {
+      "label": "fast burst remains pending until delayed ACKs release",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "fast burst durable writes eventually acknowledge",
+      "passed": true,
+      "detail": "{\"durableWrites\":6,\"durableAcks\":6,\"routeError\":null}"
+    },
+    {
+      "label": "each-keystroke localhost delivery timings",
+      "detail": {
+        "note": "1-projects/live-keystrokes.md",
+        "timings": [
+          {
+            "character": "K",
+            "rendered": true,
+            "elapsedMs": 33,
+            "liveReceived": 1
+          },
+          {
+            "character": "E",
+            "rendered": true,
+            "elapsedMs": 32,
+            "liveReceived": 1
+          },
+          {
+            "character": "Y",
+            "rendered": true,
+            "elapsedMs": 29,
+            "liveReceived": 1
+          }
+        ],
+        "burst": "FAST",
+        "burstRendered": true,
+        "burstLiveReceived": 4,
+        "durableWrites": 6,
+        "durableAcks": 6,
+        "routeError": null,
+        "measurement": "browser-to-browser timing on localhost; not a production latency claim"
+      },
+      "diagnostic": true
+    },
+    {
+      "label": "rapid interleaved typing saves every edit exactly once",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "saved text is in Markdown before server restart",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "server restarts from the same on-disk bucket",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "editing resumes after server restart",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "restart states",
+      "detail": [
+        {
+          "editorText": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "dirty",
+          "collaboration": {
+            "status": "local",
+            "pending": 2,
+            "etag": "c2.doc-a37b9235-69ca-46fc-a5a5-42b8d92cfe9a.r-f7d40848-ad11-4c94-afea-e9921c8851bc"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
+          "shared": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
+          "etag": "c2.doc-a37b9235-69ca-46fc-a5a5-42b8d92cfe9a.r-f7d40848-ad11-4c94-afea-e9921c8851bc",
+          "members": [
+            "@bo"
+          ]
+        },
+        {
+          "editorText": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
+          "sync": {
+            "reachability": "online",
+            "counts": {
+              "pending": 0,
+              "conflicted": 0,
+              "rejected": 0
+            },
+            "ready": true,
+            "durable": true,
+            "conditionalWrite": true,
+            "stuckPaths": []
+          },
+          "settled": true,
+          "status": "saved",
+          "collaboration": {
+            "status": "saved",
+            "pending": 0,
+            "etag": "c2.doc-a37b9235-69ca-46fc-a5a5-42b8d92cfe9a.r-8076beff-18db-48ff-ae5a-e66fa4d414eb"
+          },
+          "phase": "live",
+          "saver": true,
+          "draft": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
+          "shared": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
+          "etag": "c2.doc-a37b9235-69ca-46fc-a5a5-42b8d92cfe9a.r-8076beff-18db-48ff-ae5a-e66fa4d414eb",
+          "members": [
+            "@ana"
+          ]
+        },
+        {
+          "text": "# Verify\n\nfirst line\n\nBEFORE SERVER RESTART\nAFTER SERVER RESTART",
+          "etag": "d4deddb0cb79f16503f235aa01872d58"
+        }
+      ],
+      "diagnostic": true
+    },
+    {
+      "label": "closing before upload restores and uploads local edits",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "a note created offline reaches the bucket",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "the original offline creator receives subsequent peer edits",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "agent rename preserves the collaborative document",
+      "passed": true,
+      "detail": "{\"moved\":{\"content\":[{\"type\":\"text\",\"text\":\"moved: 1-projects/offline-rename.md → 1-projects/renamed.md (etag c2.doc-207fec12-5392-4e73-bb99-d068b9654c8a.r0)\\nvisibility: team\"}]},\"moveText\":\"moved: 1-projects/offline-rename.md → 1-projects/renamed.md (etag c2.doc-207fec12-5392-4e73-bb99-d068b9654c8a.r0)\\nvisibility: team\"}"
+    },
+    {
+      "label": "rename lands the same document before reconnect",
+      "passed": true,
+      "detail": "{\"oldAfterMove\":null,\"newAfterMove\":{\"text\":\"# Verify\\n\\nfirst line\\n\",\"etag\":\"b4c23cccaea0b7f8b36f65a4f73e8494\"},\"oldMarker\":{\"text\":\"context.logical-delete.v1.f91b1fae12c074a02b4d0118183ee878.cb988247c50f5e547e062c1ddce3b2a3cd914b9f56b75960e51973f8ca89b693\",\"etag\":\"27b8643c247b01647114f940a6eb508a\",\"contentType\":\"application/x-context-logical-tombstone\"},\"originalDocumentId\":\"doc-207fec12-5392-4e73-bb99-d068b9654c8a\",\"destinationDocumentId\":\"doc-207fec12-5392-4e73-bb99-d068b9654c8a\"}"
+    },
+    {
+      "label": "offline changes follow a renamed note automatically",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "rename does not recreate the old file",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "offline editor cannot recreate a trashed note",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "trash leaves unsent writing visible on the offline editor",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "restore reconnects the same identity and saves offline writing",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "authorized editor keeps saving after peer revocation",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "revoked editor receives no new note content",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "revoked editor cannot change stored Markdown",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "revoked editor's unsent work stays recoverable locally",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "errors": [
+    {
+      "user": "ana",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_ana/presence?note=1-projects%2Fsecond.md&seed=lt13o4eqnfdmuda5ae6&collaboration=2&documentId=doc-3a0f22fd-5b43-45e6-8692-a7c8c66aa31a' failed: Error during WebSocket handshake: Unexpected response code: 409"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_FAILED"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_CONNECTION_RESET"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_CONNECTION_REFUSED"
+    },
+    {
+      "user": "ana",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-created.md&seed=oju667au5hlmuda5sjw&collaboration=2&documentId=doc-05ce1aa3-6676-4512-b2d3-cbb9f768d010' failed: Error during WebSocket handshake: Unexpected response code: 409"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: net::ERR_INTERNET_DISCONNECTED"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-rename.md&seed=ne0xmpukghjmuda5tmb&collaboration=2&documentId=doc-207fec12-5392-4e73-bb99-d068b9654c8a' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=wif76cr6x6muda5unt&collaboration=2&documentId=doc-e6e66915-344f-4b72-affa-3caf17a87c13' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "user": "bo",
+      "message": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=wif76cr6x6muda5unt&collaboration=2&documentId=doc-e6e66915-344f-4b72-affa-3caf17a87c13' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=wif76cr6x6muda5unt&collaboration=2&documentId=doc-e6e66915-344f-4b72-affa-3caf17a87c13' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=wif76cr6x6muda5unt&collaboration=2&documentId=doc-e6e66915-344f-4b72-affa-3caf17a87c13' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=wif76cr6x6muda5unt&collaboration=2&documentId=doc-e6e66915-344f-4b72-affa-3caf17a87c13' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Foffline-trash.md&seed=wif76cr6x6muda5unt&collaboration=2&documentId=doc-e6e66915-344f-4b72-affa-3caf17a87c13' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Frevoked.md&seed=2c4mz9gs2ymuda61s9&collaboration=2&documentId=doc-224ad3a2-c7ec-4d16-bcd5-395f2ad640ce' failed: HTTP Authentication failed; no valid credentials available"
+    },
+    {
+      "user": "bo",
+      "message": "WebSocket connection to 'ws://127.0.0.1:8799/t/cat_local_verification_token_bo/presence?note=1-projects%2Frevoked.md&seed=2c4mz9gs2ymuda61s9&collaboration=2&documentId=doc-224ad3a2-c7ec-4d16-bcd5-395f2ad640ce' failed: HTTP Authentication failed; no valid credentials available"
+    }
+  ]
+}

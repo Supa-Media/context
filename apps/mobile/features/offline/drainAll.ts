@@ -1,5 +1,6 @@
 import { getOutbox, putOutbox } from "./cache";
 import { parseKey } from "./keys";
+import { collaborationOwnedPaths } from "./collaborationOwnership";
 import type { KeyValueStore } from "./memory";
 import { counts, isEmpty, type Outbox, type PendingOp, type PendingWrite } from "./outbox";
 import { drainOutbox, type OpOutcome, type OpSent, type WriteOutcome } from "./sync";
@@ -157,10 +158,12 @@ export async function drainOtherContexts(
       continue;
     }
     if (isEmpty(outbox)) continue;
+    const owned = await collaborationOwnedPaths(store, workspaceId);
 
     const sendOp = deps.op;
     const { outbox: next, report } = await drainOutbox(outbox, {
       write: (write) => deps.write(workspaceId, write),
+      shouldWrite: (write) => !owned.has(write.path),
       ...(sendOp === undefined ? {} : { op: (op: PendingOp) => sendOp(workspaceId, op) }),
       onOpDone: (done) => deps.onOpDone?.(workspaceId, done),
       now: deps.now,

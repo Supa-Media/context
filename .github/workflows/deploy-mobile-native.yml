@@ -114,7 +114,7 @@ jobs:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
     # IPA validation uses Apple's `codesign`, `security` and `plutil`.
     runs-on: macos-latest
-    environment: production
+    environment: ${{ inputs.profile }}
     env:
       # `eas build`/`eas submit` resolve the project locally (in this runner)
       # from app.config.js's extra.eas.projectId before ever talking to EAS's

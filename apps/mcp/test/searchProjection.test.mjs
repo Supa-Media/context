@@ -157,15 +157,47 @@ const API_TOKEN = "d1-write-token-not-a-real-one-0000";
  * day, which is the only way to test that a search survives one.
  */
 function createD1Backend() {
-  const db = new DatabaseSync(":memory:");
-  for (const statement of SCHEMA) db.exec(statement);
+  /*
+   * ONE SQLITE PER DATABASE ID IN THE URL, WHICH IS THE POINT.
+   *
+   * This fake used to hold a single database and answer every request to
+   * `CLOUDFLARE_API_BASE` out of it, whatever `databaseId` the URL named. That
+   * is a fixture that CANNOT SEE the failure it exists to rule out: a gateway
+   * sending one context's query to another context's database would have been
+   * answered, correctly, by the only database there was — and every check in
+   * this file would have stayed green. The tenancy claim was resting on an
+   * apparatus with the leak designed out of it.
+   *
+   * Now the id in the path selects the database, created on demand with the
+   * same schema, and `databaseId` is recorded on every request. Nothing about
+   * the single-context checks changes: they all address `DATABASE_ID`, which
+   * is `db` below.
+   */
+  const databases = new Map();
+  function dbFor(id) {
+    let existing = databases.get(id);
+    if (existing === undefined) {
+      existing = new DatabaseSync(":memory:");
+      for (const statement of SCHEMA) existing.exec(statement);
+      databases.set(id, existing);
+    }
+    return existing;
+  }
+  /** `…/d1/database/<id>/query`, or `null` for a URL that is not one. */
+  function databaseIdFrom(url) {
+    const match = /\/d1\/database\/([^/]+)\/query/.exec(String(url));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+  const db = dbFor(DATABASE_ID);
   const requests = [];
   const state = { fail: null };
 
   async function handle(url, init = {}) {
     const body = init.body ? JSON.parse(init.body) : {};
+    const databaseId = databaseIdFrom(url);
     requests.push({
       url,
+      databaseId,
       authorization: init.headers?.Authorization ?? null,
       redirect: init.redirect ?? null,
       sql: body.sql,
@@ -184,7 +216,12 @@ function createD1Backend() {
     }
     let results = [];
     try {
-      results = db.prepare(body.sql).all(...(body.params ?? []));
+      // A URL this fake cannot read addresses the default database and is
+      // recorded as `null`, so a malformed endpoint shows up as a failed
+      // tenancy check rather than as a silently served query.
+      results = dbFor(databaseId ?? DATABASE_ID)
+        .prepare(body.sql)
+        .all(...(body.params ?? []));
     } catch (error) {
       return new Response(
         JSON.stringify({ success: false, errors: [{ message: String(error?.message) }] }),
@@ -211,12 +248,16 @@ function createD1Backend() {
 
   return {
     db,
+    dbFor,
     requests,
     state,
     install,
     handle,
     rows: (sql, params = []) => db.prepare(sql).all(...params),
-    close: () => db.close(),
+    rowsIn: (id, sql, params = []) => dbFor(id).prepare(sql).all(...params),
+    close: () => {
+      for (const database of databases.values()) database.close();
+    },
   };
 }
 
@@ -1195,6 +1236,34 @@ async function runEndToEndChecks(check) {
     return { response, body };
   }
 
+  async function collaborate(path, content) {
+    const readHarness = createWorkerCtx();
+    const read = await worker.fetch(
+      new Request("https://gateway.test/collaboration", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      }),
+      { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+      readHarness.ctx,
+    );
+    const base = await read.json();
+    await readHarness.settle();
+    const writeHarness = createWorkerCtx();
+    const response = await worker.fetch(
+      new Request("https://gateway.test/collaboration", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ path, replacement: { expectedEtag: base.etag, text: content } }),
+      }),
+      { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET },
+      writeHarness.ctx,
+    );
+    const body = await response.json();
+    await writeHarness.settle();
+    return { response, body };
+  }
+
   const projectedCount = () => d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
   const progressReports = () =>
     controlPlane.calls.filter((call) => call.path === "/gateway/search-index/progress");
@@ -1392,6 +1461,18 @@ async function runEndToEndChecks(check) {
     check("against the workspace the search ran in", last.workspaceId === WS);
     check("and it ends by saying the projection is ready", last.state === "ready");
     check("with nothing pending", last.notesPending === 0);
+
+    const collaborativeWrite = await collaborate(
+      "1-projects/p00.md",
+      "# Project 00\n\nAn axolotl replaced the old roster through collaboration.\n",
+    );
+    const collaborativeSearch = await search("axolotl");
+    check(
+      "an accepted collaboration edit updates the ready search projection",
+      collaborativeWrite.response.status === 200 &&
+        collaborativeWrite.body.text.includes("axolotl") &&
+        JSON.stringify(collaborativeSearch.body).includes("1-projects/p00.md"),
+    );
     const bodies = JSON.stringify(reports.map((call) => call.body));
     check(
       "a progress report carries counts, never a path or a query",
@@ -2161,10 +2242,157 @@ async function runServeChecks(check) {
       !viaR2.text.includes("1-projects/stub.md"),
     );
 
+    /* -- 7. A NOTE HELD BACK BY NAME, AFTER IT WAS INDEXED -----------------
+     *
+     * The flip in section 4 makes a team note `private`, and `canSee` answers
+     * that on an early branch: `if (visibility === "private") return false`.
+     * A note pointed at a GROUP does not reach that branch — it falls through
+     * to the last line, `grantedGroups !== undefined && grantedGroups.has(…)`,
+     * which is a different expression with a different way of being wrong. So
+     * the two are not the same check, and only one of them had one.
+     *
+     * The window is the same one: the note keeps its team-tier rows until a
+     * backfill pass moves them, and nothing is reprojected here, so this is
+     * the live manifest against a stale corpus — by name instead of by tier.
+     */
+    seed(
+      "privacy.md",
+      PRIVACY_MANIFEST.replace(
+        "note_overrides:\n  # none",
+        "note_overrides:\n  1-projects/secret.md: private\n  1-projects/roundup.md: @supa-owners",
+      ),
+      "sp2",
+    );
+    const heldByName = await search("quoll", SERVE_TOKEN_TEAM);
+    check(
+      "a note pointed at a group still has its team-tier rows",
+      d1.rows(`SELECT path FROM notes_team_fts WHERE path = '1-projects/roundup.md'`).length > 0,
+    );
+    check(
+      "and a note held back by NAME after indexing is gone from a team search at once",
+      !heldByName.text.includes("1-projects/roundup.md"),
+    );
+    check(
+      // Without this the check above is also true of a search that found
+      // nothing because the row had been removed, or because the query broke.
+      "while the owner still finds it, so the row really is still there",
+      (await search("quoll")).text.includes("1-projects/roundup.md"),
+    );
+
+    /* -- 8. TWO CONTEXTS, TWO DATABASES ------------------------------------
+     *
+     * Every other check in this file is about two TIERS of one context, which
+     * the file says out loud where the second grant is added. The tenancy
+     * claim — one context's search cannot return, rank on, or count another's
+     * rows — rested on reading `createD1Client` and finding that it builds its
+     * endpoint out of the descriptor it was handed. Nothing drove it.
+     *
+     * It needed the fixture to be able to fail first: the D1 fake answered
+     * every request out of one database whatever the URL named, so a query
+     * sent to the wrong database would have come back correct. It now keys by
+     * the id in the path, and these four checks are what that buys.
+     *
+     * Corpus statistics are the reason this matters more here than access
+     * control does: `bm25()` computes `N`, `df` and `avglen` over the table it
+     * is given, so two contexts sharing one would rank each other's searches
+     * even with every path filtered. Separate databases is that claim, and it
+     * is now measured rather than read.
+     */
+    const SERVE_WS_B = "ws_serve_b";
+    const SERVE_TOKEN_B = `cat_serve_b_${"0".repeat(22)}`;
+    const DATABASE_ID_B = "db-0000-0000-0000-00000000000b";
+    /** Obviously fake, and deliberately not the other context's. */
+    const API_TOKEN_B = "d1-write-token-not-a-real-one-000b";
+    const descriptorB = (state) => ({
+      ...DESCRIPTOR,
+      databaseId: DATABASE_ID_B,
+      apiToken: API_TOKEN_B,
+      state,
+    });
+    controlPlane.addWorkspace(
+      SERVE_WS_B,
+      "serveb",
+      s3Binding("serve-bucket-b", descriptorB("backfilling")),
+    );
+    await controlPlane.addGrant({
+      accessToken: SERVE_TOKEN_B,
+      workspaceId: SERVE_WS_B,
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_serve_b",
+      userId: "user_serve_b",
+    });
+    const bucketB = s3.bucketFor("serve-bucket-b");
+    bucketB.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "bp0" });
+    bucketB.set("1-projects/field.md", {
+      body: "# Field\n\nA quokka census for this quarter.\n",
+      etag: "bs1",
+    });
+    for (let round = 0; round < 3; round += 1) await search("quokka", SERVE_TOKEN_B);
+    controlPlane.bindings.set(SERVE_WS_B, s3Binding("serve-bucket-b", descriptorB("ready")));
+
+    const beforeB = d1.requests.length;
+    const ownOfB = await search("quokka", SERVE_TOKEN_B);
+    const requestsOfB = d1.requests.slice(beforeB);
+    check(
+      // The non-vacuity half: the three checks below are all true of a search
+      // that never reached a projection at all.
+      "a second context's search is answered out of a projection",
+      ownOfB.text.includes("1-projects/field.md") && ownOfB.answerReads === 0,
+    );
+    check(
+      "...addressing its own database and no other",
+      requestsOfB.length > 0 &&
+        requestsOfB.every((request) => request.databaseId === DATABASE_ID_B),
+    );
+    check(
+      "...carrying its own token, never the other context's",
+      requestsOfB.every((request) => request.authorization === `Bearer ${API_TOKEN_B}`) &&
+        !requestsOfB.some((request) => String(request.authorization).includes(API_TOKEN)),
+    );
+    /*
+     * `pangolin`, not `numbat`, and the difference is the whole check.
+     *
+     * `numbat` matches fourteen of the other context's notes and an answer
+     * shows ten, so "the two I named are absent" can be true of a leak that
+     * simply ranked them eleventh. Measured: with a sabotage routing this
+     * context's query at the other one's database, the `numbat` form of this
+     * check stayed GREEN while the answer carried that context's notes.
+     * `pangolin` is in exactly one note over there and in nothing here, so a
+     * leak has nowhere to hide and an empty answer means an empty answer.
+     */
+    const beforeCross = d1.requests.length;
+    const bAsksForA = await search("pangolin", SERVE_TOKEN_B);
+    check(
+      "a term that only the other context has matches nothing here",
+      !bAsksForA.text.includes("1-projects/log.md") && !bAsksForA.text.includes("pangolin appears"),
+    );
+    check(
+      "...and the other context's database was not asked about it",
+      d1.requests
+        .slice(beforeCross)
+        .every((request) => request.databaseId === DATABASE_ID_B),
+    );
+    check(
+      "nor can the first context see the second's note",
+      !(await search("quokka")).text.includes("1-projects/field.md"),
+    );
+    check(
+      // The corpus claim stated as data: `bm25()` ranks over the table it is
+      // given, so two contexts can only rank across each other if their rows
+      // are in one place. They are not.
+      "the two corpora are separate databases, so neither ranks or counts over the other",
+      d1.rowsIn(DATABASE_ID_B, `SELECT path FROM notes`).every((row) =>
+        row.path.startsWith("1-projects/field"),
+      ) && d1.rows(`SELECT path FROM notes WHERE path = '1-projects/field.md'`).length === 0,
+    );
+
     // -- the credential, on the read path ----------------------------------
     check(
       "no read-path response carries the write token",
-      [fast, deep, owner, refused, missed].every((answer) => !answer.text.includes(API_TOKEN)),
+      [fast, deep, owner, refused, missed, ownOfB].every(
+        (answer) => !answer.text.includes(API_TOKEN) && !answer.text.includes(API_TOKEN_B),
+      ),
     );
   } finally {
     globalThis.fetch = previousFetch;

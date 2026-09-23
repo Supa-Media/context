@@ -81,5 +81,12 @@
 
   "observability": {
     "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "context-router-staging",
+      "workers_dev": true,
+      "vars": { "EXPO_ORIGIN": "https://context--staging.expo.app" }
+    }
   }
 }

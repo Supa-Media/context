@@ -19,8 +19,11 @@
  * is writing in.
  */
 
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
+
 /** Matches `PRESENCE_PROTOCOL_VERSION` in the gateway. */
 export const PRESENCE_PROTOCOL_VERSION = 1;
+export const COLLABORATION_PROTOCOL_VERSION = 2;
 
 /** One other person's editor, as it is drawn. */
 export interface PresenceMember {
@@ -128,6 +131,9 @@ export type ServerFrame =
    * receives the result as an ordinary edit.
    */
   | { t: "external"; text: string; etag: string | null }
+  /** Durable collaboration changed; the HTTP client performs an authorized read repair. */
+  | { t: "committed"; documentId: string; update?: string; etag: string }
+  | { t: "live"; documentId: string; d: string; clientKey: string }
   | { t: "pong" };
 
 
@@ -161,7 +167,26 @@ function name(value: unknown): string {
     .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "")
     .trim();
   if (cleaned.length === 0) return "Someone";
-  return cleaned.length > 64 ? cleaned.slice(0, 64) : cleaned;
+  /*
+    AND THEN CONTAINED, BECAUSE THE LIST ABOVE IS A BLOCKLIST.
+
+    Everything it removes, it removes because somebody enumerated it — and the
+    enumeration is short by at least **U+061C ARABIC LETTER MARK**, which the
+    bidi algorithm acts on, and the U+FFF9-FFFB annotation set. A list reaches
+    exactly as far as it reaches.
+
+    `isolateForDisplay` does not depend on recognising the character: whatever
+    survives is wrapped so it resolves its own direction and cannot reach the
+    caret labels, the member list or the note it is drawn over. One spelling of
+    that property for the whole product, in `packages/shared`, rather than a
+    third private copy — see its header.
+
+    Additive on purpose. The removals above are a *name* policy (a zero-width
+    name is a look-alike, which is a different problem), and nothing that was
+    cleaned before stops being cleaned.
+  */
+  const bounded = cleaned.length > 64 ? cleaned.slice(0, 64) : cleaned;
+  return isolateForDisplay(bounded);
 }
 
 /** An encoded relative position from a peer, or `null` if it is not one. */
@@ -201,7 +226,7 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
   const frame = parsed as Record<string, unknown>;
 
   if (frame.t === "welcome") {
-    if (frame.v !== PRESENCE_PROTOCOL_VERSION) return null;
+    if (frame.v !== PRESENCE_PROTOCOL_VERSION && frame.v !== COLLABORATION_PROTOCOL_VERSION) return null;
     if (typeof frame.you !== "string") return null;
     const members = Array.isArray(frame.members)
       ? frame.members.map(member).filter((one): one is PresenceMember => one !== null)
@@ -214,7 +239,7 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
       heartbeatMs: typeof frame.heartbeatMs === "number" ? frame.heartbeatMs : 15_000,
       // Exactly `true`, never truthy: this is the flag that decides whether a
       // client writes the note's text into a document everybody shares.
-      seed: frame.seed === true,
+      seed: frame.v === PRESENCE_PROTOCOL_VERSION && frame.seed === true,
     };
   }
   if (frame.t === "join") {
@@ -278,8 +303,32 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
       etag: typeof frame.etag === "string" ? frame.etag : null,
     };
   }
+  if (
+    frame.t === "committed" &&
+    typeof frame.documentId === "string" &&
+    typeof frame.etag === "string"
+  ) {
+    return {
+      t: "committed",
+      documentId: frame.documentId,
+      ...(typeof frame.update === "string" ? { update: frame.update } : {}),
+      etag: frame.etag,
+    };
+  }
+  if (frame.t === "live") {
+    if (typeof frame.documentId !== "string" || frame.documentId.length === 0 || frame.documentId.length > 256 ||
+        typeof frame.clientKey !== "string" || frame.clientKey.length === 0 || frame.clientKey.length > 256 ||
+        typeof frame.d !== "string" || frame.d.length === 0 || frame.d.length > 32 * 1024 ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(frame.d)) return null;
+    return { t: "live", documentId: frame.documentId, d: frame.d, clientKey: frame.clientKey };
+  }
   if (frame.t === "pong") return { t: "pong" };
   return null;
+}
+
+/** Transient authorization travels only to the room, never to a peer or storage. */
+export function liveUpdateFrame(documentId: string, update: string, accessToken: string): string {
+  return JSON.stringify({ t: "live", documentId, d: update, accessToken });
 }
 
 /** Where this editor's caret is, as relative positions. */
@@ -384,10 +433,14 @@ export function presenceSocketUrl(options: {
   notePath: string;
   token: string;
   colorSeed: string;
+  collaborationVersion?: 2;
+  documentId?: string;
 }): string {
   const url = new URL(`/t/${encodeURIComponent(options.token)}/presence`, options.gatewayOrigin);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.searchParams.set("note", options.notePath);
   url.searchParams.set("seed", options.colorSeed);
+  if (options.collaborationVersion !== undefined) url.searchParams.set("collaboration", String(options.collaborationVersion));
+  if (options.documentId !== undefined) url.searchParams.set("documentId", options.documentId);
   return url.toString();
 }

@@ -92,6 +92,7 @@
  */
 
 import worker from "../src/index.js";
+import { readDocument, replaceText } from "@context/collaboration";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
@@ -172,8 +173,18 @@ const STAFF_NOTE = [
 function createBucket() {
   const objects = new Map();
   let etags = 0;
+  /*
+    Storage round trips, counted.
+
+    A refusal that reads the same and costs a different number of trips to
+    produce is still two answers. Counted rather than timed, so it is
+    deterministic; the number is not the invariant, the equality is.
+  */
+  let trips = 0;
   const bucket = {
     objects,
+    capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+    trips: () => trips,
     /** Fires once, on the next get of this key, before the value is returned. */
     interceptGet: null,
     seed(key, body) {
@@ -183,6 +194,7 @@ function createBucket() {
       return objects.get(key)?.body;
     },
     async get(key) {
+      trips += 1;
       const stored = objects.get(key);
       if (!stored) return null;
       // The snapshot is taken FIRST and the interleaving write runs after it,
@@ -195,7 +207,7 @@ function createBucket() {
       if (bucket.interceptGet && bucket.interceptGet.key === key) {
         const fire = bucket.interceptGet;
         bucket.interceptGet = null;
-        fire.run(bucket);
+        await fire.run(bucket);
       }
       return {
         etag: snapshot.etag,
@@ -204,6 +216,7 @@ function createBucket() {
       };
     },
     async put(key, value, options = {}) {
+      trips += 1;
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       if (options?.onlyIf?.absent && objects.has(key)) return null;
@@ -212,12 +225,14 @@ function createBucket() {
       return { etag: `e${etags}` };
     },
     async delete(key, options = {}) {
+      trips += 1;
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       objects.delete(key);
       return {};
     },
     async list({ prefix } = {}) {
+      trips += 1;
       return {
         objects: [...objects.keys()]
           .filter((key) => !prefix || key.startsWith(prefix))
@@ -1044,6 +1059,48 @@ export async function runFormChecks(check) {
     });
     check("a member still cannot write a note", denied.isError);
 
+    /*
+      THE FORM DOOR REFUSES AT ONE PRICE.
+
+      `resolveForm` is the read half of every form mutation, and it carries the
+      shape the read tools were equalised for:
+
+        if (!canSee(path, ...)) return { refusal: toolError("not found") };
+        const object = await getWithLegacyFallback(store, path);
+        if (!object) return { refusal: toolError("not found") };
+
+      A member is the right caller: `3-resources` is team so the folder is
+      theirs to see, and `3-resources/private-notes.md` carries an exact
+      override that holds that one note back. An exact override is written only
+      when somebody deliberately singled a note out, which is the bit the cost
+      would be handing over.
+
+      The wording check beside the cost one is load-bearing, not decoration.
+      This measurement was attempted first in the group-privacy suite and was
+      VACUOUS three times over — an actor with no username, then two argument
+      shapes the schema refuses — each time reporting equal costs for a door
+      that never opened.
+    */
+    const formRefusalCost = async (path) => {
+      const before = bucket.trips();
+      const answer = await call(env, MEMBER_TOKEN, "submit_form", {
+        path,
+        values: pairs({ summary: "probe" }),
+      });
+      return { trips: bucket.trips() - before, text: answer.text };
+    };
+    const formHidden = await formRefusalCost("3-resources/private-notes.md");
+    const formAbsent = await formRefusalCost("3-resources/no-such-note.md");
+    check(
+      "submit_form: both answers are the same refusal, so only the cost could tell them apart",
+      formHidden.text === formAbsent.text && /not found/.test(formHidden.text)
+    );
+    check(
+      `submit_form: refusing a note it may not see costs what refusing an absent one costs `
+        + `(hidden: ${formHidden.trips}, absent: ${formAbsent.trips})`,
+      formHidden.trips === formAbsent.trips
+    );
+
     const submitted = await call(env, MEMBER_TOKEN, "submit_form", {
       path: "3-resources/bugs.md",
       values: pairs({ summary: "Search returns stale snippets", severity: "major", steps: "move a note, then search" }),
@@ -1625,8 +1682,13 @@ export async function runFormChecks(check) {
       // re-applied over theirs rather than replacing it.
       bucket.interceptGet = {
         key: path,
-        run(store) {
-          const current = store.text(path);
+        async run(store) {
+          // Every writer now uses the same document authority. Land the other
+          // response through that engine rather than mutating raw Markdown
+          // behind it, which would model an unsupported writer and be repaired
+          // from durable collaboration state by design.
+          const base = await readDocument(store, path);
+          const current = base.text;
           const cfg = parseFormBlocks(REQUESTS_NOTE)[0].config;
           const parsed = parseResponsesFile(current, cfg);
           parsed.responses.push({
@@ -1636,7 +1698,11 @@ export async function runFormChecks(check) {
             values: { title: "landed in between", area: "mcp" },
             votes: [],
           });
-          store.seed(path, renderResponsesFile(cfg, parsed.responses));
+          await replaceText(store, path, {
+            documentId: base.documentId,
+            expectedEtag: base.etag,
+            text: renderResponsesFile(cfg, parsed.responses),
+          });
         },
       };
       const raced = await call(env, MEMBER_TOKEN, "submit_form", {

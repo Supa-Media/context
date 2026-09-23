@@ -1,6 +1,6 @@
-# Deploy the Expo web app to EAS Hosting on every merge to `main`.
+# Deploy the Expo web app to EAS Hosting when called by the manual production workflow.
 #
-# Single environment by design (no staging yet) — mirrors deploy-convex.yml.
+# Production is promoted manually after a successful staging deployment.
 # This exports the web bundle and publishes it to EAS Hosting at the project's
 # `*.expo.app` origin. That origin is NOT the address people use: context.lc is
 # a Cloudflare Worker (infra/router) that proxies to it, because EAS Hosting
@@ -8,13 +8,7 @@
 name: Deploy Web (production)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/mobile/**"
-      - "packages/shared/**"
-      - ".github/workflows/deploy-web.yml"
-  workflow_dispatch:
+  workflow_call:
 
 # Nothing here runs on `pull_request`, and never should: a deploy triggered by
 # a pull request from a branch pushed HERE would run unreviewed code with

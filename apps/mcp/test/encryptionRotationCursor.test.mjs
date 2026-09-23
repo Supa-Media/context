@@ -47,6 +47,8 @@
 
 import worker from "../src/index.js";
 import { encryptNote } from "../src/encryption.js";
+import { R2Store } from "../src/store/r2.js";
+import { withLogicalDelete } from "../src/store/logicalDelete.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import {
   KEY_1,
@@ -88,6 +90,7 @@ async function fixture(id) {
     NATIVE_BINDINGS: "BUCKET_ADV",
     BUCKET_ADV: a.bucket,
   };
+  const logical = withLogicalDelete(new R2Store(a.bucket));
   let seq = 0;
   const call = async (name, args = {}) => {
     const res = await worker.fetch(
@@ -105,8 +108,12 @@ async function fixture(id) {
     const entry = a.objects.get(key);
     return entry ? new TextDecoder().decode(entry.bytes) : undefined;
   };
+  const readLogical = async (key) => {
+    const entry = await logical.get(key);
+    return entry ? entry.text() : undefined;
+  };
   await a.bucket.put("privacy.md", PRIVACY);
-  return { a, call, read, restore, workspaceId: `ws_${id}` };
+  return { a, call, read, readLogical, restore, workspaceId: `ws_${id}` };
 }
 
 /*
@@ -267,7 +274,7 @@ export async function runRotationCursorAdversarialChecks(check) {
         !/rotation complete/.test(textOf(first)) || leftAfterForgery.length === 0,
       );
       check("...and the forged resume point leaves nothing on the retired generation", leftAfterForgery.length === 0);
-      const progress = f.read(PROGRESS_PATH);
+      const progress = await f.readLogical(PROGRESS_PATH);
       check(
         "...and the progress file this gateway does write carries an authentication tag",
         progress === undefined || typeof JSON.parse(progress).mac === "string",

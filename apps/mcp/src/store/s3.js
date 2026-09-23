@@ -178,9 +178,24 @@ export class S3Store {
     const buffer = await response.arrayBuffer();
     return {
       etag: normalizeEtag(response.headers.get("etag") || ""),
+      size: buffer.byteLength,
       contentType: response.headers.get("content-type") || undefined,
       text: async () => new TextDecoder().decode(buffer),
       arrayBuffer: async () => buffer,
+    };
+  }
+
+  /** Read object metadata with HEAD; never buffers the object body. */
+  async head(key) {
+    const response = await this.send("HEAD", this.urlFor(key));
+    if (response.status === 404) return null;
+    if (!response.ok) throw await s3Error("HEAD", key, response);
+    const contentLength = response.headers.get("content-length");
+    const declaredSize = contentLength === null ? NaN : Number(contentLength);
+    return {
+      etag: normalizeEtag(response.headers.get("etag") || ""),
+      size: Number.isFinite(declaredSize) && declaredSize >= 0 ? declaredSize : undefined,
+      contentType: response.headers.get("content-type") || undefined,
     };
   }
 

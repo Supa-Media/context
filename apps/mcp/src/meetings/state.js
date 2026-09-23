@@ -559,7 +559,7 @@ export async function readSession(store, id, tier) {
     path's second trip is a `get` that 404s and this one is a HEAD, which are
     the same shape and the same round trip, not the same request.
   */
-  await objectExists(store, legacyStorageKey(sessionKey(id)) || sessionKey(id));
+  await objectExists(store, legacyStorageKey(sessionKey(id)) || sessionKey(id), { metadataOnly: true });
   return null;
 }
 

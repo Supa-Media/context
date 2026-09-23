@@ -1,5 +1,6 @@
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
+import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
 import { runCommunicationsChecks } from "./communications.test.mjs";
@@ -36,6 +37,7 @@ import { runLinkChecks } from "./links.test.mjs";
 import { runActivityChecks } from "./activity.test.mjs";
 import { runForwardingChecks } from "./forwarding.test.mjs";
 import { runPresenceChecks } from "./presence.test.mjs";
+import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
@@ -46,6 +48,7 @@ import { runChatContributionStoreChecks } from "./chatContributionStore.test.mjs
 import { runCalendarContributionStoreChecks } from "./calendarContributionStore.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
+import { runAuditPartialMoveChecks } from "./auditPartialMove.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
 import { runAgentChecks } from "./agent.test.mjs";
@@ -74,23 +77,52 @@ import {
 // `text()` decodes on demand, exactly as R2 does.
 const objects = new Map();
 let etagCounter = 0;
+let enforceOneUseBodies = false;
+let concurrentCreateOnAbsent = null;
 const encoder = new TextEncoder();
 const bucket = {
   async get(key) {
     if (!objects.has(key)) return null;
     const { bytes, etag } = objects.get(key);
+    let consumed = false;
+    const consume = () => {
+      if (!enforceOneUseBodies) return;
+      if (consumed) throw new TypeError("Body has already been used");
+      consumed = true;
+    };
     return {
       etag,
-      text: async () => new TextDecoder().decode(bytes),
-      // A fresh copy per call: a caller that mutates what it reads must not be
-      // able to rewrite the stored object through the back door.
-      arrayBuffer: async () => bytes.slice().buffer,
+      text: async () => {
+        consume();
+        return new TextDecoder().decode(bytes);
+      },
+      // Real R2 bodies are one-use streams. Return a fresh byte copy on that
+      // one read so callers cannot mutate the stored object through the back
+      // door, and throw on a second read exactly as production does.
+      arrayBuffer: async () => {
+        consume();
+        return bytes.slice().buffer;
+      },
     };
   },
   async put(key, value, options = {}) {
     const expected = options?.onlyIf?.etagMatches;
     if (expected && objects.get(key)?.etag !== expected) return null;
-    if (options?.onlyIf?.etagDoesNotMatch === "*" && objects.has(key)) return null;
+    const createOnly =
+      options?.onlyIf?.absent === true || options?.onlyIf?.etagDoesNotMatch === "*";
+    if (createOnly && concurrentCreateOnAbsent?.key === key) {
+      const winner = concurrentCreateOnAbsent;
+      concurrentCreateOnAbsent = null;
+      if (!objects.has(key)) {
+        objects.set(key, { bytes: encoder.encode(winner.text), etag: `e${++etagCounter}` });
+      }
+    }
+    if (
+      createOnly &&
+      objects.has(key)
+    ) {
+      return null;
+    }
     const bytes =
       typeof value === "string"
         ? encoder.encode(value)
@@ -104,20 +136,41 @@ const bucket = {
   async delete(key) {
     objects.delete(key);
   },
-  async list({ prefix, cursor, limit } = {}) {
-    const listed = [...objects.keys()]
-      .filter((k) => !prefix || k.startsWith(prefix))
-      .sort()
-      // `etag` per listed object mirrors what R2 and S3 both report, and the
-      // search index's staleness diff is built on it. Without it every note
-      // compares unequal on every sync and the backfill never converges.
-      .map((key) => ({
-        key,
-        size: objects.get(key).bytes.length,
-        uploaded: new Date(),
-        etag: objects.get(key).etag,
-      }));
-    return { objects: listed, truncated: false };
+  async list({ prefix = "", delimiter, cursor, limit = 1000 } = {}) {
+    const entries = [];
+    const seenPrefixes = new Set();
+    for (const key of [...objects.keys()].filter((candidate) => candidate.startsWith(prefix)).sort()) {
+      const remainder = key.slice(prefix.length);
+      const split = delimiter ? remainder.indexOf(delimiter) : -1;
+      if (split >= 0) {
+        const child = `${prefix}${remainder.slice(0, split + delimiter.length)}`;
+        if (!seenPrefixes.has(child)) {
+          seenPrefixes.add(child);
+          entries.push({ prefix: child });
+        }
+        continue;
+      }
+      entries.push({
+        object: {
+          key,
+          size: objects.get(key).bytes.length,
+          uploaded: new Date(),
+          // `etag` per listed object mirrors what R2 and S3 both report, and
+          // the search index's staleness diff is built on it. Without it every
+          // note compares unequal on every sync and the backfill never converges.
+          etag: objects.get(key).etag,
+        },
+      });
+    }
+    const start = cursor === undefined ? 0 : Number(cursor);
+    const page = entries.slice(start, start + limit);
+    const truncated = start + page.length < entries.length;
+    return {
+      objects: page.flatMap((entry) => entry.object ? [entry.object] : []),
+      delimitedPrefixes: page.flatMap((entry) => entry.prefix ? [entry.prefix] : []),
+      truncated,
+      ...(truncated ? { cursor: String(start + page.length) } : {}),
+    };
   },
 };
 
@@ -2065,6 +2118,20 @@ check(
 );
 const wPub2 = await call("pub-token", "write_note", { path: "1-projects/togather/notes.md", content: "ok" });
 check("legacy public token writes to a team path", !wPub2.isError);
+concurrentCreateOnAbsent = {
+  key: "1-projects/concurrent-create.md",
+  text: "human won the create race",
+};
+const racedCreate = await call("pub-token", "write_note", {
+  path: "1-projects/concurrent-create.md",
+  content: "agent must not overwrite",
+});
+check(
+  "two concurrent creates have one winner and the later conditional create is refused",
+  racedCreate?.isError === true &&
+    racedCreate.content[0].text.includes("created while this write was in progress") &&
+    storedText("1-projects/concurrent-create.md") === "human won the create race",
+);
 const wPubNewFolder = await call("pub-token", "write_note", {
   path: "2-areas/apps/new-folder-created-by-note.md",
   content: "public app-area note",
@@ -2421,7 +2488,7 @@ check(
   "moving a private note within a team folder preserves its ACL",
   !movePrivateMeeting.isError &&
     objects.has(movedPrivateMeetingPath) &&
-    !objects.has(privateMeetingPath) &&
+    isLogicalDeleteMarker(storedText(privateMeetingPath)) &&
     (await call("team-token", "read_note", { path: movedPrivateMeetingPath }))?.isError
 );
 const archivePrivateMeeting = await call("priv-token", "archive_note", {
@@ -2433,17 +2500,32 @@ check(
   !archivePrivateMeeting.isError &&
     archivedPrivateMeetingPath &&
     objects.has(archivedPrivateMeetingPath) &&
-    !objects.has(movedPrivateMeetingPath) &&
+    isLogicalDeleteMarker(storedText(movedPrivateMeetingPath)) &&
     (await call("team-token", "read_note", { path: archivedPrivateMeetingPath }))?.isError
 );
 
 // -- etag CAS + history
 const read1 = (await call("priv-token", "read_note", { path: "index.md" }))?.content?.[0]?.text;
 const etag = read1?.match(/etag: (\S+)/)?.[1];
+const beforeVersionlessWrite = storedText("index.md");
+const versionlessWrite = await call("priv-token", "write_note", {
+  path: "index.md",
+  content: "an agent replacement with no version",
+});
+check(
+  "an existing collaborative note requires the exact version the agent read",
+  versionlessWrite.isError &&
+    versionlessWrite.content[0].text.includes("expected_etag") &&
+    storedText("index.md") === beforeVersionlessWrite,
+);
 const wOk = await call("priv-token", "write_note", { path: "index.md", content: "v2", expected_etag: etag });
 check("CAS write with fresh etag ok", !wOk.isError);
 const wStale = await call("priv-token", "write_note", { path: "index.md", content: "v3", expected_etag: etag });
-check("CAS write with stale etag conflicts", wStale.isError && wStale.content[0].text.includes("conflict"));
+const afterStaleMerge = (await call("priv-token", "read_note", { path: "index.md" })).content[0].text;
+check(
+  "a retained stale collaboration base is merged instead of rejected",
+  !wStale.isError && afterStaleMerge.includes("v2") && afterStaleMerge.includes("v3"),
+);
 check(
   "an overwrite writes no history snapshot",
   ![...objects.keys()].some((k) => k.startsWith(".history/"))
@@ -2472,7 +2554,7 @@ check(
     privateArchiveKey?.startsWith("4-archive/") &&
     !privateArchiveKey.startsWith("4-archive/private/") &&
     (await call("team-token", "read_note", { path: privateArchiveKey }))?.isError &&
-    !objects.has("1-projects/togather/notes.md")
+    isLogicalDeleteMarker(storedText("1-projects/togather/notes.md"))
 );
 await call("pub-token", "write_note", { path: "1-projects/togather/probe.md", content: "temporary probe" });
 const probeRead = (await call("pub-token", "read_note", { path: "1-projects/togather/probe.md" }))?.content?.[0]?.text;
@@ -2491,7 +2573,7 @@ check(
   !publicArchive.isError &&
     publicArchiveKey?.startsWith("4-archive/") &&
     !publicArchiveKey.startsWith("4-archive/team/") &&
-    !objects.has("1-projects/togather/probe.md")
+    isLogicalDeleteMarker(storedText("1-projects/togather/probe.md"))
 );
 
 // -- private-approval proposal queue
@@ -2527,6 +2609,31 @@ check(
   !approveProposal.isError && objects.has("2-areas/private/apps/example.md") &&
     (await call("priv-token", "list_proposals"))?.content?.[0]?.text.includes("no pending")
 );
+const racedProposal = await call("pub-token", "propose_note", {
+  path: "2-areas/private/apps/raced-approval.md",
+  content: "# Proposed content that must not overwrite",
+  reason: "Exercise the approval destination create race",
+  agent: "Claude Code",
+});
+const racedProposalId = racedProposal.content[0].text.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
+concurrentCreateOnAbsent = {
+  key: "2-areas/private/apps/raced-approval.md",
+  text: "# Human-created winner",
+};
+const racedApproval = await call("priv-token", "review_proposal", {
+  id: racedProposalId,
+  action: "approve",
+});
+check(
+  "proposal approval never overwrites a note created after its preflight",
+  racedApproval.isError &&
+    storedText("2-areas/private/apps/raced-approval.md") === "# Human-created winner",
+);
+check(
+  "a proposal whose destination raced remains pending for another review",
+  (await call("priv-token", "list_proposals"))?.content?.[0]?.text.includes(racedProposalId),
+);
+await call("priv-token", "review_proposal", { id: racedProposalId, action: "reject" });
 const rejectedProposal = await call("pub-token", "propose_note", {
   path: "2-areas/private/apps/rejected.md",
   content: "reject me",
@@ -2671,14 +2778,25 @@ check(
 // -- move note / folder
 const portableRead = (await call("pub-token", "read_note", { path: "1-projects/portable/a.md" }))?.content?.[0]?.text;
 const portableEtag = portableRead?.match(/etag: (\S+)/)?.[1];
+enforceOneUseBodies = true;
 const moveNote = await call("pub-token", "move_note", {
   source: "1-projects/portable/a.md",
   destination: "1-projects/portable/renamed.md",
   expected_source_etag: portableEtag,
 });
+enforceOneUseBodies = false;
 check(
-  "team move_note moves within team scope",
-  !moveNote.isError && objects.has("1-projects/portable/renamed.md") && !objects.has("1-projects/portable/a.md")
+  "team move_note moves within team scope with a production one-use body",
+  !moveNote.isError && objects.has("1-projects/portable/renamed.md") &&
+    isLogicalDeleteMarker(storedText("1-projects/portable/a.md"))
+);
+const staleFetchAfterRename = await call("pub-token", "fetch", {
+  id: "1-projects/portable/a.md",
+});
+check(
+  "fetch forwards an old path after its source becomes a logical-delete marker",
+  succeeded(staleFetchAfterRename) &&
+    JSON.parse(staleFetchAfterRename.content[0].text).text === "portable a"
 );
 const moveConflict = await call("pub-token", "move_note", {
   source: "1-projects/portable/renamed.md",
@@ -2698,7 +2816,7 @@ check(
   "team move_folder moves the visible half of a tree with a private island",
   !mixedMove.isError &&
     objects.has("1-projects/mixed-dest/public.md") &&
-    !objects.has("1-projects/mixed/public.md")
+    isLogicalDeleteMarker(storedText("1-projects/mixed/public.md"))
 );
 check(
   "team move_folder leaves the private island where it was",
@@ -2745,7 +2863,7 @@ check(
   "personal move_folder still moves a tree a team connection could only half-see",
   !personalIslandMove.isError &&
     objects.has("1-projects/mixed-personal/private/secret.md") &&
-    !objects.has("1-projects/mixed/private/secret.md")
+    isLogicalDeleteMarker(storedText("1-projects/mixed/private/secret.md"))
 );
 const privateFolderMove = await call("priv-token", "move_folder", {
   source: "1-projects/private-folder",
@@ -2755,7 +2873,7 @@ check(
   "personal move_folder moves a private tree without reducing privacy",
   !privateFolderMove.isError &&
     objects.has("1-projects/private-folder-renamed/a.md") &&
-    !objects.has("1-projects/private-folder/a.md") &&
+    isLogicalDeleteMarker(storedText("1-projects/private-folder/a.md")) &&
     (await call("team-token", "read_note", { path: "1-projects/private-folder-renamed/a.md" }))?.isError
 );
 check(
@@ -2764,8 +2882,11 @@ check(
 );
 
 // -- batch move plan and apply
-await call("pub-token", "write_note", { path: "1-projects/portable/batch-a.md", content: "batch a" });
-await call("pub-token", "write_note", { path: "1-projects/portable/batch-b.md", content: "batch b" });
+// Raw legacy notes deliberately have no collaboration head. This case pins
+// resumable copy/delete behavior rather than the CRDT lifecycle, whose
+// destination identity cannot be reconstructed from an identical raw copy.
+await contextStore.put("1-projects/portable/batch-a.md", "batch a");
+await contextStore.put("1-projects/portable/batch-b.md", "batch b");
 const batchPlan = await call("pub-token", "move_notes", {
   dry_run: true,
   moves: [
@@ -2780,9 +2901,8 @@ check(
   !batchPlan.isError && batchEtags.length === 2 &&
     objects.has("1-projects/portable/batch-a.md") && !objects.has("1-projects/portable-moved/batch-a.md")
 );
-// Simulate a Worker invocation that copied one identical destination before
-// hitting its request limit. A retry must resume without treating it as a
-// conflicting overwrite.
+// An identical raw destination is still a different collaborative identity.
+// Refuse to adopt it, then remove it and prove the batch moves cleanly.
 await contextStore.put("1-projects/portable-moved/batch-a.md", "batch a");
 const batchWithoutEtags = await call("pub-token", "move_notes", {
   moves: [
@@ -2791,6 +2911,28 @@ const batchWithoutEtags = await call("pub-token", "move_notes", {
   ],
 });
 check("batch apply requires etags", batchWithoutEtags.isError && objects.has("1-projects/portable/batch-a.md"));
+const batchAdoption = await call("pub-token", "move_notes", {
+  moves: [
+    {
+      source: "1-projects/portable/batch-a.md",
+      destination: "1-projects/portable-moved/batch-a.md",
+      expected_source_etag: batchEtags[0],
+    },
+    {
+      source: "1-projects/portable/batch-b.md",
+      destination: "1-projects/portable-moved/batch-b.md",
+      expected_source_etag: batchEtags[1],
+    },
+  ],
+});
+check(
+  "batch apply does not adopt identical bytes without the collaborative identity",
+  batchAdoption.isError &&
+    objects.has("1-projects/portable/batch-a.md") &&
+    objects.has("1-projects/portable/batch-b.md") &&
+    objects.has("1-projects/portable-moved/batch-a.md"),
+);
+await contextStore.delete("1-projects/portable-moved/batch-a.md");
 const batchApply = await call("pub-token", "move_notes", {
   moves: [
     {
@@ -2806,10 +2948,10 @@ const batchApply = await call("pub-token", "move_notes", {
   ],
 });
 check(
-  "batch apply resumes identical partial copies and moves every note",
+  "batch apply moves every note once every destination is unclaimed",
   !batchApply.isError &&
-    !objects.has("1-projects/portable/batch-a.md") &&
-    !objects.has("1-projects/portable/batch-b.md") &&
+    isLogicalDeleteMarker(storedText("1-projects/portable/batch-a.md")) &&
+    isLogicalDeleteMarker(storedText("1-projects/portable/batch-b.md")) &&
     objects.has("1-projects/portable-moved/batch-a.md") &&
     objects.has("1-projects/portable-moved/batch-b.md")
 );
@@ -2859,11 +3001,12 @@ for (let i = 0; i < 502; i += 1) {
   await contextStore.put(`1-projects/big-move/note-${suffix}.md`, `big ${suffix}`);
 }
 const bigSecretPath = "1-projects/big-move/note-501.md";
-const bigSecretEtag = (await call("priv-token", "read_note", { path: bigSecretPath })).content[0].text.match(/etag: (\S+)/)?.[1];
+// Keep this large-tree fixture raw: an expected_etag asks set_visibility to
+// resolve the collaborative revision and intentionally promotes the note,
+// which a logical raw folder move must refuse rather than strand.
 await call("priv-token", "set_visibility", {
   path: bigSecretPath,
   visibility: "private",
-  expected_etag: bigSecretEtag,
 });
 const teamBigMove = await call("pub-token", "move_folder", {
   source: "1-projects/big-move",
@@ -3039,7 +3182,8 @@ const completeMove = await call("priv-token", "move_folder", {
 });
 const completeMoveId = completeMove.content[0].text.match(/move_id: (\S+)/)?.[1];
 let completeMaterialize = completeMove;
-for (let i = 0; i < 20 && objects.has(`.context/moves/${completeMoveId}.json`); i += 1) {
+for (let i = 0; i < 20 &&
+  !isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)); i += 1) {
   completeMaterialize = await call("priv-token", "materialize_move", {
     id: completeMoveId,
     batch_size: 100,
@@ -3049,8 +3193,8 @@ check(
   "materialize_move completes a logical move and removes the source objects",
   !completeMaterialize.isError &&
     completeMaterialize.content[0].text.includes("complete") &&
-    !objects.has(`.context/moves/${completeMoveId}.json`) &&
-    !objects.has("1-projects/big-complete/note-000.md") &&
+    isLogicalDeleteMarker(storedText(`.context/moves/${completeMoveId}.json`)) &&
+    isLogicalDeleteMarker(storedText("1-projects/big-complete/note-000.md")) &&
     objects.has("2-areas/deep/big-complete-moved/note-000.md")
 );
 check(
@@ -3096,15 +3240,16 @@ check(
     firstProgressReport?.body?.result?.progress?.total === 501 &&
     !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
 );
-for (let i = 0; i < 20 && objects.has(`.context/moves/${queuedMoveId}.json`); i += 1) {
+for (let i = 0; i < 20 &&
+  !isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)); i += 1) {
   const message = queuedGatewayMessages.shift();
   if (!message) break;
   await worker.queue({ messages: [{ body: message }] }, env);
 }
 check(
   "queue consumer materializes a large logical move across bounded passes",
-  !objects.has(`.context/moves/${queuedMoveId}.json`) &&
-    !objects.has("1-projects/queued-move/note-000.md") &&
+  isLogicalDeleteMarker(storedText(`.context/moves/${queuedMoveId}.json`)) &&
+    isLogicalDeleteMarker(storedText("1-projects/queued-move/note-000.md")) &&
     objects.has("1-projects/queued-moved/note-000.md")
 );
 delete env.GATEWAY_JOBS;
@@ -3142,7 +3287,7 @@ const archiveRelocation = await call("priv-token", "move_notes", {
 check(
   "archive relocation moves the note",
   !archiveRelocation.isError &&
-    !objects.has("4-archive/old-layout/a.md") &&
+    isLogicalDeleteMarker(storedText("4-archive/old-layout/a.md")) &&
     objects.has("4-archive/new-layout/a.md")
 );
 
@@ -4607,6 +4752,7 @@ await suite("runSearchD1Checks", () => runSearchD1Checks(check));
 // it swaps globalThis.fetch and restores it, and must not run while anything
 // above still owns that global.
 await suite("runSearchProjectionChecks", () => runSearchProjectionChecks(check));
+await suite("runAuditPartialMoveChecks", () => runAuditPartialMoveChecks(check));
 await suite("runCredentialShapeChecks", () => runCredentialShapeChecks(check));
 await suite("runEncryptionChecks", () => runEncryptionChecks(check));
 await suite("runEncryptionGatewayChecks", () => runEncryptionGatewayChecks(check));
@@ -4641,6 +4787,7 @@ await suite("runChatContributionStoreChecks", () => runChatContributionStoreChec
 // its own buckets, and it installs and restores the fetch global itself, so it
 // runs here rather than inside a block that owns that global.
 await suite("runPresenceChecks", () => runPresenceChecks(check));
+await suite("runCollaborationChecks", () => runCollaborationChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

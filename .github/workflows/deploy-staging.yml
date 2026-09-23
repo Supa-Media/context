@@ -1,0 +1,120 @@
+name: Deploy Staging
+
+# Staging is a separate backend and separate Workers; never deploy from a PR.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 45
+    env:
+      APP_ENV: staging
+      STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+      APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+      EXPO_PUBLIC_SITE_ORIGIN: https://staging.context.lc
+      EXPO_PUBLIC_MCP_URL: https://mcp-staging.context.lc/mcp
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
+      STORAGE_SECRET_ENCRYPTION_KEY: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY }}
+      STORAGE_SECRET_ENCRYPTION_KEY_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_ID }}
+      JWT_PRIVATE_KEY: ${{ secrets.JWT_PRIVATE_KEY }}
+      JWKS: ${{ secrets.JWKS }}
+      EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+      TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+      TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+      ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      AUTH_EMAIL_FROM: ${{ secrets.AUTH_EMAIL_FROM }}
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      MAIL_CONNECT_ENABLED: ${{ secrets.MAIL_CONNECT_ENABLED }}
+      CALENDAR_CONNECT_ENABLED: ${{ secrets.CALENDAR_CONNECT_ENABLED }}
+      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+      DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+      PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
+      PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
+      STRIPE_PRICE_ID: ${{ secrets.STRIPE_PRICE_ID }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Verify staging targets
+        run: node scripts/staging-env.mjs
+      - name: Verify Cloudflare credentials (preflight)
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>{if(!JSON.parse(s).success)process.exit(1);console.log("Cloudflare Workers access verified.");});'
+      - run: pnpm install --frozen-lockfile
+      - name: Verify staging configuration
+        run: node --test scripts/staging-config.test.mjs
+      - name: Sync staging backend variables
+        run: node scripts/staging-env.mjs --sync
+      - name: Deploy staging Convex
+        run: pnpm exec convex deploy --yes
+      - name: Test Workers
+        run: |
+          pnpm --filter @context/router test
+          pnpm --filter @context/transcribe-worker test
+          pnpm --filter @context/email-worker test
+          pnpm --filter @context/egress-service test
+          pnpm --filter @context/mcp test
+      - name: Deploy staging Workers
+        run: |
+          pnpm --dir infra/transcribe-worker exec wrangler deploy --env staging
+          pnpm --dir infra/egress-service exec wrangler deploy --env staging
+          pnpm --dir infra/email-worker exec wrangler deploy --env staging
+          pnpm --dir apps/mcp exec wrangler deploy --env staging
+          pnpm --dir infra/router exec wrangler deploy --env staging
+      - name: Sync staging Worker secrets
+        run: |
+          printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir infra/transcribe-worker exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
+          printf '%s' "$PLUGIN_EGRESS_SECRET" | pnpm --dir infra/egress-service exec wrangler secret put EGRESS_SERVICE_SECRET --env staging
+          printf '%s' "$EMAIL_WORKER_SECRET" | pnpm --dir infra/email-worker exec wrangler secret put EMAIL_WORKER_SECRET --env staging
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/email-worker exec wrangler secret put CONTROL_PLANE_URL --env staging
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir apps/mcp exec wrangler secret put CONTROL_PLANE_URL --env staging
+          printf '%s' "$GATEWAY_SECRET" | pnpm --dir apps/mcp exec wrangler secret put GATEWAY_SECRET --env staging
+          printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_SECRET --env staging
+          printf '%s' "$TRANSCRIBE_WORKER_URL" | pnpm --dir apps/mcp exec wrangler secret put TRANSCRIBE_WORKER_URL --env staging
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm --dir infra/router exec wrangler secret put CONVEX_ORIGIN --env staging
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Build drawing editor
+        run: node scripts/build-drawing-editor.mjs
+      - name: Export staging web
+        working-directory: apps/mobile
+        run: pnpm exec expo export --platform web --clear
+      - name: Deploy staging web alias
+        working-directory: apps/mobile
+        run: eas deploy --alias staging --environment=preview --non-interactive
+      - name: Verify live staging
+        run: node scripts/staging-smoke.mjs
+      - name: Publish staging OTA
+        working-directory: apps/mobile
+        run: eas update --branch staging --clear-cache --message "Staging ${GITHUB_SHA}" --non-interactive

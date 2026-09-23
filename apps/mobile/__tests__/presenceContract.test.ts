@@ -527,4 +527,43 @@ describe("what the room sends, the client reads", () => {
     const fuzzy = decodeServerFrame(JSON.stringify({ t: "join", member: { ...tool, g: "yes" } }));
     if (fuzzy && fuzzy.t === "join") expect(fuzzy.member.isAgent).toBe(false);
   });
+  /*
+    A PEER'S NAME IS DRAWN INTO SOMEBODY ELSE'S EDITOR, AND THE LIST THAT
+    CLEANED IT WAS A BLOCKLIST.
+
+    `name()` removed a hand-written set of ranges — C0, DEL, U+200B-200F,
+    U+2028/9, U+202A-202E, U+2066-2069 — which covers the characters somebody
+    thought of. It does not cover **U+061C ARABIC LETTER MARK**, which the bidi
+    algorithm acts on, and it does not cover the U+FFF9-FFFB annotation set.
+    A blocklist reaches exactly as far as its list.
+
+    Containment does not depend on recognising the character: whatever survives
+    the removals is wrapped in an isolate, so it resolves its own direction and
+    cannot reach the caret labels, the member list, or the note around it.
+
+    The removals stay exactly as they were — this is additive. A name that was
+    cleaned before is still cleaned.
+  */
+  test("a directional character nobody enumerated is contained rather than missed", () => {
+    const ALM = "\u061c";
+    const FSI = "\u2068";
+    const PDI = "\u2069";
+
+    const named = (name: string) => {
+      const frame = decodeServerFrame(
+        JSON.stringify({ t: "join", member: { id: "m2", name, color: "#3b82f6", w: true } }),
+      );
+      expect(frame).not.toBeNull();
+      return frame && frame.t === "join" ? frame.member.name : null;
+    };
+
+    expect(named(`ana${ALM}`)).toBe(`${FSI}ana${ALM}${PDI}`);
+    // The control: an ordinary name is byte-identical, so nothing is wrapped
+    // that had nothing to hold.
+    expect(named("@ana")).toBe("@ana");
+    // And the old list's own characters are still removed rather than merely
+    // contained, because this change is additive.
+    expect(named("an\u202ea")).toBe("ana");
+    expect(named("an\u0007a")).toBe("ana");
+  });
 });

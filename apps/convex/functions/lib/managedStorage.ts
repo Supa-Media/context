@@ -75,6 +75,15 @@ import { ConvexError } from "convex/values";
 import type { Id } from "../../_generated/dataModel";
 import { bucketNameProblem, isPlausibleAccountId } from "./cloudflare";
 
+/** Server-only: the platform URL must match the deployment selected by staging CI. */
+export function stagingStorageIsFree(): boolean {
+  const deployment = process.env.STAGING_CONVEX_DEPLOYMENT;
+  return process.env.APP_ENV === "staging" &&
+    process.env.APP_ORIGIN === "https://staging.context.lc" &&
+    Boolean(deployment) &&
+    process.env.CONVEX_CLOUD_URL === `https://${deployment}.convex.cloud`;
+}
+
 /**
  * The account that holds customer data — managed buckets today, and the
  * per-context search databases once those move — and deliberately **not** the
@@ -125,7 +134,8 @@ export const MANAGED_R2_API_TOKEN_SECRET = "MANAGED_R2_API_TOKEN";
  * capable of merging two workspaces into one bucket.
  */
 export function managedBucketName(workspaceId: Id<"workspaces">): string {
-  const name = `${MANAGED_BUCKET_PREFIX}${String(workspaceId)}`;
+  const prefix = process.env.APP_ENV === "staging" ? `staging-${MANAGED_BUCKET_PREFIX}` : MANAGED_BUCKET_PREFIX;
+  const name = `${prefix}${String(workspaceId)}`;
   const problem = bucketNameProblem(name);
   if (problem !== null) {
     throw new ConvexError({

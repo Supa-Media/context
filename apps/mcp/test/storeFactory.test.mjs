@@ -101,6 +101,19 @@ function attempt(binding, env) {
   }
 }
 
+// The production factory returns the logical view: physical stores that can
+// CAS-write a content-free tombstone advertise effective conditional delete,
+// while server-side copy is deliberately disabled.  Migration/probe callers
+// use the rawObjects escape hatch and must still see the provider's probed
+// capabilities.  Keep those two contracts explicit in these checks.
+function rawAttempt(binding, env) {
+  try {
+    return { store: storeForBinding(binding, env, { rawObjects: true }), error: null };
+  } catch (error) {
+    return { store: null, error };
+  }
+}
+
 function refused(binding, env) {
   const { store, error } = attempt(binding, env);
   return store === null && error instanceof StorageUnavailable;
@@ -185,10 +198,12 @@ export function runStoreFactoryChecks(check) {
     );
   }
   check(
-    "an s3 binding only enables conditional delete when the probe said delete preconditions work",
-    attempt(S3_BINDING).store?.capabilities?.conditionalDelete === true &&
+    "an s3 binding preserves raw conditional-delete probing while the logical view enables CAS tombstones",
+    rawAttempt(S3_BINDING).store?.capabilities?.conditionalDelete === true &&
+      rawAttempt({ ...S3_BINDING, capabilities: { conditionalWrite: true, conditionalCreate: true } }).store?.capabilities
+        ?.conditionalDelete === false &&
       attempt({ ...S3_BINDING, capabilities: { conditionalWrite: true, conditionalCreate: true } }).store?.capabilities
-        ?.conditionalDelete === false
+        ?.conditionalDelete === true
   );
   check(
     "an s3 binding only enables conditional create when the probe said create-only writes work",
@@ -197,20 +212,25 @@ export function runStoreFactoryChecks(check) {
         ?.conditionalCreate === false
   );
   check(
-    "an s3 binding only enables server-side copy when the probe said copy preconditions work",
-    attempt(S3_BINDING).store?.capabilities?.serverSideCopy === "same-store" &&
+    "an s3 binding preserves raw server-side-copy probing but disables copy on the logical view",
+    rawAttempt(S3_BINDING).store?.capabilities?.serverSideCopy === "same-store" &&
+      attempt(S3_BINDING).store?.capabilities?.serverSideCopy === false &&
+      rawAttempt({
+        ...S3_BINDING,
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      }).store?.capabilities?.serverSideCopy === false &&
       attempt({
         ...S3_BINDING,
         capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
       }).store?.capabilities?.serverSideCopy === false
   );
   check(
-    "an s3 binding enables server-side copy from the boolean the control plane stores",
+    "an s3 binding preserves the boolean server-side-copy probe only on the raw view",
     // `"same-store"` is the probe's vocabulary and the row holds a boolean
     // (`storageBindings.capabilities.serverSideCopy`). Reading only the string
     // is how the capability was lost: probed since #374, and until the schema
     // carried it every binding on every provider read back `undefined`.
-    attempt({
+    rawAttempt({
       ...S3_BINDING,
       capabilities: {
         conditionalWrite: true,
@@ -218,7 +238,16 @@ export function runStoreFactoryChecks(check) {
         conditionalDelete: true,
         serverSideCopy: true,
       },
-    }).store?.capabilities?.serverSideCopy === "same-store"
+    }).store?.capabilities?.serverSideCopy === "same-store" &&
+      attempt({
+        ...S3_BINDING,
+        capabilities: {
+          conditionalWrite: true,
+          conditionalCreate: true,
+          conditionalDelete: true,
+          serverSideCopy: true,
+        },
+      }).store?.capabilities?.serverSideCopy === false
   );
   check(
     "a binding written before the capability fields existed moves nothing",

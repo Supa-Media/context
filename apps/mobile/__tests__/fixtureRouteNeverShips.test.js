@@ -30,8 +30,8 @@ const { describe, expect, test } = require("@jest/globals");
  * whatever the route actually gates on today. The guard and the code it guards
  * share one source for the fact they both depend on.
  *
- * The second assertion is the positive half: exactly one workflow may set it,
- * and it is `ci.yml`'s WebKit job. A guard that only forbids cannot tell
+ * The second assertion is the positive half: only the explicitly approved
+ * browser verification workflows may set it. A guard that only forbids cannot tell
  * "nobody sets it" from "the route stopped being gated at all".
  */
 describe("the e2e fixture route ships disabled", () => {
@@ -60,12 +60,12 @@ describe("the e2e fixture route ships disabled", () => {
     expect(routeSource).toMatch(/<Redirect href="\/" \/>/);
   });
 
-  test("no workflow but ci.yml sets it", () => {
+  test("only the approved browser workflows set it", () => {
     const setters = workflows
       .filter(({ source }) => source.includes(gateName))
       .map(({ name }) => name)
       .sort();
-    expect(setters).toEqual(["ci.yml"]);
+    expect(setters).toEqual(["ci.yml", "collaboration.yml"]);
   });
 
   test("in particular, no deploy workflow sets it", () => {

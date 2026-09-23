@@ -103,12 +103,49 @@ interface Observed {
   forwarded: string[];
 }
 
-function inbound(raw: Uint8Array, to = "seyi@context.lc", from = "alice@example.com") {
+/**
+ * How many bytes of the message body the Worker actually pulled.
+ *
+ * `fingerprint` above covers what an SMTP peer can SEE. This covers what the
+ * Worker DOES, which is the other half of the same question: two refusals that
+ * are byte-identical to read and a different amount of work apart are still two
+ * answers. Ingestion is on the apex, so the party doing the measuring here
+ * needs no account at all.
+ */
+function countingStream(bytes: Uint8Array, meter: { read: number }): ReadableStream<Uint8Array> {
+  const inner = streamOf(bytes);
+  const reader = inner.getReader();
+  // `highWaterMark: 0` so the stream pulls only on demand. With the default of
+  // 1 the queue is primed at construction and the meter reports one chunk the
+  // Worker never consumed — which understates the gap and is exactly the kind
+  // of instrument artifact that reads like a result.
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        meter.read += value.byteLength;
+        controller.enqueue(value);
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+function inbound(
+  raw: Uint8Array,
+  to = "seyi@context.lc",
+  from = "alice@example.com",
+  meter?: { read: number },
+) {
   const observed: Observed = { rejected: [], forwarded: [] };
   const message: InboundMessage = {
     to,
     from,
-    raw: streamOf(raw),
+    raw: meter ? countingStream(raw, meter) : streamOf(raw),
     rawSize: raw.length,
     setReject(reason) {
       observed.rejected.push(reason);
@@ -186,15 +223,17 @@ async function run(
     from = "alice@example.com",
     bucket = bucketStub(),
     stub = {},
+    meter,
   }: {
     env?: Env;
     to?: string;
     from?: string;
     bucket?: ReturnType<typeof bucketStub>;
     stub?: StubOptions;
+    meter?: { read: number };
   } = {},
 ) {
-  const { message, observed } = inbound(raw, to, from);
+  const { message, observed } = inbound(raw, to, from, meter);
   const controlPlane = controlPlaneStub(stub);
   const fullEnv: Env = { ...env, TEST_BUCKET: bucket };
   let threw: unknown = null;
@@ -585,6 +624,42 @@ describe("a rejection is one answer", () => {
       expect(observed.rejected, name).toEqual([REFUSAL]);
       expect(observed.forwarded, name).toEqual([]);
     }
+  });
+
+  /*
+    AND THE WORK IS THE SAME, NOT ONLY THE ANSWER.
+
+    The fingerprint above is what an SMTP peer can SEE. This is what the Worker
+    DOES. Ingestion is on the apex, so the two probes below are available to
+    anyone on the internet with a mail client and no account:
+
+      alice@   — a real alias whose owner does not admit this sender
+      nobody@  — a name that resolves to nothing
+
+    Both refuse with the one frozen string. If the second costs measurably less
+    work than the first, the frozen string was never the whole answer, and this
+    file's own header — "would let anyone enumerate who has an account here,
+    one guess at a time, from any mail client on earth" — is not true.
+
+    Counted rather than timed, so it is deterministic. The number is not the
+    invariant; the equality is.
+  */
+  it("reads the same amount of the message whether the recipient exists or not", async () => {
+    const known = { read: 0 };
+    await run(rawMessage({ from: "stranger@example.net" }), {
+      from: "stranger@example.net",
+      meter: known,
+    });
+    const unknown = { read: 0 };
+    await run(rawMessage({ from: "stranger@example.net" }), {
+      from: "stranger@example.net",
+      stub: { resolution: null },
+      meter: unknown,
+    });
+    expect(
+      { unknownRecipientBytesRead: unknown.read },
+      "a refusal for a name nobody owns must cost what a refusal for a real one costs",
+    ).toEqual({ unknownRecipientBytesRead: known.read });
   });
 
   it("produces one identical fingerprint for every one of them", async () => {

@@ -65,6 +65,9 @@ jobs:
       - name: The checker catches what it claims to
         run: node scripts/check-secrets-allowlist.mjs --self-test
 
+      - name: Staging targets cannot select production
+        run: node --test scripts/staging-config.test.mjs
+
       - name: Every secret is named in the same three places
         run: node scripts/check-secrets-allowlist.mjs
 
@@ -83,6 +86,25 @@ jobs:
 
       - name: No account identifier or private-register pointer is committed
         run: node scripts/check-no-identifiers.mjs
+
+      # ── NON-NEGOTIABLE #1 NOW HAS A TEST INSTEAD OF A COMMENT ─────────────
+      #
+      # `billing.ts` forbids the class of code that would gate the exit — "What
+      # this file may never grow: a function that consults the plan to decide
+      # whether somebody may export, download, or hand over their bucket." That
+      # is a prohibition on code nobody has written yet, and prose cannot fail a
+      # build.
+      #
+      # The guard checks the stronger property: not that the exit ignores
+      # billing state, but that billing state never reaches it. The two files
+      # that serve every export — `/gateway/session`, which resolves the token
+      # each read runs under, and `/gateway/binding`, which opens the storage
+      # the bytes come from — must not have a plan in scope to read.
+      - name: The exit checker catches a gate
+        run: node scripts/check-exit-is-ungated.mjs --self-test
+
+      - name: The exit is never gated on what somebody has paid
+        run: node scripts/check-exit-is-ungated.mjs
 
   # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────
   #
@@ -221,8 +243,9 @@ jobs:
       # bridge, and the control plane imports plenty of the gateway — so its
       # deploy has to notice when any of that changes. It stopped noticing, for
       # six source trees, and nothing said so; see the script's header.
-      - name: A Convex deploy is triggered by everything it bundles
+      - name: Releases require staging and cover everything Convex bundles
         run: |
+          node --test scripts/production-release.test.mjs
           node scripts/check-convex-deploy-paths.mjs --self-test
           node scripts/check-convex-deploy-paths.mjs
 
@@ -254,19 +277,18 @@ jobs:
   # smaller concurrency pool than Linux gets, and the way to keep that cheap
   # is to run it only where it can find something: gated by path, exactly
   # like `editor-webkit` below gates on `apps/mobile/**`. A run that does
-  # apply is short — `pnpm install --filter "./apps/desktop..."`, a build,
+  # apply is short — `pnpm install --filter "@context/desktop..."`, a build,
   # then the same `--smoke` launch `deploy-desktop.yml` runs, with no
   # certificate, no notarisation and no `.dmg` — nothing like that job's
   # 45-minute budget.
   #
   # So: on a pull request, this runs only when the diff touches
-  # `apps/desktop` itself, or one of the four workspace packages it actually
-  # depends on at runtime — `packages/desktop-bridge`, `packages/hook`,
-  # `packages/communications`, `packages/meetings` (`apps/desktop/package.json`'s
-  # own `dependencies`, not `packages/**` wholesale: `packages/shared` is not
-  # one of them, and gating on all of `packages/**` would run this on every
-  # unrelated package change) — or this file. The same change-detection-
-  # inside-the-job shape `editor-webkit` uses and for the same reason (a
+  # `apps/desktop` itself, one of its four runtime workspace packages, or the
+  # MCP/collaboration packages its tool-contract test imports. These are the
+  # dependency edges declared by `apps/desktop/package.json`, rather than
+  # `packages/**` wholesale: `packages/shared` is not one of them, and gating
+  # on all packages would run this on every unrelated package change. This uses
+  # the same in-job change detection as `editor-webkit`, for the same reason (a
   # `paths:` filter on the trigger would leave an unrelated pull request with
   # no report at all, pending forever on a required check). On a push to
   # `main` it always runs, ungated — a merge is the moment this incident
@@ -307,6 +329,8 @@ jobs:
               - "packages/hook/**"
               - "packages/communications/**"
               - "packages/meetings/**"
+              - "apps/mcp/**"
+              - "packages/collaboration/**"
               - ".github/workflows/ci.yml"
 
       # `github.event_name == 'push'` (to `main`, per this workflow's trigger)
@@ -321,11 +345,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # Scoped to the app and what it depends on, same as `deploy-desktop.yml`'s
-      # own install — the rest of the workspace is not this job's business.
+      # Scoped to the app and its declared runtime and test dependencies, same
+      # as `deploy-desktop.yml`'s install. The rest of the workspace is not
+      # this job's business.
       - name: Install
         if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'
-        run: pnpm install --filter "./apps/desktop..." --frozen-lockfile
+        run: pnpm install --filter "@context/desktop..." --frozen-lockfile
 
       - name: Build
         if: github.event_name == 'push' || steps.changes.outputs.desktop == 'true'

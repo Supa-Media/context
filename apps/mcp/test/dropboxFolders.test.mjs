@@ -33,6 +33,7 @@ import {
   createDropboxBackend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 
 const TOKEN_OWNER = `cat_dbxfolders_owner_${"0".repeat(20)}`;
 /**
@@ -50,7 +51,7 @@ const DROPBOX_TOKEN = "sl.FAKE-folder-move-access-token";
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-  "folder_defaults:\n  1-projects: team\n  2-areas: team\n\nnote_overrides:\n  # none\n```\n\n" +
+  "folder_defaults:\n  1-projects: team\n  2-areas: team\n\nnote_overrides:\n  2-areas/keep/hidden.md: private\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 async function callTool(env, name, args = {}, tokenValue = TOKEN_OWNER) {
@@ -125,8 +126,11 @@ export async function runDropboxFolderChecks(check) {
 
     const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
 
-    await callTool(env, "write_note", { path: "1-projects/old/a.md", content: "# A\n" });
-    await callTool(env, "write_note", { path: "1-projects/old/deep/b.md", content: "# B\n" });
+    // Seed legacy Dropbox files directly. A note written through write_note has
+    // active collaboration history and must not fall back to Dropbox's
+    // non-conditional source retirement during a move.
+    files.set("/1-projects/old/a.md", { body: "# A\n", rev: "r-a" });
+    files.set("/1-projects/old/deep/b.md", { body: "# B\n", rev: "r-b" });
 
     const folders = dropbox.foldersFor(DROPBOX_TOKEN);
     check(
@@ -144,23 +148,25 @@ export async function runDropboxFolderChecks(check) {
       files.has("/2-areas/old/a.md") && files.has("/2-areas/old/deep/b.md")
     );
     check(
-      "...and no longer at the source, which every backend already did",
-      !files.has("/1-projects/old/a.md") && !files.has("/1-projects/old/deep/b.md")
+      "...and the old source paths are fenced by content-free retirement markers",
+      isLogicalDeleteMarker(files.get("/1-projects/old/a.md")?.body) &&
+        isLogicalDeleteMarker(files.get("/1-projects/old/deep/b.md")?.body)
     );
 
     /*
-      The bug, stated as the check that closes it. Before this, both of these
-      were still in the account — so `list` reported them, the console drew
-      them, and the customer's Dropbox held a folder tree they had just moved
-      away. That is what "the move acted like a copy" was.
+      Dropbox directories containing generation fences cannot be physically
+      deleted: `delete_v2` is recursive and would erase the markers that stop
+      a delayed old writer from resurrecting the source. The wrapper hides the
+      markers and the directories they alone keep alive, so the folder is gone
+      from the product while the storage-level fence remains durable.
     */
     check(
-      "the emptied source folder is gone from Dropbox",
-      !folders.has("/1-projects/old")
+      "the retired source folder remains physically fenced in Dropbox",
+      folders.has("/1-projects/old")
     );
     check(
-      "...and so is the subfolder under it, child before parent",
-      !folders.has("/1-projects/old/deep")
+      "...including its nested generation fence",
+      folders.has("/1-projects/old/deep")
     );
     check(
       "...and it is gone from what a client lists, which is where it was seen",
@@ -195,17 +201,8 @@ export async function runDropboxFolderChecks(check) {
     // owner connection defaults one to private, so writing both here would
     // hold both back and leave the move nothing to carry — a fixture proving
     // nothing rather than the case this guard is about.
-    await callTool(
-      env,
-      "write_note",
-      { path: "2-areas/keep/visible.md", content: "# V\n" },
-      TOKEN_TEAM
-    );
-    await callTool(env, "write_note", {
-      path: "2-areas/keep/hidden.md",
-      content: "# H\n",
-      visibility: "private",
-    });
+    files.set("/2-areas/keep/visible.md", { body: "# V\n", rev: "r-v" });
+    files.set("/2-areas/keep/hidden.md", { body: "# H\n", rev: "r-h" });
 
     // Moved by the TEAM connection, which is the only caller for whom the
     // folder does not empty. The owner can see both notes, so for the owner
@@ -218,8 +215,9 @@ export async function runDropboxFolderChecks(check) {
     );
     check("a folder with a note held back still moves what it can", !partial?.isError);
     check(
-      "the visible note moved",
-      files.has("/2-areas/moved-keep/visible.md") && !files.has("/2-areas/keep/visible.md")
+      "the visible note moved and its old path is only a content-free retirement marker",
+      files.has("/2-areas/moved-keep/visible.md") &&
+        isLogicalDeleteMarker(files.get("/2-areas/keep/visible.md")?.body)
     );
     check(
       "the folder holding the note left behind is not removed",
