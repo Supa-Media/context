@@ -95,7 +95,7 @@ for (const [persona, roles] of Object.entries(expected)) {
   }
   console.log(`${persona}: exact workspace roles and isolation verified.`);
 }
-await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws.lumio, path: '0-inbox/should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "FORBIDDEN");
+await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws.lumio, path: '0-inbox/should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "INSUFFICIENT_ROLE" && error.data.actualRole === 'member' && error.data.requiredRole === 'editor');
 // Prove that a shared-only editor can save using ordinary permissions.
 const editorPath = '1-projects/pulse-launch/roadmap.md';
 const editorNote = await clients.beta.action(ref('functions/files:readNote'), { workspaceId: ws.lumio, path: editorPath });
