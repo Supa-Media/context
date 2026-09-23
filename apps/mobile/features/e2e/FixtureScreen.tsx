@@ -20,6 +20,10 @@ import { VaultImportFixture } from "../onboarding/VaultImportFixture";
  * framework's own guardrails fail the build for it.
  */
 export interface FixtureParams {
+  /**
+   * `screen=collaboration`: which note. `screen=resume&surface=menu`: `0` draws
+   * the console with no meeting note open.
+   */
   note?: string | string[];
   user?: string | string[];
   checkout?: string | string[];
@@ -41,8 +45,6 @@ export interface FixtureParams {
   available?: string | string[];
   /** `screen=resume`: which Resume surface to draw. See `ResumeFixture`. */
   surface?: string | string[];
-  /** `screen=resume`: `bar=0` takes the floating Resume bar off the console boards. */
-  bar?: string | string[];
 }
 
 /** Expo hands a repeated query parameter back as an array. */
@@ -72,8 +74,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
     const surface = first(params.surface);
     return (
       <ResumeFixture
-        surface={isResumeSurface(surface) ? surface : "bar"}
-        bar={first(params.bar) !== "0"}
+        surface={isResumeSurface(surface) ? surface : "menu"}
+        noteOpen={first(params.note) !== "0"}
       />
     );
   }

@@ -13,8 +13,8 @@ import { LiveWaveform } from "./components/LiveWaveform";
 import { TransportMark } from "./components/TransportMark";
 import { NotesPad } from "./components/NotesPad";
 import { MeetingTitleField } from "./components/MeetingTitleField";
-import { meetings, recordElapsedMs } from "./controller";
-import { attendeeCount, clock, duration, sourceLabel, timeOfDay } from "./format";
+import { meetingElapsedMs, meetings } from "./controller";
+import { attendeeCount, clock, sourceLabel, timeOfDay } from "./format";
 import { liveAudioLine } from "./keptAudio";
 import type { MeetingRecord } from "./record";
 import { isSynced } from "./record";
@@ -229,18 +229,6 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             {session.title}
           </Text>
         )}
-        {record.continues === undefined ? null : (
-          <View style={styles.continued} testID="meeting-continues">
-            <View style={[styles.fact, styles.factResume]}>
-              <Text variant="pill" style={styles.factResumeText} testID="meeting-continues-chip">
-                {`Part ${record.continues.part} · adding to ${duration(record.continues.offsetMs)} already recorded`}
-              </Text>
-            </View>
-            <Text variant="mono" style={styles.continuedPath} numberOfLines={1} testID="meeting-continues-path">
-              {`→ ${record.continues.path}`}
-            </Text>
-          </View>
-        )}
         <View style={styles.facts}>
           <Fact label={timeOfDay(session.startedAt)} />
           <Fact label={peopleLabel(attendeeCount(session.attendees))} />
@@ -367,7 +355,7 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             */}
             <LiveWaveform live={hearing} testID="meeting-level" />
             <Text style={styles.clock} testID="meeting-clock">
-              {clock(recordElapsedMs(record, now === 0 ? Date.now() : now))}
+              {clock(meetingElapsedMs(record, now === 0 ? Date.now() : now))}
             </Text>
           </View>
 
@@ -639,10 +627,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     fontWeight: "600",
     color: colors.text,
   },
-  continued: { gap: 6, alignItems: "flex-start" },
-  factResume: { borderColor: colors.accent, backgroundColor: colors.accentDim },
-  factResumeText: { color: colors.accentText, fontSize: t.meta },
-  continuedPath: { color: colors.muted, fontSize: t.meta },
   fact: {
     flexDirection: "row",
     alignItems: "center",

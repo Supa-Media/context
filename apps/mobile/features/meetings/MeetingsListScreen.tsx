@@ -8,11 +8,13 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { MeetingRow, RowDivider } from "./components/MeetingRow";
+import { RecordButton } from "./components/RecordButton";
 import { meetings } from "./controller";
 import { groupMeetings, startsIn, type MeetingListSection } from "./format";
 import type { CalendarEvent } from "./protocol";
 import { CONSOLE_ROOT } from "../console/nav";
 import { strandedMeetings } from "./landing";
+import { oneRowPerMeeting, recordedSoFarMs } from "./resume";
 import { MEETINGS_ROUTE, meetingHref } from "./route";
 import { useMeetingsSnapshot, useTick } from "./useMeetings";
 
@@ -86,7 +88,14 @@ export function MeetingsListScreen({
   const sections = useMemo(
     () =>
       groupMeetings({
-        meetings: snapshot.records.map((record) => record.session),
+        /*
+          One row per meeting: a resumed meeting is one note, and its newest
+          part stands for it, carrying the whole meeting's length.
+        */
+        meetings: oneRowPerMeeting(snapshot.records).map((record) => ({
+          ...record.session,
+          recordedMs: recordedSoFarMs(record),
+        })),
         upcoming,
         now: now === 0 ? Date.now() : now,
         locale,
@@ -184,7 +193,13 @@ export function MeetingsListScreen({
         ) : null}
       </ScreenScroll>
 
-      {snapshot.live === null ? <RecordButton onPress={() => void start("New meeting")} /> : null}
+      {snapshot.live === null ? (
+        <RecordButton
+          onPress={() => void start("New meeting")}
+          accessibilityLabel="Start recording a meeting"
+          testID="meetings-record"
+        />
+      ) : null}
     </>
   );
 }
@@ -348,32 +363,6 @@ function Empty({ onStart }: { onStart: () => void }) {
   );
 }
 
-/**
- * The one control on the screen, in the floating chrome's own geometry.
- *
- * A red disc rather than a labelled button: it is the mockup's, it is what
- * every recorder on a phone looks like, and it is the one target on this screen
- * a thumb has to hit without looking. `chromeButton` is exactly
- * `minTouchTarget` — the visible circle *is* the target here, with no padding
- * around it to make up a shortfall.
- */
-function RecordButton({ onPress }: { onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View style={styles.recordSlot}>
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel="Start recording a meeting"
-        style={({ pressed }) => [styles.record, pressed && styles.recordPressed]}
-        testID="meetings-record"
-      >
-        <View style={styles.recordDot} aria-hidden />
-      </Pressable>
-    </View>
-  );
-}
-
 const makeStyles = (colors: Colors) => StyleSheet.create({
   content: {
     paddingHorizontal: layout.readingMargin,
@@ -453,33 +442,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 4,
   },
   unreadable: { paddingTop: 4 },
-  recordSlot: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: layout.floatingGap,
-    alignItems: "center",
-    /*
-      The slot spans the width of the screen so the button is centred, but only
-      the button may take a press — the rest of that strip is the last line of
-      somebody's list. `box-none` in the *style* rather than as the `pointerEvents`
-      prop, which React Native deprecated and which warns on every render.
-    */
-    pointerEvents: "box-none",
-  },
-  record: {
-    width: layout.bottomBarHeight,
-    height: layout.bottomBarHeight,
-    borderRadius: radii.pill,
-    backgroundColor: colors.chrome,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  recordPressed: { backgroundColor: colors.chromePressed },
-  recordDot: {
-    width: 26,
-    height: 26,
-    borderRadius: radii.pill,
-    backgroundColor: colors.crit,
-  },
 });

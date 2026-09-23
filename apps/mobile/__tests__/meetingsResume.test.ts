@@ -3,7 +3,7 @@ import { describe, expect, test } from "@jest/globals";
 import { ConvexError } from "convex/values";
 
 import { MEETING_WRITE_SENTENCES, createConvexGateway } from "../features/meetings/convexGateway";
-import { MeetingsController } from "../features/meetings/controller";
+import { MeetingsController, meetingElapsedMs } from "../features/meetings/controller";
 import { fakeGateway, type FakeGateway } from "../features/meetings/fakeGateway";
 import { fakeRecorder } from "../features/meetings/capture/fake";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
@@ -11,16 +11,19 @@ import { ERRORS, PROTOCOL_VERSION, type MeetingSession } from "../features/meeti
 import {
   emptyAck,
   parseContinuation,
+  parseRecord,
   type MeetingContinuation,
   type MeetingRecord,
 } from "../features/meetings/record";
 import {
-  RESUME_BAR_WINDOW_MS,
+  RESUME_RECENT_WINDOW_MS,
   continuationFromNote,
   continuationFromRecord,
   destinationForNote,
   mayResume,
-  resumeBarOffer,
+  oneRowPerMeeting,
+  recentMeetingToResume,
+  resumeRowFor,
 } from "../features/meetings/resume";
 import { seedSession } from "../features/meetings/session";
 import { parseMeetingNote, renderMeetingNote } from "@context/meetings/note";
@@ -32,8 +35,10 @@ import { parseMeetingNote, renderMeetingNote } from "@context/meetings/note";
  * `packages/meetings/test/continuation.test.mjs`. What is checked here is
  * everything around it on this app's side: the writer reading the note it is
  * about to add to and writing it back conditionally, the recorder carrying
- * `continues` from the press to the finalize, and the one set of rules every
- * surface asks before it offers Resume (`resume.ts`).
+ * `continues` from the press to the finalize, the one set of rules both
+ * places ask before they offer Resume (`resume.ts`), which meeting the `+`
+ * row names, the clock a resumed meeting reads, and the lists drawing one row
+ * per meeting.
  *
  * ## Sabotage record
  *
@@ -58,6 +63,12 @@ import { parseMeetingNote, renderMeetingNote } from "@context/meetings/note";
  *     → `resuming records a new part that is written into the first part's
  *     note` failed. This one was found by that test, not planted: the first
  *     version of this feature had exactly this bug.
+ *  8. `meetingElapsedMs` returned the part's own elapsed time.
+ *     → 2 failed, led by `a resumed meeting's clock carries on`.
+ *  9. `resumeRowFor` tried the recent meeting before the open note.
+ *     → `the open meeting note wins over the meeting that just stopped` failed.
+ * 10. `oneRowPerMeeting` returned the records unchanged.
+ *     → `the lists draw a resumed meeting once` failed.
  */
 
 const STARTED = "2026-09-06T18:00:00.000Z";
@@ -298,6 +309,7 @@ async function controllerWith(gateway: FakeGateway = fakeGateway(), store: KeyVa
     controller,
     gateway,
     store,
+    now: () => now,
     advance: (ms: number) => {
       now += ms;
     },
@@ -369,16 +381,25 @@ describe("the recorder carries a resumed part from the press to the note", () =>
     expect(h.controller.getSnapshot().live?.session.id).toBe(other);
   });
 
-  test("dismissing the bar's offer is remembered across a launch", async () => {
-    const store = memoryStore();
-    const h = await controllerWith(fakeGateway(), store);
+  test("a resumed meeting's clock carries on from where the note left off", async () => {
+    const h = await controllerWith();
     const first = await recordAndStop(h);
-    h.controller.dismissResumeOffer(first);
-    await settle();
+    const landed = h.controller.getSnapshot().records.find((r) => r.session.id === first)!;
+    const continues = continuationFromRecord(h.controller.getSnapshot().records, landed)!;
+    h.advance(10 * 60_000);
+    await h.controller.continueMeeting({ continues, title: "Design review", destination: null });
+    h.advance(4_000);
 
-    const again = await controllerWith(fakeGateway(), store);
-    const record = again.controller.getSnapshot().records.find((r) => r.session.id === first);
-    expect(record?.resumeDismissed).toBe(true);
+    // The clock, and every typed-note stamp read from it: 30:04, not 0:04.
+    const live = h.controller.getSnapshot().live!;
+    expect(meetingElapsedMs(live, h.now())).toBe(continues.offsetMs + 4_000);
+  });
+
+  test("a record stored before the redesign still loads", () => {
+    const stored = { ...record(), resumeDismissed: true };
+    const parsed = parseRecord(JSON.stringify(stored), "ws-1");
+    expect(parsed?.session.id).toBe(FIRST_ID);
+    expect(parsed).not.toHaveProperty("resumeDismissed");
   });
 });
 
@@ -417,7 +438,7 @@ const secondPart = record({
   continues: CONTINUES,
 });
 
-describe("the rules every surface asks before it offers Resume", () => {
+describe("the rules both places ask before they offer Resume", () => {
   const NOW = Date.parse("2026-09-06T18:40:00.000Z");
 
   test("a saved meeting may be resumed", () => {
@@ -429,7 +450,7 @@ describe("the rules every surface asks before it offers Resume", () => {
     expect(
       mayResume({ records: [record(), inFlight], live: null, canContinue: true, meetingId: FIRST_ID }),
     ).toBe(false);
-    expect(resumeBarOffer({ records: [inFlight, record()], live: null, canContinue: true, now: NOW })).toBeNull();
+    expect(recentMeetingToResume({ records: [inFlight, record()], live: null, canContinue: true, now: NOW })).toBeNull();
   });
 
   test("a third part continues from the end of the second, not the first", () => {
@@ -440,21 +461,91 @@ describe("the rules every surface asks before it offers Resume", () => {
     expect(next.meetingId).toBe(FIRST_ID);
   });
 
-  test("the bar offers the newest meeting only, and only for a while", () => {
-    expect(resumeBarOffer({ records: [record()], live: null, canContinue: true, now: NOW })?.session.id).toBe(FIRST_ID);
+  test("the + offers the newest meeting only, and only for a while", () => {
+    const rules = { live: null, canContinue: true };
+    expect(recentMeetingToResume({ ...rules, records: [record()], now: NOW })?.session.id).toBe(FIRST_ID);
 
-    const later = Date.parse("2026-09-06T18:30:00.000Z") + RESUME_BAR_WINDOW_MS + 1;
-    expect(resumeBarOffer({ records: [record()], live: null, canContinue: true, now: later })).toBeNull();
+    const later = Date.parse("2026-09-06T18:30:00.000Z") + RESUME_RECENT_WINDOW_MS + 1;
+    expect(recentMeetingToResume({ ...rules, records: [record()], now: later })).toBeNull();
 
     const newer = record({ session: { id: PART_ID, startedAt: "2026-09-06T18:35:00.000Z", state: "empty", notePath: null } });
-    expect(resumeBarOffer({ records: [record(), newer], live: null, canContinue: true, now: NOW })).toBeNull();
+    expect(recentMeetingToResume({ ...rules, records: [record(), newer], now: NOW })).toBeNull();
   });
 
-  test("the bar goes when it is dismissed, and never shows where a writer cannot continue", () => {
+  test("never where this device's writer cannot continue, or while recording", () => {
+    expect(recentMeetingToResume({ records: [record()], live: null, canContinue: false, now: NOW })).toBeNull();
+    const live = record({ session: { id: PART_ID, state: "recording", notePath: null, endedAt: null } });
+    expect(recentMeetingToResume({ records: [record()], live, canContinue: true, now: NOW })).toBeNull();
     expect(
-      resumeBarOffer({ records: [record({ resumeDismissed: true })], live: null, canContinue: true, now: NOW }),
+      resumeRowFor({ records: [record()], live: null, canContinue: false, now: NOW, openNote: null }),
     ).toBeNull();
-    expect(resumeBarOffer({ records: [record()], live: null, canContinue: false, now: NOW })).toBeNull();
+  });
+
+  test("the + row names the meeting that just stopped, and when", () => {
+    const row = resumeRowFor({ records: [record()], live: null, canContinue: true, now: NOW, openNote: null })!;
+    expect(row.detail).toBe("Design review · ended 10 min ago");
+    expect(row.input.continues).toEqual(continuationFromRecord([record()], record()));
+    expect(row.input.title).toBe("Design review");
+  });
+
+  test("the open meeting note wins over the meeting that just stopped", () => {
+    const other = "1-projects/launch/2026-09-05-kickoff-abcdefgh.md";
+    const note = firstNote().replace(FIRST_ID, "mtg_cdefghjkmnpqrstvwxyz");
+    const row = resumeRowFor({
+      records: [record()],
+      live: null,
+      canContinue: true,
+      now: NOW,
+      openNote: { contextSlug: "acme", path: other, markdown: note },
+    })!;
+    expect(row.detail).toBe("Adds to this note.");
+    expect(row.input.continues.path).toBe(other);
+    expect(row.input.continues.meetingId).toBe("mtg_cdefghjkmnpqrstvwxyz");
+    expect(row.input.destination).toMatchObject({ contextSlug: "acme", folder: "1-projects/launch" });
+  });
+
+  test("an open note that is not a meeting falls back to the recent one", () => {
+    const row = resumeRowFor({
+      records: [record()],
+      live: null,
+      canContinue: true,
+      now: NOW,
+      openNote: { contextSlug: "acme", path: "1-projects/list.md", markdown: "# Groceries\n\n- eggs\n" },
+    });
+    expect(row?.detail).toBe("Design review · ended 10 min ago");
+  });
+
+  test("a meeting note can be continued from another device's record-free view, hours later", () => {
+    const hoursLater = NOW + RESUME_RECENT_WINDOW_MS * 3;
+    const row = resumeRowFor({
+      records: [],
+      live: null,
+      canContinue: true,
+      now: hoursLater,
+      openNote: { contextSlug: "acme", path: PATH, markdown: firstNote() },
+    });
+    expect(row?.detail).toBe("Adds to this note.");
+    expect(
+      resumeRowFor({ records: [], live: null, canContinue: true, now: hoursLater, openNote: null }),
+    ).toBeNull();
+  });
+
+  test("a resumed meeting's clock is the whole meeting's, and a first part's is its own", () => {
+    const running = "2026-09-06T18:48:00.000Z";
+    const at = Date.parse(running) + 4_000;
+    const live = { state: "recording" as const, recordedMs: 0, endedAt: null };
+    const resumed = record({ session: { ...secondPart.session, ...live }, continues: CONTINUES, runningSince: running });
+    expect(meetingElapsedMs(resumed, at)).toBe(30 * 60_000 + 4_000);
+    const first = record({ session: live, runningSince: running });
+    expect(meetingElapsedMs(first, at)).toBe(4_000);
+  });
+
+  test("the lists draw a resumed meeting once, as its newest part", () => {
+    const unrelated = record({ session: { id: "mtg_defghjkmnpqrstvwxyza", title: "Standup" } });
+    expect(oneRowPerMeeting([secondPart, unrelated, record()]).map((r) => r.session.id)).toEqual([
+      PART_ID,
+      "mtg_defghjkmnpqrstvwxyza",
+    ]);
   });
 
   test("the note's own offer reads the note, and is absent on any other note", () => {

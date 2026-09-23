@@ -7,7 +7,7 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { writeClipboard } from "../design/clipboard";
-import { FOLDER_REJECTED_NOTICE, meetingLanding, rejectionNotice } from "./landing";
+import { FOLDER_REJECTED_NOTICE, meetingLanding, rejectionNotice, strandedMeetings } from "./landing";
 import { noteEditorHref } from "./noteLink";
 import { NotesPad } from "./components/NotesPad";
 import { meetings } from "./controller";
@@ -20,6 +20,7 @@ import { MEETINGS_ROUTE } from "./route";
 import { useMeetingsSnapshot } from "./useMeetings";
 import { continuationFromRecord, mayResume, meetingIdOf } from "./resume";
 import { useResumeMeeting } from "./useResumeMeeting";
+import { RECORD_BUTTON_CLEARANCE, RecordButton } from "./components/RecordButton";
 import { endedAudioLine, transcriptIncompleteLine } from "./keptAudio";
 
 /**
@@ -78,6 +79,7 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
    * thing that makes it stale.
    */
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  const resume = useResumeMeeting();
 
   const record = useMemo(
     () => snapshot.records.find((candidate) => candidate.session.id === meetingId) ?? null,
@@ -164,216 +166,245 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
   */
   const notesEditable = session.state === "finalizing" || session.state === "failed";
   const noteHrefForRecord = noteEditorHref(record);
+  /*
+    Picking it back up: the record disc, where the transport was when End was
+    pressed. On the rules every surface asks (`resume.ts`), and not while any
+    meeting is stranded — the red bar owns that slot, and a meeting that did
+    not save is louder than one that did.
+  */
+  const continues =
+    session.state === "complete" &&
+    strandedMeetings(snapshot.records).length === 0 &&
+    mayResume({
+      records: snapshot.records,
+      live: snapshot.live,
+      canContinue: snapshot.canContinue,
+      meetingId: meetingIdOf(record),
+    })
+      ? continuationFromRecord(snapshot.records, record)
+      : null;
 
   return (
-    <ScreenScroll contentContainerStyle={styles.content} testID="meeting-note">
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Back to meetings"
-          style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
-        >
-          <Icon name="chevronDown" size={20} color={colors.text2} />
-        </Pressable>
-      </View>
+    <View style={styles.fill}>
+      <ScreenScroll contentContainerStyle={styles.content} testID="meeting-note">
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Back to meetings"
+            style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
+          >
+            <Icon name="chevronDown" size={20} color={colors.text2} />
+          </Pressable>
+        </View>
 
-      {/*
-        The title is the note's `# ` heading, so renaming a finished meeting is
-        editing the note — and the first thing somebody does when they want to
-        rename something is press its name. That press used to land on nothing:
-        *"i can't even edit the meeting title."*
+        {/*
+          The title is the note's `# ` heading, so renaming a finished meeting is
+          editing the note — and the first thing somebody does when they want to
+          rename something is press its name. That press used to land on nothing:
+          *"i can't even edit the meeting title."*
 
-        It is a second door to the same place `Edit note` opens rather than an
-        editor of its own, because `complete` is terminal and the path is
-        claimed: the app cannot rename this meeting, only the note it became.
-        Where there is no note to open — still finalizing, failed, empty, or a
-        record with no context to address — it stays the heading it was, with
-        no affordance and nothing to press.
+          It is a second door to the same place `Edit note` opens rather than an
+          editor of its own, because `complete` is terminal and the path is
+          claimed: the app cannot rename this meeting, only the note it became.
+          Where there is no note to open — still finalizing, failed, empty, or a
+          record with no context to address — it stays the heading it was, with
+          no affordance and nothing to press.
 
-        Renaming *before* End is the live screen's field, which is the window
-        in which a rename is still the meeting's own.
-      */}
-      {noteHrefForRecord === null ? (
-        <Text variant="paneTitle" style={styles.title} testID="meeting-title">
-          {session.title}
-        </Text>
-      ) : (
-        <Pressable
-          onPress={() => router.push(noteHrefForRecord)}
-          accessibilityRole="link"
-          accessibilityLabel={`${session.title}. Open the note to rename it or edit it.`}
-          style={({ pressed }) => pressed && styles.pressed}
-          testID="meeting-title"
-        >
-          <Text variant="paneTitle" style={styles.title}>
+          Renaming *before* End is the live screen's field, which is the window
+          in which a rename is still the meeting's own.
+        */}
+        {noteHrefForRecord === null ? (
+          <Text variant="paneTitle" style={styles.title} testID="meeting-title">
             {session.title}
           </Text>
-        </Pressable>
-      )}
-
-      <View style={styles.metaRow}>
-        <Text variant="rowSub">
-          {[
-            dayHeading(session.startedAt),
-            duration(session.recordedMs),
-            sourceLabel(session.source),
-          ]
-            .filter((part) => part !== "")
-            .join(" · ")}
-        </Text>
-        {people > 0 ? (
-          <>
-            <View style={styles.metaDot} aria-hidden />
-            <Text variant="rowSub">{`${people} ${people === 1 ? "person" : "people"}`}</Text>
-          </>
-        ) : null}
-      </View>
-
-      <Summary record={record} />
-      {/*
-        The Summary's own "still waiting" sentence covers a meeting whose note is
-        being held for its audio. A meeting that is already a note, or has
-        failed, has a Summary about something else — so what is still on the
-        phone is said beside it rather than not at all.
-      */}
-      {record.session.state !== "finalizing" ? (
-        <KeptAudioNote record={record} />
-      ) : null}
-
-      {/*
-        THE NOTES THIS SCREEN USED TO SHOW AND NOT TAKE.
-
-        A meeting ends and the thing you actually want is to add the two lines
-        you did not have time to type while somebody was talking. This card
-        printed them and offered no way in — the owner's words: *"there's no way
-        to add post meeting notes."*
-
-        **Whether it takes them is decided by whether the note exists yet**, and
-        that is a correctness rule rather than a preference:
-
-         - **Before the note is written** (`finalizing`, or `failed` and waiting
-           on a retry) the note is composed *from this session* when the
-           finalize runs, so what is typed here lands in the file. On the
-           gateway path the same text rides the `notes` route, which accepts it
-           in every state but `complete`.
-         - **Once the note is in the bucket** there is nothing left that would
-           ever write these words out. The gateway says so in its own refusal —
-           *"this session is already complete; edit the note instead"* — and
-           `createConvexGateway` has already done its one write. So the card
-           goes back to being a record of what was typed, and `Landing` below
-           carries the way to the note, which is the thing to edit now.
-
-        A pad that took keystrokes into a meeting nothing will write again would
-        be the appears-to-work-and-does-nothing defect this feature keeps being
-        rewritten for. The one narrow seam is a keystroke landing in the seconds
-        between the two, which `notesOnlyOnDevice` names and `Landing` says.
-      */}
-      <View style={styles.ownNotes} testID="meeting-own-notes">
-        <View style={styles.ownNotesHead}>
-          <Icon name="file" size={13} color={colors.muted} />
-          <Text variant="railHead">{notesEditable ? "My notes" : "My notes, unchanged"}</Text>
-        </View>
-        {notesEditable ? (
-          <NotesPad
-            initialValue={session.notes}
-            onChangeText={onChangeNotes}
-            placeholder="Add what you did not have time to type…"
-            style={styles.ownNotesPad}
-            testID="meeting-own-notes-pad"
-          />
         ) : (
-          <Text style={styles.ownNotesBody}>
-            {session.notes.trim() === "" ? "You didn't type anything during this one." : session.notes}
-          </Text>
+          <Pressable
+            onPress={() => router.push(noteHrefForRecord)}
+            accessibilityRole="link"
+            accessibilityLabel={`${session.title}. Open the note to rename it or edit it.`}
+            style={({ pressed }) => pressed && styles.pressed}
+            testID="meeting-title"
+          >
+            <Text variant="paneTitle" style={styles.title}>
+              {session.title}
+            </Text>
+          </Pressable>
         )}
-      </View>
 
-      <View style={styles.actions}>
+        <View style={styles.metaRow}>
+          <Text variant="rowSub">
+            {[
+              dayHeading(session.startedAt),
+              duration(session.recordedMs),
+              sourceLabel(session.source),
+            ]
+              .filter((part) => part !== "")
+              .join(" · ")}
+          </Text>
+          {people > 0 ? (
+            <>
+              <View style={styles.metaDot} aria-hidden />
+              <Text variant="rowSub">{`${people} ${people === 1 ? "person" : "people"}`}</Text>
+            </>
+          ) : null}
+        </View>
+
+        <Summary record={record} />
         {/*
-          The way out of the device, and on this build the only one.
-
-          A finished meeting can be complete, correct, on the phone and
-          reachable by nothing else — the person can see it and cannot use it.
-          That was every meeting once, while nothing here could reach the
-          bucket; it is now the ones the queue has not landed: offline, no
-          bucket connected, a refusal parked for a person to answer.
-
-          What lands on the clipboard is `renderMeetingNote`'s output, which is
-          the same function `convexGateway` writes the bucket with, so what they
-          paste into their vault is the note they would have had rather than a
-          screen's summary of it — byte for byte, but for the `updated` stamp,
-          which is when the text was produced and cannot be the same twice.
-
-          Drawn whatever state the meeting is in, and deliberately: a meeting
-          that reached the bucket can be opened from the console, from Obsidian
-          or through any connected client, and the one that has not is exactly
-          the one with nowhere else to be read.
+          The Summary's own "still waiting" sentence covers a meeting whose note is
+          being held for its audio. A meeting that is already a note, or has
+          failed, has a Summary about something else — so what is still on the
+          phone is said beside it rather than not at all.
         */}
-        <Pressable
-          onPress={copy}
-          accessibilityRole="button"
-          accessibilityLabel="Copy the whole note to the clipboard"
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-          testID="meeting-copy"
-        >
-          <Icon name="copy" size={15} color={colors.text} />
-          <Text variant="mini">Copy note</Text>
-        </Pressable>
+        {record.session.state !== "finalizing" ? (
+          <KeptAudioNote record={record} />
+        ) : null}
 
-        <Pressable
-          onPress={() => setShowTranscript((open) => !open)}
-          accessibilityRole="button"
-          accessibilityState={{ expanded: showTranscript }}
-          accessibilityLabel={
-            showTranscript ? "Hide the transcript section" : "Show the transcript section"
+        {/*
+          THE NOTES THIS SCREEN USED TO SHOW AND NOT TAKE.
+
+          A meeting ends and the thing you actually want is to add the two lines
+          you did not have time to type while somebody was talking. This card
+          printed them and offered no way in — the owner's words: *"there's no way
+          to add post meeting notes."*
+
+          **Whether it takes them is decided by whether the note exists yet**, and
+          that is a correctness rule rather than a preference:
+
+           - **Before the note is written** (`finalizing`, or `failed` and waiting
+             on a retry) the note is composed *from this session* when the
+             finalize runs, so what is typed here lands in the file. On the
+             gateway path the same text rides the `notes` route, which accepts it
+             in every state but `complete`.
+           - **Once the note is in the bucket** there is nothing left that would
+             ever write these words out. The gateway says so in its own refusal —
+             *"this session is already complete; edit the note instead"* — and
+             `createConvexGateway` has already done its one write. So the card
+             goes back to being a record of what was typed, and `Landing` below
+             carries the way to the note, which is the thing to edit now.
+
+          A pad that took keystrokes into a meeting nothing will write again would
+          be the appears-to-work-and-does-nothing defect this feature keeps being
+          rewritten for. The one narrow seam is a keystroke landing in the seconds
+          between the two, which `notesOnlyOnDevice` names and `Landing` says.
+        */}
+        <View style={styles.ownNotes} testID="meeting-own-notes">
+          <View style={styles.ownNotesHead}>
+            <Icon name="file" size={13} color={colors.muted} />
+            <Text variant="railHead">{notesEditable ? "My notes" : "My notes, unchanged"}</Text>
+          </View>
+          {notesEditable ? (
+            <NotesPad
+              initialValue={session.notes}
+              onChangeText={onChangeNotes}
+              placeholder="Add what you did not have time to type…"
+              style={styles.ownNotesPad}
+              testID="meeting-own-notes-pad"
+            />
+          ) : (
+            <Text style={styles.ownNotesBody}>
+              {session.notes.trim() === "" ? "You didn't type anything during this one." : session.notes}
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.actions}>
+          {/*
+            The way out of the device, and on this build the only one.
+
+            A finished meeting can be complete, correct, on the phone and
+            reachable by nothing else — the person can see it and cannot use it.
+            That was every meeting once, while nothing here could reach the
+            bucket; it is now the ones the queue has not landed: offline, no
+            bucket connected, a refusal parked for a person to answer.
+
+            What lands on the clipboard is `renderMeetingNote`'s output, which is
+            the same function `convexGateway` writes the bucket with, so what they
+            paste into their vault is the note they would have had rather than a
+            screen's summary of it — byte for byte, but for the `updated` stamp,
+            which is when the text was produced and cannot be the same twice.
+
+            Drawn whatever state the meeting is in, and deliberately: a meeting
+            that reached the bucket can be opened from the console, from Obsidian
+            or through any connected client, and the one that has not is exactly
+            the one with nowhere else to be read.
+          */}
+          <Pressable
+            onPress={copy}
+            accessibilityRole="button"
+            accessibilityLabel="Copy the whole note to the clipboard"
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="meeting-copy"
+          >
+            <Icon name="copy" size={15} color={colors.text} />
+            <Text variant="mini">Copy note</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setShowTranscript((open) => !open)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showTranscript }}
+            accessibilityLabel={
+              showTranscript ? "Hide the transcript section" : "Show the transcript section"
+            }
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="meeting-transcript-toggle"
+          >
+            <Icon name="file" size={15} color={colors.text} />
+            <Text variant="mini">Transcript</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => void meetings.retry(session.id)}
+            accessibilityRole="button"
+            accessibilityLabel="Run the enhancement again"
+            disabled={session.state === "finalizing"}
+            style={({ pressed }) => [
+              styles.action,
+              session.state === "finalizing" && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+            testID="meeting-rerun"
+          >
+            <Icon name="plus" size={15} color={colors.text} />
+            <Text variant="mini">Re-run</Text>
+          </Pressable>
+        </View>
+
+        {/*
+          Said, never assumed. `writeClipboard` answers a boolean precisely so a
+          refusal can reach a person — its own header calls a discarded `false`
+          "the small lie nobody forgives" — and a phone with no clipboard is the
+          case where somebody most needs to know the text is still only here.
+        */}
+        {copied === "copied" ? (
+          <Text variant="rowSub" testID="meeting-copy-said">
+            The whole note is on your clipboard — paste it wherever you keep notes.
+          </Text>
+        ) : null}
+        {copied === "failed" ? (
+          <Text variant="error" testID="meeting-copy-said">
+            Couldn&apos;t reach the clipboard on this device, so nothing was copied. The
+            note is still here.
+          </Text>
+        ) : null}
+
+        {showTranscript ? <Transcript record={record} /> : null}
+
+        <Landing record={record} />
+        {continues === null ? null : <View style={styles.discClearance} />}
+      </ScreenScroll>
+      {continues === null ? null : (
+        <RecordButton
+          onPress={() =>
+            void resume({ continues, title: session.title, destination: record.destination })
           }
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-          testID="meeting-transcript-toggle"
-        >
-          <Icon name="file" size={15} color={colors.text} />
-          <Text variant="mini">Transcript</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => void meetings.retry(session.id)}
-          accessibilityRole="button"
-          accessibilityLabel="Run the enhancement again"
-          disabled={session.state === "finalizing"}
-          style={({ pressed }) => [
-            styles.action,
-            session.state === "finalizing" && styles.disabled,
-            pressed && styles.pressed,
-          ]}
-          testID="meeting-rerun"
-        >
-          <Icon name="plus" size={15} color={colors.text} />
-          <Text variant="mini">Re-run</Text>
-        </Pressable>
-      </View>
-
-      {/*
-        Said, never assumed. `writeClipboard` answers a boolean precisely so a
-        refusal can reach a person — its own header calls a discarded `false`
-        "the small lie nobody forgives" — and a phone with no clipboard is the
-        case where somebody most needs to know the text is still only here.
-      */}
-      {copied === "copied" ? (
-        <Text variant="rowSub" testID="meeting-copy-said">
-          The whole note is on your clipboard — paste it wherever you keep notes.
-        </Text>
-      ) : null}
-      {copied === "failed" ? (
-        <Text variant="error" testID="meeting-copy-said">
-          Couldn&apos;t reach the clipboard on this device, so nothing was copied. The
-          note is still here.
-        </Text>
-      ) : null}
-
-      {showTranscript ? <Transcript record={record} /> : null}
-
-      <Landing record={record} />
-    </ScreenScroll>
+          accessibilityLabel="Resume recording this meeting"
+          testID="meeting-resume"
+        />
+      )}
+    </View>
   );
 }
 
@@ -544,26 +575,8 @@ function Landing({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const router = useRouter();
-  const snapshot = useMeetingsSnapshot();
-  const resume = useResumeMeeting();
   const { session } = record;
   const href = noteEditorHref(record);
-  /*
-    Pick it back up, on the page of a meeting that is in the bucket — the
-    same rules the bar and the note ask (`resume.ts`), so this is offered for
-    as long as the meeting exists and never while a part of it is still on
-    its way or anything is recording.
-  */
-  const continues =
-    session.state === "complete" &&
-    mayResume({
-      records: snapshot.records,
-      live: snapshot.live,
-      canContinue: snapshot.canContinue,
-      meetingId: meetingIdOf(record),
-    })
-      ? continuationFromRecord(snapshot.records, record)
-      : null;
 
   /*
     WHICH OF THESE IS TRUE IS NOT THIS SCREEN'S TO DECIDE.
@@ -774,22 +787,6 @@ function Landing({ record }: { record: MeetingRecord }) {
           has none. No slug, no honest link — so no button, rather than one
           that guesses a context and opens somebody else's.
         */}
-        {continues === null ? null : (
-          <Pressable
-            onPress={() =>
-              void resume({ continues, title: session.title, destination: record.destination })
-            }
-            accessibilityRole="button"
-            accessibilityLabel="Resume recording this meeting, into the same note"
-            style={({ pressed }) => [styles.action, styles.resume, pressed && styles.pressed]}
-            testID="meeting-resume"
-          >
-            <Icon name="undo" size={15} color={colors.ground} />
-            <Text variant="mini" style={styles.resumeLabel}>
-              Resume recording
-            </Text>
-          </Pressable>
-        )}
         {href === null ? null : (
           <Pressable
             onPress={() => router.push(href)}
@@ -869,6 +866,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   metaDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.heroDim },
   section: { gap: 9 },
   quiet: { height: 120 },
+  fill: { flex: 1 },
+  discClearance: { height: RECORD_BUTTON_CLEARANCE },
   summaryBody: { fontSize: t.lede, lineHeight: 24, color: colors.text },
   segment: { fontSize: t.lede, lineHeight: 23, color: colors.text2 },
   ownNotes: {
@@ -927,9 +926,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   landingCrit: { borderColor: colors.critBorder, backgroundColor: colors.critWash },
   landingCritTitle: { color: colors.critText },
   landingText: { flex: 1, minWidth: 0, gap: 3 },
-  /* Teal, never red: picking a meeting back up is a continuation, not a repair. */
-  resume: { backgroundColor: colors.accent, borderColor: colors.accent },
-  resumeLabel: { color: colors.ground, fontWeight: "600" },
   path: {
     fontFamily: fonts.mono,
     fontSize: t.label,

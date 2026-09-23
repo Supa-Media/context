@@ -4431,22 +4431,44 @@ the newest part that landed. From the note itself, the offset and part number
 are read off the file (`meetingNoteFacts`), because another device may have
 added a part this one never saw.
 
-**Four surfaces, one press.** The note shows a teal band in the console's notice
-band ("You can pick this meeting back up"). It is handed in through
-`VoiceHost.noteResume` so the file pane never imports the recorder. The
-meeting's own page and the console's Meetings panel show a Resume button. The
-floating `ResumeBar` wears the accent, never red, because red in that slot
-means a meeting did not save. It stands down while anything records, while
-any meeting is stranded, and on the meeting's own page. It offers only the
-newest meeting, and only for `RESUME_BAR_WINDOW_MS` (two hours, a default picked
-for "a break in the middle of a meeting", not decided by the owner). Its
-dismissal is remembered on the record (`resumeDismissed`). While a part records,
-its title is not editable, because the heading it lands under is the note's.
-The recording view instead says "Part N · adding to X already recorded" and
-where it is going.
+**Two places: the meeting and the `+` (redesigned 2026-09-23).** The first
+version offered Resume on five surfaces: a floating teal bar, a teal band in
+the note, buttons on the meeting page and in the panel, and a "Part N" chip on
+the recording view. The owner called it "SO ugly", and the rule that came out
+of that is in [app-and-console](./app-and-console.md): no UI ships without a
+design audit first. The audit found one verb drawn five times, the accent used
+as a status colour, the hero button used four times, the undo glyph standing
+in for recording, and copy about parts and files. Resume now lives in two
+places, both built from existing parts:
 
-**Still open:** the meetings list shows each part as its own row, both opening
-the same note; the desktop and HTTP writers do not continue.
+- **The meeting itself.** On a phone, the meeting's page carries the same
+  record disc as the meetings list (`RecordButton`), standing down while
+  anything is stranded. In the console's Meetings panel, a past meeting has
+  the live card's own button pair: "Open the note" and a quiet "Resume" marked
+  with the red record dot. Stop & save leaves the panel on the meeting that
+  just ended, so Resume sits one row below where Stop was.
+- **The `+`.** A "Resume meeting" row sits directly above New meeting in both
+  `+`s (the console menu and the phone sheet), because the failure it prevents
+  is pressing New meeting and getting a second note. When the open note is a
+  meeting note that may be continued, the row says "Adds to this note." and
+  continues that note, which also covers a meeting another device recorded.
+  Otherwise it names the newest meeting on this device, within
+  `RESUME_RECENT_WINDOW_MS` (two hours, a default picked for "a break in the
+  middle of a meeting", not decided by the owner). `resumeRowFor` decides.
+
+Nothing is drawn until somebody goes to record, so nothing needs dismissing,
+and `resumeDismissed` is gone (old records carrying it still load). Continuity
+is shown rather than explained: a resumed meeting's clock, and the stamps on
+notes typed during it, run on the meeting's time (`meetingElapsedMs`), so part
+two opens at 31:04 and not 0:00. The word "part" is never on screen. While a
+part records, its title is not editable, because the heading it lands under
+is the note's.
+
+The meetings list and the panel's Recent list show one row per meeting
+(`oneRowPerMeeting`), the newest part, with the whole meeting's length.
+
+**Still open:** a later part's own page shows only that part's summary and
+transcript; the desktop and HTTP writers do not continue.
 
 **What a "simplification" would cost.** Re-rendering the note from the device's
 records instead of splicing erases every edit the person made between parts.

@@ -99,6 +99,7 @@ export function AppFrameVisualFixture({
   fakeMeeting = panel,
   onOpenNote = null,
   shape,
+  resume = null,
 }: {
   panel?: boolean;
   /**
@@ -116,6 +117,8 @@ export function AppFrameVisualFixture({
    * exactly as the artboards draw it.
    */
   shape?: { data?: (data: ConsoleData) => ConsoleData; tabs?: TabsState };
+  /** The `+`'s Resume meeting row, as `console/_layout` builds it. `null` draws none. */
+  resume?: { detail: string; onResume: () => void } | null;
 }) {
   const fixtureData = useE2EFixtureConsoleData();
   const data = shape?.data === undefined ? fixtureData : shape.data(fixtureData);
@@ -422,6 +425,7 @@ export function AppFrameVisualFixture({
         */}
         <CreateButton
           compact={phone}
+          resume={resume}
           onNewMeeting={() => {}}
           onNewNote={() => {}}
           onNewDrawing={() => {}}

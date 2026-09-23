@@ -1191,7 +1191,7 @@ export function ExplorerDialogs({
   dialog: Dialog;
   onClose: () => void;
   /**
-   * The two rows of the `create` sheet that are not files.
+   * The rows of the `create` sheet that are not files.
    *
    * Passed in because neither belongs to the file browser: a meeting is the
    * meetings flow's and a conversation is the aside panel's, and this component
@@ -1201,6 +1201,8 @@ export function ExplorerDialogs({
   create?: {
     onNewMeeting?: (() => void) | null;
     onNewChat?: (() => void) | null;
+    /** Carry on a meeting that already has a note. See `CreatePrompt`. */
+    resume?: { detail: string; onResume: () => void } | null;
   };
   /**
    * What the share dialog needs to list who can read a note, and to offer
@@ -1277,6 +1279,7 @@ export function ExplorerDialogs({
           }}
           onNewMeeting={create?.onNewMeeting ?? null}
           onNewChat={create?.onNewChat ?? null}
+          onResumeMeeting={create?.resume ?? null}
         />
       );
     case "newFolder":

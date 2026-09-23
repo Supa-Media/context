@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
 import type { ConsoleData } from "../console/types";
@@ -6,6 +6,7 @@ import type { TabsState } from "../console/files/tabs";
 import { densityFor } from "../app/frame";
 import { useColors } from "../design/theme";
 import { VoiceHostProvider, type VoiceHost } from "../voice/VoiceHost";
+import { CreatePrompt } from "../console/files/Dialogs";
 import { meetings } from "../meetings/controller";
 import { fakeGateway } from "../meetings/fakeGateway";
 import { notesOnlyRecorder } from "../meetings/capture";
@@ -17,42 +18,35 @@ import { renderMeetingNote } from "../meetings/note";
 import { PROTOCOL_VERSION } from "../meetings/protocol";
 import { seedSession } from "../meetings/session";
 import { useMeetingsSnapshot } from "../meetings/useMeetings";
-import {
-  continuationFromNote,
-  continuationFromRecord,
-  destinationForNote,
-  mayResume,
-  type NoteResumeOffer,
-} from "../meetings/resume";
-import { ResumeBar } from "../meetings/components/ResumeBar";
+import { continuationFromRecord, resumeRowFor } from "../meetings/resume";
 import { MeetingNoteScreen } from "../meetings/MeetingNoteScreen";
 import { LiveMeetingScreen } from "../meetings/LiveMeetingScreen";
 
 /**
  * Every surface that offers a stopped meeting back, drawn for looking at.
  *
- * Resume shipped on five surfaces at once (#849) and none of them was on any
+ * Resume first shipped on five surfaces (#849) and none of them was on any
  * browser-reachable screen: each one needs a meeting that has *stopped* on
  * this device, with a note in the bucket, less than two hours ago — a state
  * that takes a real recording and a real gateway to reach. So nobody looked at
  * them together before they merged, which is the failure `AppFrameVisualFixture`'s
- * own header names.
+ * own header names. The redesign that followed has two places, and this draws
+ * both at both densities.
  *
  * `/e2e-fixture?screen=resume&surface=…` draws one of them on the shipping
  * component, over a meetings controller seeded with one filed meeting:
  *
- *  - `bar` — the console, with the floating `ResumeBar` over it.
- *  - `note` — the console with that meeting's note open, so `BrowsePane`
- *    draws its "pick this meeting back up" band. The bar is up too, because
- *    it is in the product: the note is where somebody goes after stopping.
+ *  - `menu` — the `+` and its Resume meeting row: `CreateButton`'s menu at a
+ *    pointer density (the harness presses the `+`), `CreatePrompt`'s sheet on
+ *    a phone. With the meeting's note open, so the row reads "Adds to this
+ *    note."; `note=0` leaves the demo note open instead, and the row names the
+ *    meeting that just stopped.
  *  - `aside` — the console's right panel on Meetings; the harness presses the
  *    row to reach the filed meeting and its Resume button.
- *  - `page` — `MeetingNoteScreen`, the `/meetings/[id]` page of that meeting.
- *  - `live` — `LiveMeetingScreen` for the part Resume starts, with its
- *    "Part 2 · adding to …" header.
- *
- * `bar=0` takes the floating bar off the console boards, to see a surface on
- * its own.
+ *  - `page` — `MeetingNoteScreen`, the `/meetings/[id]` page of that meeting,
+ *    with its record disc.
+ *  - `live` — `LiveMeetingScreen` for the part Resume starts, whose clock
+ *    carries on from the first part.
  *
  * Everything behind it is the suite's fakes — an in-memory store, a gateway
  * with no network, the notes-only recorder that opens no device — so nothing
@@ -60,12 +54,12 @@ import { LiveMeetingScreen } from "../meetings/LiveMeetingScreen";
  * a "Weekly sync" in `@seyi`'s demo tree. Same `EXPO_PUBLIC_E2E_FIXTURE` gate
  * as the rest of this folder.
  *
- * The screenshot harness is `scripts/resume-shots.mjs`.
+ * The screenshot harness is `scripts/capture-resume-shots.mjs`.
  */
-export type ResumeSurface = "bar" | "note" | "aside" | "page" | "live";
+export type ResumeSurface = "menu" | "aside" | "page" | "live";
 
 export function isResumeSurface(value: string | undefined): value is ResumeSurface {
-  return value === "bar" || value === "note" || value === "aside" || value === "page" || value === "live";
+  return value === "menu" || value === "aside" || value === "page" || value === "live";
 }
 
 const WORKSPACE_ID = "w1";
@@ -75,7 +69,7 @@ const TITLE = "Weekly sync";
 const FOLDER = "1-projects/launch";
 const NOTE_PATH = `${FOLDER}/2026-09-23-weekly-sync.md`;
 const RECORDED_MS = 32 * 60_000;
-/** Stopped this long before the board opened — inside the bar's two-hour window. */
+/** Stopped this long before the board opened — inside the `+` row's two-hour window. */
 const STOPPED_AGO_MS = 4 * 60_000;
 
 /** The first part, as it landed: complete, filed, and stopped a few minutes ago. */
@@ -269,64 +263,47 @@ const MEETING_TABS: TabsState = {
 };
 
 /**
- * `noteResume` as the console layout builds it (`app/(app)/console/_layout`),
- * minus the demo/canEdit gate this fixture's data would trip: the note is a
- * meeting note, the device can continue it, nothing is recording.
+ * The `+`'s row as `console/_layout` builds it (`resumeRowFor`), minus the
+ * demo/canEdit gate this fixture's data would trip.
  */
-function useNoteResume(): (path: string, markdown: string) => NoteResumeOffer | null {
+function useResumeRow(markdown: string | null): { detail: string; onResume: () => void } | null {
   const snapshot = useMeetingsSnapshot();
-  return useCallback(
-    (path: string, markdown: string) => {
-      if (snapshot.status !== "ready") return null;
-      const found = continuationFromNote(path, markdown);
-      if (found === null) return null;
-      if (
-        !mayResume({
-          records: snapshot.records,
-          live: snapshot.live,
-          canContinue: snapshot.canContinue,
-          meetingId: found.continues.meetingId,
-        })
-      ) {
-        return null;
-      }
-      return {
-        recordedMs: found.continues.offsetMs,
-        part: found.continues.part,
-        onResume: () =>
-          void meetings.continueMeeting({
-            continues: found.continues,
-            title: found.title,
-            destination: destinationForNote(CONTEXT_SLUG, path),
-          }),
-      };
-    },
-    [snapshot],
-  );
+  return useMemo(() => {
+    const row = resumeRowFor({
+      records: snapshot.records,
+      live: snapshot.live,
+      canContinue: snapshot.canContinue,
+      now: Date.now(),
+      openNote:
+        markdown === null ? null : { contextSlug: CONTEXT_SLUG, path: NOTE_PATH, markdown },
+    });
+    return row === null
+      ? null
+      : { detail: row.detail, onResume: () => void meetings.continueMeeting(row.input) };
+  }, [snapshot, markdown]);
 }
 
-function ConsoleBoard({ surface, bar }: { surface: "bar" | "note" | "aside"; bar: boolean }) {
+function ConsoleBoard({ surface, noteOpen }: { surface: "menu" | "aside"; noteOpen: boolean }) {
   const phone = densityFor(useWindowDimensions().width) === "compact";
-  const noteResume = useNoteResume();
   const markdown = useMemo(() => {
     const record = meetings.getSnapshot().records.find((r) => r.session.id === MEETING_ID);
     return record === undefined
       ? ""
       : renderMeetingNote(record.session, { now: record.session.endedAt ?? undefined });
   }, []);
+  const withNote = surface === "menu" && noteOpen;
+  const resume = useResumeRow(withNote ? markdown : null);
   const voiceHost = useMemo<VoiceHost>(
     () => ({
       page: { context: null, notePath: NOTE_PATH, writable: true, noteVisibility: "team" },
       onRecordMeeting: () => {},
       createButton: !phone,
-      noteResume,
     }),
-    [phone, noteResume],
+    [phone],
   );
   const shape = useMemo(
-    () =>
-      surface === "note" ? { data: withMeetingNote(markdown), tabs: MEETING_TABS } : undefined,
-    [surface, markdown],
+    () => (withNote ? { data: withMeetingNote(markdown), tabs: MEETING_TABS } : undefined),
+    [withNote, markdown],
   );
   return (
     <View style={styles.fill}>
@@ -336,14 +313,38 @@ function ConsoleBoard({ surface, bar }: { surface: "bar" | "note" | "aside"; bar
           fakeMeeting={false}
           onOpenNote={() => {}}
           shape={shape}
+          resume={resume}
         />
       </VoiceHostProvider>
-      {bar ? <ResumeBar /> : null}
+      {/*
+        The phone's `+` is the bottom row's key, which raises this sheet; drawn
+        open here, because pressing a key in a fixture with no bottom row has
+        nothing to press.
+      */}
+      {surface === "menu" && phone ? (
+        <CreatePrompt
+          folder={FOLDER}
+          canEdit
+          onCancel={() => {}}
+          onCreateNote={() => {}}
+          onCreateDrawing={() => {}}
+          onCreateFolder={() => {}}
+          onNewMeeting={() => {}}
+          onNewChat={() => {}}
+          onResumeMeeting={resume}
+        />
+      ) : null}
     </View>
   );
 }
 
-export function ResumeFixture({ surface, bar = true }: { surface: ResumeSurface; bar?: boolean }) {
+export function ResumeFixture({
+  surface,
+  noteOpen = true,
+}: {
+  surface: ResumeSurface;
+  noteOpen?: boolean;
+}) {
   const colors = useColors();
   const seeded = useSeededMeeting(surface === "live");
   const snapshot = useMeetingsSnapshot();
@@ -363,7 +364,7 @@ export function ResumeFixture({ surface, bar = true }: { surface: ResumeSurface;
   }
   return (
     <View style={styles.fill} testID="resume-fixture">
-      <ConsoleBoard surface={surface} bar={bar || surface === "bar"} />
+      <ConsoleBoard surface={surface} noteOpen={noteOpen} />
     </View>
   );
 }

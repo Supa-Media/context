@@ -1,13 +1,18 @@
 import type { MeetingDestination } from "./destination";
+import type { ContinueInput } from "./controller";
+import { endedAgo } from "./format";
 import { meetingNoteFacts } from "./note";
 import type { MeetingContinuation, MeetingRecord } from "./record";
 
 /**
  * WHEN A STOPPED MEETING IS OFFERED BACK, AND WHAT PICKING IT UP CONTINUES.
  *
- * Three surfaces offer Resume — the note, the meeting's own page with the
- * console's panel, and the floating bar — and every one of them asks the
- * questions here rather than answering them itself. A control that appears on
+ * Two places offer Resume — the meeting itself (its page on a phone, the
+ * console's Meetings panel) and the `+`, where a meeting is started — and both
+ * ask the questions here rather than answering them itself. Nothing else does:
+ * no bar follows somebody around and no band sits on the note, because an
+ * offer that costs nothing until somebody reaches to record never needs a
+ * dismiss (`docs/decisions/meetings.md`). A control that appears on
  * a meeting it cannot actually continue is worse than no control, and deciding
  * that per surface is how the console once came to offer nothing for states
  * the note screen had always offered a Retry for (`landing.ts`).
@@ -141,24 +146,6 @@ export function continuationFromNote(
 }
 
 /**
- * The offer drawn on an open meeting note, as the note's pane needs it.
- *
- * The pane is the console's, and the console's file pane is rendered on the
- * landing page and by two fixtures as well, none of which has a meeting
- * recorder behind it. So the pane is handed this — built by the console
- * layout, which holds the controller — rather than importing the recorder into
- * a module graph that has no business with a microphone. `VoiceHost` carries
- * it, for the reason it carries `onRecordMeeting`.
- */
-export interface NoteResumeOffer {
-  /** How much of the meeting the note holds. */
-  recordedMs: number;
-  /** Which part pressing it would record — 2 for a note with one. */
-  part: number;
-  onResume: () => void;
-}
-
-/**
  * Where a part started from the note is addressed: the context the note is
  * in, and the note's own folder.
  *
@@ -177,24 +164,24 @@ export function destinationForNote(contextSlug: string, path: string): MeetingDe
 }
 
 /**
- * How long after a meeting stops the floating bar keeps offering it.
+ * How long after a meeting stops the `+` keeps offering it by name.
  *
- * The bar is the impatient offer. The note and the meeting's page offer Resume
- * for as long as the meeting exists — one from March can still be continued —
- * but a bar that follows somebody around the app is for the break in the
- * middle of a meeting, and a meeting that stopped hours ago is not on a break.
+ * The row exists for the break in the middle of a meeting: somebody reaching
+ * for New meeting when the meeting they stopped ten minutes ago is starting
+ * again. A meeting that stopped hours ago is not on a break, and is still one
+ * press away on its own page, in the panel, and from the `+` with its note open.
  */
-export const RESUME_BAR_WINDOW_MS = 2 * 60 * 60 * 1000;
+export const RESUME_RECENT_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /**
- * The meeting the floating bar offers to pick back up, or `null`.
+ * The most recent meeting on this device, if it may be picked back up, or
+ * `null`.
  *
- * The most recent meeting on this device, and only if it is the one that most
- * recently stopped: recording something else is what retires the offer, so the
- * bar never offers a meeting from before the one somebody just had. Then the
- * same rules as everywhere else, the person's own dismissal, and the window.
+ * Only the one that most recently started: recording something else is what
+ * retires the offer, so the `+` never names a meeting from before the one
+ * somebody just had. Then the same rules as everywhere else, and the window.
  */
-export function resumeBarOffer(input: {
+export function recentMeetingToResume(input: {
   records: readonly MeetingRecord[];
   live: MeetingRecord | null;
   canContinue: boolean;
@@ -208,8 +195,7 @@ export function resumeBarOffer(input: {
   }
   if (newest === null) return null;
   if (newest.session.state !== "complete" || newest.session.notePath === null) return null;
-  if (newest.resumeDismissed === true) return null;
-  if (input.now - stoppedAt(newest) > RESUME_BAR_WINDOW_MS) return null;
+  if (input.now - stoppedAt(newest) > RESUME_RECENT_WINDOW_MS) return null;
   if (
     !mayResume({
       records: input.records,
@@ -221,6 +207,72 @@ export function resumeBarOffer(input: {
     return null;
   }
   return newest;
+}
+
+/** What the `+`'s Resume row needs: the line under it, and what pressing it continues. */
+export interface ResumeRow {
+  detail: string;
+  input: ContinueInput;
+}
+
+/**
+ * The `+`'s Resume meeting row, or `null` for no row.
+ *
+ * The open note first: when it is a meeting note that may be continued, the
+ * row continues *it* — which also covers a meeting another device recorded,
+ * one this device holds no record of. Otherwise the meeting that just stopped
+ * (`recentMeetingToResume`), named, so the row says which meeting it means.
+ */
+export function resumeRowFor(input: {
+  records: readonly MeetingRecord[];
+  live: MeetingRecord | null;
+  canContinue: boolean;
+  now: number;
+  openNote: { contextSlug: string; path: string; markdown: string } | null;
+}): ResumeRow | null {
+  const rules = { records: input.records, live: input.live, canContinue: input.canContinue };
+  if (input.openNote !== null) {
+    const found = continuationFromNote(input.openNote.path, input.openNote.markdown);
+    if (found !== null && mayResume({ ...rules, meetingId: found.continues.meetingId })) {
+      return {
+        detail: "Adds to this note.",
+        input: {
+          continues: found.continues,
+          title: found.title,
+          destination: destinationForNote(input.openNote.contextSlug, input.openNote.path),
+        },
+      };
+    }
+  }
+  const recent = recentMeetingToResume({ ...rules, now: input.now });
+  if (recent === null) return null;
+  const continues = continuationFromRecord(input.records, recent);
+  if (continues === null) return null;
+  const ago = endedAgo(recent.session.endedAt, input.now);
+  return {
+    detail: ago === "" ? recent.session.title : `${recent.session.title} · ${ago}`,
+    input: { continues, title: recent.session.title, destination: recent.destination },
+  };
+}
+
+/**
+ * One row per meeting, for the lists: the newest part stands for the meeting.
+ *
+ * A resumed meeting is one meeting in one note, and a list that drew a row per
+ * part would show the same title twice, both opening the same file. Order is
+ * kept — the records arrive newest first, so the first part of each meeting
+ * met is its newest.
+ */
+export function oneRowPerMeeting(records: readonly MeetingRecord[]): MeetingRecord[] {
+  const seen = new Set<string>();
+  const rows: MeetingRecord[] = [];
+  for (const record of records) {
+    const id = meetingIdOf(record);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    rows.push(record);
+  }
+  return rows;
 }
 
 /** How much of a meeting this device knows was recorded, across its parts. */

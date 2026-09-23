@@ -168,15 +168,6 @@ export interface MeetingRecord {
    * Absent for an ordinary meeting. See `MeetingContinuation`.
    */
   continues?: MeetingContinuation;
-  /**
-   * The person closed the offer to pick this meeting back up.
-   *
-   * Only the floating bar reads it — the bar is the offer that follows
-   * somebody around, so it is the one that has to be told to stop. The note
-   * and the meeting's own page go on offering Resume, because a meeting from
-   * March can still be continued and neither of them interrupts anything.
-   */
-  resumeDismissed?: true;
   /** ISO timestamp the currently-open recording interval started at. */
   runningSince: string | null;
   /** When anything about this record last changed, for ordering a restore. */
@@ -570,7 +561,6 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
     ...(record.folderRejected === true ? { folderRejected: true as const } : {}),
     // Narrowed the same way, and for the same reason.
     ...(record.interrupted === true ? { interrupted: true as const } : {}),
-    ...(record.resumeDismissed === true ? { resumeDismissed: true as const } : {}),
     /*
       Re-validated for `destination`'s reason: the path becomes a key in a read
       and a write against the customer's own bucket. A continuation that will

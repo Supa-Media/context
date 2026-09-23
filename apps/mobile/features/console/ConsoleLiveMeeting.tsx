@@ -5,7 +5,7 @@ import { Dot } from "../design/components/Dot";
 import { Text } from "../design/components/Text";
 import { radii, space } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
-import { recordElapsedMs } from "../meetings/controller";
+import { meetingElapsedMs } from "../meetings/controller";
 import { clock } from "../meetings/format";
 import { useMeetingsSnapshot, useTick } from "../meetings/useMeetings";
 
@@ -51,7 +51,7 @@ export function ConsoleLiveMeeting({ onOpen }: { onOpen: () => void }) {
   if (live === null || frame.state.asideOpen) return null;
 
   const paused = live.session.state === "paused";
-  const elapsed = clock(recordElapsedMs(live, now === 0 ? Date.now() : now));
+  const elapsed = clock(meetingElapsedMs(live, now === 0 ? Date.now() : now));
 
   return (
     <Pressable

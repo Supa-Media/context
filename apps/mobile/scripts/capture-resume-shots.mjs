@@ -42,25 +42,23 @@ const VIEWPORTS = [
  */
 const BOARDS = [
   {
-    name: "resume-bar",
-    query: "surface=bar",
-    ready: "resume-bar",
-    closeUp: "resume-bar",
+    name: "plus-menu-note",
+    query: "surface=menu",
+    // A pointer's `+` is pressed; a phone's sheet is drawn open.
+    steps: { desktop: ["console-create"] },
+    ready: { desktop: "menu-item-resume-meeting", phone: "create-row-resume-meeting" },
+    closeUp: { desktop: "menu-sheet" },
   },
   {
-    name: "note-band",
-    query: "surface=note&bar=0",
-    ready: "browse-meeting-resume",
-    closeUp: "browse-meeting-resume",
-  },
-  {
-    name: "note-band-with-bar",
-    query: "surface=note",
-    ready: "browse-meeting-resume",
+    name: "plus-menu-recent",
+    query: "surface=menu&note=0",
+    steps: { desktop: ["console-create"] },
+    ready: { desktop: "menu-item-resume-meeting", phone: "create-row-resume-meeting" },
+    closeUp: { desktop: "menu-sheet" },
   },
   {
     name: "aside-panel",
-    query: "surface=aside&bar=0",
+    query: "surface=aside",
     // The panel only exists at a pointer width; a phone has no right panel.
     only: ["desktop"],
     steps: [`aside-tab-meetings`, `aside-meeting-row-mtg_7k2m9p4q8r3s6t1v5wxy`],
@@ -75,9 +73,15 @@ const BOARDS = [
   {
     name: "live-continues",
     query: "surface=live",
-    ready: "meeting-continues",
+    ready: "meeting-clock",
   },
 ];
+
+/** A board value, or its value for this viewport when it differs by density. */
+function forViewport(value, viewport) {
+  if (value === undefined || typeof value === "string" || Array.isArray(value)) return value;
+  return value[viewport.name];
+}
 
 if (!existsSync(join(EXPORT_DIR, "index.html"))) {
   console.error(`No export at ${EXPORT_DIR}. Run \`pnpm run build:e2e-web\` first.`);
@@ -119,10 +123,10 @@ try {
         const page = await context.newPage();
         try {
           await page.goto(`http://127.0.0.1:${PORT}/e2e-fixture?screen=resume&${board.query}`);
-          for (const id of board.steps ?? []) {
+          for (const id of forViewport(board.steps, viewport) ?? []) {
             await page.getByTestId(id).first().click({ timeout: 10_000 });
           }
-          const target = page.getByTestId(board.ready).first();
+          const target = page.getByTestId(forViewport(board.ready, viewport)).first();
           await target.waitFor({ state: "visible", timeout: 15_000 });
           // Fonts and the frame's first layout pass.
           await page.evaluate(() => document.fonts.ready);
@@ -130,9 +134,10 @@ try {
           const full = join(OUT, `${base}.png`);
           await page.screenshot({ path: full });
           written.push(full);
-          if (board.closeUp !== undefined) {
+          const closeUp = forViewport(board.closeUp, viewport);
+          if (closeUp !== undefined) {
             const close = join(OUT, `${base}-closeup.png`);
-            const box = await page.getByTestId(board.closeUp).first().boundingBox();
+            const box = await page.getByTestId(closeUp).first().boundingBox();
             if (box !== null) {
               const pad = 24;
               const x = Math.max(0, box.x - pad);
