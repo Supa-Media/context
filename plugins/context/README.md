@@ -1,46 +1,40 @@
-# @supa-media/context-hook
+# @supa-media/context
 
-Brackets an AI coding session with your [Context](https://context.lc): the
-orientation goes in at the start, what was learned comes back at the end, and
-neither depends on the agent remembering to.
-
-```sh
-npx -y @supa-media/context-hook install
-```
-
-That signs you in once in your browser and adds two hooks to
-`~/.claude/settings.json`:
-
-- **`SessionStart`** puts orientation in front of the model before it answers
-  anything, so reading your context stops depending on the agent choosing to.
-- **`SessionEnd`** saves the session's user-visible messages to `0-inbox/`, so
-  writing back stops depending on it too.
-
-## The session-start hook, and the one real choice in this package
-
-Claude Code injects a `SessionStart` hook's output into the session before the
-first turn. That is the only mechanism here that does not rely on an agent
-deciding anything, and there are two versions of it:
-
-**By default it injects an instruction** — that this context exists, that the
-answer is probably already in it, and to call `orient` before answering. It
-needs no read access and it is strictly stronger than a tool description,
-because it is in the conversation rather than in a list the model may skim.
-
-**With `--orient` it injects your actual orientation**, fetched at session
-start: your front page, what you touched recently, your folders. This is the
-strongest version and it costs something real — reading requires read access on
-a credential that lives on your laptop unattended. That is why it is a flag you
-type rather than a default you discover later.
+Your [Context](https://context.lc) in every coding agent you use, and your notes
+from the terminal. One command:
 
 ```sh
-npx -y @supa-media/context-hook install --orient
+npx -y @supa-media/context install
 ```
 
-Neither version ever asks for `context:private`. A hook that could read every
-note you marked private is past what convenience is worth, so on a
-mostly-private context the injected orientation is thin — and says so, rather
-than implying your context is empty.
+It signs you in once in your browser, finds the coding agents on this machine,
+asks which to use, and adds Context to each:
+
+- **Claude Code** and **Gemini CLI**, and **Codex** where its `plugin` command
+  exists: the `context` plugin, which brings the MCP server, two skills, and two
+  session hooks.
+- **Cursor, OpenCode, VS Code, Windsurf, Copilot CLI**, and Codex or Gemini
+  without that command: the MCP server and the skills. Those agents have no
+  plugin runtime, so no hooks.
+
+This folder is both that plugin and this npm package.
+
+## What the plugin does in a session
+
+- **The skills** tell the agent when to read your notes (`orient` first) and
+  how to write back (`write_note`, `save_context`), and give it a
+  `context-save` command.
+- **Session start** tells the agent your notes exist and to call `orient`
+  before answering. With `orient` set to `live` it injects the orientation
+  itself. In a folder bound to a workspace, it also says which one to pass.
+- **Session end** saves the session to your Context inbox. It hands the work to
+  a background process and returns at once, because Claude Code gives these
+  hooks 1.5 seconds in total and Codex at most 3.
+
+Capture is on by default. Turn it off everywhere with
+`npx @supa-media/context config set capture off`, in one project with
+`"capture": "off"` in its `.context.json`, or for a folder tree with
+`config set captureExclude ~/work/client`.
 
 ## Why this exists
 
@@ -68,84 +62,83 @@ filter fails silently and only in the direction that matters.
 That is deliberately lossy. A session whose substance was all tool output comes
 out thin, and thin is the right failure.
 
-## What it can do to your context
+## Scopes and workspaces
 
-By default, nothing except add to your inbox.
+```sh
+npx -y @supa-media/context install                          # every folder (user scope)
+npx -y @supa-media/context install --scope project          # this folder, shared with the team
+npx -y @supa-media/context install --scope local            # this folder, only for you
+npx -y @supa-media/context install --agent claude-code,cursor --workspace @team -y
+```
 
-The hook asks for `context:capture` and no other scope. That grant can write a
-capture and **cannot read a single note** — it cannot search, cannot list, and
-cannot tell you whether a note exists. A stolen credential from this file is
-worth very little, which is the point: it sits on a laptop, unattended, for a
-long time.
+A project or local install binds the folder to a workspace in `.context.json`
+(`link @slug` and `unlink` do the same on their own). Project scope commits
+that file so the team shares it; local scope keeps it out of git through
+`.git/info/exclude`. The file may set `workspace`, `capture` and `captureTo`.
+It may never set the server: it is written by whoever can commit to the
+repository, and the server is where your sign-in is sent.
 
-`--orient` widens that to `context:read` so the start hook can fetch your
-orientation. That is a real widening and the reason it is a flag: the same
-credential can then read your team-visible notes. It still never asks for
-`context:private`, so notes you marked private stay out of reach either way.
+Captures go to your **personal** workspace's inbox even in a project bound to
+a shared one, unless you set `captureTo` to `workspace`.
 
-It appears in Connections in the Context console like any other client, under
-the name `Context hook (<your hostname>)`, and is revoked there on its own.
+## Settings
 
-## Where the credential lives
+`npx @supa-media/context config list` shows every setting and the layer that set
+it: a flag, the environment (`CONTEXT_ENDPOINT`, `CONTEXT_WORKSPACE`,
+`CONTEXT_CAPTURE`), the nearest `.context.json`, `~/.context/config.json`, or the
+default.
 
-`~/.context/hook.json`, created `0600` inside a `0700` directory, written
-atomically. It holds a refresh token and the client id this machine registered.
-It is never printed, never passed on a command line, and never written into
-your client's settings file — so a `settings.json` you paste into a bug report
-carries no secret.
+| Setting | Default | |
+|---|---|---|
+| `endpoint` | `https://mcp.context.lc/mcp` | your own gateway if you self-host |
+| `workspace` | the sign-in's default | usually set per folder |
+| `capture` | `on` | save sessions at their end |
+| `captureExclude` | none | folders never captured |
+| `captureTo` | `personal` | or `workspace` |
+| `orient` | `instruction` | or `live` |
+
+## Your notes from the terminal
+
+Every tool your sign-in can use is a command, read from the server's own list:
+
+```sh
+npx @supa-media/context tools
+npx @supa-media/context search-notes --query pricing
+npx @supa-media/context read-note --path 1-projects/launch.md
+npx @supa-media/context search-notes --help
+```
+
+## What your sign-in can do
+
+`login` asks for read and write, and never for your private notes: notes you
+marked private stay out of reach of this machine's credential. It appears in
+Connections in the Context console as `Context CLI (<your hostname>)` and is
+revoked there on its own.
+
+The credential lives in `~/.context/credentials.json`, created `0600` inside a
+`0700` directory and written atomically. It is never printed, never passed on a
+command line, and never written into an agent's settings. Refreshes happen one
+at a time, so two sessions closing together cannot spend one rotating refresh
+token twice.
 
 ## Commands
 
 ```sh
-npx -y @supa-media/context-hook install      # sign in, then add the hook
-npx -y @supa-media/context-hook status       # is this machine signed in?
-npx -y @supa-media/context-hook uninstall    # remove the hook, forget the credential
+npx -y @supa-media/context install      # sign in, then add Context to your agents
+npx -y @supa-media/context uninstall    # remove exactly what install added
+npx -y @supa-media/context status       # sign-in, workspace, capture, installs, last capture
+npx -y @supa-media/context login        # sign in again
+npx -y @supa-media/context logout       # delete this machine's stored sign-in
 ```
 
-`--endpoint <url>` points it at your own gateway if you self-host.
+`--endpoint <url>` points any of them at your own gateway.
 
-## Which clients
+## Moving from `@supa-media/context-hook`
 
-**Claude Code, Codex CLI, and Gemini CLI.** All three ship documented hook
-systems of the same shape: a command per lifecycle event, JSON on stdin
-carrying `session_id`, `transcript_path` and `cwd`, and an `additionalContext`
-field at session start that injects text into the model's context.
-
-```sh
-npx -y @supa-media/context-hook install --client codex
-npx -y @supa-media/context-hook install --client gemini-cli
-```
-
-They differ in three details this package handles for you: the file
-(`~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`),
-what the end of a session is called (Codex says `Stop`, the others say
-`SessionEnd`), and the unit of `timeout` — seconds for Claude Code and Codex,
-**milliseconds** for Gemini CLI. Nothing here writes a timeout rather than carry
-a number that means two different things depending on where it lands.
-
-**Not supported, and why.** Cursor has hooks (`beforeSubmitPrompt` through
-`stop`) but no documented transcript path, so the capture half has nothing to
-read. Hosted ChatGPT has no hook system at all — it is a product rather than a
-harness, and the MCP connector is the whole surface.
-
-Every one of those clients still has some standing-instruction surface it
-re-reads on its own — a system prompt setting, a rules file — even without a
-hook to install into it. Paste this there once and the client starts every
-turn already knowing to check:
-
-> Always orient using the Context MCP (call `orient`) before answering
-> anything about me or my work, and save what you learn with `save_context`
-> before you finish.
-
-The Context console's connect card has this pre-filled per client, with where
-to paste it — Settings → Personalization for ChatGPT, `CLAUDE.md` for Claude
-Code, and so on.
-
-**One honest caveat.** The transcript parser was written against Claude Code's
-format. Codex and Gemini CLI hand over a path to their own; the parser drops
-anything it does not positively recognise, so the worst case there is a save
-that keeps less than it could — and it says so on the spot rather than going
-quiet. The session-start half reads no transcript at all and is unaffected.
+This package replaces it. `install` removes the hooks the old package wrote into
+`~/.claude/settings.json`, `~/.codex/hooks.json` and `~/.gemini/settings.json`,
+so sessions are not saved twice. Its `~/.context/hook.json` is not read: sign in
+once with `login` (or `install`).
 
 ## Dependencies
 
