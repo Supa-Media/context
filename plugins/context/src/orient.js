@@ -27,6 +27,8 @@
  */
 
 /** A start hook that stalls is a client that will not open. */
+import { callTool } from "./mcp.js";
+
 const ORIENT_TIMEOUT_MS = 8_000;
 
 /**
@@ -63,37 +65,11 @@ export function orientDirective() {
  * opening prompt has made their session worse than not being installed.
  */
 export async function fetchOrientation({ endpoint, token, fetchImpl = fetch, timeoutMs = ORIENT_TIMEOUT_MS }) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: "orient", arguments: {} },
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok) return null;
-    const body = await response.json().catch(() => null);
-    // A JSON-RPC error arrives with HTTP 200, and `isError` marks a tool that
-    // refused. Neither is orientation, and injecting either as if it were would
-    // put an error message into the model's head as fact.
-    if (!body || body.error || body.result?.isError) return null;
-    const text = body.result?.content?.find((block) => block?.type === "text")?.text;
-    return typeof text === "string" && text.trim() ? text : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const answer = await callTool({ url: endpoint, token, name: "orient", fetchImpl, timeoutMs });
+  // `isError` marks a tool that refused. That is not orientation, and injecting
+  // it as if it were would put an error message into the model's head as fact.
+  if (!answer || answer.isError || !answer.text.trim()) return null;
+  return answer.text;
 }
 
 /**
@@ -103,15 +79,18 @@ export async function fetchOrientation({ endpoint, token, fetchImpl = fetch, tim
  * is a snapshot taken seconds ago, and a model that treats it as live will
  * happily tell somebody a note exists that was deleted this morning.
  */
-export function startContext({ orientation, at = new Date() }) {
-  if (!orientation) return orientDirective();
+export function startContext({ orientation, workspace = null, at = new Date() }) {
+  const binding = workspace
+    ? `\n\nThis project is bound to the @${workspace} workspace. Pass \`context: "@${workspace}"\` on every Context tool call here, or it acts on the person's default workspace instead.`
+    : "";
+  if (!orientation) return orientDirective() + binding;
   return [
     "The user's Context, as of the moment this session started",
     `(${at.toISOString()}). Call \`orient\` again if you need it fresher, and`,
     "`save_context` before you finish if this session produces anything durable.",
     "",
     orientation.trim(),
-  ].join("\n");
+  ].join("\n") + binding;
 }
 
 export { ORIENT_TIMEOUT_MS };

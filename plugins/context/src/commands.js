@@ -30,6 +30,9 @@ import {
   stateMatches,
 } from "./oauth.js";
 import { captureBody, transcriptToMarkdown } from "./transcript.js";
+import { resolveSettings, workspaceUrl } from "./settings.js";
+import { homedir } from "node:os";
+import { resolve as resolvePath, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -224,6 +227,18 @@ export async function capture({
   log = console.log,
 }) {
   const payload = await readJsonStdin(stdin);
+  // Settings come from the SESSION's folder, not this process's: a hook runs
+  // wherever the agent started it, and the project file that decides where
+  // this capture goes is the one above the session's working directory.
+  const { settings } = await resolveSettings({ flags: { endpoint }, cwd: payload?.cwd || homedir() });
+  if (settings.capture === "off") {
+    log("context: capture is off here; nothing saved");
+    return { saved: false, reason: "off" };
+  }
+  if (payload?.cwd && isExcluded(payload.cwd, settings.captureExclude)) {
+    log("context: this folder is excluded from capture; nothing saved");
+    return { saved: false, reason: "excluded" };
+  }
   const transcriptPath = payload?.transcript_path || payload?.transcriptPath;
   if (!transcriptPath) {
     log("context: no transcript in the session payload; nothing saved");
@@ -256,8 +271,13 @@ export async function capture({
     truncated,
   });
 
-  const token = await accessTokenFor({ endpoint, configPath, fetchImpl });
-  const response = await fetchImpl(new URL("/inbox", endpoint).href, {
+  const token = await accessTokenFor({ endpoint: settings.endpoint, configPath, fetchImpl });
+  // Personal unless this person or project chose the project's workspace. With
+  // no personal workspace on record (an older gateway told us nothing), no
+  // slug: the gateway files it in the workspace the sign-in was approved for.
+  const destination =
+    settings.captureTo === "workspace" && settings.workspace ? settings.workspace : settings.personal;
+  const response = await fetchImpl(workspaceUrl(settings.endpoint, destination, "/inbox"), {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -287,21 +307,27 @@ export async function sessionStart({
   fetchImpl = fetch,
   emit = (text) => process.stdout.write(text),
 }) {
-  await readJsonStdin(stdin); // drained: Claude Code closes the pipe on our exit
+  const payload = await readJsonStdin(stdin); // drained: Claude Code closes the pipe on our exit
   let orientation = null;
+  let workspace = null;
   try {
+    const { settings, sources } = await resolveSettings({ flags: { endpoint }, cwd: payload?.cwd || homedir() });
+    // Only a project's own binding is named: a person's default workspace is
+    // already what the connection uses when no `context` is passed.
+    if (sources.workspace === "project") workspace = settings.workspace;
+    endpoint = settings.endpoint;
     const record = await loadEndpoint(endpoint, configPath);
     // No point spending a round trip to be told no. A capture-only grant cannot
     // read, and asking anyway would put an error in the logs on every session.
     if (record && String(record.scope || "").includes("context:read")) {
       const token = await accessTokenFor({ endpoint, configPath, fetchImpl });
-      orientation = await fetchOrientation({ endpoint, token, fetchImpl });
+      orientation = await fetchOrientation({ endpoint: workspaceUrl(endpoint, workspace), token, fetchImpl });
     }
   } catch {
     orientation = null;
   }
 
-  const context = startContext({ orientation });
+  const context = startContext({ orientation, workspace });
   // The documented JSON form rather than bare stdout: `additionalContext` is
   // the field Claude Code injects, and plain text is a looser contract that has
   // meant different things across versions.
@@ -341,6 +367,15 @@ export async function uninstall({
   log(forgotten ? "Forgot the stored credential." : "There was no stored credential.");
   log("The grant itself is revoked from Connections in the Context console.");
   return { removed, forgotten };
+}
+
+/** Whether `cwd` is one of the excluded folders or inside one. `~` means home. */
+function isExcluded(cwd, excluded = []) {
+  const here = resolvePath(cwd);
+  return excluded.some((entry) => {
+    const folder = resolvePath(entry.replace(/^~(?=$|\/)/, homedir()));
+    return here === folder || here.startsWith(folder + sep);
+  });
 }
 
 async function readJsonStdin(stream) {

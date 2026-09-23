@@ -57,7 +57,7 @@
  */
 
 import { createServer } from "node:http";
-import { mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -74,6 +74,8 @@ import {
 } from "../src/oauth.js";
 import { endpointKey, credentialEndpointKey, saveEndpoint } from "../src/config.js";
 import { clientById, installHook, uninstallHook, HOOK_MARKER } from "../src/install.js";
+import { callTool, listWorkspaces } from "../src/mcp.js";
+import { writeSetting } from "../src/settings.js";
 
 let failures = 0;
 function check(label, condition) {
@@ -119,6 +121,13 @@ async function startStubServer() {
     /** Every Authorization header the gateway half was shown. */
     seenTokens: [],
     rotate: true,
+    /** The full path of every gateway request, `/@slug` included. */
+    paths: [],
+    /** What `scope_info { workspaces: true }` answers; `null` plays an older gateway. */
+    workspaces: [
+      { slug: "me", role: "owner", kind: "personal", current: true },
+      { slug: "team", role: "editor", kind: "shared", current: false },
+    ],
   };
 
   const server = createServer(async (request, response) => {
@@ -133,6 +142,8 @@ async function startStubServer() {
       return Buffer.concat(chunks).toString("utf8");
     };
     const origin = `http://127.0.0.1:${server.address().port}`;
+    // The gateway strips `/@slug` before routing; so does this.
+    const route = url.pathname.replace(/^\/@[^/]+(?=\/)/, "");
 
     if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
       return send(200, { resource: `${origin}/mcp`, authorization_servers: [origin] });
@@ -182,18 +193,27 @@ async function startStubServer() {
         scope: issued.scope,
       });
     }
-    if (url.pathname === "/mcp") {
+    if (route === "/mcp") {
+      state.paths.push(url.pathname);
       state.seenTokens.push(request.headers.authorization || "");
       const rpc = JSON.parse(await readBody());
       state.mcpCalls.push(rpc);
       if (state.orientFails) return send(500, { error: "boom" });
+      if (rpc.method === "tools/call" && rpc.params?.name === "scope_info" && rpc.params?.arguments?.workspaces) {
+        if (!state.workspaces) {
+          return send(200, { jsonrpc: "2.0", id: rpc.id, result: { isError: true, content: [{ type: "text", text: "unknown argument: workspaces" }] } });
+        }
+        const text = `# Scope\n\n## Workspaces\n\n\`\`\`json\n${JSON.stringify(state.workspaces)}\n\`\`\``;
+        return send(200, { jsonrpc: "2.0", id: rpc.id, result: { content: [{ type: "text", text }] } });
+      }
       return send(200, {
         jsonrpc: "2.0",
         id: rpc.id,
         result: { content: [{ type: "text", text: "# Orientation\n\n12 notes visible." }] },
       });
     }
-    if (url.pathname === "/inbox") {
+    if (route === "/inbox") {
+      state.paths.push(url.pathname);
       state.seenTokens.push(request.headers.authorization || "");
       state.captures.push(JSON.parse(await readBody()));
       return send(200, { ok: true });
@@ -325,6 +345,10 @@ const TRANSCRIPT = [
 
 const server = await startStubServer();
 const home = await mkdtemp(join(tmpdir(), "context-hook-"));
+// Settings are read from the home folder and a project file under it, so the
+// suite gets a home of its own rather than the person's running it.
+process.env.HOME = home;
+process.env.CONTEXT_CONFIG = join(home, ".context", "config.json");
 const configPath = join(home, "hook.json");
 const settingsPath = join(home, "claude-settings.json");
 process.env.CONTEXT_HOOK_CLAUDE_SETTINGS = settingsPath;
@@ -1340,6 +1364,77 @@ check(
   orientRegistration.scope === ORIENT_SCOPE &&
     server.state.lastAuthorize.searchParams.get("scope") === ORIENT_SCOPE
 );
+
+// -- which workspace a capture lands in
+
+/*
+  Captures go to the person's own inbox unless they chose otherwise, even in a
+  project bound to a shared workspace: a session transcript is theirs, and the
+  gateway files a capture in whichever workspace the URL names. The slug has to
+  survive into the URL, which `new URL("/inbox", endpoint)` used to throw away.
+*/
+const projectDir = join(home, "work", "shared-repo");
+await mkdir(projectDir, { recursive: true });
+await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "@team" }));
+await writeSetting("personal", "me");
+const captureIn = async (cwd) => {
+  const before = server.state.captures.length;
+  const result = await commands.capture({
+    endpoint: server.endpoint,
+    client: "claude-code",
+    configPath,
+    stdin: [JSON.stringify({ session_id: `s-${cwd.length}-${Date.now()}`, transcript_path: transcriptPath, cwd })],
+    log,
+  });
+  return { result, posted: server.state.captures.length - before, path: server.state.paths.at(-1) };
+};
+let landed = await captureIn(projectDir);
+check("in a project bound to a shared workspace, a capture still goes to the personal inbox", landed.posted === 1 && landed.path === "/@me/inbox");
+await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "@team", captureTo: "workspace" }));
+landed = await captureIn(projectDir);
+check("...unless the project says captures go to its workspace", landed.posted === 1 && landed.path === "/@team/inbox");
+await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "@team", capture: "off" }));
+landed = await captureIn(projectDir);
+check("a project that turns capture off sends nothing", landed.posted === 0 && landed.result.reason === "off");
+await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "@team" }));
+await writeSetting("captureExclude", [join(home, "work")]);
+landed = await captureIn(projectDir);
+check("a folder this person excluded sends nothing, subfolders included", landed.posted === 0 && landed.result.reason === "excluded");
+await writeSetting("captureExclude", null);
+
+// -- session start names the project's workspace
+
+const inProject = await commands.sessionStart({
+  endpoint: server.endpoint,
+  configPath,
+  stdin: [JSON.stringify({ session_id: "s2", source: "startup", cwd: projectDir })],
+  emit,
+});
+check(
+  "in a bound project, session start tells the agent which workspace to pass",
+  inProject.injected.includes('context: "@team"')
+);
+const elsewhere = await commands.sessionStart({
+  endpoint: server.endpoint,
+  configPath,
+  stdin: [JSON.stringify({ session_id: "s3", source: "startup", cwd: home })],
+  emit,
+});
+check("...and outside one it names none", !elsewhere.injected.includes('context: "@'));
+
+// -- the MCP helpers
+
+const helperToken = await commands.accessTokenFor({ endpoint: server.endpoint, configPath });
+const listedWorkspaces = await listWorkspaces({ url: server.endpoint, token: helperToken });
+check("listWorkspaces reads the gateway's JSON block", listedWorkspaces?.map((entry) => entry.slug).join(",") === "me,team");
+server.state.workspaces = null;
+check("...and an older gateway that refuses the argument gives null", (await listWorkspaces({ url: server.endpoint, token: helperToken })) === null);
+server.state.workspaces = [{ slug: "me", role: "owner", kind: "personal", current: true }];
+const called = await callTool({ url: server.endpoint, token: helperToken, name: "orient" });
+check("callTool returns the tool's text", called?.text.includes("12 notes visible") && called.isError === false);
+server.state.orientFails = true;
+check("...and null when nothing usable came back", (await callTool({ url: server.endpoint, token: helperToken, name: "orient" })) === null);
+server.state.orientFails = false;
 
 server.close();
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
