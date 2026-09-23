@@ -62,9 +62,10 @@ jobs:
 
       # One runtime dependency is allowed, pinned exactly, and nothing else:
       # `add-mcp`, which writes MCP entries into other agents' config files
-      # during `install` (proposed in an issue per this package's rule). The
-      # hooks and the credential code never load it; the import check below
-      # confines it to src/installer.js.
+      # during `install`. The hooks and the credential code never load it; the
+      # import check below confines it to src/installer.js. A new dependency is
+      # added to the allowlist here, pinned, and argued for in its pull request
+      # and in docs/decisions/plugins.md.
       - name: Assert plugins/context declares only its one reviewed dependency
         run: |
           set -euo pipefail
@@ -82,7 +83,7 @@ jobs:
             if (bad) {
               console.log("\nThis package runs on a user\u0027s laptop, holds a credential, and reads their");
               console.log("session transcripts. Every dependency can change what it does to either.");
-              console.log("Propose it in an issue first.");
+              console.log("Add it to the allowlist here, pinned, and argue for it in the PR and docs/decisions.");
               process.exit(1);
             }
             console.log("OK: only the reviewed dependency, pinned.");
