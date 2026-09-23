@@ -152,7 +152,7 @@ function ProviderRow({
         <View style={styles.actions}>
           {provider.hook ? (
             <Button
-              label={panel === "hook" ? "Hide" : "Hooks"}
+              label={panel === "hook" ? "Hide" : "Plugin"}
               accessibilityLabel={
                 panel === "hook"
                   ? `Hide how to save ${provider.name} sessions automatically`
@@ -199,7 +199,7 @@ function ProviderRow({
             Run this in your terminal.
           </Text>
           <View style={styles.field}>
-            <Text variant="eyebrow">Install the hook</Text>
+            <Text variant="eyebrow">Install with one command</Text>
             <CopyField
               value={provider.hook.command(endpoint)}
               label={`Copy the hook install command for ${provider.name}`}

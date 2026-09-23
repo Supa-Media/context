@@ -7,13 +7,14 @@ import { fonts, leading, radii, space, tracking } from "../../design/tokens";
 import { pointerType as t } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
-import { ENDPOINT_NOTE, TIER_NOTE } from "../agents";
+import { ENDPOINT_NOTE, INSTALL_COMMAND, INSTALL_NOTE, TIER_NOTE } from "../agents";
 
 /**
  * A-07 — Connections, as an onboarding step.
  *
- * The endpoint sits at the top because it is the one thing every client needs.
- * Below it, the clients the guides cover — Claude Desktop and ChatGPT — each
+ * Coding agents get one installer command; the endpoint remains for apps that
+ * command cannot reach. Below it, the clients the guides cover — Claude
+ * Desktop and ChatGPT — each
  * carry their own status pill and a link into the setup walkthrough. Other
  * MCP-speaking clients are named but not called out; the endpoint works for
  * them the same way, and pretending otherwise would be inventing an integration
@@ -42,8 +43,20 @@ export function ConnectionsStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        Point one of the AI tools you already use at this endpoint. Each row
-        turns green once that tool has signed in and made its first call.
+        Add Context to one of the AI tools you already use. Each row turns
+        green once that tool has signed in and made its first call.
+      </Text>
+
+      <Text variant="eyebrow" style={styles.head}>
+        In your coding agents
+      </Text>
+      <CopyField
+        value={INSTALL_COMMAND}
+        label="Copy the install command"
+        testID="welcome-connections-install"
+      />
+      <Text variant="foot" style={styles.hint}>
+        {INSTALL_NOTE}
       </Text>
 
       <Text variant="eyebrow" style={styles.head}>

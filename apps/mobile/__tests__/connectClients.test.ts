@@ -227,18 +227,23 @@ describe("the hooks panel", () => {
    * mean it, rather than discovering months later that a row quietly lost its
    * button.
    */
-  test("the three clients with documented hooks have one, and the others do not", () => {
+  test("the clients `npx @supa-media/context install` covers offer it, and the others do not", () => {
+    // Claude Code, Codex and Gemini CLI get the plugin (MCP, skills, hooks);
+    // Cursor and VS Code get the MCP entry and the skills.
     const withHook = CLIENT_PROVIDERS.filter((provider) => provider.hook).map((p) => p.id).sort();
-    expect(withHook).toEqual(["claude-code", "codex", "gemini-cli"]);
+    expect(withHook).toEqual(["claude-code", "codex", "cursor", "gemini-cli", "vscode"]);
   });
 
   test("each hook command names its own client", () => {
     const screen = mount();
     for (const provider of CLIENT_PROVIDERS.filter((p) => p.hook)) {
       screen.click(`provider-${provider.id}-hook-toggle`);
-      expect(screen.q(`provider-${provider.id}-hook-command`)!.textContent).toContain(
-        `--client ${provider.id}`,
-      );
+      const text = screen.q(`provider-${provider.id}-hook-command`)!.textContent;
+      expect(text).toContain(`--agent ${provider.id}`);
+      // `--client` belonged to @supa-media/context-hook. The new installer does
+      // not read it, so a command still carrying it would install into every
+      // agent on the machine instead of the one this row is about.
+      expect(text).not.toContain("--client");
     }
     screen.unmount();
   });
@@ -283,10 +288,14 @@ describe("the hooks panel", () => {
     screen.unmount();
   });
 
-  test("the hook panel says what access it asks for", () => {
+  test("the plugin panel says what access it asks for, and that sessions are saved", () => {
+    // The installer signs in with read and write, asks for private notes with
+    // the choice left to the approval page, and turns capture on. All three are
+    // things a person should read before running it, not discover afterwards.
     const screen = mount();
     screen.click("provider-claude-code-hook-toggle");
-    expect(screen.text()).toContain("capture access only");
+    expect(screen.text()).toContain("read and write access; on the approval page you choose whether it also sees your private notes");
+    expect(screen.text()).toContain("config set capture off");
     screen.unmount();
   });
 });
