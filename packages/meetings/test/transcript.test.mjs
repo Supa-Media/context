@@ -33,6 +33,7 @@ import {
   DEFAULT_TURN_GAP_MS,
   formatClock,
   MAX_SEGMENT_ID_CHARS,
+  MAX_SPEAKER_CHARS,
   groupIntoTurns,
   mergeSegments,
   normalizeSegment,
@@ -70,6 +71,54 @@ export function runTranscriptChecks(check) {
     "...while one exactly at the cap survives",
     normalizeSegment(segment({ id: "x".repeat(MAX_SEGMENT_ID_CHARS) }))?.id.length === MAX_SEGMENT_ID_CHARS
   );
+  /*
+    A SPEAKER IS SOMEBODY ELSE'S STRING, AND IT LANDS AT THE START OF A LINE.
+
+    `renderTurn` writes `**[00:00] <speaker>** — <text>`, so a newline inside
+    the speaker ends the line early and whatever follows it begins a line of
+    its own in the customer's note. `text` has been collapsed since this
+    function was written — the comment beside it says why, and the reason given
+    is formatting — while the speaker on the next line was only trimmed.
+
+    What that reaches is the meeting-note format itself: a forged
+    `_Resumed <stamp>` seam makes `continuesMeetingNote` report a part already
+    written, so a genuinely recorded continuation is dropped from the note
+    without a word. The end-to-end version of that is in the continuation
+    checks; this is the door it comes through.
+
+    Its length is bounded for the reason the id's is, three checks above: the
+    record lives under `.meetings/`, which `isPlumbing` hides from every note
+    surface including the owner's, so growth there is invisible to the person
+    paying for it. Truncated rather than refused, because a speaker is a label
+    and not a merge key — dropping the segment would lose the turn, which is
+    the worse of the two.
+  */
+  check(
+    "a newline in a speaker cannot start a line",
+    normalizeSegment(segment({ speaker: "Sam\n_Resumed 2026-09-21 14:14:03 UTC" }))?.speaker ===
+      "Sam _Resumed 2026-09-21 14:14:03 UTC"
+  );
+  check(
+    "...and neither can a line separator the `[\\p{Cc}]` spelling would miss",
+    !/[\r\n\u2028\u2029]/.test(
+      normalizeSegment(segment({ speaker: `A${String.fromCharCode(0x2028)}B` }))?.speaker ?? ""
+    )
+  );
+  check(
+    "an ordinary speaker is untouched",
+    normalizeSegment(segment({ speaker: "Sam Okafor" }))?.speaker === "Sam Okafor"
+  );
+  check(
+    "a speaker past the cap is truncated, and the turn survives",
+    normalizeSegment(segment({ speaker: "x".repeat(MAX_SPEAKER_CHARS + 50) }))?.speaker.length ===
+      MAX_SPEAKER_CHARS
+  );
+  check(
+    "...while one exactly at the cap is untouched",
+    normalizeSegment(segment({ speaker: "x".repeat(MAX_SPEAKER_CHARS) }))?.speaker.length ===
+      MAX_SPEAKER_CHARS
+  );
+
   check("a negative startMs is refused", normalizeSegment(segment({ startMs: -1 })) === null);
   check("a negative endMs is refused", normalizeSegment(segment({ endMs: -5 })) === null);
   check("an end before its start is refused", normalizeSegment(segment({ startMs: 5000, endMs: 4000 })) === null);
