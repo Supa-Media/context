@@ -93,10 +93,10 @@ They have ordinary workspace permissions, with no admin or production privileges
 
 | Email | Persona | Personal workspace | Lumio | Maison Solenne | Common Ground |
 | --- | --- | --- | --- | --- | --- |
-| alpha@supa.media | Alpha Morgan, product founder and campaign collaborator | @alpha-morgan | Owner | Editor | None |
+| alpha@supa.media | Alpha Morgan, product founder and campaign collaborator | @alpha | Owner | Editor | None |
 | beta@supa.media | Beta Chen, freelance product and program operator | None | Editor | Read-only member | Editor |
 | gamma@supa.media | Gamma Ellis, pilot reviewer and volunteer | None | Read-only member | None | Read-only member |
-| delta@supa.media | Delta Brooks, creative director and nonprofit lead | @delta-brooks | None | Owner | Owner |
+| delta@supa.media | Delta Brooks, creative director and nonprofit lead | @delta | None | Owner | Owner |
 | epsilon@supa.media | Epsilon Reed, new collaborator | None | Pending editor invitation | None | None |
 
 Lumio is a fictional tech company, Maison Solenne a fashion house, and Common
@@ -130,3 +130,6 @@ Convex Auth indexes verification codes globally, so storing the same hash five
 times would break simultaneous logins. Expiry, single use and verification rate
 limits remain in effect. Tests cover production/mismatched deployment rejection,
 non-allowlisted addresses, concurrent outstanding codes and cross-address misuse.
+
+The operator seed claims the reserved `@alpha` name for its staging persona.
+Ordinary registration and production reservation rules stay in effect.

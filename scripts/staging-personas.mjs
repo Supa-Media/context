@@ -65,7 +65,7 @@ for (const { slug, workspaceId, owner } of workspaces) {
     if (!existing || reset || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
       await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
     }
-    await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: ['alpha-morgan','delta-brooks'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team' });
+    await client.action(ref('functions/files:setNoteVisibility'), { workspaceId, path, visibility: ['alpha','delta'].includes(slug) || path.includes('/leadership/') ? 'private' : 'team' });
     const read = await client.action(ref('functions/files:readNote'), { workspaceId, path });
     if (reset) assert.equal(read.text, text, `${slug}/${path}: readback differs`);
     noteCount++;
@@ -73,10 +73,10 @@ for (const { slug, workspaceId, owner } of workspaces) {
   console.log(`${slug}: storage ready, ${Object.keys(stagingNotes[slug]).length} fixture notes verified.`);
 }
 const expected = {
-  alpha: { 'alpha-morgan': 'owner', lumio: 'owner', 'maison-solenne': 'editor' },
+  alpha: { 'alpha': 'owner', lumio: 'owner', 'maison-solenne': 'editor' },
   beta: { lumio: 'editor', 'maison-solenne': 'member', 'common-ground': 'editor' },
   gamma: { lumio: 'member', 'common-ground': 'member' },
-  delta: { 'delta-brooks': 'owner', 'maison-solenne': 'owner', 'common-ground': 'owner' },
+  delta: { 'delta': 'owner', 'maison-solenne': 'owner', 'common-ground': 'owner' },
   epsilon: {},
 };
 const ws = Object.fromEntries(workspaces.map(w => [w.slug, w.workspaceId]));
