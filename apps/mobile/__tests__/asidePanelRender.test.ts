@@ -74,6 +74,7 @@ jest.mock("../features/meetings/useMeetings", () => ({
 jest.mock("../features/meetings/controller", () => {
   const actual = jest.requireActual("../features/meetings/controller") as {
     recordElapsedMs: unknown;
+    meetingElapsedMs: unknown;
   };
   const record = (name: string) => (...args: unknown[]) => {
     mockCalls.push({ name, args });
@@ -81,6 +82,7 @@ jest.mock("../features/meetings/controller", () => {
   };
   return {
     recordElapsedMs: actual.recordElapsedMs,
+    meetingElapsedMs: actual.meetingElapsedMs,
     meetings: {
       setTitle: record("setTitle"),
       setNotes: record("setNotes"),
@@ -234,10 +236,11 @@ function mount(
     act(() => root.unmount());
     container.remove();
   });
-  act(() => {
+  const engine = createStubEngine();
+  const render = () =>
     root.render(
       createElement(AsidePanel, {
-        engine: createStubEngine(),
+        engine,
         place: PLACE,
         asked: options.asked ?? null,
         started: options.started ?? null,
@@ -245,13 +248,15 @@ function mount(
         onOpenNote: options.onOpenNote === undefined ? () => {} : options.onOpenNote,
       }),
     );
-  });
+  act(render);
   const find = (testId: string) =>
     container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
   return {
     container,
     find,
     text: () => container.textContent ?? "",
+    /** Render again, after a `mock` snapshot value has changed under the panel. */
+    rerender: () => act(render),
     press: (testId: string) => {
       const node = find(testId);
       if (node === null) throw new Error(`no element with testID ${testId}`);
@@ -641,6 +646,15 @@ describe("a meeting that never reached the bucket", () => {
     const panel = mount({ onOpenNote: () => undefined });
     panel.press("aside-tab-meetings");
     panel.press("aside-meeting-row-m0");
+    /*
+      The live card's quiet half, not a second primary: Open the note is the
+      row's default action, and Resume is marked by the record dot rather than
+      a colour of its own.
+    */
+    expect(panel.find("aside-meeting-resume")?.textContent).toBe("Resume");
+    expect(panel.find("aside-meeting-resume")?.getAttribute("aria-label")).toBe(
+      "Resume recording this meeting",
+    );
     panel.press("aside-meeting-resume");
 
     const call = mockCalls.find((c) => c.name === "continueMeeting");
@@ -662,6 +676,24 @@ describe("a meeting that never reached the bucket", () => {
     panel.press("aside-tab-meetings");
     panel.press("aside-meeting-row-m0");
     expect(panel.find("aside-meeting-resume")).toBeNull();
+  });
+
+  test("stopping leaves the panel on the meeting that just ended, one press from Resume", () => {
+    mockLive = recording();
+    mockCanContinue = true;
+    const panel = mount({ onOpenNote: () => undefined });
+    panel.press("aside-tab-meetings");
+    expect(panel.find("aside-live-meeting")).not.toBeNull();
+
+    const saved = filed();
+    mockLive = null;
+    mockRecords = [{ ...saved, session: { ...saved.session, id: "m1", title: "Pricing sync" } }];
+    panel.rerender();
+
+    expect(panel.find("aside-live-meeting")).toBeNull();
+    expect(panel.find("aside-meeting-open-note")).not.toBeNull();
+    expect(panel.find("aside-meeting-resume")).not.toBeNull();
+    expect(panel.text()).toContain("Pricing sync");
   });
 
   test("a filed meeting keeps its door to the editor and grows no landing", () => {

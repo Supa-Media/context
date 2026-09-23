@@ -114,14 +114,9 @@ import { AsidePanel } from "../../../features/console/aside/AsidePanel";
 import { AgentPanel } from "../../../features/agent/AgentPanel";
 import { agentPage } from "../../../features/agent/page";
 import { useOpenNote } from "../../../features/agent/openNote";
-import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
+import { useMeetingsSnapshot, useTick } from "../../../features/meetings/useMeetings";
 import { useCarriesMeeting } from "../../../features/meetings/carried";
-import {
-  continuationFromNote,
-  destinationForNote,
-  mayResume,
-  type NoteResumeOffer,
-} from "../../../features/meetings/resume";
+import { RESUME_RECENT_WINDOW_MS, resumeRowFor } from "../../../features/meetings/resume";
 import { useResumeMeeting } from "../../../features/meetings/useResumeMeeting";
 import { CreateButton } from "../../../features/console/CreateButton";
 import { ConsoleLiveMeeting } from "../../../features/console/ConsoleLiveMeeting";
@@ -836,49 +831,59 @@ export default function ConsoleLayout() {
   });
 
   const resumeMeeting = useResumeMeeting();
-  /**
-   * The open note's offer to pick its meeting back up — see
-   * `VoiceHost.noteResume`.
-   *
-   * Built here because this is where the recorder and the context meet: the
-   * pane knows the note, and nothing below this layout knows whether this
-   * device can continue a meeting (`canContinue`), whether one is recording,
-   * or which context a part started from this note would be addressed to.
-   *
-   * No offer on the demo console, which has no recorder, to somebody who
-   * cannot write the note the part would be added to, or before the recorder
-   * has read what this device holds — a part in flight it has not loaded yet
-   * is exactly what `mayResume` exists to refuse over.
-   */
-  const noteResume = useCallback(
-    (path: string, markdown: string): NoteResumeOffer | null => {
-      if (data.demo || !data.files.canEdit || !insideContext || current === null) return null;
-      if (meetingsSnapshot.status !== "ready") return null;
-      const found = continuationFromNote(path, markdown);
-      if (found === null) return null;
-      if (
-        !mayResume({
-          records: meetingsSnapshot.records,
-          live: meetingsSnapshot.live,
-          canContinue: meetingsSnapshot.canContinue,
-          meetingId: found.continues.meetingId,
-        })
-      ) {
-        return null;
-      }
-      return {
-        recordedMs: found.continues.offsetMs,
-        part: found.continues.part,
-        onResume: () =>
-          void resumeMeeting({
-            continues: found.continues,
-            title: found.title,
-            destination: destinationForNote(current.slug, path),
-          }),
-      };
-    },
-    [data.demo, data.files.canEdit, insideContext, current, meetingsSnapshot, resumeMeeting],
+  /*
+    The `+`'s Resume meeting row — the open note's meeting first, then the one
+    that just stopped (`resumeRowFor`). Built here because this is where the
+    recorder and the context meet: nothing below this layout knows whether this
+    device can continue a meeting, whether one is recording, or which context a
+    part started from the open note would be addressed to.
+
+    The note is read from `baseline`, the saved text, so the row is about the
+    meeting in the bucket and is not re-derived on every keystroke. No row on
+    the demo console, to somebody who cannot write the note the part would be
+    added to, or before the recorder has read what this device holds — a part
+    in flight it has not loaded yet is exactly what `mayResume` refuses over.
+
+    The clock ticks once a minute, and only while the newest meeting is inside
+    the window, so "ended 4 min ago" stays true without re-rendering this layout
+    for a meeting from last week.
+  */
+  const newestEnd = meetingsSnapshot.records[0]?.session.endedAt ?? null;
+  const newestEndMs = newestEnd === null ? Number.NaN : Date.parse(newestEnd);
+  const resumeClock = useTick(
+    Number.isFinite(newestEndMs) && Date.now() - newestEndMs < RESUME_RECENT_WINDOW_MS,
+    60_000,
   );
+  const editorPath = data.files.editor.path;
+  const editorBaseline = data.files.editor.baseline;
+  const editorLocked = data.files.editor.readOnly || data.files.editor.encrypted;
+  const resumeRow = useMemo(() => {
+    if (data.demo || !data.files.canEdit || !insideContext || current === null) return null;
+    if (meetingsSnapshot.status !== "ready") return null;
+    const row = resumeRowFor({
+      records: meetingsSnapshot.records,
+      live: meetingsSnapshot.live,
+      canContinue: meetingsSnapshot.canContinue,
+      now: resumeClock === 0 ? Date.now() : resumeClock,
+      openNote:
+        editorPath === null || editorLocked
+          ? null
+          : { contextSlug: current.slug, path: editorPath, markdown: editorBaseline },
+    });
+    if (row === null) return null;
+    return { detail: row.detail, onResume: () => void resumeMeeting(row.input) };
+  }, [
+    data.demo,
+    data.files.canEdit,
+    insideContext,
+    current,
+    meetingsSnapshot,
+    resumeClock,
+    editorPath,
+    editorBaseline,
+    editorLocked,
+    resumeMeeting,
+  ]);
 
   const voiceHost = useMemo<VoiceHost>(
     () => ({
@@ -918,9 +923,8 @@ export default function ConsoleLayout() {
         see `VoiceHost.createButton`.
       */
       createButton: !phone,
-      noteResume,
     }),
-    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo, phone, noteResume],
+    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo, phone],
   );
 
   /**
@@ -1654,7 +1658,7 @@ export default function ConsoleLayout() {
             handlers the corner's menu gets, so the two `+`s offer the same
             things — see `CreatePrompt`.
           */
-          create={{ onNewMeeting: startMeeting, onNewChat: startNewChat }}
+          create={{ onNewMeeting: startMeeting, onNewChat: startNewChat, resume: resumeRow }}
           /*
             The share dialog raised from the toolbar is the one a phone
             reaches, and it was drawing without the people or the groups —
@@ -1755,6 +1759,7 @@ export default function ConsoleLayout() {
         <CreateButton
           compact={phone}
           onNewMeeting={startMeetingFlow}
+          resume={resumeRow}
           /*
             The same `targetFolder` rule the tree's own `+` and the phone's
             bottom row both use: a selected folder is the destination, anything

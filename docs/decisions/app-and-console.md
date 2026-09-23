@@ -7502,3 +7502,33 @@ A pick holds only rows on screen: collapsing a folder drops what was picked
 inside it, and a folder with a picked note inside it moves as one path.
 Moving into another context stays one item at a time — `moveToContext` has no
 batch form and no Undo.
+
+## No UI ships without a design audit first (2026-09-23)
+
+The owner, on the first meeting-Resume UI: "SO ugly, never ship anything like
+that without having a UI/UX subagent audit and design based on a principle of
+simplicity, beauty, not making things feel clunky, and making things feel like
+it naturally just fits there." That version was built straight from a feature
+spec: one verb on five surfaces, a floating teal bar, a teal band in the note,
+and the hero button four times. Every piece passed its tests, and nobody looked
+at the surfaces together before they merged.
+
+So any change that adds or changes user-facing UI gets a design pass before it
+is built, and a second look at screenshots of the built result before it
+merges. The pass audits against those four words, and in practice that means:
+
+- **One place per verb**, where the thing it acts on already is. A second
+  entry point needs a reason that the first one cannot serve.
+- **Nothing drawn until it is reached for.** An offer that costs no pixels
+  until somebody goes to use it never needs a dismiss.
+- **No new styles.** Reuse the component the neighbours use, the way they use
+  it. The accent means "here, active, yours" and is never a status; the white
+  hero button is the landing page's.
+- **Show, don't explain.** Copy about the plumbing (parts, files, paths) is a
+  sign the UI is explaining a gap it could close.
+- **Screenshots, both densities, both schemes**, shown to the owner. A surface
+  that is not reachable in a browser gets a fixture (`features/e2e/`) so that
+  it can be photographed; `scripts/capture-resume-shots.mjs` is the example.
+
+What a "simplification" would cost: skipping the pass is how the Resume UI
+shipped, and how it was rebuilt the same day.

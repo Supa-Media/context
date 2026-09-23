@@ -249,6 +249,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The feed is a file, and the console is a viewing layer over it
 - The room binds to a document it agrees with, and a different note unbinds first
 - Several rows are one operation, and a pick is what the keyboard acts on
+- No UI ships without a design audit first
 
 ## [Meetings](./meetings.md)
 

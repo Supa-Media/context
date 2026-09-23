@@ -897,16 +897,6 @@ export class MeetingsController {
     });
   }
 
-  /**
-   * Stop the floating bar offering this meeting. The note and the meeting's
-   * page go on offering it — see `MeetingRecord.resumeDismissed`.
-   */
-  dismissResumeOffer(meetingId: string): void {
-    const record = this.find(meetingId);
-    if (record === undefined || record.resumeDismissed === true) return;
-    this.put({ ...record, resumeDismissed: true }, { immediate: true });
-  }
-
   async pause(): Promise<void> {
     const live = this.snapshot.live;
     if (live === null || !can(live.session.state, "paused")) return;
@@ -1521,7 +1511,6 @@ export class MeetingsController {
       // part that forgot what it continues is filed as a second note of the
       // same meeting. `meetingsResume.test.ts` fails if this goes.
       ...(existing?.continues === undefined ? {} : { continues: existing.continues }),
-      ...(existing?.resumeDismissed === true ? { resumeDismissed: true as const } : {}),
       acked: existing?.acked ?? emptyAck(),
       runningSince: after.runningSince,
       updatedAt: config.now?.() ?? Date.now(),
@@ -1755,6 +1744,19 @@ export const meetings = new MeetingsController();
 /** Elapsed time for a record, re-exported so screens need one import. */
 export function recordElapsedMs(record: MeetingRecord, now: number): number {
   return elapsedMs({ session: record.session, runningSince: record.runningSince }, now);
+}
+
+/**
+ * How far into the meeting a record is: its own elapsed time, plus what the
+ * meeting already held before it when it is a later part (`continues`).
+ *
+ * The clock a person reads. A resumed meeting is the same meeting still
+ * running, so every clock and every typed-note stamp picks up where the note
+ * left off — at 31:04, not 0:00 — which is also what the transcript the
+ * writer splices in says (`continueMeetingNote` moves it by the same offset).
+ */
+export function meetingElapsedMs(record: MeetingRecord, now: number): number {
+  return (record.continues?.offsetMs ?? 0) + recordElapsedMs(record, now);
 }
 
 /** The session a screen is about, or `null`. */
