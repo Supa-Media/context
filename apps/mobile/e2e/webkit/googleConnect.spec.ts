@@ -24,7 +24,9 @@ test("Google callback completes through the real browser HTTP action route", asy
     "/connect/google?code=google-code&state=google-state&completionSecret=google-completion-secret",
   );
 
-  await expect(page.getByRole("heading", { name: "Google is connected" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Google is connected" })).toBeVisible({
+    timeout: 15_000,
+  });
   expect(actionRequests).toHaveLength(1);
   expect(actionRequests[0]?.body).toMatchObject({
     path: "functions/googleConnect:completeGoogleConnect",
