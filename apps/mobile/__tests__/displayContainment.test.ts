@@ -28,6 +28,7 @@ import { describe, expect, test } from "@jest/globals";
 import { crumbsFor } from "../features/console/files/crumbs";
 import { noteHeading } from "../features/console/files/frontmatter";
 import { displayName, displayPath, folderLabel } from "../features/console/files/paths";
+import { linkPromptMessage } from "../features/console/files/linkPrompt";
 import { statusSegments } from "../features/console/files/status";
 import { tabLabel } from "../features/console/files/tabs";
 
@@ -132,6 +133,44 @@ describe("the console contains a name it did not choose", () => {
     // purpose — a key somebody copies into another client — intact.
     expect(pathOf(`1-projects/${ORDINARY}`)).toBe(`1-projects/${ORDINARY}`);
   });
+  test("the address in the dialog that leaves the app — linkPromptMessage", () => {
+    /*
+      `webUrl` refuses whitespace and C0, which keeps a target on one line. It
+      does not refuse a bidi override, and should not: one is legal in a path,
+      and the address that opens has to be the address that was written.
+      Measured against the shipped allow-list — `https://evil.example/<RLO>…`
+      comes back accepted — so the string this dialog draws is chosen by
+      whoever wrote the note, which in a shared workspace is any editor.
+
+      **The dialog is the whole of the control.** `host.ts` says the sink
+      "does not open it silently … so a script that should not exist cannot
+      post a note's contents to a URL without someone reading that URL and
+      agreeing to it". A control whose mechanism is *reading* is defeated by an
+      address that renders as something other than itself.
+    */
+    const hostile = `https://evil.example/${RLO}gro.knab-eruces//:sptth`;
+    expect(linkPromptMessage(hostile)).toBe(`${FSI}${hostile}${PDI}`);
+    // Byte-identical when there is nothing to contain: this is also the string
+    // somebody reads to decide, and two invisible characters in every link
+    // dialog would be a cost with no buyer.
+    expect(linkPromptMessage("https://example.com/report")).toBe("https://example.com/report");
+  });
+
+  test("the link dialog draws the contained address and opens the raw one", () => {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const source = readFileSync(
+      `${__dirname}/../features/console/files/LiveEditor.tsx`,
+      "utf8",
+    );
+    // Contained where it is read...
+    expect(source).toMatch(/Alert\.alert\([^;]*linkPromptMessage\(url\)/s);
+    // ...and untouched where it is used. Containing the value handed to the
+    // system would be this file's other rule broken: an address is not a label.
+    expect(source).toContain("Linking.openURL(url)");
+  });
+
   /*
     AND THE ENUMERATION STAYS AN ENUMERATION.
 

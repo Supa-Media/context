@@ -72,6 +72,7 @@ import {
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
+import { linkPromptMessage } from "./linkPrompt";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -745,9 +746,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 });
 
-/** Ask, naming the address, then hand it to the system. */
+/**
+ * Ask, naming the address, then hand it to the system.
+ *
+ * The question draws the *contained* address and the answer opens the raw one:
+ * this dialog is the only thing between a note's link and the browser, and it
+ * works by being read. See `linkPrompt.ts`.
+ */
 function confirmOpenUrl(url: string): void {
-  Alert.alert("Open this link?", url, [
+  Alert.alert("Open this link?", linkPromptMessage(url), [
     { text: "Cancel", style: "cancel" },
     { text: "Open", onPress: () => void Linking.openURL(url).catch(() => {}) },
   ]);
