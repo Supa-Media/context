@@ -1,0 +1,14 @@
+{
+  "name": "context",
+  "owner": {
+    "name": "Supa Media",
+    "url": "https://context.lc"
+  },
+  "plugins": [
+    {
+      "name": "context",
+      "source": "./plugins/context",
+      "description": "Your Context notes in your coding agent: the MCP server, skills that say when to read and write them, and hooks that orient at session start and save the session at the end."
+    }
+  ]
+}

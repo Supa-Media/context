@@ -1,0 +1,17 @@
+{
+  "name": "context",
+  "plugins": [
+    {
+      "name": "context",
+      "source": {
+        "source": "local",
+        "path": "./plugins/context"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

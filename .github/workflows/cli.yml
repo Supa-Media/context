@@ -89,4 +89,4 @@ jobs:
       - name: "Assert plugins/context imports only node: built-ins and relative paths"
         run: |
           node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs --allow-node-builtins plugins/context/src plugins/context/bin
+          node scripts/check-gateway-imports.mjs --allow-node-builtins plugins/context/src plugins/context/bin plugins/context/hooks
