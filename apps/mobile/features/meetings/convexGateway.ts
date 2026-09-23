@@ -3,7 +3,8 @@ import { MEETINGS_FOLDER, meetingNotePath } from "@context/meetings/paths";
 import { announceBucketWrite } from "../console/files/bucketWrites";
 import { toFileError } from "../console/files/browser";
 import { MeetingGatewayError, type MeetingAddress, type MeetingsGateway } from "./gateway";
-import { renderMeetingNote } from "./note";
+import { continueMeetingNote, continuesMeetingNote, meetingNoteFacts, renderMeetingNote } from "./note";
+import type { MeetingContinuation } from "./record";
 import { ERRORS, foreignSegmentSessions } from "./protocol";
 import type { IngestAck, MeetingSession, MeetingSessionSummary } from "./protocol";
 import { hasNothingCaptured } from "./session";
@@ -74,6 +75,13 @@ import { hasNothingCaptured } from "./session";
  *    refused, and this reads that refusal as what it is — the note is already
  *    there — and answers with the path. It never clobbers, and it never writes
  *    a second note.
+ *
+ * **A resumed part is the one write here that is an overwrite**, and its
+ * idempotency is bought a third way: the seam line the splice writes names the
+ * part's start to the second, and a note that already carries it is answered
+ * with its path and not written again. See `continueInto` and
+ * `docs/decisions/meetings.md`, "A resumed meeting is a new part spliced into
+ * the note it already has".
  *
  * **How far that goes, and it is less far than it was written.** The gateway's
  * claim record lets it tell two collisions apart — its own retry, or *"a note
@@ -152,7 +160,27 @@ export interface ConvexGatewayOptions {
     workspaceId: string;
     path: string;
     text: string;
+    /** The version read. Present only when adding a resumed part to a note that exists. */
+    expectedEtag?: string;
   }) => Promise<{ path: string }>;
+  /**
+   * Run `files.readNote`, for adding a resumed part to the note it continues.
+   *
+   * Optional, and absent means this writer cannot continue a note: it says so
+   * through `canContinue`, nothing offers Resume over it, and a part that
+   * reaches it anyway is filed as a note of its own.
+   */
+  readNote?: (args: {
+    workspaceId: string;
+    path: string;
+  }) => Promise<{
+    path: string;
+    text: string;
+    etag: string;
+    encrypted?: boolean;
+    /** `privacy.md`, an encrypted note, or a note this person may not write. Never spliced. */
+    readOnly?: boolean;
+  }>;
   /**
    * The workspace a destination names, or `null` when this app cannot reach it.
    *
@@ -194,7 +222,75 @@ function localAck(session: Pick<MeetingSession, "id" | "state" | "transcript">):
 export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGateway {
   const now = options.now ?? (() => new Date().toISOString());
 
+  /**
+   * Add a resumed part to the note it continues, and answer with where it went.
+   *
+   * `null` means there is no note to add it to — it was deleted, or what is at
+   * that path now is not this meeting (a different note, an encrypted one) —
+   * and the caller files the part as a note of its own. That is the one
+   * outcome worse than a spliced note that is still acceptable, because the
+   * part is somebody's meeting and a missing destination is not a reason to
+   * lose it.
+   *
+   * ## Read, splice, write back conditionally
+   *
+   * The note has been the customer's since it landed, so it is read *now*
+   * rather than re-rendered from what this device remembers, and written back
+   * with the version that was read: the collaboration engine merges from that
+   * exact base, and anybody who typed into the note in between turns the write
+   * into a `CONFLICT` rather than an overwrite. A conflict is read again and
+   * spliced again — the splice is a pure function of the current text and the
+   * part — a few times, and then handed back to the queue as transient.
+   *
+   * ## The retry that already landed
+   *
+   * The create-only rule the first write relies on does not help here: this is
+   * an overwrite by design. So idempotency is the seam — a part whose seam is
+   * already in the note is a part whose write landed and whose answer was lost,
+   * and it is answered with the path and not added twice.
+   */
+  async function continueInto(
+    workspaceId: string,
+    continues: MeetingContinuation,
+    session: MeetingSession,
+  ): Promise<string | null> {
+    const readNote = options.readNote!;
+    const part = {
+      session,
+      offsetMs: continues.offsetMs,
+      previousEndedAt: continues.previousEndedAt,
+    };
+    for (let attempt = 0; attempt < CONTINUE_ATTEMPTS; attempt += 1) {
+      let current: Awaited<ReturnType<typeof readNote>>;
+      try {
+        current = await readNote({ workspaceId, path: continues.path });
+      } catch (error) {
+        if (toFileError(error).code === "FILE_NOT_FOUND") return null;
+        throw asGatewayError(error);
+      }
+      if (current.encrypted === true || current.readOnly === true) return null;
+      if (meetingNoteFacts(current.text)?.meetingId !== continues.meetingId) return null;
+      if (continuesMeetingNote(current.text, part)) return current.path;
+
+      const text = continueMeetingNote(current.text, part, { now: now() });
+      try {
+        const landed = await options.writeNote({
+          workspaceId,
+          path: current.path,
+          text,
+          expectedEtag: current.etag,
+        });
+        return landed.path;
+      } catch (error) {
+        if (toFileError(error).code === "CONFLICT") continue;
+        throw asGatewayError(error);
+      }
+    }
+    throw new MeetingGatewayError(ERRORS.unavailable, MEETING_WRITE_SENTENCES.noteBusy);
+  }
+
   return {
+    canContinue: options.readNote !== undefined,
     putSession: async (_to, session) => localAck(session),
     /*
       The segments and the notes are already on the record this was called from
@@ -217,7 +313,11 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
       notePath: null,
     }),
 
-    async finalize(to: MeetingAddress, session: MeetingSession): Promise<IngestAck> {
+    async finalize(
+      to: MeetingAddress,
+      session: MeetingSession,
+      continues?: MeetingContinuation | null,
+    ): Promise<IngestAck> {
       /*
         THE ONE GUARD THIS DOOR CAN STILL HAVE, ON THE ONE FACT THAT SURVIVES
         A WRONG ENVELOPE.
@@ -309,6 +409,16 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
         for exactly that record; the list could show it and the writer could not
         file it.
       */
+      /*
+        A later part of a meeting whose note exists goes into that note. When
+        there is no longer a note to go into, it falls through to here and is
+        filed like any meeting — see `continueInto`.
+      */
+      if (continues && options.readNote !== undefined) {
+        const landed = await continueInto(workspaceId, continues, session);
+        if (landed !== null) return finalAck(session, landed);
+      }
+
       let path: string;
       let text: string;
       try {
@@ -462,6 +572,14 @@ function notePathFor(session: MeetingSession, to: MeetingAddress): string {
 }
 
 /**
+ * How many times a resumed part is read, spliced and written back before the
+ * queue takes it. Each round is one person typing into the note in the second
+ * between a read and a write; three in a row is a note being edited right now,
+ * and the next drain is soon enough.
+ */
+const CONTINUE_ATTEMPTS = 3;
+
+/**
  * Every sentence a refused meeting can put in front of a person.
  *
  * Exported so the suite can assert that the set is closed — see
@@ -491,6 +609,9 @@ export const MEETING_WRITE_SENTENCES = {
   /** `assertOwnTranscript` refused a transcript naming another meeting. */
   contaminatedTranscript:
     "This meeting's transcript could not be verified as its own, so it was not written. Copy your notes out and start again.",
+  /** A resumed part's note kept changing under the write. Transient. */
+  noteBusy:
+    "The note this part is being added to changed while it was being saved, so it is being kept here and will be tried again.",
 } as const;
 
 /**
@@ -589,6 +710,7 @@ export function writeNoteThrough(client: {
       workspaceId: args.workspaceId,
       path: args.path,
       text: args.text,
+      ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
     })) as { path: string };
     /*
       Tell the console its folder changed.
@@ -603,4 +725,18 @@ export function writeNoteThrough(client: {
     announceBucketWrite({ workspaceId: args.workspaceId, path: result.path });
     return result;
   };
+}
+
+/**
+ * The `readNote` call, bound to a Convex client — `writeNoteThrough`'s pair,
+ * and the only line that knows this action's name.
+ */
+export function readNoteThrough(client: {
+  action: (reference: unknown, args: unknown) => Promise<unknown>;
+}): NonNullable<ConvexGatewayOptions["readNote"]> {
+  return async (args) =>
+    (await client.action(api.functions.files.readNote, {
+      workspaceId: args.workspaceId,
+      path: args.path,
+    })) as { path: string; text: string; etag: string; encrypted?: boolean; readOnly?: boolean };
 }

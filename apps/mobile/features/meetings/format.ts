@@ -48,6 +48,20 @@ export function duration(ms: number): string {
   return `${hours} h ${String(minutes % 60).padStart(2, "0")}`;
 }
 
+/**
+ * How long ago a meeting stopped, in the bar's words: `ended 4 min ago`.
+ *
+ * Empty for a time that will not parse, the rule `startsIn` follows: a line
+ * that cannot say something true says nothing.
+ */
+export function endedAgo(iso: string | null, now: number): string {
+  const at = iso === null ? Number.NaN : Date.parse(iso);
+  if (!Number.isFinite(at)) return "";
+  const ms = Math.max(0, now - at);
+  if (ms < 60_000) return "ended just now";
+  return `ended ${duration(ms)} ago`;
+}
+
 /* --------------------------------- times --------------------------------- */
 
 /**
