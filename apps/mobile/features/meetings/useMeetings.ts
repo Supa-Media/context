@@ -6,7 +6,7 @@ import { defaultContext } from "../console/nav";
 import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
 import { createRecorderFor, setCaptureOffline, setTranscriptionClient } from "./capture";
-import { createConvexGateway, writeNoteThrough } from "./convexGateway";
+import { createConvexGateway, readNoteThrough, writeNoteThrough } from "./convexGateway";
 import { meetingsWriterFor } from "./desktopGateway";
 import { meetingWorkspaceId, type RoutableContext } from "./destination";
 import { type MeetingsGateway } from "./gateway";
@@ -273,6 +273,7 @@ export function useMeetingsSetup(
       meetingsWriterFor(
         createConvexGateway({
           writeNote: writeNoteThrough(convex as never),
+          readNote: readNoteThrough(convex as never),
           resolveWorkspaceId,
         }),
       ),

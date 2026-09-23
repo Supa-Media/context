@@ -1,4 +1,5 @@
 import type { MeetingDestination } from "./destination";
+import type { MeetingContinuation } from "./record";
 import { ERRORS, ROUTES } from "./protocol";
 import type {
   IngestAck,
@@ -163,7 +164,29 @@ export interface MeetingsGateway {
    * behind it. `createHttpGateway` uses `session.id` and ignores the rest,
    * which is exactly what it did before.
    */
-  finalize(to: MeetingAddress, session: MeetingSession): Promise<IngestAck>;
+  finalize(
+    to: MeetingAddress,
+    session: MeetingSession,
+    continues?: MeetingContinuation | null,
+  ): Promise<IngestAck>;
+  /**
+   * Whether this writer can add a resumed part to a note that already exists.
+   *
+   * `continues` on `finalize` is how it is asked; this is whether asking does
+   * anything. A writer that answers no still files the part — as a note of its
+   * own, beside the first — because that is what ignoring `continues` does, and
+   * a part is never lost for want of a splice. But nothing may *offer* Resume
+   * over a writer that cannot keep the promise the offer makes, which is one
+   * file: so every surface that draws the offer reads this first.
+   *
+   * Only the control-plane writer can, today. It reads the note and writes it
+   * back conditionally through the same two actions the editor uses. The MCP
+   * gateway, and the desktop shell that writes through it, short-circuit a
+   * finalize for a meeting they already wrote — the guard that keeps a
+   * crash-retry from forking somebody's bucket — and teaching them the
+   * difference is a gateway change of its own.
+   */
+  readonly canContinue?: boolean;
   /**
    * Recent sessions this workspace holds, newest first.
    *

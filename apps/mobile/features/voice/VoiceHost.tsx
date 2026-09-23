@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { AgentEngine } from "../agent/engine";
+import type { NoteResumeOffer } from "../meetings/resume";
 import type { VoicePage } from "./VoiceButton";
 
 /**
@@ -68,6 +69,18 @@ export interface VoiceHost {
    * no host at all.
    */
   createButton?: boolean;
+  /**
+   * The offer to pick a meeting back up, for the note that is open — or `null`
+   * for a note that is not a meeting, or a meeting this device cannot continue
+   * right now.
+   *
+   * A function of the note rather than a value, because the pane knows which
+   * note is open and the console layout knows the recorder, and neither should
+   * learn the other's half. `resume.ts` has the rules and the reason the pane
+   * is handed this rather than importing the recorder. Absent — no offer on
+   * any note — wherever there is no recorder behind the pane.
+   */
+  noteResume?: (path: string, markdown: string) => NoteResumeOffer | null;
 }
 
 const VoiceHostContext = createContext<VoiceHost | null>(null);

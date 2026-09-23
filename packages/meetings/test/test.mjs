@@ -17,6 +17,7 @@
 // guard.
 
 import { runChunkChecks } from "./chunks.test.mjs";
+import { runContinuationChecks } from "./continuation.test.mjs";
 import { runDetectChecks } from "./detect.test.mjs";
 import { runEnhanceChecks } from "./enhance.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
@@ -284,6 +285,7 @@ runTranscriptChecks(check);
 runSessionChecks(check);
 runPathChecks(check);
 runNoteChecks(check);
+runContinuationChecks(check);
 runDetectChecks(check);
 runRecorderChecks(check);
 runEnhanceChecks(check);

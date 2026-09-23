@@ -13,13 +13,14 @@ import { TransportMark } from "../../meetings/components/TransportMark";
 import { writeClipboard } from "../../design/clipboard";
 import { meetings, recordElapsedMs } from "../../meetings/controller";
 import { describeDestination } from "../../meetings/destination";
-import { clock, meetingSubtitle } from "../../meetings/format";
+import { clock, duration, meetingSubtitle } from "../../meetings/format";
 import { meetingLanding } from "../../meetings/landing";
 import { renderMeetingNote } from "../../meetings/note";
 import { noteEditorHref } from "../../meetings/noteLink";
 import type { MeetingRecord } from "../../meetings/record";
 import { UNTITLED_MEETING } from "../../meetings/session";
 import { appendTypedNote } from "../../meetings/typedNote";
+import { continuationFromRecord, mayResume, meetingIdOf } from "../../meetings/resume";
 import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
 import { NO_MEETING } from "./tabs";
 
@@ -176,13 +177,23 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
   return (
     <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
       <View style={styles.liveCard} testID="aside-live-meeting">
-        <MeetingTitleField
-          key={id}
-          initialValue={record.session.title}
-          onChangeText={onChangeTitle}
-          placeholder={UNTITLED_MEETING}
-          testID="aside-meeting-title"
-        />
+        {/*
+          Not renameable when this is a later part of a meeting: it is added to
+          a note whose heading it keeps. `LiveMeetingScreen` has the argument.
+        */}
+        {record.continues === undefined ? (
+          <MeetingTitleField
+            key={id}
+            initialValue={record.session.title}
+            onChangeText={onChangeTitle}
+            placeholder={UNTITLED_MEETING}
+            testID="aside-meeting-title"
+          />
+        ) : (
+          <Text variant="paneTitle" numberOfLines={2} testID="aside-meeting-title-static">
+            {record.session.title}
+          </Text>
+        )}
 
         <View style={styles.liveHead}>
           <Dot tone={paused ? "warn" : "crit"} />
@@ -199,9 +210,11 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
         </View>
 
         <Text variant="foot" style={styles.dest} testID="aside-live-destination">
-          {record.destination === null
-            ? "Filed into your inbox when you stop."
-            : `→ ${describeDestination(record.destination)}`}
+          {record.continues !== undefined
+            ? `Part ${record.continues.part}, adding to ${duration(record.continues.offsetMs)} already recorded → ${record.continues.path}`
+            : record.destination === null
+              ? "Filed into your inbox when you stop."
+              : `→ ${describeDestination(record.destination)}`}
         </Text>
 
         {ending ? (
@@ -329,6 +342,29 @@ function PastMeeting({
 }) {
   const styles = useThemedStyles(makeStyles);
   const href = noteEditorHref(record);
+  const snapshot = useMeetingsSnapshot();
+  /*
+    Resume, beside Open the note, on the rules every surface asks
+    (`resume.ts`). Only where the note opens too: `onOpenNote` is `null` on the
+    demo console and the fixtures, which have no recorder behind them either.
+
+    The controller directly rather than `useResumeMeeting`: the part is shown
+    by this tab, which draws the live meeting the moment there is one, so there
+    is nowhere to navigate to — and that hook's router is a dependency this
+    panel's render tests do not carry. A second press finds the first part
+    live and is refused by `continueMeeting` itself.
+  */
+  const continues =
+    onOpenNote !== null &&
+    record.session.state === "complete" &&
+    mayResume({
+      records: snapshot.records,
+      live: snapshot.live,
+      canContinue: snapshot.canContinue,
+      meetingId: meetingIdOf(record),
+    })
+      ? continuationFromRecord(snapshot.records, record)
+      : null;
 
   return (
     <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
@@ -396,6 +432,20 @@ function PastMeeting({
             onPress={() => onOpenNote(href)}
             testID="aside-meeting-open-note"
           />
+          {continues === null ? null : (
+            <Button
+              label="Resume recording"
+              variant="accent"
+              onPress={() =>
+                void meetings.continueMeeting({
+                  continues,
+                  title: record.session.title,
+                  destination: record.destination,
+                })
+              }
+              testID="aside-meeting-resume"
+            />
+          )}
         </View>
       )}
     </ScrollView>
@@ -568,7 +618,13 @@ const makeStyles = (colors: Colors) =>
     back: { paddingHorizontal: space.x4, paddingTop: space.x3 },
     backLabel: { color: colors.accentText },
     pastHead: { paddingHorizontal: space.x4, paddingTop: space.x2, gap: 2 },
-    pastActions: { paddingHorizontal: space.x4, paddingTop: space.x3 },
+    pastActions: {
+      paddingHorizontal: space.x4,
+      paddingTop: space.x3,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: space.x2,
+    },
     landing: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x1 },
     landingTitle: { color: colors.text },
     landingActions: {

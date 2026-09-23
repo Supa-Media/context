@@ -57,6 +57,8 @@ import { removalHandler } from "../files/access";
 import type { SettingsSectionKey } from "../settings/sections";
 import { contextSetupFor, setupPromptVisible } from "../setup";
 import { SetupPrompt } from "../setup/SetupPrompt";
+import { useVoiceHost } from "../../voice/VoiceHost";
+import { duration } from "../../meetings/format";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -711,8 +713,46 @@ export function BrowsePane({
     [files.contextMoves, dismissedMoves],
   );
 
+  /*
+    A MEETING NOTE, OFFERED BACK TO WHOEVER OPENED IT.
+
+    A meeting that stopped for a break and started again belongs in the note it
+    already has — one file, one meeting — and the note is where somebody is
+    when they go looking for it. So the note says it can be picked up, in this
+    band, because this is where the pane says things about the note above it.
+
+    The rules are the console layout's (`VoiceHost.noteResume`), which holds
+    the recorder: this pane only asks about the note that is open. Read from
+    `baseline`, the saved text, rather than the draft — the offer is about the
+    meeting in the bucket, and it should not be re-derived on every keystroke.
+
+    "Not now" is for this note in this session, for the context-move band's
+    reason: the offer does not stop being true, and the meeting's own page and
+    the panel still carry it.
+  */
+  const voice = useVoiceHost();
+  const noteResume = voice?.noteResume;
+  const editorPath = files.editor.path;
+  const editorBaseline = files.editor.baseline;
+  const editorLocked = files.editor.readOnly || files.editor.encrypted;
+  const resumeOffer = useMemo(
+    () =>
+      noteResume === undefined ||
+      editorPath === null ||
+      editorLocked ||
+      selected?.kind !== "file" ||
+      selected.path !== editorPath
+        ? null
+        : noteResume(editorPath, editorBaseline),
+    [noteResume, editorPath, editorBaseline, editorLocked, selected?.kind, selected?.path],
+  );
+  const [resumeSetAside, setResumeSetAside] = useState<ReadonlySet<string>>(new Set());
+  const resumeVisible =
+    resumeOffer !== null && editorPath !== null && !resumeSetAside.has(editorPath);
+
   const hasNotice =
     introVisible ||
+    resumeVisible ||
     setupPromptVisible(setup) ||
     noBucket ||
     manifestBroken ||
@@ -933,6 +973,32 @@ export function BrowsePane({
             style={styles.dismiss}
             testID="browse-dismiss-notice"
           />
+        </View>
+      ) : null}
+
+      {resumeVisible ? (
+        <View style={[styles.notice, styles.noticeResume]} testID="browse-meeting-resume">
+          <Text variant="hint" style={styles.noticeResumeTitle}>
+            You can pick this meeting back up
+          </Text>
+          <Text variant="hint">
+            {`Recording again adds to this note — same file, one meeting. ${duration(resumeOffer!.recordedMs)} recorded so far; this would be part ${resumeOffer!.part}.`}
+          </Text>
+          <View style={styles.noticeActions}>
+            <Button
+              label="Resume recording"
+              variant="accent"
+              onPress={() => resumeOffer!.onResume()}
+              testID="browse-meeting-resume-start"
+            />
+            <Button
+              label="Not now"
+              onPress={() =>
+                setResumeSetAside((current) => new Set([...current, editorPath!]))
+              }
+              testID="browse-meeting-resume-dismiss"
+            />
+          </View>
         </View>
       ) : null}
 
@@ -2082,6 +2148,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
   noticeWarnText: { color: colors.warnText },
+  /**
+   * The resume offer: the accent, never the warn wash. Nothing is wrong with a
+   * meeting that stopped — see `ResumeBar`, which wears the same colour for
+   * the same reason.
+   */
+  noticeResume: { borderColor: colors.accent, backgroundColor: colors.accentDim },
+  noticeResumeTitle: { color: colors.accentText, fontWeight: "600" },
   dismiss: { alignSelf: "flex-start" },
   /**
    * Two buttons under a notice rather than one.
