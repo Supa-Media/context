@@ -1486,6 +1486,10 @@ check("login asks for read and write", loginScope === LOGIN_SCOPE && LOGIN_SCOPE
 check("login never asks for private notes", !loginScope.includes("context:private"));
 check("login registers a client that declares the scope it asks for", server.state.registered.length === loginRegistrations + 1 && server.state.registered.at(-1).scope === LOGIN_SCOPE);
 check("login records which workspace is personal", (await readSettings()).personal === "me");
+check(
+  "login remembers the server it signed in to, so the hooks use it too",
+  (await readSettings()).endpoint === server.endpoint
+);
 check("login lists the workspaces it reaches", said.join("\n").includes("@me") && said.join("\n").includes("@team"));
 check("login prints no token", !said.join("\n").includes("access_") && !said.join("\n").includes("refresh_"));
 

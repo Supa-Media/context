@@ -275,6 +275,10 @@ export async function login({ endpoint, configPath = defaultConfigPath(), fetchI
     openBrowser,
     log,
   });
+  // Remembered, so the hooks and every later command use the server this
+  // person signed in to rather than the default: a self-hosted gateway, or
+  // staging, would otherwise sign in fine and then capture nothing.
+  await writeSetting("endpoint", base);
   const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
   const workspaces = await listWorkspaces({ url: base, token, fetchImpl });
   log(`Signed in to ${endpointKey(base)}.`);
