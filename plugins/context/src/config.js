@@ -1,9 +1,17 @@
 /**
- * Where the hook's credential lives, and how carefully.
+ * Where the CLI's credential lives, and how carefully.
  *
- * One file, `~/.context/hook.json`, keyed by endpoint so a person with a work
- * context and a personal one has two entries rather than two installs fighting
- * over one slot.
+ * One file, `~/.context/credentials.json`, keyed by endpoint so a person with a
+ * self-hosted gateway and the hosted one has two entries rather than two
+ * installs fighting over one slot. The key is the endpoint with any `/@slug`
+ * removed: one sign-in serves every workspace it covers.
+ *
+ * `~/.context/hook.json`, where the `@supa-media/context-hook` package kept its
+ * credential, is deliberately NOT read. Hooks that package installed may still
+ * be on this machine using that file's refresh token, and refresh tokens
+ * rotate: two clients spending one token is exactly the replay the gateway
+ * answers by revoking the grant. So `login` makes a sign-in of its own and the
+ * installer removes the old hooks.
  *
  * Three properties, none of them decorative:
  *
@@ -33,7 +41,7 @@ const FILE_MODE = 0o600;
 const DIR_MODE = 0o700;
 
 export function defaultConfigPath() {
-  return process.env.CONTEXT_HOOK_CONFIG || join(homedir(), ".context", "hook.json");
+  return process.env.CONTEXT_HOOK_CONFIG || join(homedir(), ".context", "credentials.json");
 }
 
 export async function readConfig(path = defaultConfigPath()) {
@@ -120,7 +128,7 @@ export function credentialEndpointKey(endpoint) {
   if (!credentialUrlOk(url.href)) {
     throw new Error(`refusing to use ${url.origin} for a credential — it must be https (or loopback)`);
   }
-  return endpointKey(url.href);
+  return endpointKey(baseEndpoint(url.href));
 }
 
 export async function saveEndpoint(endpoint, record, path = defaultConfigPath()) {
@@ -138,10 +146,25 @@ export async function loadEndpoint(endpoint, path = defaultConfigPath()) {
 
 export async function forgetEndpoint(endpoint, path = defaultConfigPath()) {
   const config = await readConfig(path);
-  const existed = endpointKey(endpoint) in config.endpoints;
-  delete config.endpoints[endpointKey(endpoint)];
+  const key = endpointKey(baseEndpoint(endpoint));
+  const existed = key in config.endpoints;
+  delete config.endpoints[key];
   await writeConfig(config, path);
   return existed;
+}
+
+/**
+ * The endpoint with any `/@slug` removed: the one URL a sign-in is stored
+ * under. The workspace is chosen per request, and the gateway serves every
+ * workspace a grant covers from the same token, so `/@a/mcp` and `/@b/mcp` are
+ * one credential rather than two sign-ins.
+ */
+export function baseEndpoint(endpoint) {
+  const url = new URL(endpoint);
+  url.hash = "";
+  url.search = "";
+  url.pathname = url.pathname.replace(/\/@[^/]+(?=\/)/, "");
+  return url.href;
 }
 
 export { FILE_MODE, DIR_MODE };
