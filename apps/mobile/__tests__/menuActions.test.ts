@@ -8,8 +8,8 @@
  *
  *  - **where a creation lands**, which is the folder itself on a folder and the
  *    *parent* on a note, and is the pair a second surface would have got wrong;
- *  - **that a selection dispatches nothing**, rather than quietly acting on its
- *    first row;
+ *  - **that a selection acts on every row or on none**, rather than quietly
+ *    acting on its first row;
  *  - **that a surface missing a capability degrades**, rather than throwing.
  */
 
@@ -65,6 +65,8 @@ function stubBrowser(calls: Call[]): FileBrowser {
   // stale on every unrelated addition to the interface.
   return {
     destroy: record("destroy"),
+    destroyMany: record("destroyMany"),
+    restoreMany: record("restoreMany"),
     duplicate: record("duplicate"),
     copy: record("copy"),
     cut: record("cut"),
@@ -172,20 +174,59 @@ describe("where a creation lands", () => {
   });
 });
 
-describe("a selection dispatches nothing at all", () => {
+describe("a selection acts on every row or on none", () => {
   /**
-   * `menu.ts` models the plural menu; nothing opens one yet. Acting on the
-   * first row would be an "Archive 3 items" that archives one — the partial
-   * success this menu was written to avoid — so it declines instead.
+   * Acting on the first row would be an "Archive 3 items" that archives one —
+   * the partial success this menu was written to avoid. So each item a
+   * selection is offered is one call that takes every path, and every item it
+   * is not offered does nothing at all.
    */
-  const selection: MenuTarget = {
-    kind: "selection",
-    rows: [note("a.md"), note("b.md"), note("c.md")],
-  };
+  const rows = [note("a.md"), dir("b"), note("c/d.md")];
+  const selection: MenuTarget = { kind: "selection", rows };
+  const paths = rows.map((each) => each.path);
 
-  test("no browser call, no dialog, nothing opened", () => {
+  test("trash is one call with every path", () => {
     const h = harness();
-    for (const id of ["delete", "archive", "copy", "open", "moveTo"] as MenuActionId[]) {
+    h.run("delete", selection);
+    expect(h.calls).toEqual([{ name: "destroyMany", args: [paths] }]);
+  });
+
+  test("restore is one call with every path", () => {
+    const h = harness();
+    h.run("restore", selection);
+    expect(h.calls).toEqual([{ name: "restoreMany", args: [paths] }]);
+  });
+
+  test("move and archive ask first, about all of them", () => {
+    const h = harness();
+    h.run("moveTo", selection);
+    h.run("archive", selection);
+    expect(h.dialogs).toEqual([
+      { kind: "moveMany", paths },
+      { kind: "archiveMany", paths },
+    ]);
+    expect(h.calls).toEqual([]);
+  });
+
+  test("copying paths puts every one on the clipboard, one per line", () => {
+    const h = harness();
+    h.run("copyPath", selection);
+    expect(h.copied).toEqual(["a.md\nb\nc/d.md"]);
+  });
+
+  test("anything it is not offered does nothing, rather than act on the first row", () => {
+    const h = harness();
+    const unoffered: MenuActionId[] = [
+      "open",
+      "rename",
+      "duplicate",
+      "copy",
+      "cut",
+      "share",
+      "download",
+      "visibilityTeam",
+    ];
+    for (const id of unoffered) {
       h.run(id, selection);
     }
     expect(h.calls).toEqual([]);
@@ -193,8 +234,15 @@ describe("a selection dispatches nothing at all", () => {
     expect(h.opened).toEqual([]);
   });
 
-  test("and it is the target resolver that says so, once", () => {
+  test("the single-target resolver still declines it", () => {
     expect(actionTargetOf(selection)).toBeNull();
+  });
+
+  /** `menu.ts` gives a selection of one the row's menu, so it runs the row's. */
+  test("a selection of one is its row", () => {
+    const h = harness();
+    h.run("delete", { kind: "selection", rows: [note("a.md")] });
+    expect(h.calls).toEqual([{ name: "destroy", args: ["a.md"] }]);
   });
 });
 

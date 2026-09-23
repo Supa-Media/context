@@ -229,6 +229,11 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       download: noop,
       archive: noop,
       destroy: noop,
+      moveMany: noop,
+      copyManyTo: noop,
+      archiveMany: noop,
+      restoreMany: noop,
+      destroyMany: noop,
       setVisibility: noop,
       // The demo presses nothing: sharing with a group writes a real rule.
       shareWithGroup: () => {},

@@ -6,6 +6,7 @@ import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import type { SyncMark } from "./pendingMarks";
+import type { PickGesture } from "./selection";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import type { TreeRow } from "./tree";
@@ -84,6 +85,7 @@ export function FileTree({
   onToggle,
   onCycleVisibility,
   onMenu,
+  onPick,
   drag,
   dropTarget = null,
   pendingStateFor,
@@ -102,6 +104,12 @@ export function FileTree({
   onCycleVisibility: (row: TreeRow) => void;
   /** Raise the row's menu. Absent where there is nothing to offer. */
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
+  /**
+   * A ⌘/ctrl-click or shift-click on a row — see `selection.ts`. Absent where
+   * there is no multi-selection, and a modified click then opens the row like
+   * any other.
+   */
+  onPick?: (path: string, gesture: PickGesture) => void;
   /** Drag wiring. Absent in the read-only demo, which must not offer one. */
   drag?: TreeDragHandlers;
   /** The row under a drag, washed to say the drop would land there. */
@@ -146,6 +154,7 @@ export function FileTree({
             onToggle={onToggle}
             onCycleVisibility={onCycleVisibility}
             onMenu={onMenu}
+            onPick={onPick}
             drag={drag}
             isDropTarget={dropTarget === row.path}
             sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
@@ -182,6 +191,7 @@ function FileRow({
   onToggle,
   onCycleVisibility,
   onMenu,
+  onPick,
   drag,
   isDropTarget,
   sync,
@@ -199,6 +209,7 @@ function FileRow({
   onToggle: (path: string) => void;
   onCycleVisibility: (row: TreeRow) => void;
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
+  onPick?: (path: string, gesture: PickGesture) => void;
   drag?: TreeDragHandlers;
   isDropTarget: boolean;
   /** This note's edit is not in the bucket yet. `null` for one that is. */
@@ -215,6 +226,7 @@ function FileRow({
     // what stops a right-click being swallowed by a row that has nothing to
     // put in the browser menu's place.
     onMenu: onMenu === undefined ? undefined : (anchor) => onMenu(row, anchor),
+    onPick: onPick === undefined ? undefined : (gesture) => onPick(row.path, gesture),
     canDrag: drag !== undefined && drag.canDrag(row),
     canDrop: drag !== undefined && drag.canDrop(row),
     onDragStart: drag?.onDragStart ?? noopPath,

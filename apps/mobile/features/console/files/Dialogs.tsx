@@ -295,7 +295,11 @@ export function MovePicker({
   /** A consequence worth reading before choosing — see `sharesBreakingWarning`. */
   description?: string;
   folders: readonly string[];
-  currentFolder: string;
+  /**
+   * Where the thing is now, marked and not choosable. `null` for a batch whose
+   * items are in different folders, where no one folder is "where it is now".
+   */
+  currentFolder: string | null;
   /**
    * Other contexts this can go to. Empty is the ordinary case — one context,
    * or somebody who does not own this one — and the row of context buttons is

@@ -625,7 +625,6 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   const count = rows.length;
   const single = count === 1 ? rows[0] : null;
   const isFolder = rows.every((row) => row.kind === "folder");
-  const isFile = rows.every((row) => row.kind === "file");
 
   /**
    * `privacy.md` is generated from the visibility settings and written by the
@@ -732,11 +731,13 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     ],
 
     // `copyEntry` and the clipboard both take folders, so a folder is copied
-    // and cut exactly like a note is.
-    [
-      makeItem(context, "copy", single === null ? `Copy ${items(count)}` : "Copy"),
-      makeItem(context, "cut", single === null ? `Cut ${items(count)}` : "Cut"),
-    ],
+    // and cut exactly like a note is. A selection gets neither: the clipboard
+    // holds one path (`clipboard.ts`), so "Copy 3 items" would put the first
+    // on it and paste one — the partial success this menu exists to avoid.
+    // Dragging with ⌥ held is how several are copied at once.
+    single === null
+      ? []
+      : [makeItem(context, "copy", "Copy"), makeItem(context, "cut", "Cut")],
 
     // The `@name/1-projects/foo.md` form addresses one path in somebody else's
     // sentence or an agent's prompt; a newline-separated list of three is not
@@ -769,10 +770,19 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       ? [makeItem(context, "share", "Share…")]
       : [],
 
-    // A mixed selection gets no visibility submenu: "Follow folder" means
-    // nothing for a folder, and a submenu that applies to some of what is
-    // selected is the partial success this menu exists to avoid.
-    context.canSetVisibility && (single !== null || isFolder || isFile)
+    /*
+      A selection gets no visibility submenu yet. Each row is its own write to
+      `privacy.md`, with no batch form on the server and no one Undo for the
+      lot, so "Share 3 items with the team" that stopped after the second would
+      leave a privacy change half made — and this is the one menu item where
+      half made is a disclosure rather than an inconvenience. The plural labels
+      below are kept for the day there is a batch write behind them.
+
+      A mixed selection would get none even then: "Follow folder" means
+      nothing for a folder, and a submenu that applies to some of what is
+      selected is the partial success this menu exists to avoid.
+    */
+    context.canSetVisibility && single !== null
       ? visibilityGroup(context, isFolder, count, single)
       : [],
 

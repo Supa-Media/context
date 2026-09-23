@@ -382,14 +382,23 @@ export function entryAt(
  */
 export function foldersToRefresh(
   paths: readonly string[],
-  options: { cascadeFrom?: string; loaded?: readonly string[] } = {},
+  /**
+   * One root, or several for a batch that moved several folders at once —
+   * each one's subtree is stale for the same reason a single one's is.
+   */
+  options: { cascadeFrom?: string | readonly string[]; loaded?: readonly string[] } = {},
 ): string[] {
   const folders = new Set<string>();
   for (const path of paths) {
     folders.add(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
   }
-  if (options.cascadeFrom !== undefined) {
-    const root = options.cascadeFrom;
+  const roots =
+    options.cascadeFrom === undefined
+      ? []
+      : typeof options.cascadeFrom === "string"
+        ? [options.cascadeFrom]
+        : options.cascadeFrom;
+  for (const root of roots) {
     folders.add(root);
     folders.add(root.includes("/") ? root.slice(0, root.lastIndexOf("/")) : "");
     for (const loaded of options.loaded ?? []) {

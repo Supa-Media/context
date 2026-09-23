@@ -1,4 +1,5 @@
 import type { DragModifier } from "./dnd";
+import type { PickGesture } from "./selection";
 
 /** The contract shared by the native and browser gesture implementations. */
 export interface RowInteractionOptions {
@@ -17,6 +18,15 @@ export interface RowInteractionOptions {
    * read-only console — which is why the answer exists at all.
    */
   onMenu?: (anchor: { x: number; y: number }) => boolean | void;
+  /**
+   * A ⌘/ctrl-click or a shift-click: add this row to a multi-selection, or
+   * pick the range up to it, instead of opening it. See `selection.ts`.
+   *
+   * Absent where there is no selection to add to, and then a modified click
+   * is an ordinary click. Web-only in practice — a touchscreen has no
+   * modifier keys, so the native half accepts and ignores it.
+   */
+  onPick?: (gesture: PickGesture) => void;
   canDrag: boolean;
   canDrop: boolean;
   onDragStart: (path: string) => void;

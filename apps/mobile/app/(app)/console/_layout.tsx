@@ -61,6 +61,11 @@ import {
   type Place,
 } from "../../../features/console/files/history";
 import { entryAt, targetFolder } from "../../../features/console/files/tree";
+import {
+  NO_PICK,
+  topmost,
+  type TreePick,
+} from "../../../features/console/files/selection";
 import { canCreateAnything } from "../../../features/console/files/createSheet";
 import {
   applyRowIntent,
@@ -247,6 +252,12 @@ export default function ConsoleLayout() {
     either owning it".
   */
   const [barDialog, setBarDialog] = useState<Dialog>(null);
+  /*
+    The tree's ⌘/shift-click pick. Held here rather than in `Explorer` for the
+    reason `barDialog` is: `Shortcuts` is a sibling of the tree, and ⌘⇧⌫ has to
+    act on the rows the tree draws selected — see `picked` in `rowCommand.ts`.
+  */
+  const [treePick, setTreePick] = useState<TreePick>(NO_PICK);
   useEffect(() => {
     if (
       quickParams.quickAction !== "note" ||
@@ -1286,6 +1297,8 @@ export default function ConsoleLayout() {
             <Explorer
               files={data.files}
               contextLabel={contextLabel}
+              pick={treePick}
+              onPickChange={setTreePick}
               /*
                 The foot line and the tree's dots. Absent on the demo console,
                 which has no control plane — the column then ends at the counts
@@ -1368,6 +1381,8 @@ export default function ConsoleLayout() {
           nav={nav}
           onCloseTab={closeTab}
           onDialog={setBarDialog}
+          picked={treePick}
+          onPickSpent={() => setTreePick(NO_PICK)}
           onSearch={() => setPaletteOpen(true)}
           paletteOpen={
             paletteOpen || treeOverlay || recentOpen || syncOpen || openSettingsSection !== null
@@ -1991,6 +2006,8 @@ function Shortcuts({
   nav,
   onCloseTab,
   onDialog,
+  picked,
+  onPickSpent,
   onSearch,
   paletteOpen,
 }: {
@@ -2002,6 +2019,10 @@ function Shortcuts({
   onCloseTab: (path: string) => void;
   /** Raise one of the tree's dialogs — the same set the toolbar's `+` uses. */
   onDialog: (dialog: Dialog) => void;
+  /** The tree's multi-selection, which a row chord acts on when there is one. */
+  picked: TreePick;
+  /** Put the pick down once a chord has acted on it. */
+  onPickSpent: () => void;
   onSearch: () => void;
   paletteOpen: boolean;
 }) {
@@ -2127,9 +2148,12 @@ function Shortcuts({
               selectedPath: files.selectedPath,
               listings: files.listings,
               clipboard: files.clipboard,
+              picked: topmost(picked.paths, []),
             });
             if (intent === null) return false;
-            return applyRowIntent(intent, files, onDialog);
+            const applied = applyRowIntent(intent, files, onDialog);
+            if ("paths" in intent) onPickSpent();
+            return applied;
           }
 
           default: {
@@ -2149,7 +2173,7 @@ function Shortcuts({
         that changes on every navigation — and a stale copy would answer ⌘[
         with the `canBack` of wherever somebody was two notes ago.
       */
-      [files, tabs, nav, onCloseTab, onDialog, frame, onSearch],
+      [files, tabs, nav, onCloseTab, onDialog, frame, onSearch, picked, onPickSpent],
     ),
   });
 
