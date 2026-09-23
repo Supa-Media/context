@@ -115,7 +115,7 @@ jobs:
           scope: "@supa-media"
 
       - name: Run test suite
-        run: node test/test.mjs
+        run: npm test
 
       - name: Pack and inspect the tarball
         run: |

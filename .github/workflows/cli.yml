@@ -51,7 +51,7 @@ jobs:
 
       - name: Run test suite
         working-directory: plugins/context
-        run: node test/test.mjs
+        run: npm test
 
   no-dependencies:
     name: Hook stays dependency-free
