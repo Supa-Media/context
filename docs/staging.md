@@ -83,3 +83,50 @@ binding in Convex, so the app may report missing storage afterwards.
 A compact Staging pill beside the console storage badge identifies the environment.
 Storage activation screens warn that data may be deleted at any time and must
 never be the only copy of vital information.
+
+## Seeded personas
+
+Use the normal email login at `https://staging.context.lc` and enter `000000`.
+Only these exact five addresses get this behavior, only on the isolated staging
+backend; normal email delivery is suppressed for these fixture logins.
+They have ordinary workspace permissions, with no admin or production privileges.
+
+| Email | Persona | Personal workspace | Lumio | Maison Solenne | Common Ground |
+| --- | --- | --- | --- | --- | --- |
+| alpha@supa.media | Alpha Morgan, product founder and campaign collaborator | @alpha-morgan | Owner | Editor | None |
+| beta@supa.media | Beta Chen, freelance product and program operator | None | Editor | Read-only member | Editor |
+| gamma@supa.media | Gamma Ellis, pilot reviewer and volunteer | None | Read-only member | None | Read-only member |
+| delta@supa.media | Delta Brooks, creative director and nonprofit lead | @delta-brooks | None | Owner | Owner |
+| epsilon@supa.media | Epsilon Reed, new collaborator | None | Pending editor invitation | None | None |
+
+Lumio is a fictional tech company, Maison Solenne a fashion house, and Common
+Ground a nonprofit. Each shared workspace has eleven sample notes covering active
+projects, tasks, meeting decisions, reference material and archived work, plus
+an owner-only leadership note among those eleven. Each personal workspace has four
+private notes. All figures, suppliers and people are synthetic. The storage
+onboarding scaffold adds its usual root files and folder guides.
+
+Run **Actions → Seed Staging Personas** after deploying this version to staging.
+The workflow validates the deployment key and URL before making any changes.
+Its internal preparation mutation independently checks the server environment,
+app origin and platform deployment URL, and refuses name collisions or unrelated
+members. Storage provisioning, note writes and verification use normal user APIs.
+
+Check **reset** to restore the 41 fixture notes, fixture roles and Epsilon's
+seven-day invitation. Reset overwrites those known notes and removes fixture
+memberships that are absent from the matrix; it does not delete extra notes,
+other workspaces, storage buckets, or connected integrations. Extra workspaces
+created by testers will fail the exact workspace-list verification until cleaned
+up. Ordinary seeding fills missing notes and preserves existing fixture text.
+Neither operation runs automatically when code is deployed.
+
+Every run verifies all five OTP logins, storage, exact membership lists, denied
+cross-workspace reads, owner-only notes, a read-only write refusal, an editor save,
+and invitation acceptance. It restores Epsilon to an unjoined account with a new
+pending invitation before finishing, and signs out the verification sessions.
+
+The auth patch namespaces the fixed code by email before storage/verification:
+Convex Auth indexes verification codes globally, so storing the same hash five
+times would break simultaneous logins. Expiry, single use and verification rate
+limits remain in effect. Tests cover production/mismatched deployment rejection,
+non-allowlisted addresses, concurrent outstanding codes and cross-address misuse.
