@@ -864,6 +864,30 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       },
     ],
   },
+  {
+    route: "/preview/onboarding",
+    file: "app/preview/onboarding/index.tsx",
+    reachable: false,
+    reason:
+      "The design review index for the redesigned onboarding screens. A dev " +
+      "surface — nothing in the app links here — so a reviewer can look at " +
+      "each new step's presentational half with mock props before the flow " +
+      "state machine has been rewired. Kept in the tree rather than a " +
+      "Storybook because the tokens, the theme provider and the type scale " +
+      "come from this app and drift in either direction the moment they are " +
+      "duplicated.",
+    marker: "the design review index",
+  },
+  {
+    route: "/preview/onboarding/[step]",
+    file: "app/preview/onboarding/[step].tsx",
+    reachable: false,
+    reason:
+      "One redesigned onboarding step, rendered with mock props. Reached " +
+      "only from `/preview/onboarding`, which the reachability rule above " +
+      "already marks as a dev surface not linked from the app itself.",
+    marker: "one redesigned onboarding step, rendered with mock props",
+  },
 ];
 
 /**
