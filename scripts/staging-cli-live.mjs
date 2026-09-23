@@ -83,7 +83,9 @@ try {
   const credentials = JSON.parse(await readFile(process.env.CONTEXT_HOOK_CONFIG, "utf8"));
   const record = credentials.endpoints[ENDPOINT];
   assert.ok(record?.refreshToken, "login stored no credential");
-  assert.equal(record.scope?.includes("context:private"), false, "login must never hold context:private");
+  // The persona owns @alpha, so the approval (no narrower choice made) grants
+  // private too: a person's own notes are private by default.
+  assert.ok(record.scope?.includes("context:private"), `an owner's login should hold context:private, got "${record.scope}"`);
   grantClientId = record.clientId;
   assert.ok(!said.join("\n").includes(record.refreshToken) && !said.join("\n").includes(record.accessToken), "a token was printed");
   pass(`login: OAuth with dynamic registration and PKCE, scope "${record.scope}", no token printed`);
@@ -99,10 +101,10 @@ try {
   }
 
   // -- tools from the terminal
-  // The CLI's sign-in never asks for private notes, and the persona's personal
-  // workspace holds only private ones, so these read Lumio, a shared workspace
-  // whose notes are team-visible. That the private note stays out of reach is
-  // checked too.
+  said.length = 0;
+  const own = await commands.runTool({ name: "search-notes", flags: { query: "ALPHA-PERSONAL-ONLY" }, endpoint: ENDPOINT, cwd: home, log });
+  assert.ok(own.ok && said.join("\n").includes("2-areas/learning/notes.md"), "the owner's own private note is not reachable");
+  pass("the owner's own private notes are reachable from the CLI");
   said.length = 0;
   const oriented = await commands.runTool({ name: "orient", flags: { context: "@lumio" }, endpoint: ENDPOINT, cwd: home, log });
   assert.ok(oriented.ok && said.join("\n").includes("fictional software company"), "orient did not return Lumio's front page");
@@ -112,9 +114,17 @@ try {
   assert.ok(searched.ok && said.join("\n").includes("1-projects/pulse-launch/"), "search did not find Lumio's seeded notes");
   pass("search-notes finds seeded notes, with flags typed from the tool's schema");
   said.length = 0;
-  await commands.runTool({ name: "search-notes", flags: { query: "ALPHA-PERSONAL-ONLY" }, endpoint: ENDPOINT, cwd: home, log });
-  assert.ok(!said.join("\n").includes("2-areas/learning/notes.md"), "a private note reached a sign-in that never asked for private");
-  pass("a private note stays out of reach of the CLI's sign-in");
+  await commands.runTool({ name: "read-note", flags: { path: "2-areas/leadership/private-plan.md", context: "@maison-solenne" }, endpoint: ENDPOINT, cwd: home, log });
+  assert.ok(!said.join("\n").includes("Owner-only fixture"), "an owner-only note of a workspace the persona only edits was readable");
+  pass("private still means the owner's: an editor's sign-in cannot read another owner's private note");
+
+  // -- use: the default workspace for commands with no folder binding
+  await commands.use({ workspace: "@lumio", endpoint: ENDPOINT, log });
+  said.length = 0;
+  await commands.runTool({ name: "orient", endpoint: ENDPOINT, cwd: home, log });
+  assert.ok(said.join("\n").includes("fictional software company"), "use @lumio did not make Lumio the default");
+  await commands.use({ workspace: `@${personal.slug}`, endpoint: ENDPOINT, log });
+  pass("use switches the workspace commands act on");
 
   // -- the session-end hook, as an agent would run it
   const sessionId = `cli-live-${Date.now()}`;

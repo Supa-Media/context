@@ -21,7 +21,8 @@ const USAGE = `Context in your coding agents, and your notes from the terminal.
       -y                                     do not ask; take the defaults
   npx @supa-media/context uninstall          remove what install added (--agent to narrow)
   npx @supa-media/context status             sign-in, workspace, capture, installs
-  npx @supa-media/context login              sign in (read and write; never private notes)
+  npx @supa-media/context login              sign in (you choose team or private on the approval page)
+  npx @supa-media/context use @workspace     the workspace commands act on by default
   npx @supa-media/context logout             delete this machine's stored sign-in
   npx @supa-media/context link @workspace    bind this folder to a workspace (.context.json)
       --private                              ...and keep that file out of git
@@ -62,7 +63,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0];
-  const BUILT_IN = ["install", "uninstall", "status", "login", "logout", "link", "unlink", "config", "session-start", "capture"];
+  const BUILT_IN = ["install", "uninstall", "status", "login", "logout", "use", "link", "unlink", "config", "session-start", "capture"];
   if (!command || (args.help && BUILT_IN.includes(command))) {
     console.log(USAGE);
     return 0;
@@ -83,6 +84,9 @@ async function main() {
       return 0;
     case "link":
       await commands.link({ workspace: args._[1], private: args.private === true, endpoint: args.endpoint });
+      return 0;
+    case "use":
+      await commands.use({ workspace: args._[1], endpoint: args.endpoint });
       return 0;
     case "unlink":
       await commands.unlink({});

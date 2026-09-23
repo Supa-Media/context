@@ -66,9 +66,14 @@ export const ORIENT_SCOPE = "context:read context:capture";
 /**
  * What `login` asks for: read and write, so the CLI's own commands can search,
  * read and write notes and the capture hook can post (write implies capture for
- * an owner or editor). Still never `context:private`.
+ * an owner or editor), and `context:private`, so a person's own notes, which
+ * are private by default, are reachable from their own machine.
+ *
+ * Asking is not getting: the approval screen lets the person grant team only,
+ * and the gateway clamps private to owners. The credential holds what was
+ * granted. (The old hook-only install still asks for capture alone.)
  */
-export const LOGIN_SCOPE = "context:read context:write";
+export const LOGIN_SCOPE = "context:read context:write context:private";
 
 /** How long a person gets to finish the browser half before we give up. */
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;

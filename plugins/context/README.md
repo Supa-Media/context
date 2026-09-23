@@ -110,8 +110,10 @@ npx @supa-media/context search-notes --help
 
 ## What your sign-in can do
 
-`login` asks for read and write, and never for your private notes: notes you
-marked private stay out of reach of this machine's credential. It appears in
+`login` asks for read, write and your private notes, because a person's own
+notes are private by default. The approval page lets you grant team notes
+only instead, and private is only ever granted where you are the owner:
+another owner's private notes stay out of reach. It appears in
 Connections in the Context console as `Context CLI (<your hostname>)` and is
 revoked there on its own.
 
@@ -128,6 +130,7 @@ npx -y @supa-media/context install      # sign in, then add Context to your agen
 npx -y @supa-media/context uninstall    # remove exactly what install added
 npx -y @supa-media/context status       # sign-in, workspace, capture, installs, last capture
 npx -y @supa-media/context login        # sign in again
+npx -y @supa-media/context use @slug    # the workspace commands act on by default
 npx -y @supa-media/context logout       # delete this machine's stored sign-in
 ```
 

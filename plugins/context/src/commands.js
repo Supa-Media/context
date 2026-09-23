@@ -331,6 +331,33 @@ export async function link({ workspace, cwd = process.cwd(), private: keepPrivat
   return { path, workspace: slug };
 }
 
+/**
+ * `use @slug`: the workspace commands act on when a folder names none, like
+ * `vercel switch`. Checked against the workspaces this sign-in reaches. With no
+ * name it lists them and marks the current default.
+ */
+export async function use({ workspace, endpoint, configPath = defaultConfigPath(), fetchImpl = fetch, log = console.log }) {
+  const { settings } = await resolveSettings({ flags: { endpoint } });
+  const base = baseEndpoint(settings.endpoint);
+  const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
+  const workspaces = await listWorkspaces({ url: base, token, fetchImpl });
+  const slug = normalizeWorkspace(workspace);
+  if (!slug) {
+    if (!workspaces) throw new Error("this server cannot list workspaces yet; name one: context-lc use @slug");
+    for (const entry of workspaces) {
+      log(`  @${entry.slug}  ${entry.kind}, ${entry.role}${entry.slug === settings.workspace ? "  (default)" : ""}`);
+    }
+    return { workspaces };
+  }
+  if (workspaces && !workspaces.some((entry) => entry.slug === slug)) {
+    throw new Error(`this sign-in does not reach @${slug}. It reaches: ${workspaces.map((entry) => `@${entry.slug}`).join(", ")}`);
+  }
+  await writeSetting("workspace", slug);
+  log(`Commands now act on @${slug} unless a folder's .context.json names another.`);
+  if (!workspaces) log("Could not check that name against your workspaces (older server).");
+  return { workspace: slug };
+}
+
 export async function unlink({ cwd = process.cwd(), log = console.log }) {
   const path = join(cwd, PROJECT_FILE);
   const current = JSON.parse(await readFile(path, "utf8").catch(() => "{}"));

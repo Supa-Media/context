@@ -1482,8 +1482,15 @@ await commands.login({
   log,
 });
 const loginScope = server.state.lastAuthorize.searchParams.get("scope");
-check("login asks for read and write", loginScope === LOGIN_SCOPE && LOGIN_SCOPE === "context:read context:write");
-check("login never asks for private notes", !loginScope.includes("context:private"));
+check(
+  "login asks for read, write and the owner's private notes",
+  loginScope === LOGIN_SCOPE && LOGIN_SCOPE === "context:read context:write context:private"
+);
+/*
+  Asking is not getting. The approval screen still lets the person grant team
+  only, and the gateway clamps private to owners; what the CLI stores is what
+  was granted, never what it asked for.
+*/
 check("login registers a client that declares the scope it asks for", server.state.registered.length === loginRegistrations + 1 && server.state.registered.at(-1).scope === LOGIN_SCOPE);
 check("login records which workspace is personal", (await readSettings()).personal === "me");
 check(
@@ -1546,6 +1553,23 @@ check("outside a git repository, a private link says it could not keep the file 
 
 await commands.unlink({ cwd: linkDir, log });
 check("unlink removes the binding", (await readFile(join(linkDir, ".context.json"), "utf8").catch(() => "{}")).includes("team") === false);
+
+// -- use: this person's default workspace
+
+said.length = 0;
+await commands.use({ workspace: "@team", endpoint: server.endpoint, configPath, log });
+check("use sets the default workspace", (await readSettings()).workspace === "team");
+let useRefusal = null;
+try {
+  await commands.use({ workspace: "@stranger", endpoint: server.endpoint, configPath, log });
+} catch (error) {
+  useRefusal = error.message;
+}
+check("use refuses a workspace this sign-in does not reach", /does not reach @stranger/.test(useRefusal || "") && (await readSettings()).workspace === "team");
+said.length = 0;
+await commands.use({ endpoint: server.endpoint, configPath, log });
+check("use with no name lists the workspaces and marks the default", said.some((line) => /@team.*default/.test(line)) && said.some((line) => line.includes("@me")));
+await writeSetting("workspace", null);
 
 // -- config
 
