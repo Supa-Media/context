@@ -20,10 +20,9 @@ test("Google callback completes through the real browser HTTP action route", asy
     });
   });
 
-  await page.addInitScript(() => {
-    sessionStorage.setItem("context.googleConnect.google-state", "google-completion-secret");
-  });
-  await page.goto("/connect/google?code=google-code&state=google-state");
+  await page.goto(
+    "/connect/google?code=google-code&state=google-state&completionSecret=google-completion-secret",
+  );
 
   await expect(page.getByRole("heading", { name: "Google is connected" })).toBeVisible();
   expect(actionRequests).toHaveLength(1);

@@ -10,7 +10,7 @@ import { clamp, fonts, leading, pointerType as t } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { completeGoogleCallback } from "./completeGoogleCallback";
-import { parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
+import { googleE2ECompletionSecret, parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
 
 export function GoogleCallbackScreen() {
   const styles = useThemedStyles(makeStyles);
@@ -18,6 +18,7 @@ export function GoogleCallbackScreen() {
     code?: string | string[];
     state?: string | string[];
     error?: string | string[];
+    completionSecret?: string | string[];
   }>();
   const callback = useMemo(
     () => parseGoogleCallback(params),
@@ -35,7 +36,7 @@ export function GoogleCallbackScreen() {
   useEffect(() => {
     if (started.current || callback.kind !== "ready") return;
     started.current = true;
-    const completionSecret = takeGoogleCompletionSecret(callback.state);
+    const completionSecret = takeGoogleCompletionSecret(callback.state) ?? googleE2ECompletionSecret(params);
     if (completionSecret === null) {
       setStatus("failed");
       return;
@@ -48,7 +49,7 @@ export function GoogleCallbackScreen() {
         setStatus("failed");
       }
     })();
-  }, [callback]);
+  }, [callback, params]);
 
   const headline =
     callback.kind === "cancelled"
