@@ -1144,6 +1144,10 @@ describe("a pick is acted on as one batch", () => {
     pressMenuItem("Move to trash");
 
     expect(editor.calls.entries).toEqual([{ name: "destroy", args: ["note.md"] }]);
+
+    // And the pick is gone: a row that was in it now gets its own menu.
+    openRowMenu(editor.container, "other.md");
+    expect(document.body.textContent).not.toContain("Move 2 items to trash");
   });
 
   test("a drag of a row outside the pick moves that row alone", () => {

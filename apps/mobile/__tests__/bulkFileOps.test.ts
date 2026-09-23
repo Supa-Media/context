@@ -293,6 +293,37 @@ describe("a batch is one operation", () => {
     expect(browser.toasts[0]!.message).toBe("Copied 2 items to areas.");
   });
 
+  test("undoing a batch of folder moves reloads each folder where it lands back", async () => {
+    // A folder carries its subtree into a different place in `privacy.md`,
+    // so what is under it has to be re-read at the far end — and again when
+    // the Undo brings it home, or its notes keep the rules of where it was.
+    unmount = await ready();
+
+    await act(async () => browser.moveMany(["1-projects", "2-areas"], "3-resources"));
+    await settle();
+    await act(async () => browser.toasts[0]!.undo!());
+    await settle();
+
+    const listed = argsOf("listFiles").map((args) => (args as { path: string }).path);
+    expect(listed).toContain("1-projects");
+    expect(listed).toContain("2-areas");
+  });
+
+  test("a batch of copies is undone by putting the copies in the trash", async () => {
+    unmount = await ready();
+
+    await act(async () => browser.copyManyTo([A, B], "2-areas"));
+    await settle();
+    expect(browser.toasts[0]!.message).toBe("Copied 2 items to areas.");
+    await act(async () => browser.toasts[0]!.undo!());
+    await settle();
+
+    expect(argsOf("trashEntry")).toEqual([
+      { workspaceId: "w1", path: "2-areas/b copy.md" },
+      { workspaceId: "w1", path: "2-areas/a.md" },
+    ]);
+  });
+
   test("a batch of one is the single operation, word for word", async () => {
     unmount = await ready();
 

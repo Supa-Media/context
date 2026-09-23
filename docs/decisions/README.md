@@ -247,6 +247,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A phone can ask its context a question, and could not before
 - The feed is a file, and the console is a viewing layer over it
 - The room binds to a document it agrees with, and a different note unbinds first
+- Several rows are one operation, and a pick is what the keyboard acts on
 
 ## [Meetings](./meetings.md)
 

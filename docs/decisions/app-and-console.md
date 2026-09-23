@@ -7431,3 +7431,39 @@ sabotaged to confirm the right one fails.
   after the first is bound in name only.
 - Binding an empty room writes the note twice when the seed lands, or blanks it
   if the document is reconciled to a room that has nothing in it yet.
+
+## Several rows are one operation, and a pick is what the keyboard acts on
+
+⌘-click (ctrl-click off a Mac) and shift-click pick rows in the file tree, and
+a right-click, a drag or a row chord on a picked row acts on the whole pick.
+`selection.ts` holds the click rules, `useFileBrowser`'s `…Many` methods the
+batches.
+
+**A batch is one `run`, never a loop over the single-path methods.** Each
+single call is its own `run`, and a newer `run` supersedes an older one: it
+clears the older one's toast, skips its refresh and takes the busy flag. Five
+moves in a row was one toast offering to undo the fifth. So a batch works
+through its paths in order inside one `run`, says one sentence, and offers one
+Undo that inverts every step last first. The first failure stops it: nothing
+done is an ordinary failure, something done is a **notice** saying how far it
+got and no Undo — `run` already reserves the notice for a half-failure, and an
+Undo for the part that happened reads as an Undo of the whole. `bulkFileOps.test.ts`.
+
+**With a pick up, a row chord acts on the pick or on nothing.** The open note
+is still `selectedPath` underneath, but it is not what the tree draws selected
+any more; ⌘⇧⌫ trashing it while three other rows sat highlighted would delete a
+row nobody was looking at. So the pick is held by the console layout beside
+`Shortcuts`, and the single-target chords (rename, duplicate, copy, cut) do
+nothing while it is up. `rowCommands.test.ts`, "with several rows picked".
+
+**The selection menu offers move, archive or restore, copy paths and trash —
+not copy, cut or visibility.** The clipboard holds one path, so "Copy 3 items"
+would paste one. Visibility has no batch write and no single Undo, so a "Share
+3 items with the team" that stopped after the second would leave a privacy
+change half made; that is the one item where half made is a disclosure, and it
+waits for a server-side batch. `fileMenu.test.ts`.
+
+A pick holds only rows on screen: collapsing a folder drops what was picked
+inside it, and a folder with a picked note inside it moves as one path.
+Moving into another context stays one item at a time — `moveToContext` has no
+batch form and no Undo.

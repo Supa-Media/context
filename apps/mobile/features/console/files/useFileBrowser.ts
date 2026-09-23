@@ -3428,7 +3428,13 @@ export function useFileBrowser(options: {
         done: (count: number) => string;
         undone: (count: number) => string;
       },
-      options: { drawn?: readonly (() => void)[]; cascadeFrom?: readonly string[] } = {},
+      options: {
+        drawn?: readonly (() => void)[];
+        /** Folders whose subtree is stale once the batch lands — see `moveResult`. */
+        cascadeFrom?: readonly string[];
+        /** The same, for the Undo: the folders as they are once moved back. */
+        undoCascadeFrom?: readonly string[];
+      } = {},
     ) => {
       const drawn = options.drawn ?? [];
       const revertFrom = (index: number) => {
@@ -3465,7 +3471,13 @@ export function useFileBrowser(options: {
                 // a later one landing where an earlier one left — unwinds in
                 // the order that makes each inverse valid.
                 for (const inverse of [...inverses].reverse()) await inverse();
-                return { touched, message: words.undone(steps.length) };
+                return {
+                  touched,
+                  message: words.undone(steps.length),
+                  ...(options.undoCascadeFrom === undefined
+                    ? {}
+                    : { cascadeFrom: options.undoCascadeFrom }),
+                };
               });
             },
           };
@@ -3518,6 +3530,11 @@ export function useFileBrowser(options: {
           cascadeFrom: results.flatMap((result) =>
             result.cascadeFrom === undefined ? [] : [result.cascadeFrom],
           ),
+          // A folder moved back carries its subtree back under the other
+          // folder's rules, exactly as it did on the way out.
+          undoCascadeFrom: results.flatMap((result) =>
+            result.cascadeFrom === undefined ? [] : [result.touched[0]!],
+          ),
         },
       );
     },
@@ -3553,7 +3570,8 @@ export function useFileBrowser(options: {
         })),
         {
           done: (count) => `Copied ${countOf(count)} to ${where}.`,
-          undone: (count) => `Moved the ${countOf(count)} copied to trash.`,
+          undone: (count) =>
+            count === 1 ? "Moved the copy to trash." : `Moved the ${count} copies to trash.`,
         },
       );
     },
@@ -3631,6 +3649,11 @@ export function useFileBrowser(options: {
           drawn,
           cascadeFrom: results.flatMap((result) =>
             result.cascadeFrom === undefined ? [] : [result.cascadeFrom],
+          ),
+          // A folder moved back carries its subtree back under the other
+          // folder's rules, exactly as it did on the way out.
+          undoCascadeFrom: results.flatMap((result) =>
+            result.cascadeFrom === undefined ? [] : [result.touched[0]!],
           ),
         },
       );

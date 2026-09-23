@@ -652,6 +652,9 @@ export function Explorer({
             files.move(move.from, destination);
           }
         }
+        // A pick whose other rows were already in the drop folder came down
+        // to this one move, and it is spent all the same.
+        setPicked(NO_PICK);
       },
     };
   }, [files, drag, pickedRows, setPicked, shown]);
