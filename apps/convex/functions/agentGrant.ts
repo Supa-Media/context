@@ -54,11 +54,11 @@ import { requireWorkspaceAccess } from "./lib/workspaceAuth";
  * the same notes through `files.ts` *and* can change storage bindings, delete
  * the account and read the audit trail. The token is the smaller of the two
  * powers, and it is bounded further below — an hour, no refresh token, one live
- * grant per person per context, and a row in the list they can revoke.
+ * grant per console instance, person and context, and a revocable row.
  *
  * ## What is unchanged, and it is the whole of non-negotiable #4
  *
- * One grant per person per context, carrying an explicit scope set clamped by
+ * Each console instance has its own grant, with an explicit scope set clamped by
  * the role read in the same transaction, revocable on its own, with an audit
  * entry naming the person. A `member` of somebody else's context gets a
  * read-scoped token and no write, because `clampScopes` says so — not because
