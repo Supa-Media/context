@@ -107,6 +107,25 @@ check(
 
 /* ------------------------- a stub authorization server ------------------- */
 
+/** A slice of the gateway's tool list, in its real shape. */
+const STUB_TOOLS = [
+  {
+    name: "search_notes",
+    description: "Search visible notes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to look for" },
+        limit: { type: "integer", description: "At most this many" },
+        exact: { type: "boolean", description: "Match the phrase exactly" },
+        context: { type: "string", description: "Another workspace" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+];
+
 function base64Url(buffer) {
   return Buffer.from(buffer).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
@@ -200,6 +219,16 @@ async function startStubServer() {
       const rpc = JSON.parse(await readBody());
       state.mcpCalls.push(rpc);
       if (state.orientFails) return send(500, { error: "boom" });
+      if (rpc.method === "tools/list") {
+        return send(200, { jsonrpc: "2.0", id: rpc.id, result: { tools: STUB_TOOLS } });
+      }
+      if (rpc.method === "tools/call" && rpc.params?.name === "search_notes") {
+        return send(200, {
+          jsonrpc: "2.0",
+          id: rpc.id,
+          result: { content: [{ type: "text", text: `searched ${JSON.stringify(rpc.params.arguments)}` }] },
+        });
+      }
       if (rpc.method === "tools/call" && rpc.params?.name === "scope_info" && rpc.params?.arguments?.workspaces) {
         if (!state.workspaces) {
           return send(200, { jsonrpc: "2.0", id: rpc.id, result: { isError: true, content: [{ type: "text", text: "unknown argument: workspaces" }] } });
@@ -1523,6 +1552,46 @@ check(
   "two parallel refreshes both succeed with one usable token",
   parallel.every((outcome) => outcome.status === "fulfilled") && parallel[0].value === parallel[1].value
 );
+
+// -- tools from the terminal, built from the gateway's own list
+
+said.length = 0;
+const ran = await commands.runTool({
+  name: "search-notes",
+  flags: { query: "pricing", limit: "5", exact: true },
+  endpoint: server.endpoint,
+  configPath,
+  cwd: home,
+  log,
+});
+const sent = server.state.mcpCalls.at(-1).params;
+check("a tool runs by its name, with dashes accepted for underscores", ran.ok === true && sent.name === "search_notes");
+check("flags are typed from the tool's schema", sent.arguments.query === "pricing" && sent.arguments.limit === 5 && sent.arguments.exact === true);
+check("the tool's answer is printed", said.join("\n").includes('searched {"query":"pricing","limit":5,"exact":true}'));
+let toolRefusal = null;
+try {
+  await commands.runTool({ name: "search_notes", flags: { query: "x", colour: "blue" }, endpoint: server.endpoint, configPath, cwd: home, log });
+} catch (error) {
+  toolRefusal = error.message;
+}
+check("a flag the tool does not take is refused, naming the ones it does", /unknown flag --colour.*--query/.test(toolRefusal || ""));
+toolRefusal = null;
+try {
+  await commands.runTool({ name: "search_notes", flags: {}, endpoint: server.endpoint, configPath, cwd: home, log });
+} catch (error) {
+  toolRefusal = error.message;
+}
+check("a missing required flag is refused", /--query is required/.test(toolRefusal || ""));
+toolRefusal = null;
+try {
+  await commands.runTool({ name: "delete_everything", flags: {}, endpoint: server.endpoint, configPath, cwd: home, log });
+} catch (error) {
+  toolRefusal = error.message;
+}
+check("an unknown tool is refused with the list of real ones", /no tool "delete_everything".*search_notes/.test(toolRefusal || ""));
+said.length = 0;
+await commands.runTool({ name: "tools", flags: {}, endpoint: server.endpoint, configPath, cwd: home, log });
+check("`tools` lists what this sign-in can run", said.join("\n").includes("search-notes"));
 
 // -- logout
 

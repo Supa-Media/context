@@ -28,6 +28,9 @@ const USAGE = `Context in your coding agents, and your notes from the terminal.
   npx @supa-media/context unlink             remove this folder's binding
   npx @supa-media/context config list        every setting and where it came from
   npx @supa-media/context config set <key> <value>   (empty value unsets)
+  npx @supa-media/context tools              list the tools your sign-in can run
+  npx @supa-media/context <tool> --flag v    run one, e.g. search-notes --query pricing
+                                             (<tool> --help shows its flags)
 
 Options
   --endpoint <url>   your MCP endpoint (default ${DEFAULT_ENDPOINT})
@@ -59,7 +62,8 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0];
-  if (args.help || !command) {
+  const BUILT_IN = ["install", "uninstall", "status", "login", "logout", "link", "unlink", "config", "session-start", "capture"];
+  if (!command || (args.help && BUILT_IN.includes(command))) {
     console.log(USAGE);
     return 0;
   }
@@ -120,9 +124,12 @@ async function main() {
       });
       return 0;
     }
-    default:
-      console.log(USAGE);
-      return 1;
+    default: {
+      // Anything else is one of the gateway's own tools, or `tools` to list them.
+      const { _, endpoint, yes, ...flags } = args;
+      const result = await commands.runTool({ name: command, flags, endpoint });
+      return result.ok ? 0 : 1;
+    }
   }
 }
 

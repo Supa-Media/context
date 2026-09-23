@@ -33,7 +33,7 @@ import {
 } from "./oauth.js";
 import { captureBody, transcriptToMarkdown } from "./transcript.js";
 import { PROJECT_FILE, normalizeWorkspace, resolveSettings, workspaceUrl, writeSetting } from "./settings.js";
-import { listWorkspaces } from "./mcp.js";
+import { callTool, listTools, listWorkspaces } from "./mcp.js";
 import { homedir } from "node:os";
 import { join, resolve as resolvePath, sep } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -691,3 +691,74 @@ export async function uninstall({ agents: agentIds, home = homedir(), run, addMc
   return { removed: target.length - remaining.length };
 }
 
+
+/**
+ * Run one of the gateway's tools from the terminal: `context-lc search-notes
+ * --query pricing`.
+ *
+ * The commands are the gateway's own tool list, read at run time, so a tool
+ * added to the gateway is a command here with no release of this package, and
+ * `--help` text is the tool's own description. Flags are typed from each
+ * tool's input schema, so `--limit 5` arrives as a number. The workspace comes
+ * from settings (the folder's `.context.json`, or the default), exactly as for
+ * an agent.
+ */
+export async function runTool({ name, flags = {}, endpoint, configPath = defaultConfigPath(), cwd = process.cwd(), fetchImpl = fetch, log = console.log }) {
+  const { settings } = await resolveSettings({ flags: { endpoint }, cwd });
+  const url = workspaceUrl(settings.endpoint, settings.workspace);
+  const token = await accessTokenFor({ endpoint: settings.endpoint, configPath, fetchImpl });
+  const tools = await listTools({ url, token, fetchImpl });
+  if (!tools) throw new Error("could not read the tool list from the server");
+  const dashed = (tool) => tool.replace(/_/g, "-");
+
+  if (name === "tools") {
+    for (const tool of tools) log(`${dashed(tool.name).padEnd(24)} ${String(tool.description || "").split(/(?<=\.)\s/)[0]}`);
+    return { ok: true };
+  }
+  const wanted = String(name).replace(/-/g, "_");
+  const tool = tools.find((entry) => entry.name === wanted);
+  if (!tool) throw new Error(`no tool "${wanted}". Tools: ${tools.map((entry) => entry.name).join(", ")}`);
+  const properties = tool.inputSchema?.properties || {};
+
+  if (flags.help) {
+    log(tool.description || tool.name);
+    for (const [key, schema] of Object.entries(properties)) {
+      const required = (tool.inputSchema.required || []).includes(key) ? " (required)" : "";
+      log(`  --${key.padEnd(20)} ${schema.type || "json"}${required}  ${schema.description || ""}`);
+    }
+    return { ok: true };
+  }
+
+  const args = {};
+  for (const [key, raw] of Object.entries(flags)) {
+    const schema = properties[key];
+    if (!schema) throw new Error(`unknown flag --${key}. ${tool.name} takes: ${Object.keys(properties).map((p) => `--${p}`).join(", ")}`);
+    args[key] = coerce(raw, schema, key);
+  }
+  for (const key of tool.inputSchema?.required || []) {
+    if (!(key in args)) throw new Error(`--${key} is required for ${tool.name}`);
+  }
+  const answer = await callTool({ url, token, name: tool.name, args, fetchImpl });
+  if (!answer) throw new Error(`${tool.name} returned no answer`);
+  log(answer.text);
+  return { ok: !answer.isError };
+}
+
+function coerce(raw, schema, key) {
+  const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+  if (type === "boolean") return raw === true || raw === "true";
+  if (type === "number" || type === "integer") {
+    const value = Number(raw);
+    if (!Number.isFinite(value)) throw new Error(`--${key} must be a number`);
+    return value;
+  }
+  if (type === "string") return String(raw);
+  if (type === "array" && schema.items?.type === "string" && !String(raw).trim().startsWith("[")) {
+    return String(raw).split(",").map((entry) => entry.trim()).filter(Boolean);
+  }
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    throw new Error(`--${key} must be JSON`);
+  }
+}
