@@ -48,12 +48,12 @@ for (const { slug, workspaceId, owner } of workspaces) {
   // Only new buckets need the ordinary onboarding scaffold.
   let index;
   try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); }
-  catch (error) { if (!/NOT_FOUND|not found|does not exist/i.test(String(error))) throw error; }
+  catch (error) { if (error?.data?.code !== "FILE_NOT_FOUND") throw error; }
   if (!index) {
     await client.mutation(ref('functions/workspaces:applyStructure'), { workspaceId, template: 'para' });
     for (let attempt = 0; attempt < 60; attempt++) {
       try { index = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }); break; }
-      catch (error) { if (!/NOT_FOUND|not found|does not exist/i.test(String(error))) throw error; }
+      catch (error) { if (error?.data?.code !== "FILE_NOT_FOUND") throw error; }
       await pause(2000);
     }
     assert.ok(index, `${slug}: scaffold did not complete`);
@@ -61,7 +61,7 @@ for (const { slug, workspaceId, owner } of workspaces) {
   for (const [path, text] of Object.entries(stagingNotes[slug])) {
     let existing;
     try { existing = await client.action(ref('functions/files:readNote'), { workspaceId, path }); }
-    catch (error) { if (!/NOT_FOUND|not found|does not exist/i.test(String(error))) throw error; }
+    catch (error) { if (error?.data?.code !== "FILE_NOT_FOUND") throw error; }
     if (!existing || reset || (path === 'index.md' && !existing.text.includes('staging-personas-v1'))) {
       await client.action(ref('functions/files:writeNote'), { workspaceId, path, text, ...(existing ? { expectedEtag: existing.etag } : {}) });
     }
@@ -86,16 +86,16 @@ for (const [persona, roles] of Object.entries(expected)) {
   assert.deepEqual(Object.fromEntries(actual.map(w => [w.slug, w.role])), roles, `${persona}: workspace access differs; use --reset to restore fixture memberships`);
   for (const { slug, workspaceId } of workspaces) {
     if (!roles[slug]) {
-      await assert.rejects(client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }), /WORKSPACE_NOT_FOUND|Workspace not found/);
+      await assert.rejects(client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' }), error => error?.data?.code === "WORKSPACE_NOT_FOUND");
     } else {
       const read = await client.action(ref('functions/files:readNote'), { workspaceId, path: 'index.md' });
       assert.ok(read.text.includes('staging-personas-v1'));
-      if (roles[slug] !== 'owner') await assert.rejects(client.action(ref('functions/files:readNote'), { workspaceId, path: '2-areas/leadership/private-plan.md' }), /NOT_FOUND|not found|FORBIDDEN|not allowed/);
+      if (roles[slug] !== 'owner') await assert.rejects(client.action(ref('functions/files:readNote'), { workspaceId, path: '2-areas/leadership/private-plan.md' }), error => error?.data?.code === "FILE_NOT_FOUND");
     }
   }
   console.log(`${persona}: exact workspace roles and isolation verified.`);
 }
-await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws.lumio, path: '0-inbox/should-not-exist.md', text: 'Must be refused.' }), /FORBIDDEN|requires.*editor/i);
+await assert.rejects(clients.gamma.action(ref('functions/files:writeNote'), { workspaceId: ws.lumio, path: '0-inbox/should-not-exist.md', text: 'Must be refused.' }), error => error?.data?.code === "FORBIDDEN");
 // Prove that a shared-only editor can save using ordinary permissions.
 const editorPath = '1-projects/pulse-launch/roadmap.md';
 const editorNote = await clients.beta.action(ref('functions/files:readNote'), { workspaceId: ws.lumio, path: editorPath });
