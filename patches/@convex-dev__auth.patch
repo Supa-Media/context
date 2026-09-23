@@ -79,10 +79,33 @@ index 99b4651583f7045c86fd89d878b695f66bb635d5..9e1ef79d2bee7a045412809f353e09ed
  async function browserMutex(key, callback) {
      const lockManager = window?.navigator?.locks;
 diff --git a/dist/server/implementation/signIn.js b/dist/server/implementation/signIn.js
-index 9b763107d094b5cf585c13fb4d8678d91657f04e..aaece2b72bd9f5d55967c7ac1b1732b99f3f5b40 100644
 --- a/dist/server/implementation/signIn.js
 +++ b/dist/server/implementation/signIn.js
-@@ -54,9 +54,24 @@ async function handleEmailAndPhoneProvider(ctx, provider, args, options) {
+@@ -38,6 +38,23 @@
+     throw new Error(`Provider type ${provider.type} is not supported yet`);
+ }
+ async function handleEmailAndPhoneProvider(ctx, provider, args, options) {
++    // PATCH(context.lc): five disposable personas, only on the isolated staging.
++    const stagingEmail = typeof args.params?.email === "string"
++        ? args.params.email.trim().toLowerCase() : "";
++    const stagingPersona = provider.id === "email" &&
++        process.env.APP_ENV === "staging" &&
++        process.env.APP_ORIGIN === "https://staging.context.lc" &&
++        Boolean(process.env.STAGING_CONVEX_DEPLOYMENT) &&
++        process.env.CONVEX_CLOUD_URL === `https://${process.env.STAGING_CONVEX_DEPLOYMENT}.convex.cloud` &&
++        ["alpha@supa.media", "beta@supa.media", "gamma@supa.media",
++            "delta@supa.media", "epsilon@supa.media"].includes(stagingEmail);
++    // Codes are globally indexed. Bind these fixed digits to the address before
++    // hashing so simultaneous persona logins cannot collide with each other/CUJ.
++    const stagingCode = `context-staging:${stagingEmail}:000000`;
++    if (stagingPersona) {
++        args = { ...args, params: { ...args.params, email: stagingEmail,
++            ...(args.params?.code === "000000" ? { code: stagingCode } : {}) } };
++    }
+     if (args.params?.code !== undefined) {
+         const result = await callVerifyCodeAndSignIn(ctx, {
+             params: args.params,
+@@ -54,9 +71,29 @@
          };
      }
      const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -104,6 +127,11 @@ index 9b763107d094b5cf585c13fb4d8678d91657f04e..aaece2b72bd9f5d55967c7ac1b1732b9
 +        typeof args.params?.email === "string" &&
 +        args.params.email.trim().toLowerCase() === testOtpEmail.trim().toLowerCase()) {
 +        code = testOtpCode;
++    }
++    if (stagingPersona) {
++        code = stagingCode;
++        // Keep normal expiry, single-use verification and rate limits; no mail.
++        provider = { ...provider, sendVerificationRequest: async () => {} };
 +    }
      const expirationTime = Date.now() +
          (provider.maxAge ?? DEFAULT_EMAIL_VERIFICATION_CODE_DURATION_S) * 1000;

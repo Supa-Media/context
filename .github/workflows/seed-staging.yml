@@ -1,0 +1,39 @@
+name: Seed Staging Personas
+on:
+  workflow_dispatch:
+    inputs:
+      reset:
+        description: Restore fixture notes, roles and Epsilon's pending invitation
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    env:
+      APP_ENV: staging
+      STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      RESET_FIXTURES: ${{ inputs.reset }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Seed and verify staging accounts
+        run: |
+          if [ "$RESET_FIXTURES" = "true" ]; then
+            node scripts/staging-personas.mjs --reset
+          else
+            node scripts/staging-personas.mjs
+          fi
