@@ -188,7 +188,7 @@ export async function authorize({
 export async function accessTokenFor({ endpoint, configPath, fetchImpl = fetch }) {
   const record = await loadEndpoint(endpoint, configPath);
   if (!record?.refreshToken && !record?.accessToken) {
-    throw new Error(`not signed in for ${endpointKey(endpoint)} — run: npx -y @supa-media/context install`);
+    throw new Error(`not signed in for ${endpointKey(endpoint)} — run: npx -y @supa-media/context login`);
   }
   if (record.accessToken && Number(record.expiresAt) > Date.now()) return record.accessToken;
   if (!record.refreshToken) {
