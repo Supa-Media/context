@@ -1,4 +1,11 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
+import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
+
+// Before the providers are built, because they read `DEV_OTP_BYPASS` while
+// they are being built. See `functions/lib/otpBypass.ts` for why this is a
+// whitelist of one deployment rather than a list of the deployments it must
+// not work on, and why the guard below is not redundant with it.
+sealDevOtpBypass();
 
 /**
  * Auth setup for Context.
@@ -49,4 +56,11 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
   // provider that refuses every other address; this is not the global dev
   // bypass and cannot change the ordinary customer email provider.
   testEmail: { email: "agentseyi@agentmail.to", code: "000000" },
+  // The framework honours `DEV_OTP_BYPASS` — which changes what the ORDINARY
+  // customer provider mints, for every address — unless this is truthy and
+  // `CONVEX_SITE_URL` contains it. Passing nothing is not "no opinion": it is
+  // the guard disabled, because `undefined && …` is false for every input.
+  // Absent only on the isolated staging deployment, which is the one place
+  // the bypass is for.
+  productionIdentifier: productionOtpGuard(),
 });
