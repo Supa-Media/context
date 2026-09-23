@@ -332,6 +332,13 @@ export type ToHost =
    * ambiguous, so both the message and the dialog are gone; see `noteLinks.ts`.
    */
   | { v: number; type: "open-link"; path: string; mode: "foreground" | "background" }
+  /**
+   * A web link in the note was tapped — `https:`, `http:` or `mailto:`, as
+   * `webUrl` in `noteLinks.ts` reads it. The host checks the scheme again and
+   * asks the person before leaving the app; see the `open-url` case in
+   * `host.ts` for why this one is not simply opened.
+   */
+  | { v: number; type: "open-url"; url: string }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
   /**
@@ -524,6 +531,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "caret",
   "failed",
   "open-link",
+  "open-url",
   "form-submit",
   "form-responses",
   "form-vote",

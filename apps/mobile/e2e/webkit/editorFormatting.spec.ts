@@ -135,6 +135,62 @@ test("⌘B bolds the selection", async ({ page }) => {
 });
 
 /**
+ * ⌘B, a word, ⌘B, and keep typing — the press people make most.
+ *
+ * Measured here before the fix: the line came back `start  after`. The second
+ * ⌘B unbolded the word and left it *selected*, so the next keystroke replaced
+ * it. It now steps out of the bold run the way a word processor does. A real
+ * browser rather than jsdom because what went wrong was the selection a real
+ * key event leaves behind for the next one.
+ */
+test("⌘B, a word, ⌘B ends the bold run and the next words are plain", async ({ page }) => {
+  await page.locator(".cm-line", { hasText: "Tenancy is bucket-level" }).first().click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("start ");
+  await page.keyboard.press("ControlOrMeta+b");
+  await page.keyboard.type("bold");
+  await page.keyboard.press("ControlOrMeta+b");
+  await page.keyboard.type(" after");
+
+  // The caret is past the run, so its markers are folded away: the word is
+  // still there, drawn bold, and the words after it are not.
+  const line = page.locator(".cm-line", { hasText: "start" }).first();
+  await expect(line).toHaveText("start bold after");
+  await expect(line.locator(".cm-lp-strong")).toHaveText("bold");
+});
+
+/**
+ * A web link in the note opens in a new tab on a plain click.
+ *
+ * It was drawn as a link and a click only put the caret in it. The fixture has
+ * no web link, so one is typed; the click then lands on its drawn words, which
+ * is the part jsdom cannot lay out.
+ */
+test("a click on a web link opens it in a new tab", async ({ page, context }) => {
+  await page.locator(".cm-line", { hasText: "Tenancy is bucket-level" }).first().click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("see [example](https://example.com/) here");
+  // Off the line, so the link folds back to its words.
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("end");
+
+  // Nothing leaves the test machine: the new tab's request is answered here.
+  await context.route("https://example.com/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "<title>ok</title>" }),
+  );
+  const opened = context.waitForEvent("page");
+  await page.locator(".cm-lp-link", { hasText: "example" }).first().click();
+  expect((await opened).url()).toBe("https://example.com/");
+  // And the note did not take a caret into the link on the way.
+  await expect(page.locator(".cm-line", { hasText: "see" }).first()).toHaveText("see example here");
+});
+
+/**
  * A NOTE NOBODY HAS TOUCHED DRAWS NO MARKUP, AND A MENU COMMAND IS TOUCHING IT.
  *
  * Live Preview hides markup away from the caret, and a caret exists the moment
