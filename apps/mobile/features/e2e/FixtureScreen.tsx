@@ -2,6 +2,7 @@ import { CollaborationFixture } from "./collaboration/Fixture";
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
+import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
@@ -38,6 +39,10 @@ export interface FixtureParams {
   slow?: string | string[];
   failed?: string | string[];
   available?: string | string[];
+  /** `screen=resume`: which Resume surface to draw. See `ResumeFixture`. */
+  surface?: string | string[];
+  /** `screen=resume`: `bar=0` takes the floating Resume bar off the console boards. */
+  bar?: string | string[];
 }
 
 /** Expo hands a repeated query parameter back as an array. */
@@ -60,6 +65,17 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // why it is a separate screen rather than a flag on the one above.
   if (first(params.screen) === "app-frame-visual") {
     return <AppFrameVisualFixture panel={first(params.panel) === "meetings"} />;
+  }
+
+  // Every surface that offers a stopped meeting back. See its own header.
+  if (first(params.screen) === "resume") {
+    const surface = first(params.surface);
+    return (
+      <ResumeFixture
+        surface={isResumeSurface(surface) ? surface : "bar"}
+        bar={first(params.bar) !== "0"}
+      />
+    );
   }
 
   /*
