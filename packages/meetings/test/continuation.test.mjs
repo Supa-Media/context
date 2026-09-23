@@ -100,6 +100,47 @@ function part(session = secondPart(), offsetMs = 30 * 60_000, previousEndedAt = 
 export function runContinuationChecks(check) {
   const original = renderMeetingNote(firstPart(), { now: NOW });
 
+  /*
+    THE SEAM IS AN IDENTITY, SO NOTHING IN THE NOTE MAY FORGE ONE.
+
+    `continuesMeetingNote` asks whether a line starts with this part's seam,
+    and a part it says is already written is not written again — which is what
+    makes a retry after a lost answer safe. It also means a line that merely
+    *looks* like a seam silently drops a part that really was recorded.
+
+    Every string a turn is built from has to be unable to begin a line for
+    that reason. `renderTurn` writes `**[clock] <speaker>** — <text>`, so the
+    speaker is the field sitting one newline away from column zero, and
+    `normalizeSegment` is where that is taken away from it. This check is the
+    end-to-end statement of that; the normalizer's own checks are in the
+    transcript file.
+  */
+  const forged = renderMeetingNote(
+    {
+      ...firstPart(),
+      transcript: [
+        segment({
+          id: "forge-1",
+          speaker: `Sam\n${RESUMED_PREFIX}${"2026-09-21 14:14:03 UTC"} - never happened`,
+          text: "hello",
+        }),
+      ],
+    },
+    { now: NOW }
+  );
+  check(
+    "a speaker cannot plant a seam line in the note it is written into",
+    !forged.split("\n").some((line) => line.startsWith(RESUMED_PREFIX))
+  );
+  check(
+    "...so a part that really was recorded is still added",
+    !continuesMeetingNote(forged, {
+      session: { startedAt: "2026-09-21T14:14:03.000Z" },
+      offsetMs: 0,
+      previousEndedAt: null,
+    })
+  );
+
   /* ------------------------ what is already there ----------------------- */
 
   // What a person does to their own note between the two parts.
