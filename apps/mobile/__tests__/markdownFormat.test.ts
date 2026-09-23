@@ -166,6 +166,128 @@ describe("and takes them off again, which is the whole point of ⌘B", () => {
   });
 });
 
+/** The text with `|` at a caret, or `[…]` around a selection. */
+function shown(view: EditorView): string {
+  const text = view.state.doc.toString();
+  const { from, to, empty } = view.state.selection.main;
+  if (empty) return `${text.slice(0, from)}|${text.slice(from)}`;
+  return `${text.slice(0, from)}[${text.slice(from, to)}]${text.slice(to)}`;
+}
+
+/**
+ * WHAT ⌘B DID WRONG BEFORE IT READ THE GRAMMAR.
+ *
+ * Each of these is a press somebody makes every day, and each one used to
+ * write markers the grammar does not read as bold — so the note showed
+ * asterisks, or lost the word. The toggle decided "is this bold?" by counting
+ * asterisks beside the selection, which is only right when the selection is
+ * exactly one bold run.
+ */
+describe("⌘B does what a word processor does with the same press", () => {
+  test("⌘B, a word, ⌘B ends the bold run and keeps typing plain", () => {
+    // Measured in Chromium before the fix: `start  after`. The second press
+    // unbolded the word and left it selected, and the next key replaced it.
+    const view = editor("start ");
+    select(view, 6);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    view.dispatch(view.state.replaceSelection("bold"));
+    toggleWrap(view, BOLD.before, BOLD.after);
+    view.dispatch(view.state.replaceSelection(" after"));
+
+    expect(view.state.doc.toString()).toBe("start **bold** after");
+    view.destroy();
+  });
+
+  test("and a press just past a run steps back into it, so two presses are the identity", () => {
+    const view = editor("x **bold** y");
+    select(view, 10);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(shown(view)).toBe("x **bold|** y");
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(shown(view)).toBe("x **bold**| y");
+    view.destroy();
+  });
+
+  test("a caret inside one word of a bold phrase unbolds the phrase", () => {
+    // Was `a ****bold** text** here`.
+    const view = editor("a **bold text** here");
+    select(view, 5);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(shown(view)).toBe("a b|old text here");
+    view.destroy();
+  });
+
+  test("a caret in a plain word bolds it and stays a caret", () => {
+    // Not the word selected: the next keystroke would replace it.
+    const view = editor("some words here");
+    select(view, 7);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(shown(view)).toBe("some **wo|rds** here");
+    view.destroy();
+  });
+
+  test("part of a bold phrase selected comes out of it, and the rest stays bold", () => {
+    const view = editor("a **bold text** here");
+    select(view, 4, 8);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(shown(view)).toBe("a [bold] **text** here");
+    view.destroy();
+  });
+
+  test("whitespace at the ends of a selection stays outside the markers", () => {
+    // `**this **` is four asterisks to CommonMark, not bold.
+    const view = editor("make this bold now");
+    select(view, 5, 10);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(shown(view)).toBe("make **[this]** bold now");
+    view.destroy();
+  });
+
+  test("a selection across lines bolds each line, after its bullet", () => {
+    // Emphasis cannot cross a block, and `**- one` is not a list item.
+    const view = editor("- one\n- two");
+    select(view, 0, 11);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(view.state.doc.toString()).toBe("- **one**\n- **two**");
+
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(view.state.doc.toString()).toBe("- one\n- two");
+    view.destroy();
+  });
+
+  test("a selection that is partly bold becomes one bold run, not a nested pair", () => {
+    const view = editor("x **a** and **b** y");
+    select(view, 5, 15);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(shown(view)).toBe("x **[a and b]** y");
+    view.destroy();
+  });
+
+  test("a bold run across a soft break comes off in one piece, and goes back on per line", () => {
+    // Two segments inside one run: taking its markers off once per segment
+    // would be two changes to the same characters, which does not dispatch.
+    const view = editor("**line one\nline two**");
+    select(view, 0, 21);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(view.state.doc.toString()).toBe("line one\nline two");
+
+    const partly = editor("**a\nb** c");
+    select(partly, 0, 9);
+    toggleWrap(partly, BOLD.before, BOLD.after);
+    expect(partly.state.doc.toString()).toBe("**a**\n**b c**");
+    view.destroy();
+    partly.destroy();
+  });
+
+  test("a heading's hashes stay in front of the markers", () => {
+    const view = editor("# Title");
+    select(view, 0, 7);
+    toggleWrap(view, BOLD.before, BOLD.after);
+    expect(view.state.doc.toString()).toBe("# **Title**");
+    view.destroy();
+  });
+});
+
 /**
  * A document with more than one cursor in it is an ordinary CodeMirror
  * document, and the interesting failure is not the arithmetic — `changeByRange`
@@ -191,7 +313,10 @@ describe("a multi-cursor selection decides once for the document", () => {
     });
     toggleWrap(view, BOLD.before, BOLD.after);
 
-    expect(view.state.doc.toString()).toBe("****one**** **two**");
+    // The range that was already bold stays bold rather than gaining a second
+    // pair inside the first: `****one****` is literal asterisks to the grammar,
+    // which is the opposite of "every range gets bold".
+    expect(view.state.doc.toString()).toBe("**one** **two**");
     view.destroy();
   });
 
