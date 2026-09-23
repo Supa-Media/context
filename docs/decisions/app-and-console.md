@@ -2842,6 +2842,41 @@ navigation is six in `noteAddress.test.ts`; making `arrived` an alias for
 `visited` is three in `noteHistory.test.ts`; and taking `‹ ›` back out of the
 breadcrumb is four in `browseHistoryButtons.test.ts`.
 
+### A web link opens on a click, and only a web scheme opens
+
+"Clicking on a [regular](link.com) does not work." It did not: the editor
+followed links to other notes and nothing else, so `[site](https://…)`,
+`<https://…>` and a bare `https://…` were drawn as links and a click put the
+caret in them.
+
+**A web link now follows on the same click a note link does**, with the same
+two ways into its text (⌥-click, or clicking a link already showing its
+source). It opens in a new tab on the web — `noopener`, because this tab holds
+somebody's notes — and in the person's real browser from the desktop shell,
+whose `setWindowOpenHandler` already allowed only `http(s)`.
+
+**What opens is allow-listed in one place, `webUrl.ts`: `https:`, `http:` and
+`mailto:`.** Every host this string reaches acts on `javascript:`, `file:` or
+another app's scheme. A target with no scheme is a web page only when its host
+ends in a short list of TLDs — `[site](example.com)` is how people write one,
+and CommonMark reads it as a relative path — and the list leaves out the TLDs
+that are also attachment extensions (`.ai`, `.sh`, `.app`, `.me`), because
+"anything with a dot" would claim `report.pdf`. `webUrl` never calls `new URL`:
+the native host re-checks the guest's answer by calling it again and comparing,
+and React Native's `URL` disagrees with a browser's (it appends `/` to
+`mailto:`).
+
+**On a phone, opening one is asked about first, naming the address.** The
+`open-url` message is the one thing the WebView sends that leaves the app — the
+channel `NAVIGATION_ORIGINS` exists to keep shut — so a script in the WebView
+that should not exist must not be able to post a note to a URL nobody read.
+The host re-runs the allow-list, and `LiveEditor.tsx` shows the sheet.
+Removing the sheet to save a tap reopens that channel.
+
+`webLinks.test.ts` pins all three: the allow-list (three failures if it accepts
+any scheme), the host's re-check (one), and that the note resolver no longer
+claims `[x](example.com/page)` as a missing note (one).
+
 ### A route with no way in is a route nobody has
 
 Twice this product has shipped a complete, tested, working feature that nothing

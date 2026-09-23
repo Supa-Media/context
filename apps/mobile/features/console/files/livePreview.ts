@@ -41,12 +41,14 @@
  */
 
 import {
+  ChangeSet,
   EditorSelection,
   EditorState,
   Range,
   RangeSet,
   StateEffect,
   StateField,
+  Text,
   type Extension,
   type TransactionSpec,
 } from "@codemirror/state";
@@ -534,7 +536,13 @@ export function styleClassFor(nodeName: string): string | null {
       return "cm-lp-fence";
     case "Blockquote":
       return "cm-lp-quote";
+    /*
+      `<https://…>` and a bare `https://…` are links too, and `noteLinks.ts`
+      follows them on a click; drawn plain, nobody would know to try.
+    */
     case "Link":
+    case "Autolink":
+    case "URL":
       return "cm-lp-link";
     case "ListMark":
       return "cm-lp-list-mark";
@@ -2125,7 +2133,7 @@ function paddingOf(grid: TableGrid): string {
  * fingers.
  *
  * The decision is `planToggle`'s, unchanged, over the cell's text and the
- * selection *inside the cell*: the same CommonMark run rule, so `**x**` and
+ * selection *inside the cell*: the same reading of the grammar, so `**x**` and
  * `*x*` compose in a cell exactly as they do in a paragraph. What differs is
  * where it is applied — the cell holds source while it has focus, so the new
  * text is written straight back into that one span and the DOM keeps the
@@ -2159,11 +2167,7 @@ export function toggleMarkerInCell(view: EditorView, before: string, after: stri
     one replacement of one span — `planCellEdit`'s rule, and the reason this
     feature has no serializer.
   */
-  let next = text;
-  for (const change of [...plan.changes].reverse()) {
-    const spec = change as { from: number; to?: number; insert?: string };
-    next = next.slice(0, spec.from) + (spec.insert ?? "") + next.slice(spec.to ?? spec.from);
-  }
+  const next = ChangeSet.of(plan.changes, text.length).apply(Text.of(text.split("\n"))).toString();
 
   active.textContent = next;
   dispatchPlan(view, planCellEdit(view.state, span, next));

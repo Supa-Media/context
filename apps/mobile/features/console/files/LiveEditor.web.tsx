@@ -70,6 +70,7 @@ import {
   type HandlerRef,
 } from "./editorSetup";
 import type { NoteLinkContext, NoteLinkOpen } from "./noteLinks";
+import { webUrl } from "./webUrl";
 import type {
   FormOutcome,
   FormHostRef,
@@ -644,6 +645,7 @@ export function LiveEditor({
     path: notePath ?? null,
     paths: notePaths,
     onOpen: (path, mode) => onOpenNote?.(path, mode),
+    onOpenUrl: openWebUrl,
   };
 
   /*
@@ -1548,4 +1550,21 @@ export function LiveEditor({
       )}
     </>
   );
+}
+
+/**
+ * A web link from the note, in a new browser tab.
+ *
+ * `noopener` so the page cannot reach back into this one through
+ * `window.opener` — this tab holds somebody's notes. The desktop shell's
+ * `setWindowOpenHandler` turns the same call into the person's real browser,
+ * and allows only `http:`/`https:` itself.
+ *
+ * Checked again here although `noteLinks` only ever passes what `webUrl`
+ * returned: this is the line that hands a string to the browser, and it should
+ * not depend on its one caller staying careful.
+ */
+function openWebUrl(url: string): void {
+  if (typeof window === "undefined" || webUrl(url) !== url) return;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
