@@ -612,7 +612,7 @@ check(
 // -- the login
 
 let approved = null;
-await commands.install({
+await commands.installHooks({
   endpoint: server.endpoint,
   client: "claude-code",
   configPath,
@@ -1032,7 +1032,7 @@ check(
   JSON.parse(await readFile(codexSettings, "utf8")).hooks.SessionEnd === undefined
 );
 said.length = 0;
-await commands.install({
+await commands.installHooks({
   endpoint: server.endpoint,
   client: "codex",
   configPath,
@@ -1093,7 +1093,7 @@ check("it was posted with a bearer token", server.state.seenTokens.at(-1).starts
 
 // -- refresh, and the rotation that has to be written back
 
-await commands.install({
+await commands.installHooks({
   endpoint: server.endpoint,
   configPath,
   openBrowser: (href) => server.state.approve(href),
@@ -1168,7 +1168,7 @@ check(
 // Opting in to reading is a new authorization, not a settings change.
 const beforeOptIn = JSON.parse(await readFile(configPath, "utf8")).endpoints[`${server.origin}/mcp`];
 said.length = 0;
-await commands.install({
+await commands.installHooks({
   endpoint: server.endpoint,
   orient: true,
   configPath,

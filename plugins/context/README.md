@@ -149,5 +149,12 @@ quiet. The session-start half reads no transcript at all and is unaffected.
 
 ## Dependencies
 
-None. Node built-ins only, like the gateway, because this is a thing people run
-on their own machines and its supply chain should be its own source.
+One: `add-mcp`, pinned to an exact version, which writes the MCP entry into the
+config files of agents with no plugin system (Cursor, OpenCode, VS Code,
+Windsurf, Copilot CLI) during `install`. Everything else is Node built-ins.
+
+It is loaded only by `src/installer.js`, and only when `install` or `uninstall`
+runs. The session hooks and the code that holds your credential never load
+it, so no third-party code runs while a token or a transcript is in hand. CI
+fails a pull request that adds any other dependency, loosens the pin, or
+imports `add-mcp` from any other file.

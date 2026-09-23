@@ -48,7 +48,7 @@ import { hostname } from "node:os";
  * authenticate means every session from now on ends with a failure the person
  * did not ask for and cannot see.
  */
-export async function install({
+export async function installHooks({
   endpoint,
   client: clientId = "claude-code",
   orient = false,
@@ -503,7 +503,10 @@ export async function sessionStart({
   return { injected: context, live: Boolean(orientation) };
 }
 
-export async function status({ endpoint, configPath = defaultConfigPath(), log = console.log }) {
+export async function status({ endpoint, configPath = defaultConfigPath(), cwd = process.cwd(), home = homedir(), log = console.log }) {
+  const { settings, sources } = await resolveSettings({ flags: { endpoint }, cwd });
+  endpoint = settings.endpoint;
+  await describeSetup({ settings, sources, home, log });
   const record = await loadEndpoint(endpoint, configPath);
   if (!record) {
     log(`Not signed in for ${endpointKey(endpoint)}.`);
@@ -519,7 +522,7 @@ export async function status({ endpoint, configPath = defaultConfigPath(), log =
   return { signedIn: true };
 }
 
-export async function uninstall({
+export async function uninstallHooks({
   endpoint,
   client: clientId = "claude-code",
   configPath = defaultConfigPath(),
@@ -542,6 +545,22 @@ function isExcluded(cwd, excluded = []) {
   });
 }
 
+/** The parts of `status` that are about this machine rather than the sign-in. */
+async function describeSetup({ settings, sources, home, log }) {
+  log(`Workspace here: ${settings.workspace ? `@${settings.workspace} (${sources.workspace})` : "the sign-in's default"}`);
+  log(`Capture:        ${settings.capture}${settings.capture === "on" ? `, to ${settings.captureTo === "workspace" && settings.workspace ? `@${settings.workspace}` : settings.personal ? `@${settings.personal}` : "the default workspace"}` : ""}`);
+  const installs = JSON.parse(await readFile(join(home, ".context", "installs.json"), "utf8").catch(() => "{}")).installs || [];
+  if (installs.length) {
+    log("Installed in:");
+    for (const entry of installs) {
+      const what = entry.method === "mcp" ? "MCP + skills, no hooks" : "plugin";
+      log(`  ${entry.agent} (${entry.scope}${entry.cwd ? `, ${entry.cwd}` : ""}): ${what}`);
+    }
+  }
+  const last = JSON.parse(await readFile(join(home, ".context", "last-capture.json"), "utf8").catch(() => "null"));
+  if (last) log(`Last capture:   ${last.at} ${last.saved ? `saved ${last.messages} messages` : `not saved (${last.reason}${last.error ? `: ${last.error}` : ""})`}`);
+}
+
 async function readJsonStdin(stream) {
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
@@ -562,3 +581,113 @@ async function defaultOpenBrowser(href) {
   // worth not having in a file that also handles credentials.
   spawn(command, [href], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
 }
+
+/**
+ * `install`: sign in, pick the agents, install the plugin (or an MCP entry and
+ * the skills) into each, and record what was done.
+ *
+ * `scope` is `user` (every folder), `project` (this folder, `.context.json`
+ * committed for the team) or `local` (this folder, kept out of git). The
+ * installer module, and with it `add-mcp`, is loaded only here.
+ */
+export async function install({
+  scope = "user",
+  agents: agentIds,
+  yes = false,
+  workspace,
+  endpoint,
+  source,
+  configPath = defaultConfigPath(),
+  cwd = process.cwd(),
+  home = homedir(),
+  run,
+  addMcp,
+  openBrowser,
+  fetchImpl = fetch,
+  io,
+  log = console.log,
+}) {
+  if (!["user", "project", "local"].includes(scope)) throw new Error(`scope must be user, project or local, not "${scope}"`);
+  const installer = await import("./installer.js");
+  const prompt = await import("./prompt.js");
+  const { settings } = await resolveSettings({ flags: { endpoint }, cwd });
+  const base = baseEndpoint(settings.endpoint);
+
+  const signedIn = await loadEndpoint(base, configPath).catch(() => null);
+  if (!String(signedIn?.scope || "").includes("context:write")) {
+    await login({ endpoint: base, configPath, fetchImpl, openBrowser, log });
+  }
+
+  let chosen = normalizeWorkspace(workspace);
+  if (scope !== "user") {
+    if (!chosen) {
+      const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
+      const list = (await listWorkspaces({ url: base, token, fetchImpl })) || [];
+      const fallback = settings.workspace || list.find((entry) => entry.kind === "personal")?.slug || list[0]?.slug || null;
+      chosen = yes ? fallback : await prompt.chooseWorkspace(
+        [...list].sort((a, b) => (a.slug === fallback ? -1 : b.slug === fallback ? 1 : 0)),
+        io
+      );
+    }
+    if (chosen) await link({ workspace: chosen, cwd, private: scope === "local", endpoint: base, configPath, fetchImpl, log });
+  }
+
+  const detected = await installer.detectAgents({ run, addMcp, cwd });
+  let selected = detected;
+  if (agentIds?.length) {
+    selected = agentIds.map(
+      (id) =>
+        detected.find((agent) => agent.id === id) ||
+        (installer.MCP_AGENTS[id] ? { id, name: installer.MCP_AGENTS[id], method: "mcp" } : null)
+    );
+    const unknown = agentIds.filter((_, index) => !selected[index]);
+    if (unknown.length) throw new Error(`unknown agent: ${unknown.join(", ")}`);
+  } else if (!yes) {
+    selected = await prompt.chooseAgents(detected, io);
+  }
+  if (!selected.length) {
+    log("No coding agents found. Name one with --agent, for example --agent cursor.");
+    return { records: [] };
+  }
+
+  // Hooks the old @supa-media/context-hook wrote into settings files would run
+  // beside the plugin's own and save every session twice.
+  for (const agent of selected) {
+    if (!["claude-code", "codex", "gemini-cli"].includes(agent.id)) continue;
+    const removed = await uninstallHook({ clientId: agent.id }).catch(() => ({ removed: 0 }));
+    if (removed.removed) log(`  removed ${removed.removed} old context-hook entr${removed.removed === 1 ? "y" : "ies"} from ${agent.name}'s settings`);
+  }
+
+  log(`Installing Context (${scope} scope)${chosen ? ` for @${chosen}` : ""}:`);
+  const records = await installer.installInto(selected, { scope, endpoint: base, workspace: chosen, cwd, home, source, run, addMcp, log });
+  const path = installer.installsPath(home);
+  const kept = (await installer.readInstalls(path)).filter(
+    (old) => !records.some((fresh) => fresh.ok && fresh.agent === old.agent && fresh.scope === old.scope && fresh.cwd === old.cwd)
+  );
+  await installer.saveInstalls([...kept, ...records.filter((record) => record.ok)], path);
+
+  log("");
+  log(`When a session ends, its messages are saved to your Context inbox${settings.capture === "off" ? " (capture is off right now)" : ""}.`);
+  log("Turn that off with: npx @supa-media/context config set capture off");
+  if (scope !== "user" && selected.some((agent) => ["claude-code", "codex", "gemini-cli"].includes(agent.id))) {
+    log("Claude Code, Codex and Gemini ignore a project's settings until you trust the folder: open it in each and accept.");
+  }
+  return { records };
+}
+
+/** `uninstall`: reverse what `install` recorded, for every agent or the named ones. */
+export async function uninstall({ agents: agentIds, home = homedir(), run, addMcp, log = console.log }) {
+  const installer = await import("./installer.js");
+  const path = installer.installsPath(home);
+  const installs = await installer.readInstalls(path);
+  const target = agentIds?.length ? installs.filter((record) => agentIds.includes(record.agent)) : installs;
+  if (!target.length) {
+    log("Nothing installed by this CLI was found.");
+    return { removed: 0 };
+  }
+  const remaining = await installer.uninstallRecords(target, { run, addMcp, log });
+  await installer.saveInstalls([...installs.filter((record) => !target.includes(record)), ...remaining], path);
+  log("Your sign-in is kept; remove it with: npx @supa-media/context logout");
+  return { removed: target.length - remaining.length };
+}
+

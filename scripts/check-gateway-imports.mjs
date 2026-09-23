@@ -160,9 +160,12 @@ export function isForbiddenPackage(specifier) {
  * They were two copies of the same condition, which is the shape of a self-test
  * that passes while the checker does something else.
  */
-export function offenceOf(specifier, allowNode) {
+export function offenceOf(specifier, allowNode, file = "", allowances = []) {
   if (isForbiddenPackage(specifier)) return "forbidden";
   if (isRelative(specifier)) return null;
+  // `--allow-import=<package>:<file>`: one named package, in one named file, and
+  // nowhere else. The CLI's installer is the only user; see its header.
+  if (allowances.some((allow) => allow.specifier === specifier && file.endsWith(allow.file))) return null;
   // One reviewed boundary for the bucket-backed Yjs engine; no arbitrary npm imports.
   if (!allowNode && specifier === "@context/collaboration") return null;
   if (allowNode && isNodeBuiltin(specifier)) return null;
@@ -235,10 +238,19 @@ function selfTest() {
     ],
   ];
 
+  // `--allow-import` lets one package into one file. Asserted in both
+  // directions so it cannot become "allow this package anywhere".
+  const allowances = [{ specifier: "add-mcp", file: "src/installer.js" }];
+  cases.push(
+    ['const m = await import("add-mcp");', true, "an allowed package in its named file", true, "plugins/context/src/installer.js"],
+    ['const m = await import("add-mcp");', false, "the same package in any other file", true, "plugins/context/src/commands.js"],
+    ['import { z } from "zod";', false, "another package in the named file", true, "plugins/context/src/installer.js"]
+  );
+
   let failed = 0;
-  for (const [source, shouldPass, label, allowNode = false] of cases) {
+  for (const [source, shouldPass, label, allowNode = false, file = ""] of cases) {
     const offenders = findSpecifiers(source).filter(
-      (f) => offenceOf(f.specifier, allowNode) !== null
+      (f) => offenceOf(f.specifier, allowNode, file, allowances) !== null
     );
     const passed = offenders.length === 0;
     if (passed !== shouldPass) {
@@ -268,16 +280,22 @@ function selfTest() {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const args = process.argv.slice(2);
   const allowNode = args.includes("--allow-node-builtins");
+  const allowances = args
+    .filter((value) => value.startsWith("--allow-import="))
+    .map((value) => {
+      const [specifier, file] = value.slice("--allow-import=".length).split(":");
+      return { specifier, file };
+    });
   const targets = args.filter((value) => !value.startsWith("--"));
   if (args.includes("--self-test")) {
     selfTest();
   } else {
     const dirs = targets.length ? targets : ["apps/mcp/src"];
-    for (const dir of dirs) checkDirectory(dir, allowNode);
+    for (const dir of dirs) checkDirectory(dir, allowNode, allowances);
   }
 }
 
-function checkDirectory(dir, allowNode) {
+function checkDirectory(dir, allowNode, allowances = []) {
   let statInfo;
   try {
     statInfo = statSync(dir);
@@ -295,7 +313,7 @@ function checkDirectory(dir, allowNode) {
   for (const file of walk(dir)) {
     const source = readFileSync(file, "utf8");
     for (const { specifier, line } of findSpecifiers(source)) {
-      const offence = offenceOf(specifier, allowNode);
+      const offence = offenceOf(specifier, allowNode, file, allowances);
       if (offence === null) continue;
       (offence === "forbidden" ? forbidden : offenders).push(`${file}:${line}  ${specifier}`);
     }

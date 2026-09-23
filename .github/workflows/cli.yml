@@ -54,28 +54,39 @@ jobs:
         run: npm test
 
   no-dependencies:
-    name: Hook stays dependency-free
+    name: CLI dependencies stay reviewed
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
 
-      - name: Assert plugins/context declares no runtime dependencies
+      # One runtime dependency is allowed, pinned exactly, and nothing else:
+      # `add-mcp`, which writes MCP entries into other agents' config files
+      # during `install` (proposed in an issue per this package's rule). The
+      # hooks and the credential code never load it; the import check below
+      # confines it to src/installer.js.
+      - name: Assert plugins/context declares only its one reviewed dependency
         run: |
           set -euo pipefail
-          for field in dependencies optionalDependencies peerDependencies bundleDependencies; do
-            declared=$(node -p "JSON.stringify(require('./plugins/context/package.json').$field || {})")
-            if [ "$declared" != "{}" ]; then
-              echo "plugins/context declared $field: $declared"
-              echo ""
-              echo "This package runs unattended on a user's laptop, holds a"
-              echo "credential, and reads their session transcripts. Every"
-              echo "dependency is something that can change what it does to"
-              echo "either. Propose it in an issue first."
-              exit 1
-            fi
-          done
-          echo "OK — no dependencies in any field."
+          node -e '
+            const pkg = require("./plugins/context/package.json");
+            const allowed = { "add-mcp": /^\d+\.\d+\.\d+$/ };
+            let bad = false;
+            for (const field of ["optionalDependencies", "peerDependencies", "bundleDependencies"]) {
+              if (pkg[field] && Object.keys(pkg[field]).length) { console.log(`plugins/context declared ${field}`); bad = true; }
+            }
+            for (const [name, range] of Object.entries(pkg.dependencies || {})) {
+              if (!allowed[name]) { console.log(`not a reviewed dependency: ${name}`); bad = true; }
+              else if (!allowed[name].test(range)) { console.log(`${name} must be pinned to an exact version, not ${range}`); bad = true; }
+            }
+            if (bad) {
+              console.log("\nThis package runs on a user\u0027s laptop, holds a credential, and reads their");
+              console.log("session transcripts. Every dependency can change what it does to either.");
+              console.log("Propose it in an issue first.");
+              process.exit(1);
+            }
+            console.log("OK: only the reviewed dependency, pinned.");
+          '
 
       # The same invariant the gateway holds, for the same reason: the package
       # must import nothing but Node built-ins and its own files. Reuses the
@@ -89,4 +100,4 @@ jobs:
       - name: "Assert plugins/context imports only node: built-ins and relative paths"
         run: |
           node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs --allow-node-builtins plugins/context/src plugins/context/bin plugins/context/hooks
+          node scripts/check-gateway-imports.mjs --allow-node-builtins --allow-import=add-mcp:src/installer.js plugins/context/src plugins/context/bin plugins/context/hooks
