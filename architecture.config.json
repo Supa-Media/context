@@ -79,7 +79,6 @@
     "apps/desktop/test/packaging/deployWorkflow.test.mjs": "Checks one workflow file; every check reads the same parsed steps, so splitting would duplicate the parse or scatter one contract.",
     "apps/desktop/test/sessionOrder.test.mjs": "The session-ordering checks (drain urgency, payload order, the drain timer) read as one argument; it grew only by retargeting reads to the modules split out of main/index.ts.",
     "apps/mcp/src/search/shards/sync.js": "syncShardedIndex is one orchestration function moved verbatim with its comments; its interior was not restructured in this move.",
-    "apps/mcp/src/tools/schemas.js": "One function returning the gateway's tool definition array verbatim; splitting it means editing the literal, left for the follow-up that retargets the text-reading gateway tests.",
     "apps/mcp/test/controlPlaneStub/controlPlane.mjs": "createControlPlaneStub is one closure over in-memory Maps that every route shares; splitting it means threading that state across modules.",
     "apps/mcp/test/presence/route.test.mjs": "One try/finally scenario sharing a bucket, env, rooms and control plane across every route check.",
     "apps/mcp/test/searchProjection/serve.test.mjs": "One harness-based scenario (serving search from the projection) whose checks build on each other in order.",
@@ -87,6 +86,7 @@
     "apps/mobile/features/app/reachability.ts": "The route registry: every route and the surfaces that reach it, one list that routeReachability.test.ts checks against the filesystem, so it reads as a whole.",
     "apps/mobile/features/console/files/browser/contract.ts": "One interface, FileBrowser: the console's file-browser contract, each member documented where it is declared.",
     "docs/decisions/communications/calendar.md": "One decision argument (sync horizon, sync passes, what is deliberately not built); moved verbatim from communications.md, and cutting it would separate the reasoning from its conclusion.",
+    "docs/deferred/folded-twin-refusals.patch": "One deferred change kept as a patch that deferredPatches.test.ts applies whole; it grew only because its hunks now land in the modules the gateway split moved the code to.",
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
   "baseline": {
@@ -95,21 +95,14 @@
     "apps/convex/functions/shares.ts": 1045,
     "apps/convex/functions/storage.ts": 1401,
     "apps/convex/http.ts": 1803,
-    "apps/mcp/src/index.js": 9227,
-    "apps/mcp/test/crossContext.test.mjs": 1306,
     "apps/mcp/test/test.mjs": 4798,
-    "apps/mcp/test/toolArguments.test.mjs": 1414,
-    "apps/mobile/features/console/files/Explorer.tsx": 1806,
     "apps/mobile/features/console/files/LiveEditor.web.tsx": 1570,
     "apps/mobile/features/console/files/NoteEditor.tsx": 1897,
-    "apps/mobile/features/console/files/ShareDialog.tsx": 1784,
     "apps/mobile/features/console/files/useFileBrowser.ts": 4853,
-    "apps/mobile/features/console/panes/BrowsePane.tsx": 2097,
     "apps/mobile/features/console/plugins/useRuntime.ts": 1187,
     "apps/mobile/features/console/presence/usePresence.ts": 1353,
     "apps/mobile/features/console/useLiveConsoleData.ts": 1282,
     "apps/mobile/features/meetings/capture/audio.ts": 1843,
-    "apps/mobile/features/offline/useOfflineNotes.ts": 1193,
-    "packages/obsidian-runtime/src/sandbox.js": 2247
+    "apps/mobile/features/offline/useOfflineNotes.ts": 1193
   }
 }

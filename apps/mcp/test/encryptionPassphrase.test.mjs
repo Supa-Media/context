@@ -65,6 +65,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { gatewaySourceFiles } from "./gatewaySource.mjs";
 import {
   CONTENT_ALG,
   KDF_ARGON2ID,
@@ -117,10 +119,16 @@ const MODULE_SOURCES = new Map(
   ]),
 );
 const MODULE_SOURCE = [...MODULE_SOURCES.values()].join("\n");
-const GATEWAY_SOURCE = readFileSync(
-  fileURLToPath(new URL("../src/index.js", import.meta.url)),
-  "utf8",
+/*
+ * The gateway is every module under `src/` but the envelope itself
+ * (`encryption.js`, and anything under `encryption/`), not its entry file
+ * alone: these guards were written when it was one file, and code split out
+ * of `index.js` must not leave their sight.
+ */
+const GATEWAY_MODULES = gatewaySourceFiles().filter(
+  (file) => file.path !== "encryption.js" && !file.path.startsWith("encryption/"),
 );
+const GATEWAY_SOURCE = GATEWAY_MODULES.map((file) => file.text).join("\n");
 
 const WORKSPACE = "ws_aaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -274,9 +282,11 @@ export async function runEncryptionPassphraseChecks(check) {
   check(
     "the gateway imports nothing that could open a passphrase note",
     (() => {
-      const imported = /import\s*{([^}]*)}\s*from\s*"\.\/encryption\.js"/.exec(GATEWAY_SOURCE);
-      if (imported === null) return false;
-      const names = imported[1].split(",").map((name) => name.trim());
+      const imported = [
+        ...GATEWAY_SOURCE.matchAll(/import\s*{([^}]*)}\s*from\s*"(?:\.\.?\/)+encryption\.js"/g),
+      ];
+      if (imported.length === 0) return false;
+      const names = imported.flatMap((match) => match[1].split(",").map((name) => name.trim()));
       return !names.some((name) => /passphrase/i.test(name));
     })(),
   );

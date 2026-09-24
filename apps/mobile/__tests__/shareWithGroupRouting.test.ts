@@ -87,7 +87,8 @@ describe("the share dialog's group callback carries what it is sharing", () => {
       default would have compiled and shipped the same bug on two surfaces.
     */
     const sites: readonly (readonly [string, readonly string[]])[] = [
-      ["BrowsePane.tsx", ["panes", "BrowsePane.tsx"]],
+      // Moved out of `BrowsePane.tsx` with the rest of its share-dialog wiring.
+      ["browsePane/BrowseShareDialog.tsx", ["panes", "browsePane", "BrowseShareDialog.tsx"]],
       ["console/layout/barDialogs.tsx", ["layout", "barDialogs.tsx"]],
     ];
     for (const [file, parts] of sites) {
