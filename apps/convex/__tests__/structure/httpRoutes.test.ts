@@ -6,15 +6,15 @@ import {
   CREDENTIAL_HTTP_ROUTES,
   findViolations,
   realModules,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /**
- * Split out of the original `structure.test.ts`. See `fixtures.ts` for the
+ * Split out of the original `structure.test.ts`. See `fixtures.helpers.ts` for the
  * analyzer this describe block drives and for the full header comment
  * explaining what the whole suite defends.
  *
  * The route-factory constants and `unauthenticatedRouteResponses` below were
- * moved here rather than into `fixtures.ts` because nothing outside this file
+ * moved here rather than into `fixtures.helpers.ts` because nothing outside this file
  * uses them.
  */
 

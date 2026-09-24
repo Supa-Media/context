@@ -20,7 +20,7 @@ import {
 import {
   scenario,
   teamLink,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("a folder gets a link too", () => {
   const FOLDER = "1-projects/transition";

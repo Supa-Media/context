@@ -11,7 +11,7 @@ import {
 import {
   scenario,
   share,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("each half of the share sweep, isolated", () => {
   test("the sweep marks the row revoked, whatever the read path would have done", async () => {

@@ -24,7 +24,7 @@ import {
   bindingRow,
   provisioningRow,
   everyStoredDocument,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the setup credential does not survive the flow", () => {
   /**

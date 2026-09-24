@@ -12,7 +12,7 @@ import {
   shared,
   danglingInvitationId,
   expire,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("an invitation is a capability, and it is bound to a person", () => {
   test("holding somebody else's token is worth nothing", async () => {

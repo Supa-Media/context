@@ -25,7 +25,7 @@ import {
   workspaceDoc,
   bindingDoc,
   planDoc,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the two conditions", () => {
   test("both are required, and neither alone is enough", () => {

@@ -20,7 +20,7 @@ import {
   errorShape,
   listingShape,
   names,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("listing a folder", () => {
   test("folders come first, then files, each alphabetically", async () => {

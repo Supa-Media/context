@@ -18,7 +18,7 @@ import {
   COMPLETION,
   parkedAttempt,
   gmailBindingArgs,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("who may answer a callback", () => {
   /**

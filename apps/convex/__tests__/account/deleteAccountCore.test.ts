@@ -23,7 +23,7 @@ import {
 import {
   onboardedAccount,
   seedAuthRows,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("deleteAccount", () => {
   test("the dedicated account can delete one unshared test workspace without deleting its account", async () => {

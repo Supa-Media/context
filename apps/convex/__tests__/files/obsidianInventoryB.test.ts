@@ -20,7 +20,7 @@ import {
 import {
   SECRET_BODY_MARKER,
   fixture,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe('Obsidian plugin inventory', () => {
   /*
