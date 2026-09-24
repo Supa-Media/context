@@ -71,6 +71,7 @@ export function BrowsePane({
   pendingNote,
   anchor,
   onOpenComms,
+  onNavigate,
 }: BrowsePaneProps) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
@@ -227,6 +228,7 @@ export function BrowsePane({
       current={current}
       compact={compact}
       onOpenSettings={onOpenSettings}
+      onNavigate={onNavigate}
       setup={setup}
       introVisible={introVisible}
       intro={intro}
