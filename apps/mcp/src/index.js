@@ -181,9 +181,7 @@ import {
   loadIndexManifest,
 } from "./search/shards.js";
 import { createD1Client } from "./search/d1/client.js";
-import { projectNote, upsertStatements } from "./search/d1/project.js";
 import { answerFromProjection } from "./search/d1/serve.js";
-import { countProjected } from "./search/d1/backfill.js";
 import { createSearchTrace, logSearchTrace } from "./search/trace.js";
 import {
   NoteCryptoError,
@@ -358,7 +356,6 @@ import {
   actorFor,
   contextNameFor,
   contextsFor,
-  personalNameFor,
 } from "./context/identity.js";
 import { checkAndConsumeExportRateLimit, EXPORT_RATE_LIMIT } from "./encryptionKeys/exportRateLimit.js";
 import {
@@ -404,6 +401,27 @@ import {
   SERVER_INFO,
 } from "./mcp/responses.js";
 import { corsResponse, json } from "./http/responses.js";
+import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "./live/agentActivity.js";
+import {
+  announceCommittedToPresence,
+  announceWriteToPresence,
+  isConsoleActor,
+  presenceActor,
+  presenceClientKey as livePresenceClientKey,
+  presenceDisplayName,
+} from "./live/presence.js";
+import {
+  collaborationErrorResponse,
+  collaborationHead,
+  collaborationIdentityFromRequest,
+  MAX_COLLABORATION_NOTE_BYTES,
+  MAX_COLLABORATION_REQUEST_BYTES,
+  MAX_COLLABORATION_UPDATE_CHARS,
+  readBoundedRequestBytes,
+} from "./live/collaborationHttp.js";
+import { projectWrittenNoteAfterResponse } from "./search/writeProjection.js";
+import { toolListChanges, TREE_ACTIONS, treeHintOf } from "./activity/changes.js";
+export const presenceClientKey = livePresenceClientKey;
 export const toolDefinitions = registryToolDefinitions;
 export const EXISTENCE_MASKED_TOOLS = registryExistenceMaskedTools;
 
@@ -414,16 +432,6 @@ const LEGACY_SCOPES_KEY = "scopes.yml";
 // which is why they keep a word the product's copy retired in 2026-09.
 const PRIVACY_RULES_BEGIN = "<!-- BEGIN BRAIN PRIVACY RULES -->";
 const PRIVACY_RULES_END = "<!-- END BRAIN PRIVACY RULES -->";
-
-// Collaboration carries a bounded JSON envelope around a bounded Yjs update.
-// Keep the request cap above the note cap for base64 and JSON overhead while
-// refusing an unbounded body before parsing or handing it to the merge engine.
-const MAX_COLLABORATION_REQUEST_BYTES = 4_000_000;
-const MAX_COLLABORATION_UPDATE_CHARS = 2_900_000;
-// Keep this equal to the engine's pre-materialization ceiling. The route
-// checks the raw note before initialization and the engine checks the merged
-// text before commit, so a successful commit can never become a late 413.
-const MAX_COLLABORATION_NOTE_BYTES = 4 * 1024 * 1024;
 
 async function handleGatewayJobMessage(message, env) {
   const body = message?.body;
@@ -1136,39 +1144,6 @@ export default {
   },
 };
 
-/**
- * HTTP collaboration transport.
- *
- * Authentication, workspace selection, storage binding and the initial read
- * scope are established by `route`, exactly as for `/mcp`.  This function is
- * deliberately a small adapter around the collaboration package: privacy is
- * checked before the engine sees a path, and only ordinary Markdown notes are
- * admitted.  The engine owns document identity, merge history and CAS
- * materialization in the customer's bucket.
- */
-async function collaborationHead(store, path) {
-  if (!collaborationSupported(store) || !globalThis.crypto?.subtle) return null;
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path));
-  const hash = [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  const object = await store.get(`.context/collaboration/v1/heads/${hash}.json`);
-  if (!object) return null;
-  try {
-    const head = JSON.parse(await object.text());
-    return head && typeof head === "object" ? head : null;
-  } catch {
-    return null;
-  }
-}
-
-function collaborationIdentityFromRequest(body) {
-  if (typeof body?.documentId === "string" && body.documentId) return body.documentId;
-  const expected = body?.replacement?.expectedEtag;
-  const match = typeof expected === "string" ? /^c2\.([A-Za-z0-9-]+)\.r/.exec(expected) : null;
-  return match?.[1] ?? null;
-}
-
 async function handleCollaboration(request, store, session, origin) {
   if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
   if (!hasScope(session, SCOPE_READ)) return json({ error: "forbidden" }, 403);
@@ -1372,112 +1347,6 @@ async function handleCollaboration(request, store, session, origin) {
   }
   await announceCommittedToPresence(store, effectivePath, result);
   return json(result);
-}
-
-function collaborationErrorResponse(error) {
-  const code = error && typeof error === "object" && "code" in error
-    ? String(error.code)
-    : "";
-  if (code === "BASE_MISSING" || code === "GENERATION_MISMATCH") {
-    return json({ error: code }, 409);
-  }
-  let message = "";
-  try {
-    message = error instanceof Error ? String(error.message).toLowerCase() : "";
-  } catch {
-    message = "";
-  }
-  if (message.includes("update") || message.includes("base64") || message.includes("invalid")) {
-    return json({ error: "invalid_update" }, 400);
-  }
-  if (message.includes("generation") || message.includes("revision") || message.includes("etag") ||
-      message.includes("conflict") || message.includes("base")) {
-    return json({ error: "conflict" }, 409);
-  }
-  return json({ error: "collaboration_unavailable" }, 503);
-}
-
-/** Read at most `limit` bytes without buffering an oversized chunked body. */
-async function readBoundedRequestBytes(request, limit) {
-  const length = Number(request.headers.get("content-length"));
-  if (Number.isFinite(length) && length > limit) return null;
-  if (!request.body || typeof request.body.getReader !== "function") {
-    const bytes = new Uint8Array(await request.arrayBuffer());
-    return bytes.byteLength > limit ? null : bytes;
-  }
-  const reader = request.body.getReader();
-  const chunks = [];
-  let total = 0;
-  try {
-    while (true) {
-      const part = await reader.read();
-      if (part.done) break;
-      const chunk = part.value instanceof Uint8Array ? part.value : new Uint8Array(part.value);
-      total += chunk.byteLength;
-      if (total > limit) {
-        try {
-          await reader.cancel();
-        } catch {
-          // The body is already refused; cancellation is best effort.
-        }
-        return null;
-      }
-      chunks.push(chunk);
-    }
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {
-      // Some test Request bodies do not expose a releasable lock.
-    }
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-/**
- * Broadcast one committed snapshot to v2 presence sockets, best-effort.
- *
- * `actor` is set only by `write_note`, so the room can name the agent whose
- * write this was. The console's own `/collaboration` saves pass none: they
- * are somebody typing, and the room already has them as a member.
- */
-async function announceCommittedToPresence(store, path, result, actor = null) {
-  const rooms = store.presenceRooms;
-  const workspaceId = store.actor?.workspaceId;
-  if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
-  if (!result || typeof result.documentId !== "string" || typeof result.etag !== "string") return;
-  const run = async () => {
-    try {
-      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, path)));
-      await room.fetch("https://presence.invalid/committed", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          documentId: result.documentId,
-          etag: result.etag,
-          ...(actor && typeof actor.id === "string" ? { actor } : {}),
-        }),
-      });
-    } catch {
-      // A room is a live view. The bucket commit already succeeded, and a
-      // reconnect reads the authoritative snapshot from the bucket.
-    }
-  };
-  if (typeof store.defer === "function") {
-    try {
-      store.defer(run());
-      return;
-    } catch {
-      // Fall through for self-hosted shims without a working waitUntil.
-    }
-  }
-  await run();
 }
 
 /**
@@ -1858,26 +1727,6 @@ async function authorizeLiveRelay(env, { sender, accessToken, documentId, recipi
     }
   }
   return { sender: true, recipients: allowed };
-}
-
-
-/**
- * The name a caret is labelled with.
- *
- * `personalNameFor` and nothing else, because a caret is a person and that
- * function is where "which of these contexts *is* this person" is decided. A
- * second copy of the predicate lived here and had two of its three clauses,
- * which is the whole of the bug it caused: see that function.
- *
- * The client name is the fallback rather than the first choice: "@sayo's Claude"
- * describes a connection, and a caret belongs to a person. It is asserted by
- * whoever registered the client at an unauthenticated endpoint, so it is the
- * last resort and is never allowed to displace a handle that was verified — nor
- * to be assembled into one, which is why the fallback is reached whole rather
- * than an absent slug being interpolated into `@${slug}`.
- */
-function presenceDisplayName(session) {
-  return personalNameFor(session) || session.actorClientName || "Someone";
 }
 
 function parseLegacyScopeRules(text) {
@@ -3705,66 +3554,6 @@ async function recordChange(store, action, actorScope, paths, details = {}) {
 }
 
 /**
- * The changes that alter a context's file tree — something created, moved,
- * removed or re-scoped. A save to a note that already exists is not one: it
- * changes words, not the tree, and every keystroke of a live edit must not
- * send every console viewing the context to re-list it.
- */
-const TREE_ACTIONS = new Set([
-  "create_note",
-  "meeting_note",
-  "save_context",
-  "inbox_capture",
-  "archive_note",
-  "move_note",
-  "move_notes",
-  "move_folder",
-  "materialize_move",
-  "set_visibility",
-  "set_folder_visibility",
-]);
-
-/**
- * The paths a tree change should be judged by, and any visibility it had
- * before that the paths alone no longer show.
- *
- * Judged after the change, so a move's SOURCE is left out unless the change
- * recorded what it was: after the move the source reads as its folder's
- * default, which for a note held back from a shared folder is `team` — and
- * telling the team would date a private note's move. What the destination
- * shows, the tool's own `source_visibility`, and a visibility change's
- * `from`/`to` are exact. A source's readers the change does not name learn of
- * it at their console's next periodic walk: late, never leaked.
- */
-function treeHintOf(action, paths, details) {
-  const known = [];
-  const add = (value) => {
-    if (typeof value === "string") known.push(value);
-  };
-  if (details && typeof details === "object") {
-    add(details.source_visibility);
-    if (action === "set_visibility" || action === "set_folder_visibility") {
-      add(details.from);
-      add(details.to);
-    }
-  }
-  switch (action) {
-    case "move_note":
-    case "archive_note":
-    case "move_folder":
-    case "materialize_move":
-      return { paths: paths.length === 2 ? [paths[1]] : paths, known };
-    case "move_notes": {
-      const moved = typeof details?.moved === "number" ? details.moved : paths.length / 2;
-      const pairs = paths.slice(0, moved * 2).filter((_, index) => index % 2 === 1);
-      return { paths: [...pairs, ...paths.slice(moved * 2)], known };
-    }
-    default:
-      return { paths, known };
-  }
-}
-
-/**
  * Who may be told the tree changed. The gateway's copy of
  * `apps/convex/functions/lib/treeAudiences.ts`, over this engine's own
  * `effectiveVisibility` — see that file for the reasoning: a timestamp served
@@ -3994,49 +3783,6 @@ async function toolReadActivity(store, scope, rules, overrides, args) {
         return `${entry.at} — ${describeActivityEntry(entry)}${summary}`;
       })
       .join("\n"),
-  );
-}
-
-async function toolListChanges(store, scope, rules, overrides, limitArg) {
-  const parsedLimit = Number.isInteger(limitArg) ? limitArg : 20;
-  if (parsedLimit < 1 || parsedLimit > 100) return toolError("limit must be between 1 and 100");
-  const keys = (await listAllKeysWithLegacy(store, AUDIT_PREFIX)).sort((a, b) => b.key.localeCompare(a.key));
-  const visible = [];
-  // Recent privacy migrations can create long runs of team-hidden records.
-  // Read small audit batches concurrently while preserving newest-first order.
-  for (let start = 0; start < keys.length && visible.length < parsedLimit; start += 50) {
-    const batch = keys.slice(start, start + 50);
-    const entries = await Promise.all(
-      batch.map(async ({ key }) => {
-        const obj = await getWithLegacyFallback(store, key);
-        if (!obj) return null;
-        try {
-          return JSON.parse(await obj.text());
-        } catch {
-          return null;
-        }
-      })
-    );
-    for (const entry of entries) {
-      if (!entry) continue;
-      if (scope !== "private") {
-        // Only an immutable event-time decision may expose audit paths to a
-        // team connection. Legacy records without the flag fail closed.
-        if (entry.details?.team_visible !== true) continue;
-      }
-      visible.push(entry);
-      if (visible.length >= parsedLimit) break;
-    }
-  }
-  if (!visible.length) return toolText("(no visible changes)");
-  return toolText(
-    visible
-      .map((entry) => {
-        const pathText = entry.paths.join(" → ");
-        const count = entry.details?.count ? ` (${entry.details.count} objects)` : "";
-        return `${entry.at} — ${entry.action}${count} — ${pathText}`;
-      })
-      .join("\n")
   );
 }
 
@@ -5544,124 +5290,6 @@ async function ensureFormResponseFiles(store, scope, rules, overrides, blocks, n
 }
 
 /**
- * Keep a ready Fast Search database current when this gateway writes a note.
- *
- * The initial backfill and periodic reconciliation remain the repair path for
- * writes made through Obsidian, rclone, or a provider console. A gateway write
- * is different: we already have the new plaintext, version, and effective
- * visibility, so waiting for another bucket listing makes the very next search
- * stale for no reason. The projection is a derivative, so a D1 refusal never
- * rolls back the canonical bucket write.
- *
- * Deferred where the runtime supports `waitUntil`; awaited on self-hosted
- * shims so "no deferral" never means "no indexing". Three idempotent attempts
- * cover a transient provider refusal without inventing a second write format:
- * every attempt starts by deleting this path's prior rows.
- */
-/**
- * Tell the note's presence room that a tool just changed it.
- *
- * ## Why the room, and not every client
- *
- * The room holds live sockets for the people with this note open. They are
- * already editing one shared document, and the whole point of that document is
- * that two edits to it merge instead of colliding. A write arriving from an
- * MCP client is a third editor — so it joins the same document rather than
- * landing underneath it as a surprise at save time.
- *
- * **Exactly one client merges it, and the room picks which.** Every client
- * applying the same text to its own copy would produce the same characters
- * inserted N times, because each copy would generate its own operations for
- * them — a merge that duplicates the note is worse than no merge. The room
- * knows which of its sockets holds write authority and can therefore have its
- * merge accepted, so the room chooses, exactly as it chooses who seeds.
- *
- * ## What this is not
- *
- * Not a guarantee. A room nobody is in drops the notice; a room of read-only
- * members has nobody who may merge and drops it too, and those clients see the
- * write at their next reconnect. The canonical copy is in the bucket either
- * way — this is a live view catching up faster, never the only path by which a
- * change is recorded, and it cannot fail the write that triggered it.
- */
-/**
- * Who a tool's write shows up as, to the people watching the note change.
- *
- * A name and an opaque id, and no more than that. The name is the one the
- * route already trusts for a caret — the caller's own handle where there is
- * one, the client's registered name otherwise — and it is display text that
- * decides nothing.
- *
- * **The id is a digest of the client id, never the client id.** A caret needs
- * something stable so the same agent writing twice is one agent rather than
- * two, and the control plane's own identifier is nobody else's business even
- * among people who share a workspace. Sixteen hex characters is far more than
- * enough to keep two agents in one note apart and far too few to be worth
- * anything to somebody who collects it.
- */
-/**
- * The opaque, stable id a client is known by inside a presence room.
- *
- * A digest of the control plane's client id, never the client id itself: a
- * caret needs something stable so the same agent writing twice is one agent
- * rather than two, and the control plane's own identifier is nobody else's
- * business even among people who share a workspace. Sixteen hex characters is
- * far more than enough to keep two agents in one note apart and far too few to
- * be worth anything to somebody who collects it.
- *
- * The same value is computed for a socket (so the room can tell that a write
- * came from somebody already sitting in it) and for a write (so the room can
- * announce the tool that made it). They have to be the same function or the
- * comparison is always false and every console save announces a robot.
- */
-export async function presenceClientKey(clientId) {
-  if (typeof clientId !== "string" || !clientId) return null;
-  try {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clientId));
-    return [...new Uint8Array(digest).slice(0, 8)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
-  } catch {
-    // No caret rather than a guessed identity. The write still lands and the
-    // text still reaches the room.
-    return null;
-  }
-}
-
-async function presenceActor(actor) {
-  /*
-    The client's own name first, which is the reverse of a caret's rule and is
-    the point: a person watching their note change wants to know *an agent* did
-    it, and "@seyi" on a caret they are also holding reads as themselves in two
-    places. `actorFor` already carries both — the handle for the audit line,
-    the client name for the sentence a person reads.
-  */
-  const name = actor?.client || (actor?.name ? `${actor.name}'s agent` : "An agent");
-  return { id: await presenceClientKey(actor?.clientId), name };
-}
-
-/**
- * The console's own client id, as the control plane issues it
- * (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`).
- *
- * The console reads and writes through the same tools any agent does, so
- * without this every note a person opened in the app would show up in their
- * file tree as an agent reading it.
- */
-const CONSOLE_CLIENT_ID = "context_console";
-
-function isConsoleActor(actor) {
-  return actor?.clientId === CONSOLE_CLIENT_ID;
-}
-
-/** Which tool calls count as an agent reading or writing a note. */
-const AGENT_ACTIVITY_TOOLS = new Map([
-  ["read_note", "read"],
-  ["fetch", "read"],
-  ["write_note", "write"],
-]);
-
-/**
  * Record that an agent read or wrote a note, after the call succeeded.
  *
  * Reads the path the handler *reported* where it reports one: `read_note`
@@ -5682,128 +5310,6 @@ function noteAgentActivity(store, name, args, result) {
   const path = splitMessageAnchor(normalizePath(raw) ?? "").path;
   if (!path || isPlumbing(path)) return;
   recordAgentActivity(store, kind, path);
-}
-
-/**
- * Tell this workspace's activity log about one read or write.
- *
- * Behind the response and never in front of it, and not at all on a host
- * that cannot defer: a dot in somebody's sidebar is not worth a subrequest
- * nothing keeps alive, the trade `reportUsage` makes for the same reason.
- * Keyed by the workspace this store reaches, so a cross-context call marks
- * the context it was routed to.
- */
-function recordAgentActivity(store, kind, path) {
-  const rooms = store.presenceRooms;
-  const workspaceId = store.actor?.workspaceId;
-  if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
-  if (isConsoleActor(store.actor) || typeof store.defer !== "function") return;
-  const run = async () => {
-    try {
-      const actor = await presenceActor(store.actor);
-      if (!actor.id) return;
-      const room = rooms.get(rooms.idFromName(agentActivityKey(workspaceId)));
-      await room.fetch("https://presence.invalid/activity", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ path, kind, actor }),
-      });
-    } catch {
-      // A missed mark is a quieter sidebar. The call already succeeded.
-    }
-  };
-  try {
-    store.defer(run());
-  } catch {
-    // A host whose `waitUntil` refuses the work simply does not record.
-  }
-}
-
-async function announceWriteToPresence(store, { path, content, etag, actor }) {
-  const rooms = store.presenceRooms;
-  if (!rooms) return "off";
-  const workspaceId = store.actor?.workspaceId;
-  if (typeof workspaceId !== "string" || !workspaceId) return "off";
-
-  const run = async () => {
-    try {
-      const room = rooms.get(rooms.idFromName(roomKey(workspaceId, path)));
-      await room.fetch("https://presence.invalid/external", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: content, etag: etag ?? null, actor: actor ?? null }),
-      });
-    } catch {
-      // A room that cannot be reached is a live view that refreshes a little
-      // later. The note is already in the customer's bucket.
-    }
-  };
-
-  if (typeof store.defer === "function") {
-    try {
-      store.defer(run());
-      return "deferred";
-    } catch {
-      // A host that refuses deferral runs it inline, below.
-    }
-  }
-  await run();
-  return "inline";
-}
-
-async function projectWrittenNoteAfterResponse(
-  store,
-  { path, content, version, visibility },
-) {
-  if (!store.searchIndex || store.searchIndex.state !== "ready") return "off";
-
-  const run = async () => {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        const client = createD1Client(store.searchIndex);
-        const projected = projectNote(path, {
-          version,
-          uploaded: null,
-          visibility,
-          content,
-        });
-        await client.runAll(upsertStatements(path, projected));
-        if (typeof store.reportSearchIndexProgress === "function") {
-          const notesIndexed = await countProjected(client);
-          await store.reportSearchIndexProgress({
-            notesIndexed,
-            notesPending: 0,
-            state: "ready",
-          });
-        }
-        return;
-      } catch {
-        // The canonical note is already safe in the customer's bucket. A
-        // later reconciliation pass repairs the disposable projection.
-      }
-    }
-    try {
-      console.error(
-        JSON.stringify({
-          event: "search-projection-write-behind-failed",
-          workspace: store.actor?.workspaceId,
-        }),
-      );
-    } catch {
-      // Reporting a derivative failure cannot fail the note write either.
-    }
-  };
-
-  if (typeof store.defer === "function") {
-    try {
-      store.defer(run());
-      return "deferred";
-    } catch {
-      // A host that refuses waitUntil is the same as one without it.
-    }
-  }
-  await run();
-  return "inline";
 }
 
 /**
