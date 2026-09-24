@@ -5,8 +5,12 @@ import {
   domainPill,
   domainShapeProblem,
   domainSteps,
+  notYetNote,
   problemCopy,
+  providerSentence,
+  recordsSummary,
   transientNote,
+  type DnsRecord,
   type DomainView,
 } from "../features/console/domain/domain";
 
@@ -23,6 +27,7 @@ const base: DomainView = {
   homeSlug: null,
   checkedAt: null,
   records: [],
+  oneClick: null,
 };
 
 describe("what somebody types", () => {
@@ -71,5 +76,28 @@ describe("status", () => {
       "current",
       "todo",
     ]);
+  });
+});
+
+describe("one-click setup", () => {
+  const record = (type: string, done: boolean): DnsRecord => ({
+    purpose: type === "CNAME" ? "routing" : "ownership",
+    type,
+    name: "n",
+    host: "h",
+    value: "v",
+    done,
+  });
+
+  test("the folded records say which, then how many are in", () => {
+    expect(recordsSummary([record("CNAME", false), record("TXT", false)])).toBe("CNAME and TXT");
+    expect(recordsSummary([record("CNAME", false), record("TXT", true)])).toBe("1 of 2 found");
+  });
+
+  test("the provider is named, and the owner is told what happens there", () => {
+    expect(providerSentence("GoDaddy")).toBe(
+      "Your DNS is at GoDaddy. Sign in there and approve, and GoDaddy adds both records for you.",
+    );
+    expect(notYetNote("GoDaddy")).toContain("we'll keep checking");
   });
 });

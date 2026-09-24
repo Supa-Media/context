@@ -351,6 +351,12 @@ describe("no public function can reach a storage secret", () => {
         "functions.customDomainsProvision.provision",
         "functions.customDomainsProvision.check",
         "functions.customDomainsProvision.deprovision",
+        // THE DOMAIN CONNECT SIGNING KEY, OURS TOO. Reached only by the
+        // schedule edge from `customDomains.connect`; it signs one apply link
+        // and writes back the link and the provider's name, never the key.
+        // `__tests__/customDomains/domainConnect.test.ts` verifies the link
+        // against the public half and that no failure writes anything else.
+        "functions.customDomainsProvision.detectProvider",
         // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
         // product-specific and combined binders. See the `functions/googleConnect.ts`
         // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather

@@ -6,7 +6,7 @@ import type { DomainActions, DomainPanelView } from "../console/domain/useDomain
 
 /**
  * Settings › Domain in one chosen state, inside the real settings overlay, for
- * reviewing the design in a browser. `?screen=domain&at=<state>`.
+ * reviewing the design in a browser. `?screen=domain&at=<state>` (`oneclick` is a provider with our template).
  */
 const noop = async () => {};
 const ACTIONS: DomainActions = { connect: noop, checkNow: noop, setHomepage: noop, remove: noop };
@@ -46,6 +46,7 @@ function domain(over: Partial<DomainView> = {}): DomainView {
     homeSlug: null,
     checkedAt: Date.now() - 20_000,
     records: RECORDS(hostname, apex, { routing: false, ownership: false }),
+    oneClick: null,
     ...over,
   };
 }
@@ -66,6 +67,14 @@ function viewFor(at: string | undefined): DomainPanelView {
             stage: "routing",
             records: RECORDS("docs.acme.com", false, { routing: false, ownership: true }),
           }),
+        },
+      };
+    case "oneclick":
+      return {
+        ...base,
+        settings: {
+          ...settings,
+          domain: domain({ oneClick: { provider: "GoDaddy", url: "https://dcc.provider.example/apply" } }),
         },
       };
     case "apex":
