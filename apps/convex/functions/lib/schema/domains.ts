@@ -69,6 +69,11 @@ export const domainTables = {
     checkingSince: v.number(),
     checkCount: v.number(),
     activatedAt: v.optional(v.number()),
+    /**
+     * Domain Connect: the customer's DNS provider has our template, and this
+     * signed link applies both records there. Absent: add them by hand.
+     */
+    oneClick: v.optional(v.object({ provider: v.string(), url: v.string() })),
   })
     .index("by_hostname", ["hostname"])
     .index("by_workspace", ["workspaceId"])

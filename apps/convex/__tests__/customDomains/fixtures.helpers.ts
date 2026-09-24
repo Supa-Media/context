@@ -34,6 +34,8 @@ export function stubWorld() {
   const calls: { method: string; url: string }[] = [];
   let nextId = 1;
   const failures = { deleteFails: false, providerDown: false };
+  /** Other hosts a test answers for itself, such as a DNS provider's Domain Connect API. */
+  const hosts = new Map<string, (url: URL) => { status: number; body: unknown }>();
 
   const envelope = (result: unknown, status = 200, errors: unknown[] = []) => ({
     ok: status >= 200 && status < 300,
@@ -53,6 +55,11 @@ export function stubWorld() {
         status: 200,
         json: async () => ({ Status: 0, Answer: values.map((value) => ({ type: 16, data: `"${value}"` })) }),
       };
+    }
+    const other = hosts.get(new URL(url).host);
+    if (other !== undefined) {
+      const { status, body } = other(new URL(url));
+      return { ok: status < 300, status, text: async () => (body === undefined ? "" : JSON.stringify(body)) };
     }
     if (!url.startsWith(`https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/custom_hostnames`)) {
       throw new Error(`unexpected fetch ${method} ${url}`);
@@ -89,6 +96,7 @@ export function stubWorld() {
     txt,
     calls,
     failures,
+    hosts,
     /** Point DNS at us and let the certificate issue. */
     goLive(hostname: string) {
       for (const row of registrations.values()) {

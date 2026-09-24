@@ -87,6 +87,8 @@ export const domainViewValidator = v.object({
   checkedAt: v.union(v.number(), v.null()),
   /** Owner only: the records to add. Empty for anybody else. */
   records: v.array(dnsRecordValidator),
+  /** Owner only, while records are missing: set them up at the DNS provider in one click. */
+  oneClick: v.union(v.object({ provider: v.string(), url: v.string() }), v.null()),
 });
 
 export const settingsValidator = v.object({
@@ -154,6 +156,10 @@ export async function settingsHandler(
             homeSlug: row.homeSlug ?? null,
             checkedAt: row.checkedAt ?? null,
             records: canManage && deployment !== null ? recordsFor(row, deployment.target) : [],
+            oneClick:
+              canManage && row.status === "pending" && !(row.ownershipVerified && row.routingVerified)
+                ? (row.oneClick ?? null)
+                : null,
           },
   };
 }
@@ -237,6 +243,7 @@ export async function connectHandler(
     details: { hostname: normalized.hostname },
   });
   await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.provision, { domainId });
+  await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.detectProvider, { domainId });
   return domainId;
 }
 
@@ -394,6 +401,17 @@ export async function recordRegistrationHandler(
   const row = await ctx.db.get(args.domainId);
   if (row === null) return null;
   await ctx.db.patch(row._id, { providerId: args.providerId, updatedAt: Date.now() });
+  return null;
+}
+
+/** Where Domain Connect detection landed: a link to offer, or nothing. */
+export async function recordOneClickHandler(
+  ctx: MutationCtx,
+  args: { domainId: Id<"customDomains">; oneClick: { provider: string; url: string } | null },
+): Promise<null> {
+  const row = await ctx.db.get(args.domainId);
+  if (row === null || row.status === "removing") return null;
+  await ctx.db.patch(row._id, { oneClick: args.oneClick ?? undefined, updatedAt: Date.now() });
   return null;
 }
 

@@ -25,6 +25,13 @@ import type { Doc } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { CUSTOM_DOMAINS_TOKEN_SECRET, customDomainsDeployment } from "./lib/customDomains/config";
 import { ownershipPublished } from "./lib/customDomains/dns";
+import {
+  discoverProvider,
+  DOMAIN_CONNECT_SIGNING_KEY_SECRET,
+  DOMAIN_CONNECT_TARGET,
+  hostWithinZone,
+  signedApplyUrl,
+} from "./lib/customDomains/domainConnect";
 import type { CheckFindings, DomainProblem } from "./lib/customDomains/lifecycle";
 import {
   deleteHostname,
@@ -140,6 +147,64 @@ export const check = internalAction({
   returns: v.null(),
   handler: async (ctx, args) => {
     await runCheck(ctx, args.domainId);
+    return null;
+  },
+});
+
+/**
+ * Find the customer's DNS provider and, when it has our Domain Connect
+ * template, record a signed link that applies both records there.
+ *
+ * Once, at connect. Everything that can go wrong — no signing key, a
+ * self-hosted target the published template does not name, a provider without
+ * the template or not answering — ends the same way: no link, and the manual
+ * records the customer would have had anyway. The key is read here and never
+ * leaves this action; what reaches the row is the signed link, which carries
+ * nothing the owner is not already shown.
+ */
+export const detectProvider = internalAction({
+  args: { domainId: v.id("customDomains") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.runQuery(internal.functions.customDomains.rowForProvider, {
+      domainId: args.domainId,
+    });
+    if (row === null || row.status !== "pending") return null;
+    if (customDomainsDeployment()?.target !== DOMAIN_CONNECT_TARGET) return null;
+    const privateKey: string | null = await ctx.runAction(internal.functions.admin.readIntegrationSecret, {
+      name: DOMAIN_CONNECT_SIGNING_KEY_SECRET,
+    });
+    if (privateKey === null || privateKey.length === 0) return null;
+
+    const provider = await discoverProvider(row.hostname);
+    if (provider === null) return null;
+    // The template's CNAME sits at the host it is applied to, and a root
+    // domain's host is the zone apex, where most providers refuse a CNAME. A
+    // button that would fail at the provider is worse than the manual records.
+    const host = hostWithinZone(row.hostname, provider.zone);
+    if (host === "") return null;
+    let url: string;
+    try {
+      url = await signedApplyUrl({
+        provider,
+        host,
+        token: row.verifyToken,
+        privateKey,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "custom_domain.domain_connect_sign_failed",
+          domainId: row._id,
+          detail: String((error as Error)?.message ?? ""),
+        }),
+      );
+      return null;
+    }
+    await ctx.runMutation(internal.functions.customDomains.recordOneClick, {
+      domainId: row._id,
+      oneClick: { provider: provider.name, url },
+    });
     return null;
   },
 });

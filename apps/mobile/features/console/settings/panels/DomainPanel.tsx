@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { useConvex } from "convex/react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
@@ -12,7 +12,6 @@ import type { MenuItem } from "../../files/menu";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
-import { relativeTime } from "../../format";
 import { useArming } from "../../useArming";
 import {
   cleanDomainInput,
@@ -20,14 +19,11 @@ import {
   domainPill,
   domainShapeProblem,
   domainUrl,
-  pendingSentence,
-  problemCopy,
-  transientNote,
   type DomainView,
 } from "../../domain/domain";
 import type { DomainActions, DomainPanelView, HomepageChoice } from "../../domain/useDomain";
 import { useDomain } from "../../domain/useDomain";
-import { DnsRecords, DomainSteps } from "./DomainRecords";
+import { DomainSetup } from "./DomainSetup";
 import { PanelHead } from "./PanelHead";
 
 /**
@@ -61,6 +57,7 @@ const DEMO_DOMAIN_VIEW: DomainPanelView = {
       homeSlug: null,
       checkedAt: null,
       records: [],
+      oneClick: null,
     },
   },
 };
@@ -279,8 +276,6 @@ function DomainCard({
 }) {
   const styles = useThemedStyles(makeStyles);
   const pill = domainPill(domain);
-  const problem = problemCopy(domain);
-  const note = transientNote(domain);
   const owner = actions !== undefined;
 
   return (
@@ -313,27 +308,7 @@ function DomainCard({
 
       {domain.status === "pending" ? (
         owner ? (
-          <>
-            {problem !== null ? (
-              <Notice tone="warn" style={styles.block}>
-                <Text variant="rowTitle">{problem.title}</Text>
-                <Text variant="rowSub" style={styles.sub}>
-                  {problem.body}
-                </Text>
-              </Notice>
-            ) : null}
-            <DomainSteps domain={domain} />
-            <Text variant="rowSub" style={styles.block}>
-              {pendingSentence(domain)}
-            </Text>
-            {domain.stage === "https" ? null : <DnsRecords domain={domain} />}
-            {note !== null ? (
-              <Text variant="foot" style={styles.block}>
-                {note}
-              </Text>
-            ) : null}
-            <CheckLine domain={domain} actions={actions} />
-          </>
+          <DomainSetup domain={domain} actions={actions} />
         ) : (
           <Text variant="rowSub" style={styles.block}>
             Being set up by an owner.
@@ -361,39 +336,6 @@ function DomainCard({
 
       {owner && domain.status !== "removing" ? <RemoveRow domain={domain} actions={actions} /> : null}
     </Card>
-  );
-}
-
-function CheckLine({ domain, actions }: { domain: DomainView; actions: DomainActions }) {
-  const styles = useThemedStyles(makeStyles);
-  const [busy, setBusy] = useState(false);
-  // Re-render once in a while so "Checked just now" ages without a query.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15_000);
-    return () => clearInterval(timer);
-  }, []);
-  // A finished check lands as a new `checkedAt`; that is when the press is over.
-  useEffect(() => setBusy(false), [domain.checkedAt]);
-
-  return (
-    <Row style={styles.checkLine}>
-      <Grow>
-        <Text variant="meta">
-          {domain.checkedAt === null ? "Checking…" : `Checked ${relativeTime(domain.checkedAt, now)}`}
-        </Text>
-      </Grow>
-      <Button
-        variant="mini"
-        label={busy ? "Checking…" : "Check again"}
-        disabled={busy}
-        testID="domain-check"
-        onPress={() => {
-          setBusy(true);
-          actions.checkNow().catch(() => setBusy(false));
-        }}
-      />
-    </Row>
   );
 }
 

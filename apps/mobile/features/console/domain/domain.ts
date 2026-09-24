@@ -42,6 +42,13 @@ export interface DomainView {
   homeSlug: string | null;
   checkedAt: number | null;
   records: DnsRecord[];
+  /** Owner only, while records are missing: the provider can add them for you. */
+  oneClick: OneClick | null;
+}
+
+export interface OneClick {
+  provider: string;
+  url: string;
 }
 
 export interface DomainSettings {
@@ -118,6 +125,28 @@ export function pendingSentence(domain: DomainView): string {
   }
   const zone = registrableDomain(domain.hostname);
   return `Add these two records where you manage ${zone}'s DNS. We check on our own, so you can close this page.`;
+}
+
+/** The sentence over the "Set up with …" button. */
+export function providerSentence(provider: string): string {
+  return `Your DNS is at ${provider}. Sign in there and approve, and ${provider} adds both records for you.`;
+}
+
+/** Once the provider has been opened, until the records turn up. */
+export function awaySentence(provider: string): string {
+  return `Finish in the ${provider} window. We'll check as soon as you're back, and on our own after that.`;
+}
+
+/** Back from the provider, and nothing found yet. */
+export function notYetNote(provider: string): string {
+  return `Nothing from ${provider} yet. It can take a minute to show up, and we'll keep checking.`;
+}
+
+/** The manual records, folded: which records, or how many are in. */
+export function recordsSummary(records: DnsRecord[]): string {
+  const found = records.filter((record) => record.done).length;
+  if (found > 0 && found < records.length) return `${found} of ${records.length} found`;
+  return records.map((record) => record.type).join(" and ");
 }
 
 /** The last two labels. Only used in sentences, never to route anything. */

@@ -30,6 +30,10 @@ afterEach(() => {
 });
 
 function mount(view: DomainPanelView, onOpenPremium?: () => void): HTMLElement {
+  return mountWithRerender(view, onOpenPremium).container;
+}
+
+function mountWithRerender(view: DomainPanelView, onOpenPremium?: () => void) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -37,10 +41,12 @@ function mount(view: DomainPanelView, onOpenPremium?: () => void): HTMLElement {
     act(() => root.unmount());
     container.remove();
   });
-  act(() => {
-    root.render(createElement(DomainPanel, { view, handle: "acme", onOpenPremium }));
-  });
-  return container;
+  const render = (next: DomainPanelView) =>
+    act(() => {
+      root.render(createElement(DomainPanel, { view: next, handle: "acme", onOpenPremium }));
+    });
+  render(view);
+  return { container, render };
 }
 
 const actions = (): DomainActions => ({
@@ -62,6 +68,7 @@ const pending = (over: Partial<DomainView> = {}): DomainView => ({
   problem: null,
   homeSlug: null,
   checkedAt: Date.now() - 20_000,
+  oneClick: null,
   records: [
     { purpose: "routing", type: "CNAME", name: "docs.acme.com", host: "docs", value: "customers.context.lc", done: false },
     {
@@ -169,5 +176,62 @@ describe("DomainPanel", () => {
     const root = mount({ settings: settings({ available: false }), failed: false, homepageChoices: [], actions: actions() });
     expect(byTest(root, "domain-unavailable")).not.toBeNull();
     expect(byTest(root, "domain-input")).toBeNull();
+  });
+
+  describe("one-click setup at the DNS provider", () => {
+    const oneClick = { provider: "GoDaddy", url: "https://dcc.provider.example/apply?x=1" };
+
+    test("leads with the provider's button and folds the records away", () => {
+      const root = mount({
+        settings: settings({ domain: pending({ oneClick }) }),
+        failed: false,
+        homepageChoices: [],
+        actions: actions(),
+      });
+      expect(byTest(root, "domain-one-click")?.textContent).toBe("Set up with GoDaddy");
+      expect(root.textContent).toContain("Your DNS is at GoDaddy.");
+      expect(byTest(root, "domain-record-routing")).toBeNull();
+      expect(byTest(root, "domain-records-toggle")?.textContent).toContain("1 of 2 found");
+
+      act(() => (byTest(root, "domain-records-toggle") as HTMLElement).click());
+      expect(byTest(root, "domain-record-routing")).not.toBeNull();
+    });
+
+    test("a link that arrives while the records are showing does not fold them", () => {
+      const { container, render } = mountWithRerender({
+        settings: settings({ domain: pending() }),
+        failed: false,
+        homepageChoices: [],
+        actions: actions(),
+      });
+      expect(byTest(container, "domain-record-routing")).not.toBeNull();
+      render({ settings: settings({ domain: pending({ oneClick }) }), failed: false, homepageChoices: [], actions: actions() });
+      expect(byTest(container, "domain-one-click")).not.toBeNull();
+      expect(byTest(container, "domain-record-routing")).not.toBeNull();
+    });
+
+    test("a stuck domain shows its records, whatever the provider offers", () => {
+      const root = mount({
+        settings: settings({ domain: pending({ oneClick, problem: "TIMED_OUT" }) }),
+        failed: false,
+        homepageChoices: [],
+        actions: actions(),
+      });
+      expect(byTest(root, "domain-record-routing")).not.toBeNull();
+    });
+
+    test("once both records are found, the button and the records are gone", () => {
+      const root = mount({
+        settings: settings({
+          domain: pending({ oneClick, ownershipVerified: true, routingVerified: true, stage: "https" }),
+        }),
+        failed: false,
+        homepageChoices: [],
+        actions: actions(),
+      });
+      expect(byTest(root, "domain-one-click")).toBeNull();
+      expect(byTest(root, "domain-records-toggle")).toBeNull();
+      expect(root.textContent).toContain("Both records found.");
+    });
   });
 });

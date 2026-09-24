@@ -90,6 +90,34 @@ variables (`CUSTOM_DOMAINS_ZONE_ID`, `CUSTOM_DOMAINS_TARGET`). If they are
 absent, the deployment doesn't offer domains, and the settings section says so
 in one sentence.
 
+### One-click setup is Domain Connect, signed, and never for a root domain
+
+When the customer's DNS provider implements Domain Connect and has our
+template (`infra/domain-connect/context.lc.website.json`), the pending card
+leads with "Set up with <provider>". The provider applies the same two records
+the screen would have them copy, and the checker verifies them the same way.
+The link grants nothing: the TXT value is still the per-claim token, so a link
+cannot prove ownership of a zone the clicker does not control at the provider.
+
+- **Signed.** The template names `syncPubKeyDomain`, so providers check an
+  RS256 signature over the query against our public key in DNS. The private
+  key is `DOMAIN_CONNECT_SIGNING_KEY` in `appSecrets`, opened only by
+  `customDomainsProvision.detectProvider`.
+- **Fixed target.** The CNAME target is written into the template rather than
+  passed as a variable, so a link cannot point a domain anywhere else. A
+  deployment whose target differs (self-hosted) is offered no button.
+- **Subdomains only.** Applied to a root domain the template's CNAME lands on
+  the zone apex, which most providers refuse. A button likely to fail is worse
+  than the records, so root domains keep the manual path. Covering them needs
+  fixed IPs for an A record (Cloudflare's Enterprise-only apex proxying).
+- **Discovery never widens what we fetch.** The `_domainconnect` answer comes
+  from customer DNS, so only a bare host (with an optional path) is accepted,
+  and every URL the provider returns must be plain `https` on a named host.
+
+The test that fails if signing is dropped or loosened is `the signature covers
+exactly the query the provider applies` in
+`apps/convex/__tests__/customDomains/domainConnect.test.ts`.
+
 ### Not built yet
 
 - `www` alongside an apex, or more than one domain per workspace.

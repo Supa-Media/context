@@ -23,6 +23,7 @@ import {
   connectHandler,
   finishRemovalHandler,
   recordCheckHandler,
+  recordOneClickHandler,
   recordRegistrationHandler,
   removeHandler,
   resolvedHostValidator,
@@ -86,6 +87,15 @@ export const recordRegistration = internalMutation({
   args: { domainId: v.id("customDomains"), providerId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => await recordRegistrationHandler(ctx, args),
+});
+
+export const recordOneClick = internalMutation({
+  args: {
+    domainId: v.id("customDomains"),
+    oneClick: v.union(v.object({ provider: v.string(), url: v.string() }), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => await recordOneClickHandler(ctx, args),
 });
 
 const readinessValidator = v.union(
