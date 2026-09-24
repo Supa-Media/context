@@ -220,7 +220,7 @@ describe("opening a note on a phone", () => {
 const RAW_WINDOW_LISTENERS_ALLOWED: Record<string, string> = {
   "features/app/returnToApp.ts": "the one place that checks, by construction",
   "features/console/agents/useAgentActivity.ts": "checks `typeof window.addEventListener` itself before listening",
-  "features/console/files/imageBlock.ts": "a CodeMirror widget, bundled into the editor's WebView and never into the app",
+  "features/console/files/imageBlock/widget.ts": "a CodeMirror widget, bundled into the editor's WebView and never into the app",
 };
 
 function sourceFiles(dir: string): string[] {

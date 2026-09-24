@@ -71,7 +71,6 @@
     "apps/convex/__tests__/googleConnect/rowShape.test.ts": "The Google connection row's shape (products plus the nested gmail object) and the default destination folder, both about the same row.",
     "apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts": "One integration scenario: a full pass through the real credential barrier against fixture Gmail, Chat and Calendar backends and an in-memory S3.",
     "apps/convex/__tests__/storage/rotation.test.ts": "One encryption-key rotation scenario covering every envelope column in ROTATED_ENVELOPE_COLUMNS; splitting it separates the rotation from the column list it is proven against.",
-    "apps/convex/__tests__/structure/fixtures.helpers.ts": "The shared source analyzer (classify, exportBlocks, analyze) every structure test runs on.",
     "apps/convex/__tests__/structure/httpRoutes.test.ts": "The gateway's HTTP routes, plus the route-factory constants and helpers only these checks use.",
     "apps/convex/__tests__/structure/reachability.test.ts": "One guard: no public Convex function can reach the storage-secret decrypt path, checked over the shared analyzer's whole call graph.",
     "apps/convex/functions/managedProvisioning.ts": "provisionManagedStorage and deleteManagedTestResources keep full bodies inline, and two others keep their decryptSecret calls inline, because the credential-reachability analyzer only reads a registered function's own block.",
@@ -86,6 +85,7 @@
     "apps/mcp/test/searchProjection/serve.test.mjs": "One harness-based scenario (serving search from the projection) whose checks build on each other in order.",
     "apps/mobile/__tests__/meetingsScreens/savedClaims.test.ts": "One describe: the note screen says `saved` only when there is a path to print; its cases share one rendered screen.",
     "apps/mobile/features/app/reachability.ts": "The route registry: every route and the surfaces that reach it, one list that routeReachability.test.ts checks against the filesystem, so it reads as a whole.",
+    "apps/mobile/features/console/files/browser/contract.ts": "One interface, FileBrowser: the console's file-browser contract, each member documented where it is declared.",
     "docs/decisions/communications/calendar.md": "One decision argument (sync horizon, sync passes, what is deliberately not built); moved verbatim from communications.md, and cutting it would separate the reasoning from its conclusion.",
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
@@ -103,20 +103,13 @@
     "apps/mobile/features/console/files/LiveEditor.web.tsx": 1570,
     "apps/mobile/features/console/files/NoteEditor.tsx": 1897,
     "apps/mobile/features/console/files/ShareDialog.tsx": 1784,
-    "apps/mobile/features/console/files/browser.ts": 1026,
-    "apps/mobile/features/console/files/imageBlock.ts": 1132,
     "apps/mobile/features/console/files/useFileBrowser.ts": 4853,
-    "apps/mobile/features/console/files/webview/host.ts": 1066,
     "apps/mobile/features/console/panes/BrowsePane.tsx": 2097,
-    "apps/mobile/features/console/plugins/runtime.ts": 1123,
     "apps/mobile/features/console/plugins/useRuntime.ts": 1187,
     "apps/mobile/features/console/presence/usePresence.ts": 1353,
     "apps/mobile/features/console/useLiveConsoleData.ts": 1282,
     "apps/mobile/features/meetings/capture/audio.ts": 1843,
-    "apps/mobile/features/meetings/capture/audio.web.ts": 1132,
-    "apps/mobile/features/meetings/controller.ts": 1768,
     "apps/mobile/features/offline/useOfflineNotes.ts": 1193,
-    "packages/hook/test/test.mjs": 1317,
     "packages/obsidian-runtime/src/sandbox.js": 2247
   }
 }
