@@ -32,7 +32,6 @@ import {
   toFileError,
   type ContextMoveProgress,
   type FileBrowser,
-  type MoveDestination,
 } from "./browser";
 import type {
   FormOutcome,
@@ -69,7 +68,6 @@ import {
   describeMoveProblem,
   describeNameProblem,
   displayName,
-  displayPath,
   ensureMarkdown,
   joinPath,
   mergeLinkPaths,
@@ -106,179 +104,29 @@ import {
 } from "./optimistic";
 import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
-import type { VisibilityTier } from "../visibility";
 import type { AppliedPluginNoteWrite } from "../plugins/runtime";
 import { describeOp, pendingMarks } from "./pendingMarks";
 
-/**
- * Where the draft for a note nobody is looking at actually is.
- *
- * Said out loud because the alternative is a notice about a save that did not
- * land and no answer to "so where is what I typed". It is on the device — and
- * how much that is worth depends on whether the store is durable, exactly as
- * the queued-save message does: a browser refusing `localStorage` gives a copy
- * that lives as long as the tab, and telling somebody it is kept there would
- * be a durability claim the console cannot make.
- */
-export function draftIsKept(durable: boolean): string {
-  return durable
-    ? "Its draft is kept on this device — open the note to try again."
-    : "Its draft is held for this session — open the note to try again. Closing the app loses it.";
-}
+import type { BatchStep, FileBrowserOptions, Listings } from "./fileBrowser/types";
+import {
+  DRAWING_NEEDS_CONNECTION,
+  FOLDER_NEEDS_CONNECTION,
+  NEEDS_CONNECTION,
+  NOT_ON_DEVICE,
+  STALE_LISTING_MESSAGE,
+  TIMED_OUT_MESSAGE,
+  claimedMessage,
+  collision,
+  countOf,
+  draftIsKept,
+  folderLabel,
+} from "./fileBrowser/copy";
+import { INSTANT_OPEN_MS, OPERATION_TIMEOUT_MS } from "./fileBrowser/timing";
 
-/**
- * How long to wait for one file operation before giving the toolbar back.
- *
- * Longer than `SAVE_TIMEOUT_MS` (30s), and for the same reason
- * `CONNECT_TIMEOUT_MS` is: a save is one conditional PUT, while the operations
- * behind `run` are whole-tree jobs. A folder move, copy, delete or visibility
- * cascade walks the prefix and issues a bucket round trip per object, each with
- * its own 10s deadline in `functions/files.ts`, so a directory of any size is
- * legitimately many seconds of sequential I/O. 45s is generous enough that a
- * real folder operation over a slow provider is not cut off, and short enough
- * that nobody sits in front of a dead toolbar wondering.
- */
-export const OPERATION_TIMEOUT_MS = 45_000;
+export { draftIsKept } from "./fileBrowser/copy";
+export { INSTANT_OPEN_MS, OPERATION_TIMEOUT_MS } from "./fileBrowser/timing";
 
-/**
- * How long an online open waits for the bucket before showing the mirror's
- * copy. See `openNote`: long enough that an ordinary connection answers first
- * and nothing flickers, short enough that a slow one does not leave somebody
- * looking at a spinner over a note that is already on their device.
- */
-export const INSTANT_OPEN_MS = 250;
-
-/**
- * What to say when we stopped waiting.
- *
- * It does not claim the operation failed, because we do not know: the request
- * may have landed and only the answer was lost. Saying "try again" here is how
- * somebody retries a rename that already succeeded and gets told the name is
- * taken — so the sentence points at the list instead.
- */
-const TIMED_OUT_MESSAGE =
-  "That is taking too long, so we stopped waiting. It may still have gone through — check the list before trying it again.";
-
-/**
- * The mutation worked; reloading the listing afterwards did not.
- *
- * Reported separately from a failure because they are opposite facts. Folding
- * the two together is what told somebody a successful rename "did not work",
- * and the retry they were invited to make then failed on the duplicate name.
- */
-/**
- * An operation that cannot wait for a connection, asked for without one — a
- * duplicate, a paste, a visibility change. Said at once, because saying it
- * after the operation timeout would be "we do not know" about a request that
- * was never made.
- */
-const NEEDS_CONNECTION =
-  "You are offline, so that was not done. It needs a connection — new notes, renames, moves, archiving and deleting are the things that can wait for one.";
-
-/** A name the offline queue is holding for something else. See `claimedPaths`. */
-function claimedMessage(name: string): string {
-  return `${name} has a change waiting to sync. Choose another name, or use this one once it has synced.`;
-}
-
-/** A folder operation asked for offline. See the offline section of `rename`. */
-const FOLDER_NEEDS_CONNECTION =
-  "Renaming, moving, archiving or deleting a folder needs a connection. A folder's notes can change on other devices while this one is offline, and there is no single version of a folder to check that against.";
-
-/** A note whose version this device does not hold. */
-const NOT_ON_DEVICE =
-  "This note is not on this device, so it cannot be changed offline. Open it once with a connection and try again.";
-
-/**
- * Drawings are online-only to create. The drawing editor on a phone is never
- * kept offline (`drawingOffline.ts`), and on the web it is kept only once a
- * drawing has been opened online — so a drawing made offline could open as a
- * picture nobody can draw in. A note can be made now.
- */
-const DRAWING_NEEDS_CONNECTION =
-  "A new drawing needs a connection, because its editor may not be on this device yet. A note can be made offline.";
-
-const STALE_LISTING_MESSAGE =
-  "That worked, but the file list did not reload. What you see may be out of date.";
-
-/**
- * A folder, as it should read in the middle of a sentence.
- *
- * The root is `""`, and "Moved to ." is not a sentence. Every other place that
- * has to name the root spells it out too — the move picker's `detail`, the new
- * note dialog's description — so this says the same thing they do about *that*.
- *
- * It says something different about the folders below it, and deliberately:
- * `displayPath` drops their sort numbers, because this is a sentence somebody
- * reads about a move that has already happened, and it should name the folder
- * the way the tree, the crumb and the folder's own heading just named it. The
- * picker keeps the real keys, which is the opposite decision for the opposite
- * reason — there the string is a destination being chosen, not a place being
- * reported.
- */
-/*
-  Its own function rather than `paths.ts`'s `folderLabel`, and the name is
-  shared deliberately: that one labels a folder's *name*, this one names a
-  *place* in a sentence and has the root's wording to give. Both are contained
-  — this one through `displayPath` — so the three toasts below that used to
-  trim a name by hand now go through a container either way.
-*/
-function folderLabel(folder: string): string {
-  return folder === "" ? "the root of your context" : displayPath(folder);
-}
-
-type Listings = Record<string, FolderListing | undefined>;
-
-export function useFileBrowser(options: {
-  workspaceId: string | null;
-  canEdit: boolean;
-  readOnlyReason?: string;
-  /**
-   * Whether the caller owns this context.
-   *
-   * Separate from `canEdit`, which an `editor` also has. Only the owner may
-   * rewrite the access map, so this is what decides whether the repair control
-   * exists — see `canResetPrivacy` on `FileBrowser`.
-   */
-  isOwner?: boolean;
-  /**
-   * How much of this context the person at the keyboard can see.
-   *
-   * Not derivable from `isOwner`, and that is the point: `isOwner === false`
-   * covers both "an editor" and "the context list has not landed yet", and
-   * those two need opposite answers from a cache. `visibilityTierForRole` is
-   * the one place this app decides it, so it is passed rather than re-derived
-   * — see `features/offline/keys.ts` for what a copy taken at the wrong
-   * clearance costs.
-   */
-  tier: VisibilityTier;
-  /**
-   * The context's slug, for the readable team link (`/console/@slug?note=…`).
-   *
-   * Absent means no team link can be built, and `copyShareLink` copies nothing
-   * rather than handing back a URL with `undefined` in it.
-   */
-  slug?: string;
-  /**
-   * Whether this bucket's connect-time probe found real conditional writes.
-   *
-   * Passed in rather than read here, because the binding is a Convex query the
-   * console already holds and a second subscription to it would be a second
-   * answer that can disagree. `undefined` while it is loading, which the copy
-   * treats as "do not claim either way".
-   */
-  conditionalWrite?: boolean;
-  /**
-   * The other contexts this person could move something into.
-   *
-   * Passed in rather than queried here, because the console already holds the
-   * list — `listMyWorkspaces`, one subscription — and a second one would be a
-   * second answer that can disagree with the rail. Filtered to what the
-   * *destination* side needs (`editor` and above there); whether the **source**
-   * side allows a move at all is `isOwner`, and this hook applies that itself
-   * rather than trusting the caller to have done both.
-   */
-  destinations?: readonly MoveDestination[];
-}): FileBrowser {
+export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const slug = options.slug ?? null;
 
@@ -4828,25 +4676,6 @@ export function useFileBrowser(options: {
       readRaw,
     ],
   );
-}
-
-/** One step of a batch — see `runBatch`. */
-interface BatchStep {
-  /** How the batch's sentence names this one if it is where the batch stopped. */
-  name: string;
-  work: () => Promise<{ touched: string[]; undo: () => Promise<unknown> }>;
-}
-
-/** "1 item", "3 items". */
-function countOf(count: number): string {
-  return count === 1 ? "1 item" : `${count} items`;
-}
-
-/** "That folder already has a …" — checked here so it costs no round trip. */
-function collision(listings: Listings, folder: string, name: string): string | null {
-  return namesIn(listings, folder).has(name)
-    ? `${folder === "" ? "The root" : folder} already has something called ${name}.`
-    : null;
 }
 
 /** Exported for the editor's unsaved-changes guard in the pane. */
