@@ -25,4 +25,3 @@ Use case: logo-brand. Generate one square workspace avatar logo for Alpha person
 ### delta
 
 Use case: logo-brand. Generate one square workspace avatar logo for Delta personal workspace, a creative director: a sophisticated triangular delta symbol formed by one flowing ribbon, pale peach on dark plum. Crisp flat graphic design, one centered large mark with generous safe margins for circular cropping, legible at 32 pixels. Solid background filling the canvas. No words, no caption, no mockup, no border, no gradients, no shadows. Deliver a single standalone image, not a contact sheet.
-

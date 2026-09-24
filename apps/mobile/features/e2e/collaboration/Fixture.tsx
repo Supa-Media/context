@@ -7,6 +7,7 @@ import { ConvexError } from "convex/values";
 import { useFileBrowser } from "../../console/files/useFileBrowser";
 import { useNoteRoom } from "../../console/presence/useNoteRoom";
 import { NoteEditor } from "../../console/files/NoteEditor";
+import { ConsoleGrantSessionContext } from "../../agent/useConsoleGrant";
 
 type FixtureWindow = Window & {
   fixture?: { files: unknown; presence: unknown; editorText: () => string | null };
@@ -27,7 +28,11 @@ export function CollaborationFixture({ user = "ana", note = "1-projects/verify.m
     watchQuery: () => ({ onUpdate: () => () => {}, localQueryResult: () => undefined }),
     mutation: () => { throw new Error("Unexpected fixture mutation"); },
   }) as unknown as ConvexReactClient, [user]);
-  return <ConvexProvider client={client}><Session user={user} note={note} /></ConvexProvider>;
+  return <ConvexProvider client={client}>
+    <ConsoleGrantSessionContext.Provider value={`fixture-${user}`}>
+      <Session user={user} note={note} />
+    </ConsoleGrantSessionContext.Provider>
+  </ConvexProvider>;
 }
 
 function Session({ user, note }: { user: string; note: string }) {

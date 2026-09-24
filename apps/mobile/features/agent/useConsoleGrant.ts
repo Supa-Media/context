@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { createContext, useCallback, useContext } from "react";
 import { useAction, useConvex } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
@@ -7,10 +7,16 @@ import { ConsoleGrantCache } from "./consoleGrantCache";
 
 const sessions = new WeakMap<object, { session: string | null; cache: ConsoleGrantCache }>();
 
+/** Cache identity for hosts using another Convex auth transport, including the
+ * local browser fixture. This cannot authorize minting: the client/server do. */
+export const ConsoleGrantSessionContext = createContext<string | null | undefined>(undefined);
+
 /** Account changes discard the cache; credentials never enter persistent storage. */
 export function useConsoleGrant() {
   const client = useConvex();
-  const session = useAuthToken();
+  const authToken = useAuthToken();
+  const hostSession = useContext(ConsoleGrantSessionContext);
+  const session = hostSession === undefined ? authToken : hostSession;
   const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
   let entry = sessions.get(client);
   if (!entry || entry.session !== session) {
