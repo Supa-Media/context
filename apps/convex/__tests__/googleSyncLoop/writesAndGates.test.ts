@@ -19,6 +19,7 @@ import {
   sweep,
   googleAndBucket,
   endToEnd,
+  type Scenario,
 } from "./fixtures";
 
 describe("what a pass writes back onto the row", () => {

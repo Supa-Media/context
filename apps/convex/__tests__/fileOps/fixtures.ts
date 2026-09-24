@@ -27,6 +27,7 @@ import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import {
   FileOpError,
   type FileStore,
+  type FolderListing,
   setFolderVisibility,
   setVisibility,
 } from "../../functions/lib/fileOps";

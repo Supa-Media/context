@@ -6,6 +6,7 @@ import {
   narrowerVisibility,
   overrideFor,
   parsePrivacyManifest,
+  type Visibility,
 } from "../../functions/lib/privacy";
 import {
   gateway,

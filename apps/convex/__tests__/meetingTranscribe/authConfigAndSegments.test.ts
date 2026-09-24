@@ -14,6 +14,7 @@ import {
   configureWorker,
   stubWorker,
   transcribe,
+  type WorkerSegment,
 } from "./fixtures";
 
 describe("who may transcribe", () => {
