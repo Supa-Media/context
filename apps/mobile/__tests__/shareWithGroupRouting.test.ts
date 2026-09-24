@@ -89,7 +89,7 @@ describe("the share dialog's group callback carries what it is sharing", () => {
     const sites: readonly (readonly [string, readonly string[]])[] = [
       // Moved out of `BrowsePane.tsx` with the rest of its share-dialog wiring.
       ["browsePane/BrowseShareDialog.tsx", ["panes", "browsePane", "BrowseShareDialog.tsx"]],
-      ["console/_layout.tsx", ["..", "..", "app", "(app)", "console", "_layout.tsx"]],
+      ["console/layout/barDialogs.tsx", ["layout", "barDialogs.tsx"]],
     ];
     for (const [file, parts] of sites) {
       const source = stripComments(read(...parts));
