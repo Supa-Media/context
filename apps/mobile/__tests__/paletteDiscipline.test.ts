@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 import { describe, expect, test } from "@jest/globals";
 
@@ -86,8 +86,12 @@ function sources(dir: string): string[] {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) return entry.name === "node_modules" ? [] : sources(full);
     if (entry.name.endsWith(".generated.ts")) return [];
-    // The palette itself is where colours are allowed to be written down.
+    // The palette itself is where colours are allowed to be written down —
+    // `design/tokens.ts` is now a facade re-exporting `design/tokens/*`, split
+    // by token family, and the colour literals live in that directory's
+    // `colors.ts`.
     if (full.endsWith(join("design", "tokens.ts"))) return [];
+    if (full.includes(join("design", "tokens") + sep)) return [];
     return /\.tsx?$/.test(entry.name) ? [full] : [];
   });
 }
