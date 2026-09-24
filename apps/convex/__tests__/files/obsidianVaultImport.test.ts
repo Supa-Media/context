@@ -7,7 +7,7 @@ import {
   captureError,
   errorCode,
 } from "../fixtures.helpers";
-import { fixture } from "./fixtures";
+import { fixture } from "./fixtures.helpers";
 
 describe("Obsidian vault import", () => {
   test("requires the destructive acknowledgement before a replacement job exists", async () => {

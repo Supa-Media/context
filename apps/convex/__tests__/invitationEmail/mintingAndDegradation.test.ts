@@ -18,7 +18,7 @@ import {
   invite,
   invitationRow,
   linkFrom,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("what minting a sign-in code does to the users table", () => {
   /**

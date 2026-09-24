@@ -22,7 +22,7 @@ import {
   ready,
   resolve,
   resolvedTicket,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the two doors have two keys", () => {
   test("the gateway secret does not open an ingest route", async () => {

@@ -20,7 +20,7 @@ import {
   googleAndBucket,
   endToEnd,
   type Scenario,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("what a pass writes back onto the row", () => {
   beforeEach(() => enableMailSync());

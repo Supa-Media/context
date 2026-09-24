@@ -16,7 +16,7 @@ import {
   danglingWorkspaceId,
   removeMembership,
   bodyOf,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* 7. /gateway/grants/create                                                  */
 /* -------------------------------------------------------------------------- */

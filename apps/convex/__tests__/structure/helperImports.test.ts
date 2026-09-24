@@ -4,7 +4,7 @@ import {
   analyze,
   findViolations,
   realModules,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /**
  * LAUNDERING THROUGH A HELPER MODULE.

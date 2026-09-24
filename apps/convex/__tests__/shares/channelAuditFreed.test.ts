@@ -16,7 +16,7 @@ import {
   OTHER_NOTE,
   scenario,
   share,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the recipient's own channel", () => {
   test("listSharedWithMe shows what was shared with me and nothing else", async () => {

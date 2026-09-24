@@ -14,7 +14,7 @@ import { gatewayInternals } from "../gatewayFormat.helpers";
 import { memoryStore } from "../storeStub.helpers";
 import {
   seedLiveWorkspace,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("a custom layout is written in the owner's own words", () => {
   const FOLDERS = [

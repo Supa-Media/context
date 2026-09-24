@@ -16,7 +16,7 @@ import {
   personalScenario,
   chatBindingArgs,
   gmailArgs,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the row shape: attaching chat to the shared googleConnections row", () => {
   test("a first connect writes products: ['chat'] and a full chat settings object", async () => {

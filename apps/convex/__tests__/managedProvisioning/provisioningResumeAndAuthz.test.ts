@@ -14,7 +14,7 @@ import {
   paidContext,
   configured,
   binding,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("provisioning a managed bucket", () => {
   test("counts first, then exposes resumable phase progress without guessing", async () => {

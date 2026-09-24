@@ -29,7 +29,7 @@ export interface Violation {
   reason: string;
 }
 
-/** `../../functions/lib/crypto.ts` → `functions.lib.crypto`. The leading `../..` reflects this fixture module living at `__tests__/structure/fixtures.ts`, two directories below `apps/convex`. */
+/** `../../functions/lib/crypto.ts` → `functions.lib.crypto`. The leading `../..` reflects this fixture module living at `__tests__/structure/fixtures.helpers.ts`, two directories below `apps/convex`. */
 export function referencePath(globKey: string): string {
   return globKey
     .replace(/^(\.\.?\/)+/, "")

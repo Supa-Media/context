@@ -18,7 +18,7 @@ import {
   shareProjects,
   capture,
   errorShape,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("three guards that no test was holding", () => {
   /**
