@@ -1,0 +1,537 @@
+import { describe, expect, test } from "vitest";
+import { api, internal } from "../../_generated/api";
+import { decryptSecret, encryptSecret, requireKeyset } from "../../functions/lib/crypto";
+import {
+  apiTokenTemplateUrl,
+  bucketCreatedDuringAttempt,
+  bucketNameProblem,
+  bucketNotOursMessage,
+  bucketResourceSelector,
+  classifyCloudflareFailure,
+  deriveS3SecretAccessKey,
+  isPlausibleAccountId,
+  provisionFailureMessage,
+  r2Endpoint,
+  residueAfterFailure,
+  residueSentence,
+  scopedTokenName,
+  stripCredentialFields,
+  suggestBucketName,
+} from "../../functions/lib/cloudflare";
+import {
+  asUser,
+  errorCode,
+  createUser,
+  createWorkspace,
+  drainScheduled,
+  setupTest,
+  type TestConvex,
+} from "../fixtures.helpers";
+import {
+  FAKE_ACCOUNT_ID,
+  SETUP_TOKEN,
+  MINTED_TOKEN_VALUE,
+  MINTED_TOKEN_ID,
+  WRITE_GROUP_ID,
+  BUCKET,
+  provisioning,
+  startProvisioning,
+  bindingRow,
+  provisioningRow,
+} from "./fixtures";
+
+describe("the pieces of the Cloudflare API this flow needs", () => {
+  /**
+   * The derivation is the one place a silent mistake produces a credential
+   * that looks fine and signs nothing, so it is checked against a published
+   * SHA-256 vector rather than against another call to itself.
+   */
+  test("the S3 secret is the lowercase hex SHA-256 of the token value", async () => {
+    expect(await deriveS3SecretAccessKey("abc")).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    );
+    expect(await deriveS3SecretAccessKey("")).toBe(
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    );
+    expect(await deriveS3SecretAccessKey("abc")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("the endpoint carries the account id and the jurisdiction", () => {
+    expect(r2Endpoint(FAKE_ACCOUNT_ID)).toBe(
+      `https://${FAKE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    );
+    expect(r2Endpoint(FAKE_ACCOUNT_ID, "eu")).toBe(
+      `https://${FAKE_ACCOUNT_ID}.eu.r2.cloudflarestorage.com`,
+    );
+    expect(r2Endpoint(FAKE_ACCOUNT_ID, "fedramp")).toContain(".fedramp.");
+    // The bucket is never in the host: R2's S3 endpoint is path-style.
+    expect(r2Endpoint(FAKE_ACCOUNT_ID)).not.toContain(BUCKET);
+  });
+
+  /**
+   * Getting this wrong in the lenient direction mints a key over *every* bucket
+   * in the customer's account, which is the difference between holding a key to
+   * their notes and holding a key to their storage.
+   */
+  test("the resource selector names exactly one bucket", () => {
+    expect(bucketResourceSelector(FAKE_ACCOUNT_ID, "default", BUCKET)).toBe(
+      `com.cloudflare.edge.r2.bucket.${FAKE_ACCOUNT_ID}_default_${BUCKET}`,
+    );
+    expect(bucketResourceSelector(FAKE_ACCOUNT_ID, "eu", BUCKET)).toContain("_eu_");
+  });
+
+  test("bucket names are checked against R2's rules, at the stricter end", () => {
+    expect(bucketNameProblem(BUCKET)).toBeNull();
+    expect(bucketNameProblem("abc")).toBeNull();
+    expect(bucketNameProblem("ab")).toMatch(/3 and 63/);
+    expect(bucketNameProblem("a".repeat(64))).toMatch(/3 and 63/);
+    expect(bucketNameProblem("a".repeat(63))).toBeNull();
+    expect(bucketNameProblem("Atlas")).toMatch(/lowercase/);
+    expect(bucketNameProblem("atlas_context")).toMatch(/lowercase/);
+    expect(bucketNameProblem("-atlas")).toMatch(/start and end/);
+    expect(bucketNameProblem("atlas-")).toMatch(/start and end/);
+    expect(bucketNameProblem("atlas/context")).not.toBeNull();
+  });
+
+  test("a suggested bucket name is always a legal one", () => {
+    for (const slug of ["atlas", "ab", "a", "Seyi's Workspace", "--", "x".repeat(80)]) {
+      expect(bucketNameProblem(suggestBucketName(slug))).toBeNull();
+    }
+    expect(suggestBucketName("atlas")).toBe("atlas");
+  });
+
+  test("account ids are 32 hex characters", () => {
+    expect(isPlausibleAccountId(FAKE_ACCOUNT_ID)).toBe(true);
+    expect(isPlausibleAccountId(FAKE_ACCOUNT_ID.toUpperCase())).toBe(false);
+    expect(isPlausibleAccountId("not-an-account-id")).toBe(false);
+    expect(isPlausibleAccountId(`${FAKE_ACCOUNT_ID}0`)).toBe(false);
+  });
+
+  /**
+   * The deep link is a *form pre-fill*, not an OAuth flow: no redirect, no
+   * callback, no code exchange. The assertions are about what the person's
+   * browser is handed, since nothing comes back to us.
+   */
+  test("the API-token deep link pre-fills the R2 permission and no account", () => {
+    const url = new URL(apiTokenTemplateUrl({ name: scopedTokenName(BUCKET) }));
+    expect(url.origin + url.pathname).toBe(
+      "https://dash.cloudflare.com/profile/api-tokens",
+    );
+    expect(JSON.parse(url.searchParams.get("permissionGroupKeys") ?? "")).toEqual([
+      { key: "workers_r2", type: "edit" },
+    ]);
+    // `*` leaves the account picker open. Naming one would be naming an account
+    // nobody has told us about yet — which is the whole reason the account id
+    // is a second field on the paste path.
+    expect(url.searchParams.get("accountId")).toBe("*");
+    expect(url.searchParams.get("name")).toBe(scopedTokenName(BUCKET));
+    // No token, ever, in a URL.
+    expect(url.toString()).not.toContain(SETUP_TOKEN);
+  });
+
+  test("extra permission keys slot in as data rather than as a guess", () => {
+    const url = new URL(
+      apiTokenTemplateUrl({
+        name: "x",
+        templateKeys: [
+          { key: "workers_r2", type: "edit" },
+          { key: "example_unverified_key", type: "edit" },
+        ],
+      }),
+    );
+    expect(JSON.parse(url.searchParams.get("permissionGroupKeys") ?? "")).toHaveLength(2);
+  });
+
+  /**
+   * 10042 is checked before the status because it arrives as a 403, which is
+   * otherwise indistinguishable from "this token may not do that" — two
+   * failures whose fixes have nothing in common.
+   */
+  test("10042 is its own state, with its own message", () => {
+    const failure = classifyCloudflareFailure({
+      status: 403,
+      errors: [{ code: 10042, message: "Please enable R2 through the Cloudflare Dashboard." }],
+    });
+    expect(failure.errorCode).toBe("R2_NOT_ENTITLED");
+    // The three things the message has to say: what to do, that it is free,
+    // and whose requirement the card is.
+    expect(failure.message).toMatch(/R2 checkout/i);
+    expect(failure.message).toMatch(/free/i);
+    expect(failure.message).toMatch(/Cloudflare's requirement/i);
+    expect(failure.message).not.toMatch(/error/i);
+  });
+
+  test("the other failures each land on their own code", () => {
+    expect(
+      classifyCloudflareFailure({
+        status: 409,
+        errors: [{ code: 10073, message: "The bucket you tried to create already exists" }],
+      }).errorCode,
+    ).toBe("BUCKET_NAME_TAKEN");
+    expect(
+      classifyCloudflareFailure({ status: 400, errors: [{ code: 10073, message: "" }] })
+        .errorCode,
+    ).toBe("BUCKET_NAME_TAKEN");
+    expect(classifyCloudflareFailure({ status: 401, errors: [] }).errorCode).toBe(
+      "CREDENTIAL_REJECTED",
+    );
+    expect(
+      classifyCloudflareFailure({
+        status: 400,
+        errors: [{ code: 10000, message: "Authentication error" }],
+      }).errorCode,
+    ).toBe("CREDENTIAL_REJECTED");
+    expect(classifyCloudflareFailure({ status: 403, errors: [] }).errorCode).toBe(
+      "INSUFFICIENT_PERMISSIONS",
+    );
+    expect(classifyCloudflareFailure({ status: 503, errors: [] }).errorCode).toBe(
+      "CLOUDFLARE_UNAVAILABLE",
+    );
+    expect(classifyCloudflareFailure({ status: 418, errors: [] }).errorCode).toBe(
+      "PROVISION_FAILED",
+    );
+  });
+
+  /**
+   * THE SENTENCE THAT CAUSED THE BUG.
+   *
+   * "Nothing was changed; try again shortly" was emitted for every 5xx and
+   * every dead socket, including the ones that happen after a bucket has been
+   * created — and it is precisely the instruction that walks somebody into
+   * `BUCKET_NAME_TAKEN` on a bucket we made for them. The classifier cannot
+   * know what was changed, so it may not say.
+   */
+  test("the classifier never claims what was or was not changed", () => {
+    for (const status of [401, 403, 409, 418, 500, 503]) {
+      const failure = classifyCloudflareFailure({ status, errors: [] });
+      expect(failure.message).not.toMatch(/nothing was (changed|created)/i);
+    }
+  });
+
+  /**
+   * What is in the customer's account after a failure, which is the only
+   * question the message has to answer correctly.
+   */
+  test("the residue of a failure follows the stage it failed at", () => {
+    // Before the bucket call, nothing exists whatever went wrong.
+    expect(residueAfterFailure("resolve-permission-group", "CREDENTIAL_REJECTED")).toBe(
+      "nothing",
+    );
+    expect(residueAfterFailure("resolve-permission-group", "CLOUDFLARE_UNAVAILABLE")).toBe(
+      "nothing",
+    );
+    // A classified refusal of the create is Cloudflare saying it made nothing…
+    expect(residueAfterFailure("create-bucket", "R2_NOT_ENTITLED")).toBe("nothing");
+    expect(residueAfterFailure("create-bucket", "BUCKET_NAME_TAKEN")).toBe("nothing");
+    // …but an answer we never got leaves the question genuinely open.
+    expect(residueAfterFailure("create-bucket", "CLOUDFLARE_UNAVAILABLE")).toBe(
+      "possible-bucket",
+    );
+    // Past the create, the bucket is there no matter what failed next.
+    expect(residueAfterFailure("mint-token", "INSUFFICIENT_PERMISSIONS")).toBe("bucket");
+    expect(residueAfterFailure("mint-token", "CLOUDFLARE_UNAVAILABLE")).toBe("bucket");
+    // And past the mint there is a credential too, unless we took it back.
+    expect(residueAfterFailure("store-binding", "PROVISION_FAILED")).toBe(
+      "bucket-and-token",
+    );
+    expect(residueAfterFailure("store-binding", "PROVISION_FAILED", true)).toBe("bucket");
+  });
+
+  test("only the empty residue says nothing was created, and it names the bucket otherwise", () => {
+    expect(residueSentence("nothing", { bucket: BUCKET })).toMatch(/nothing was created/i);
+    for (const residue of ["possible-bucket", "bucket", "bucket-and-token"] as const) {
+      const sentence = residueSentence(residue, { bucket: BUCKET });
+      expect(sentence).not.toMatch(/nothing was (changed|created)/i);
+      expect(sentence).toContain(BUCKET);
+      // Every one of them has to end somewhere a person can act.
+      expect(sentence).toMatch(/same name|dashboard/i);
+    }
+    // The one residue that is an instruction rather than a fact names the
+    // token, because nothing else will ever tell them it is there.
+    expect(residueSentence("bucket-and-token", { bucket: BUCKET })).toContain(
+      scopedTokenName(BUCKET),
+    );
+  });
+
+  test("a recorded message is the reason plus what it left behind", () => {
+    const message = provisionFailureMessage({
+      message: "That credential is valid but not allowed to do this.",
+      stage: "mint-token",
+      errorCode: "INSUFFICIENT_PERMISSIONS",
+      bucket: BUCKET,
+    });
+    expect(message).toMatch(/not allowed to do this/);
+    expect(message).toContain(BUCKET);
+    expect(message).not.toMatch(/nothing was (changed|created)/i);
+  });
+
+  /**
+   * THE PROOF THAT DECIDES WHETHER WE MAY TOUCH SOMEBODY'S BUCKET.
+   *
+   * Everything unknown answers "no", because the direction this must fail in
+   * is "leave the customer's own storage alone".
+   */
+  test("a bucket is only ours if Cloudflare says it was made after the attempt began", () => {
+    const attemptStartedAt = Date.parse("2026-01-01T12:00:00.000Z");
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2026-01-01T12:00:05.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(true);
+    // A bucket the customer already had cannot have been created after they
+    // started an attempt they had not started yet.
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2025-11-30T09:00:00.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(false);
+    // Clock skew is allowed for, in the direction that only ever costs us a
+    // refusal we could have avoided.
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2026-01-01T11:59:30.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(true);
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2026-01-01T11:58:00.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(false);
+    // Unknown is not a maybe.
+    expect(bucketCreatedDuringAttempt({ creationDate: undefined, attemptStartedAt })).toBe(
+      false,
+    );
+    expect(bucketCreatedDuringAttempt({ creationDate: "", attemptStartedAt })).toBe(false);
+    expect(bucketCreatedDuringAttempt({ creationDate: "whenever", attemptStartedAt })).toBe(
+      false,
+    );
+  });
+
+  test("refusing a bucket that is not ours says so, and still offers a way out", () => {
+    const message = bucketNotOursMessage(BUCKET);
+    expect(message).toContain(BUCKET);
+    expect(message).toMatch(/cannot tell that it created it/i);
+    expect(message).toMatch(/different name/i);
+    expect(message).toMatch(/its own access key/i);
+  });
+
+  /**
+   * The mint call is the one endpoint whose *body* carries a live credential,
+   * and the raw-body fallback runs before the caller knows that value exists —
+   * so it could not be redacted by the caller's secret list even in principle.
+   */
+  test("a raw provider body loses anything shaped like a credential", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { id: MINTED_TOKEN_ID, value: MINTED_TOKEN_VALUE },
+    });
+    const stripped = stripCredentialFields(raw);
+    expect(stripped).not.toContain(MINTED_TOKEN_VALUE);
+    expect(stripped).toContain("[redacted]");
+    // The id is not a credential and is useful when reading a failure.
+    expect(stripped).toContain(MINTED_TOKEN_ID);
+    expect(stripCredentialFields('{"secret":"s3kr1t","note":"hello"}')).toContain("hello");
+    expect(stripCredentialFields('{"secret":"s3kr1t"}')).not.toContain("s3kr1t");
+  });
+
+  /**
+   * A 403 that is really a billing state must not be reported as a permissions
+   * problem, whichever order the errors arrive in.
+   */
+  test("an entitlement failure wins over a permissions failure", () => {
+    expect(
+      classifyCloudflareFailure({
+        status: 403,
+        errors: [
+          { code: 9109, message: "Unauthorized to access requested resource" },
+          { code: 10042, message: "NotEntitled" },
+        ],
+      }).errorCode,
+    ).toBe("R2_NOT_ENTITLED");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                               the whole flow                               */
+/* -------------------------------------------------------------------------- */
+
+describe("a bucket this flow just made is given time to settle", () => {
+  /*
+    THE SAME RACE THE MANAGED PATH HAD, ON THE PATH EVERYBODY ELSE TAKES.
+
+    `storage-and-credentials.md` records why a newly minted R2 credential is
+    not usable the instant Cloudflare's API returns it — IAM changes are
+    eventually consistent for up to a minute, and the first production journey
+    probed a new key 266ms after minting it and painted the connection red.
+
+    That waiting was given to managed provisioning and to the managed copy, and
+    not to this flow, which mints a bucket-scoped token exactly the same way in
+    the customer's own account. Without it, "create a bucket for me" reports a
+    broken connection whenever R2 takes a moment, and Re-verify then fixes it —
+    a race being shown to somebody as a fault.
+
+    Asserted at the mutation rather than by running the probe, for the reason
+    `fixtures.helpers.ts` gives about fixtures that race themselves: what is
+    wrong here is the argument this flow fails to send, `record()` already
+    proves what the argument does, and a test that let the retry chain run would
+    leave it firing into the next test's stub on convex-test's real timer.
+  */
+  test("binding the new bucket hands the probe a two-minute window", async () => {
+    const t: TestConvex = setupTest();
+    const owner = await createUser(t, "settling@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "settling");
+
+    await t.mutation(internal.functions.cloudflare.completeProvisioning, {
+      workspaceId,
+      actorUserId: owner,
+      endpoint: `https://${FAKE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      bucket: BUCKET,
+      accessKeyId: MINTED_TOKEN_ID,
+      encryptedSecretAccessKey: await encryptSecret("fake-secret", requireKeyset(), {
+        workspaceId,
+      }),
+    });
+
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const verification = scheduled.find((job) =>
+      job.name.includes("verifyStorageBinding"),
+    );
+    const args = (
+      verification?.args as Array<{ workspaceId: string; retryUntil?: number }> | undefined
+    )?.[0];
+    expect(args).toMatchObject({ workspaceId });
+    // The same window `completeManagedProvisioning` gives its own bucket. A
+    // one-shot probe here is the bug; any window shorter than the documented
+    // propagation time is the bug wearing a number.
+    expect(args?.retryUntil).toBeGreaterThan(Date.now() + 110_000);
+  });
+});
+
+describe("provisioning a bucket in the customer's account", () => {
+  test("writes a binding that is exactly what a manual connect would have written", async () => {
+    const { t, owner, workspaceId, cloudflare } = await provisioning();
+
+    const started = await startProvisioning(t, owner, workspaceId);
+    expect(started.status).toBe("pending");
+    await drainScheduled(t);
+
+    const binding = await bindingRow(t, workspaceId);
+    expect(binding).not.toBeNull();
+    expect(binding!.provider).toBe("r2");
+    expect(binding!.endpoint).toBe(
+      `https://${FAKE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    );
+    expect(binding!.region).toBe("auto");
+    expect(binding!.bucket).toBe(BUCKET);
+    // The access key id is the token's id; the secret is the hash of its value.
+    expect(binding!.accessKeyId).toBe(MINTED_TOKEN_ID);
+    expect(
+      await decryptSecret(binding!.encryptedSecretAccessKey!, requireKeyset(), {
+        workspaceId,
+      }),
+    ).toBe(await deriveS3SecretAccessKey(MINTED_TOKEN_VALUE));
+    // R2 is path-style and its host label is the account id, so there is
+    // nothing ambiguous to record — the same absence a manual connect leaves.
+    expect(binding!.forcePathStyle).toBeUndefined();
+
+    // And the binding was actually verified against the bucket, by the same
+    // probe `bindStorage` schedules — so this is a usable credential, not just
+    // a well-shaped one.
+    expect(binding!.status).toBe("connected");
+
+    // Three calls, in the order that makes the third one safe.
+    expect(cloudflare.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      `GET /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/permission_groups`,
+      `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/r2/buckets`,
+      `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens`,
+    ]);
+    for (const call of cloudflare.calls) {
+      expect(call.authorization).toBe(`Bearer ${SETUP_TOKEN}`);
+    }
+  });
+
+  test("the minted token is scoped to one bucket with a runtime-resolved group", async () => {
+    const { t, owner, workspaceId, cloudflare } = await provisioning({
+      permissionGroups: [
+        { id: "fake-unrelated-group", name: "Workers R2 Storage Bucket Item Read" },
+        { id: WRITE_GROUP_ID, name: "Workers R2 Storage Bucket Item Write" },
+      ],
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const mint = cloudflare.calls.find((call) => call.path.endsWith("/tokens"))!;
+    const policy = (mint.body as { policies: Record<string, unknown>[] }).policies[0];
+    // The id came off the wire. It is not a value any source file contains, so
+    // a hardcoded id could not produce this.
+    expect(policy.permission_groups).toEqual([{ id: WRITE_GROUP_ID }]);
+    expect(policy.effect).toBe("allow");
+    expect(Object.keys(policy.resources as Record<string, string>)).toEqual([
+      `com.cloudflare.edge.r2.bucket.${FAKE_ACCOUNT_ID}_default_${BUCKET}`,
+    ]);
+  });
+
+  test("a jurisdiction travels as a header, not as a body field", async () => {
+    const { t, owner, workspaceId, cloudflare } = await provisioning();
+    await startProvisioning(t, owner, workspaceId, { jurisdiction: "eu" });
+    await drainScheduled(t);
+
+    const create = cloudflare.calls.find((call) => call.path.endsWith("/r2/buckets"))!;
+    expect(create.jurisdiction).toBe("eu");
+    expect(create.body).not.toHaveProperty("jurisdiction");
+    const mint = cloudflare.calls.find((call) => call.path.endsWith("/tokens"))!;
+    const policy = (mint.body as { policies: Record<string, unknown>[] }).policies[0];
+    expect(Object.keys(policy.resources as Record<string, string>)[0]).toContain("_eu_");
+    const binding = await bindingRow(t, workspaceId);
+    expect(binding!.endpoint).toContain(".eu.r2.cloudflarestorage.com");
+  });
+
+  test("a location hint is passed through and nothing else is invented", async () => {
+    const { t, owner, workspaceId, cloudflare } = await provisioning();
+    await startProvisioning(t, owner, workspaceId, { locationHint: "weur" });
+    await drainScheduled(t);
+
+    const create = cloudflare.calls.find((call) => call.path.endsWith("/r2/buckets"))!;
+    expect(create.body).toEqual({ name: BUCKET, locationHint: "weur" });
+    expect(create.jurisdiction).toBeNull();
+  });
+
+  test("the in-flight row is gone the moment it succeeds", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    expect(await provisioningRow(t, workspaceId)).toBeNull();
+    expect(
+      await asUser(t, owner).query(api.functions.cloudflare.getCloudflareProvisioning, {
+        workspaceId,
+      }),
+    ).toBeNull();
+  });
+
+  test("the owner's audit trail says a bucket was created for them", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const events = await asUser(t, owner).query(api.functions.audit.listEvents, {
+      workspaceId,
+    });
+    const actions = events.map((event) => event.action);
+    expect(actions).toContain("storage.provision_requested");
+    expect(actions).toContain("storage.provisioned");
+    // …and the binding was written through the same path a manual connect uses.
+    expect(actions).toContain("storage.bound");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                        the property this feature is                        */
+/* -------------------------------------------------------------------------- */
+
