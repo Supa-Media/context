@@ -84,7 +84,7 @@ export function DomainSection({
   const client = useConvex();
   const override = useContext(DomainViewOverride);
   const head = (
-    <PanelHead section="domain" sectioned={sectioned}>
+    <PanelHead section="website" sectioned={sectioned}>
       Open your short links at an address you own, like docs.acme.com/intake. They keep working at
       context.lc too.
     </PanelHead>
@@ -116,7 +116,7 @@ function LiveDomainPanel({
 }
 
 /**
- * Settings › Domain: the address a workspace's published links open at.
+ * Settings › Website: the address a workspace's published links open at.
  *
  * One card whatever the state, built only from components the other panels
  * already use, and following their rules: controls are absent — never

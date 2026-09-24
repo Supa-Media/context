@@ -1,7 +1,7 @@
 # Domain Connect template
 
 `context.lc.website.json` is the template DNS providers apply when a customer
-presses "Set up with <provider>" in Settings › Domain. It is the same two
+presses "Set up with <provider>" in Settings › Website. It is the same two
 records the screen shows for copying by hand:
 
 - `TXT _context.<host>` = `context-verification=<token>` — the per-claim

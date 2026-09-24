@@ -5,7 +5,7 @@ import type { DomainView } from "../console/domain/domain";
 import type { DomainActions, DomainPanelView } from "../console/domain/useDomain";
 
 /**
- * Settings › Domain in one chosen state, inside the real settings overlay, for
+ * Settings › Website (the domain card) in one chosen state, inside the real settings overlay, for
  * reviewing the design in a browser. `?screen=domain&at=<state>` (`oneclick` is a provider with our template).
  */
 const noop = async () => {};
@@ -126,7 +126,7 @@ export function DomainFixture({ at }: { at?: string }) {
   const data = useDemoConsoleData();
   return (
     <DomainViewOverride.Provider value={viewFor(at)}>
-      <SettingsOverlay data={data} section="domain" onSelect={() => {}} onDismiss={() => {}} />
+      <SettingsOverlay data={data} section="website" onSelect={() => {}} onDismiss={() => {}} />
     </DomainViewOverride.Provider>
   );
 }

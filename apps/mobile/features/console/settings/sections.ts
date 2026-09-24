@@ -355,12 +355,18 @@ export const SETTINGS_SECTIONS = [
       under Premium, which is about paying rather than what is served.
 
       Singular, because a workspace has one. "domains" stays a keyword.
+
+      Named Website since 2026-09-24 (the owner's call): the page is where a
+      workspace's public website will be switched on, and the domain is the
+      address that website opens at. `domain` survives as a keyword and as a
+      rename alias in `nav.ts`, so an old `?settings=domain` link still lands
+      here.
     */
-    key: "domain",
+    key: "website",
     keywords:
       "domain domains custom own address url website site web dns cname alias aname flattening txt record host hostname subdomain apex root www https ssl certificate cert homepage vanity branded publish published static hosting",
     scope: "context",
-    label: "Domain",
+    label: "Website",
     group: null,
     icon: "globe",
     personalOnly: false,

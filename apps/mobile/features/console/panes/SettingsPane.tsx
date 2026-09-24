@@ -414,7 +414,7 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("domain") ? (
+      {show("website") ? (
       <DomainSection sectioned={section !== undefined} workspaceId={data.files.contextId ?? null}
         handle={current?.slug.replace(/^@/, "") ?? ""} demo={data.demo}
         onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")} />
