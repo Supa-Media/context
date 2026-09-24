@@ -519,14 +519,7 @@ async function deleteWorkspaceCascade(
     }
   }
 
-  /*
-    CUSTOM DOMAINS — RELEASED, like the search index above: a registration at
-    the provider outlives the row that names it, and a hostname left
-    registered in our zone after its workspace is gone is the dangling record
-    a takeover needs. Rows that never reached the provider go now.
-  */
-  await releaseWorkspaceDomains(ctx, workspaceId);
-
+  await releaseWorkspaceDomains(ctx, workspaceId); // no dangling hostname left for a takeover
   /*
     ANY WORKSPACE-KEY ROTATION ROW, IN EITHER STATUS.
 

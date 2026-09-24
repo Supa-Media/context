@@ -47,9 +47,6 @@ jest.mock("convex/react", () => ({
   useConvexAuth: () => ({ isAuthenticated: false, isLoading: false }),
   useConvex: () => undefined,
   useQuery: () => undefined,
-  // The Domain section subscribes through `useQueries`; nothing answered is
-  // the loading state, like `useQuery` above.
-  useQueries: () => ({}),
 }));
 
 jest.mock("react-native-safe-area-context", () => ({
