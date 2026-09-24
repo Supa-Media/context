@@ -261,8 +261,9 @@ describe("changing a list from its caption", () => {
     Range.prototype.getClientRects = emptyRects;
     Range.prototype.getBoundingClientRect = zeroRect;
   });
-  function mount(doc = NOTE, options: { readOnly?: boolean } = {}): EditorView {
-    const host = hostWith();
+  function mount(doc = NOTE, options: { readOnly?: boolean; notes?: ListNote[] } = {}): EditorView {
+    const notes = options.notes ?? NOTES;
+    const host = hostWith({ load: async () => ({ notes, complete: true }) });
     const parent = document.createElement("div");
     document.body.append(parent);
     return new EditorView({
@@ -375,6 +376,19 @@ describe("changing a list from its caption", () => {
     open(view);
     view.dom.querySelector<HTMLElement>(".cm-lp-list-panel-text")!.click();
     expect(view.state.selection.main.head).toBe(NOTE.indexOf("from:"));
+    view.destroy();
+  });
+
+  test("a property name that would break a selector is only a name", async () => {
+    const odd = 'a"]b';
+    const view = mount(NOTE, { notes: [...NOTES, { path: "1-projects/x.md", properties: { [odd]: "1" } }] });
+    await flush();
+    open(view);
+    const chip = field<HTMLElement>(view, "show-owner");
+    const oddChip = [...view.dom.querySelectorAll<HTMLElement>("[data-field]")].find((n) => n.dataset.field === `show-${odd}`)!;
+    oddChip.focus();
+    expect(() => oddChip.click()).not.toThrow();
+    expect(chip).toBeTruthy();
     view.destroy();
   });
 

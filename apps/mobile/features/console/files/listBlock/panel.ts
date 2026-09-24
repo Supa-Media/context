@@ -202,7 +202,16 @@ export class ListPanel {
     const focused = (document.activeElement as HTMLElement | null)?.dataset?.field ?? null;
     const names = propertyNames(this.host.notes());
     this.body.replaceChildren(this.fromSection(), this.whereSection(names), this.orderSection(names), this.showSection(names));
-    if (focused !== null) this.body.querySelector<HTMLElement>(`[data-field="${focused}"]`)?.focus();
+    if (focused !== null) this.field(focused)?.focus();
+  }
+
+  /**
+   * A field by name, compared rather than put in a selector: a column's name
+   * is a property name from somebody's frontmatter, and a quote in it would
+   * make a selector throw.
+   */
+  private field(name: string): HTMLElement | undefined {
+    return [...this.body.querySelectorAll<HTMLElement>("[data-field]")].find((node) => node.dataset.field === name);
   }
 
   private section(title: string): HTMLElement {
@@ -329,7 +338,7 @@ export class ListPanel {
     add.addEventListener("click", () => {
       this.draft.where.push({ property: "", op: "is", value: "" });
       this.paint();
-      this.body.querySelector<HTMLElement>(`[data-field="where-${this.draft.where.length - 1}-property"]`)?.focus();
+      this.field(`where-${this.draft.where.length - 1}-property`)?.focus();
     });
     section.append(add);
     return section;
