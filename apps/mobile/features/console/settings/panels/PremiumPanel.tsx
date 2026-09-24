@@ -43,6 +43,7 @@ import {
 import { usePremium } from "./usePremium";
 import { useArming } from "../../useArming";
 import { FreeTierNudge } from "./FreeTierNudge";
+import type { SettingsSectionKey } from "../sections";
 
 
 /**
@@ -91,14 +92,15 @@ export function PremiumPanel({
    * which is exactly what happened when it read the parameter itself.
    */
   returned = null,
-  onOpenStorage,
+  onSelect,
 }: {
   data: ConsoleData;
   section?: string;
   returned?: CheckoutOutcome | null;
-  /** Opens Settings › Storage, where the overlay has one. */
-  onOpenStorage?: () => void;
+  /** The overlay's section switch: the free tier's "bring your own" opens Storage. */
+  onSelect?: (key: SettingsSectionKey) => void;
 }) {
+  const onOpenStorage = onSelect === undefined ? undefined : () => onSelect("storage");
   /*
     `useConvex` returns `undefined` rather than throwing when there is no
     provider in the tree; `useQueries` throws. So the question is asked here,

@@ -749,20 +749,17 @@ export async function storeForSession(session, env, controlPlane) {
   // as siblings; reading only the first, and then hunting for the second
   // inside it, is what left fast search dead in production. See
   // `getStorageBinding`.
-  let binding;
-  let searchIndex;
-  let encryptionKey;
-  let rotation;
-  let noteCap;
+  let opened;
   try {
-    ({ binding, searchIndex, encryptionKey, rotation, noteCap } = await controlPlane.getStorageBinding(
+    opened = await controlPlane.getStorageBinding(
       session.accessToken,
       session.workspaceId
-    ));
+    );
   } catch (error) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable("control plane");
     throw error;
   }
+  const { binding, searchIndex, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
