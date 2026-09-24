@@ -66,6 +66,7 @@ import { internal } from "../_generated/api";
 import { internalAction, internalMutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
+import { stampTreeAudiences } from "./treeSignals";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import {
   DEFAULT_ATTACHMENT_POLICY,
@@ -538,6 +539,17 @@ export const recordIngestion = internalMutation({
         domain: INGESTION_DOMAIN,
       },
     });
+    /*
+      The email worker wrote the note with the credential this ticket bought,
+      so this is the one moment the control plane can tell the owner's open
+      console to walk its tree again. The owner's audience alone: the path is
+      not sent here and must not be, so no narrower audience can be judged —
+      a member who can see `0-inbox/` learns of it at their next periodic
+      walk, late rather than dated (`treeSignals.ts`).
+    */
+    if (args.outcome === "captured") {
+      await stampTreeAudiences(ctx, ticket.workspaceId, ["private"]);
+    }
     return true;
   },
 });

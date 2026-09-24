@@ -5,7 +5,7 @@
  * `treeAudiences`, which decides the same question one path at a time.
  */
 
-import type { PrivacyState } from "./fileOps";
+import type { FileStore, PrivacyState } from "./fileOps";
 import { treeAudiences } from "./treeAudiences";
 
 /**
@@ -82,4 +82,37 @@ export function audiencesForChange(options: {
 /** `treeAudiences` folds a folder's trailing slash away; `gone` must match. */
 export function trimTrailingSlashes(path: string): string {
   return path.replace(/\/+$/, "");
+}
+
+/**
+ * Remember every path a write or delete on this store actually lands on, from
+ * now until the store is dropped.
+ *
+ * For a writer whose paths are decided deep inside it and never returned — the
+ * Gmail, Chat and Calendar forward sync, which renders whole days and writes
+ * the ones whose bytes changed. A refused conditional write (`null`) did not
+ * land and is not remembered. What it wrote is the tree change: those writers
+ * already skip a day whose bytes are unchanged, so a pass that wrote nothing
+ * leaves this empty and tells nobody to walk.
+ *
+ * It replaces the two methods on the instance rather than wrapping the store,
+ * because the store is built for one operation and dies with it, and because
+ * a wrapper that forwarded everything else would have to be a `Proxy` — which
+ * the structure analyzer rightly refuses to follow.
+ */
+export function recordWrites(store: FileStore): Set<string> {
+  const paths = new Set<string>();
+  const put = store.put.bind(store);
+  const remove = store.delete.bind(store);
+  store.put = async (key, value, options) => {
+    const landed = await put(key, value, options);
+    if (landed !== null) paths.add(key);
+    return landed;
+  };
+  store.delete = async (key, options) => {
+    const landed = await remove(key, options);
+    if (landed !== null) paths.add(key);
+    return landed;
+  };
+  return paths;
 }

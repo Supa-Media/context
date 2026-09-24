@@ -167,6 +167,22 @@ export async function runTreeHintChecks(check) {
     );
 
     reset();
+    const proposed = await call("propose_note", {
+      path: "1-projects/suggested.md",
+      content: "# Suggested\n",
+      reason: "An agent thinks this belongs here",
+      agent: "Claude Code",
+    });
+    const proposalId = /proposal queued: ([0-9a-f-]+)/i.exec(proposed?.content?.[0]?.text ?? "")?.[1];
+    check("a proposal waits outside the tree, so nobody is told yet", hints().length === 0);
+    const approved = await call("review_proposal", { id: proposalId, action: "approve" });
+    check(
+      "approving a proposal puts a note in the tree, and tells the owner alone, even in a shared folder",
+      !approved?.isError &&
+        JSON.stringify(hints()) === JSON.stringify([{ workspaceId: "ws_tree", audiences: ["private"] }]),
+    );
+
+    reset();
     await call("move_note", { source: "1-projects/launch.md", destination: "2-areas/launch.md" });
     check(
       "a shared note moved somewhere private still tells the team it went",

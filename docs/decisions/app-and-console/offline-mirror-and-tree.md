@@ -402,10 +402,17 @@ workspace that store reaches, so an agent connected to its own context and
 writing with `context: "@name"` announces to `@name`'s consoles — the first
 release bound it only on the connection's own store, and every such write
 (the common way an agent writes into a shared workspace) was announced to
-nobody. A hint that is lost — a crash between the
-write and the stamp, a writer that sends none (Obsidian writing to the bucket
-directly, the email worker's store, calendar and mail sync) — costs freshness
-and nothing else: the five-minute walk reconciles it.
+nobody. The writers a personal workspace has and a shared one mostly does not
+announce too: an approved proposal (`approve_proposal` is a tree action — the
+proposal waited under `.context/`, so approving it is a create); an emailed
+capture, which the email worker writes itself, so `recordIngestion` stamps the
+owner's audience alone (it is never told the path, so no other audience can be
+judged); and the Gmail, Chat and Calendar forward sync, whose store records
+every write that landed so the barrier can announce exactly those paths — a
+pass that rewrote nothing tells nobody. A hint that is lost — a crash between
+the write and the stamp, a writer that sends none (Obsidian writing to the
+bucket directly) — costs freshness and nothing else: the five-minute walk
+reconciles it.
 
 What a simplification costs, and what fails:
 
@@ -421,6 +428,11 @@ What a simplification costs, and what fails:
 - A store `openContext` builds without its own reporters: "a cross-context
   create tells the context it landed in that its tree changed"
   (`crossContext/changeReporting.test.mjs`).
+- A writer that announces nothing: "approving a proposal puts a note in the
+  tree, and tells the owner alone, even in a shared folder" (`treeHints.test.mjs`), "a captured message moves
+  the owner's hint, and no other audience" (`ingestionGateway/treeHint.test.ts`),
+  and "a day of mail it wrote moves the owner's hint, and a pass that wrote
+  nothing does not" (`googleSyncLoop/treeHints.test.ts`).
 - Not asking for a walk on a new value: "a hint that the tree changed asks for
   a walk, and its first value does not" (`fileTreeMetadata.test.ts`).
 
