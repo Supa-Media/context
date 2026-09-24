@@ -206,8 +206,20 @@ export async function toolOrient(store, scope, rules, overrides) {
   return toolText(parts.join("\n\n---\n\n"));
 }
 
-export async function toolScopeInfo(store, scope, rules, overrides, pathArg) {
+export async function toolScopeInfo(store, scope, rules, overrides, pathArg, listWorkspaces = false) {
   let text = scopeInfoText(scope, rules, currentReach(store));
+  if (listWorkspaces) {
+    // Data rather than prose, for a CLI choosing a workspace by name. It is the
+    // same covered set `orient` already describes to this connection, so it
+    // widens nothing: a read-only grant is told its own reach too.
+    const workspaces = (store.contexts || []).map((entry) => ({
+      slug: entry.name.slice(1),
+      role: entry.role,
+      kind: entry.kind,
+      current: entry.current,
+    }));
+    text += `\n\n## Workspaces\n\n\`\`\`json\n${JSON.stringify(workspaces)}\n\`\`\``;
+  }
   if (pathArg !== undefined) {
     const path = normalizePath(pathArg);
     if (!path) return toolError("invalid path");

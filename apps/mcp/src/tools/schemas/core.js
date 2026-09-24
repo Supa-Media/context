@@ -55,7 +55,14 @@ export function coreToolDefinitions() {
         "Show team-writable folder defaults and the access model. Optionally inspect a proposed path. Personal connections receive its effective visibility; team connections receive only the folder default so private note existence is never disclosed.",
       inputSchema: {
         type: "object",
-        properties: { path: { type: "string", description: "Optional note or destination path to inspect" } },
+        properties: {
+          path: { type: "string", description: "Optional note or destination path to inspect" },
+          workspaces: {
+            type: "boolean",
+            description:
+              "Set true to also list, as a JSON block, the workspaces this connection reaches: slug, role, personal or shared, and which one it is connected to.",
+          },
+        },
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },

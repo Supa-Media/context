@@ -144,6 +144,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Agent activity is announced from finished tool calls, never streamed
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
+- [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
 
 ## [Markdown forms](./forms.md)
 

@@ -112,6 +112,7 @@ export function contextsFor(session) {
       return {
         name: `@${entry.slug}`,
         role: entry.role,
+        kind: entry.kind,
         current: entry.workspaceId === session.workspaceId,
         canWrite: reach.canWrite,
         grantWrites: reach.grantWrites,
