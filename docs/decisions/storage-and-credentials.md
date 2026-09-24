@@ -22,6 +22,10 @@ Moved to [Scheduling is not calling](./storage-and-credentials/credential-basics
 
 Moved to [Credential barriers are enumerated, never inferred](./storage-and-credentials/credential-basics.md#credential-barriers-are-enumerated-never-inferred).
 
+### The credential graph follows imports, and refuses what it cannot follow
+
+Moved to [The credential graph follows imports, and refuses what it cannot follow](./storage-and-credentials/credential-basics.md#the-credential-graph-follows-imports-and-refuses-what-it-cannot-follow).
+
 ### The setup credential is not a stored credential
 
 Moved to [The setup credential is not a stored credential](./storage-and-credentials/credential-basics.md#the-setup-credential-is-not-a-stored-credential).
