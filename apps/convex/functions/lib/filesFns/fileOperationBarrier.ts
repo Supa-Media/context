@@ -36,6 +36,7 @@ import {
 import type { FormNotifyMaterial } from "../formOps";
 import {
   audiencesForChange,
+  recordWrites,
   type TreeChange,
   trimTrailingSlashes,
 } from "../treeAnnounce";
@@ -377,7 +378,26 @@ export async function runFileOperationHandler(
   }
 
   if (args.operation.kind === "googleForwardSync" && forwardSyncJob?.kind === "run") {
-    return await runGoogleForwardSync(ctx, store, forwardSyncJob);
+    /*
+      The pass returns before the announcement below, and the days it wrote
+      are known only to the writes themselves — so they are recorded as they
+      land, and the ones that did land are announced to whoever can see them.
+      Without this a day of mail reached an open tree at its next periodic
+      walk, not when it arrived.
+    */
+    const written = recordWrites(store);
+    const result = await runGoogleForwardSync(ctx, store, forwardSyncJob);
+    if (written.size > 0) {
+      await announceTreeChange(
+        ctx,
+        store,
+        args.workspaceId,
+        { paths: [...written], narrows: false },
+        result,
+        null,
+      );
+    }
+    return result;
   }
 
   let wroteActivity: { teamVisible: boolean } | null = null;
