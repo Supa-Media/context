@@ -660,16 +660,9 @@ jobs:
           EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
         run: pnpm exec expo export --platform ios --platform android --output-dir "$RUNNER_TEMP/native-bundle"
 
-  # ── WHAT THE CONVEX DEPLOY CHECKS, CHECKED BEFORE THE MERGE ──────────────
-  #
-  # Convex's deploy command runs its own `tsc` over everything it bundles — including
-  # the gateway's JavaScript that `functions/lib/fileOps.ts` imports, typed by
-  # JSDoc — before it pushes. `ci / Test Convex Backend` runs the package's
-  # own `tsc`, which does not see those JSDoc types the same way, so a split
-  # that left `syncShardedIndex`'s `@param` block behind in another module
-  # passed every pull-request check and then failed every staging deploy.
-  # `convex typecheck` is that same check with no deployment: nothing here
-  # needs a secret or a network.
+  # The Convex deploy runs its own `tsc`, which reads the gateway's JSDoc types
+  # through fileOps.ts; the package `tsc` above does not. A split that stranded
+  # one `@param` block passed every PR check and failed every staging deploy.
   convex-deploy-typecheck:
     name: The Convex deploy typecheck passes
     runs-on: ubuntu-latest
