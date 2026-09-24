@@ -268,6 +268,14 @@ import {
   readNotesHandler,
   syncManifestHandler,
 } from "./lib/filesFns/noteReads";
+import {
+  listManagedPluginsHandler,
+  listObsidianPluginsHandler,
+} from "./lib/filesFns/pluginReads";
+import {
+  removeNoteEncryptionHandler,
+  writeNoteHandler,
+} from "./lib/filesFns/noteWrites";
 export { scopeForRole, resolveFileAccess, callerId } from "./lib/filesFns/access";
 export { executeOperation } from "./lib/filesFns/executeOperation";
 
@@ -1630,24 +1638,7 @@ export const listFiles = action({
 export const listObsidianPlugins = action({
   args: { workspaceId: v.id("workspaces") },
   returns: pluginInventoryValidator,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<Extract<OperationResult, { kind: "pluginInventory" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "owner",
-    });
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "pluginInventory" },
-    });
-    return result as Extract<OperationResult, { kind: "pluginInventory" }>;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "pluginInventory" }>> => await listObsidianPluginsHandler(ctx, args),
 });
 
 /**
@@ -1664,24 +1655,7 @@ export const listObsidianPlugins = action({
 export const listManagedPlugins = action({
   args: { workspaceId: v.id("workspaces") },
   returns: pluginManagedInstallsValidator,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<Extract<OperationResult, { kind: "pluginManagedInstalls" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "owner",
-    });
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "pluginManagedList" },
-    });
-    return result as Extract<OperationResult, { kind: "pluginManagedInstalls" }>;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "pluginManagedInstalls" }>> => await listManagedPluginsHandler(ctx, args),
 });
 
 /** One note's markdown. Any member may read what their scope can see. */
@@ -2132,41 +2106,7 @@ export const writeNote = action({
     expectedEtag: v.optional(v.string()),
   },
   returns: writtenValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "written" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      actorName,
-      operation: {
-        kind: "write",
-        path: args.path,
-        text: args.text,
-        expectedEtag: args.expectedEtag,
-      },
-    })) as Extract<OperationResult, { kind: "written" }>;
-
-    // Paths and an outcome. Never the text — the schema's flat-scalar `details`
-    // makes an accidental `{ body }` impossible, and this is the deliberate
-    // half of that rule.
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: args.expectedEtag === undefined ? "file.create" : "file.write",
-      paths: [result.path],
-      details: { conflictCheck: result.conflictCheck },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "written" }>> => await writeNoteHandler(ctx, args),
 });
 
 /**
@@ -2631,38 +2571,7 @@ export const removeNoteEncryption = action({
     expectedEtag: v.optional(v.string()),
   },
   returns: writtenValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "written" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: {
-        kind: "removeEncryption",
-        path: args.path,
-        text: args.text,
-        expectedEtag: args.expectedEtag,
-      },
-    })) as Extract<OperationResult, { kind: "written" }>;
-
-    // Paths and an outcome. Never the text, same as every other write here.
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.decrypt",
-      paths: [result.path],
-      details: { conflictCheck: result.conflictCheck },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "written" }>> => await removeNoteEncryptionHandler(ctx, args),
 });
 
 /** Create a folder. Requires `editor`. */
