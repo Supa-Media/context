@@ -164,6 +164,12 @@ export interface OpenedGatewayBinding {
    * outstanding. See "Rotation" in `docs/decisions/encryption.md`.
    */
   rotation?: GatewayKeyRotation;
+  /**
+   * The free managed tier's note cap, where one is in force. Absent for every
+   * other context. The gateway refuses a new note past it and nothing else;
+   * `docs/decisions/billing.md`, "The free managed tier".
+   */
+  noteCap?: number;
 }
 
 /**

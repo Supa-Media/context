@@ -90,6 +90,7 @@ export function StorageStepBody({
         state={{
           paid: managed.paid,
           stagingFreeStorage: managed.status?.stagingFreeStorage,
+          free: managed.startedFree,
           storageReady,
           slow: managed.slow,
           failure: managed.provisionFailure,
@@ -137,7 +138,6 @@ export function StorageStepBody({
         <StorageChoice
           workspaceId={workspaceId}
           connect={connect}
-          dropboxResumeTo="onboarding"
           managed={
             managed === null || !managed.available
               ? undefined

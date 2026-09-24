@@ -35,7 +35,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { PARA_FOLDERS } from "@context/convex/functions/lib/scaffold";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useIngestionSettings } from "../console/ingestion/useIngestionSettings";
 import { receivesMail } from "../console/ingestion/settings";
@@ -45,15 +44,21 @@ import { describeCreateFailure, describeStructureFailure, type CreateFailure } f
 import {
   afterAgents,
   afterBootstrap,
+  afterDryRun,
+  afterLive,
+  afterName,
   afterStorage,
   afterStructure,
   afterVault,
   type FlowShape,
   type StepKey,
   type StorageOutcome,
+  type StorageRoute,
   type VaultOutcome,
 } from "./flow";
-import { BOOTSTRAP_PROMPT, seedPromptFor } from "./agents";
+import { dryRunReport, type DryRunBinding, type DryRunReport } from "./dryRun";
+import type { ForkOffer } from "./redesign/ForkStep";
+import { BOOTSTRAP_PROMPT } from "./agents";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
 import type { CheckoutOutcome } from "@context/shared";
 import { ownedContexts } from "./route";
@@ -63,7 +68,6 @@ import {
   emptyCustomFolders,
   structureStepFor,
   toApplyStructureArgs,
-  toFolderSpecs,
   validateCustomFolders,
   type CustomFolderRow,
   type FolderErrors,
@@ -137,6 +141,16 @@ export interface OnboardingController {
   claim: () => Promise<void>;
   canClaim: boolean;
 
+  // ── The fork ──────────────────────────────────────────────────────────────
+  /** What the first card offers; see `ForkOffer`. */
+  forkOffer: ForkOffer;
+  /** The free bucket, or the paid offer's confirm screen, depending on `forkOffer`. */
+  pickManaged: () => void;
+  /** A bucket of their own: the connect form, then the dry-run report. */
+  pickOwn: () => void;
+  startingFree: boolean;
+  forkFailure?: string;
+
   // ── Step 2 ────────────────────────────────────────────────────────────────
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   connectState: ConnectState;
@@ -155,6 +169,11 @@ export interface OnboardingController {
    * `unverified`, which skips the layout step and warns on the way out.
    */
   continuePastStorage: () => void;
+
+  // ── The dry run ──────────────────────────────────────────────────────────
+  /** What the probe found in a bucket somebody brought, or `null` before it answered. */
+  dryRun: DryRunReport | null;
+  finishDryRun: () => void;
 
   // ── Obsidian vault ───────────────────────────────────────────────────────
   skipVaultImport: () => void;
@@ -175,17 +194,6 @@ export interface OnboardingController {
   skipStructure: () => void;
 
   // ── Step 4 ────────────────────────────────────────────────────────────────
-  /**
-   * The prompt to hand a connected AI client, written for the folders this
-   * context actually has.
-   *
-   * Derived rather than stored, and derived from the same two pieces of state
-   * the layout step wrote — so somebody who declined the standard layout is
-   * never handed a prompt naming folders they declined. The alternative,
-   * reading the folders back off the bucket, would make this screen wait on a
-   * round trip for something already known locally.
-   */
-  seedPrompt: string;
   /** Advances past the tools step to the bootstrap step, where the same clients are asked to seed the context. */
   finishAgents: () => void;
 
@@ -199,6 +207,8 @@ export interface OnboardingController {
   bootstrapPrompt: string;
   /** Leaves the last step. Continuing is skipping; there is nothing to commit — the seeding happens in the client the person pasted the prompt into, not here. */
   finishBootstrap: () => void;
+  /** Leaves the live check. Waiting for a tool is never a gate. */
+  finishLive: () => void;
 }
 
 export function useOnboarding(
@@ -251,6 +261,10 @@ export function useOnboarding(
   // that step sets it.
   const [storage, setStorage] = useState<StorageOutcome>("connected");
   const [vault, setVault] = useState<VaultOutcome>("pending");
+  const [route, setRoute] = useState<StorageRoute | undefined>(
+    // Back from Stripe is back from choosing a bucket we run.
+    options.checkout ? "managed" : undefined,
+  );
 
   // ── Step 1 ──────────────────────────────────────────────────────────────────
   const [name, setNameRaw] = useState("");
@@ -311,7 +325,7 @@ export function useOnboarding(
         // actually picked.
       });
       setClaimed({ workspaceId: result.workspaceId, slug: result.slug });
-      setStep("storage");
+      setStep(afterName());
     } catch (error) {
       setClaimFailure(describeCreateFailure(error));
     } finally {
@@ -402,8 +416,47 @@ export function useOnboarding(
     if (step !== "storage") return;
     if (connectState.kind !== "connected") return;
     clearTimer();
-    setStep(afterStorage("connected"));
-  }, [clearTimer, connectState.kind, step]);
+    // Submitting the connect form is what makes it their bucket — whichever
+    // card they pressed on the fork, "use storage I own" can change the answer.
+    const landed: StorageRoute = submitted ? "byo" : "managed";
+    setRoute(landed);
+    setStep(afterStorage("connected", landed));
+  }, [clearTimer, connectState.kind, step, submitted]);
+
+  // ── The fork ──────────────────────────────────────────────────────────────
+  const forkOffer: ForkOffer =
+    managed.free !== null
+      ? { kind: "free", cap: managed.free.cap }
+      : managed.available
+        ? { kind: "paid", price: managed.price }
+        : null;
+
+  const pickManaged = useCallback(() => {
+    setRoute("managed");
+    if (managed.free !== null) {
+      // The storage step takes over once the start is recorded — the effect
+      // below — so a start that fails leaves them on the fork with its reason.
+      managed.startFree();
+      return;
+    }
+    managed.choose();
+    setStep("storage");
+  }, [managed]);
+
+  useEffect(() => {
+    if (step === "fork" && managed.mode === "settling") setStep("storage");
+  }, [managed.mode, step]);
+
+  const pickOwn = useCallback(() => {
+    setRoute("byo");
+    setStep("storage");
+  }, []);
+
+  const dryRun = useMemo(
+    () => (binding ? dryRunReport(binding as unknown as DryRunBinding) : null),
+    [binding],
+  );
+  const finishDryRun = useCallback(() => setStep(afterDryRun()), []);
 
   const skipStorage = useCallback(() => {
     setStorage("skipped");
@@ -466,24 +519,9 @@ export function useOnboarding(
   }, [applyStructureMutation, applying, claimed, folderErrors, folders, template]);
 
   // ── Step 4 ──────────────────────────────────────────────────────────────────
-  //
-  // `folders` is the editor's rows, which include blanks; `toFolderSpecs` drops
-  // those, so this names exactly the folders `applyStructure` was asked to
-  // create. On the `para` branch the folder list comes from the control plane's
-  // own constant rather than a second copy here, which is what stops the prompt
-  // naming a folder the scaffold does not write.
-  const seedPrompt = useMemo(
-    () =>
-      vault === "imported" || vault === "existing"
-        ? seedPromptFor([])
-        : template === "para"
-        ? seedPromptFor(PARA_FOLDERS)
-        : seedPromptFor(toFolderSpecs(folders).map((spec) => spec.folder)),
-    [folders, template, vault],
-  );
-
   const finishAgents = useCallback(() => setStep(afterAgents()), []);
   const finishBootstrap = useCallback(() => setStep(afterBootstrap()), []);
+  const finishLive = useCallback(() => setStep(afterLive()), []);
 
   // The first run never edits the ingestion policy. It reads it for one bit:
   // whether `DoneStep` may promise that mail sent to the capture address
@@ -507,7 +545,7 @@ export function useOnboarding(
 
   return {
     step,
-    shape: { storage, vault },
+    shape: { storage, vault, route },
     owned: ownedContexts(workspaces),
     claimed,
     captureReceivesMail: receivesMail(ingestion),
@@ -520,11 +558,19 @@ export function useOnboarding(
     claim,
     canClaim: canClaim(status) && !claiming,
 
+    forkOffer,
+    pickManaged,
+    pickOwn,
+    startingFree: managed.startingFree,
+    forkFailure: step === "fork" ? managed.failure : undefined,
+
     connect,
     connectState,
     managed: managed.available || managed.mode !== "choose" ? managed : null,
     skipStorage,
     continuePastStorage,
+    dryRun,
+    finishDryRun,
     skipVaultImport,
     finishVaultImport,
 
@@ -539,9 +585,9 @@ export function useOnboarding(
     canApply: canApplyStructure(template, folders, folderErrors) && !applying,
     applyStructure,
     skipStructure,
-    seedPrompt,
     finishAgents,
     bootstrapPrompt: BOOTSTRAP_PROMPT,
     finishBootstrap,
+    finishLive,
   };
 }

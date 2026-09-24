@@ -107,6 +107,7 @@ import type { AttachmentPolicy } from "./note";
 // bucket-level: no adapter namespaces a key, and the customer's optional
 // rootPrefix is applied inside them and invisible here.
 import { storeForBinding } from "../../../apps/mcp/src/store/factory.js";
+import { NoteCapReached } from "../../../apps/mcp/src/store/noteCap.js";
 import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 
 // `REFUSAL` and `DEFAULT_TARGET_FOLDER` used to be re-exported from here for
@@ -246,10 +247,14 @@ interface ContextStore {
  * escape with a credential in its message — the factory's `StorageUnavailable`
  * and the adapters' own validation errors can both quote configuration.
  */
-function storeFor(binding: Record<string, unknown>, env: Env): ContextStore | null {
+function storeFor(
+  binding: Record<string, unknown>,
+  env: Env,
+  noteCap: number | null,
+): ContextStore | null {
   if (binding.status !== "active") return null;
   try {
-    return storeForBinding(binding, env) as unknown as ContextStore;
+    return storeForBinding(binding, env, { noteCap }) as unknown as ContextStore;
   } catch {
     return null;
   }
@@ -491,17 +496,17 @@ export async function handleEmail(
   if (decision.kind === "refuse") return refuse(decision.reason, username);
 
   // ── Credentials, fetched only now: after size, parsing and policy. ────────
-  let binding: Record<string, unknown> | null;
+  let opened: { binding: Record<string, unknown>; noteCap: number | null } | null;
   try {
-    binding = await controlPlane.getBinding(resolution.ticket);
+    opened = await controlPlane.getBinding(resolution.ticket);
   } catch {
     // Recipient-*dependent* — we only get here for an address that resolved —
     // so this one collapses into the frozen refusal like everything else.
     return refuse("control_plane_unavailable", username);
   }
-  if (binding === null) return refuse("storage_unavailable", username);
+  if (opened === null) return refuse("storage_unavailable", username);
 
-  const store = storeFor(binding, env);
+  const store = storeFor(opened.binding, env, opened.noteCap);
   if (!store) return refuse("storage_unavailable", username);
 
   try {
@@ -542,7 +547,17 @@ export async function handleEmail(
       auth_method: decision.log.authMethod,
       auth_failure: decision.log.authFailure ?? null,
     });
-  } catch {
+  } catch (error) {
+    // A context on the free managed tier that is full. The sender sees the
+    // same single refusal as for everything else — the reason is log-only.
+    //
+    // The cap refused the note before its put; the attachments went first (the
+    // note is the commit point) and are deliberately LEFT. They are
+    // content-addressed under `.context/assets/images/`, so the same image
+    // emailed last week is the same key — deleting "what this message wrote"
+    // could delete bytes an existing note links to. A leftover is plumbing,
+    // never a note, and never somebody's lost picture.
+    if (error instanceof NoteCapReached) return refuse("note_cap_reached", username);
     // A storage failure for a real, allowed sender. Permanent rejection and a
     // lost message, because a retryable failure here would happen only for
     // addresses that exist. See the module comment.

@@ -179,7 +179,7 @@ export function SettingsPane({
             <Text variant="rowTitle">No storage connected</Text>
             <Text variant="rowSub" style={styles.rowSub}>
               {data.demo
-                ? "Context stores nothing of its own. Point it at a folder in your Dropbox, or at an S3-compatible bucket you own, and every note stays there."
+                ? "Context stores nothing of its own. Point it at an S3-compatible bucket you own, and every note stays there."
                 : "Only an owner of this context can connect storage to it."}
             </Text>
           </Card>
@@ -193,7 +193,7 @@ export function SettingsPane({
         // its owner wants is either the same consent screen again or a bucket
         // instead, which is exactly the pair `StorageChoice` draws.
         storage.provider === "dropbox" ? (
-          <SettingsStorageChoice
+          <SettingsStorageChoice allowDropbox
             workspaceId={actions.workspaceId}
             contextName={current == null ? "this context" : `@${current.slug}`}
             connect={async (values) => {
@@ -335,7 +335,7 @@ export function SettingsPane({
         Downloading everything is free on either plan and still works after
         you cancel.
       </PanelHead>
-      <PremiumPanel data={data} section={section} returned={returned} />
+      <PremiumPanel data={data} section={section} returned={returned} onSelect={onSelect} />
       </>
       ) : null}
 

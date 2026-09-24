@@ -174,6 +174,16 @@ describe("the request cannot name a context", () => {
     expect(sent[0]!.body).toEqual({ ticket: "ticket-1" });
   });
 
+  it("reads the free tier's note cap beside the binding, and nothing else as one", async () => {
+    const capped = client({ binding: { status: "active" }, noteCap: 1000 });
+    expect(await capped.plane.getBinding("ticket-1")).toEqual({ binding: { status: "active" }, noteCap: 1000 });
+    for (const noteCap of [undefined, 0, -1, 1.5, "1000", null]) {
+      const { plane } = client({ binding: { status: "active" }, noteCap });
+      expect((await plane.getBinding("ticket-1"))?.noteCap, String(noteCap)).toBeNull();
+    }
+    expect(await client({ binding: null }).plane.getBinding("ticket-1")).toBeNull();
+  });
+
   it("carries its own secret, not the gateway's", async () => {
     const { sent, plane } = client({ ingestion: null });
     await plane.resolveIngestion("seyi", 1, "a@b.test");

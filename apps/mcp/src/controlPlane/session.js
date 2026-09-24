@@ -93,6 +93,9 @@ export function createSessionMethods({ post, required }) {
         searchIndex: parsed.searchIndex ?? null,
         encryptionKey: parsed.encryptionKey ?? null,
         rotation: parsed.rotation ?? null,
+        // The free managed tier's note cap, a fifth sibling and absent for
+        // every context without one. Only a positive integer means a cap.
+        noteCap: Number.isInteger(parsed.noteCap) && parsed.noteCap > 0 ? parsed.noteCap : null,
       };
     },
 

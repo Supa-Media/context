@@ -24,8 +24,10 @@ import { describe, expect, it, vi } from "vitest";
 import { ConvexError } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import {
+  FREE_MANAGED_STORAGE_ENV_VAR,
   MANAGED_BUCKET_PREFIX,
   MANAGED_R2_ACCOUNT_ID_ENV_VAR,
+  freeManagedStorageSwitchedOn,
   managedAccountId,
   managedBucketName,
   refuseManagedAccountId,
@@ -196,4 +198,43 @@ it("staging bucket names are distinct, deterministic and easy to remove", () => 
     expect(managedBucketName(id)).toBe(managedBucketName(id));
     expect(managedBucketName(id).length).toBeLessThanOrEqual(63);
   } finally { vi.unstubAllEnvs(); }
+});
+
+/*
+  The free managed tier is off in production until the export and hand-off
+  path lands (non-negotiable #1; docs/decisions/billing.md, "The free managed
+  tier"). These pin that the default is off, and that nothing short of the
+  exact switch value turns it on.
+*/
+describe("the free managed tier's deployment switch", () => {
+  it("is off by default", () => {
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, undefined);
+    try {
+      expect(freeManagedStorageSwitchedOn()).toBe(false);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it("turns on only for the exact value", () => {
+    vi.stubEnv("APP_ENV", "production");
+    try {
+      for (const value of ["", "1", "true", "on", "Enabled", " enabled "]) {
+        vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, value);
+        expect(freeManagedStorageSwitchedOn(), `"${value}"`).toBe(false);
+      }
+      vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, "enabled");
+      expect(freeManagedStorageSwitchedOn()).toBe(true);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it("is on for the staging deployment, where storage is already free", () => {
+    vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, undefined);
+    vi.stubEnv("APP_ENV", "staging");
+    vi.stubEnv("APP_ORIGIN", "https://staging.context.lc");
+    vi.stubEnv("STAGING_CONVEX_DEPLOYMENT", "example-deployment");
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://example-deployment.convex.cloud");
+    try {
+      expect(freeManagedStorageSwitchedOn()).toBe(true);
+    } finally { vi.unstubAllEnvs(); }
+  });
 });
