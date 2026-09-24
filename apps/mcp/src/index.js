@@ -1212,6 +1212,15 @@ async function route(request, env, ctx) {
        * is a subrequest spent on nothing. The line is in the customer's bucket
        * either way, which is where it matters.
        */
+      /**
+       * That this context's file tree changed, and which audiences could see
+       * it — so every console showing it re-lists now. Labels only (see
+       * `announceTreeChange`), bound to this store's own workspace like the
+       * reporters around it. Called inside work that is already deferred.
+       */
+      store.reportTreeChange = (audiences) =>
+        controlPlane.reportTreeChange(session.workspaceId, audiences).catch(() => {});
+
       store.reportActivity = (teamVisible) => {
         const send = controlPlane
           .reportActivity(session.workspaceId, teamVisible === true)
@@ -6177,6 +6186,116 @@ async function recordChange(store, action, actorScope, paths, details = {}) {
   }
   await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
   await recordActivity(store, { action, paths, details, at });
+  announceTreeChange(store, action, paths, details);
+}
+
+/**
+ * The changes that alter a context's file tree — something created, moved,
+ * removed or re-scoped. A save to a note that already exists is not one: it
+ * changes words, not the tree, and every keystroke of a live edit must not
+ * send every console viewing the context to re-list it.
+ */
+const TREE_ACTIONS = new Set([
+  "create_note",
+  "meeting_note",
+  "save_context",
+  "inbox_capture",
+  "archive_note",
+  "move_note",
+  "move_notes",
+  "move_folder",
+  "materialize_move",
+  "set_visibility",
+  "set_folder_visibility",
+]);
+
+/**
+ * The paths a tree change should be judged by, and any visibility it had
+ * before that the paths alone no longer show.
+ *
+ * Judged after the change, so a move's SOURCE is left out unless the change
+ * recorded what it was: after the move the source reads as its folder's
+ * default, which for a note held back from a shared folder is `team` — and
+ * telling the team would date a private note's move. What the destination
+ * shows, the tool's own `source_visibility`, and a visibility change's
+ * `from`/`to` are exact. A source's readers the change does not name learn of
+ * it at their console's next periodic walk: late, never leaked.
+ */
+function treeHintOf(action, paths, details) {
+  const known = [];
+  const add = (value) => {
+    if (typeof value === "string") known.push(value);
+  };
+  if (details && typeof details === "object") {
+    add(details.source_visibility);
+    if (action === "set_visibility" || action === "set_folder_visibility") {
+      add(details.from);
+      add(details.to);
+    }
+  }
+  switch (action) {
+    case "move_note":
+    case "archive_note":
+    case "move_folder":
+    case "materialize_move":
+      return { paths: paths.length === 2 ? [paths[1]] : paths, known };
+    case "move_notes": {
+      const moved = typeof details?.moved === "number" ? details.moved : paths.length / 2;
+      const pairs = paths.slice(0, moved * 2).filter((_, index) => index % 2 === 1);
+      return { paths: [...pairs, ...paths.slice(moved * 2)], known };
+    }
+    default:
+      return { paths, known };
+  }
+}
+
+/**
+ * Who may be told the tree changed. The gateway's copy of
+ * `apps/convex/functions/lib/treeAudiences.ts`, over this engine's own
+ * `effectiveVisibility` — see that file for the reasoning: a timestamp served
+ * to somebody who cannot see a change would date it for them.
+ */
+function treeAudiencesOf(paths, known, rules, overrides) {
+  const audiences = new Set();
+  const reach = (visibility) => {
+    if (visibility === "team" || GROUP_SCOPE_PATTERN.test(visibility)) audiences.add(visibility);
+  };
+  for (const raw of paths) {
+    const path = String(raw).replace(/\/+$/, "");
+    if (path === "" || isPlumbing(path)) continue;
+    audiences.add("private");
+    reach(effectiveVisibility(path, rules, overrides));
+    const under = `${path}/`;
+    for (const rule of rules) if (rule.prefix.startsWith(under)) reach(rule.vis);
+    for (const [key, visibility] of overrides) if (key.startsWith(under)) reach(visibility);
+  }
+  for (const visibility of known) {
+    audiences.add("private");
+    reach(visibility);
+  }
+  return [...audiences].sort();
+}
+
+/**
+ * Tell the consoles showing this context that its tree changed — deferred,
+ * best-effort, and never able to fail the change, exactly as `reportActivity`
+ * is. Only a session-bound store has a reporter; see `reportTreeChange`.
+ */
+function announceTreeChange(store, action, paths, details) {
+  if (!TREE_ACTIONS.has(action) || typeof store.reportTreeChange !== "function") return;
+  const work = (async () => {
+    const hint = treeHintOf(action, Array.isArray(paths) ? paths : [], details);
+    const state = await loadPrivacyState(store);
+    if (state.error) return;
+    const audiences = treeAudiencesOf(hint.paths, hint.known, state.rules, state.overrides);
+    if (audiences.length > 0) await store.reportTreeChange(audiences);
+  })().catch(() => {});
+  if (typeof store.defer !== "function") return;
+  try {
+    store.defer(work);
+  } catch {
+    // A host whose `waitUntil` refuses the work simply does not report.
+  }
 }
 
 /**
@@ -12063,6 +12182,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
       etag: moved.etag,
       visibility: destinationVisibility,
       team_visible: sourceVisibility === "team" && destinationVisibility === "team",
+      source_visibility: sourceVisibility,
       references: references.capped ? "not-rewritten" : references.links,
     });
     return toolText(
@@ -12114,6 +12234,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     etag: put.etag,
     visibility: destinationVisibility,
     team_visible: sourceVisibility === "team" && destinationVisibility === "team",
+    source_visibility: sourceVisibility,
     references: references.capped ? "not-rewritten" : references.links,
   });
   return toolText(

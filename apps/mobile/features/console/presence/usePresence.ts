@@ -42,6 +42,7 @@ import {
   pointerFrame,
   decodeServerFrame,
   pingFrame,
+  CLOSE_REFUSED,
   presenceSocketUrl,
   snapshotFrame,
   syncFrame,
@@ -63,6 +64,11 @@ import {
 } from "./sharedDoc";
 import { applyExternalWrite } from "./externalWrite";
 import {
+  CONNECT_DEADLINE_MS,
+  HEARTBEAT_MS,
+  MISSED_HEARTBEATS,
+  REFRESH_AFTER_UNOPENED,
+  PROBE_GRACE_MS,
   initialPresenceState,
   presenceReducer,
   presenceSummary,
@@ -70,6 +76,7 @@ import {
   savesToBucket,
   type PresencePhase,
 } from "./session";
+import { isDefinitiveGrantRefusal, type GrantRefresh } from "../../agent/consoleGrantCache";
 import type { DurableCollaboration, LiveUpdate } from "../collaboration/durable";
 import { AGENT_SPAN_WAIT_MS, changedSpan, type TextDeltaOp } from "./agentSpan";
 import type * as Y from "yjs";
@@ -309,7 +316,14 @@ export function usePresence(options: {
   const [state, dispatch] = useReducer(presenceReducer, initialPresenceState);
 
   const socket = useRef<WebSocket | null>(null);
-  const timers = useRef<{ heartbeat?: number; reconnect?: number; reauth?: number; cursor?: number }>({});
+  const timers = useRef<{
+    heartbeat?: number;
+    reconnect?: number;
+    reauth?: number;
+    cursor?: number;
+    deadline?: number;
+    probe?: number;
+  }>({});
   const socketToken = useRef<string | null>(null);
   const selection = useRef<{ anchor: number; head: number } | null>(null);
   const reportCurrent = useRef<() => void>(() => {});
@@ -385,6 +399,8 @@ export function usePresence(options: {
     if (held.reconnect) window.clearTimeout(held.reconnect);
     if (held.reauth) window.clearTimeout(held.reauth);
     if (held.cursor) window.clearTimeout(held.cursor);
+    if (held.deadline) window.clearTimeout(held.deadline);
+    if (held.probe) window.clearTimeout(held.probe);
     timers.current = {};
   }, []);
 
@@ -535,34 +551,127 @@ export function usePresence(options: {
     */
     settled.current = false;
     pointers.current = new Map();
-    let connecting = false;
+    /*
+      **One attempt at a time, and every attempt has an end.**
 
-    const connect = async (attempt: number) => {
-      if (cancelled || connecting || socket.current !== null) return;
-      connecting = true;
-      let token: string;
-      try {
-        const granted = await mint({ workspaceId: workspaceId as never });
-        token = granted.accessToken;
-      } catch {
-        connecting = false;
-        // Minting can fail while the app is waking or the gateway is rolling
-        // out. Keep the editor usable and retry with the same bounded backoff
-        // as a dropped socket; unlike a definitive socket authorization
-        // refusal, this is not terminal and must not strand the room forever.
-        if (!cancelled) {
-          dispatch({ type: "dropped" });
-          timers.current.reconnect = window.setTimeout(() => {
-            timers.current.reconnect = undefined;
-            void connect(attempt + 1);
-          }, reconnectDelayMs(attempt + 1));
+      Each attempt is a numbered generation: the grant, the socket, its
+      handlers and its timers all belong to it, and anything that answers for
+      an older generation — a mint that settles late, an `onclose` from a
+      socket already replaced, a deadline that fires after the welcome — is
+      ignored rather than allowed to open a second socket or schedule a second
+      retry. The deadline covers mint, handshake and welcome together: a
+      handshake that never answers, or a mint that never settles, used to
+      leave this room in "Reconnecting" until the page was reloaded.
+    */
+    let generation = 0;
+    let attemptInFlight = false;
+    /** Consecutive failures since the last welcome; the backoff reads it. */
+    let failures = 0;
+    /** Sockets that closed before opening since the last welcome or refresh. */
+    let unopened = 0;
+    /** Whether this run of failures has already replaced the credential. */
+    let refreshed = false;
+    let refreshNext: GrantRefresh = false;
+    /** Pings sent since the last frame arrived, and when the heartbeat last ran. */
+    let unanswered = 0;
+    let lastBeat = 0;
+    /** Frames received, for the resume probe to tell "heard since" apart. */
+    let heard = 0;
+
+    const scheduleRetry = () => {
+      if (cancelled) return;
+      failures += 1;
+      if (timers.current.reconnect !== undefined) window.clearTimeout(timers.current.reconnect);
+      timers.current.reconnect = window.setTimeout(() => {
+        timers.current.reconnect = undefined;
+        void connect();
+      }, reconnectDelayMs(failures, Math.random()));
+    };
+
+    /**
+     * End generation `gen` and try again later.
+     *
+     * `opened` says whether the gateway accepted the upgrade. A browser hides
+     * the HTTP refusal of a rejected upgrade behind code 1006, so a socket that
+     * never opens might be a credential the gateway no longer honours — minted
+     * for this instance and replaced since, or expired on the server first.
+     * Two of those in a row earn one refresh, naming the token that failed;
+     * after that it is backoff, never a mint per retry. Whether access was
+     * really withdrawn is the mint's answer to give, not a guess from 1006.
+     */
+    const fail = (gen: number, opened: boolean, token: string | null) => {
+      if (cancelled || gen !== generation) return;
+      generation += 1;
+      attemptInFlight = false;
+      closeSocket(false);
+      if (!opened && token !== null) {
+        unopened += 1;
+        if (unopened >= REFRESH_AFTER_UNOPENED && !refreshed) {
+          refreshed = true;
+          unopened = 0;
+          refreshNext = { rejected: token };
         }
+      }
+      dispatch({ type: "dropped" });
+      scheduleRetry();
+    };
+
+    /**
+     * Ask an open socket to prove it is alive: one ping, and a short wait for
+     * any frame at all. Silence ends the generation.
+     */
+    const probe = (gen: number, token: string | null) => {
+      const live = socket.current;
+      if (cancelled || gen !== generation || live === null) return;
+      if (timers.current.probe !== undefined) return;
+      const before = heard;
+      try {
+        live.send(pingFrame());
+      } catch {
+        fail(gen, true, token);
         return;
       }
-      if (cancelled) {
-        connecting = false;
+      timers.current.probe = window.setTimeout(() => {
+        timers.current.probe = undefined;
+        if (heard === before) fail(gen, true, token);
+      }, PROBE_GRACE_MS);
+    };
+
+    /** Access is gone. Stop quietly; the editor is exactly what it was. */
+    const refuse = () => {
+      generation += 1;
+      attemptInFlight = false;
+      closeSocket(false);
+      dispatch({ type: "unavailable" });
+    };
+
+    const connect = async () => {
+      if (cancelled || attemptInFlight || socket.current !== null) return;
+      attemptInFlight = true;
+      const gen = ++generation;
+      const refresh = refreshNext;
+      refreshNext = false;
+      let opened = false;
+      let token: string | null = null;
+      timers.current.deadline = window.setTimeout(() => {
+        timers.current.deadline = undefined;
+        fail(gen, opened, token);
+      }, CONNECT_DEADLINE_MS);
+
+      try {
+        const granted = await mint({ workspaceId: workspaceId as never }, refresh);
+        token = granted.accessToken;
+      } catch (error) {
+        if (cancelled || gen !== generation) return;
+        // Minting can fail while the app is waking or the gateway is rolling
+        // out, and that is retried. A refusal from the control plane — the
+        // workspace is not yours any more — is the definitive answer a socket
+        // close can never give, and it is final for this room.
+        if (isDefinitiveGrantRefusal(error)) refuse();
+        else fail(gen, true, null);
         return;
       }
+      if (cancelled || gen !== generation) return;
 
       let live: WebSocket;
       try {
@@ -576,22 +685,19 @@ export function usePresence(options: {
           }),
         );
       } catch {
-        connecting = false;
-        if (!cancelled) {
-          dispatch({ type: "dropped" });
-          timers.current.reconnect = window.setTimeout(() => {
-            timers.current.reconnect = undefined;
-            void connect(attempt + 1);
-          }, reconnectDelayMs(attempt + 1));
-        }
+        fail(gen, true, null);
         return;
       }
-      connecting = false;
+      attemptInFlight = false;
       socket.current = live;
       socketToken.current = token;
+      const sentToken = token;
+      /** Whether a callback still speaks for the socket this room is using. */
+      const current = () => !cancelled && gen === generation && socket.current === live;
 
       live.onopen = () => {
-        if (cancelled) return;
+        if (!current()) return;
+        opened = true;
         // Reconnects use the same document but need a fresh caret frame: the
         // room discarded the old position when this socket left.
         lastSent.current = { at: 0, anchor: -1, head: -1 };
@@ -627,17 +733,46 @@ export function usePresence(options: {
         } catch {
           // The close handler reconnects, and the reconnect opens the same way.
         }
+        /*
+          **An open socket is not a live one.** A laptop that slept, a proxy
+          that dropped the connection silently, a network that changed under
+          it: the browser can go on reporting OPEN with nothing at the other
+          end, and no close event ever comes. The gateway answers every ping,
+          so pings that go unanswered are the only evidence there is — and
+          three of them end the socket.
+
+          A heartbeat that ran late was throttled or suspended with its tab,
+          so the pings before it could not have been answered in time and are
+          not counted. That is what keeps a background tab from reconnecting
+          on every throttled tick; its socket is probed when it comes back.
+        */
+        unanswered = 0;
+        lastBeat = Date.now();
         timers.current.heartbeat = window.setInterval(() => {
-          try {
-            if (live.readyState === WebSocket.OPEN) live.send(pingFrame());
-          } catch {
-            // The close handler below does the reconnecting.
+          if (!current()) return;
+          const now = Date.now();
+          if (now - lastBeat > HEARTBEAT_MS * 2.5) unanswered = 0;
+          lastBeat = now;
+          if (live.readyState !== WebSocket.OPEN) return;
+          unanswered += 1;
+          // The last of the allowed pings gets a short grace to be answered,
+          // and then the socket is replaced.
+          if (unanswered >= MISSED_HEARTBEATS) probe(gen, sentToken);
+          else {
+            try {
+              live.send(pingFrame());
+            } catch {
+              // The close handler below does the reconnecting.
+            }
           }
-        }, 15_000);
+        }, HEARTBEAT_MS);
       };
 
       live.onmessage = (event: MessageEvent) => {
-        if (cancelled) return;
+        if (!current()) return;
+        // Any frame is proof of life, not only a pong.
+        unanswered = 0;
+        heard += 1;
         const frame = decodeServerFrame(event.data);
         if (!frame) return;
 
@@ -908,12 +1043,27 @@ export function usePresence(options: {
           */
           if (frame.seed) settle();
 
+          /*
+            The attempt succeeded: stop its deadline and forget the failures
+            that preceded it, so the next ordinary drop is retried at once
+            rather than at whatever backoff an earlier outage had reached.
+          */
+          if (timers.current.deadline !== undefined) window.clearTimeout(timers.current.deadline);
+          timers.current.deadline = undefined;
+          failures = 0;
+          unopened = 0;
+          refreshed = false;
+
           // Reconnect just before the gateway would close this socket, so the
           // roster never visibly drops. See the header.
           const due = Math.max(frame.reconnectAfterMs - REAUTH_MARGIN_MS, 30_000);
+          if (timers.current.reauth !== undefined) window.clearTimeout(timers.current.reauth);
           timers.current.reauth = window.setTimeout(() => {
+            timers.current.reauth = undefined;
+            if (!current()) return;
+            generation += 1;
             closeSocket(true);
-            void connect(0);
+            void connect();
           }, due);
         }
         if (frame.t === "join" && frame.member.isAgent) holdAgent(frame.member.id);
@@ -926,14 +1076,15 @@ export function usePresence(options: {
         dispatch({ type: "frame", notePath: path, frame });
       };
 
-      live.onclose = () => {
-        if (cancelled || socket.current !== live) return;
-        socket.current = null;
-        socketToken.current = null;
-        clearTimers();
-        dispatch({ type: "dropped" });
-        const next = attempt + 1;
-        timers.current.reconnect = window.setTimeout(() => void connect(next), reconnectDelayMs(next));
+      live.onclose = (event: CloseEvent) => {
+        // An intentional close has already moved `socket.current` on, so it
+        // cannot schedule a second reconnect here.
+        if (!current()) return;
+        if (event.code === CLOSE_REFUSED) {
+          refuse();
+          return;
+        }
+        fail(gen, opened, sentToken);
       };
 
       live.onerror = () => {
@@ -942,16 +1093,33 @@ export function usePresence(options: {
       };
     };
 
-    const retryNow = () => {
-      if (cancelled || socket.current !== null) return;
-      if (timers.current.reconnect !== undefined) {
-        window.clearTimeout(timers.current.reconnect);
-        timers.current.reconnect = undefined;
+    /*
+      **Back in the app: repair now rather than when a timer gets round to it.**
+
+      Waiting out a backoff is skipped. An open socket is probed, because a
+      machine that slept can come back to a socket that is OPEN in name only,
+      and the heartbeat deliberately did not count the pings it could not send
+      while the tab was throttled. A handshake in progress is left to its own
+      deadline rather than duplicated.
+    */
+    const resume = () => {
+      if (cancelled) return;
+      const live = socket.current;
+      if (live === null) {
+        if (attemptInFlight) return;
+        if (timers.current.reconnect !== undefined) {
+          window.clearTimeout(timers.current.reconnect);
+          timers.current.reconnect = undefined;
+        }
+        failures = 0;
+        void connect();
+        return;
       }
-      void connect(0);
+      if (live.readyState !== WebSocket.OPEN || timers.current.deadline !== undefined) return;
+      probe(generation, socketToken.current);
     };
-    void connect(0);
-    const stopRetrying = onReturnToApp(retryNow);
+    void connect();
+    const stopRetrying = onReturnToApp(resume);
 
     return () => {
       cancelled = true;
