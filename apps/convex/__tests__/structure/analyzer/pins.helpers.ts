@@ -1,8 +1,8 @@
 /**
  * The two pins the graph itself consults: the barrier set, where taint stops,
  * and the HTTP routes allowed to reach a credential. Moved out of
- * `fixtures.ts` unchanged, beside the analyzer that reads them, so that
- * `graph.ts` does not import the fixture module that re-exports it.
+ * `fixtures.helpers.ts` unchanged, beside the analyzer that reads them, so that
+ * `graph.helpers.ts` does not import the fixture module that re-exports it.
  */
 
 /**

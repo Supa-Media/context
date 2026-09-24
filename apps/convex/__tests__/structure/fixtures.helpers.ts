@@ -5,13 +5,19 @@
  * lines) purely by responsibility; the tests themselves live beside this
  * file in `__tests__/structure/`. Nothing here is executed as a test in its
  * own right -- see `reachability.test.ts`, `scheduling.test.ts`,
- * `barriers.test.ts`, `httpRoutes.test.ts` and `helperImports.test.ts`.
+ * `barriers.test.ts`, `httpRoutes.test.ts`, `helperImports.test.ts` and
+ * `helperDispatch.test.ts`.
  *
- * The analyzer itself lives in `analyzer/`: `source.ts` (what a registered
- * function and an export block are), `graph.ts` (the reachability walk),
- * `helpers.ts` (following static imports into modules that register nothing)
- * and `pins.ts` (the barrier and HTTP-route pins the walk consults). All of it
- * is re-exported from here, so every structure test imports from one place.
+ * The analyzer itself lives in `analyzer/`: `source.helpers.ts` (what a
+ * registered function and an export block are), `graph.helpers.ts` (the
+ * reachability walk), `facts.helpers.ts` (what one piece of text calls,
+ * schedules or decrypts), `imports.helpers.ts` (following static imports into
+ * modules that register nothing), `moduleIndex.helpers.ts` and
+ * `references.helpers.ts` (the parse that follower reads) and
+ * `pins.helpers.ts` (the barrier and HTTP-route pins the walk consults). The
+ * graph's entry points are re-exported from here, so every structure test
+ * imports from one place. `helperImports.test.ts` and
+ * `helperDispatch.test.ts` are what the follower is held to.
  *
  * The header comment below is preserved verbatim from the original file
  * because it explains what this whole suite defends, not just this module.
@@ -74,7 +80,7 @@ import {
   type Classification,
   classify,
   referencePath,
-} from "./analyzer/source";
+} from "./analyzer/source.helpers";
 
 // Every Convex module, twice: once as source to analyze, once as a live module
 // so the public/internal classification comes from Convex rather than from a
@@ -101,16 +107,23 @@ export const LIVE_MODULES = import.meta.glob(
   { eager: true },
 ) as Record<string, Record<string, unknown>>;
 
-export * from "./analyzer/source";
+export * from "./analyzer/source.helpers";
 
 /**
  * Which modules may import the decrypt at all.
  *
  * `DECRYPT_CALL` above is a text match on a module's own source, and the taint
  * graph's nodes are Convex functions — so a plain helper module that calls
- * `decryptSecret` and declares no Convex function is invisible to both. The
- * public function importing it contains no `decryptSecret(` and passes every
- * check in this file. See the laundering test for the three-line version.
+ * `decryptSecret` and declares no Convex function was invisible to both. The
+ * public function importing it contains no `decryptSecret(`. See the
+ * laundering test for the three-line version.
+ *
+ * The graph now follows static imports into such a helper and attributes its
+ * decrypt to every registered function that reaches it
+ * (`analyzer/imports.helpers.ts`), so this is no longer the only net under
+ * that shape. It stays, unchanged, as the second one: the follower answers
+ * "can a public function reach this", and this answers "should this module be
+ * able to open a credential at all", which is a question for a person.
  *
  * So the import is enumerated rather than the call inferred. Both entries here
  * declare Convex functions and are already analyzed properly; adding a third
@@ -264,7 +277,7 @@ export function importsDecrypt(source: string): boolean {
     withoutComments,
   );
 }
-export { CREDENTIAL_BARRIERS, CREDENTIAL_HTTP_ROUTES } from "./analyzer/pins";
+export { CREDENTIAL_BARRIERS, CREDENTIAL_HTTP_ROUTES } from "./analyzer/pins.helpers";
 
 /**
  * Every `encrypted*` column in the schema, lowercased — read from the schema
@@ -445,7 +458,7 @@ export const BARRIER_FORBIDDEN_FIELDS = [
   ]),
 ];
 
-export { analyze, findViolations } from "./analyzer/graph";
+export { analyze, findViolations } from "./analyzer/graph.helpers";
 
 export function realModules(): AnalyzedModule[] {
   return Object.keys(RAW_SOURCES).map((globKey) => {

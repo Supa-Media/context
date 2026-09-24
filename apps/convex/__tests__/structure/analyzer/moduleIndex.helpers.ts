@@ -1,5 +1,11 @@
 import ts from "typescript";
-import type { AnalyzedModule } from "./source";
+import {
+  bindingNames,
+  collectReferences,
+  type ModuleNames,
+  type References,
+} from "./references.helpers";
+import type { AnalyzedModule } from "./source.helpers";
 
 /**
  * One module, parsed: what it imports, what it exports and from where, and
@@ -19,7 +25,7 @@ export type Binding =
   | { kind: "external"; specifier: string }
   /**
    * A relative import that leaves `apps/convex` — the gateway's own modules,
-   * `packages/*`. Not walked, like a package; `helperImports.test.ts` reads
+   * `packages/*`. Not walked, like a package; `helperDispatch.test.ts` reads
    * every file such an import can land in and requires that none of them can
    * dispatch into Convex or open an envelope, which is what makes not walking
    * them safe rather than hopeful.
@@ -49,21 +55,6 @@ export interface Unit {
   container: boolean;
 }
 
-/** The names one statement uses, and what it did that cannot be followed. */
-export interface References {
-  /** Identifiers in value position. */
-  locals: string[];
-  /** `ns.member` through a namespace import. */
-  members: { namespace: string; member: string }[];
-  /**
-   * `http.route({ handler: x })` on a Convex `httpRouter()` — registering a
-   * route, not calling it. Followed if it names a helper, never an edge if it
-   * names a registered function.
-   */
-  routeHandlers: Set<string>;
-  problems: string[];
-}
-
 export interface ModuleIndex {
   module: AnalyzedModule;
   sourceFile: ts.SourceFile;
@@ -79,23 +70,16 @@ export interface ModuleIndex {
   loose: ts.Statement[];
   /** Every relative import or re-export that leaves `apps/convex`. */
   outside: { specifier: string; repoPath: string }[];
+  /**
+   * Imports the follower cannot see through, found while indexing: the
+   * generated `api`/`internal` objects bound under another name, imported
+   * whole or re-exported (so a reference to them no longer reads as one), and
+   * an `import x = …` alias. Each fails closed on every registered function
+   * that enters this module.
+   */
+  problems: string[];
   references: (statement: ts.Statement) => References;
 }
-
-/**
- * The names that invoke a registered function without `ctx.run…`. Convex puts
- * `_handler` and `invoke*` on every registered function, and calling one of
- * those runs the handler inline — the decrypt with it — with no function
- * reference for the graph to see. Nothing in production code has a reason to
- * touch them, so any use fails closed.
- */
-const DIRECT_INVOCATION = new Set([
-  "_handler",
-  "invokeQuery",
-  "invokeMutation",
-  "invokeAction",
-  "invokeHttpAction",
-]);
 
 /** Where the analyzed modules' paths are relative to, from the repo root. */
 const CONVEX_ROOT = ["apps", "convex"];
@@ -134,16 +118,6 @@ export function resolveSpecifier(
     if (known.has(candidate)) return { kind: "module", path: candidate };
   }
   return { kind: "unresolved", specifier };
-}
-
-function bindingNames(name: ts.BindingName, into: string[]): void {
-  if (ts.isIdentifier(name)) {
-    into.push(name.text);
-    return;
-  }
-  for (const element of name.elements) {
-    if (ts.isBindingElement(element)) bindingNames(element.name, into);
-  }
 }
 
 function declaredNames(statement: ts.Statement): string[] {
@@ -204,6 +178,15 @@ export function indexModule(
   const loose: ts.Statement[] = [];
 
   const outside: { specifier: string; repoPath: string }[] = [];
+  const problems: string[] = [];
+  /** Local names bound to the generated `internal` / `api` objects. */
+  const generatedApi = new Set<string>();
+  const isGeneratedApiSpecifier = (specifier: string) =>
+    specifier.startsWith(".") &&
+    /(^|\/)_generated\/api(\.js)?$/.test(specifier) &&
+    resolveSpecifier(module.path, specifier, known).kind === "external";
+  const where = (node: ts.Node) =>
+    `line ${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}`;
   const bind = (specifier: string, name: string | null): Binding => {
     const target = resolveSpecifier(module.path, specifier, known);
     if (target.kind === "outside") outside.push(target);
@@ -218,6 +201,30 @@ export function indexModule(
       const clause = statement.importClause;
       if (clause === undefined || clause.isTypeOnly) return;
       const specifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+      if (isGeneratedApiSpecifier(specifier)) {
+        // `internal.a.b` is only a reference the graph can read when it is
+        // spelled `internal`. Bound under any other name, or reached through a
+        // module object, it is a dispatch table under an alias.
+        const named = clause.namedBindings;
+        if (clause.name || (named && ts.isNamespaceImport(named))) {
+          problems.push(
+            `imports ${specifier} whole at ${where(statement)}; only { internal } and { api } by name are references the credential-reachability graph can read`,
+          );
+        } else if (named) {
+          for (const element of named.elements) {
+            if (element.isTypeOnly) continue;
+            const imported = (element.propertyName ?? element.name).text;
+            if (imported !== element.name.text) {
+              problems.push(
+                `imports ${imported} from ${specifier} as ${element.name.text} at ${where(statement)}; renamed, its references are invisible to the credential-reachability graph`,
+              );
+            } else {
+              generatedApi.add(imported);
+            }
+          }
+        }
+        return;
+      }
       if (clause.name) imports.set(clause.name.text, bind(specifier, "default"));
       const named = clause.namedBindings;
       if (named && ts.isNamespaceImport(named)) {
@@ -231,11 +238,35 @@ export function indexModule(
       }
       return;
     }
+    if (ts.isImportEqualsDeclaration(statement)) {
+      if (statement.isTypeOnly) return;
+      const reference = statement.moduleReference;
+      if (
+        ts.isExternalModuleReference(reference) &&
+        ts.isStringLiteralLike(reference.expression) &&
+        !isGeneratedApiSpecifier(reference.expression.text)
+      ) {
+        // `import x = require("./y")` is a namespace import by another name.
+        imports.set(statement.name.text, bind(reference.expression.text, null));
+      } else {
+        problems.push(
+          `aliases ${statement.moduleReference.getText(sourceFile)} as ${statement.name.text} at ${where(statement)}, which the credential-reachability graph cannot follow`,
+        );
+      }
+      return;
+    }
     if (ts.isExportDeclaration(statement)) {
       if (statement.isTypeOnly) return;
       const clause = statement.exportClause;
       if (statement.moduleSpecifier !== undefined) {
         const specifier = (statement.moduleSpecifier as ts.StringLiteral).text;
+        if (isGeneratedApiSpecifier(specifier)) {
+          // Still bound below, so the name resolves; the refusal applies to
+          // every reach that passes through this module.
+          problems.push(
+            `re-exports ${specifier} at ${where(statement)}; an importer could rename what it re-exports and the credential-reachability graph would lose every reference through it`,
+          );
+        }
         if (clause === undefined) {
           const target = bind(specifier, null);
           starFrom.push(target.kind === "namespace" ? target.path : null);
@@ -331,11 +362,15 @@ export function indexModule(
     }
   }
 
+  const names: ModuleNames = {
+    isNamespace: (name) => imports.get(name)?.kind === "namespace",
+    isGeneratedApi: (name) => generatedApi.has(name),
+  };
   const memo = new Map<ts.Statement, References>();
   const references = (statement: ts.Statement): References => {
     const cached = memo.get(statement);
     if (cached) return cached;
-    const found = collectReferences(statement, imports, routers, sourceFile);
+    const found = collectReferences(statement, names, routers, sourceFile);
     memo.set(statement, found);
     return found;
   };
@@ -351,226 +386,7 @@ export function indexModule(
     starFrom,
     loose,
     outside,
+    problems,
     references,
   };
-}
-
-/**
- * The names a node declares for its own body: a function's parameters, a
- * block's `const`/`let`/`function`/`class`, a loop's or a `catch`'s variable.
- * A use of one of these inside the node is that local, not the import of the
- * same name — `const session = …` in a handler is not `import * as session`.
- * A `var` is scoped to its block rather than hoisted, which can only make a
- * local look like the import, never the reverse.
- */
-function scopeOf(node: ts.Node): Set<string> | null {
-  const names: string[] = [];
-  if (ts.isFunctionLike(node)) {
-    for (const parameter of node.parameters) bindingNames(parameter.name, names);
-    if (ts.isFunctionExpression(node) && node.name) names.push(node.name.text);
-  }
-  if (ts.isBlock(node) || ts.isCaseClause(node) || ts.isDefaultClause(node)) {
-    for (const statement of node.statements) {
-      if (ts.isVariableStatement(statement)) {
-        for (const declaration of statement.declarationList.declarations) {
-          bindingNames(declaration.name, names);
-        }
-      } else if (
-        (ts.isFunctionDeclaration(statement) ||
-          ts.isClassDeclaration(statement)) &&
-        statement.name
-      ) {
-        names.push(statement.name.text);
-      }
-    }
-  }
-  if (
-    (ts.isForStatement(node) ||
-      ts.isForOfStatement(node) ||
-      ts.isForInStatement(node)) &&
-    node.initializer &&
-    ts.isVariableDeclarationList(node.initializer)
-  ) {
-    for (const declaration of node.initializer.declarations) {
-      bindingNames(declaration.name, names);
-    }
-  }
-  if (ts.isCatchClause(node) && node.variableDeclaration) {
-    bindingNames(node.variableDeclaration.name, names);
-  }
-  return names.length > 0 ? new Set(names) : null;
-}
-
-function collectReferences(
-  statement: ts.Statement,
-  imports: Map<string, Binding>,
-  routers: ReadonlySet<string>,
-  sourceFile: ts.SourceFile,
-): References {
-  const found: References = {
-    locals: [],
-    members: [],
-    routeHandlers: new Set(),
-    problems: [],
-  };
-  const registrations = new Set<ts.Node>();
-  const scopes: Set<string>[] = [];
-  const shadowed = (name: string) => scopes.some((scope) => scope.has(name));
-  const isNamespace = (name: string) =>
-    imports.get(name)?.kind === "namespace" && !shadowed(name);
-  const where = (node: ts.Node) =>
-    `line ${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}`;
-
-  const visit = (node: ts.Node): void => {
-    const scope = scopeOf(node);
-    if (scope) scopes.push(scope);
-    try {
-      visitNode(node);
-    } finally {
-      if (scope) scopes.pop();
-    }
-  };
-  const visitNode = (node: ts.Node): void => {
-    // Types are erased; nothing in one runs.
-    if (
-      ts.isTypeNode(node) &&
-      !(ts.isExpressionWithTypeArguments(node) && ts.isHeritageClause(node.parent))
-    ) {
-      return;
-    }
-    if (ts.isCallExpression(node)) {
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-        const [specifier] = node.arguments;
-        // A package loaded lazily (`await import("satori")`) cannot hold a
-        // reference into this app's `internal` object. Anything else — a
-        // computed specifier, or a module of this app loaded at run time —
-        // is a body the analyzer would have to guess at.
-        if (
-          specifier === undefined ||
-          !ts.isStringLiteralLike(specifier) ||
-          specifier.text.startsWith(".")
-        ) {
-          found.problems.push(
-            `loads a module with a dynamic import() at ${where(node)}, which the credential-reachability graph cannot follow`,
-          );
-        }
-      } else if (
-        ts.isIdentifier(node.expression) &&
-        node.expression.text === "require" &&
-        !shadowed("require")
-      ) {
-        found.problems.push(
-          `calls require() at ${where(node)}, which the credential-reachability graph cannot follow`,
-        );
-      } else if (
-        ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === "route" &&
-        ts.isIdentifier(node.expression.expression) &&
-        routers.has(node.expression.expression.text)
-      ) {
-        for (const argument of node.arguments) {
-          if (!ts.isObjectLiteralExpression(argument)) continue;
-          for (const property of argument.properties) {
-            if (
-              ts.isPropertyAssignment(property) &&
-              ts.isIdentifier(property.name) &&
-              property.name.text === "handler" &&
-              ts.isIdentifier(property.initializer)
-            ) {
-              registrations.add(property.initializer);
-            }
-          }
-        }
-      }
-    }
-    if (ts.isPropertyAccessExpression(node)) {
-      if (DIRECT_INVOCATION.has(node.name.text)) {
-        found.problems.push(
-          `touches .${node.name.text} at ${where(node)}, which runs a registered function without ctx.run… and so without an edge the credential-reachability graph can see`,
-        );
-      }
-      if (
-        ts.isIdentifier(node.expression) &&
-        isNamespace(node.expression.text)
-      ) {
-        found.members.push({
-          namespace: node.expression.text,
-          member: node.name.text,
-        });
-        return;
-      }
-      visit(node.expression);
-      return;
-    }
-    if (ts.isElementAccessExpression(node)) {
-      const key = node.argumentExpression;
-      if (ts.isStringLiteralLike(key) && DIRECT_INVOCATION.has(key.text)) {
-        found.problems.push(
-          `touches ["${key.text}"] at ${where(node)}, which runs a registered function without ctx.run… and so without an edge the credential-reachability graph can see`,
-        );
-      }
-      if (
-        ts.isIdentifier(node.expression) &&
-        isNamespace(node.expression.text)
-      ) {
-        found.problems.push(
-          `indexes the namespace import ${node.expression.text}[…] at ${where(node)}; a computed member of an imported module cannot be resolved statically`,
-        );
-        visit(key);
-        return;
-      }
-    }
-    if (ts.isIdentifier(node)) {
-      if (registrations.has(node)) {
-        found.routeHandlers.add(node.text);
-      } else if (shadowed(node.text)) {
-        // A local; nothing module-level to follow.
-      } else if (isNamespace(node.text)) {
-        found.problems.push(
-          `uses the namespace import ${node.text} as a value at ${where(node)}; once the module object escapes, which member is called cannot be resolved statically`,
-        );
-      } else {
-        found.locals.push(node.text);
-      }
-      return;
-    }
-    // Names that declare or label rather than refer.
-    if (
-      (ts.isPropertyAssignment(node) ||
-        ts.isMethodDeclaration(node) ||
-        ts.isPropertyDeclaration(node) ||
-        ts.isGetAccessorDeclaration(node) ||
-        ts.isSetAccessorDeclaration(node)) &&
-      ts.isIdentifier(node.name)
-    ) {
-      ts.forEachChild(node, (child) => {
-        if (child !== node.name) visit(child);
-      });
-      return;
-    }
-    if (
-      (ts.isVariableDeclaration(node) ||
-        ts.isParameter(node) ||
-        ts.isBindingElement(node) ||
-        ts.isFunctionDeclaration(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isClassDeclaration(node)) &&
-      node.name !== undefined &&
-      ts.isIdentifier(node.name)
-    ) {
-      ts.forEachChild(node, (child) => {
-        if (child === node.name) return;
-        if (ts.isBindingElement(node) && child === node.propertyName) return;
-        visit(child);
-      });
-      return;
-    }
-    if (ts.isLabeledStatement(node) || ts.isBreakOrContinueStatement(node)) {
-      if (ts.isLabeledStatement(node)) visit(node.statement);
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(statement);
-  return found;
 }

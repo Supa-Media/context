@@ -3,7 +3,7 @@ import {
   DECRYPT_CALL,
   RUN_CALL,
   SCHEDULE_CALL,
-} from "./source";
+} from "./source.helpers";
 
 /**
  * What one piece of source does, as far as the credential graph cares: does it
@@ -39,7 +39,7 @@ export function mergeFacts(into: Facts, from: Facts, suffix = ""): void {
 }
 
 /**
- * The patterns in `source.ts` are `/g` regexes, which carry `lastIndex` between
+ * The patterns in `source.helpers.ts` are `/g` regexes, which carry `lastIndex` between
  * calls. Reading one text while another read of the same object is mid-loop
  * would silently skip matches, so every read here gets its own copy.
  */
@@ -53,7 +53,7 @@ function fresh(pattern: RegExp): RegExp {
  * through an import. One implementation, so a helper is held to exactly the
  * rules the function that calls it is held to.
  *
- * Scheduling is not calling — see the long comment in `graph.ts` — and the
+ * Scheduling is not calling — see the long comment in `graph.helpers.ts` — and the
  * exemption is positional: only the reference in the scheduler's argument slot
  * is a schedule, and the same function named anywhere else is a call.
  */

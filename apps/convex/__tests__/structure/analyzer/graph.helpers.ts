@@ -1,6 +1,6 @@
-import { textFacts } from "./facts";
-import { followHelpers } from "./helpers";
-import { CREDENTIAL_BARRIERS, CREDENTIAL_HTTP_ROUTES } from "./pins";
+import { textFacts } from "./facts.helpers";
+import { followHelpers } from "./imports.helpers";
+import { CREDENTIAL_BARRIERS, CREDENTIAL_HTTP_ROUTES } from "./pins.helpers";
 import {
   type AnalyzedModule,
   type Classification,
@@ -9,7 +9,7 @@ import {
   exportBlocks,
   type Violation,
   withoutImports,
-} from "./source";
+} from "./source.helpers";
 
 /**
  * Build the graph and return every way a public function can reach a decrypt.
@@ -76,7 +76,9 @@ export function analyze(modules: AnalyzedModule[]): {
     // not a Convex function this analysis knows about*.
     const unattributed = [preamble];
     for (const [blockName, blockText] of blocks) {
-      if (!(blockName in module.exports)) unattributed.push(blockText);
+      // Own keys only: `"constructor" in exports` is true for every module,
+      // which would drop an `export const constructor` block's text here.
+      if (!Object.hasOwn(module.exports, blockName)) unattributed.push(blockText);
     }
     const moduleWideTaintFromHelpers = unattributed.some((text) =>
       DECRYPT_CALL.test(withoutImports(text)),
@@ -141,7 +143,7 @@ export function analyze(modules: AnalyzedModule[]): {
 
       // …and everything it reaches through the names it uses: helpers in
       // other modules, followed through their imports, and registered
-      // functions it calls directly. See `helpers.ts`.
+      // functions it calls directly. See `imports.helpers.ts`.
       const reached = follower.reach(module, name);
 
       if (moduleWideTaintFromHelpers || own.decrypt || reached.decrypt) {
@@ -158,6 +160,7 @@ export function analyze(modules: AnalyzedModule[]): {
       for (const reason of problems) violations.push({ node, reason });
     }
   }
+
   // Propagate capability backwards until nothing new is tainted.
   let changed = true;
   while (changed) {

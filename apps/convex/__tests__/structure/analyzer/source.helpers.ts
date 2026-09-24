@@ -2,8 +2,8 @@
  * The text-level vocabulary of the credential-reachability analyzer: what a
  * registered Convex function is, how a module's source is split into the
  * block belonging to each export, and the patterns that count as a call, a
- * schedule or a decrypt. Moved out of `fixtures.ts` unchanged when the
- * analyzer learned to follow imports (see `helpers.ts`); the three patterns at
+ * schedule or a decrypt. Moved out of `fixtures.helpers.ts` unchanged when the
+ * analyzer learned to follow imports (see `imports.helpers.ts`); the three patterns at
  * the bottom are exported now because the import follower applies them to
  * helper bodies too.
  */

@@ -1,12 +1,12 @@
 import type ts from "typescript";
-import { emptyFacts, type Facts, mergeFacts, textFacts } from "./facts";
+import { emptyFacts, type Facts, mergeFacts, textFacts } from "./facts.helpers";
 import {
   type Binding,
   indexModule,
   type ModuleIndex,
   type Unit,
-} from "./moduleIndex";
-import type { AnalyzedModule } from "./source";
+} from "./moduleIndex.helpers";
+import type { AnalyzedModule } from "./source.helpers";
 
 /**
  * FOLLOWING A REGISTERED FUNCTION INTO THE HELPERS IT CALLS.
@@ -37,7 +37,7 @@ import type { AnalyzedModule } from "./source";
  * statements it names, what those name, and so on — plus the load-time
  * statements of every module it enters — and not its neighbours. That is what
  * lets a large module be split into helpers at all; the module-wide rule
- * `graph.ts` applies to unattributed *text* still stands beside it, so this
+ * `graph.helpers.ts` applies to unattributed *text* still stands beside it, so this
  * can only add edges to what the text rules find, never remove one. A
  * module-level `let`, or a `const` holding a fresh container, pulls in every
  * statement of its module that names it, because what it holds is decided by
@@ -64,7 +64,7 @@ export interface HelperFollower {
 
 /**
  * Every relative import in `modules` that leaves `apps/convex`, so a test can
- * read what it lands in. See the `outside` binding in `moduleIndex.ts`.
+ * read what it lands in. See the `outside` binding in `moduleIndex.helpers.ts`.
  */
 export function outsideImports(
   modules: AnalyzedModule[],
@@ -113,7 +113,8 @@ export function followHelpers(
     if (seen.has(key)) return { kind: "missing", why: `${key} re-exports itself` };
     seen.add(key);
     const index = indexOf(path);
-    if (name in index.module.exports) {
+    // Own keys only: `"valueOf" in exports` is true for every module.
+    if (Object.hasOwn(index.module.exports, name)) {
       return { kind: "node", node: `${index.module.reference}.${name}` };
     }
     const route = index.exported.get(name);
@@ -201,20 +202,38 @@ export function followHelpers(
     type Item = { index: ModuleIndex; statement: ts.Statement; label: string };
     const stack: Item[] = [];
     const visited = new Set<ts.Statement>();
-    const entered = new Set<string>([module.path]);
+    const entered = new Set<string>();
     const push = (index: ModuleIndex, statement: ts.Statement, label: string) => {
       if (!visited.has(statement)) stack.push({ index, statement, label });
+    };
+    // A module the reach passes into — for a declaration, or only through a
+    // re-export on the way to one — runs its load-time statements, and its
+    // import-level refusals apply.
+    const enter = (path: string) => {
+      if (entered.has(path)) return;
+      entered.add(path);
+      const index = indexOf(path);
+      for (const statement of index.loose) push(index, statement, path);
+      for (const problem of index.problems) {
+        facts.problems.add(`${problem} (in ${path})`);
+      }
+    };
+    const resolved = (resolve: (seen: Set<string>) => Target | null) => {
+      const seen = new Set<string>();
+      const target = resolve(seen);
+      for (const key of seen) enter(key.slice(0, key.lastIndexOf("#")));
+      return target;
     };
 
     // The function's own statement and its module's load-time statements;
     // everything else is reached by name. An export whose declaration cannot
-    // be found gets every statement in its module, as in `graph.ts`.
+    // be found gets every statement in its module, as in `graph.helpers.ts`.
     if (own === undefined) {
       for (const unit of root.units) push(root, unit.statement, unit.label);
     } else {
       push(root, own.statement, own.label);
     }
-    for (const statement of root.loose) push(root, statement, module.path);
+    enter(module.path);
 
     const follow = (from: Item, target: Target | null, routeOnly = false) => {
       if (target === null || target.kind === "external") return;
@@ -233,12 +252,7 @@ export function followHelpers(
           push(index, writer.statement, writer.label);
         }
       }
-      if (!entered.has(target.unit.path)) {
-        entered.add(target.unit.path);
-        for (const statement of index.loose) {
-          push(index, statement, target.unit.path);
-        }
-      }
+      enter(target.unit.path);
     };
 
     while (stack.length > 0) {
@@ -253,13 +267,26 @@ export function followHelpers(
       for (const problem of used.problems) {
         facts.problems.add(`${problem} (in ${item.label})`);
       }
-      for (const name of used.locals) follow(item, resolveLocal(item.index, name));
+      for (const { chain, where } of used.convexReferences) {
+        if (!knownNodes.has(chain)) {
+          facts.problems.add(
+            `names ${chain === "" ? "the generated api object itself" : `a reference ending at "${chain}"`} at ${where} (in ${item.label}), which is not one registered function — a partial reference is a table a caller can index at run time`,
+          );
+        }
+      }
+      for (const name of used.locals) {
+        follow(item, resolved((seen) => resolveLocal(item.index, name, seen)));
+      }
       for (const name of used.routeHandlers) {
-        follow(item, resolveLocal(item.index, name), true);
+        follow(
+          item,
+          resolved((seen) => resolveLocal(item.index, name, seen)),
+          true,
+        );
       }
       for (const { namespace, member } of used.members) {
         const binding = item.index.imports.get(namespace)!;
-        follow(item, resolveBinding(binding, member, new Set()));
+        follow(item, resolved((seen) => resolveBinding(binding, member, seen)));
       }
     }
     return facts;
