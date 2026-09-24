@@ -85,6 +85,7 @@
     "apps/mcp/test/controlPlaneStub/controlPlane.mjs": "createControlPlaneStub is one closure over in-memory Maps that every route shares; splitting it means threading that state across modules.",
     "apps/mcp/test/presence/route.test.mjs": "One try/finally scenario sharing a bucket, env, rooms and control plane across every route check.",
     "apps/mcp/test/searchProjection/serve.test.mjs": "One harness-based scenario (serving search from the projection) whose checks build on each other in order.",
+    "apps/mobile/__tests__/meetingsConvexWriter.test.ts": "One writer's contract end to end: the sentences it refuses with, the transcript-contamination guard, and the premise that a meeting writes through the same authorized action every note save uses. Splitting it would put that premise in a file that does not hold the writer it is a premise for.",
     "apps/mobile/__tests__/meetingsScreens/savedClaims.test.ts": "One describe: the note screen says `saved` only when there is a path to print; its cases share one rendered screen.",
     "apps/mobile/features/app/reachability.ts": "The route registry: every route and the surfaces that reach it, one list that routeReachability.test.ts checks against the filesystem, so it reads as a whole.",
     "apps/mobile/features/console/files/browser/contract.ts": "One interface, FileBrowser: the console's file-browser contract, each member documented where it is declared.",
