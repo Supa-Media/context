@@ -70,6 +70,7 @@
   "reviewed": {
     "apps/desktop/test/consoleBridge/senderGuard.test.mjs": "One invariant (every IPC handler refuses a sender that is not the console window) checked across all handlers; the per-handler cases share one harness.",
     "apps/desktop/test/packaging/deployWorkflow.test.mjs": "Checks one workflow file; every check reads the same parsed steps, so splitting would duplicate the parse or scatter one contract.",
+    "apps/mobile/__tests__/meetingsScreens/savedClaims.test.ts": "One describe: the note screen says `saved` only when there is a path to print; its cases share one rendered screen.",
     "docs/decisions/communications/calendar.md": "One decision argument (sync horizon, sync passes, what is deliberately not built); moved verbatim from communications.md, and cutting it would separate the reasoning from its conclusion.",
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
@@ -148,11 +149,6 @@
     "apps/mobile/__tests__/fileEditor.test.ts": 1212,
     "apps/mobile/__tests__/fileMenu.test.ts": 1226,
     "apps/mobile/__tests__/livePreview.test.ts": 1906,
-    "apps/mobile/__tests__/meetingsCapture.test.ts": 2620,
-    "apps/mobile/__tests__/meetingsCaptureWeb.test.ts": 1653,
-    "apps/mobile/__tests__/meetingsController.test.ts": 1759,
-    "apps/mobile/__tests__/meetingsDesktop.test.ts": 1819,
-    "apps/mobile/__tests__/meetingsScreens.test.ts": 2266,
     "apps/mobile/__tests__/menuRender.test.ts": 1165,
     "apps/mobile/__tests__/noteChrome.test.ts": 1233,
     "apps/mobile/__tests__/paletteRender.test.ts": 1047,
