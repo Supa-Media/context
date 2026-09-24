@@ -21,6 +21,9 @@ export const TREE_ACTIONS = new Set([
   "meeting_note",
   "save_context",
   "inbox_capture",
+  // An approved proposal is a new note where there was none: the proposal
+  // itself waited under `.context/`, outside every tree.
+  "approve_proposal",
   "archive_note",
   "move_note",
   "move_notes",

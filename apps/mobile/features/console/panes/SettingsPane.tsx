@@ -25,6 +25,8 @@ import { ConnectedAppsCard } from "../settings/AccountSections";
 import { GroupsPanel } from "../settings/panels/GroupsPanel";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
+import { DomainSection } from "../settings/panels/DomainPanel";
+import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
 import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
 import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
 import { PluginsPanel } from "../settings/panels/PluginsPanel";
@@ -32,7 +34,6 @@ import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageAct
 import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
-import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
@@ -417,6 +418,12 @@ export function SettingsPane({
       */}
       <PrivacyPanel data={data} />
       </>
+      ) : null}
+
+      {show("domain") ? (
+      <DomainSection sectioned={section !== undefined} workspaceId={data.files.contextId ?? null}
+        handle={current?.slug.replace(/^@/, "") ?? ""} demo={data.demo}
+        onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")} />
       ) : null}
 
       {show("integrations") ? (

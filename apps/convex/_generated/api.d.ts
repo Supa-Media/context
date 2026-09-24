@@ -25,6 +25,8 @@ import type * as functions_collect from "../functions/collect.js";
 import type * as functions_contextMoves from "../functions/contextMoves.js";
 import type * as functions_contextPlugins from "../functions/contextPlugins.js";
 import type * as functions_controlPlane from "../functions/controlPlane.js";
+import type * as functions_customDomains from "../functions/customDomains.js";
+import type * as functions_customDomainsProvision from "../functions/customDomainsProvision.js";
 import type * as functions_dropboxConnect from "../functions/dropboxConnect.js";
 import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
 import type * as functions_fastSearch from "../functions/fastSearch.js";
@@ -115,6 +117,8 @@ declare const fullApi: ApiFromModules<{
   "functions/contextMoves": typeof functions_contextMoves;
   "functions/contextPlugins": typeof functions_contextPlugins;
   "functions/controlPlane": typeof functions_controlPlane;
+  "functions/customDomains": typeof functions_customDomains;
+  "functions/customDomainsProvision": typeof functions_customDomainsProvision;
   "functions/dropboxConnect": typeof functions_dropboxConnect;
   "functions/encryptionKeys": typeof functions_encryptionKeys;
   "functions/fastSearch": typeof functions_fastSearch;

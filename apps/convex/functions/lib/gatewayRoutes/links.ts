@@ -62,6 +62,11 @@ export async function gatewayLinksCreateHandler(
     ...(mode === undefined ? {} : { mode }),
     ...(collectCap === undefined ? {} : { collectCap }),
   });
+  // `refused` is present only for a cleared owner whose mint was refused; see
+  // `gatewayCreateLinkHandler`. An uncleared caller still gets the bare null.
+  if (result !== null && "refused" in result) {
+    return json({ link: null, shortRefused: null, refused: result.refused });
+  }
   return json({
     link: result?.link ?? null,
     shortRefused: result?.shortRefused ?? null,

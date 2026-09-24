@@ -53,6 +53,7 @@ export function scopeInfoText(scope, rules, reach = null) {
       "\n\n## Forms and links, on write_note\n" +
       "A fenced ```form block in a note IS a form: writing the note validates it and creates its answers note in the same call. write_note's own description carries the block's grammar. " +
       "Pass share=anyone, share=members or share=collect on the same write_note call to hand out a link to it — share=collect is what lets people with NO account fill in the form — and share_short for a memorable address under this handle. " +
+      "When they ask for a form to send people, that is one call: the form block, share=collect, and a share_short made from the form's name (new-client, feedback). Asking for the link also publishes the note to this workspace, because a link only opens what the workspace can read; the answers note keeps its own visibility. " +
       "These are arguments rather than separate tools on purpose: a client that has not re-fetched its tool list cannot call a new tool, but it can always pass a new argument. " +
       ""
     );

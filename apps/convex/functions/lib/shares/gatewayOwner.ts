@@ -9,7 +9,7 @@
  * before it reads or writes anything, exactly as it did in the registration.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type {
@@ -68,7 +68,9 @@ export const gatewayRevokeLinkReturns = v.boolean();
 export async function gatewayCreateLinkHandler(
   ctx: ActionCtx,
   args: ObjectType<typeof gatewayCreateLinkArgs>,
-): Promise<{ link: GatewayLink; shortRefused: string | null } | null> {
+): Promise<
+  { link: GatewayLink; shortRefused: string | null } | { refused: string } | null
+> {
   const cleared = await ctx.runQuery(
     internal.functions.controlPlane.ownerClearanceForGateway,
     {
@@ -78,27 +80,52 @@ export async function gatewayCreateLinkHandler(
   );
   if (cleared === null) return null;
 
-  if (args.audience === "anyone") {
-    await ctx.runAction(internal.functions.shares.gatewayMintUnlisted, {
-      workspaceId: cleared.workspaceId,
-      actorUserId: cleared.actorUserId,
-      path: args.path,
-      ...(args.kind === undefined ? {} : { kind: args.kind }),
-      ...(args.titleInPreview === undefined
-        ? {}
-        : { titleInPreview: args.titleInPreview }),
-      ...(args.mode === undefined ? {} : { mode: args.mode }),
-      ...(args.collectCap === undefined ? {} : { collectCap: args.collectCap }),
-    });
-  } else {
-    await ctx.runMutation(internal.functions.shares.gatewayMintTeam, {
-      workspaceId: cleared.workspaceId,
-      actorUserId: cleared.actorUserId,
-      path: args.path,
-      ...(args.titleInPreview === undefined
-        ? {}
-        : { titleInPreview: args.titleInPreview }),
-    });
+  /*
+    AFTER THE CLEARANCE, A REFUSAL IS AN ANSWER — NEVER A THROW.
+
+    Everything below refuses by throwing a `ConvexError` the console turns into
+    a sentence: a note the team cannot read, an encrypted note, a folder asked
+    to collect, a context at its share cap. Thrown out of this action, each one
+    escaped the HTTP route as a bare 500, and the gateway can only report a 500
+    as "control plane unavailable" — which is what an owner asking for an
+    intake form link was shown, four times, for a note that only needed
+    publishing to the workspace (2026-09-24).
+
+    Giving the reason here is not the oracle the bare `null` above prevents.
+    That `null` is for a caller who is NOT cleared; this caller has just proved
+    they own the context, can read every note in it, and would be shown the
+    same sentence by the console's own button. Anything that is not a
+    `ConvexError` — an unreachable bucket, a bug — still throws, because an
+    outage reported as "publish your note first" sends an owner to fix a
+    manifest that is fine.
+  */
+  try {
+    if (args.audience === "anyone") {
+      await ctx.runAction(internal.functions.shares.gatewayMintUnlisted, {
+        workspaceId: cleared.workspaceId,
+        actorUserId: cleared.actorUserId,
+        path: args.path,
+        ...(args.kind === undefined ? {} : { kind: args.kind }),
+        ...(args.titleInPreview === undefined
+          ? {}
+          : { titleInPreview: args.titleInPreview }),
+        ...(args.mode === undefined ? {} : { mode: args.mode }),
+        ...(args.collectCap === undefined ? {} : { collectCap: args.collectCap }),
+      });
+    } else {
+      await ctx.runMutation(internal.functions.shares.gatewayMintTeam, {
+        workspaceId: cleared.workspaceId,
+        actorUserId: cleared.actorUserId,
+        path: args.path,
+        ...(args.titleInPreview === undefined
+          ? {}
+          : { titleInPreview: args.titleInPreview }),
+      });
+    }
+  } catch (error) {
+    const refused = refusalSentence(error);
+    if (refused === null) throw error;
+    return { refused };
   }
 
   return await ctx.runMutation(internal.functions.shares.gatewayNameAndDescribe, {
@@ -108,6 +135,18 @@ export async function gatewayCreateLinkHandler(
     audience: args.audience,
     ...(args.short === undefined ? {} : { short: args.short }),
   });
+}
+
+/**
+ * The owner-facing sentence a mint refusal carries, or `null` for anything
+ * that is not a refusal. Only a `ConvexError` whose payload has a string
+ * `message` counts — that is the shape every mint refusal in this folder
+ * throws, and the one the console already shows its owner verbatim.
+ */
+function refusalSentence(error: unknown): string | null {
+  if (!(error instanceof ConvexError)) return null;
+  const message = (error.data as { message?: unknown } | undefined)?.message;
+  return typeof message === "string" && message !== "" ? message : null;
 }
 
 /** Every live link in this context, for an agent that asked. INTERNAL. */

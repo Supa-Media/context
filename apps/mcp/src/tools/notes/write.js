@@ -38,6 +38,9 @@ import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 
+/** The `share` values that mint a link; anything else publishes nothing. */
+const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
+
 export async function toolWriteNote(store, scope, rules, overrides, args, options = {}) {
   const path = normalizePath(args.path);
   const content = args.content;
@@ -169,7 +172,36 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     return writePermissionError("write destination");
   }
 
-  const desiredVisibility = requestedVisibility || existingVisibility || scope;
+  /*
+   * ASKING FOR A LINK IS ASKING FOR THE NOTE TO BE READABLE BY ITS READERS.
+   *
+   * A link only ever opens what the workspace can already read (non-negotiable
+   * #5: a link is a wider locator, never a wider tier), and a personal
+   * connection's new note defaults to private. So "make me a form and a link
+   * to it" wrote a private note, asked for a link over it, and was refused —
+   * reported as a 500, four retries running (2026-09-24). Every owner who
+   * asked for a form through an assistant hit it.
+   *
+   * The owner asking for a link anyone can open has approved something wider
+   * than publishing the note to their own workspace, so `share` is that
+   * approval and stands in for `confirm_team_publish`. What it does NOT do is
+   * override a caller who said `visibility: "private"` in the same breath:
+   * that is two instructions that cannot both be true, refused before anything
+   * is written, rather than a guess at which one they meant. The answers note
+   * is untouched — it keeps its own visibility, which is who reads the answers.
+   */
+  const sharing = SHARE_REQUESTS.has(args.share);
+  if (sharing && requestedVisibility === "private") {
+    return toolError(
+      "a link only opens what the workspace can read, and visibility=private keeps this note to " +
+        "you. Drop visibility=private to publish it with the link, or drop share to keep it private."
+    );
+  }
+  const publishedForLink =
+    sharing && scope === "private" && !requestedVisibility && existingVisibility !== "team";
+  const desiredVisibility = publishedForLink
+    ? "team"
+    : requestedVisibility || existingVisibility || scope;
   /*
    * `create_form` NEVER OVERWRITES, AND SAYS SO HERE RATHER THAN LOOKING FIRST.
    *
@@ -194,7 +226,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   // with the ungated one the default an agent reaches.
   const isPublishing =
     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
-  if (isPublishing && args.confirm_team_publish !== true) {
+  if (isPublishing && args.confirm_team_publish !== true && !publishedForLink) {
     return toolError(
       "confirmation required: publishing this note to team makes it readable by every team-access connection. Retry with confirm_team_publish=true only after explicit user approval."
     );
@@ -220,6 +252,16 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
    * body and pays nothing for this.
    */
   const storedBody = existing ? await existing.text() : null;
+  // A link anyone can open is never minted over an encrypted note
+  // (`docs/decisions/encryption.md`, "Sharing"). Refused here, before the
+  // implied publish above widens the note for a link that would then be
+  // refused anyway.
+  if (publishedForLink && args.share !== "members" && storedBody !== null && isEncryptedNote(storedBody)) {
+    return toolError(
+      "this note is encrypted, and a link anyone can open is never made over an encrypted note. " +
+        "Nothing was written; decrypt it with set_encryption first if they want it published."
+    );
+  }
   const collaborationEligibleExisting = Boolean(
     existing && collaborationSupported(store) && collaborationEligible(path, storedBody),
   );
@@ -387,6 +429,9 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   const shareLines = await shareWrittenNote(store, path, args);
   return toolText(
     `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
+      (publishedForLink
+        ? " (published to this workspace so the link can open it; the answers note keeps its own visibility)"
+        : "") +
       (formLines.length ? `\n${formLines.join("\n")}` : "") +
       (shareLines.length ? `\n${shareLines.join("\n")}` : "")
   );

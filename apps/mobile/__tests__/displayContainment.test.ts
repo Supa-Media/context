@@ -69,6 +69,12 @@ import { displayName, displayPath, folderLabel } from "../features/console/files
 import { describeAgent, noteName } from "../features/console/agents/agentActivity";
 import { linkPromptMessage } from "../features/console/files/linkPrompt";
 import { statusSegments } from "../features/console/files/status";
+import {
+  awaySentence,
+  notYetNote,
+  providerName,
+  providerSentence,
+} from "../features/console/domain/domain";
 import { tabLabel } from "../features/console/files/tabs";
 
 const RLO = String.fromCharCode(0x202e);
@@ -85,6 +91,31 @@ describe("the console contains a name it did not choose", () => {
     expect(displayName(ORDINARY)).toBe("seifdp");
     // The sort number is still filing rather than a name.
     expect(displayName(`1-${ORDINARY}`)).toBe("seifdp");
+  });
+
+  /*
+    A DNS PROVIDER'S NAME IS NOT A NAME THIS PRODUCT CHOSE EITHER.
+
+    `providerDisplayName` arrives in an HTTP response from whatever host the
+    `_domainconnect` TXT record named, and `candidateZones` walks up to the
+    PARENT zones of the hostname being claimed — so for `me.somebody-else.tld`
+    the string is the parent zone operator's, not the claimant's. It is then
+    put inside sentences the console speaks in its own voice, one of which
+    tells the reader to sign in at the named provider, beside a button that
+    opens a URL from the same answer. Sixty characters is a cap, not a
+    container.
+  */
+  test("the DNS provider's own name for itself — providerName and its sentences", () => {
+    const HOSTILE_PROVIDER = `Go${RLO}Daddy`;
+    expect(providerName(HOSTILE_PROVIDER)).toBe(`${FSI}Go${RLO}Daddy${PDI}`);
+    expect(providerName("GoDaddy")).toBe("GoDaddy");
+    // Every sentence that speaks the name, because each is its own boundary.
+    for (const sentence of [providerSentence, awaySentence, notYetNote]) {
+      expect(sentence(HOSTILE_PROVIDER)).toContain(`${FSI}Go${RLO}Daddy${PDI}`);
+      expect(sentence(HOSTILE_PROVIDER)).not.toContain(`Go${RLO}Daddy.`);
+      expect(sentence("GoDaddy")).toContain("GoDaddy");
+      expect(sentence("GoDaddy")).not.toContain(FSI);
+    }
   });
 
   test("a place named in a sentence — displayPath", () => {

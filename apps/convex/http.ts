@@ -731,6 +731,29 @@ export const shareShortLinkCard = httpAction(async (ctx, request) => {
 http.route({ path: "/share/short/card", method: "POST", handler: shareShortLinkCard });
 
 /* -------------------------------------------------------------------------- */
+/* POST /domain/resolve — which workspace a customer domain serves             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The router's question for a request that arrived at a customer's domain.
+ *
+ * Always 200, always `{ "handle": string | null, "homeSlug": string | null }`:
+ * unknown, pending, suspended and removed domains are all the null shape, so
+ * the router fails closed on every one of them the same way. It discloses what
+ * the domain itself publishes and nothing else. POST, like the share routes,
+ * so a hostname does not land in an outbound URL.
+ */
+export const domainResolve = httpAction(async (ctx, request) => {
+  const body = await readJsonBody(request);
+  const hostname = body === null ? null : stringField(body, "hostname");
+  if (hostname === null) return json({ handle: null, homeSlug: null });
+  const result = await ctx.runQuery(api.functions.customDomains.resolveHost, { hostname });
+  return json({ handle: result?.handle ?? null, homeSlug: result?.homeSlug ?? null });
+});
+
+http.route({ path: "/domain/resolve", method: "POST", handler: domainResolve });
+
+/* -------------------------------------------------------------------------- */
 /* POST /stripe/webhook — a signed subscription event                          */
 /* -------------------------------------------------------------------------- */
 

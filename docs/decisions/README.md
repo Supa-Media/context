@@ -103,6 +103,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A short link is a second locator, never a second tier
 - A collect link is a write path, and the only one with no account behind it
 - The switch that hands out a write sits under the link, and says so
+- A custom domain is a third locator, never a wider tier
+- Ownership is a TXT record minted per claim, because a CNAME is not proof
+- Which workspace a host serves comes from the host alone
+- Premium serves the domain, and a lapse deletes nothing
+- One-click setup is Domain Connect, signed, and never for a root domain
 
 ## [Per-note encryption](./encryption.md)
 
@@ -156,6 +161,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The response table scrolls sideways, and never truncates an answer
 - The gateway writes the block too, not only the row
 - A form on a share page draws itself, and is the page's one write
+- Asking for a link publishes the form, and a refused mint says why
 - What is deliberately not built
 
 ## [Search and the derived index](./search.md)

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { internalMutation, query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { internalMutation, query, type MutationCtx } from "../_generated/server";
 import { callerId, resolveFileAccess } from "./files";
 import { audiencesOf, isAudience } from "./lib/treeAudiences";
 
@@ -38,26 +39,39 @@ export const markTreeChanged = internalMutation({
   args: { workspaceId: v.id("workspaces"), audiences: v.array(v.string()) },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null) return null;
-    const at = Date.now();
-    const audiences = [...new Set(args.audiences)].filter(isAudience).slice(0, MAX_AUDIENCES);
-    for (const audience of audiences) {
-      const row = await ctx.db
-        .query("treeSignals")
-        .withIndex("by_workspace_audience", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("audience", audience),
-        )
-        .unique();
-      if (row === null) {
-        await ctx.db.insert("treeSignals", { workspaceId: args.workspaceId, audience, at });
-      } else if (row.at < at) {
-        await ctx.db.patch(row._id, { at });
-      }
-    }
+    await stampTreeAudiences(ctx, args.workspaceId, args.audiences);
     return null;
   },
 });
+
+/**
+ * `markTreeChanged`'s body, for a mutation that already holds the transaction
+ * — the email capture's bookkeeping, which is the only thing the control plane
+ * hears after the email worker writes a note (`ingestionGateway.ts`).
+ */
+export async function stampTreeAudiences(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  requested: readonly string[],
+): Promise<void> {
+  const workspace = await ctx.db.get(workspaceId);
+  if (workspace === null) return;
+  const at = Date.now();
+  const audiences = [...new Set(requested)].filter(isAudience).slice(0, MAX_AUDIENCES);
+  for (const audience of audiences) {
+    const row = await ctx.db
+      .query("treeSignals")
+      .withIndex("by_workspace_audience", (q) =>
+        q.eq("workspaceId", workspaceId).eq("audience", audience),
+      )
+      .unique();
+    if (row === null) {
+      await ctx.db.insert("treeSignals", { workspaceId, audience, at });
+    } else if (row.at < at) {
+      await ctx.db.patch(row._id, { at });
+    }
+  }
+}
 
 /**
  * When this caller's view of a workspace's tree last changed, or `null` for

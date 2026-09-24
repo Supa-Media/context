@@ -201,6 +201,13 @@ Seven rows now, in the order the questions get asked:
 
 plus **Invitations**, which is present only while an invitation is pending.
 
+**Domain** joined on 2026-09-24, after Sharing & Access. It earns its row by
+answering a question none of the others answer: what address people type to
+reach the workspace's published links. It can't sit under Sharing & Access,
+whose first sentence is "Nothing here is public", and a domain is the most
+public thing in the product. It isn't Premium either, because Premium is about
+paying. See [custom domains](../privacy-and-sharing/custom-domains.md).
+
 **The four rules the collapse followed.**
 
 1. **A merge is only worth it where the rows answered one question.** People,

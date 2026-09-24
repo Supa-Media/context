@@ -221,6 +221,7 @@ const RAW_WINDOW_LISTENERS_ALLOWED: Record<string, string> = {
   "features/app/returnToApp.ts": "the one place that checks, by construction",
   "features/console/agents/useAgentActivity.ts": "checks `typeof window.addEventListener` itself before listening",
   "features/console/files/imageBlock/widget.ts": "a CodeMirror widget, bundled into the editor's WebView and never into the app",
+  "features/site/SiteRoot.tsx": "mounted only when `siteHostname()` names a customer's host, which is null off the web",
 };
 
 function sourceFiles(dir: string): string[] {
