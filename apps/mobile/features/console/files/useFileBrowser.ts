@@ -1367,6 +1367,32 @@ export function useFileBrowser(options: {
     });
   }, [adoptTree, workspaceId]);
 
+  /*
+    The hint that somebody changed this context's tree — a colleague, an agent,
+    a meeting, an import — pushed over the Convex connection the console
+    already holds (`functions/treeSignals.ts`). It carries a timestamp and
+    nothing else, filtered to the audiences this person belongs to, so a new
+    value means only "walk again": the walk is `syncManifest`, and what it
+    commits is what redraws the tree above. The first value is not a change —
+    the entry effect already asked for a walk — so only a value that differs
+    from one this context already answered is.
+  */
+  const treeSignal = useQuery(
+    api.functions.treeSignals.treeSignal,
+    workspaceId !== null ? { workspaceId } : "skip",
+  );
+  const seenSignal = useRef<{ workspaceId: string | null; value: number | null | undefined }>({
+    workspaceId: null,
+    value: undefined,
+  });
+  useEffect(() => {
+    if (workspaceId === null || treeSignal === undefined) return;
+    const seen = seenSignal.current;
+    seenSignal.current = { workspaceId, value: treeSignal };
+    if (seen.workspaceId !== workspaceId || seen.value === undefined || seen.value === treeSignal) return;
+    if (offlineRef.current.reachability !== "offline") requestMirrorRefresh(workspaceId);
+  }, [treeSignal, workspaceId]);
+
   /**
    * The note-path index, fetched once per context — best-effort, and never
    * blocking the editor on it.

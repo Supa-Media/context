@@ -467,7 +467,7 @@ export function timestampSlug(now: number): string {
 /*                              the privacy state                             */
 /* -------------------------------------------------------------------------- */
 
-interface PrivacyState {
+export interface PrivacyState {
   rules: PrivacyRule[];
   overrides: Map<string, Visibility>;
   /** The manifest's full text, when there is a parseable one to rewrite. */

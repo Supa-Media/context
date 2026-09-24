@@ -1562,15 +1562,71 @@ What a simplification costs, and what fails:
   after a refusal fails "a refused context shows none of the device's tree".
 
 **What this does not do.** The redraw is only as fresh as the last walk: the
-five-minute pass and the walk opening a context asks for. Pushing a hint when
-somebody else writes is the next change, and it rides this path — a hint
-triggers a walk, and the walk is what redraws. A walk is a whole-bucket
+five-minute pass, the walk opening a context asks for, and the walk a tree
+hint asks for (next section). A walk is a whole-bucket
 listing, so a context of tens of thousands of keys costs that many listed keys
 per walk; a truncated walk leaves missing folders to `listFiles` as before, and
 never reads an absence as a deletion. The device's tree is keyed by workspace
 and clearance, not by storage binding, so a context reconnected to a different
 bucket shows the old bucket's folders until the root listing and the first
 complete walk replace them — seconds, and only to somebody who could see both.
+
+### Somebody else's change reaches an open tree as a hint per audience, never as the change
+
+A folder a colleague or an agent made used to appear at the next five-minute
+walk. Now every write that changes the tree moves a timestamp in Convex, the
+console subscribes to it for the context it has open, and a new value asks the
+mirror for a walk — which is what redraws, through the path above. The hint
+says *when* to ask, never *what*: the walk is `syncManifest`, `canSee` at the
+reader's clearance, and nothing reaches the device that a walk would not have
+brought anyway. It rides the Convex connection the app already holds, so there
+is no socket per note or per folder.
+
+**One stamp per audience, and a reader sees only their own.** A single stamp
+per workspace would tell a team member *when* the owner touched a private
+note — timing is information. So `treeSignals` holds one row per
+(workspace, audience), where an audience is `private`, `team` or `@group`;
+a change moves only the audiences that can see one of the paths it touched,
+judged against `privacy.md` both **before and after** the change (a note made
+private must still tell the team it left; a note moved out of a private folder
+must not tell the team it existed there), plus any rule nested under a touched
+folder. `treeSignal` serves a reader the newest stamp among the audiences
+their clearance holds — `private` for the owner's clearance, `team` and each
+granted group otherwise — and `null`, the same answer as "never changed", to
+anybody the file resolver refuses, rather than an error `useQuery` would throw
+into the page.
+
+**Every writer is covered, or reconciled.** Console operations announce from
+`runFileOperation` (`treeChangeOf` names the paths each operation touches; a
+save carrying an etag is an edit and announces nothing). The gateway announces
+agent writes from `recordChange` through `POST /gateway/tree`, computing the
+audiences with its own privacy engine so no path crosses the boundary — the
+body is a workspace id and labels. A hint that is lost — a crash between the
+write and the stamp, a writer that sends none (Obsidian writing to the bucket
+directly, the email worker's store, calendar and mail sync) — costs freshness
+and nothing else: the five-minute walk reconciles it.
+
+What a simplification costs, and what fails:
+
+- One stamp per workspace, or judging only the state after the change: "a
+  private note moves the owner's hint and not a member's" and "making a shared
+  note private tells the member it went" (`treeSignals.test.ts`), and "a note held back
+  from a shared folder moves without telling the team" / "a shared note moved
+  somewhere private still tells the team it went" (`treeHints.test.mjs`).
+- Stamping every save: "an edit to an existing note moves nobody's hint" and
+  "an edit to an existing note sends nothing".
+- Throwing to a refused caller: "a non-member is told nothing, the same
+  nothing as a context that never changed".
+- Not asking for a walk on a new value: "a hint that the tree changed asks for
+  a walk, and its first value does not" (`fileTreeMetadata.test.ts`).
+
+**Limits.** A hint triggers a whole-manifest walk, so a very large bucket pays
+a full listing per burst of changes (the refresh is single-flight per context,
+so a burst is one extra walk, not one per write). A gateway move reports its
+source's audience only where the tool records `source_visibility`; elsewhere a
+reader who could see only the source converges at the next periodic walk. The
+writer's own console also receives its hint and walks once more; that walk
+confirms what the optimistic listing already drew.
 
 ### Offline is more than saving: create, rename, move, delete
 
