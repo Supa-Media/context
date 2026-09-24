@@ -471,7 +471,12 @@ export async function runSessionOrderChecks(check) {
   // they are acted on correctly. What it catches is somebody deleting a branch,
   // which is the way this would actually regress.
   {
-    const source = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
+    // `main/index.ts`'s wiring, split by subject: the console's write path and
+    // its payloads are `consoleCapture.ts`, the controller is built in
+    // `services.ts`, and the timer is still started in `index.ts`.
+    const source = readFileSync(new URL("../src/main/consoleCapture.ts", import.meta.url), "utf8");
+    const services = readFileSync(new URL("../src/main/services.ts", import.meta.url), "utf8");
+    const index = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
     check(
       "the console's write path asks `drainUrgency` rather than naming kinds itself",
       /drainUrgency\(write\.kind\)/.test(source),
@@ -482,11 +487,11 @@ export async function runSessionOrderChecks(check) {
     );
     check(
       "...and the shell hands the controller a drain to call",
-      /requestDrain: \(\) => void drain\(\)/.test(source),
+      /requestDrain: \(\) => void drain\(\)/.test(services),
     );
     check(
       "...and the timer is still the floor under both of them",
-      /setInterval\(\(\) => void drain\(\), DRAIN_INTERVAL_MS\)/.test(source),
+      /setInterval\(\(\) => void drain\(\), DRAIN_INTERVAL_MS\)/.test(index),
     );
     /*
       The same gap, for the two payload fields this change added. Both are
