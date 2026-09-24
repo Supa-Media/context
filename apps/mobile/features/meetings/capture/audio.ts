@@ -1,12 +1,10 @@
 import {
   AudioModule,
-  RecordingPresets,
   getRecordingPermissionsAsync,
   requestRecordingPermissionsAsync,
-  setAudioModeAsync,
 } from "expo-audio";
-import type { AudioMode, AudioRecorder, RecordingStatus } from "expo-audio";
-import { Directory, File, Paths } from "expo-file-system";
+import type { AudioRecorder, RecordingStatus } from "expo-audio";
+import { File } from "expo-file-system";
 import { currentEpoch } from "../../offline/epoch";
 import type { TranscriptSegment } from "../protocol";
 import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
@@ -23,9 +21,6 @@ import {
 } from "./spool";
 import { meterLevel, publishRecorderLevel } from "./level";
 import {
-  PCM_BIT_DEPTH,
-  PCM_CHANNELS,
-  PCM_SAMPLE_RATE,
   WAV_HEADER_SCAN_BYTES,
   WAV_MIME,
   alignToFrame,
@@ -36,6 +31,33 @@ import {
   wavFile,
   type PcmFormat,
 } from "./wav";
+import { configureAudioSession } from "./phoneAudio/audioSession";
+import {
+  ALREADY_RECORDING,
+  CHUNK_FAILED,
+  CHUNK_KEPT,
+  INTERRUPTED,
+  IOS_BACKGROUND_UNAVAILABLE,
+  MIC_DENIED,
+  MIC_REVOKED,
+  NO_SPEECH,
+  NO_TRANSCRIBER,
+  SEND_BACKLOG,
+  messageOf,
+  requireSessionId,
+} from "./phoneAudio/messages";
+import {
+  ANDROID_RECORDING_OPTIONS,
+  CHUNK_MIME,
+  MAX_SLICE_MS,
+  PCM_RECORDING_OPTIONS,
+  type Payload,
+} from "./phoneAudio/recordingFormat";
+import { discard, sweepLeftovers } from "./phoneAudio/recordingFiles";
+
+export { MEETING_AUDIO_MODE } from "./phoneAudio/audioSession";
+export { CHUNK_MIME } from "./phoneAudio/recordingFormat";
+export { CAPTURE_MESSAGES } from "./phoneAudio/messages";
 
 /**
  * Capture on a phone: `expo-audio` in, `TranscriptSegment`s out.
@@ -248,143 +270,6 @@ import {
 export const RESUME_RETRY_MS = 2_000;
 
 /**
- * The audio session a meeting needs, which is the opposite of a voice memo's.
- *
- * Exported so the test can assert the exact object rather than a mock's call
- * count: `interruptionMode` is the field whose default silently breaks the call
- * being recorded, and a regression here is invisible everywhere else.
- */
-export const MEETING_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
-  allowsRecording: true,
-  allowsBackgroundRecording: true,
-  playsInSilentMode: true,
-  shouldPlayInBackground: true,
-  interruptionMode: "mixWithOthers",
-});
-
-/** The last-known-good iOS session when its native module rejects the new flag. */
-const IOS_FOREGROUND_AUDIO_MODE: Partial<AudioMode> = Object.freeze({
-  allowsRecording: true,
-  playsInSilentMode: true,
-  shouldPlayInBackground: false,
-  interruptionMode: "mixWithOthers",
-});
-
-/**
- * AAC in an MPEG-4 container — `RecordingPresets.HIGH_QUALITY` writes `.m4a` on
- * iOS. `audio/mp4` is that file's real media type; it is passed through to the
- * transcriber so the service names the upload correctly rather than sniffing.
- *
- * **iOS no longer uses it.** See `PCM_RECORDING_OPTIONS`: a `.m4a` that is
- * still being written cannot be read, and reading one while it is written is
- * the whole of the fix for meetings that ended at the lock screen. It stays for
- * Android, which has no linear-PCM recorder to switch to.
- */
-export const CHUNK_MIME = "audio/mp4";
-
-/**
- * WHAT iOS RECORDS INTO NOW, AND WHY IT IS UNCOMPRESSED.
- *
- * `RecordingPresets.HIGH_QUALITY` writes AAC into an MPEG-4 container, which is
- * the right choice for a file somebody keeps and the wrong one for a file
- * somebody reads while it is being written: an `.m4a` is not valid until
- * `stop()` writes its `moov` atom, so a prefix of one is not a shorter
- * recording, it is not a recording.
- *
- * That mattered the moment the rotation had to go. iOS refuses to *start* a
- * recording from the background — `AVAudioSessionErrorCodeCannotStartRecording`
- * — while letting one that is already running continue, so a recorder that
- * stops and restarts every twenty seconds hands back the one thing it is
- * allowed to keep and is refused it. Locking the phone ended the meeting on the
- * next tick. `wav.ts` carries the full argument and the citation.
- *
- * So the recorder is started once and the chunks are cut out of the file it
- * goes on writing, which needs a format whose bytes on disk are the audio so
- * far. Linear PCM in a WAVE container is that format.
- *
- * **16 kHz mono, which is smaller than it sounds and better than it looks.**
- * Uncompressed costs about 115 MB an hour against roughly 8 MB for AAC, in a
- * cache directory, for the length of one meeting. What it buys back: 16 kHz
- * mono is the transcription model's own input, so nothing resamples later, and
- * a meeting recorder that survives a lock screen is the feature.
- *
- * Nothing downstream is asked to trust these numbers — `parseWavHeader` reads
- * the format out of the file the device actually produced, because a device may
- * substitute a rate and a slice labelled with the wrong one transcribes as
- * nonsense.
- */
-/**
- * **FLAT, AND THAT IS NOT A STYLE CHOICE.**
- *
- * `RecordingPresets` are nested — common fields at the top, then `ios`,
- * `android` and `web` sub-objects — and `expo-audio`'s own `useAudioRecorder`
- * flattens the right one into the common fields before constructing a
- * recorder (`createRecordingOptions` in its `utils/options`). That helper is
- * not exported, and this module has never used the hook: it constructs
- * `AudioModule.AudioRecorder` directly, because a recording has to outlive the
- * screen that started it.
- *
- * The native side decodes **one flat record** — `extension`, `sampleRate`,
- * `numberOfChannels`, `bitRate`, `outputFormat`, `audioQuality`, the
- * `linearPCM*` trio — and ignores keys it does not know. So a nested preset
- * handed straight to the constructor delivers the four common fields and
- * silently drops everything under `ios`.
- *
- * That has been true of `RecordingPresets.HIGH_QUALITY` here since this file
- * was written and cost nothing, because `.m4a` plus CoreAudio's defaults is
- * AAC anyway — which is exactly why nobody noticed. It would not be free here:
- * `outputFormat` is the field that selects linear PCM, and dropping it would
- * produce a `.wav` extension over an AAC payload, whose growing bytes are
- * unreadable in precisely the way this whole change exists to stop. The
- * recording would look right in every log and transcribe as nothing.
- *
- * So this object is written the way the native record is read.
- */
-const PCM_RECORDING_OPTIONS = Object.freeze({
-  extension: ".wav",
-  sampleRate: PCM_SAMPLE_RATE,
-  numberOfChannels: PCM_CHANNELS,
-  /*
-    Meaningless for linear PCM — there is no encoder to give a budget to — and
-    sent because the native record requires the field. The real size is the
-    rate times the channels times the depth, which is 32 KB a second.
-  */
-  bitRate: PCM_SAMPLE_RATE * PCM_CHANNELS * PCM_BIT_DEPTH,
-  /*
-    `IOSOutputFormat.LINEARPCM`, spelled as the four-character code the native
-    side turns it into rather than imported as an enum for one value that has
-    been `"lpcm"` for as long as CoreAudio has existed.
-  */
-  outputFormat: "lpcm",
-  /** `AudioQuality.MAX`, and equally decorative for an uncompressed format. */
-  audioQuality: 127,
-  linearPCMBitDepth: PCM_BIT_DEPTH,
-  linearPCMIsBigEndian: false,
-  linearPCMIsFloat: false,
-  /*
-    The meter. `AVAudioRecorder.averagePower` is only updated for a recorder
-    that was asked for it, and nothing asked — so `useAudioLevel` answered
-    `null` on every phone and the mark beside the clock drew its static
-    silhouette for the length of every meeting. See `LEVEL_INTERVAL_MS`.
-  */
-  isMeteringEnabled: true,
-});
-
-/**
- * Android's preset, plus the one flat key that turns its meter on.
- *
- * `isMeteringEnabled` at the top level, which is where the native record reads
- * every field from — the flattening trap `PCM_RECORDING_OPTIONS` documents,
- * used deliberately this time. Nothing else about the recording changes: the
- * format fields under `android:` are ignored exactly as they always have been,
- * so this adds a meter without touching what Android records.
- */
-const ANDROID_RECORDING_OPTIONS = Object.freeze({
-  ...RecordingPresets.HIGH_QUALITY,
-  isMeteringEnabled: true,
-});
-
-/**
  * How often the phone's own meter is read, in milliseconds.
  *
  * Ten times a second, which is what the desktop shell's bridge pushes and what
@@ -396,193 +281,7 @@ const ANDROID_RECORDING_OPTIONS = Object.freeze({
  */
 const LEVEL_INTERVAL_MS = 100;
 
-/**
- * How much audio one slice may carry, as a multiple of the tick.
- *
- * A slice is sent every `SEGMENT_MS`, so one tick's worth is the normal case
- * and the headroom is for catching up: a tick that ran late, or a device that
- * flushed its buffer in a burst, leaves more than one interval of audio on
- * disk. **The file is the buffer** — bytes not taken this tick are still there
- * on the next one, which is the property the rotating recorder never had — so
- * this is a ceiling on one request rather than a limit on what survives.
- *
- * The ceiling exists because the gateway bounds a transcribe body at
- * `LIMITS.transcribeBodyChars` (1,404,096 characters of base64). Thirty seconds
- * of 16 kHz mono 16-bit is 960,000 bytes, which is 1,280,000 characters
- * encoded: inside the limit with room for the envelope around it.
- */
-const MAX_SLICE_MS = SEGMENT_MS * 1.5;
-
-/**
- * What a send carries, which is one of two things with one difference.
- *
- * A **rotated chunk** is a file: the recorder finished it, the send reads it
- * and deletes it, and until it does `inFlightUris` keeps `releaseDevice` from
- * deleting it first. A **continuous slice** is bytes already in memory, cut out
- * of a recording that is still going and that this send does not own.
- *
- * Kept as one union rather than two send paths because the difference is
- * ownership and nothing else — the request, the retry, the reporting and the
- * backlog rule are identical — and a second copy of those is how the two
- * platforms would drift.
- */
-type Payload =
-  | File
-  | { base64: string; mimeType: string }
-  /**
-   * A chunk already in the spool. It owns no file the device knows about — the
-   * spool does — and the send confirms it only once its words are delivered.
-   * `base64` is carried when the bytes are already in memory, so a slice that
-   * was just written is not read straight back off the disk.
-   */
-  | { spooled: SpooledChunk; base64: string | null };
-
-const MIC_DENIED =
-  "Context needs microphone access to hear this meeting. This one is a typed session; your notes still land in your bucket.";
-
-const MIC_REVOKED =
-  "Microphone access was turned off, so the rest of this meeting is typed. Your notes still land in your bucket.";
-
-const INTERRUPTED =
-  "Something else took the microphone. Typing still works, and capture picks up when it is free.";
-
-const NO_TRANSCRIBER =
-  "This meeting is not being transcribed — the app could not reach transcription. Your notes still land in your bucket.";
-
-/**
- * The controller always supplies `sessionId`, so this is a caller bug rather
- * than a real-world situation — the same posture `desktop.ts`'s
- * `requireSessionId` takes, and for the same reason: a generated fallback here
- * is how the identity guard above goes back to being inert, quietly, on the day
- * somebody forgets to pass it. Loud on the first press beats quiet until the
- * next contamination review.
- */
-const NO_SESSION_ID =
-  "This meeting had no id to record against, so nothing was captured. Start the meeting again.";
-
-/**
- * ONE DEVICE, ONE MEETING — SAID OUT LOUD RATHER THAN BY RETURNING.
- *
- * `start()` used to return silently when this recorder was already recording,
- * which is right for the same meeting twice (a double press is one start) and
- * was quietly wrong for a *different* one. The console's own Record key is
- * drawn whether or not a meeting is live — `MeetingsListScreen` hides its
- * button and `ConsoleBottomBar` does not — so a second meeting really can be
- * started from a device that is already recording one, and the recorder went
- * on minting chunk ids for the meeting it opened with. Before phone ids named
- * their meeting that was silent contamination: the first meeting's audio was
- * folded into the second one's transcript, with the first meeting's offsets.
- * Since they name it, `controller.apply` refuses every one of those segments
- * — which is correct, and turns the same press into a meeting that records
- * *nothing at all* and says nothing about it.
- *
- * Neither is an outcome to leave a person in, and the recorder is the only
- * place that knows both meetings' names, so it refuses. `controller.start`
- * catches a refused start, keeps the session, and puts this sentence on the
- * live screen beside the notepad — the same handling a denied microphone gets,
- * for the same reason: the notes are the product and they keep working.
- */
-const ALREADY_RECORDING =
-  "This device is already recording another meeting. End that one first — your notes here are still kept.";
-
-const CHUNK_FAILED =
-  "A few seconds of audio could not be transcribed. Capture is still running.";
-
-/**
- * A send failed and its chunk is still in the spool.
- *
- * Its own sentence rather than `CHUNK_FAILED`, because the two are different
- * facts: that one is a gap in the transcript, and this one is a delay. Telling
- * somebody audio was lost when it is sitting on their phone waiting to be sent
- * is the crying-wolf half of honesty, and it teaches them to stop reading chips.
- */
-const CHUNK_KEPT =
-  "A few seconds of audio could not be transcribed yet. They are saved on this phone and will be sent again.";
-
-const SEND_BACKLOG =
-  "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
-
-/*
-  WHY THERE IS A SENTENCE FOR SILENCE AT ALL.
-
-  The transcription worker now refuses the segments the engine's own evidence
-  says are not speech — ninety seconds of a quiet room produced 166 words and
-  filed them into a bucket, so an engine handed silence answers with sentences.
-  The refusal is right, and it makes a quiet chunk come back with no words in
-  it, which on the glass is exactly what a transcriber that has stopped working
-  also looks like: a chip that never appears.
-
-  So the quiet one says so. It fires only when the WHOLE chunk came back empty
-  and the worker said why: a meeting with pauses in it refuses the odd segment
-  continuously, and a chip per pause is noise that teaches somebody to ignore
-  the chip that matters.
-*/
-const NO_SPEECH =
-  "No speech was heard in the last stretch of audio, so nothing was transcribed from it. Capture is still running.";
-
-const IOS_BACKGROUND_UNAVAILABLE =
-  "Recording works while Context stays open, but locking your phone will stop the audio.";
-
-/**
- * Everything a `RecorderError` from this module may say, and the whole of it.
- *
- * The messages above are what the controller puts on the glass, and until this
- * existed one of them was not ours: a failed send reported
- * `messageOf(error, CHUNK_FAILED)`, which is an arbitrary upstream
- * `Error.message`. That is safe exactly while every refusal on the other end is
- * a fixed string, and it is one deploy away from not being — an
- * argument-too-large error that quotes its payload would put base64 audio on
- * somebody's screen. So the set is closed, and `meetingsCapture.test.ts` asserts
- * every reported message is in it.
- *
- * `MIC_DENIED` is here too even though it is *thrown* from `start()` rather than
- * reported: the controller writes a rejected start onto the same snapshot field.
- */
-export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
-  MIC_DENIED,
-  MIC_REVOKED,
-  INTERRUPTED,
-  NO_TRANSCRIBER,
-  CHUNK_FAILED,
-  CHUNK_KEPT,
-  SEND_BACKLOG,
-  NO_SPEECH,
-  NO_SESSION_ID,
-  IOS_BACKGROUND_UNAVAILABLE,
-  ALREADY_RECORDING,
-]);
-
-/** Where `expo-audio` writes: `<caches>/ExpoAudio/recording-<uuid>.m4a`. */
-const RECORDING_DIR = "ExpoAudio";
-
-/**
- * Drop anything a previous run of this app left in the recording directory.
- *
- * Called once, when this module is evaluated. That placement is the whole of
- * why it is safe: a module body runs before any recorder in this runtime
- * exists, so there is no open chunk for it to delete out from under a meeting.
- * Doing it at `createRecorder` time would not be safe — every screen in the
- * feature builds one, including on a remount that happens mid-recording.
- *
- * Everything is guarded: a cache directory this build cannot read is not a
- * reason to refuse somebody a meeting.
- */
-function sweepLeftovers(): void {
-  try {
-    const directory = new Directory(Paths.cache, RECORDING_DIR);
-    if (!directory.exists) return;
-    for (const entry of directory.list()) {
-      try {
-        entry.delete();
-      } catch {
-        // One file that will not go is not a reason to leave the rest.
-      }
-    }
-  } catch {
-    // No cache directory, or no permission to read it. Nothing to do.
-  }
-}
-
+// Once, at module evaluation, before any recorder exists — see `sweepLeftovers`.
 sweepLeftovers();
 
 /**
@@ -1766,78 +1465,4 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       return () => errorListeners.delete(listener);
     },
   };
-}
-
-/**
- * Ask for the session a meeting needs, and settle for less if this binary
- * cannot give it.
- *
- * Both platforms first use the same background-capable session. An affected
- * iOS native module can reject that newer object before opening the microphone;
- * retrying the old foreground mode restores recording without pretending the
- * downgrade will survive a lock. Android has no safe equivalent because the
- * same switch starts its required foreground service, so it still fails closed.
- */
-async function configureAudioSession(platform: "ios" | "android"): Promise<boolean> {
-  try {
-    await setAudioModeAsync(MEETING_AUDIO_MODE);
-    return true;
-  } catch {
-    if (platform === "ios") {
-      try {
-        await setAudioModeAsync(IOS_FOREGROUND_AUDIO_MODE);
-        return false;
-      } catch {
-        // The stable foreground mode also failed; no recorder may be opened.
-      }
-    }
-    throw new Error("Background audio could not be enabled; recording cannot safely continue.");
-  }
-}
-
-/**
- * Delete, and never let the delete be the thing that breaks a meeting.
- *
- * Takes a uri rather than a `File` because `new File(uri)` is itself a call
- * that can throw — a path the file system will not accept — and the one place
- * that must never throw is the sweep on the way out of a recording.
- */
-function discard(uri: string): void {
-  try {
-    new File(uri).delete();
-  } catch {
-    // A file that was never written, one already collected, or a path this
-    // build cannot make a handle for. Nothing to do, and nothing worth telling
-    // somebody in a meeting about.
-  }
-}
-
-/**
- * The meeting this capture belongs to, refused rather than invented.
- *
- * `desktop.ts`'s own function, restated here rather than shared: every chunk id
- * this recorder mints is `${meetingId}-${index}`, and a generated fallback —
- * `Math.random()`, a fresh id, the very `Date.now()` this replaced — would put
- * this recorder back where it started, silently, the one time a caller forgets
- * to pass it. `controller.ts` always does; a caller that does not has a bug and
- * it should be loud on the first press rather than discovered in a
- * contamination review.
- */
-function requireSessionId(options: CaptureOptions | undefined): string {
-  const id = options?.sessionId ?? "";
-  if (id === "") throw new Error(NO_SESSION_ID);
-  return id;
-}
-
-/**
- * The one place an upstream sentence still reaches somebody, and why.
- *
- * `start()` fails because of the *device* — a microphone another app is holding,
- * a session this binary has no entitlement for — and `expo-audio` says which,
- * usefully, in words. That error carries no payload and cannot: it is thrown
- * before a byte has been recorded. Every failure that happens with audio in
- * hand goes through `CAPTURE_MESSAGES` instead.
- */
-function messageOf(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.length > 0 ? error.message : fallback;
 }
