@@ -233,6 +233,7 @@ export const deleteAccount = mutation({
  *    how `dropboxConnectAttempts` and `googleConnectAttempts` are both
  *    covered by one loop instead of one hand-maintained call per provider.
  *  - **`ingestionSettings`**, **`vaultImportJobs`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
+ *    **`websiteStates`**,
  *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
  *    **`oauthGrants`**, **`noteShares`** (every status), **`auditEvents`**,
  *    **`workspaceMembers`**, **`names`** — swept below, each with its own
@@ -652,6 +653,17 @@ async function deleteWorkspaceCascade(
     for (const share of shares) {
       await ctx.db.delete(share._id);
     }
+  }
+
+  // The explicit lifecycle switch. Website files remain in the customer's
+  // bucket like every other note; only this control-plane fact dies with the
+  // workspace that owned it.
+  const websiteStates = await ctx.db
+    .query("websiteStates")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const state of websiteStates) {
+    await ctx.db.delete(state._id);
   }
 
   // The audit trail. Unlike a disconnect — where "storage was disconnected"

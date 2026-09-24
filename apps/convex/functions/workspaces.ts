@@ -14,7 +14,14 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "../_generated/server";
+import type { WebsiteEnableResult, WebsiteStateView } from "@context/shared";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
 import { applyStructureHandler } from "./lib/workspaces/structure";
 import { listMyWorkspacesHandler } from "./lib/workspaces/list";
@@ -31,7 +38,54 @@ import {
   setWorkspaceIconHandler,
   workspaceIconLeafHandler,
 } from "./lib/workspaces/icon";
-import { workspaceIconValidator, workspaceSummary } from "./lib/workspaces/validators";
+import {
+  workspaceIconValidator,
+  workspaceSummary,
+} from "./lib/workspaces/validators";
+import {
+  disableWebsiteHandler,
+  enableWebsiteHandler,
+  getWebsiteStateHandler,
+  recordWebsiteEnabledHandler,
+  websiteStateForEnableHandler,
+} from "./lib/websites/state";
+
+const websiteStateValidator = v.union(
+  v.object({
+    contractVersion: v.literal(1),
+    state: v.literal("disabled"),
+    root: v.literal("website"),
+    handlePath: v.string(),
+    canManage: v.boolean(),
+  }),
+  v.object({
+    contractVersion: v.literal(1),
+    state: v.literal("enabled"),
+    root: v.literal("website"),
+    handlePath: v.string(),
+    canManage: v.boolean(),
+    enabledAt: v.number(),
+  }),
+);
+
+const websiteEnabledStateValidator = v.object({
+  contractVersion: v.literal(1),
+  state: v.literal("enabled"),
+  root: v.literal("website"),
+  handlePath: v.string(),
+  canManage: v.boolean(),
+  enabledAt: v.number(),
+});
+
+const websiteEnableValidator = v.object({
+  contractVersion: v.literal(1),
+  state: v.literal("enabled"),
+  root: v.literal("website"),
+  handlePath: v.string(),
+  canManage: v.boolean(),
+  enabledAt: v.number(),
+  starter: v.union(v.literal("created"), v.literal("existing")),
+});
 
 /**
  * Create a workspace, claim its name, and make the creator its owner —
@@ -301,6 +355,71 @@ export const setMeetingsFolder = mutation({
   },
   returns: v.object({ folder: v.string() }),
   handler: (ctx, args) => setMeetingsFolderHandler(ctx, args),
+});
+
+/* -------------------------------------------------------------------------- */
+/*                          website lifecycle state                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The explicit website switch for a workspace member.
+ *
+ * Every member may see whether the site is on; only the role that already
+ * manages workspace Settings receives `canManage: true`. Page content and
+ * route diagnostics are deliberately absent from this reactive query.
+ */
+export const getWebsiteState = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: websiteStateValidator,
+  handler: async (ctx, args): Promise<WebsiteStateView> =>
+    await getWebsiteStateHandler(ctx, args),
+});
+
+/**
+ * Turn the site on, safely creating the ordinary starter note when absent.
+ *
+ * An action because the bucket must succeed before the lifecycle row changes.
+ * Existing content is never overwritten, and retrying an enabled site opens
+ * no credential and performs no bucket request.
+ */
+export const enableWebsite = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: websiteEnableValidator,
+  handler: async (ctx, args): Promise<WebsiteEnableResult> =>
+    await enableWebsiteHandler(ctx, args),
+});
+
+/** Turn the site off while preserving the website folder and every file. */
+export const disableWebsite = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: websiteStateValidator,
+  handler: async (ctx, args): Promise<WebsiteStateView> =>
+    await disableWebsiteHandler(ctx, args),
+});
+
+/** Internal owner-gated read used by the enable action before bucket access. */
+export const websiteStateForEnable = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+  },
+  returns: websiteStateValidator,
+  handler: async (ctx, args): Promise<WebsiteStateView> =>
+    await websiteStateForEnableHandler(ctx, args),
+});
+
+/** Internal owner-gated commit used only after starter creation succeeds. */
+export const recordWebsiteEnabled = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+  },
+  returns: websiteEnabledStateValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<WebsiteStateView, { state: "enabled" }>> =>
+    await recordWebsiteEnabledHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
