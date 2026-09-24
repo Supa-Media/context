@@ -89,7 +89,11 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { type Clearance, clearanceOf, privateClearance } from "./lib/clearance";
 import { grantedNamesFor } from "./lib/grantedNames";
-import { treeAudiences } from "./lib/treeAudiences";
+import {
+  type TreeChange,
+  audiencesForChange,
+  trimTrailingSlashes,
+} from "./lib/treeAnnounce";
 import { resolveAddressedUser } from "./lib/identities";
 import { forwardPath, readForwarding } from "../../mcp/src/forwarding.js";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
@@ -1930,21 +1934,6 @@ export const authorizeFileAccess = internalQuery({
   handler: (ctx, args) => resolveFileAccess(ctx, args),
 });
 
-/**
- * What a file operation does to the tree: the paths it creates, moves or
- * removes, and whether it can take something away from a reader who could see
- * it (a move, a delete, a visibility change) — for which the audiences are
- * read before the operation as well as after. `every` is an operation that
- * can change anything (clearing or resetting the whole context). `null` for
- * everything that leaves the tree as it was: reads, and a save to a note that
- * already exists, which changes its words and not the tree.
- */
-interface TreeChange {
-  paths: string[];
-  narrows: boolean;
-  every?: boolean;
-}
-
 function treeChangeOf(operation: FileOperation): TreeChange | null {
   switch (operation.kind) {
     case "write":
@@ -1970,19 +1959,22 @@ function treeChangeOf(operation: FileOperation): TreeChange | null {
       };
     case "move":
     case "restoreTrash":
-      return { paths: [operation.from, operation.to], narrows: true };
+      return { paths: [operation.from, operation.to], narrows: true, gone: [operation.from] };
+    case "delete":
+      return { paths: [operation.path], narrows: true, gone: [operation.path] };
     case "archive":
     case "trash":
-    case "delete":
     case "setVisibility":
     case "setNoteGroup":
     case "setFolderGroup":
     case "setFolderVisibility":
       return { paths: [operation.path], narrows: true };
-    case "contextMoveDelete":
-      return { paths: operation.sources.map((source) => source.path), narrows: true };
+    case "contextMoveDelete": {
+      const paths = operation.sources.map((source) => source.path);
+      return { paths, narrows: true, gone: paths };
+    }
     case "contextMoveFinish":
-      return { paths: [operation.from], narrows: true };
+      return { paths: [operation.from], narrows: true, gone: [operation.from] };
     case "clearVault":
       return operation.countOnly ? null : { paths: [], narrows: true, every: true };
     case "resetPrivacy":
@@ -2002,6 +1994,8 @@ function treeChangeOf(operation: FileOperation): TreeChange | null {
  * step is inside the catch, and a lost hint is caught by the client's
  * periodic walk. An operation that threw never reaches here, so a failed
  * change is never announced.
+ *
+ * Who is told is `audiencesForChange`, beside `treeAudiences`.
  */
 async function announceTreeChange(
   ctx: ActionCtx,
@@ -2013,28 +2007,23 @@ async function announceTreeChange(
 ): Promise<void> {
   try {
     const paths = [...change.paths];
+    const gone = new Set((change.gone ?? []).map(trimTrailingSlashes));
     // Where a note actually landed — an archive's dated folder, a duplicate's
-    // new name — is only in the answer.
+    // new name — is only in the answer. Its source is gone from where it was.
     if (result.kind === "moved") {
       const moved = result as { from?: unknown; to?: unknown };
-      if (typeof moved.from === "string") paths.push(moved.from);
+      if (typeof moved.from === "string") {
+        paths.push(moved.from);
+        gone.add(trimTrailingSlashes(moved.from));
+      }
       if (typeof moved.to === "string") paths.push(moved.to);
     }
     const after = await loadPrivacyState(store);
-    const audiences = new Set<string>();
-    for (const state of before === null ? [after] : [before, after]) {
-      const reach = change.every
-        ? ["", ...state.rules.map((rule) => rule.prefix), ...state.overrides.keys()]
-        : paths;
-      for (const audience of treeAudiences(reach, state.rules, state.overrides)) {
-        audiences.add(audience);
-      }
-      if (change.every) audiences.add("private");
-    }
-    if (audiences.size === 0) return;
+    const audiences = audiencesForChange({ change, paths, gone, before, after });
+    if (audiences.length === 0) return;
     await ctx.runMutation(internal.functions.treeSignals.markTreeChanged, {
       workspaceId,
-      audiences: [...audiences],
+      audiences,
     });
   } catch {
     // See above: a hint is never a failed change.
