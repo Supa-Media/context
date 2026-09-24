@@ -70,6 +70,7 @@
   "reviewed": {
     "apps/desktop/test/consoleBridge/senderGuard.test.mjs": "One invariant (every IPC handler refuses a sender that is not the console window) checked across all handlers; the per-handler cases share one harness.",
     "apps/desktop/test/packaging/deployWorkflow.test.mjs": "Checks one workflow file; every check reads the same parsed steps, so splitting would duplicate the parse or scatter one contract.",
+    "apps/mcp/src/tools/schemas.js": "One function returning the gateway's tool definition array verbatim; splitting it means editing the literal, left for the follow-up that retargets the text-reading gateway tests.",
     "docs/decisions/communications/calendar.md": "One decision argument (sync horizon, sync passes, what is deliberately not built); moved verbatim from communications.md, and cutting it would separate the reasoning from its conclusion.",
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
@@ -120,7 +121,7 @@
     "apps/mcp/src/controlPlane.js": 1073,
     "apps/mcp/src/encryption.js": 1192,
     "apps/mcp/src/forms.js": 1114,
-    "apps/mcp/src/index.js": 14636,
+    "apps/mcp/src/index.js": 9227,
     "apps/mcp/src/oauth.js": 1148,
     "apps/mcp/src/presenceRoom.js": 1244,
     "apps/mcp/src/search/shards.js": 2508,
