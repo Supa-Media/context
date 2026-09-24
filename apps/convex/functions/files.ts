@@ -157,11 +157,9 @@ import {
 } from "./lib/blendedSearch";
 import {
   DELETE_CONFIRMATION,
-  FileOpError,
   type FileStore,
   type PrivacyState,
   loadPrivacyState,
-  READ_BATCH_PATHS,
   type ProjectionClient,
 } from "./lib/fileOps";
 import {
@@ -215,7 +213,6 @@ import {
   writeSharedCalendarDay,
 } from "./lib/filesFns/forwardSyncSupport";
 import { executeOperation } from "./lib/filesFns/executeOperation";
-import { toConvexError } from "./lib/filesFns/operationErrors";
 import {
   type BlendedAnswer,
   SOURCE_DEADLINE_MS,
@@ -264,6 +261,13 @@ import {
   storeNoteImageHandler,
   workspaceIconPhotoHandler,
 } from "./lib/filesFns/images";
+import {
+  listActivityHandler,
+  listFilesHandler,
+  readNoteHandler,
+  readNotesHandler,
+  syncManifestHandler,
+} from "./lib/filesFns/noteReads";
 export { scopeForRole, resolveFileAccess, callerId } from "./lib/filesFns/access";
 export { executeOperation } from "./lib/filesFns/executeOperation";
 
@@ -1611,24 +1615,7 @@ export const listDurableMoves = query({
 export const listFiles = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: listingValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "listing" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "member",
-    });
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "list", path: args.path },
-    });
-    return result as Extract<OperationResult, { kind: "listing" }>;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "listing" }>> => await listFilesHandler(ctx, args),
 });
 
 /**
@@ -1701,32 +1688,7 @@ export const listManagedPlugins = action({
 export const readNote = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: fileValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "file" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "member",
-    });
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      /*
-        A link into the console outlives the path it names. Somebody pastes
-        `?note=2-areas/apps/x.md` into a thread, the folder is renamed to
-        `5-areas`, and the address in the thread is the only copy of it left —
-        no rewrite reaches a chat message. `onMiss` follows the bucket's
-        forwarding ledger once the live path has already missed, so a note
-        that exists where it says wins, and only a dead address is forwarded.
-      */
-      operation: { kind: "read", path: args.path, forward: "onMiss" },
-    });
-    return result as Extract<OperationResult, { kind: "file" }>;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "file" }>> => await readNoteHandler(ctx, args),
 });
 
 /**
@@ -1744,27 +1706,7 @@ export const readNote = action({
 export const syncManifest = action({
   args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()) },
   returns: manifestValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "manifest" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "member",
-    });
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: {
-        kind: "manifest",
-        ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
-      },
-    });
-    return result as Extract<OperationResult, { kind: "manifest" }>;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "manifest" }>> => await syncManifestHandler(ctx, args),
 });
 
 /**
@@ -1778,32 +1720,7 @@ export const syncManifest = action({
 export const readNotes = action({
   args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
   returns: notesValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "notes" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "member",
-    });
-    // Refused before the barrier rather than inside it, so a request that can
-    // never succeed does not open the bucket's credential to find that out.
-    // `readFiles` refuses it again, for any other caller.
-    if (args.paths.length > READ_BATCH_PATHS) {
-      throw toConvexError(
-        new FileOpError("BATCH_TOO_LARGE", `Read at most ${READ_BATCH_PATHS} notes at a time.`),
-      );
-    }
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "readMany", paths: args.paths },
-    });
-    return result as Extract<OperationResult, { kind: "notes" }>;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "notes" }>> => await readNotesHandler(ctx, args),
 });
 
 /**
@@ -3122,20 +3039,5 @@ export const listActivity = action({
   // return to inference makes the generated `api` type recurse through itself.
   // Unannotated, it costs 143 `implicitly any` errors across tests that have
   // nothing to do with it — the whole repository's inference, not this file's.
-  handler: async (ctx, args): Promise<ActivityEntry[]> => {
-    const actorUserId: Id<"users"> = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(
-      internal.functions.files.authorizeFileAccess,
-      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
-    );
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "readActivity" },
-    });
-    if (result.kind !== "activity") return [];
-    const limit = Math.max(1, Math.min(args.limit ?? 50, 400));
-    return result.entries.slice(0, limit);
-  },
+  handler: async (ctx, args): Promise<ActivityEntry[]> => await listActivityHandler(ctx, args),
 });
