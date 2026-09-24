@@ -33,6 +33,7 @@ import {
   parseListBody,
   renderListBlock,
   selectListRows,
+  noteProperties,
 } from "../src/lists.js";
 
 const block = (...body) => ["```list", ...body, "```"].join("\n");
@@ -188,5 +189,36 @@ export async function runListChecks(check) {
   {
     const tampered = selectListRows({ from: "", where: [], sort: { key: "updated", order: "desc" }, show: [], limit: 50, subfolders: true }, NOTES, {});
     check("a config that skipped the parser still never lists plumbing", !tampered.rows.some((r) => r.path.includes(".context")));
+  }
+
+  /* ------------------------ frontmatter as properties ------------------------ */
+  {
+    const p = noteProperties(
+      [
+        "---",
+        "title: \"Launch: part two\"",
+        "status: active",
+        "tags: [ios, 'Expo']",
+        "people:",
+        "  - Ada",
+        "  - Seyi",
+        "team:",
+        "  owner: Sayo",
+        "updated: 2026-09-24T10:30",
+        "__proto__: polluted",
+        "---",
+        "# Body",
+        "status: not this",
+      ].join("\n")
+    );
+    check("a quoted scalar loses its quotes and keeps its colon", p.title === "Launch: part two");
+    check("an inline list is a list", Array.isArray(p.tags) && p.tags.join() === "ios,Expo");
+    check("a block list is a list", Array.isArray(p.people) && p.people.join() === "Ada,Seyi");
+    check("a nested map is skipped, not flattened", p.owner === undefined);
+    check("a value with a colon survives", p.updated === "2026-09-24T10:30");
+    check("the body is not frontmatter", p.status === "active");
+    check("a key named __proto__ is only a key", p.__proto__ === "polluted" && ({}).polluted === undefined);
+    check("a note without frontmatter has no properties", Object.keys(noteProperties("# Hi\nstatus: x")).length === 0);
+    check("an unclosed block is not frontmatter", Object.keys(noteProperties("---\nstatus: x\n")).length === 0);
   }
 }

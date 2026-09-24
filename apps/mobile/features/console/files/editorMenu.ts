@@ -65,6 +65,8 @@ export type EditorMenuId =
   | "task"
   | "quote"
   | "table"
+  /** A live list of a folder's notes; see `listBlock/`. */
+  | "folderList"
   /** Speak into the note, at the caret. */
   | "dictate"
   /** Hand the note to the agent, in the console's right panel. */
@@ -94,6 +96,8 @@ export interface EditorMenuContext {
    */
   canDictate?: boolean;
   canAsk?: boolean;
+  /** A folder list can be drawn here: the surface has a copy of the notes. */
+  canList?: boolean;
 }
 
 /** The chord a row prints, or nothing — which `describeBinding` treats as legitimate. */
@@ -188,6 +192,7 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
     // here, how many rows and columns. See `TableSizePicker.web.tsx`.
     { id: "table", label: "Table…", separatorBefore: true },
   );
+  if (context.canList === true) items.push({ id: "folderList", label: "Folder list" });
 
   return items;
 }

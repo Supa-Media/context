@@ -33,10 +33,12 @@
  * Zero dependencies, Workers runtime, and imported by the mobile app, so both
  * halves read one grammar. Split into `lists/`: `grammar.js` (the constants),
  * `parseBlock.js` (the fence and its body), `renderBlock.js` (config back to
- * text, for an editor that changes a filter) and `select.js` (the rows).
+ * text, for an editor that changes a filter), `select.js` (the rows) and
+ * `properties.js` (a note's frontmatter as the properties rows are chosen by).
  */
 
 export { LIST_FENCE_LANG } from "./lists/grammar.js";
 export { parseListBlocks, parseListBody } from "./lists/parseBlock.js";
 export { renderListBlock } from "./lists/renderBlock.js";
 export { selectListRows } from "./lists/select.js";
+export { noteProperties } from "./lists/properties.js";

@@ -116,6 +116,7 @@ export { livePreview } from "./livePreview/extension";
 
 import { formStyles } from "./livePreview/styles/forms";
 import { imageStyles } from "./livePreview/styles/images";
+import { listStyles } from "./livePreview/styles/lists";
 import { tableStyles } from "./livePreview/styles/tables";
 import { textStyles } from "./livePreview/styles/text";
 
@@ -166,4 +167,4 @@ const headingStyles = `
  * system: this is a note editor, and a document that looks like a magazine is
  * harder to edit than one that looks like a document.
  */
-export const livePreviewStyles = headingStyles + textStyles + tableStyles + formStyles + imageStyles;
+export const livePreviewStyles = headingStyles + textStyles + tableStyles + formStyles + imageStyles + listStyles;

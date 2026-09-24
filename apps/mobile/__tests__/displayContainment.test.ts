@@ -329,6 +329,9 @@ describe("the console contains a name it did not choose", () => {
       "features/console/files/zip.ts",
       // A key for the offline mirror, compared rather than drawn.
       "features/offline/mirrorSearch.ts",
+      // A folder list's leaf, handed straight to folderLabel or displayName,
+      // which contain it; the widget draws nothing that skipped them.
+      "features/console/files/listBlock/words.ts",
     ]);
     const found = sourceFilesMatching("\\.split(\"/\")\\.pop()").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);
