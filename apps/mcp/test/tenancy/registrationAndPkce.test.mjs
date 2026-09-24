@@ -91,10 +91,10 @@ export async function runTenancyRegistrationAndPkceChecks(check, harness) {
     lineBroken.stored === "Context Already approved — press Approve"
   );
 
-  const invisible = await registerNamed("Cont​ext‮Desktop\u0007⁦﻿");
+  const invisible = await registerNamed("Cont\u200bext\u202eDesktop\u0007\u2066\ufeff");
   check(
     "a client name cannot carry a control, a bidi override or an invisible spacer",
-    !/[\p{Cc}؜​‎‏‪-‮⁠⁦-⁩﻿]/u.test(
+    !/[\p{Cc}\u061C\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/u.test(
       invisible.stored
     )
   );
@@ -109,16 +109,16 @@ export async function runTenancyRegistrationAndPkceChecks(check, harness) {
     both are kept on purpose. An exception asserted by nothing is an exception
     the next tidy-up deletes.
   */
-  const persian = await registerNamed("می‌رود");
+  const persian = await registerNamed("\u0645\u06cc\u200c\u0631\u0648\u062f");
   check(
     "a zero-width non-joiner survives, because in Persian it is a letter boundary",
-    persian.stored === "می‌رود"
+    persian.stored === "\u0645\u06cc\u200c\u0631\u0648\u062f"
   );
 
-  const emoji = await registerNamed("Context on Seyi's \u{1F468}‍\u{1F4BB}");
+  const emoji = await registerNamed("Context on Seyi's \u{1F468}\u200D\u{1F4BB}");
   check(
     "an emoji sequence is not taken apart by the normaliser",
-    emoji.stored === "Context on Seyi's \u{1F468}‍\u{1F4BB}"
+    emoji.stored === "Context on Seyi's \u{1F468}\u200D\u{1F4BB}"
   );
 
   const ordinary = await registerNamed("  Claude Code (v2.1) — Seyi's laptop  ");
@@ -127,7 +127,7 @@ export async function runTenancyRegistrationAndPkceChecks(check, harness) {
     ordinary.stored === "Claude Code (v2.1) — Seyi's laptop"
   );
 
-  const onlyNoise = await registerNamed("​​\u0000\n\t");
+  const onlyNoise = await registerNamed("\u200b\u200b\u0000\n\t");
   check(
     "a name that is nothing but noise falls back rather than reaching the console empty",
     onlyNoise.stored === "Unnamed MCP client"
