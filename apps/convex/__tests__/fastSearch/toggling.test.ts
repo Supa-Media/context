@@ -16,7 +16,7 @@ import {
   bindingRow,
   workspaceDoc,
   planDoc,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("turning it on", () => {
   test("writes one row, opted in, and reports preparing", async () => {

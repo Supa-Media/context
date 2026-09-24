@@ -13,7 +13,7 @@ import {
   configured,
   paidContext,
   stubCloudflare,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("waiting for a managed bucket that has only just been made", () => {
   /*

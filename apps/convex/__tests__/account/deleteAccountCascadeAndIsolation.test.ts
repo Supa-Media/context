@@ -15,7 +15,7 @@ import {
 } from "../fixtures.helpers";
 import {
   onboardedAccount,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("deleteAccount", () => {
   test("deleting a Dropbox-backed account schedules the grant revocation", async () => {

@@ -14,7 +14,7 @@ import {
   Fixture,
   fixture,
   share,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                                  conflicts                                 */
