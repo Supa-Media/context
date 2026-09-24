@@ -122,6 +122,8 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     skipStructure: () => {},
     seedPrompt: "",
     finishAgents: () => {},
+    bootstrapPrompt: "",
+    finishBootstrap: () => {},
     ...overrides,
   };
 }

@@ -7,23 +7,19 @@ import { fonts, leading, radii, space, tracking } from "../../design/tokens";
 import { pointerType as t } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
+import { CLAUDE_CUSTOM_INSTRUCTION } from "../agents";
 
 /**
  * A-08 — Claude Desktop setup walkthrough.
  *
  * We are not (yet) a marketplace listing in Claude Desktop, so the person is
  * doing three things by hand: enabling developer mode, adding a custom MCP,
- * and — the one that turns Context from a lookup tool into a memory — pasting
- * a custom instruction that tells Claude to `orient` and `save_context` on its
- * own.
- *
- * The custom instruction is load-bearing product, not filler. It is the
- * difference between "there is a tool called orient somewhere in the toolbox"
- * and "every conversation starts already knowing your projects". Kept as a
- * copyable block, exact wording locked in.
+ * and — the one that turns Context from a lookup tool into a memory —
+ * pasting a custom instruction that tells Claude to `orient` and
+ * `save_context` on its own. The custom instruction (`CLAUDE_CUSTOM_INSTRUCTION`)
+ * lives in `agents.ts` because it is a product claim about client behaviour
+ * that every guide screen restates verbatim.
  */
-export const CLAUDE_CUSTOM_INSTRUCTION =
-  "Always orient using the Context MCP (call orient) before answering anything about me or my work, and save what you learn with save_context before you finish. Always leave the context in a better state than you found it, updating the information there — this is the memory that will persist.";
 
 export function ClaudeGuideStep({
   onDone,
