@@ -124,7 +124,7 @@ export function extractBody(payload) {
  *
  * @param {object} message A Gmail `Message` resource.
  * @param {{mailboxSlug: string}} options
- * @returns {import("../../../../packages/communications/src/protocol.js").CommunicationEvent}
+ * @returns {import("../../../../../packages/communications/src/protocol.js").CommunicationEvent}
  */
 export function gmailMessageToEvent(message, options) {
   const headers = message?.payload?.headers ?? [];
