@@ -40,6 +40,16 @@ import { type BlendedAnswer, SOURCE_DEADLINE_MS, withDeadline } from "./searchDe
  */
 const INDEX_SYNC_CHAIN = 12;
 
+/**
+ * Search this context's notes. Any member may search what their scope can see.
+ *
+ * The console's palette used to filter the folders somebody had happened to
+ * expand, and said so — "only folders you have opened are searched". That is
+ * a file picker, not search: the answer to "where did I write about Ikenna"
+ * lived in a folder the person had not opened, which is exactly the case
+ * search exists for. This asks the bucket, through the same index and the
+ * same code an AI client's `search_notes` answers from.
+ */
 export async function searchContextHandler(
   ctx: ActionCtx,
   args: {
@@ -89,6 +99,19 @@ export async function searchContextHandler(
   return result;
 }
 
+/**
+ * Every folder this member's scope may see, for a destination picker.
+ *
+ * `member` and above, which is the read this already is — and deliberately
+ * NOT gated on being able to write here. The picker offers a context only
+ * where the mover is at least an `editor`, and that decision belongs where the
+ * list of contexts is, not to a folder listing: an action that refused a
+ * reader would also refuse every other honest use of "what folders are in
+ * @work", starting with the next one.
+ *
+ * Its own action rather than a shape of `listFiles`, because the walk is the
+ * point: one call, one credential, the whole tree. See `listFolderPaths`.
+ */
 export async function folderPathsHandler(
   ctx: ActionCtx,
   args: {
@@ -110,6 +133,17 @@ export async function folderPathsHandler(
   return result as Extract<OperationResult, { kind: "folderPaths" }>;
 }
 
+/**
+ * Every note path this member's scope may see, for the editor's link
+ * resolution — `[[name]]` following and the `[[` completion.
+ *
+ * **Read-only, and deliberately schedules nothing.** `searchContext` chains
+ * `maintainIndex` behind a miss because somebody is watching a spinner for an
+ * answer about a word they typed; nobody is watching this one, and a context
+ * that has never been searched simply resolves fewer links until an ordinary
+ * search — or `maintainIndex`'s own hourly reach — catches the index up. See
+ * `docs/decisions/app-and-console.md`, "L1".
+ */
 export async function notePathsHandler(
   ctx: ActionCtx,
   args: {
@@ -131,6 +165,62 @@ export async function notePathsHandler(
   return result as Extract<OperationResult, { kind: "notePaths" }>;
 }
 
+/**
+ * One search across several contexts, blended into one list.
+ *
+ * ## Why the fan-out is here
+ *
+ * Because the per-context search already is. This action resolves a scope,
+ * calls `runFileOperation`'s `search` once per context, and blends the answers
+ * — and every part it does not do is the point: it does not open a bucket, does
+ * not know what a projection is, does not rank, does not cut a snippet, and
+ * **does not contain a privacy filter.** `searchNotes` owns all of that, once,
+ * for the console and for `search_notes` alike, exactly as
+ * `docs/decisions/search.md` requires. A blended search that re-derived who may
+ * see a hit would be a third copy of `canSee` and the one most likely to be
+ * wrong, because it is the one nobody would think to test per tier.
+ *
+ * The gateway was the alternative home and it is the wrong one twice: a Worker
+ * has a fifty-subrequest ceiling per invocation, which a fan-out over eight
+ * customers' buckets walks into by itself, and the console would need a request
+ * per context per page — which is the "the client makes one request per page"
+ * property this exists to give it.
+ *
+ * ## Every page re-checks everything
+ *
+ * Membership, role and fast-search state are re-read on every page of every
+ * query: `searchableContextsFor` is a live read, `authorizeFileAccess` runs per
+ * context per page, and the scope the caller asked for can only narrow that.
+ * So somebody removed from a workspace between page one and page two gets page
+ * two without it — no cached scope, no cursor-carried permission. The cursor
+ * carries offsets and nothing else, and `decodeCursor` says at length why.
+ *
+ * ## What it deliberately does not do
+ *
+ * **It schedules index maintenance for one case only: a context with no index
+ * at all.** `searchContext` schedules a pass behind any lagging index, because
+ * a person searching one context is the cheapest possible trigger for catching
+ * that context up. Multiplying that by the width of a scope would put a full
+ * bucket listing per context behind every keystroke on this page, billed to
+ * every one of those customers, so a merely *incomplete* index is left to the
+ * passes that already ride the gateway's own searches.
+ *
+ * A **missing** one is different in kind and is the state this page created for
+ * itself the moment it started searching contexts without a projection: a
+ * context nobody has ever searched directly has no shard index, answers every
+ * query with `indexMissing`, and would report "still being indexed" on this
+ * page forever — a permanent apology that no amount of waiting resolves. So the
+ * first page of a search schedules one chain per such context and no more:
+ * later pages of the same query schedule nothing, and the condition is
+ * self-limiting, because a context that has been indexed once is never
+ * `indexMissing` again.
+ *
+ * **It logs no query text.** Nothing in this function writes the words
+ * somebody typed anywhere: not to audit, not to a structured log, not into the
+ * cursor. `docs/decisions/search.md` records that as a decision rather than an
+ * omission — a search over several people's contexts is a much better guess at
+ * what somebody is working on than any single note read.
+ */
 export async function searchContextsHandler(
   ctx: ActionCtx,
   args: {

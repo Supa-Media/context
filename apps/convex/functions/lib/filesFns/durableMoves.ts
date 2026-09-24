@@ -10,6 +10,14 @@ import type { Id } from "../../../_generated/dataModel";
 import { requireWorkspaceRole } from "../workspaceAuth";
 import { callerId } from "./access";
 
+/**
+ * Recent durable folder moves, owner-only and deliberately path-free.
+ *
+ * A move can name a private folder. Settings needs its state and measured
+ * counts, never the source, destination, marker id, provider error, grant, or
+ * acting client. Completed rows stay visible briefly so 99% does not turn
+ * directly into an empty card before the owner sees the outcome.
+ */
 export async function listDurableMovesHandler(
   ctx: QueryCtx,
   args: { workspaceId: Id<"workspaces"> },

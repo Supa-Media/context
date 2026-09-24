@@ -13,6 +13,12 @@ import type { ActionCtx } from "../../../_generated/server";
 import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 
+/**
+ * Refresh the bucket's observed capabilities, then start the resumable copy.
+ *
+ * Kept internal and reached only through the scheduler: verification decrypts
+ * the binding, so its result must never flow back through a public action.
+ */
 export async function runStorageLayoutMigrationHandler(
   ctx: ActionCtx,
   args: {
@@ -57,6 +63,14 @@ export async function runStorageLayoutMigrationHandler(
   })) as Extract<OperationResult, { kind: "storageMigrated" }>;
 }
 
+/**
+ * Start the versioned on-bucket plumbing migration.
+ *
+ * Owner-only because it reorganizes Context's reserved objects, even though it
+ * never names or rewrites a note; the copy phase is resumable and
+ * non-destructive, and `runFileOperation` schedules cleanup only after the
+ * rollback window has elapsed.
+ */
 export async function updateStorageLayoutHandler(
   ctx: ActionCtx,
   args: {

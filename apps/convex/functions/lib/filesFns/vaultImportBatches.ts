@@ -79,6 +79,11 @@ export async function clearVaultImportBatchHandler(
   return recorded;
 }
 
+/**
+ * Upload one numbered batch and atomically mark its progress after the bucket
+ * accepts it. Repeating the same number returns the stored result and never
+ * sends those bytes to storage twice.
+ */
 export async function importVaultJobBatchHandler(
   ctx: ActionCtx,
   args: {
@@ -184,6 +189,13 @@ export async function importVaultJobBatchHandler(
   return recorded;
 }
 
+/**
+ * Upload one retryable batch from a locally selected Obsidian vault.
+ *
+ * Owner-only because a vault import can create non-Markdown attachments and a
+ * large path tree. Bytes cross this action directly into the workspace bucket;
+ * the control plane stores only the ordinary audit metadata below.
+ */
 export async function importVaultBatchHandler(
   ctx: ActionCtx,
   args: {

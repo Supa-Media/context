@@ -12,6 +12,15 @@ import type { ActionCtx } from "../../../_generated/server";
 import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 
+/**
+ * Structured Obsidian plugin compatibility for the first-party console.
+ *
+ * Owner-only because `.obsidian/` is outside the privacy manifest: a member
+ * may read the notes their scope permits, but that says nothing about whether
+ * they may inventory another person's installed software or its settings.
+ * The credential barrier returns only manifest metadata and scan findings;
+ * bundle text and `data.json` never leave it.
+ */
 export async function listObsidianPluginsHandler(
   ctx: ActionCtx,
   args: {
@@ -33,6 +42,17 @@ export async function listObsidianPluginsHandler(
   return result as Extract<OperationResult, { kind: "pluginInventory" }>;
 }
 
+/**
+ * What Context has installed in this bucket, cheap enough to ask on arrival.
+ *
+ * Owner-only, like `listObsidianPlugins` beside it and for the same reason:
+ * what software a context runs is the owner's to know.
+ *
+ * The console calls this when the plugins pane opens, and it is the only plugin
+ * read that does not wait for a press. It reads one pointer per install, opens
+ * no bundle and writes nothing — `listManagedInstalls` carries the argument for
+ * why that is a different cost from a scan, and what the missing answer cost.
+ */
 export async function listManagedPluginsHandler(
   ctx: ActionCtx,
   args: {

@@ -19,6 +19,13 @@ import {
   vaultImportJobStatus,
 } from "./vaultImportPlan";
 
+/**
+ * Start or resume the metadata half of a local vault import.
+ *
+ * File bytes remain on the person's device. The row remembers only counts and
+ * completed batch numbers, so a closed tab can reselect the same vault and
+ * avoid sending batches that already finished.
+ */
 export async function startVaultImportHandler(
   ctx: MutationCtx,
   args: {

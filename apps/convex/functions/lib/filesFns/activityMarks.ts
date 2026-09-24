@@ -11,6 +11,18 @@ import type { Id } from "../../../_generated/dataModel";
 import { requireWorkspaceAccess } from "../workspaceAuth";
 import { callerId } from "./access";
 
+/**
+ * Stamp a context as having changed, for the dot on its mark elsewhere.
+ *
+ * Monotonic, and that is the whole of its logic: two writers land lines in one
+ * context — a person in the console and somebody's AI client through the
+ * gateway — and neither knows about the other. A stamp that arrived late and
+ * overwrote a newer one would put the dot out while something newer than the
+ * reader's last visit was still unread.
+ *
+ * Internal: the gateway reaches it through `/gateway/activity`, and the
+ * console through `runFileOperation`. Nothing a client can call.
+ */
 export async function markWorkspaceActivityHandler(
   ctx: MutationCtx,
   args: { workspaceId: Id<"workspaces">; at: number; teamVisible?: boolean },
@@ -30,6 +42,13 @@ export async function markWorkspaceActivityHandler(
   return null;
 }
 
+/**
+ * When this person last looked at this context's activity.
+ *
+ * A query rather than part of the action below, because the unread line has to
+ * move the moment somebody marks it read — and an action's result does not
+ * re-run. The rows are fetched once; where the line sits among them is live.
+ */
 export async function activityLastSeenHandler(
   ctx: QueryCtx,
   args: { workspaceId: Id<"workspaces"> },
@@ -50,6 +69,13 @@ export async function activityLastSeenHandler(
   return membership?.activitySeenAt ?? null;
 }
 
+/**
+ * Catch up: everything recorded before now is read.
+ *
+ * Only ever moves forward. Two devices open at once, or a stale tab pressing
+ * this a minute late, must not walk the marker backwards and make a member
+ * see yesterday's work as new again.
+ */
 export async function markActivitySeenHandler(
   ctx: MutationCtx,
   args: { workspaceId: Id<"workspaces">; at?: number },

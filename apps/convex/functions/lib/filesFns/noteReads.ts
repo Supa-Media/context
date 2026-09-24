@@ -68,6 +68,18 @@ export async function readNoteHandler(
   return result as Extract<OperationResult, { kind: "file" }>;
 }
 
+/**
+ * One page of everything this caller may see in a context, with versions —
+ * what the offline mirror is built and reconciled from. Any member may call
+ * it, and gets exactly what `listFiles` and `readNote` would show them: the
+ * same clearance, through the same `canSee`. No note is read to produce it.
+ *
+ * Pass `cursor` back to continue; `cursor: null` means the walk is done, and
+ * `truncated: true` means it could not finish, so a path missing from the
+ * pages is not evidence the note was deleted. See `syncManifest` in
+ * `lib/fileOps.ts`, and "The offline mirror is fed by a privacy-filtered
+ * manifest" in `docs/decisions/app-and-console.md`.
+ */
 export async function syncManifestHandler(
   ctx: ActionCtx,
   args: {
@@ -93,6 +105,14 @@ export async function syncManifestHandler(
   return result as Extract<OperationResult, { kind: "manifest" }>;
 }
 
+/**
+ * Several notes' markdown at once, for the offline mirror to fill itself. Any
+ * member may read what their scope can see — per path, exactly as `readNote`
+ * decides it, and a refused path does not fail the batch.
+ *
+ * At most `READ_BATCH_PATHS` paths; past `READ_BATCH_BYTES` of note text the
+ * remaining paths come back `deferred`, to be asked for again.
+ */
 export async function readNotesHandler(
   ctx: ActionCtx,
   args: {
@@ -123,6 +143,15 @@ export async function readNotesHandler(
   return result as Extract<OperationResult, { kind: "notes" }>;
 }
 
+/**
+ * The activity this caller may see, newest first.
+ *
+ * An action because it reads the bucket, and the bucket is behind the
+ * credential barrier — the same one every other file read goes through. What
+ * comes back is already filtered: `runFileOperation` applies the caller's own
+ * scope and granted names, so a member never receives an entry about a note
+ * they cannot open, and never a count of the ones they cannot.
+ */
 export async function listActivityHandler(
   ctx: ActionCtx,
   args: {

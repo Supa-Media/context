@@ -61,6 +61,14 @@ async function resolveNamedAudience(
   return resolved;
 }
 
+/**
+ * Change one note's visibility, through the privacy manifest. Requires
+ * `owner` — see `setDirectoryVisibility` for why, learned the hard way.
+ *
+ * Setting a note to its folder's default removes the exception rather than
+ * writing a redundant one — which is what keeps `privacy.md` a readable
+ * statement of what is unusual, and what the tree's markers read.
+ */
 export async function setNoteVisibilityHandler(
   ctx: ActionCtx,
   args: {
@@ -97,6 +105,23 @@ export async function setNoteVisibilityHandler(
   return result;
 }
 
+/**
+ * Hand one note to a group, by name.
+ *
+ * The share dialog's verb. `setNoteVisibility` takes the two tiers and stays
+ * that way — widening its validator would make every caller that sets a
+ * visibility a way to mint a rule — so pointing a note at a group is its own
+ * action, with its own audit line and its own proof that the group is real.
+ *
+ * **The name is resolved against THIS workspace before anything is written.**
+ * Group names are globally unique but the authority is not: a name that exists
+ * in somebody else's context must be as unusable here as one that exists
+ * nowhere, and `groupByName` answers `null` for both. Writing an unresolvable
+ * name would not leak — the engines read it as reaching nobody — but it would
+ * put a rule in the customer's manifest that no owner can account for.
+ *
+ * Requires `owner`, like every other writer of `privacy.md`.
+ */
 export async function setNoteGroupHandler(
   ctx: ActionCtx,
   args: {
@@ -137,6 +162,32 @@ export async function setNoteGroupHandler(
   return result;
 }
 
+/**
+ * Point a FOLDER at a group or a person, which everything inside it follows.
+ *
+ * The console's Share sheet called `setNoteGroup` for a folder too, and that
+ * function runs `fileOps.setVisibility`, which refuses anything that is not
+ * `.md`. So sharing a folder with a group answered "Only markdown notes can
+ * have their own visibility. Set the folder's default instead." — advice that
+ * names the right instrument and cannot be followed, because the control that
+ * sets a folder's default takes the two tiers and has no way to say a name.
+ *
+ * Its own action rather than a third value on `setDirectoryVisibility`, for the
+ * reason `setNoteGroup` is its own action: widening that validator would make
+ * every caller who sets a visibility a way to mint a rule.
+ *
+ * **The audit action is `visibility.folder.named`, not `visibility.folder`, and
+ * that is a decision rather than a spelling.** `visibility.folder` is on
+ * `MEMBER_VISIBLE_DETAIL_ACTIONS`, defended there on the details it carries:
+ * its subject is "one a member already sees first-hand in their own listing".
+ * True of `private` and `team` — a member watching a folder learns its default
+ * changed the moment their listing does. False the moment the value is a name:
+ * the row would hand a member the name of a group they are not in, which
+ * `listGroups` is owner-only to withhold. Splitting the action keeps the gate
+ * purely per-action, which is the shape it was deliberately given.
+ *
+ * Requires `owner`, like every other writer of `privacy.md`.
+ */
 export async function setFolderGroupHandler(
   ctx: ActionCtx,
   args: {
@@ -171,6 +222,18 @@ export async function setFolderGroupHandler(
   return result;
 }
 
+/**
+ * Change a folder's default, which every note without an exception follows.
+ * Requires `owner`.
+ *
+ * It said `editor` once, and that was a live breach: an invited editor
+ * flipped private folders to `team` and read everything behind them —
+ * deciding their own clearance, which is exactly the authority
+ * `resetPrivacy`'s comment already reserved for the owner. All three
+ * privacy-manifest writers now carry the same gate, and `lib/fileOps.ts`
+ * refuses a non-`private` scope besides, so no future caller can reopen
+ * this by getting one minimum wrong.
+ */
 export async function setDirectoryVisibilityHandler(
   ctx: ActionCtx,
   args: {
@@ -207,6 +270,19 @@ export async function setDirectoryVisibilityHandler(
   return result;
 }
 
+/**
+ * Write a working `privacy.md` over a missing or unreadable one.
+ *
+ * Owner-only, and the one operation here that is. Every other write is an
+ * editor's to make; this one replaces the file that decides what an editor is
+ * allowed to see at all, and an editor rewriting it would be deciding their own
+ * clearance. `authorizeFileAccess` with `minimum: "owner"` is also what makes
+ * the scope handed down `private`, which `resetPrivacyManifest` requires.
+ *
+ * It cannot touch a manifest that parses — see `lib/fileOps.ts` for why that
+ * check, rather than this one, is the safety argument — and what it writes is
+ * every folder `private`, so a person cannot use it to publish anything.
+ */
 export async function resetPrivacyHandler(
   ctx: ActionCtx,
   args: {

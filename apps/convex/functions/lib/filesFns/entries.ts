@@ -142,6 +142,12 @@ export async function duplicateEntryHandler(
   return result;
 }
 
+/**
+ * Archive: move into `4-archive/<timestamp>/…`, recoverable by moving it back.
+ *
+ * This is the destructive-looking action the console offers first, precisely
+ * because it is not destructive. Requires `editor`.
+ */
 export async function archiveEntryHandler(
   ctx: ActionCtx,
   args: {
@@ -242,6 +248,21 @@ export async function restoreTrashEntryHandler(
   return result;
 }
 
+/**
+ * Delete permanently. Requires `editor` **and** the literal confirmation
+ * string, which the console only sends after the person has been told plainly
+ * that the file cannot be recovered.
+ *
+ * Nothing this product controls is kept: no archive, and **the legacy
+ * `.history/` snapshots for that path are purged too** — that last clause is the
+ * one this comment used to imply and the code did not do. Nothing writes new
+ * snapshots any more.
+ *
+ * What it cannot reach is the customer's own object versioning, which we tell
+ * them to enable and cannot see or delete. `lib/fileOps.ts` has the full
+ * argument, and `describeDeleteForever` is the sentence the console has to keep
+ * true.
+ */
 export async function deleteEntryHandler(
   ctx: ActionCtx,
   args: {

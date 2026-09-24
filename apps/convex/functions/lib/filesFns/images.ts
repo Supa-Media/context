@@ -25,6 +25,21 @@ async function contentHash(bytes: ArrayBuffer): Promise<string> {
     .slice(0, 16);
 }
 
+/**
+ * Store an image somebody pasted into a note.
+ *
+ * **Editor or owner**, because this writes to the bucket; `member` is read
+ * access and a paste is not a read. Nothing about the note is consulted: the
+ * caller may already write every note in this context, so gating the *image* on
+ * one particular note would be a check that refuses nothing and implies a
+ * guarantee this does not make.
+ *
+ * The name is ours to choose and not the caller's, which is the security half:
+ * a client-supplied leaf is a path to argue about, and this one is derived from
+ * the bytes. `writeImage` still applies the gateway's own leaf rule to whatever
+ * comes out, so a careless change to the derivation is refused rather than
+ * writing a key `read_image` could never name.
+ */
 export async function storeNoteImageHandler(
   ctx: ActionCtx,
   args: {
@@ -56,6 +71,28 @@ export async function storeNoteImageHandler(
   return { leaf };
 }
 
+/**
+ * Read a pasted image back, for a note that references it.
+ *
+ * **The reference is the gate, and it is the gateway's own.** An image has no
+ * visibility of its own — it borrows the visibility of the notes that point at
+ * it — so the question this asks is the question `read_image` asks: is there a
+ * note *this caller can see* that names this file? The note is read through the
+ * same `read` operation the editor uses, so `canSee` and `privacy.md` answer
+ * exactly once, in the place they already answer for note text.
+ *
+ * A caller who can see no such note gets `FILE_NOT_FOUND` — the same error as
+ * for an image that was never written, so this cannot be used to learn that one
+ * exists. A `member` therefore cannot pull an image out of a private note by
+ * naming its leaf, which is the isolation case worth a test rather than a
+ * comment.
+ *
+ * Deliberately broad about what "references" means: any mention of the leaf
+ * anywhere in the note. These notes are edited in Obsidian, in rclone and by
+ * hand, and the failure mode of a strict rule ("must be a markdown embed") is an
+ * image that silently stops loading in the app after somebody reformatted a
+ * line.
+ */
 export async function readNoteImageHandler(
   ctx: ActionCtx,
   args: {
@@ -101,6 +138,34 @@ export async function readNoteImageHandler(
   };
 }
 
+/**
+ * Store the photo a workspace draws in its mark.
+ *
+ * **Owner**, not editor. `storeNoteImage` takes an editor because a paste is a
+ * write to the bucket and an editor may write to the bucket. This is a write to
+ * the bucket *and* a change to what the workspace looks like on every member's
+ * screen, so it takes the role that owns the other facts about the workspace —
+ * its name, its storage, its members. The stricter of the two checks wins.
+ *
+ * The name is ours and derived from the bytes, for the reason `storeNoteImage`
+ * gives: a client-supplied leaf is a path to argue about. `writeImage` then
+ * applies the gateway's own leaf rule to whatever `workspaceIconLeaf` produced,
+ * so a careless change to the derivation is refused here rather than writing an
+ * object no reader can ever name.
+ *
+ * ## The cap is this feature's, and it is much smaller than the store's
+ *
+ * `writeImage` allows five megabytes, which is right for a picture somebody
+ * wants to look at and wrong for an 18pt square the console draws once per
+ * workspace per paint. `WORKSPACE_ICON_MAX_BYTES` is checked here, before the
+ * bytes reach the bucket, so a caller that is not our picker cannot make every
+ * future context list a download. The picker crops square and compresses long
+ * before this, and this is the backstop for everything that is not the picker.
+ *
+ * The row is patched only after the write lands, by
+ * `recordWorkspaceIconPhoto` — so a failed upload leaves the old icon standing
+ * rather than pointing the workspace at an object that is not there.
+ */
 export async function setWorkspaceIconPhotoHandler(
   ctx: ActionCtx,
   args: {
@@ -154,6 +219,32 @@ export async function setWorkspaceIconPhotoHandler(
   return { leaf };
 }
 
+/**
+ * Read a workspace's icon photo back.
+ *
+ * **Note what this does not take: a leaf.** `readNoteImage` takes one and gates
+ * it on a note the caller can see that references it, because an image in the
+ * opaque store borrows its visibility from the notes pointing at it. An icon
+ * has no note, and the wrong way to serve one is to loosen that gate.
+ *
+ * So the caller names a *workspace* and the leaf is read off the row by
+ * `workspaceIconLeaf`, which is an internal query with its own membership
+ * check. There is no argument here through which an object can be named, which
+ * makes this strictly narrower than the note path rather than wider: the set of
+ * objects it can return is at most one per workspace, chosen by that
+ * workspace's owner. A test asserts the argument shape, because "there is no
+ * leaf argument" is the property doing the work and a later convenience
+ * parameter would quietly end it.
+ *
+ * `member` is the floor and it is honest: this picture is drawn in the rail of
+ * everyone who can reach the workspace. A non-member gets the same
+ * `WORKSPACE_NOT_FOUND` as for an id that never existed, so this cannot be used
+ * to learn that a workspace exists.
+ *
+ * A workspace with no icon, or with an emoji, gets `FILE_NOT_FOUND` — the same
+ * absence as a photo that was never written, which is what the console draws a
+ * letter for anyway.
+ */
 export async function workspaceIconPhotoHandler(
   ctx: ActionCtx,
   args: {
