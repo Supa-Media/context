@@ -101,8 +101,6 @@
     "apps/mobile/app/(app)/console/_layout.tsx": 2402,
     "apps/mobile/features/app/AppFrame.tsx": 2735,
     "apps/mobile/features/console/files/Explorer.tsx": 1806,
-    "apps/mobile/features/console/files/LiveEditor.web.tsx": 1570,
-    "apps/mobile/features/console/files/NoteEditor.tsx": 1897,
     "apps/mobile/features/console/files/ShareDialog.tsx": 1784,
     "apps/mobile/features/console/files/browser.ts": 1026,
     "apps/mobile/features/console/files/imageBlock.ts": 1132,
