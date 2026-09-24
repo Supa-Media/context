@@ -496,10 +496,22 @@ describe("no public function can reach a storage secret", () => {
     const storage = modules.find((m) => m.path === "functions/storage.ts");
     expect(storage).toBeDefined();
 
+    // The body is in `lib/storage/credentialOpening.ts`; the registration
+    // here hands it over by name, and the decrypt is in that body.
     const { blocks } = exportBlocks(storage!.source);
-    expect(DECRYPT_CALL.test(blocks.get("getBindingForGateway") ?? "")).toBe(
-      true,
+    expect(blocks.get("getBindingForGateway")).toContain(
+      "handler: credentialOpening.getBindingForGatewayHandler",
     );
+    const opening = modules.find(
+      (m) => m.path === "functions/lib/storage/credentialOpening.ts",
+    );
+    expect(opening).toBeDefined();
+    expect(
+      DECRYPT_CALL.test(
+        exportBlocks(opening!.source).blocks.get("getBindingForGatewayHandler") ??
+          "",
+      ),
+    ).toBe(true);
     expect(storage!.exports.getBindingForGateway).toEqual({
       kind: "action",
       isPublic: false,

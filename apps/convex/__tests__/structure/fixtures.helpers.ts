@@ -131,7 +131,11 @@ export * from "./analyzer/source.helpers";
  * conversation, not a merge.
  */
 export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
-  "functions/storage.ts",
+  // THE FIRST: the storage credential — `getBindingForGateway` and the rekey
+  // pass. It was `functions/storage.ts`, which still registers both; their
+  // bodies moved here, and `storage.ts` no longer imports the decrypt. Moved,
+  // not added: the set did not grow, and this module registers nothing.
+  "functions/lib/storage/credentialOpening.ts",
   "functions/cloudflare.ts",
   // THE THIRD, AND WHAT IT OPENS.
   //

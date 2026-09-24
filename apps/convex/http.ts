@@ -52,6 +52,10 @@
  *    confirm it exists, or distinguish a real id from an invented one — every
  *    input is answered identically.
  *
+ * The handlers behind these routes are in `functions/lib/gatewayRoutes/`,
+ * grouped by what they answer. Each route is still declared here, built by
+ * its factory, and registered at the bottom of this file.
+ *
  * `__tests__/structure.test.ts` reads this file and enforces (1) structurally,
  * along with the rule that only an enumerated route may reach a decrypted
  * storage credential.
@@ -89,30 +93,21 @@
  *    ticket that expires in five minutes and buys exactly one credential.
  */
 
-import { ConvexError } from "convex/values";
 import { httpRouter } from "convex/server";
 import { auth } from "./auth";
 import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
-import { hashToken, TOKEN_HASH_PATTERN } from "./functions/lib/crypto";
+import { hashToken } from "./functions/lib/crypto";
 import { logIngest } from "./functions/lib/ingestLog";
 import {
   badRequest,
-  consentUrlFor,
-  countField,
   json,
-  nullableStringField,
   randomOpaqueToken,
   readJsonBody,
-  redirectUriIsAcceptable,
   requestIsFromEmailWorker,
   requestIsFromGateway,
-  stringArrayField,
   stringField,
-  timestampField,
-  tokenHashField,
   unauthorized,
 } from "./functions/lib/gatewayAuth";
 import { STRIPE_WEBHOOK_SECRET_ENV_VAR } from "./functions/lib/premium";
@@ -121,6 +116,13 @@ import {
   stripeEventFacts,
   stripeSignatureIsValid,
 } from "./functions/lib/stripe";
+import * as sessions from "./functions/lib/gatewayRoutes/sessions";
+import * as credentials from "./functions/lib/gatewayRoutes/credentials";
+import * as signals from "./functions/lib/gatewayRoutes/signals";
+import * as jobs from "./functions/lib/gatewayRoutes/jobs";
+import * as oauth from "./functions/lib/gatewayRoutes/oauth";
+import * as links from "./functions/lib/gatewayRoutes/links";
+import { serverError } from "./functions/lib/gatewayRoutes/responses";
 
 const http = httpRouter();
 
@@ -251,906 +253,113 @@ function stripeWebhookRoute(
   });
 }
 
-/** Something on our side broke. Says so, and says nothing else. */
-function serverError(): Response {
-  return json({ error: "server_error" }, 500);
-}
-
 /* -------------------------------------------------------------------------- */
 /* 1. POST /gateway/session — resolve an access token to a session            */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The same `{ "session": null }` covers an unknown token, a revoked grant, an
- * expired token, a grant whose user is no longer a member, and a client that
- * has been removed. `resolveGrantByAccessToken` re-checks membership on every
- * call, which is what makes removing someone from a shared context cut off
- * their already-issued clients immediately.
- *
- * `lastUsedAt` is stamped afterwards and its failure is swallowed: the contract
- * says the stamp MUST NOT fail the resolution. It powers "last seen 3 minutes
- * ago" next to a connected client, which is how a person notices a client they
- * do not recognize.
- */
-export const gatewaySession = gatewayRoute(async (ctx, body) => {
-  const accessToken = stringField(body, "accessToken");
-  if (accessToken === null) return json({ session: null });
-
-  const session = await ctx.runQuery(
-    internal.functions.controlPlane.resolveGrantByAccessToken,
-    { hashedAccessToken: await hashToken(accessToken) },
-  );
-  if (session === null) return json({ session: null });
-
-  try {
-    await ctx.runMutation(internal.functions.grants.touchGrant, {
-      grantId: session.grantId,
-    });
-  } catch {
-    // Deliberately swallowed. A failed bookkeeping write must not log someone
-    // out of their AI client.
-  }
-
-  return json({
-    session: {
-      grantId: session.grantId,
-      clientId: session.clientId,
-      // Display text only — see `resolveGrantByAccessToken`. The gateway puts
-      // it in `activity.md` and nowhere else.
-      clientName: session.clientName,
-      actorUserId: session.actorUserId,
-      scopes: session.scopes,
-      expiresAt: session.expiresAt,
-      // The context this grant was approved against: what a bare `/mcp` and an
-      // unaddressed tool call resolve to.
-      defaultWorkspaceId: session.workspaceId,
-      // Every context this connection may address — the `/@slug/mcp` path form
-      // and a tool call's `context` argument both select within it, and it may
-      // never hold one its person is not a live member of. Built in
-      // `resolveGrantByAccessToken` from memberships read on this request, so
-      // access given or taken away between two calls takes effect on the second
-      // one. Reach, not permission: the role on each entry is what the gateway
-      // clamps that context's scopes and visibility tier to.
-      workspaces: session.workspaces,
-    },
-  });
-});
+export const gatewaySession = gatewayRoute(sessions.gatewaySessionHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Resolve a bounded set of grants for the live presence relay.  The gateway
- * already holds the grant ids from its authenticated clients; this route
- * re-authorizes each id against current Convex state and returns only the
- * metadata needed to choose a relay room.  A bad grant occupies its original
- * slot as null so one revoked peer cannot hide valid peers in the batch.
- */
-export const gatewaySessionsByGrant = gatewayRoute(async (ctx, body) => {
-  const expectedWorkspaceId = stringField(body, "expectedWorkspaceId");
-  const grantIds = stringArrayField(body, "grantIds");
-  if (
-    expectedWorkspaceId === null ||
-    grantIds === null ||
-    grantIds.length > 24 ||
-    expectedWorkspaceId.length > 256 ||
-    grantIds.some((grantId) => grantId.length > 256) ||
-    new Set(grantIds).size !== grantIds.length
-  ) {
-    return json({ error: "malformed_batch" }, 400);
-  }
-
-  const sessions = await ctx.runQuery(
-    internal.functions.controlPlane.resolveLivePresenceGrants,
-    { expectedWorkspaceId, grantIds },
-  );
-  return json({ sessions });
-});
+export const gatewaySessionsByGrant = gatewayRoute(sessions.gatewaySessionsByGrantHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2. POST /gateway/binding — fetch a workspace's storage binding            */
 /* -------------------------------------------------------------------------- */
 
-/**
- * THE TWO-FACTOR ROUTE. Read `controlPlane.js` before changing anything here.
- *
- * `accessToken` is the authority; `expectedWorkspaceId` is not. The workspace
- * is derived from the grant the token resolves to, inside
- * `openStorageBinding`, and the expected id is compared against it and used
- * for nothing else. There is no path in which it selects a row.
- *
- * This is the one route whose response contains a decrypted secret. It is
- * fetched per request and never cached, on either side.
- *
- * ## The optional `searchIndex` sibling
- *
- * Present only where this workspace has an opted-in, provisioned fast-search
- * index; **absent is the normal case and is not an error**. It carries a D1
- * database id, an account id and a write token, because the gateway is the only
- * component that reads note text and therefore the only one that can project it.
- * It is a sibling of `binding` rather than a route of its own precisely so it
- * spends the same two proofs — a second route handing out a credential would be
- * a third entry in `CREDENTIAL_HTTP_ROUTES`, which that comment says is a
- * conversation.
- *
- * The workspace it describes is the one the *grant* resolved to, exactly like
- * the binding beside it. There is no shape of this request that names whose
- * index comes back.
- */
-export const gatewayBinding = gatewayRoute(async (ctx, body) => {
-  const accessToken = stringField(body, "accessToken");
-  const expected = nullableStringField(body, "expectedWorkspaceId");
-  // A malformed request is answered exactly like an unknown token. There is
-  // nothing here worth distinguishing, and a 400 would tell a caller holding
-  // the gateway secret which of its two proofs was the bad one.
-  if (accessToken === null || !expected.ok) return json({ binding: null });
-
-  // Both optional, both absent on every ordinary request. `rotate_encryption_keys`
-  // is the only tool that ever sets either, and it does so only for a grant
-  // the gateway has already checked is owner-scoped — the same discipline
-  // `set_encryption` uses. A malformed value here is treated as absent rather
-  // than a 400, for the same reason the two fields above are: this route
-  // never distinguishes a bad request from an ordinary one.
-  const startEncryptionRotation = body?.startEncryptionRotation === true;
-  const completeEncryptionRotation =
-    typeof body?.completeEncryptionRotation === "string" && body.completeEncryptionRotation.length > 0
-      ? body.completeEncryptionRotation
-      : undefined;
-
-  const opened = await ctx.runAction(
-    internal.functions.controlPlane.openStorageBinding,
-    {
-      hashedAccessToken: await hashToken(accessToken),
-      expectedWorkspaceId: expected.value,
-      startEncryptionRotation,
-      completeEncryptionRotation,
-    },
-  );
-  if (opened === null) return json({ binding: null });
-  // `searchIndex` is `undefined` for every context that has no usable index,
-  // and `JSON.stringify` drops an undefined value — so the normal case is the
-  // key being **absent**, not present and null. A gateway on an older build
-  // reads the same bytes it always did.
-  //
-  // `encryptionKey` is a third sibling on exactly the same terms: absent for
-  // every context that has never encrypted a note, which is all of them until
-  // an owner turns it on, and absent again for a key this deployment could not
-  // open. A gateway that does not know the field ignores it; one that does
-  // treats its absence as "cannot decrypt", which shows a locked note rather
-  // than a missing one.
-  return json({
-    binding: opened.binding,
-    searchIndex: opened.searchIndex,
-    encryptionKey: opened.encryptionKey,
-    // Fourth sibling, same terms: absent unless a rotation is in progress,
-    // which is every context that has never rotated (all of them, before
-    // this shipped) and every one whose last rotation finished.
-    rotation: opened.rotation,
-  });
-});
+export const gatewayBinding = gatewayRoute(credentials.gatewayBindingHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2a. POST /gateway/provider — the model account the agent spends            */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Open one workspace's own Anthropic or OpenAI key for the gateway.
- *
- * ## Why this is a route and not a fifth sibling on `/gateway/binding`
- *
- * Every gateway-facing credential added since `binding` became a sibling of it
- * — `searchIndex`, `encryptionKey`, `rotation` — precisely so that
- * `CREDENTIAL_HTTP_ROUTES` would not grow, and the comment above says adding to
- * that set is a conversation. This is the conversation, and it comes out the
- * other way for one reason.
- *
- * #661 was a **returns validator** accident: `v.object` is exact, a field
- * drifted, the error named the object it had refused, and `s3BindingValidator`
- * carries `secretAccessKey`. Everything folded into `openStorageBinding`'s
- * return shares that fate — one drift anywhere in it spills everything in it.
- * A model key folded in would make that error able to spill a storage secret
- * *and* somebody's provider account in one line.
- *
- * So the model key gets a validator of its own, two flat fields wide, with
- * nothing nested to drift. That is a smaller blast radius than the sibling,
- * and it is bought with a door that is the same door: the same `gatewayRoute`
- * factory, the same gateway secret, the same access token, the same
- * `expectedWorkspaceId`-is-compared-never-looked-up rule in
- * `providers.openProviderForGateway`, and `null` for everything that is not a
- * hit.
- *
- * It buys one more thing. An ordinary MCP request spends `/gateway/binding` on
- * every call; a model key riding that payload would be decrypted on every
- * `list_notes` in the product. Here it is opened only by the request that is
- * about to spend it.
- *
- * ## What this route decides, which is nothing
- *
- * It shapes the body and hands the two proofs on. The provider string is passed
- * through *unvalidated* on purpose: the closed set lives in `providers.ts`, and
- * checking it there means an unknown provider is the same `null` as an unknown
- * token rather than a different status a caller could count.
- */
-export const gatewayProvider = gatewayRoute(async (ctx, body) => {
-  const accessToken = stringField(body, "accessToken");
-  const expected = nullableStringField(body, "expectedWorkspaceId");
-  const provider = stringField(body, "provider");
-  // A malformed request is answered exactly like an unknown token, for the
-  // reason `/gateway/binding` gives: a 400 would tell a caller holding the
-  // gateway secret which of its proofs was the bad one.
-  if (accessToken === null || !expected.ok || provider === null) {
-    return json({ credential: null });
-  }
-
-  const credential = await ctx.runAction(
-    internal.functions.providers.openProviderForGateway,
-    {
-      hashedAccessToken: await hashToken(accessToken),
-      expectedWorkspaceId: expected.value,
-      provider,
-    },
-  );
-
-  // `credential` is the whole answer. Nothing rides beside it — not the
-  // workspace it came from, not the fingerprint, not the grant. See the
-  // `a hit names the provider and the key, and nothing else` test.
-  return json({ credential });
-});
+export const gatewayProvider = gatewayRoute(credentials.gatewayProviderHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The gateway telling us how far its projection has got.
- *
- * ## Proof #1 only, and what that costs
- *
- * The gateway secret and nothing else. There is no user access token here
- * because there is nobody present: a backfill runs behind a response and
- * outlives the request that started it, which is the same reason
- * `/gateway/ingest/*` cannot present a user's proof either.
- *
- * So a holder of the gateway secret can, for a workspace it names: write two
- * integers onto a row, and move one that is already backfilling to `ready`. It
- * cannot read anything, cannot learn whether the id it named exists, cannot
- * learn whether that context opted in, and cannot obtain a credential. **This
- * route returns the same bytes for every input** — an accepted report and a
- * refused one are indistinguishable — for the reason `/gateway/usage`'s header
- * gives about naming a context in a request that cannot read one.
- *
- * The refusals are not here. They are in `recordProjectionProgress`, which owns
- * the row: a context that is not opted in, a row mid-release, an unentitled
- * one, and a `failed` or `provisioning` one are all refused there, by the same
- * composed gate that decided whether the credential could be handed over in the
- * first place. A route that decided for itself would be a second opinion about
- * what "on" means.
- *
- * ## Why the counters are validated at the door as well
- *
- * `notesIndexed` and `notesPending` are rendered to an owner as a percentage.
- * A negative, a fraction, an `Infinity` or a string is refused rather than
- * coerced, here *and* in the mutation — the door is one caller and the mutation
- * is the invariant.
- *
- * `state` is optional and its only accepted value is `"ready"`. Anything else,
- * including a state this build does not know, is the same answer as no state at
- * all: a vocabulary we do not share must never move a row.
- */
-export const gatewaySearchIndexProgress = gatewayRoute(async (ctx, body) => {
-  // Built once, returned on every path. Assembling the answer in one place is
-  // what makes "every input is answered identically" a property of the code
-  // rather than of three `return`s that happen to agree today.
-  const answered = () => json({ ok: true });
-
-  const workspaceId = stringField(body, "workspaceId");
-  const notesIndexed = countField(body, "notesIndexed");
-  const notesPending = countField(body, "notesPending");
-  const state = nullableStringField(body, "state");
-  if (
-    workspaceId === null ||
-    notesIndexed === null ||
-    notesPending === null ||
-    !state.ok ||
-    (state.value !== null && state.value !== "ready")
-  ) {
-    return answered();
-  }
-
-  try {
-    await ctx.runMutation(
-      internal.functions.fastSearch.recordProjectionProgress,
-      {
-        // Cast at the boundary and checked by the validator on the other side
-        // of `runMutation`, exactly as `/gateway/usage` does it: a malformed id
-        // is a rejected call, not a stored row.
-        workspaceId: workspaceId as Id<"workspaces">,
-        notesIndexed,
-        notesPending,
-        ready: state.value === "ready",
-      },
-    );
-  } catch {
-    // A malformed id, or anything else. Swallowed and answered identically,
-    // because the difference between "that is not an id" and "that context did
-    // not want this" is the oracle this route must not be.
-  }
-  return answered();
-});
+export const gatewaySearchIndexProgress = gatewayRoute(signals.gatewaySearchIndexProgressHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/activity — a context changed                        */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The gateway saying that a line landed in a context's `activity.md`.
- *
- * It exists for one pixel: the dot on *another* workspace's mark, which the
- * console draws from the workspace row rather than by opening four buckets on
- * every load. The console stamps the same field directly; this is the other
- * writer saying the same thing across a network boundary.
- *
- * **It carries a workspace id and one boolean.** What changed, who changed it
- * and where are in the customer's bucket, and a route that reported any of
- * that would be the control plane holding note metadata it has no business
- * holding (non-negotiable #1). The boolean is not about the note: it says
- * which of the two stamps may move, because a member who is not the owner is
- * served `activityTeamAt` and a private line must not tell them its time.
- * Absent reads as private, so a caller that omits it can only under-report.
- *
- * The timestamp is taken here rather than accepted from the caller, so a
- * gateway with a wrong clock cannot park a context in the future.
- *
- * Answered identically whatever happens, like its neighbours: a malformed id
- * and a context that does not exist must not be distinguishable.
- */
-export const gatewayActivity = gatewayRoute(async (ctx, body) => {
-  const answered = () => json({ ok: true });
-  const workspaceId = stringField(body, "workspaceId");
-  if (workspaceId === null) return answered();
-  try {
-    await ctx.runMutation(internal.functions.files.markWorkspaceActivity, {
-      workspaceId: workspaceId as Id<"workspaces">,
-      at: Date.now(),
-      teamVisible: body.teamVisible === true,
-    });
-  } catch {
-    // As above: the difference between "that is not an id" and "that context
-    // is not yours" is the oracle this route must not be.
-  }
-  return answered();
-});
+export const gatewayActivity = gatewayRoute(signals.gatewayActivityHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-tree. POST /gateway/tree — a context's file tree changed               */
 /* -------------------------------------------------------------------------- */
 
-/**
- * That an MCP write created, moved, removed or re-scoped something in a
- * context, and which audiences could see it — so the consoles showing that
- * context re-list it now. See `functions/treeSignals.ts`.
- *
- * A workspace id and audience labels (`private`, `team`, `@name`), and nothing
- * else: no path, no count, no content. The gateway computes the audiences
- * with its own privacy engine, because only it has the bucket's `privacy.md`
- * in hand; the mutation discards anything that is not an audience label, and
- * the timestamp is taken there, not accepted from the caller.
- *
- * Answered identically whatever happens, like its neighbours.
- */
-export const gatewayTree = gatewayRoute(async (ctx, body) => {
-  const answered = () => json({ ok: true });
-  const workspaceId = stringField(body, "workspaceId");
-  const audiences = Array.isArray(body.audiences)
-    ? body.audiences.filter((value): value is string => typeof value === "string")
-    : [];
-  if (workspaceId === null || audiences.length === 0) return answered();
-  try {
-    await ctx.runMutation(internal.functions.treeSignals.markTreeChanged, {
-      workspaceId: workspaceId as Id<"workspaces">,
-      audiences: audiences.slice(0, 64),
-    });
-  } catch {
-    // A malformed id and a context that is not there answer the same.
-  }
-  return answered();
-});
+export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/forms/notify — a form took an answer                */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The gateway's half of "anytime there is a submission".
- *
- * A submission through the console or a published collect link is written by
- * `runFileOperation`, which schedules the notification itself. `submit_form`
- * is written by the gateway against the bucket directly, so this route is the
- * only way one of those reaches a mailbox.
- *
- * **It carries identifiers and never an answer.** The values are read back out
- * of the customer's bucket at delivery, as the recipient — see
- * `functions/formNotify.ts`. A route that accepted the answers would put note
- * content in a scheduled job's arguments, which are persisted until it runs.
- *
- * ## What authorises it, and what it cannot be turned into
- *
- * The gateway secret, which is `gatewayRoute`'s business, plus the fact that
- * **nothing on this route names a destination**. `to` is a `notify` value from
- * a form block; `formNotify.resolveRecipient` decides whether it names a
- * member of *this* workspace with a verified address, and refuses everything
- * else. So a leaked gateway secret buys mail to members of contexts the
- * attacker already reached, about answers already in those contexts' buckets —
- * not a send to an address of their choosing, which is the thing a
- * notification route must never become.
- *
- * `ok: true` whatever happens, and `.catch` around the schedule. The caller is
- * a deferred `waitUntil` in a Worker with nobody listening; a status code here
- * would be a fact about somebody's membership, published to whoever can reach
- * the route.
- */
-export const gatewayFormsNotify = gatewayRoute(async (ctx, body) => {
-  const answered = () => json({ ok: true });
-  const workspaceId = stringField(body, "workspaceId");
-  const to = stringField(body, "to");
-  const formId = stringField(body, "formId");
-  const notePath = stringField(body, "notePath");
-  const responsesPath = stringField(body, "responsesPath");
-  const responseId = stringField(body, "responseId");
-  if (
-    workspaceId === null ||
-    to === null ||
-    formId === null ||
-    notePath === null ||
-    responsesPath === null ||
-    responseId === null
-  ) {
-    return answered();
-  }
-  try {
-    await ctx.scheduler.runAfter(0, internal.functions.formNotify.deliver, {
-      workspaceId: workspaceId as Id<"workspaces">,
-      to,
-      formId,
-      notePath,
-      responsesPath,
-      responseId,
-    });
-  } catch {
-    // As with the activity route: the difference between "that is not an id"
-    // and "that context is not yours" is the oracle this must not be.
-  }
-  return answered();
-});
+export const gatewayFormsNotify = gatewayRoute(signals.gatewayFormsNotifyHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2c. POST /gateway/jobs/create — mint queued gateway work                  */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayJobsCreate = gatewayRoute(async (ctx, body) => {
-  const accessToken = stringField(body, "accessToken");
-  const expected = stringField(body, "expectedWorkspaceId");
-  const job = body.job && typeof body.job === "object" && !Array.isArray(body.job)
-    ? body.job as Record<string, unknown>
-    : null;
-  const kind = job?.kind === "materialize_move" ? "materialize_move" : null;
-  const moveId = typeof job?.moveId === "string" ? job.moveId : undefined;
-  if (accessToken === null || expected === null || kind === null) {
-    return json({ ticket: null });
-  }
-
-  const ticket = randomOpaqueToken();
-  const created = await ctx.runMutation(internal.functions.controlPlane.createGatewayJob, {
-    hashedAccessToken: await hashToken(accessToken),
-    expectedWorkspaceId: expected,
-    hashedTicket: await hashToken(ticket),
-    kind,
-    moveId,
-  });
-  return json({ ticket: created ? ticket : null });
-});
+export const gatewayJobsCreate = gatewayRoute(jobs.gatewayJobsCreateHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2d. POST /gateway/jobs/open — spend queued work for one bounded attempt    */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayJobsOpen = gatewayRoute(async (ctx, body) => {
-  const ticket = stringField(body, "ticket");
-  if (ticket === null) return json({ job: null });
-  const opened = await ctx.runAction(internal.functions.controlPlane.openGatewayJob, {
-    hashedTicket: await hashToken(ticket),
-  });
-  return json({ job: opened });
-});
+export const gatewayJobsOpen = gatewayRoute(jobs.gatewayJobsOpenHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2e. POST /gateway/jobs/report — report a queue attempt outcome             */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayJobsReport = gatewayRoute(async (ctx, body) => {
-  const ticket = stringField(body, "ticket");
-  const result = body.result && typeof body.result === "object" && !Array.isArray(body.result)
-    ? body.result as Record<string, unknown>
-    : null;
-  const status =
-    result?.status === "queued" || result?.status === "complete" || result?.status === "failed"
-      ? result.status
-      : null;
-  const rawProgress =
-    result?.progress && typeof result.progress === "object" && !Array.isArray(result.progress)
-      ? result.progress as Record<string, unknown>
-      : null;
-  const progress =
-    rawProgress !== null &&
-    (rawProgress.phase === "copying" || rawProgress.phase === "deleting") &&
-    typeof rawProgress.completed === "number" &&
-    Number.isInteger(rawProgress.completed) &&
-    rawProgress.completed >= 0 &&
-    typeof rawProgress.total === "number" &&
-    Number.isInteger(rawProgress.total) &&
-    rawProgress.total > 0 &&
-    rawProgress.completed <= rawProgress.total
-      ? {
-          phase: rawProgress.phase as "copying" | "deleting",
-          completed: rawProgress.completed,
-          total: rawProgress.total,
-        }
-      : null;
-  if (ticket !== null && status !== null) {
-    try {
-      await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
-        hashedTicket: await hashToken(ticket),
-        result: {
-          status,
-          ...(typeof result?.error === "string" ? { error: result.error } : {}),
-          ...(progress === null ? {} : { progress }),
-        },
-      });
-    } catch {
-      // Reporting is not a read path and not a credential path; every refusal
-      // answers the same way so the ticket cannot be probed from the outside.
-    }
-  }
-  return json({ ok: true });
-});
+export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 3. POST /gateway/clients/register — RFC 7591 dynamic client registration  */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Idempotent on `clientId`: a client that re-registers after a redeploy
- * updates its row rather than forking into a second identity that orphans its
- * grants.
- *
- * The redirect URIs are re-validated here even though the gateway validated
- * them, because the gateway is the party that rule constrains. A registered
- * URI is where an authorization code gets delivered; accepting an http one on
- * a public host would put a code on the wire in cleartext.
- */
-export const gatewayClientsRegister = gatewayRoute(async (ctx, body) => {
-  const clientId = stringField(body, "clientId");
-  const clientName = stringField(body, "clientName");
-  const redirectUris = stringArrayField(body, "redirectUris");
-  const authMethod = body.tokenEndpointAuthMethod;
-
-  // `null` is a public client. A string must be a real hash — a secret that
-  // is not a digest means the gateway sent a plaintext one.
-  const rawSecret = body.hashedClientSecret;
-  const hashedClientSecret =
-    rawSecret === null
-      ? null
-      : typeof rawSecret === "string" && TOKEN_HASH_PATTERN.test(rawSecret)
-        ? rawSecret
-        : undefined;
-
-  if (
-    clientId === null ||
-    clientName === null ||
-    redirectUris === null ||
-    redirectUris.length === 0 ||
-    !redirectUris.every(redirectUriIsAcceptable) ||
-    hashedClientSecret === undefined ||
-    (authMethod !== "none" && authMethod !== "client_secret_post")
-  ) {
-    return badRequest();
-  }
-
-  const grantTypes = stringArrayField(body, "grantTypes") ?? undefined;
-  const responseTypes = stringArrayField(body, "responseTypes") ?? undefined;
-  const scope = stringField(body, "scope") ?? undefined;
-  const applicationType =
-    body.applicationType === "native" || body.applicationType === "web"
-      ? body.applicationType
-      : undefined;
-
-  /*
-    A rate-limited registration is a 429 and not a 500.
-
-    `consumeRateLimit` throws a `ConvexError`, and an uncaught one out of an
-    httpAction is a 500 — which tells the gateway, and through it the client,
-    that this server is broken rather than that they went too fast. RFC 6749
-    clients back off on 429 and retry; on 500 they are entitled to hammer.
-    `Retry-After` carries the window the limiter already computed, so nobody
-    has to guess.
-
-    Only RATE_LIMITED is translated. Anything else is a real failure and keeps
-    its 500 — swallowing the rest here would turn a broken control plane into a
-    quiet "try later", which is the shape this repository keeps a list of.
-  */
-  try {
-    await ctx.runMutation(internal.functions.grants.registerClient, {
-    clientId,
-    clientName,
-    redirectUris,
-    hashedClientSecret,
-    tokenEndpointAuthMethod: authMethod,
-    grantTypes,
-    responseTypes,
-    scope,
-    applicationType,
-    // RFC 7591's `software_id`, carried as the client sent it. The gateway has
-    // already bounded its length and alphabet; this route stores a string and
-    // draws no conclusion from it.
-    softwareId: stringField(body, "softwareId") ?? undefined,
-    // What the registration rate limit is keyed on. Passed through rather than
-    // read here, because the connecting address is the gateway's to know: this
-    // route's own peer is always the gateway.
-    registrantKey: stringField(body, "registrantKey") ?? undefined,
-    });
-  } catch (error) {
-    const data = error instanceof ConvexError ? (error.data as { code?: unknown; retryAfterMs?: unknown }) : null;
-    if (data?.code !== "RATE_LIMITED") throw error;
-    const retryAfterMs = typeof data.retryAfterMs === "number" ? data.retryAfterMs : 0;
-    return new Response(JSON.stringify({ error: "rate_limited" }), {
-      status: 429,
-      headers: {
-        "Content-Type": "application/json",
-        "Retry-After": String(Math.max(1, Math.ceil(retryAfterMs / 1000))),
-      },
-    });
-  }
-  return json({ ok: true });
-});
+export const gatewayClientsRegister = gatewayRoute(oauth.gatewayClientsRegisterHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 4. POST /gateway/clients/get — look up a registered client                */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayClientsGet = gatewayRoute(async (ctx, body) => {
-  const clientId = stringField(body, "clientId");
-  if (clientId === null) return json({ client: null });
-
-  const client = await ctx.runQuery(internal.functions.grants.getClient, {
-    clientId,
-  });
-  return json({ client });
-});
+export const gatewayClientsGet = gatewayRoute(oauth.gatewayClientsGetHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 5. POST /gateway/authorize/start — park a validated authorization request */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The gateway hands the request over and its involvement ends until the token
- * call. The *human* authenticates against our own app, at `consentUrl`.
- *
- * `startAuthorization` re-checks the client and the redirect URI and answers
- * `null` for anything it will not park. The gateway turns a non-200 into
- * `server_error` for the person in the browser, which is the only thing it
- * could usefully say.
- */
-export const gatewayAuthorizeStart = gatewayRoute(async (ctx, body) => {
-  const clientId = stringField(body, "clientId");
-  const redirectUri = stringField(body, "redirectUri");
-  const codeChallenge = stringField(body, "codeChallenge");
-  const codeChallengeMethod = stringField(body, "codeChallengeMethod");
-  const scope = stringField(body, "scope");
-  const state = nullableStringField(body, "state");
-  const resource = nullableStringField(body, "resource");
-  const requestedWorkspaceSlug = nullableStringField(
-    body,
-    "requestedWorkspaceSlug",
-  );
-
-  if (
-    clientId === null ||
-    redirectUri === null ||
-    codeChallenge === null ||
-    codeChallengeMethod === null ||
-    scope === null ||
-    !state.ok ||
-    !resource.ok ||
-    !requestedWorkspaceSlug.ok
-  ) {
-    return badRequest();
-  }
-
-  const requestId = await ctx.runMutation(
-    internal.functions.controlPlane.startAuthorization,
-    {
-      clientId,
-      redirectUri,
-      state: state.value,
-      codeChallenge,
-      codeChallengeMethod,
-      scope,
-      resource: resource.value,
-      requestedWorkspaceSlug: requestedWorkspaceSlug.value,
-    },
-  );
-  if (requestId === null) return badRequest();
-
-  let consentUrl: string;
-  try {
-    consentUrl = consentUrlFor(requestId);
-  } catch {
-    // A deployment with no consent origin configured cannot host consent. It
-    // refuses rather than redirecting a real person's browser somewhere
-    // guessed.
-    return serverError();
-  }
-  return json({ requestId, consentUrl });
-});
+export const gatewayAuthorizeStart = gatewayRoute(oauth.gatewayAuthorizeStartHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 6. POST /gateway/codes/consume — atomically spend an authorization code   */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The code is presented, so it arrives verbatim and is hashed here. The
- * mutation marks it consumed in the same transaction that reads it, so two
- * concurrent redemptions cannot both succeed and a replay a millisecond later
- * sees exactly what a code that never existed sees.
- */
-export const gatewayCodesConsume = gatewayRoute(async (ctx, body) => {
-  const code = stringField(body, "code");
-  const clientId = stringField(body, "clientId");
-  if (code === null || clientId === null) return json({ authorization: null });
-
-  const authorization = await ctx.runMutation(
-    internal.functions.controlPlane.consumeAuthorizationCode,
-    { hashedCode: await hashToken(code), clientId },
-  );
-  return json({ authorization });
-});
+export const gatewayCodesConsume = gatewayRoute(oauth.gatewayCodesConsumeHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 7. POST /gateway/grants/create — a grant at the end of a token exchange   */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Both token hashes are minted values, so they arrive already hashed — the
- * plaintext exists in the token response and in the client, and nowhere else.
- *
- * `createGrant` re-checks membership: an authorization code can outlive the
- * moment it was issued, and someone removed from a workspace in between must
- * not end up holding a working grant to it. That refusal comes back as a 400,
- * which the gateway turns into a failed token exchange.
- */
-export const gatewayGrantsCreate = gatewayRoute(async (ctx, body) => {
-  const workspaceId = stringField(body, "workspaceId");
-  const userId = stringField(body, "userId");
-  const clientId = stringField(body, "clientId");
-  const scopes = stringArrayField(body, "scopes");
-  const hashedRefreshToken = tokenHashField(body, "hashedRefreshToken");
-  const hashedAccessToken = tokenHashField(body, "hashedAccessToken");
-  const accessTokenExpiresAt = timestampField(body, "accessTokenExpiresAt");
-
-  if (
-    workspaceId === null ||
-    userId === null ||
-    clientId === null ||
-    scopes === null ||
-    scopes.length === 0 ||
-    hashedRefreshToken === null ||
-    hashedAccessToken === null ||
-    accessTokenExpiresAt === null
-  ) {
-    return badRequest();
-  }
-
-  let grantId: string;
-  try {
-    grantId = await ctx.runMutation(internal.functions.grants.createGrant, {
-      workspaceId,
-      userId,
-      clientId,
-      scopes,
-      hashedRefreshToken,
-      hashedAccessToken,
-      accessTokenExpiresAt,
-    });
-  } catch {
-    // `WORKSPACE_NOT_FOUND`, `CLIENT_NOT_REGISTERED`, and a malformed hash all
-    // land here as the same refusal. Relaying which one would tell a caller
-    // holding the gateway secret whether a workspace id it guessed is real.
-    return badRequest();
-  }
-  return json({ grantId });
-});
+export const gatewayGrantsCreate = gatewayRoute(oauth.gatewayGrantsCreateHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 8. POST /gateway/grants/rotate — refresh, with mandatory rotation         */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The presented refresh token arrives verbatim and is hashed here; the new
- * pair arrives already hashed. Reuse of an already-rotated token revokes the
- * grant rather than merely failing — see `rotateGrant`.
- */
-export const gatewayGrantsRotate = gatewayRoute(async (ctx, body) => {
-  const refreshToken = stringField(body, "refreshToken");
-  const clientId = stringField(body, "clientId");
-  // A token the *client* supplied: a missing or malformed one is answered like
-  // any other bad token, not like a malformed request.
-  if (refreshToken === null || clientId === null) return json({ grant: null });
-
-  const newHashedRefreshToken = tokenHashField(body, "newHashedRefreshToken");
-  const newHashedAccessToken = tokenHashField(body, "newHashedAccessToken");
-  const accessTokenExpiresAt = timestampField(body, "accessTokenExpiresAt");
-  // These are values the *gateway* minted. Getting them wrong is a gateway
-  // bug, and a bug is worth a 400 rather than a silent refusal that looks to
-  // the person like their session simply ended.
-  if (
-    newHashedRefreshToken === null ||
-    newHashedAccessToken === null ||
-    accessTokenExpiresAt === null
-  ) {
-    return badRequest();
-  }
-
-  const rawScopes = body.scopes;
-  if (rawScopes !== null && rawScopes !== undefined && !Array.isArray(rawScopes)) {
-    return badRequest();
-  }
-  const scopes =
-    rawScopes === null || rawScopes === undefined
-      ? null
-      : stringArrayField(body, "scopes");
-  if (rawScopes !== null && rawScopes !== undefined && scopes === null) {
-    return badRequest();
-  }
-
-  const grant = await ctx.runMutation(
-    internal.functions.controlPlane.rotateGrant,
-    {
-      hashedRefreshToken: await hashToken(refreshToken),
-      clientId,
-      newHashedRefreshToken,
-      newHashedAccessToken,
-      accessTokenExpiresAt,
-      scopes,
-    },
-  );
-  return json({ grant });
-});
+export const gatewayGrantsRotate = gatewayRoute(oauth.gatewayGrantsRotateHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 9. POST /gateway/grants/revoke — RFC 7009                                 */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Revokes exactly one grant — the one that token belongs to — and touches
- * nothing else. Sibling grants (same person, same workspace, different AI
- * client) keep working; that is the entire point of per-client grants.
- *
- * RFC 7009 §2.2 wants 200 whether or not anything matched, so the gateway
- * discards `revoked` for the client's benefit and keeps it only for tests.
- */
-export const gatewayGrantsRevoke = gatewayRoute(async (ctx, body) => {
-  const token = stringField(body, "token");
-  const clientId = stringField(body, "clientId");
-  const tokenType = body.tokenType === "access" ? "access" : "refresh";
-  if (token === null || clientId === null) return json({ revoked: false });
-
-  const revoked = await ctx.runMutation(
-    internal.functions.controlPlane.revokeGrantByToken,
-    { hashedToken: await hashToken(token), tokenType, clientId },
-  );
-  return json({ revoked });
-});
+export const gatewayGrantsRevoke = gatewayRoute(oauth.gatewayGrantsRevokeHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 10. POST /gateway/ingest/resolve — a recipient name to a personal context  */
@@ -1564,62 +773,7 @@ export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
 
 http.route({ path: "/stripe/webhook", method: "POST", handler: stripeWebhook });
 
-/**
- * `POST /gateway/usage` — the gateway telling the control plane that some
- * counted things happened.
- *
- * **What may cross this boundary is a name from a closed list and a number.**
- * No path, no query, no note title, no client-supplied timestamp: the day is
- * decided here, from this deployment's clock, so a caller cannot backdate or
- * spread activity. `record` drops any metric it does not recognize, so a
- * gateway on a different build than this control plane skews a figure rather
- * than writing a name of its choosing into the table.
- *
- * The workspace ids are the gateway's own — it has just resolved a grant to
- * get them — and they are validated as ids by the mutation's argument
- * validator. An id for a workspace that does not exist writes a counter row
- * nothing joins to; it cannot read or affect one.
- *
- * **A failure here is answered 200.** This route exists to make a dashboard
- * less blank, and the gateway calls it behind its own response. Returning an
- * error would put a retry, a log line and eventually an operator's attention
- * on a counter, which is a worse outcome than a number being slightly low.
- */
-export const gatewayUsage = gatewayRoute(async (ctx, body) => {
-  const rawEvents = Array.isArray(body.events) ? body.events : [];
-  const events: { metric: string; workspaceId?: Id<"workspaces">; count?: number }[] =
-    [];
-  for (const entry of rawEvents) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const record = entry as Record<string, unknown>;
-    const metric = stringField(record, "metric");
-    if (metric === null) continue;
-    const workspaceId = stringField(record, "workspaceId");
-    const count = record.count;
-    events.push({
-      metric,
-      // Cast at the boundary, checked by the validator on the other side of
-      // `runMutation` — a malformed id is a rejected call, not a stored row.
-      workspaceId: workspaceId === null ? undefined : (workspaceId as Id<"workspaces">),
-      count: typeof count === "number" ? count : undefined,
-    });
-  }
-
-  if (events.length === 0) return json({ applied: 0 });
-
-  try {
-    const result = await ctx.runMutation(internal.functions.usage.record, {
-      events,
-      surface: "mcp",
-    });
-    return json(result);
-  } catch {
-    // See the header: a counter must never be the reason a tool call is
-    // retried. The gateway is not waiting on this and has nothing to do with
-    // the answer.
-    return json({ applied: 0 });
-  }
-});
+export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
 
 /* -------------------------------------------------------------------------- */
 
@@ -1710,91 +864,15 @@ http.route({
 /* Links, for an agent that asked for one                                     */
 /* -------------------------------------------------------------------------- */
 
-/**
- * `POST /gateway/links/create` — mint a link and answer with its URL.
- *
- * **The URL, never the token.** An agent that was handed a token would have to
- * assemble the address itself, and a second builder is a second opinion about
- * what a share link looks like — which is the whole complaint this answers.
- * The control plane builds it from `@context/shared`, the same function the
- * console's Copy link uses.
- *
- * The clearance is the ordinary two-factor one: this route's factory refuses
- * without the gateway secret, and `ownerClearanceForGateway` then spends the
- * *user's* access token against a live grant that has to be an owner's. One
- * `null` covers every refusal, so an agent cannot tell "not yours" from "not a
- * note" from "already encrypted".
- */
-export const gatewayLinksCreate = gatewayRoute(async (ctx, body) => {
-  const accessToken = stringField(body, "accessToken");
-  const expected = stringField(body, "expectedWorkspaceId");
-  const path = stringField(body, "path");
-  const audience = body.audience === "members" ? "members" : "anyone";
-  const kind = body.kind === "folder" ? "folder" : body.kind === "note" ? "note" : undefined;
-  const short = stringField(body, "short");
-  // Only the literal. Anything else — absent, misspelled, a truthy object — is
-  // a read link, because "I could not read what you asked for" must never
-  // resolve to the one mode that opens a write path to strangers.
-  const mode = body.mode === "collect" ? "collect" : undefined;
-  // Passed through as a number and normalized by `mintLinkShare`, which is the
-  // one place the range lives. Anything that is not a number is simply absent.
-  const collectCap = typeof body.collectCap === "number" ? body.collectCap : undefined;
-  if (accessToken === null || expected === null || path === null) {
-    return json({ link: null, shortRefused: null });
-  }
-
-  const result = await ctx.runAction(internal.functions.shares.gatewayCreateLink, {
-    hashedAccessToken: await hashToken(accessToken),
-    expectedWorkspaceId: expected,
-    path,
-    audience,
-    ...(kind === undefined ? {} : { kind }),
-    ...(short === null ? {} : { short }),
-    ...(typeof body.titleInPreview === "boolean"
-      ? { titleInPreview: body.titleInPreview }
-      : {}),
-    ...(mode === undefined ? {} : { mode }),
-    ...(collectCap === undefined ? {} : { collectCap }),
-  });
-  return json({
-    link: result?.link ?? null,
-    shortRefused: result?.shortRefused ?? null,
-  });
-});
+export const gatewayLinksCreate = gatewayRoute(links.gatewayLinksCreateHandler);
 
 http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
 
-/** `POST /gateway/links/list` — every live link in this context. */
-export const gatewayLinksList = gatewayRoute(async (ctx, body) => {
-  const accessToken = stringField(body, "accessToken");
-  const expected = stringField(body, "expectedWorkspaceId");
-  if (accessToken === null || expected === null) return json({ links: null });
-
-  const links = await ctx.runQuery(internal.functions.shares.gatewayListLinks, {
-    hashedAccessToken: await hashToken(accessToken),
-    expectedWorkspaceId: expected,
-  });
-  return json({ links });
-});
+export const gatewayLinksList = gatewayRoute(links.gatewayLinksListHandler);
 
 http.route({ path: "/gateway/links/list", method: "POST", handler: gatewayLinksList });
 
-/** `POST /gateway/links/revoke` — take one back. */
-export const gatewayLinksRevoke = gatewayRoute(async (ctx, body) => {
-  const accessToken = stringField(body, "accessToken");
-  const expected = stringField(body, "expectedWorkspaceId");
-  const shareId = stringField(body, "shareId");
-  if (accessToken === null || expected === null || shareId === null) {
-    return json({ revoked: false });
-  }
-
-  const revoked = await ctx.runMutation(internal.functions.shares.gatewayRevokeLink, {
-    hashedAccessToken: await hashToken(accessToken),
-    expectedWorkspaceId: expected,
-    shareId,
-  });
-  return json({ revoked });
-});
+export const gatewayLinksRevoke = gatewayRoute(links.gatewayLinksRevokeHandler);
 
 http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
 
