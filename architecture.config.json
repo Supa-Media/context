@@ -102,11 +102,8 @@
     "apps/desktop/src/main/index.ts": 2619,
     "apps/mcp/src/communications/gmailSync.js": 1359,
     "apps/mcp/src/controlPlane.js": 1073,
-    "apps/mcp/src/encryption.js": 1192,
     "apps/mcp/src/forms.js": 1114,
     "apps/mcp/src/index.js": 9227,
-    "apps/mcp/src/oauth.js": 1148,
-    "apps/mcp/src/presenceRoom.js": 1244,
     "apps/mcp/src/search/shards.js": 2508,
     "apps/mcp/test/activity.test.mjs": 1221,
     "apps/mcp/test/commsSearchIndex.test.mjs": 1838,
@@ -148,7 +145,6 @@
     "docs/decisions/app-and-console.md": 7670,
     "infra/email-worker/src/mime.ts": 1215,
     "infra/router/src/preview.ts": 1071,
-    "packages/collaboration/src/index.js": 1572,
     "packages/hook/test/test.mjs": 1317,
     "packages/obsidian-runtime/src/sandbox.js": 2760
   }
