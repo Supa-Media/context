@@ -103,7 +103,7 @@
     "apps/convex/functions/cloudflare.ts": 1053,
     "apps/convex/functions/controlPlane.ts": 1664,
     "apps/convex/functions/fastSearch.ts": 1095,
-    "apps/convex/functions/files.ts": 6950,
+    "apps/convex/functions/files.ts": 6939,
     "apps/convex/functions/googleConnect.ts": 2019,
     "apps/convex/functions/lib/cloudflare.ts": 1015,
     "apps/convex/functions/lib/fileOps.ts": 6014,
