@@ -460,7 +460,15 @@ export function encryptedColumnsIn(schemaSource: string): string[] {
 }
 
 const SCHEMA_ENCRYPTED_FIELDS = (() => {
-  const source = RAW_SOURCES["../schema.ts"];
+  // `schema.ts` spreads its tables in from `functions/lib/schema/`, so the
+  // schema's source is that file plus every table module it composes.
+  const tableModules = Object.keys(RAW_SOURCES)
+    .filter((key) => key.startsWith("../functions/lib/schema/"))
+    .sort();
+  const source =
+    typeof RAW_SOURCES["../schema.ts"] === "string" && tableModules.length > 0
+      ? [RAW_SOURCES["../schema.ts"], ...tableModules.map((key) => RAW_SOURCES[key])].join("\n")
+      : undefined;
   if (typeof source !== "string") {
     throw new Error(
       "structure.test.ts could not read schema.ts to derive credential fields",
@@ -1107,7 +1115,9 @@ describe("no public function can reach a storage secret", () => {
 
     // The schema, and nowhere else. It is where the field list is defined, and
     // `functions/storage.ts` builds the one validator from it.
-    expect(declarers).toEqual(["schema.ts"]);
+    // (`storageBindings` is declared in `functions/lib/schema/storage.ts`,
+    // which `schema.ts` spreads in.)
+    expect(declarers).toEqual(["functions/lib/schema/storage.ts"]);
   });
 
   test("only these functions can reach a decrypted credential", () => {

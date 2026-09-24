@@ -222,10 +222,16 @@ describe("the landing page's list is the page, and its claims are ones we keep",
    * rather than a constant somebody has to remember to flip.
    */
   test("while an opt-in stores note text, the assurances name it", () => {
-    const schema = readFileSync(
-      join(__dirname, "../../convex/schema.ts"),
-      "utf8",
-    ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    // `schema.ts` spreads its tables in from `functions/lib/schema/`, so the
+    // schema's source is that file plus every table module.
+    const schemaDir = join(__dirname, "../../convex/functions/lib/schema");
+    const schema = [
+      readFileSync(join(__dirname, "../../convex/schema.ts"), "utf8"),
+      ...readdirSync(schemaDir)
+        .filter((name) => name.endsWith(".ts"))
+        .sort()
+        .map((name) => readFileSync(join(schemaDir, name), "utf8")),
+    ].join("\n").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
     // The two-condition gate lives in `functions/lib/fastSearch.ts`; this is
     // the stored half — the per-workspace opt-in, off by default.
     const optInExists = /\bfastSearch:\s*v\.boolean\(\)/.test(schema);
