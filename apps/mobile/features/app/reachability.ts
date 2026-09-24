@@ -205,6 +205,15 @@ const PHONE = ["compact"] as const;
 
 /** The console layout, which owns every navigation the switcher and the strip make. */
 const CONSOLE_LAYOUT = "app/(app)/console/_layout.tsx";
+/**
+ * The layout's pieces, which it keeps under `features/console/layout/` because
+ * every file under `app/` is a route. The phone's strip and the context pill
+ * are built in `navBand.tsx`, the account mark in `slots.tsx`, and the palette
+ * in `palette.tsx` — so a claim about one of those presses names that file.
+ */
+const CONSOLE_NAV_BAND = "features/console/layout/navBand.tsx";
+const CONSOLE_SLOTS = "features/console/layout/slots.tsx";
+const CONSOLE_PALETTE = "features/console/layout/palette.tsx";
 /** The app gate, which applies every redirect decision `redirect.ts` returns. */
 const APP_LAYOUT = "app/(app)/_layout.tsx";
 
@@ -428,7 +437,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: CONSOLE_LAYOUT,
+            file: CONSOLE_NAV_BAND,
             /*
               One needle, and it is the whole expression rather than its two
               halves. Split as `["contextHrefFrom(slug)", "router.replace("]`
@@ -489,7 +498,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
             file: "features/console/contextMenu.ts",
             contains: ['key: "settings"', 'view: "settings"'],
           },
-          { file: CONSOLE_LAYOUT, contains: ["router.replace(hrefFor(next))"] },
+          { file: CONSOLE_NAV_BAND, contains: ["router.replace(hrefFor(next))"] },
         ],
         region: "screen",
         densities: PHONE,
@@ -552,7 +561,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: CONSOLE_LAYOUT,
+            file: CONSOLE_PALETTE,
             contains: ["router.push(searchHref(query))"],
           },
         ],
@@ -666,7 +675,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: CONSOLE_LAYOUT,
+            file: CONSOLE_SLOTS,
             contains: ["MEETINGS_ROUTE", "router.push(MEETINGS_ROUTE)"],
           },
         ],
@@ -777,7 +786,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: CONSOLE_LAYOUT,
+            file: CONSOLE_NAV_BAND,
             contains: ["WELCOME_ROUTE", "router.push(WELCOME_ROUTE)"],
           },
         ],
@@ -834,7 +843,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         },
         navigation: [
           {
-            file: CONSOLE_LAYOUT,
+            file: CONSOLE_NAV_BAND,
             contains: [
               "NEW_WORKSPACE_ROUTE",
               "router.push(NEW_WORKSPACE_ROUTE)",
