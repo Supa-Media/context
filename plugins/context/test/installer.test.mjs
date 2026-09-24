@@ -298,7 +298,6 @@ check("-y asks nothing at all, so scripts and CI need no terminal", script.asked
 // -- the dependency stays on the install path
 
 const src = new URL("../src/", import.meta.url);
-const commandsText = await readFile(new URL("commands.js", src), "utf8");
 const importers = [];
 for (const file of await readdir(src)) {
   const text = await readFile(new URL(file, src), "utf8");
@@ -311,13 +310,18 @@ for (const file of await readdir(src)) {
   if (/["']@clack\/prompts["']/.test(text)) clackImporters.push(file);
 }
 check("prompt.js is the only file that loads @clack/prompts", clackImporters.join(",") === "prompt.js");
+// No module statically imports the installer or the wizard, so importing
+// commands.js (as every hook does) never loads add-mcp or @clack/prompts;
+// setup.js, where install lives, reaches both through dynamic imports.
+const sources = await Promise.all((await readdir(src)).map((file) => readFile(new URL(file, src), "utf8")));
+const setupText = await readFile(new URL("setup.js", src), "utf8");
 check(
-  "commands.js reaches the wizard only through a dynamic import, so the hooks never load it",
-  !/^import .*prompt\.js/m.test(commandsText) && commandsText.includes('await import("./prompt.js")')
+  "the wizard is reached only through a dynamic import, so the hooks never load it",
+  sources.every((text) => !/^import [^;]*["']\.\/prompt\.js["']/m.test(text)) && setupText.includes('await import("./prompt.js")')
 );
 check(
-  "commands.js reaches the installer only through a dynamic import, so the hooks never load it",
-  !/^import .*installer\.js/m.test(commandsText) && commandsText.includes('await import("./installer.js")')
+  "the installer is reached only through a dynamic import, so the hooks never load it",
+  sources.every((text) => !/^import [^;]*["']\.\/installer\.js["']/m.test(text)) && setupText.includes('await import("./installer.js")')
 );
 
 server.close();

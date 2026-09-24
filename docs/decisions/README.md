@@ -389,6 +389,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The refusal is the product, so its wording is a rule and not a preference
 - One unreadable plugin costs one verdict, never the report
 - The read path cannot be aimed
+- [The agent plugin: one folder, three manifests, and an installer that asks each agent what it can do](./plugins/agent-plugin.md)
 - The agent plugin: one folder, three manifests, and an installer that asks each agent what it can do
 - What is deliberately not built
 - Drawings: read the file, describe it, and refuse to write over it

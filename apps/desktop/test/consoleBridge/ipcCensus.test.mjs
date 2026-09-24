@@ -95,12 +95,12 @@ export async function runIpcCensusChecks(check) {
 
       esbuild bundles `src/main/index.ts` with only `electron` external, so a
       registration in a workspace package is a registration in the main process
-      — `main/connect.ts` imports `@supa-media/context-hook/src/oauth.js`, which
+      — `main/connect.ts` imports `@supa-media/context/src/oauth.js`, which
       is how that stopped being hypothetical.
 
       **Three shapes of this tried to model the bundle and all three were wrong
       in the same direction**, each one measured rather than argued: walking
-      `<pkg>/src` missed a live registration in `packages/hook/bin`, which this
+      `<pkg>/src` missed a live registration in `plugins/context/bin`, which this
       app can deep-import; reading `dependencies` missed a package moved to
       `devDependencies`; and reading `apps/desktop/package.json` at all missed
       both a package reached *transitively* through another workspace package

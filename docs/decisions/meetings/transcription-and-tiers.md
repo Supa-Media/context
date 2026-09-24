@@ -148,7 +148,7 @@ larger thing to lose than one holding a revocable grant on one.** A
 control-plane session reaches every workspace a person is a member of; a grant
 is minted per machine, appears in the console beside the AI clients, and is
 revoked on its own. So the desktop registers itself as its own OAuth client
-through the same reviewed flow `packages/hook` ships — RFC 9728 discovery,
+through the same reviewed flow `plugins/context` ships — RFC 9728 discovery,
 dynamic registration, a loopback redirect on `127.0.0.1`, PKCE with S256, a
 constant-time state comparison, and a refusal to walk to any URL that is not
 https or loopback. It imports that module rather than copying it, because a

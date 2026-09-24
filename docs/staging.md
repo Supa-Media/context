@@ -141,3 +141,15 @@ prompts live in `scripts/fixtures/staging-logos/`. The seed workflow applies
 missing logos after its account checks; reset restores them. To apply only the
 logos without changing notes or memberships, run `scripts/staging-logos.mjs`
 with the same staging environment variables (no deploy key required).
+
+## The CLI, live
+
+**Actions → CLI Live (staging)** runs `scripts/staging-cli-live.mjs` from the
+branch you pick: it signs in as `alpha@supa.media`, logs the
+`@supa-media/context` CLI in through the real OAuth flow (the persona's session
+approves where a browser would), lists workspaces, runs `orient` and a search
+from the terminal, fires the session-end hook and checks the capture lands,
+installs and uninstalls Cursor's MCP entry, and logs out. It archives the
+capture note and revokes the grant it made, so repeated runs leave the persona
+as the seed left it. It needs no secret, only the staging environment's
+`STAGING_CONVEX_DEPLOYMENT` variable.
