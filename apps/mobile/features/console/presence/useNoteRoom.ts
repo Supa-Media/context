@@ -14,7 +14,6 @@ import { useEffect } from "react";
 import { usePresence, type Presence } from "./usePresence";
 import { useCollaboration } from "../collaboration/useCollaboration";
 import type { CacheScope } from "../../offline/keys";
-import { onReturnToApp } from "../../app/returnToApp";
 import { isDrawingPath } from "@context/drawings";
 import {
   useDrawingChannel,
@@ -109,10 +108,18 @@ export function useNoteRoom(options: {
     onPeerPointers: channel.deliverPeers,
     onDrawingCompact: channel.deliverCompactRequest,
   });
+  /*
+    Coming back live may mean edits were relayed while this client was away,
+    so the durable copy is read once. Returning to the app is already answered
+    by `useCollaboration`'s own listener; a second one here made every focus
+    two overlapping reads.
+  */
   useEffect(() => {
     if (presence.phase !== "live" || collaboration === undefined) return;
     collaboration.repair();
-    return onReturnToApp(() => collaboration.repair(), ["focus", "visibilitychange"]);
+    // Keyed on the phase alone: the controller changes identity on every
+    // state update, and a read per keystroke is the burst this avoids.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presence.phase]);
 
   /*

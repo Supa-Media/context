@@ -44,6 +44,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One Yjs merge implementation for people, agents, and offline devices
 - Live delivery is independent of saving
 - Permissions, stable identity, and verification are release gates
+- A live connection recovers on its own, and only the control plane says no
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 

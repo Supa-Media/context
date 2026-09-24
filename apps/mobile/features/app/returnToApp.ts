@@ -28,9 +28,19 @@ export function onReturnToApp(
 ): () => void {
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     const target = window;
-    for (const event of events) target.addEventListener(event, callback);
+    /*
+      `visibilitychange` fires on the way out as well as on the way back. Going
+      out is not a return: answering it spent a repair read, and a reconnect,
+      on a tab somebody had just put away.
+    */
+    const listener = (event: Event) => {
+      if (event.type === "visibilitychange" && typeof document !== "undefined" &&
+        document.visibilityState === "hidden") return;
+      callback();
+    };
+    for (const event of events) target.addEventListener(event, listener);
     return () => {
-      for (const event of events) target.removeEventListener(event, callback);
+      for (const event of events) target.removeEventListener(event, listener);
     };
   }
   const subscription = AppState.addEventListener("change", (state) => {

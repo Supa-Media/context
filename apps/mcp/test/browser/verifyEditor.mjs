@@ -251,7 +251,7 @@ async function main() {
   );
 
 
-  for (const [path,content] of [["1-projects/empty.md",""],["1-projects/second.md","# Second note\n\nDifferent content.\n"],...["presence-carets","live-keystrokes","typing-bursts","agent-race","handoff","offline","offline-reload","offline-create-seed","offline-rename","offline-trash","retry","restart","abrupt","revoked"].map(n=>[`1-projects/${n}.md`,"# Verify\n\nfirst line\n"])]) {
+  for (const [path,content] of [["1-projects/empty.md",""],["1-projects/second.md","# Second note\n\nDifferent content.\n"],...["presence-carets","live-keystrokes","typing-bursts","agent-race","handoff","offline","offline-reload","offline-create-seed","offline-rename","offline-trash","retry","restart","abrupt","revoked","stalled-handshake","half-open"].map(n=>[`1-projects/${n}.md`,"# Verify\n\nfirst line\n"])]) {
     const result=await callTool(ANA,"write_note",{path,content,visibility:"team",confirm_team_publish:true});
     if(result.isError) throw new Error(textOf(result));
   }
@@ -259,9 +259,14 @@ async function main() {
   const errors=[];
   const open=async(user,note=NOTE)=>{
     const context=await browser.newContext({viewport:{width:1280,height:900}});
-    const links=[];let disconnected=false;
-    if(note.includes("offline")||note.includes("presence-carets")) await context.routeWebSocket(/\/presence\?/,ws=>{
+    const links=[];let disconnected=false;let stalls=0;
+    // The stalled-handshake note holds Bo's first socket open with nobody at
+    // the other end: never connected to the gateway, so no welcome ever comes.
+    let stallNext=note.includes("stalled-handshake")&&user==="bo";
+    const injected=note.includes("offline")||note.includes("presence-carets")||note.includes("stalled-handshake")||note.includes("half-open");
+    if(injected) await context.routeWebSocket(/\/presence\?/,ws=>{
       if(disconnected){void ws.close({code:1012,reason:"test network loss"});return;}
+      if(stallNext){stallNext=false;stalls++;return;}
       const peer=ws.connectToServer();links.push({ws,peer});
     });
     const page=await context.newPage();
@@ -304,13 +309,19 @@ async function main() {
     await page.goto(`http://127.0.0.1:${PAGES}/e2e-fixture?screen=collaboration&user=${user}&note=${encodeURIComponent(note)}`);
     await page.locator(".cm-content").waitFor({timeout:60000});
     await page.waitForFunction(()=>window.fixture?.presence.settled,{},{timeout:20000});
-    if(note.includes("offline")||note.includes("presence-carets")) {
+    if(note.includes("offline")||note.includes("presence-carets")||note.includes("half-open")) {
       await until(()=>links.length>0,{timeout:20000,every:50});
     }
     return {context,page,traffic,
       liveTraffic,
       cut:async()=>{if(!links.length)throw new Error("Fault injector observed no presence socket");disconnected=true;await Promise.all(links.flatMap(({ws,peer})=>[ws.close({code:4000,reason:"test network loss"}),peer.close({code:4000,reason:"test network loss"})]));},
-      reconnect:()=>{disconnected=false;}
+      reconnect:()=>{disconnected=false;},
+      stalls:()=>stalls,
+      links:()=>links.length,
+      // Stop carrying frames in both directions without closing anything: the
+      // browser goes on reporting OPEN, which is what a dead network path or a
+      // machine that slept leaves behind.
+      silence:()=>{for(const {ws,peer} of links){ws.onMessage(()=>{});peer.onMessage(()=>{});}},
     };
   };
   const text=page=>page.evaluate(()=>window.fixture?.editorText() ?? "");
@@ -323,10 +334,10 @@ async function main() {
     const current=await state(session.page);
     return current.phase==="live"&&current.settled;
   },{timeout:20000});
-  const rosterReady=async(session,peerName)=>until(async()=>{
+  const rosterReady=async(session,peerName,timeout=20000)=>until(async()=>{
     const current=await state(session.page);
     return current.members.length===1&&current.members[0]===peerName;
-  },{timeout:20000});
+  },{timeout});
   const state=page=>page.evaluate(()=>({editorText:window.fixture.editorText(),sync:window.fixture.files.sync,settled:window.fixture.presence.settled,status:window.fixture.files.editor.status,collaboration:window.fixture.presence.collaboration&&{status:window.fixture.presence.collaboration.status,pending:window.fixture.presence.collaboration.pending,etag:window.fixture.presence.collaboration.etag},phase:window.fixture.presence.phase,saver:window.fixture.presence.canWrite,draft:window.fixture.files.editor.draft,shared:window.fixture.presence.shared?.markdown(),etag:window.fixture.files.editor.etag,members:window.fixture.presence.members.map(m=>m.name)}));
   const append=async(page,words)=>{
     await page.locator(".cm-content").click();
@@ -700,6 +711,29 @@ async function main() {
       check("restore reconnects the same identity and saves offline writing",await until(async()=>{
         const doc=await rawNote(path);return doc?.text.includes("OFFLINE THROUGH TRASH") && (await state(b.page)).collaboration?.pending===0;
       },{timeout:20000}));
+    });
+    await pair("1-projects/stalled-handshake.md",async(a,b)=>{
+      const started=Date.now();
+      check("a handshake that never answers was injected",b.stalls()===1);
+      const recovered=await rosterReady(b,ANA_NAME,45000);
+      check("presence recovers from a silent handshake without a reload",recovered&&b.links()>=1,JSON.stringify({elapsedMs:Date.now()-started,state:await state(b.page)}).slice(0,800));
+      results.push({label:"stalled handshake recovery time",detail:{elapsedMs:Date.now()-started,measurement:"local Chromium against a local gateway; includes the 20s attempt deadline"},diagnostic:true});
+      await append(b.page,"\nAFTER STALLED HANDSHAKE");
+      check("typing after a stalled handshake reaches the peer and storage",await until(async()=>(await text(a.page)).includes("AFTER STALLED HANDSHAKE")&&(await rawNote("1-projects/stalled-handshake.md")).text.includes("AFTER STALLED HANDSHAKE"),{timeout:20000}));
+    });
+    await pair("1-projects/half-open.md",async(a,b)=>{
+      check("half-open editors reach the live roster",await rosterReady(b,ANA_NAME));
+      const before=b.links();
+      const started=Date.now();
+      b.silence();
+      // Three unanswered heartbeats (15s apart) and a 5s grace, then a new socket.
+      const replaced=await until(async()=>b.links()>before,{timeout:75000,every:250});
+      const elapsedMs=Date.now()-started;
+      check("an OPEN socket that stopped answering is replaced without a reload",replaced,JSON.stringify({elapsedMs,before,after:b.links()}));
+      results.push({label:"half-open socket replacement time",detail:{elapsedMs,measurement:"local Chromium; bounded by 3 heartbeats of 15s plus a 5s probe"},diagnostic:true});
+      check("the replaced connection rejoins the live roster",await rosterReady(b,ANA_NAME));
+      await append(b.page,"\nAFTER HALF OPEN");
+      check("typing after a half-open socket reaches the peer and storage",await until(async()=>(await text(a.page)).includes("AFTER HALF OPEN")&&(await rawNote("1-projects/half-open.md")).text.includes("AFTER HALF OPEN"),{timeout:20000}));
     });
     await pair("1-projects/revoked.md",async(a,b)=>{
       const path="1-projects/revoked.md";
