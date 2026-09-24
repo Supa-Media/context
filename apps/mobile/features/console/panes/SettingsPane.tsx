@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useConvex } from "convex/react";
-import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
@@ -34,15 +32,12 @@ import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageAct
 import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
-import { StorageChoice } from "../storage/StorageChoice";
-import { VaultImport } from "../storage/VaultImport";
+import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
 import { StorageMigrationCard } from "../storage/StorageMigration";
-import { useManagedOffer } from "../../onboarding/useManagedOffer";
-import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
 
 /**
  * A context's settings: its bucket, its credentials, and its ingestion rules.
@@ -489,116 +484,6 @@ export function SettingsPane({
       ) : null}
 
 
-    </View>
-  );
-}
-
-/** Billing is optional in render fixtures and self-hosted builds. */
-function SettingsStorageChoice({
-  workspaceId,
-  contextName,
-  connect,
-  onCancel,
-  onOpenPremium,
-  allowDropbox = false,
-}: {
-  workspaceId: string;
-  contextName: string;
-  connect: StorageActions["connect"];
-  onCancel?: () => void;
-  onOpenPremium?: () => void;
-  /** Only when this context's current binding is already Dropbox. */
-  allowDropbox?: boolean;
-}) {
-  const client = useConvex();
-  if (client === undefined) {
-    return (
-      <StorageChoice
-        workspaceId={workspaceId}
-        connect={connect}
-        onCancel={onCancel}
-        allowDropbox={allowDropbox}
-      />
-    );
-  }
-  return (
-    <SettingsStorageChoiceLive
-      workspaceId={workspaceId as Id<"workspaces">}
-      contextName={contextName}
-      connect={connect}
-      onCancel={onCancel}
-      onOpenPremium={onOpenPremium}
-      allowDropbox={allowDropbox}
-    />
-  );
-}
-
-function SettingsStorageChoiceLive({
-  workspaceId,
-  contextName,
-  connect,
-  onCancel,
-  onOpenPremium,
-  allowDropbox,
-}: {
-  workspaceId: Id<"workspaces">;
-  contextName: string;
-  connect: StorageActions["connect"];
-  onCancel?: () => void;
-  onOpenPremium?: () => void;
-  allowDropbox: boolean;
-}) {
-  const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
-
-  if (managed.mode === "confirm" && managed.status !== null) {
-    return (
-      <ManagedConfirm
-        status={managed.status}
-        contextName={contextName}
-        state={managed.session}
-        failure={managed.failure}
-        onToggle={managed.toggle}
-        onContinue={managed.proceed}
-        onBack={managed.back}
-      />
-    );
-  }
-
-  return (
-    <StorageChoice
-      workspaceId={workspaceId}
-      connect={connect}
-      onCancel={onCancel}
-      allowDropbox={allowDropbox}
-      managed={!managed.available ? undefined : {
-        price: managed.price,
-        onChoose: () => {
-          if (managed.paid) {
-            if (managed.status?.selected.managedStorage) onOpenPremium?.();
-            else {
-              managed.toggle("managedStorage", true);
-              onOpenPremium?.();
-            }
-            return;
-          }
-          managed.choose();
-        },
-      }}
-    />
-  );
-}
-
-/** Existing owners get the same create-only importer after storage is live. */
-function SettingsVaultImport({ workspaceId }: { workspaceId: string }) {
-  const client = useConvex();
-  if (client === undefined) return null;
-  return (
-    <View style={{ marginTop: 24 }}>
-      <VaultImport
-        workspaceId={workspaceId as Id<"workspaces">}
-        existingData
-        testIDPrefix="settings-vault"
-      />
     </View>
   );
 }
