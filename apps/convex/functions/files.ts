@@ -71,7 +71,6 @@ import { ConvexError, v } from "convex/values";
 import {
   WORKSPACE_ICON_CONTENT_TYPES,
   WORKSPACE_ICON_MAX_BYTES,
-  matchesDestructiveActionAcknowledgement,
 } from "@context/shared";
 import { internal } from "../_generated/api";
 import {
@@ -90,7 +89,6 @@ import {
   audiencesForChange,
   trimTrailingSlashes,
 } from "./lib/treeAnnounce";
-import { resolveAddressedUser } from "./lib/identities";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 // The gateway's D1 wire, imported rather than ported, for the same reason
 // `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
@@ -176,10 +174,6 @@ import {
   type FormNotifyMaterial,
 } from "./lib/formOps";
 import {
-  requireWorkspaceAccess,
-  requireWorkspaceRole,
-} from "./lib/workspaceAuth";
-import {
   type ActivityEntry,
 } from "./lib/activity";
 import type { GatewayCredential } from "./storage";
@@ -237,9 +231,22 @@ import {
   MAX_VAULT_IMPORT_BATCH_BYTES,
   MAX_VAULT_IMPORT_BATCH_FILES,
   type VaultImportJobStatus,
-  validateVaultImportPlan,
   vaultImportJobStatus,
 } from "./lib/filesFns/vaultImportPlan";
+import {
+  latestVaultImportJobHandler,
+  pauseVaultImportHandler,
+  recordVaultClearBatchHandler,
+  recordVaultImportBatchHandler,
+  startVaultImportHandler,
+} from "./lib/filesFns/vaultImportJobs";
+import { listDurableMovesHandler } from "./lib/filesFns/durableMoves";
+import { namedAudienceHandler } from "./lib/filesFns/namedAudience";
+import {
+  activityLastSeenHandler,
+  markActivitySeenHandler,
+  markWorkspaceActivityHandler,
+} from "./lib/filesFns/activityMarks";
 export { scopeForRole, resolveFileAccess, callerId } from "./lib/filesFns/access";
 export { executeOperation } from "./lib/filesFns/executeOperation";
 
@@ -1580,27 +1587,7 @@ async function runGoogleGmailBackfill(
 export const listDurableMoves = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.array(durableMoveValidator),
-  handler: async (ctx, args) => {
-    const actorUserId = await callerId(ctx);
-    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
-    const rows = await ctx.db
-      .query("gatewayJobs")
-      .withIndex("by_workspace_updatedAt", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(20);
-    const completedCutoff = Date.now() - 24 * 60 * 60 * 1_000;
-    return rows
-      .filter((row) => row.status !== "complete" || row.updatedAt >= completedCutoff)
-      .slice(0, 10)
-      .map((row) => ({
-        jobId: row._id,
-        status: row.status,
-        ...(row.progressPhase === undefined ? {} : { phase: row.progressPhase }),
-        ...(row.progressCompleted === undefined ? {} : { completed: row.progressCompleted }),
-        ...(row.progressTotal === undefined ? {} : { total: row.progressTotal }),
-        updatedAt: row.updatedAt,
-      }));
-  },
+  handler: async (ctx, args) => await listDurableMovesHandler(ctx, args),
 });
 
 /** One folder's contents. Any member may read. */
@@ -2546,73 +2533,7 @@ export const startVaultImport = mutation({
     totalBatches: v.number(),
   },
   returns: vaultImportJobStatusValidator,
-  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
-    validateVaultImportPlan(args);
-    if (
-      args.strategy === "replace" &&
-      !matchesDestructiveActionAcknowledgement(args.confirmation)
-    ) {
-      throw new ConvexError({
-        code: "IMPORT_REPLACE_CONFIRMATION_REQUIRED",
-        message: "Type “I understand” before replacing this bucket.",
-      });
-    }
-    const actorUserId = await callerId(ctx);
-    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
-    const recent = await ctx.db
-      .query("vaultImportJobs")
-      .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(20);
-    const matching = recent.find(
-      (job) =>
-        job.actorUserId === actorUserId &&
-        job.status !== "complete" &&
-        job.strategy === args.strategy &&
-        job.sourceFingerprint === args.sourceFingerprint &&
-        job.totalFiles === args.totalFiles &&
-        job.totalBytes === args.totalBytes &&
-        job.totalBatches === args.totalBatches,
-    );
-    const now = Date.now();
-    if (matching !== undefined) {
-      if (matching.status !== "active") {
-        await ctx.db.patch(matching._id, { status: "active", updatedAt: now });
-      }
-      return vaultImportJobStatus({ ...matching, status: "active", updatedAt: now });
-    }
-    for (const job of recent) {
-      if (job.actorUserId === actorUserId && job.status === "active") {
-        await ctx.db.patch(job._id, { status: "paused", updatedAt: now });
-      }
-    }
-    const jobId = await ctx.db.insert("vaultImportJobs", {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      strategy: args.strategy,
-      sourceFingerprint: args.sourceFingerprint,
-      totalFiles: args.totalFiles,
-      totalBytes: args.totalBytes,
-      totalBatches: args.totalBatches,
-      completedBatches: [],
-      completedFiles: 0,
-      createdFiles: 0,
-      skippedFiles: 0,
-      ...(args.strategy === "replace" ? {
-        replacement: {
-          phase: "counting" as const,
-          totalObjects: 0,
-          deletedObjects: 0,
-        },
-      } : {}),
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    const created = await ctx.db.get(jobId);
-    if (created === null) throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "The import could not start." });
-    return vaultImportJobStatus(created);
-  },
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => await startVaultImportHandler(ctx, args),
 });
 
 export const recordVaultClearBatch = internalMutation({
@@ -2626,42 +2547,7 @@ export const recordVaultClearBatch = internalMutation({
     complete: v.boolean(),
   },
   returns: v.union(v.null(), vaultImportJobStatusValidator),
-  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
-    const job = await ctx.db.get(args.jobId);
-    if (
-      job === null ||
-      job.workspaceId !== args.workspaceId ||
-      job.actorUserId !== args.actorUserId ||
-      job.sourceFingerprint !== args.sourceFingerprint ||
-      job.strategy !== "replace" ||
-      job.replacement === undefined ||
-      !Number.isSafeInteger(args.objects) ||
-      args.objects < 0
-    ) return null;
-
-    const now = Date.now();
-    if (job.replacement.phase === "counting" && args.mode === "counted") {
-      const replacement = {
-        phase: args.objects === 0 ? "uploading" as const : "deleting" as const,
-        totalObjects: args.objects,
-        deletedObjects: 0,
-      };
-      await ctx.db.patch(job._id, { replacement, status: "active", updatedAt: now });
-      return vaultImportJobStatus({ ...job, replacement, status: "active", updatedAt: now });
-    }
-    if (job.replacement.phase === "deleting" && args.mode === "deleted") {
-      const rawDeleted = job.replacement.deletedObjects + args.objects;
-      const totalObjects = Math.max(job.replacement.totalObjects, rawDeleted);
-      const replacement = {
-        phase: args.complete ? "uploading" as const : "deleting" as const,
-        totalObjects,
-        deletedObjects: args.complete ? totalObjects : rawDeleted,
-      };
-      await ctx.db.patch(job._id, { replacement, status: "active", updatedAt: now });
-      return vaultImportJobStatus({ ...job, replacement, status: "active", updatedAt: now });
-    }
-    return vaultImportJobStatus(job);
-  },
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => await recordVaultClearBatchHandler(ctx, args),
 });
 
 /** Count, then remove, one retryable page of every object in a replacement bucket. */
@@ -2729,31 +2615,14 @@ export const clearVaultImportBatch = action({
 export const latestVaultImportJob = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.null(), vaultImportJobStatusValidator),
-  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
-    const actorUserId = await callerId(ctx);
-    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
-    const recent = await ctx.db
-      .query("vaultImportJobs")
-      .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(20);
-    const job = recent.find((candidate) => candidate.actorUserId === actorUserId && candidate.status !== "complete");
-    return job === undefined ? null : vaultImportJobStatus(job);
-  },
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => await latestVaultImportJobHandler(ctx, args),
 });
 
 /** Record the local uploader stopping while keeping every completed batch resumable. */
 export const pauseVaultImport = mutation({
   args: { workspaceId: v.id("workspaces"), jobId: v.id("vaultImportJobs") },
   returns: v.union(v.null(), vaultImportJobStatusValidator),
-  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
-    const actorUserId = await callerId(ctx);
-    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
-    const job = await ctx.db.get(args.jobId);
-    if (job === null || job.workspaceId !== args.workspaceId || job.actorUserId !== actorUserId) return null;
-    if (job.status === "active") await ctx.db.patch(job._id, { status: "paused", updatedAt: Date.now() });
-    return vaultImportJobStatus(job.status === "active" ? { ...job, status: "paused" } : job);
-  },
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => await pauseVaultImportHandler(ctx, args),
 });
 
 export const vaultImportJobForBatch = internalQuery({
@@ -2774,42 +2643,7 @@ export const recordVaultImportBatch = internalMutation({
     filesSkipped: v.number(),
   },
   returns: v.union(v.null(), vaultImportJobStatusValidator),
-  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
-    const job = await ctx.db.get(args.jobId);
-    if (
-      job === null ||
-      job.workspaceId !== args.workspaceId ||
-      job.actorUserId !== args.actorUserId ||
-      job.sourceFingerprint !== args.sourceFingerprint
-    ) return null;
-    if (job.completedBatches.includes(args.batchIndex)) return vaultImportJobStatus(job);
-    const completedBatches = [...job.completedBatches, args.batchIndex].sort((left, right) => left - right);
-    const completedFiles = job.completedFiles + args.filesProcessed;
-    if (
-      !Number.isSafeInteger(args.batchIndex) ||
-      args.batchIndex < 0 ||
-      args.batchIndex >= job.totalBatches ||
-      !Number.isSafeInteger(args.filesProcessed) ||
-      args.filesProcessed < 1 ||
-      args.filesCreated < 0 ||
-      args.filesSkipped < 0 ||
-      args.filesCreated + args.filesSkipped !== args.filesProcessed ||
-      completedFiles > job.totalFiles
-    ) return null;
-    const complete = completedBatches.length === job.totalBatches && completedFiles === job.totalFiles;
-    const now = Date.now();
-    const patch = {
-      completedBatches,
-      completedFiles,
-      createdFiles: job.createdFiles + args.filesCreated,
-      skippedFiles: job.skippedFiles + args.filesSkipped,
-      status: complete ? "complete" as const : "active" as const,
-      updatedAt: now,
-      ...(complete ? { completedAt: now } : {}),
-    };
-    await ctx.db.patch(job._id, patch);
-    return vaultImportJobStatus({ ...job, ...patch });
-  },
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => await recordVaultImportBatchHandler(ctx, args),
 });
 
 /**
@@ -3515,34 +3349,7 @@ async function resolveNamedAudience(
 export const namedAudience = internalQuery({
   args: { workspaceId: v.id("workspaces"), name: v.string() },
   returns: v.union(v.string(), v.null()),
-  handler: async (ctx, args) => {
-    const group = await ctx.db
-      .query("workspaceGroups")
-      .withIndex("by_name", (q) => q.eq("name", args.name))
-      .unique();
-    if (group !== null) {
-      return group.workspaceId === args.workspaceId ? group.name : null;
-    }
-
-    // Not a group, so it may be a person. `resolveAddressedUser` is the only
-    // thing that decides who a handle belongs to — a `names` claim of
-    // `kind: "user"`, or the sole owner of a PERSONAL workspace with that slug
-    // — and every ambiguity there is already `null`.
-    const userId = await resolveAddressedUser(ctx, { kind: "name", value: args.name });
-    if (userId === null) return null;
-
-    // A rule naming somebody who is not a member reaches nobody, because
-    // `grantedNamesFor` intersects with membership. Refused rather than
-    // written, for the reason `addGroupMember` refuses a stranger: it would sit
-    // in the owner's manifest looking like access somebody had been given.
-    const membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("userId", userId),
-      )
-      .unique();
-    return membership === null ? null : args.name;
-  },
+  handler: async (ctx, args) => await namedAudienceHandler(ctx, args),
 });
 
 /**
@@ -3806,21 +3613,7 @@ export const markWorkspaceActivity = internalMutation({
     teamVisible: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null) return null;
-    // Clamped to now as well as forward-only: a clock ahead of ours must not
-    // park a context permanently in the future, where nothing is ever newer.
-    const at = Math.min(args.at, Date.now());
-    const patch: { activityAt?: number; activityTeamAt?: number } = {};
-    if ((workspace.activityAt ?? 0) < at) patch.activityAt = at;
-    if (args.teamVisible === true && (workspace.activityTeamAt ?? 0) < at) {
-      patch.activityTeamAt = at;
-    }
-    if (patch.activityAt === undefined && patch.activityTeamAt === undefined) return null;
-    await ctx.db.patch(args.workspaceId, patch);
-    return null;
-  },
+  handler: async (ctx, args): Promise<null> => await markWorkspaceActivityHandler(ctx, args),
 });
 
 /**
@@ -3833,22 +3626,7 @@ export const markWorkspaceActivity = internalMutation({
 export const activityLastSeen = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.number(), v.null()),
-  handler: async (ctx, args): Promise<number | null> => {
-    const actorUserId = await callerId(ctx);
-    // Refused exactly as every other endpoint here refuses, rather than
-    // answering `null` for a context the caller is not in: the isolation
-    // census in `files.test.ts` compares the *whole* answer against the one a
-    // workspace that never existed gives, and "null" from both would pass that
-    // while still being a second shape of endpoint for anybody to reason about.
-    await requireWorkspaceAccess(ctx, args.workspaceId, actorUserId);
-    const membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("userId", actorUserId),
-      )
-      .unique();
-    return membership?.activitySeenAt ?? null;
-  },
+  handler: async (ctx, args): Promise<number | null> => await activityLastSeenHandler(ctx, args),
 });
 
 /**
@@ -3861,21 +3639,7 @@ export const activityLastSeen = query({
 export const markActivitySeen = mutation({
   args: { workspaceId: v.id("workspaces"), at: v.optional(v.number()) },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    const actorUserId = await callerId(ctx);
-    await requireWorkspaceAccess(ctx, args.workspaceId, actorUserId);
-    const membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("userId", actorUserId),
-      )
-      .unique();
-    if (!membership) return null;
-    const at = Math.min(args.at ?? Date.now(), Date.now());
-    if ((membership.activitySeenAt ?? 0) >= at) return null;
-    await ctx.db.patch(membership._id, { activitySeenAt: at });
-    return null;
-  },
+  handler: async (ctx, args): Promise<null> => await markActivitySeenHandler(ctx, args),
 });
 
 /**
