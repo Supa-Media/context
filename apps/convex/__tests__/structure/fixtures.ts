@@ -469,8 +469,22 @@ export function encryptedColumnsIn(schemaSource: string): string[] {
   return [...new Set(names)];
 }
 
+/**
+ * The schema's source: `schema.ts` plus the table modules it spreads in from
+ * `functions/lib/schema/`.
+ */
+function schemaSource(): string | undefined {
+  const entry = RAW_SOURCES["../../schema.ts"];
+  if (typeof entry !== "string") return undefined;
+  const tables = Object.keys(RAW_SOURCES)
+    .filter((key) => key.startsWith("../../functions/lib/schema/"))
+    .sort()
+    .map((key) => RAW_SOURCES[key] as string);
+  return [entry, ...tables].join("\n");
+}
+
 export const SCHEMA_ENCRYPTED_FIELDS = (() => {
-  const source = RAW_SOURCES["../../schema.ts"];
+  const source = schemaSource();
   if (typeof source !== "string") {
     throw new Error(
       "structure.test.ts could not read schema.ts to derive credential fields",

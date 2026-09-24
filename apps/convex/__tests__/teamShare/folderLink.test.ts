@@ -396,22 +396,27 @@ describe("a folder gets a link too", () => {
   /**
    * The router's restated copy really does restate this one.
    *
-   * `infra/router/src/preview.ts` refuses the same names to save a round trip,
-   * and it holds a hand-written literal because it is a separate deployment
-   * that cannot import this module. The comment there claimed the two were
-   * "held together by running both against the same names"; they were not, and
-   * a comment claiming a check nobody wrote is the thing that went wrong one
-   * commit ago in `listFolder`. So here is the check.
+   * `infra/router/src/preview/notes.ts` refuses the same names to save a round
+   * trip, and it holds a hand-written literal because it is a separate
+   * deployment that cannot import this module. The comment there claimed the
+   * two were "held together by running both against the same names"; they were
+   * not, and a comment claiming a check nobody wrote is the thing that went
+   * wrong one commit ago in `listFolder`. So here is the check.
    *
    * It reads the router's source rather than importing it, which is what the
    * mobile scope mirror does in `__tests__/consentScopes.test.ts` for the same
    * reason. Drift is not dangerous — the derived copy here is authoritative, so
    * a stale router costs a wasted round trip and never a title — but it is
    * silent, and silent is how the folder count stayed at five.
+   *
+   * (`PRODUCT_MANDATED_PATHS` moved from `infra/router/src/preview.ts` — a
+   * facade now — into `infra/router/src/preview/notes.ts`, where it lives next
+   * to the two functions that read it. This test was repointed at the new
+   * file; the assertion is unchanged.)
    */
   test("the edge router refuses exactly the same names", () => {
     const source = readFileSync(
-      new URL("../../../../infra/router/src/preview.ts", import.meta.url),
+      new URL("../../../../infra/router/src/preview/notes.ts", import.meta.url),
       "utf8",
     );
     const literal = source.match(/const PRODUCT_MANDATED_PATHS = new Set\(\[([^\]]*)\]\)/);
