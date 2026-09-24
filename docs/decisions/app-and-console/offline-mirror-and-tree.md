@@ -430,7 +430,7 @@ What a simplification costs, and what fails:
   (`crossContext/changeReporting.test.mjs`).
 - A writer that announces nothing: "approving a proposal puts a note in the
   tree, and tells the owner alone, even in a shared folder" (`treeHints.test.mjs`), "a captured message moves
-  the owner's hint, and no other audience" (`ingestionGateway/ticketsAndOps.test.ts`),
+  the owner's hint, and no other audience" (`ingestionGateway/treeHint.test.ts`),
   and "a day of mail it wrote moves the owner's hint, and a pass that wrote
   nothing does not" (`googleSyncLoop/treeHints.test.ts`).
 - Not asking for a walk on a new value: "a hint that the tree changed asks for
