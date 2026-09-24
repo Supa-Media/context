@@ -92,7 +92,6 @@
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
   "baseline": {
-    "apps/convex/functions/files.ts": 3678,
-    "apps/mcp/test/test.mjs": 4798
+    "apps/convex/functions/files.ts": 3678
   }
 }
