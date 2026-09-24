@@ -3,19 +3,31 @@
  *
  * Built to sit in the note rather than float over it — the same hairlines,
  * type and colours as the text around it, no card. The caption is the handle:
- * pressing it puts the caret in the block, which gives the source back.
+ * pressing it opens the filter popover, which rewrites the block as choices are
+ * made. A block that will not parse, or a note that cannot be edited, has no
+ * popover; there the caption puts the caret in the block instead.
+ *
+ * ## Why the DOM outlives the widget
+ *
+ * Every choice in the popover rewrites the block, and a rewritten block is a
+ * new widget. Rebuilding the DOM for it would close the popover under the hand
+ * that is using it, so `updateDOM` hands the new fence to the drawing already
+ * on screen (`ListView`, kept per element) and the popover stays open.
  */
 
 import { EditorView, WidgetType } from "@codemirror/view";
 import { folderLabel } from "../paths";
+import { planListRewrite } from "./edit";
 import {
   selectRows,
   type ListConfig,
   type ListFence,
   type ListHostRef,
+  type ListNote,
   type ListRow,
   type ListSource,
 } from "./model";
+import { ListPanel } from "./panel";
 import { captionFor, formatValue, rowTitle } from "./words";
 
 const LIST_ICON =
@@ -32,9 +44,10 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+const drawings = new WeakMap<HTMLElement, ListView>();
+
 export class ListWidget extends WidgetType {
   private readonly hostGeneration: number;
-  private unsubscribe: (() => void) | null = null;
 
   constructor(
     private readonly fence: ListFence,
@@ -50,66 +63,124 @@ export class ListWidget extends WidgetType {
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const wrap = el("div", "cm-lp-list");
-    const caption = el("button", "cm-lp-list-cap");
-    caption.type = "button";
-    caption.innerHTML = LIST_ICON;
-    caption.append(el("span", "", this.fence.config === null ? "Folder list" : captionFor(this.fence.config, folderLabel)));
-    caption.title = "Edit this list";
-    caption.addEventListener("mousedown", (event) => {
-      event.preventDefault();
-      view.dispatch({ selection: { anchor: this.fence.bodyFrom }, scrollIntoView: false });
-      view.focus();
-    });
-    wrap.append(caption);
-
-    const rows = el("div", "cm-lp-list-rows");
-    const foot = el("div", "cm-lp-list-foot");
-    wrap.append(rows, foot);
-
-    const config = this.fence.config;
-    if (config === null) {
-      wrap.classList.add("cm-lp-list-broken");
-      foot.textContent = "This list can’t be shown because the formatting is off.";
-      foot.append(el("div", "cm-lp-list-why", this.fence.error ?? "the block could not be read"));
-      return wrap;
-    }
-
-    let run = 0;
-    const load = (): void => {
-      const context = this.host?.current ?? null;
-      if (context === null) {
-        this.paint(rows, foot, config, null, null);
-        return;
-      }
-      const mine = ++run;
-      void context
-        .load(config.from, config.subfolders)
-        .then((source) => {
-          if (mine === run) this.paint(rows, foot, config, source, context.selfPath);
-        })
-        .catch(() => {
-          if (mine === run) this.paint(rows, foot, config, null, null);
-        });
-    };
-    load();
-    this.unsubscribe = this.host?.current?.subscribe?.(load) ?? null;
-    return wrap;
+    const drawing = new ListView(view, this.fence, this.host);
+    drawings.set(drawing.dom, drawing);
+    return drawing.dom;
   }
 
-  private paint(
-    rows: HTMLElement,
-    foot: HTMLElement,
-    config: ListConfig,
-    source: ListSource | null,
-    selfPath: string | null,
-  ): void {
+  updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    const drawing = drawings.get(dom);
+    if (drawing === undefined) return false;
+    drawing.update(view, this.fence, this.host);
+    return true;
+  }
+
+  destroy(dom: HTMLElement): void {
+    drawings.get(dom)?.destroy();
+    drawings.delete(dom);
+  }
+
+  /* Presses on a row, the caption or the popover are theirs; anywhere else places the caret. */
+  ignoreEvent(event: Event): boolean {
+    const target = event.target as Element | null;
+    return target?.closest?.(".cm-lp-list-row, .cm-lp-list-cap, .cm-lp-list-panel") != null;
+  }
+}
+
+/** One list on screen: its caption, rows and foot, and the popover when open. */
+export class ListView {
+  readonly dom = el("div", "cm-lp-list");
+  private readonly caption = el("button", "cm-lp-list-cap");
+  private readonly captionText = el("span", "");
+  private readonly rows = el("div", "cm-lp-list-rows");
+  private readonly foot = el("div", "cm-lp-list-foot");
+  private run = 0;
+  private unsubscribe: (() => void) | null = null;
+  private notes: readonly ListNote[] = [];
+  private panel: ListPanel | null = null;
+  private readonly outside = (event: MouseEvent): void => {
+    if (!this.dom.contains(event.target as Node)) this.closePanel(false);
+  };
+
+  constructor(
+    private view: EditorView,
+    private fence: ListFence,
+    private host: ListHostRef | null,
+  ) {
+    this.caption.type = "button";
+    this.caption.innerHTML = LIST_ICON;
+    this.caption.append(this.captionText);
+    this.caption.addEventListener("mousedown", (event) => event.preventDefault());
+    this.caption.addEventListener("click", () => this.pressCaption());
+    this.dom.append(this.caption, this.rows, this.foot);
+    this.draw();
+  }
+
+  update(view: EditorView, fence: ListFence, host: ListHostRef | null): void {
+    this.view = view;
+    this.fence = fence;
+    this.host = host;
+    this.draw();
+  }
+
+  destroy(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.run++;
+    this.closePanel(false);
+  }
+
+  private editable(): boolean {
+    return this.fence.config !== null && !this.view.state.readOnly;
+  }
+
+  private draw(): void {
+    const config = this.fence.config;
+    this.captionText.textContent = config === null ? "Folder list" : captionFor(config, folderLabel);
+    this.caption.title = this.editable() ? "Change what this list shows" : "Edit this list";
+    this.caption.setAttribute("aria-expanded", String(this.panel !== null));
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.dom.classList.toggle("cm-lp-list-broken", config === null);
+    if (config === null) {
+      this.run++;
+      this.closePanel(false);
+      this.rows.replaceChildren();
+      this.foot.textContent = "This list can’t be shown because the formatting is off.";
+      this.foot.append(el("div", "cm-lp-list-why", this.fence.error ?? "the block could not be read"));
+      return;
+    }
+    this.panel?.refresh(config);
+    this.load(config);
+    this.unsubscribe = this.host?.current?.subscribe?.(() => this.load(config)) ?? null;
+  }
+
+  private load(config: ListConfig): void {
+    const context = this.host?.current ?? null;
+    if (context === null) {
+      this.paint(config, null, null);
+      return;
+    }
+    const mine = ++this.run;
+    void context
+      .load(config.from, config.subfolders)
+      .then((source) => {
+        if (mine === this.run) this.paint(config, source, context.selfPath);
+      })
+      .catch(() => {
+        if (mine === this.run) this.paint(config, null, null);
+      });
+  }
+
+  private paint(config: ListConfig, source: ListSource | null, selfPath: string | null): void {
+    const { rows, foot } = this;
     rows.replaceChildren();
     foot.textContent = "";
     if (source === null) {
       foot.textContent = "This list shows once this workspace’s notes are on this device.";
       return;
     }
+    this.notes = source.notes;
     const selection = selectRows(config, source.notes, selfPath);
     const now = Date.now();
     for (const row of selection.rows) rows.append(this.drawRow(row, now));
@@ -130,8 +201,7 @@ export class ListWidget extends WidgetType {
     link.setAttribute("data-path", row.path);
     link.append(el("span", "cm-lp-list-title", rowTitle(row)));
     for (const { key, value } of row.values) {
-      const text = formatValue(key, value, now);
-      link.append(el("span", "cm-lp-list-value", text));
+      link.append(el("span", "cm-lp-list-value", formatValue(key, value, now)));
     }
     link.addEventListener("click", (event) => {
       event.preventDefault();
@@ -140,14 +210,55 @@ export class ListWidget extends WidgetType {
     return link;
   }
 
-  destroy(): void {
-    this.unsubscribe?.();
-    this.unsubscribe = null;
+  private pressCaption(): void {
+    if (this.panel !== null) {
+      this.closePanel(true);
+      return;
+    }
+    const config = this.fence.config;
+    if (config === null || !this.editable()) {
+      this.editAsText();
+      return;
+    }
+    this.panel = new ListPanel(config, {
+      notes: () => this.notes,
+      write: (next) => this.write(next),
+      editAsText: () => this.editAsText(),
+      close: () => this.closePanel(true),
+    });
+    this.dom.classList.add("cm-lp-list-open");
+    this.caption.setAttribute("aria-expanded", "true");
+    this.caption.after(this.panel.dom);
+    this.dom.ownerDocument.addEventListener("mousedown", this.outside, true);
+    this.panel.focus();
   }
 
-  /* Presses on a row or the caption are theirs; anywhere else places the caret. */
-  ignoreEvent(event: Event): boolean {
-    const target = event.target as Element | null;
-    return target?.closest?.(".cm-lp-list-row, .cm-lp-list-cap") != null;
+  private closePanel(refocus: boolean): void {
+    if (this.panel === null) return;
+    this.panel.dom.remove();
+    this.panel = null;
+    this.dom.classList.remove("cm-lp-list-open");
+    this.caption.setAttribute("aria-expanded", "false");
+    this.dom.ownerDocument.removeEventListener("mousedown", this.outside, true);
+    if (refocus) this.caption.focus();
+  }
+
+  /** Rewrite the block this drawing stands for. */
+  private write(config: ListConfig): string | null {
+    const from = this.view.posAtDOM(this.dom);
+    const plan = planListRewrite(this.view.state, from, config);
+    if ("error" in plan) return plan.error;
+    this.view.dispatch(plan.spec);
+    return null;
+  }
+
+  private editAsText(): void {
+    this.closePanel(false);
+    // From the DOM rather than the fence: an edit above the list moves the
+    // block without rebuilding this drawing, so its fence can be out of date.
+    const open = this.view.state.doc.lineAt(this.view.posAtDOM(this.dom));
+    const anchor = Math.min(open.to + 1, this.view.state.doc.length);
+    this.view.dispatch({ selection: { anchor }, scrollIntoView: false });
+    this.view.focus();
   }
 }

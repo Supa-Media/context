@@ -15,6 +15,7 @@ export const listStyles = `/*
   --lp-content are the same ink.
 */
 .cm-lp-list {
+  position: relative;
   margin: 0 0 10px;
 }
 .cm-lp-list-cap {
@@ -112,6 +113,200 @@ export const listStyles = `/*
   opacity: 0.75;
 }
 /*
+  The caption's popover: the block's filters as fields. It opens in the flow,
+  between the caption and the rows, so it can never be clipped by the end of a
+  short note and the rows it changes stay in view below it. The same surface
+  as the image alt field, and the one place a list uses a card.
+*/
+.cm-lp-list-open .cm-lp-list-cap {
+  color: var(--lp-content);
+  opacity: 1;
+}
+.cm-lp-list-panel {
+  max-width: 460px;
+  box-sizing: border-box;
+  margin: 2px 0 14px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 10px;
+  background: var(--lp-code-bg);
+  color: var(--lp-content);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.cm-lp-list-panel:focus {
+  outline: none;
+}
+.cm-lp-list-panel-section + .cm-lp-list-panel-section {
+  margin-top: 14px;
+}
+.cm-lp-list-panel-label {
+  margin-bottom: 5px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+  opacity: 0.8;
+}
+.cm-lp-list-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cm-lp-list-panel-row + .cm-lp-list-panel-row {
+  margin-top: 6px;
+}
+.cm-lp-list-panel-field {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid var(--lp-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--lp-content);
+  font: inherit;
+}
+.cm-lp-list-panel-field:hover,
+.cm-lp-list-panel-field:focus {
+  border-color: var(--lp-line-strong);
+}
+.cm-lp-list-panel-select option {
+  background: var(--lp-code-bg);
+  color: var(--lp-content);
+}
+.cm-lp-list-panel-select {
+  flex: none;
+  max-width: 45%;
+  padding-right: 4px;
+  cursor: pointer;
+}
+.cm-lp-list-panel-condition .cm-lp-list-panel-select {
+  max-width: 34%;
+}
+.cm-lp-list-panel-field:focus-visible,
+.cm-lp-list-panel button:focus-visible,
+.cm-lp-list-panel-check input:focus-visible {
+  outline: 2px solid var(--lp-link);
+  outline-offset: 1px;
+}
+.cm-lp-list-panel-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  color: var(--lp-muted);
+  cursor: pointer;
+}
+.cm-lp-list-panel-check input {
+  appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.cm-lp-list-panel-check input:checked {
+  background: var(--lp-link);
+  border-color: var(--lp-link);
+  box-shadow: inset 0 0 0 2px var(--lp-code-bg);
+}
+.cm-lp-list-panel button {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-lp-list-panel-remove {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--lp-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+.cm-lp-list-panel-remove:hover {
+  color: var(--lp-content);
+  background: var(--lp-line);
+}
+.cm-lp-list-panel-quiet {
+  padding: 4px 0;
+  color: var(--lp-muted);
+}
+.cm-lp-list-panel-quiet:hover {
+  color: var(--lp-link);
+}
+.cm-lp-list-panel-add {
+  margin-top: 2px;
+}
+.cm-lp-list-panel .cm-lp-list-panel-flip {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: var(--lp-muted);
+}
+.cm-lp-list-panel .cm-lp-list-panel-flip::after {
+  content: " \\21C5";
+  opacity: 0.6;
+}
+.cm-lp-list-panel .cm-lp-list-panel-flip:hover {
+  color: var(--lp-content);
+  background: var(--lp-line);
+}
+.cm-lp-list-panel-add::before {
+  content: "+ ";
+}
+.cm-lp-list-panel-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cm-lp-list-panel .cm-lp-list-panel-chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--lp-line);
+  border-radius: 13px;
+  color: var(--lp-muted);
+}
+.cm-lp-list-panel .cm-lp-list-panel-chip-on {
+  border-color: var(--lp-link);
+  background: var(--lp-link);
+  color: var(--lp-code-bg);
+  font-weight: 600;
+}
+.cm-lp-list-panel .cm-lp-list-panel-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cm-lp-list-panel-hint,
+.cm-lp-list-panel-problem:not(:empty) {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--lp-muted);
+}
+.cm-lp-list-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+/* Quiet: every change is already in the note, so this closes rather than saves. */
+.cm-lp-list-panel .cm-lp-list-panel-done {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--lp-content);
+  font-weight: 500;
+}
+.cm-lp-list-panel .cm-lp-list-panel-done:hover {
+  background: var(--lp-line);
+}
+/*
   A phone: taller rows for a thumb, and only the last value beside the title.
   The width is layout.narrowBreakpoint written out, because this sheet also
   ships in the native editor bundle, which cannot import the design tokens;
@@ -119,6 +314,11 @@ export const listStyles = `/*
 */
 @media (max-width: 879.98px) {
   .cm-lp-list-row { padding: 12px 0; }
+  .cm-lp-list-panel { max-width: none; }
+  .cm-lp-list-panel-condition { flex-wrap: wrap; }
+  .cm-lp-list-panel-condition > .cm-lp-list-panel-field:first-child { flex: 1 0 100%; }
+  .cm-lp-list-panel-condition .cm-lp-list-panel-select { max-width: none; }
+  .cm-lp-list-panel-field { height: 36px; font-size: 16px; }
   .cm-lp-list-value:not(:last-child) { display: none; }
 }
 `;

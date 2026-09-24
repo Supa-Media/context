@@ -49,3 +49,12 @@ An editor that lets someone change a filter rewrites the block's text with
 `renderListBlock`, so the Markdown stays the whole truth and another client
 reads the same list. `parseListBody(renderListBlock(c))` must equal `c`; the
 round-trip check fails if a key is dropped.
+
+The console's popover on a list's caption is that editor. It writes each
+complete version as it is chosen, keeps a half-written condition in the
+popover until it has a property and a value, and refuses a version that would
+not read back as itself (a folder that climbs out, say) with the grammar's own
+reason rather than writing it. Its choices therefore never live anywhere but
+the note. `listBlock.test.ts` ("changing a list from its caption") fails if a
+choice is kept in the popover instead, or if a half-written condition reaches
+the note.
