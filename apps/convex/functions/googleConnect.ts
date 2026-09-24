@@ -45,6 +45,15 @@
  * is not a cross-tenant oracle the way `dropboxConnect`'s attempt lookup is,
  * but two failure sentences for one refusal invites a client to branch on
  * which.
+ *
+ * ## Where the rest of it lives
+ *
+ * Every function is still registered here, under the same name, kind and
+ * validators. Bodies that call, schedule or decrypt stay here in full, because
+ * `__tests__/structure.test.ts` reads each registered function's own text to
+ * decide what it can reach, and pins this module as one of the few that may
+ * open a sealed token. The settings, validation, attempt and connection rows,
+ * backfill bookkeeping and token cache rows are in `./lib/googleConnect/`.
  */
 
 import { v } from "convex/values";
@@ -59,23 +68,15 @@ import {
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
-// The scheduling half of a connection is the loop's (`googleSync.ts`), and the
-// console reads both halves off one row. The view is imported from the leaf
-// both files share rather than from the loop itself: importing the loop here
-// would close a cycle, and a cycle in this module graph surfaces as an export
-// that is sometimes missing rather than as an error.
-import { syncStatusOf } from "./lib/googleSchedule";
 import {
   createPkcePair,
   exchangeGoogleCode,
   googleAuthorizeUrl,
   googleRedirectAllowed,
-  grantedScopesFor,
   isGoogleReconnectRequired,
   refreshGoogleToken,
   revokeGoogleToken,
@@ -83,423 +84,66 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-// `chooseMailboxSlug` is the single implementation of "how a connected
-// mailbox's folder is named" (`docs/decisions/communications.md`, "An address
-// becomes a slug"). Reusing it here — the only place that knows every slug
-// already taken in a workspace — is what makes the choice made once, at
-// connect time, and never recomputed against a different `taken` set.
 // eslint-disable-next-line import/extensions
-import { chooseMailboxSlug, SLUG_FALLBACK } from "../../../packages/communications/src/paths.js";
-/*
-  And the folders those notes land in are the package's too, for the same
-  reason the slug is: a second spelling of `0-inbox/google-chat` here is a
-  second answer to "where does a day of this channel go", and the two are only
-  ever compared by somebody reading a bucket.
-*/
-// eslint-disable-next-line import/extensions
-import { CHANNEL_FOLDERS } from "../../../packages/communications/src/protocol.js";
-// eslint-disable-next-line import/extensions
-import { CALENDAR_FOLDER } from "../../../packages/communications/src/calendar/protocol.js";
-/*
-  The folder rule is the package's, not this file's. It was private here and
-  threw `ConvexError`, which made it unreachable from the console — so the
-  field somebody types a destination into could offer no completion and no
-  validation, and the mutation was the first thing that checked. Shared now;
-  this file maps the refusal to its own error and stays the check that matters.
-*/
+import { chooseMailboxSlug } from "../../../packages/communications/src/paths.js";
 import {
-  destinationPattern,
-  normalizeDestinationFolder as destinationFolderResult,
-} from "../../../packages/communications/src/destination.js";
+  BACKFILL_DAYS_DEFAULT,
+  DEFAULT_ATTACHMENT_RETENTION_DAYS,
+  STATE_BYTES,
+  readCurrentGmailHistoryId,
+  requireActor,
+  requireGoogleClientId,
+  readGoogleClientSecret,
+  refuseAttempt,
+  requireMailConnectEnabled,
+} from "./lib/googleConnect/config";
+import {
+  defaultGoogleDestinationFolder,
+  normalizeDestinationFolder,
+  requireGoogleProductsEnabled,
+  validateAttachmentMode,
+  validateAttachmentRetentionDays,
+  validateBackfillDays,
+  validateFolders,
+  validateGoogleSyncServices,
+  type GoogleConnectFlow,
+} from "./lib/googleConnect/validation";
+import * as attempts from "./lib/googleConnect/attempts";
+import * as connections from "./lib/googleConnect/connections";
+import * as binding from "./lib/googleConnect/binding";
+import * as backfill from "./lib/googleConnect/backfill";
+import * as syncTokens from "./lib/googleConnect/syncTokens";
+import * as validators from "./lib/googleConnect/validators";
 
-/** How long a started connect stays answerable. Same ten minutes as Dropbox's. */
-const ATTEMPT_TTL_MS = 10 * 60 * 1000;
+export {
+  BACKFILL_DAYS_DEFAULT,
+  DEFAULT_ATTACHMENT_RETENTION_DAYS,
+  DEFAULT_MAIL_QUOTA_BYTES,
+  MAIL_CONNECT_ENABLED_ENV_VAR,
+  MAIL_FOLDERS,
+  mailConnectEnabled,
+  readGoogleClientSecret,
+  refuseAttempt,
+  requireActor,
+  requireGoogleClientId,
+  type MailFolder,
+} from "./lib/googleConnect/config";
+export {
+  accountSlugFor,
+  defaultGoogleDestinationFolder,
+  takenAccountSlugs,
+} from "./lib/googleConnect/validation";
 
-/** Bytes of state. The same width as every other opaque token here. */
-const STATE_BYTES = 32;
-
-const GOOGLE_CLIENT_ID_ENV_VAR = "GOOGLE_OAUTH_CLIENT_ID";
-const GOOGLE_CLIENT_SECRET_ENV_VAR = "GOOGLE_OAUTH_CLIENT_SECRET";
-
-/**
- * The flag. A restricted-scope feature is off by default on every deployment,
- * including this project's own until Google's verification lands — an unset
- * variable must read as disabled, never as enabled.
- */
-export const MAIL_CONNECT_ENABLED_ENV_VAR = "MAIL_CONNECT_ENABLED";
-
-export function mailConnectEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env[MAIL_CONNECT_ENABLED_ENV_VAR] === "true";
-}
-
-async function readCurrentGmailHistoryId(accessToken: string, scopes: string[]): Promise<string | undefined> {
-  if (grantedScopesFor("gmail", scopes).length === 0) return undefined;
-  try {
-    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!response.ok) return undefined;
-    const json = (await response.json()) as { historyId?: unknown };
-    return typeof json.historyId === "string" && json.historyId.length > 0 ? json.historyId : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function requireMailConnectEnabled(): void {
-  if (!mailConnectEnabled()) {
-    throw new ConvexError({
-      code: "MAIL_CONNECT_DISABLED",
-      message: "Connecting a Google account is not enabled on this deployment.",
-    });
-  }
-}
-
-/** Which Gmail system labels this v1 will ever sync. Spam and Trash are never valid here. */
-export const MAIL_FOLDERS = ["inbox", "sent"] as const;
-export type MailFolder = (typeof MAIL_FOLDERS)[number];
-
-/** Legacy Gmail history windows kept for old rows; new message sync is forward-only. */
-export const BACKFILL_DAYS_DEFAULT = 90;
-const BACKFILL_DAYS_YEAR = 365;
-/** "All mail": no fixed window, capped generously so a corrupt value cannot mean "forever" literally. */
-const BACKFILL_DAYS_ALL_MAIL = 36_500;
-const ALLOWED_BACKFILL_DAYS = new Set([BACKFILL_DAYS_DEFAULT, BACKFILL_DAYS_YEAR, BACKFILL_DAYS_ALL_MAIL]);
-
-/**
- * A hard ceiling on bytes one connection may write, independent of the
- * customer's overall storage — note text and stored attachment bytes both.
- * Quota-bound per the owner's brief: backfill and sync both refuse to write
- * past this rather than silently exceeding what the estimator showed before
- * the first fetch.
- */
-export const DEFAULT_MAIL_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
-
-/**
- * The working default for how long a fetched attachment's bytes stay in the
- * bucket before `sweepExpiredAttachments` deletes them and the note's link
- * is rewritten to name and size only. Per-connection and overridable to
- * `"forever"` — see `docs/decisions/communications.md`, "Attachments are
- * fetched into the bucket, retained on a timer".
- */
-export const DEFAULT_ATTACHMENT_RETENTION_DAYS = 90;
-
-type AttachmentMode = "metadata-only" | "store";
-type AttachmentRetention = number | "forever";
-type GoogleSyncServices = { gmail: boolean; calendar: boolean; chat: boolean };
-type GoogleSyncService = "gmail" | "calendar" | "chat";
-
-// The four helpers below are exported for `calendarConnect.ts` (and Chat's
-// sibling module): one OAuth client id, one client secret, one "who is
-// calling" check, one "that attempt is gone" refusal — true of every
-// product's connect flow because it is the same client and the same parked
-// attempt shape, not a Gmail-specific fact. Reusing them is what keeps "how
-// do we know who is calling" from becoming a second implementation the day
-// it needs to change.
-export function requireGoogleClientId(): string {
-  const id = process.env[GOOGLE_CLIENT_ID_ENV_VAR];
-  if (typeof id !== "string" || id.length === 0) {
-    throw new ConvexError({
-      code: "MAIL_CONNECT_NOT_CONFIGURED",
-      message: "Google connect is not configured on this deployment.",
-    });
-  }
-  return id;
-}
-
-/** Optional, like Dropbox's app secret — see `googleOAuth.ts` for why PKCE covers the flow either way. */
-export function readGoogleClientSecret(): string | undefined {
-  const secret = process.env[GOOGLE_CLIENT_SECRET_ENV_VAR];
-  return typeof secret === "string" && secret.length > 0 ? secret : undefined;
-}
-
-export async function requireActor(ctx: {
-  auth: { getUserIdentity: () => Promise<unknown> };
-}): Promise<Id<"users">> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userId = await getAuthUserId(ctx as any);
-  if (userId === null) {
-    throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
-  }
-  return userId as Id<"users">;
-}
-
-export function refuseAttempt(): never {
-  throw new ConvexError({
-    code: "CONNECT_ATTEMPT_INVALID",
-    message: "That connection attempt has expired. Start it again.",
-  });
-}
-
-function validateBackfillDays(value: number | undefined): number {
-  const days = value ?? BACKFILL_DAYS_DEFAULT;
-  if (!ALLOWED_BACKFILL_DAYS.has(days)) {
-    throw new ConvexError({
-      code: "INVALID_BACKFILL_WINDOW",
-      message: "Choose 90 days, 1 year, or all mail.",
-    });
-  }
-  return days;
-}
-
-/**
- * Where a product's daily notes land when nobody has chosen a folder.
- *
- * Exported for `googleSync.ts`, which needs the same answer when it hands a
- * pass its destination — one implementation, so a synced day and the console's
- * own "daily file pattern" can never name two different folders.
- *
- * **Every branch is a package constant, and Chat's used to be a string.** It
- * read `"2-areas/communications/daily"` while `channelFolder("google-chat")`
- * — the answer `planChannelDay` falls back to when a caller passes no folder —
- * said `0-inbox/google-chat`, so a Chat connection that had never been given a
- * destination wrote its days *outside the Inbox entirely*: not under the
- * folder `docs/decisions/communications.md` decided ("A channel lands in
- * `0-inbox`"), not routed by `classifyCommsPath` to the console's channel
- * view, not collapsed by `classifyCaptureKind` out of `orient`'s recency list,
- * and beside `2-areas/communications/contacts/` in the buckets where an older
- * importer had left one — two contacts folders, one of them the product's.
- * Gmail and Calendar had the right answer spelled out longhand beside it,
- * which is exactly how a third spelling goes unnoticed: nothing compares
- * these strings to the package's, so only a person reading their own bucket
- * ever finds out. They are the same constants now.
- *
- * Changing this moves nothing already written. A pass that ran before it
- * leaves its days where they were, the same as changing the destination in
- * the console does (`updateGoogleSyncDestination` patches the row and never
- * touches the bucket) — the notes are the customer's, and moving a year of
- * them is `move_folder`'s job and their decision.
- */
-/**
- * The folder name this Google account's days go under.
- *
- * One answer for all three products, and it is Gmail's when Gmail has one:
- * `gmail.mailboxSlug` is chosen once at connect and never recomputed, so an
- * account whose mail is already in `0-inbox/email/<slug>/` gets
- * `0-inbox/calendar/<slug>/` and `0-inbox/google-chat/<slug>/` beside it
- * rather than a second spelling of the same person.
- *
- * `taken` is every other connection in this workspace, so two addresses that
- * slugify alike (`a.b@` and `a-b@`) get different folders — the same rule
- * `chooseMailboxSlug` applies to mailboxes, applied to the whole account. The
- * result is recorded in the connection's `destinationFolder` by its caller and
- * never recomputed, which is what makes a later disconnect unable to rename
- * the folder somebody's calendar is already in.
- */
-/**
- * Every account slug this workspace has already spent, except this address's own.
- *
- * Read off the rows rather than kept in a column: a slug is *recorded* inside
- * each product's `destinationFolder`, and the mailbox's is on `gmail`, so the
- * rows are the record. Excluding the address being bound is what makes a
- * reconnect idempotent — without it, an account would find its own slug taken
- * and give itself a hashed second one on every reconnect.
- */
-export async function takenAccountSlugs(
-  ctx: { db: { query: (table: "googleConnections") => any } },
-  workspaceId: Id<"workspaces">,
-  address: string,
-): Promise<string[]> {
-  const rows = await ctx.db
-    .query("googleConnections")
-    .withIndex("by_workspace", (q: any) => q.eq("workspaceId", workspaceId))
-    .collect();
-  return rows
-    .filter((row: any) => row.address !== address)
-    .flatMap((row: any) => (row.gmail?.mailboxSlug ? [row.gmail.mailboxSlug as string] : []));
-}
-
-export function accountSlugFor(
-  address: string,
-  existing: { gmail?: { mailboxSlug?: string } } | null | undefined,
-  taken: readonly string[],
-): string {
-  const chosen = existing?.gmail?.mailboxSlug;
-  if (typeof chosen === "string" && chosen.length > 0) return chosen;
-  return chooseMailboxSlug(address, [...taken]);
-}
-
-export function defaultGoogleDestinationFolder(
-  service: GoogleSyncService,
-  mailboxSlug: string | undefined,
-): string {
-  if (service === "gmail") return `${CHANNEL_FOLDERS.email}/${mailboxSlug ?? SLUG_FALLBACK}`;
-  /*
-    Calendar and Chat take the account level too, since 2026-09-18.
-
-    They were one folder per workspace, so two connected Google accounts wrote
-    one `0-inbox/calendar/2026-09-07.md` between them. It read correctly —
-    every event names its account — and it cost the thing the mailbox folder
-    was built for: a folder is the only unit `visibilityOf` can name, so
-    "my work calendar is team and my personal one is private" was not
-    expressible at all, at any number of lines in `privacy.md`.
-
-    A slug is only ever *recorded*, never recomputed: an absent one answers
-    the folder these products have always used, so an existing connection
-    whose row predates `accountSlug` goes on writing exactly where it was.
-    That is what makes the change forward-only for days as well as folders.
-  */
-  if (service === "calendar") {
-    return mailboxSlug === undefined ? CALENDAR_FOLDER : `${CALENDAR_FOLDER}/${mailboxSlug}`;
-  }
-  return mailboxSlug === undefined
-    ? CHANNEL_FOLDERS["google-chat"]
-    : `${CHANNEL_FOLDERS["google-chat"]}/${mailboxSlug}`;
-}
-
-/**
- * The package's folder rule, as a throw.
- *
- * The rules, the codes and the sentences are all
- * `@context/communications/destination`'s — the console renders the same
- * refusal in the same words before the round trip, which is the whole point of
- * the move. What stays here is turning it into the `ConvexError` this layer
- * speaks, with the `GOOGLE_` prefix its callers already switch on.
- */
-function normalizeDestinationFolder(value: string): string {
-  const result = destinationFolderResult(value);
-  if (result.ok) return result.folder;
-  throw new ConvexError({ code: `GOOGLE_${result.code}`, message: result.message });
-}
-
-function validateFolders(value: MailFolder[] | undefined): MailFolder[] {
-  const folders = value ?? (["inbox", "sent"] as MailFolder[]);
-  if (
-    folders.length === 0 ||
-    !folders.every((folder) => (MAIL_FOLDERS as readonly string[]).includes(folder)) ||
-    new Set(folders).size !== folders.length
-  ) {
-    throw new ConvexError({
-      code: "INVALID_FOLDERS",
-      message: "Choose at least one of Inbox or Sent.",
-    });
-  }
-  return folders;
-}
-
-function validateAttachmentMode(value: AttachmentMode | undefined): AttachmentMode {
-  const mode = value ?? "store";
-  if (mode !== "store" && mode !== "metadata-only") {
-    throw new ConvexError({ code: "INVALID_ATTACHMENT_MODE", message: "Choose store or metadata-only." });
-  }
-  return mode;
-}
-
-function validateAttachmentRetentionDays(value: AttachmentRetention | undefined): AttachmentRetention {
-  const retention = value ?? DEFAULT_ATTACHMENT_RETENTION_DAYS;
-  if (retention !== "forever" && (!Number.isFinite(retention) || retention <= 0)) {
-    throw new ConvexError({
-      code: "INVALID_ATTACHMENT_RETENTION",
-      message: "Choose a positive number of days, or \"forever\".",
-    });
-  }
-  return retention;
-}
-
-function validateGoogleSyncServices(value: GoogleSyncServices): GoogleProduct[] {
-  const products: GoogleProduct[] = [];
-  if (value.gmail) products.push("gmail");
-  if (value.calendar) products.push("calendar");
-  if (value.chat) products.push("chat");
-  if (products.length === 0) {
-    throw new ConvexError({
-      code: "GOOGLE_PRODUCTS_REQUIRED",
-      message: "Choose at least one Google service to sync.",
-    });
-  }
-  return products;
-}
-
-function requireGoogleProductsEnabled(products: readonly GoogleProduct[]): void {
-  if ((products.includes("gmail") || products.includes("chat")) && !mailConnectEnabled()) {
-    throw new ConvexError({
-      code: "MAIL_CONNECT_DISABLED",
-      message: "Connecting Google mail or chat is not enabled on this deployment.",
-    });
-  }
-  if (products.includes("calendar") && process.env.CALENDAR_CONNECT_ENABLED !== "true") {
-    throw new ConvexError({
-      code: "CALENDAR_CONNECT_DISABLED",
-      message: "Connecting Calendar is not enabled on this deployment.",
-    });
-  }
-}
-
-type GoogleConnectFlow = "gmail" | "calendar" | "chat" | "google";
-
-/**
- * Owner of the workspace, AND the workspace is a personal context. Both, in
- * one query, so a caller cannot connect a Google account into a shared
- * context they happen to own — ownership of a shared workspace is not the
- * permission this checks.
- */
 export const requirePersonalOwner = internalQuery({
-  args: { workspaceId: v.id("workspaces"), userId: v.id("users") },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null || workspace.kind !== "personal") return false;
-    const membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("userId", args.userId),
-      )
-      .unique();
-    return membership?.role === "owner";
-  },
+  args: attempts.requirePersonalOwnerArgs,
+  returns: attempts.requirePersonalOwnerReturns,
+  handler: attempts.requirePersonalOwnerHandler,
 });
 
 export const parkAttempt = internalMutation({
-  args: {
-    hashedState: v.string(),
-    hashedCompletion: v.string(),
-    encryptedVerifier: v.string(),
-    workspaceId: v.id("workspaces"),
-    startedBy: v.id("users"),
-    redirectUri: v.string(),
-    flow: v.optional(
-      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
-    ),
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
-    backfillDays: v.number(),
-    folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
-    attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
-    attachmentRetentionDays: v.union(v.number(), v.literal("forever")),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const stale = await ctx.db
-      .query("googleConnectAttempts")
-      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
-      .take(20);
-    for (const row of stale) await ctx.db.delete(row._id);
-
-    await ctx.db.insert("googleConnectAttempts", {
-      hashedState: args.hashedState,
-      hashedCompletion: args.hashedCompletion,
-      encryptedVerifier: args.encryptedVerifier,
-      workspaceId: args.workspaceId,
-      startedBy: args.startedBy,
-      redirectUri: args.redirectUri,
-      flow: args.flow,
-      products: args.products,
-      backfillDays: args.backfillDays,
-      folders: args.folders,
-      // Not in the schema's `googleConnectAttempts` — see `exchangeAndBind`,
-      // which reads these off the same two args this attempt already
-      // carries rather than a third place. Kept here as plain fields on the
-      // attempt row so they survive the redirect the same way backfillDays
-      // and folders do.
-      attachmentMode: args.attachmentMode,
-      attachmentRetentionDays:
-        args.attachmentRetentionDays === "forever" ? undefined : args.attachmentRetentionDays,
-      attachmentRetentionForever: args.attachmentRetentionDays === "forever",
-      expiresAt: now + ATTEMPT_TTL_MS,
-      createdAt: now,
-    });
-    return null;
-  },
+  args: attempts.parkAttemptArgs,
+  returns: attempts.parkAttemptReturns,
+  handler: attempts.parkAttemptHandler,
 });
 
 /**
@@ -514,15 +158,8 @@ export const parkAttempt = internalMutation({
  * this shape — `scopesForProducts` already takes an arbitrary product list.
  */
 export const startGmailConnect = action({
-  args: {
-    workspaceId: v.id("workspaces"),
-    redirectUri: v.string(),
-    backfillDays: v.optional(v.number()),
-    folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
-    attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
-    attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
-  },
-  returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
+  args: validators.startGmailConnectArgs,
+  returns: validators.startGmailConnectReturns,
   handler: async (
     ctx,
     args,
@@ -607,16 +244,8 @@ export const startGmailConnect = action({
  * product selected before leaving the app.
  */
 export const startGoogleConnect = action({
-  args: {
-    workspaceId: v.id("workspaces"),
-    redirectUri: v.string(),
-    syncServices: v.object({ gmail: v.boolean(), calendar: v.boolean(), chat: v.boolean() }),
-    backfillDays: v.optional(v.number()),
-    folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
-    attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
-    attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
-  },
-  returns: v.object({ authorizeUrl: v.string(), completionSecret: v.string() }),
+  args: validators.startGoogleConnectArgs,
+  returns: validators.startGoogleConnectReturns,
   handler: async (
     ctx,
     args,
@@ -697,22 +326,8 @@ export const startGoogleConnect = action({
  * RFC 6749 §10.12 — and it never travels through Google.
  */
 export const completeGmailConnect = action({
-  args: {
-    state: v.string(),
-    code: v.string(),
-    /*
-      Optional, and defaulted to the empty string rather than required.
-
-      A required arg makes a browser still running yesterday's bundle fail with
-      a Convex validator error instead of this flow's one refusal — a
-      distinguishable answer, for the length of a deploy, on the one path whose
-      whole point is that its four failures look identical. The empty string
-      fails the comparison exactly as a wrong secret does, so nothing is
-      loosened by accepting it.
-    */
-    completionSecret: v.optional(v.string()),
-  },
-  returns: v.object({ workspaceId: v.id("workspaces") }),
+  args: validators.completeGmailConnectArgs,
+  returns: validators.completeGmailConnectReturns,
   handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
     requireMailConnectEnabled();
     const consumed: { workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
@@ -829,231 +444,16 @@ export const consumeGoogleAttemptAndExchange = internalMutation({
   },
 });
 
-/**
- * Every mailbox slug already used in this workspace, so a newly connected
- * one can be disambiguated at the moment it is chosen rather than colliding
- * silently. Reads across every `googleConnections` row regardless of which
- * products it carries — a slug is a Gmail-folder fact, so only rows with a
- * `gmail` object contribute one. Excludes disconnected connections' slugs —
- * deliberately not: a disconnected mailbox's notes are still sitting in that
- * folder (`disconnectGoogleConnection` never deletes them), so its slug stays
- * taken until the person deletes the folder themselves.
- */
 export const listMailboxSlugs = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.array(v.string()),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("googleConnections")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-    return rows.flatMap((row) => (row.gmail ? [row.gmail.mailboxSlug] : []));
-  },
+  args: connections.listMailboxSlugsArgs,
+  returns: connections.listMailboxSlugsReturns,
+  handler: connections.listMailboxSlugsHandler,
 });
 
 export const listGoogleConnections = query({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.array(
-    v.object({
-      connectionId: v.id("googleConnections"),
-      email: v.string(),
-      syncServices: v.object({ gmail: v.boolean(), calendar: v.boolean(), chat: v.boolean() }),
-      syncStatus: v.string(),
-      lastSyncStartedAt: v.optional(v.number()),
-      lastSyncCompletedAt: v.optional(v.number()),
-      /**
-       * THE ANSWER TO "IS THIS THING ACTUALLY RUNNING?"
-       *
-       * `syncStatus` above is the connection's health, which a freshly
-       * connected account and a happily syncing one both report as fine —
-       * which is exactly how a mailbox that never synced once looked identical
-       * to one working. These five fields are the difference: how often it is
-       * polled, whether it has *ever* read mail, when it is next due, and what
-       * went wrong last, kept after a later pass succeeded.
-       */
-      sync: v.object({
-        intervalMinutes: v.number(),
-        everSynced: v.boolean(),
-        /** A cursor exists, so new mail will be read — which is not the same as having read any. */
-        cursorReady: v.boolean(),
-        /** The last pass ran out of history pages and there is more to drain. */
-        catchingUp: v.boolean(),
-        lastAttemptAt: v.optional(v.number()),
-        nextDueAt: v.optional(v.number()),
-        lastFailureAt: v.optional(v.number()),
-        lastFailureCode: v.optional(v.string()),
-        lastFailure: v.optional(v.string()),
-      }),
-      errorCode: v.optional(v.string()),
-      lastError: v.optional(v.string()),
-      gmail: v.optional(
-        v.object({
-          backfillDays: v.number(),
-          folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
-          destinationFolder: v.string(),
-          destinationPath: v.string(),
-          historyCursorReady: v.boolean(),
-          lastSyncedAt: v.optional(v.number()),
-        }),
-      ),
-      calendar: v.optional(
-        v.object({
-          destinationFolder: v.string(),
-          destinationPath: v.string(),
-          syncCursorReady: v.boolean(),
-          lastSyncedAt: v.optional(v.number()),
-        }),
-      ),
-      chat: v.optional(
-        v.object({
-          destinationFolder: v.string(),
-          destinationPath: v.string(),
-          cursorCount: v.number(),
-          lastSyncedAt: v.optional(v.number()),
-        }),
-      ),
-      syncRun: v.optional(
-        v.object({
-          runId: v.id("googleSyncRuns"),
-          mode: v.literal("backfill"),
-          services: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
-          status: v.union(
-            v.literal("queued"),
-            v.literal("running"),
-            v.literal("complete"),
-            v.literal("failed"),
-          ),
-          requestedBackfillDays: v.number(),
-          totalUnits: v.number(),
-          completedUnits: v.number(),
-          itemsFound: v.optional(v.number()),
-          daysWithMail: v.optional(v.number()),
-          bytesWritten: v.optional(v.number()),
-          currentService: v.optional(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
-          currentUnit: v.optional(v.string()),
-          startedAt: v.optional(v.number()),
-          completedAt: v.optional(v.number()),
-          errorCode: v.optional(v.string()),
-          lastError: v.optional(v.string()),
-        }),
-      ),
-      disconnectedAt: v.optional(v.number()),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) return [];
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null || workspace.kind !== "personal") return [];
-    const membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("userId", userId),
-      )
-      .unique();
-    if (membership?.role !== "owner") return [];
-
-    const rows = await ctx.db
-      .query("googleConnections")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-    const out = [];
-    for (const row of rows) {
-      const gmail = row.products.includes("gmail") ? row.gmail : undefined;
-      const calendar = row.products.includes("calendar") ? row.calendar : undefined;
-      const chat = row.products.includes("chat") ? row.chat : undefined;
-      const lastSyncCompletedAt = Math.max(
-        gmail?.lastSyncedAt ?? 0,
-        calendar?.lastSyncedAt ?? 0,
-        chat?.lastSyncedAt ?? 0,
-      );
-      const gmailDestinationFolder = gmail
-        ? (gmail.destinationFolder ?? defaultGoogleDestinationFolder("gmail", gmail.mailboxSlug))
-        : undefined;
-      const calendarDestinationFolder = calendar
-        ? (calendar.destinationFolder ?? defaultGoogleDestinationFolder("calendar", undefined))
-        : undefined;
-      const chatDestinationFolder = chat
-        ? (chat.destinationFolder ?? defaultGoogleDestinationFolder("chat", undefined))
-        : undefined;
-      const latestRun = await ctx.db
-        .query("googleSyncRuns")
-        .withIndex("by_connection_created", (q) => q.eq("connectionId", row._id))
-        .order("desc")
-        .first();
-      const visibleLatestRun =
-        latestRun?.errorCode === "GOOGLE_GMAIL_BACKFILL_DISABLED" ? null : latestRun;
-      out.push({
-        connectionId: row._id,
-        email: row.address,
-        sync: syncStatusOf(row),
-        syncServices: {
-          gmail: gmail !== undefined,
-          calendar: calendar !== undefined,
-          chat: chat !== undefined,
-        },
-        syncStatus:
-          row.disconnectedAt !== undefined
-            ? "disconnected"
-            : row.health === "backfilling" &&
-                (visibleLatestRun === null ||
-                  (visibleLatestRun.status !== "queued" && visibleLatestRun.status !== "running"))
-              ? "connected"
-              : row.health,
-        lastSyncCompletedAt: lastSyncCompletedAt === 0 ? undefined : lastSyncCompletedAt,
-        errorCode: row.errorCode,
-        lastError: row.lastError,
-        gmail: gmail
-          ? {
-              backfillDays: gmail.backfillDays,
-              folders: gmail.folders,
-              destinationFolder: gmailDestinationFolder!,
-              destinationPath: destinationPattern(gmailDestinationFolder!),
-              historyCursorReady: gmail.historyId !== undefined,
-              lastSyncedAt: gmail.lastSyncedAt,
-            }
-          : undefined,
-        calendar: calendar
-          ? {
-              destinationFolder: calendarDestinationFolder!,
-              destinationPath: destinationPattern(calendarDestinationFolder!),
-              syncCursorReady: calendar.syncToken !== undefined,
-              lastSyncedAt: calendar.lastSyncedAt,
-            }
-          : undefined,
-        chat: chat
-          ? {
-              destinationFolder: chatDestinationFolder!,
-              destinationPath: destinationPattern(chatDestinationFolder!),
-              cursorCount: Object.keys(chat.cursors ?? {}).length,
-              lastSyncedAt: chat.lastSyncedAt,
-            }
-          : undefined,
-        syncRun: visibleLatestRun
-          ? {
-              runId: visibleLatestRun._id,
-              mode: visibleLatestRun.mode,
-              services: visibleLatestRun.services,
-              status: visibleLatestRun.status,
-              requestedBackfillDays: visibleLatestRun.requestedBackfillDays,
-              totalUnits: visibleLatestRun.totalUnits,
-              completedUnits: visibleLatestRun.completedUnits,
-              itemsFound: visibleLatestRun.itemsFound,
-              daysWithMail: visibleLatestRun.daysWithMail,
-              bytesWritten: visibleLatestRun.bytesWritten,
-              currentService: visibleLatestRun.currentService,
-              currentUnit: visibleLatestRun.currentUnit,
-              startedAt: visibleLatestRun.startedAt,
-              completedAt: visibleLatestRun.completedAt,
-              errorCode: visibleLatestRun.errorCode,
-              lastError: visibleLatestRun.lastError,
-            }
-          : undefined,
-        disconnectedAt: row.disconnectedAt,
-      });
-    }
-    return out;
-  },
+  args: connections.listGoogleConnectionsArgs,
+  returns: connections.listGoogleConnectionsReturns,
+  handler: connections.listGoogleConnectionsHandler,
 });
 
 /**
@@ -1061,18 +461,8 @@ export const listGoogleConnections = query({
  * Unreachable from any public function except by being scheduled.
  */
 export const exchangeAndBind = internalAction({
-  args: {
-    workspaceId: v.id("workspaces"),
-    boundBy: v.id("users"),
-    encryptedVerifier: v.string(),
-    code: v.string(),
-    redirectUri: v.string(),
-    backfillDays: v.number(),
-    folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
-    attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
-    attachmentRetentionDays: v.union(v.number(), v.literal("forever")),
-  },
-  returns: v.null(),
+  args: validators.exchangeAndBindArgs,
+  returns: validators.exchangeAndBindReturns,
   handler: async (ctx, args): Promise<null> => {
     const clientId = requireGoogleClientId();
     const clientSecret = readGoogleClientSecret();
@@ -1127,19 +517,8 @@ export const exchangeAndBind = internalAction({
 });
 
 export const exchangeAndBindGoogle = internalAction({
-  args: {
-    workspaceId: v.id("workspaces"),
-    boundBy: v.id("users"),
-    encryptedVerifier: v.string(),
-    code: v.string(),
-    redirectUri: v.string(),
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
-    backfillDays: v.number(),
-    folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
-    attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
-    attachmentRetentionDays: v.union(v.number(), v.literal("forever")),
-  },
-  returns: v.null(),
+  args: validators.exchangeAndBindGoogleArgs,
+  returns: validators.exchangeAndBindGoogleReturns,
   handler: async (ctx, args): Promise<null> => {
     const clientId = requireGoogleClientId();
     const clientSecret = readGoogleClientSecret();
@@ -1223,174 +602,16 @@ export const exchangeAndBindGoogle = internalAction({
   },
 });
 
-/**
- * Record a connect that failed after the caller was told "started". Written
- * onto whatever connection row already exists for a *reconnect*; a first
- * connect that fails leaves nothing behind to attach it to, so it is dropped
- * after being logged — there is no half-built row for a client to poll.
- */
 export const recordConnectFailure = internalMutation({
-  args: { workspaceId: v.id("workspaces"), errorCode: v.string(), message: v.string() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    console.log(
-      JSON.stringify({ event: "mail.connect_failed", workspaceId: args.workspaceId, errorCode: args.errorCode }),
-    );
-    return null;
-  },
+  args: binding.recordConnectFailureArgs,
+  returns: binding.recordConnectFailureReturns,
+  handler: binding.recordConnectFailureHandler,
 });
 
-/**
- * Write (or reconnect) the Google connection, with Gmail enabled on it.
- *
- * Keyed on `(workspaceId, address)`: reconnecting the same account updates
- * the same row rather than creating a second one, which is what keeps
- * `gmail.mailboxSlug` — chosen once — stable across a reconnect, and what
- * keeps any *other* product already enabled on this account (Calendar, Chat)
- * untouched by a Gmail-only reconnect. A connect that lands on a *different*
- * Google account for an address already connected cannot happen: the address
- * comes from Google's own id token for the account that completed consent,
- * so `address` and `googleAccountId` always move together.
- */
 export const applyGmailConnectionBinding = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    boundBy: v.id("users"),
-    address: v.string(),
-    mailboxSlug: v.string(),
-    googleAccountId: v.string(),
-    scopes: v.array(v.string()),
-    backfillDays: v.number(),
-    folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
-    attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
-    attachmentRetentionDays: v.union(v.number(), v.literal("forever")),
-    encryptedRefreshToken: v.string(),
-    encryptedAccessToken: v.string(),
-    accessTokenExpiresAt: v.number(),
-    historyId: v.optional(v.string()),
-  },
-  returns: v.id("googleConnections"),
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("googleConnections")
-      .withIndex("by_workspace_address", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("address", args.address),
-      )
-      .unique();
-
-    // AN EXPLICIT DISCONNECT ENDED EVERY PRODUCT ON THIS ACCOUNT — one grant,
-    // one revoke — and `products` is left behind only as a record of what the
-    // connection used to sync. So reviving this row for a Gmail connect
-    // revives Gmail and nothing else: the other products' settings objects
-    // and cursors are kept (they are somebody's folder names and sync
-    // positions, not consent), but they are off the live `products` set until
-    // the person reconnects them deliberately. Without this, "I disconnected
-    // my Google account, then reconnected Gmail" silently puts Chat and
-    // Calendar back on the row — a claim of consent out of a revocation.
-    // `chatProduct.ts`'s `applyChatConnectionBinding` states the same rule
-    // from the other side; this is its mirror, and the two must not diverge.
-    const revived = existing !== null && existing.disconnectedAt !== undefined;
-    const products = new Set(revived ? [] : (existing?.products ?? []));
-    products.add("gmail");
-
-    // A grant NARROWER than the row's live products, same check and the same
-    // reason `applyChatConnectionBinding` gives: the slice is recorded
-    // honestly as `[]`, nothing anywhere reads a slice, so without this the
-    // row goes on reporting `backfilling` for a product whose sync can only
-    // ever take a refusal from Google. Every name in the message is one of
-    // this module's own literals, never a provider string.
-    const starved = [...products].filter((product) => grantedScopesFor(product, args.scopes).length === 0);
-    const gmailHistoryId = existing?.gmail?.historyId ?? args.historyId;
-
-    const fields = {
-      workspaceId: args.workspaceId,
-      provider: "google" as const,
-      address: args.address,
-      encryptedRefreshToken: args.encryptedRefreshToken,
-      encryptedAccessToken: args.encryptedAccessToken,
-      accessTokenExpiresAt: args.accessTokenExpiresAt,
-      scopes: args.scopes,
-      googleAccountId: args.googleAccountId,
-      products: [...products],
-      gmail: {
-        scopes: grantedScopesFor("gmail", args.scopes),
-        // A reconnect keeps the folder, the cursor, and last-synced time:
-        // it is the same account, and resetting any of them would rename a
-        // folder or force a needless full reconcile. They are cleared only
-        // by `disconnectGoogleConnection`.
-        mailboxSlug: existing?.gmail?.mailboxSlug ?? args.mailboxSlug,
-        backfillDays: args.backfillDays,
-        folders: args.folders,
-        storeRawMime: existing?.gmail?.storeRawMime ?? false,
-        attachmentMode: args.attachmentMode,
-        attachmentRetentionDays: args.attachmentRetentionDays,
-        destinationFolder:
-          existing?.gmail?.destinationFolder ??
-          defaultGoogleDestinationFolder("gmail", existing?.gmail?.mailboxSlug ?? args.mailboxSlug),
-        quotaBytes: existing?.gmail?.quotaBytes ?? DEFAULT_MAIL_QUOTA_BYTES,
-        historyId: gmailHistoryId,
-        lastSyncedAt: existing?.gmail?.lastSyncedAt,
-      },
-      // EVERY product's scope slice is recomputed from the ONE verbatim grant
-      // this connect just received, never carried forward.
-      //
-      // The schema states the rule — "two views of one fact, never two facts"
-      // — and carrying `existing.calendar` through untouched breaks it the
-      // moment a second product exists: a Gmail-only reconnect replaces the
-      // top-level `scopes` with the new grant's list while `calendar.scopes`
-      // goes on claiming scopes that grant may no longer carry, and the
-      // console would report a Calendar connection as healthy on the strength
-      // of a record of a consent that has been replaced. The settings and the
-      // cursor are the product's own and are kept; the scopes are a view of
-      // the account's grant and are derived.
-      //
-      // NOTE FOR THE CALENDAR AND CHAT WORK LANDING ON THIS ROW: this makes
-      // the row honest, it does not make an incremental connect correct.
-      // Google returns a grant covering exactly what was REQUESTED, so a
-      // later "add Calendar" that asks for `scopesForProducts(["calendar"])`
-      // alone comes back with a refresh token that no longer covers Gmail —
-      // and this mutation would then write a `gmail.scopes` of `[]` next to a
-      // `products` still listing `gmail`, which is the honest record of a
-      // real regression rather than a hidden one. The fix belongs in the
-      // connect that adds a product: request the union of every product
-      // already on the row plus the new one (`scopesForProducts` already
-      // takes an arbitrary list), or set `include_granted_scopes=true` on the
-      // authorize URL. Not decided here, because no such flow exists yet.
-      calendar: existing?.calendar
-        ? { ...existing.calendar, scopes: grantedScopesFor("calendar", args.scopes) }
-        : undefined,
-      chat: existing?.chat
-        ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) }
-        : undefined,
-      health: (
-        starved.length ? "reconnect_required" : gmailHistoryId ? "active" : "backfilling"
-      ) as "reconnect_required" | "active" | "backfilling",
-      lastError: starved.length
-        ? `This Google account's authorization no longer covers ${starved.join(", ")}. Reconnect to restore it.`
-        : undefined,
-      errorCode: starved.length ? "SCOPES_INCOMPLETE" : undefined,
-      disconnectedAt: undefined,
-      boundBy: args.boundBy,
-      updatedAt: now,
-    };
-
-    let connectionId: Id<"googleConnections">;
-    if (existing === null) {
-      connectionId = await ctx.db.insert("googleConnections", { ...fields, createdAt: now });
-    } else {
-      await ctx.db.patch(existing._id, fields);
-      connectionId = existing._id;
-    }
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.boundBy,
-      action: existing === null ? "mail.connected" : "mail.reconnected",
-      details: { mailboxSlug: fields.gmail.mailboxSlug, backfillDays: args.backfillDays },
-    });
-    return connectionId;
-  },
+  args: binding.applyGmailConnectionBindingArgs,
+  returns: binding.applyGmailConnectionBindingReturns,
+  handler: binding.applyGmailConnectionBindingHandler,
 });
 
 export const updateGoogleSyncDestination = mutation({
@@ -1583,279 +804,27 @@ export const startGoogleSyncRun = mutation({
 });
 
 export const stopGoogleGmailBackfillRun = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    runId: v.id("googleSyncRuns"),
-    errorCode: v.string(),
-    message: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const run = await ctx.db.get(args.runId);
-    if (
-      run === null ||
-      run.workspaceId !== args.workspaceId ||
-      run.mode !== "backfill" ||
-      !run.services.includes("gmail") ||
-      (run.status !== "queued" && run.status !== "running")
-    ) {
-      return null;
-    }
-    const now = Date.now();
-    await ctx.db.patch(args.runId, {
-      status: "failed" as const,
-      currentService: "gmail" as const,
-      completedAt: now,
-      lastError: args.message.slice(0, 240),
-      errorCode: args.errorCode,
-      updatedAt: now,
-    });
-    const connection = await ctx.db.get(run.connectionId);
-    if (
-      connection !== null &&
-      connection.workspaceId === args.workspaceId &&
-      connection.disconnectedAt === undefined
-    ) {
-      await ctx.db.patch(connection._id, {
-        health: connection.gmail?.historyId ? ("active" as const) : ("backfilling" as const),
-        lastError: undefined,
-        errorCode: undefined,
-        updatedAt: now,
-      });
-    }
-    return null;
-  },
+  args: backfill.stopGoogleGmailBackfillRunArgs,
+  returns: backfill.stopGoogleGmailBackfillRunReturns,
+  handler: backfill.stopGoogleGmailBackfillRunHandler,
 });
 
 export const googleGmailBackfillForRun = internalQuery({
-  args: { workspaceId: v.id("workspaces"), runId: v.id("googleSyncRuns") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      runId: v.id("googleSyncRuns"),
-      connectionId: v.id("googleConnections"),
-      requestedBackfillDays: v.number(),
-      createdAt: v.number(),
-      totalUnits: v.number(),
-      completedUnits: v.number(),
-      bytesWritten: v.number(),
-      transientFailures: v.number(),
-      address: v.string(),
-      mailboxSlug: v.string(),
-      destinationFolder: v.string(),
-      folders: v.array(v.union(v.literal("inbox"), v.literal("sent"))),
-      quotaBytes: v.number(),
-      attachmentMode: v.union(v.literal("metadata-only"), v.literal("store")),
-      attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const run = await ctx.db.get(args.runId);
-    if (
-      run === null ||
-      run.workspaceId !== args.workspaceId ||
-      run.mode !== "backfill" ||
-      !run.services.includes("gmail") ||
-      (run.status !== "queued" && run.status !== "running")
-    ) {
-      return null;
-    }
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null || workspace.kind !== "personal") return null;
-    const connection = await ctx.db.get(run.connectionId);
-    if (
-      connection === null ||
-      connection.workspaceId !== args.workspaceId ||
-      connection.disconnectedAt !== undefined ||
-      !connection.gmail
-    ) {
-      return null;
-    }
-    return {
-      runId: run._id,
-      connectionId: connection._id,
-      requestedBackfillDays: run.requestedBackfillDays,
-      createdAt: run.createdAt,
-      totalUnits: run.totalUnits,
-      completedUnits: run.completedUnits,
-      bytesWritten: run.bytesWritten ?? 0,
-      transientFailures: run.transientFailures ?? 0,
-      address: connection.address,
-      mailboxSlug: connection.gmail.mailboxSlug,
-      destinationFolder:
-        run.destinationFolder ??
-        connection.gmail.destinationFolder ??
-        defaultGoogleDestinationFolder("gmail", connection.gmail.mailboxSlug),
-      folders: connection.gmail.folders,
-      quotaBytes: connection.gmail.quotaBytes,
-      attachmentMode: connection.gmail.attachmentMode,
-      attachmentRetentionDays: connection.gmail.attachmentRetentionDays,
-    };
-  },
+  args: backfill.googleGmailBackfillForRunArgs,
+  returns: backfill.googleGmailBackfillForRunReturns,
+  handler: backfill.googleGmailBackfillForRunHandler,
 });
 
 export const recordGoogleGmailBackfillPass = internalMutation({
-  args: {
-    runId: v.id("googleSyncRuns"),
-    connectionId: v.id("googleConnections"),
-    fromUnit: v.number(),
-    toUnit: v.number(),
-    totalUnits: v.number(),
-    itemsFound: v.number(),
-    daysWithMail: v.number(),
-    bytesWritten: v.number(),
-    currentUnit: v.optional(v.string()),
-    status: v.union(v.literal("running"), v.literal("complete"), v.literal("failed")),
-    historyId: v.optional(v.string()),
-    errorCode: v.optional(v.string()),
-    error: v.optional(v.string()),
-    transientFailures: v.optional(v.number()),
-  },
-  returns: v.object({ accepted: v.boolean(), complete: v.boolean() }),
-  handler: async (ctx, args) => {
-    const run = await ctx.db.get(args.runId);
-    if (run === null || run.connectionId !== args.connectionId) {
-      return { accepted: false, complete: false };
-    }
-    const connection = await ctx.db.get(args.connectionId);
-    if (connection === null || connection.disconnectedAt !== undefined || !connection.gmail) {
-      return { accepted: false, complete: false };
-    }
-    const now = Date.now();
-    if (run.status !== "queued" && run.status !== "running") {
-      return { accepted: false, complete: run.status === "complete" };
-    }
-    if (run.completedUnits !== args.fromUnit) {
-      return { accepted: false, complete: false };
-    }
-
-    const completedUnits = Math.min(args.totalUnits, Math.max(run.completedUnits, args.toUnit));
-    const itemsFound = (run.itemsFound ?? 0) + args.itemsFound;
-    const daysWithMail = (run.daysWithMail ?? 0) + args.daysWithMail;
-    const bytesWritten = (run.bytesWritten ?? 0) + args.bytesWritten;
-    const error = args.error?.slice(0, 240);
-
-    if (args.status === "failed") {
-      await ctx.db.patch(args.runId, {
-        status: "failed" as const,
-        completedUnits,
-        totalUnits: args.totalUnits,
-        itemsFound,
-        daysWithMail,
-        bytesWritten,
-        currentService: "gmail" as const,
-        currentUnit: args.currentUnit,
-        completedAt: now,
-        lastError: error ?? "Gmail backfill stopped before it finished.",
-        errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
-        transientFailures: args.transientFailures,
-        updatedAt: now,
-      });
-      await ctx.db.patch(args.connectionId, {
-        health: "error" as const,
-        lastError: error ?? "Gmail backfill stopped before it finished.",
-        errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
-        updatedAt: now,
-      });
-      return { accepted: true, complete: false };
-    }
-
-    if (args.status === "complete") {
-      const gmail = {
-        ...connection.gmail,
-        historyId: args.historyId ?? connection.gmail.historyId,
-        lastSyncedAt: now,
-      };
-      const calendarReady = !connection.products.includes("calendar") || connection.calendar?.syncToken !== undefined;
-      const chatReady = !connection.products.includes("chat") || Object.keys(connection.chat?.cursors ?? {}).length > 0;
-      await ctx.db.patch(args.runId, {
-        status: "complete" as const,
-        completedUnits,
-        totalUnits: args.totalUnits,
-        itemsFound,
-        daysWithMail,
-        bytesWritten,
-        currentService: undefined,
-        currentUnit: undefined,
-        completedAt: now,
-        lastError: undefined,
-        errorCode: undefined,
-        transientFailures: undefined,
-        updatedAt: now,
-      });
-      await ctx.db.patch(args.connectionId, {
-        gmail,
-        health: calendarReady && chatReady ? ("active" as const) : ("backfilling" as const),
-        lastError: undefined,
-        errorCode: undefined,
-        updatedAt: now,
-      });
-      return { accepted: true, complete: true };
-    }
-
-    await ctx.db.patch(args.runId, {
-      status: "running" as const,
-      startedAt: run.startedAt ?? now,
-      completedUnits,
-      totalUnits: args.totalUnits,
-      itemsFound,
-      daysWithMail,
-      bytesWritten,
-      currentService: "gmail" as const,
-      currentUnit: args.currentUnit,
-      lastError: error,
-      errorCode: args.errorCode,
-      transientFailures: error ? args.transientFailures : undefined,
-      updatedAt: now,
-    });
-    return { accepted: true, complete: false };
-  },
+  args: backfill.recordGoogleGmailBackfillPassArgs,
+  returns: backfill.recordGoogleGmailBackfillPassReturns,
+  handler: backfill.recordGoogleGmailBackfillPassHandler,
 });
 
 export const failGoogleGmailBackfillRun = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    runId: v.id("googleSyncRuns"),
-    errorCode: v.string(),
-    error: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const run = await ctx.db.get(args.runId);
-    if (
-      run === null ||
-      run.workspaceId !== args.workspaceId ||
-      run.mode !== "backfill" ||
-      !run.services.includes("gmail") ||
-      (run.status !== "queued" && run.status !== "running")
-    ) {
-      return null;
-    }
-    const now = Date.now();
-    const error = args.error.slice(0, 240);
-    await ctx.db.patch(args.runId, {
-      status: "failed" as const,
-      currentService: "gmail" as const,
-      completedAt: now,
-      lastError: error,
-      errorCode: args.errorCode,
-      updatedAt: now,
-    });
-    const connection = await ctx.db.get(run.connectionId);
-    if (
-      connection !== null &&
-      connection.workspaceId === args.workspaceId &&
-      connection.disconnectedAt === undefined
-    ) {
-      await ctx.db.patch(connection._id, {
-        health: "error" as const,
-        lastError: error,
-        errorCode: args.errorCode,
-        updatedAt: now,
-      });
-    }
-    return null;
-  },
+  args: backfill.failGoogleGmailBackfillRunArgs,
+  returns: backfill.failGoogleGmailBackfillRunReturns,
+  handler: backfill.failGoogleGmailBackfillRunHandler,
 });
 
 /**
@@ -1959,61 +928,19 @@ export const mintGoogleAccessToken = internalAction({
 });
 
 export const getConnectionForSync = internalQuery({
-  args: { connectionId: v.id("googleConnections") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      workspaceId: v.id("workspaces"),
-      encryptedRefreshToken: v.string(),
-      encryptedAccessToken: v.optional(v.string()),
-      accessTokenExpiresAt: v.optional(v.number()),
-      disconnectedAt: v.optional(v.number()),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const connection = await ctx.db.get(args.connectionId);
-    if (connection === null) return null;
-    return {
-      workspaceId: connection.workspaceId,
-      encryptedRefreshToken: connection.encryptedRefreshToken,
-      encryptedAccessToken: connection.encryptedAccessToken,
-      accessTokenExpiresAt: connection.accessTokenExpiresAt,
-      disconnectedAt: connection.disconnectedAt,
-    };
-  },
+  args: syncTokens.getConnectionForSyncArgs,
+  returns: syncTokens.getConnectionForSyncReturns,
+  handler: syncTokens.getConnectionForSyncHandler,
 });
 
 export const cacheAccessToken = internalMutation({
-  args: {
-    connectionId: v.id("googleConnections"),
-    encryptedAccessToken: v.string(),
-    accessTokenExpiresAt: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const connection = await ctx.db.get(args.connectionId);
-    if (connection === null || connection.disconnectedAt !== undefined) return null;
-    await ctx.db.patch(args.connectionId, {
-      encryptedAccessToken: args.encryptedAccessToken,
-      accessTokenExpiresAt: args.accessTokenExpiresAt,
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
+  args: syncTokens.cacheAccessTokenArgs,
+  returns: syncTokens.cacheAccessTokenReturns,
+  handler: syncTokens.cacheAccessTokenHandler,
 });
 
 export const markReconnectRequired = internalMutation({
-  args: { connectionId: v.id("googleConnections") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const connection = await ctx.db.get(args.connectionId);
-    if (connection === null || connection.disconnectedAt !== undefined) return null;
-    await ctx.db.patch(args.connectionId, {
-      health: "reconnect_required" as const,
-      lastError: "Google no longer accepts this authorization. Reconnect to continue.",
-      errorCode: "GRANT_REVOKED",
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
+  args: syncTokens.markReconnectRequiredArgs,
+  returns: syncTokens.markReconnectRequiredReturns,
+  handler: syncTokens.markReconnectRequiredHandler,
 });
