@@ -66,7 +66,6 @@ import {
   openProvider,
   runTurn,
 } from "./agent/turn.js";
-import { R2Store } from "./store/r2.js";
 import { decodeSegment, pruneEmptyFolders } from "./store/index.js";
 import {
   SCOPE_CAPTURE,
@@ -129,7 +128,6 @@ import { parseMeetingNote, splitTranscript } from "../../../packages/meetings/sr
 import { MEETINGS_FOLDER, isMeetingNotePath } from "../../../packages/meetings/src/paths.js";
 import {
   AUDIT_PREFIX,
-  GRANOLA_EVENTS_PREFIX,
   IMAGE_PREFIX,
   NOTE_ACL_PREFIX,
   PROPOSAL_PREFIX,
@@ -272,6 +270,23 @@ import {
   SERVER_INSTRUCTIONS,
 } from "./mcp/instructions.js";
 import { toolError, toolText, writePermissionError } from "./tools/results.js";
+import { encodeBase64, timingSafeEqual } from "./crypto/bytes.js";
+import { expandCalendarEvents, parseIcs } from "./calendar/ics.js";
+import {
+  GRANOLA_COMPLETED_PREFIX,
+  GRANOLA_PENDING_PREFIX,
+  GRANOLA_WEBHOOK_BYTE_CAP,
+  verifyGranolaSignature,
+} from "./ingestion/granola.js";
+import {
+  INBOX_CONTENT_BYTE_CAP,
+  localIngestionStore,
+  normalizeInboxAttendees,
+  safeSlug,
+  sha256Hex,
+  singleLine,
+} from "./ingestion/inbox.js";
+import { transcriptionForwarder } from "./ingestion/transcription.js";
 export const toolDefinitions = registryToolDefinitions;
 export const EXISTENCE_MASKED_TOOLS = registryExistenceMaskedTools;
 
@@ -282,8 +297,6 @@ const LEGACY_SCOPES_KEY = "scopes.yml";
 // which is why they keep a word the product's copy retired in 2026-09.
 const PRIVACY_RULES_BEGIN = "<!-- BEGIN BRAIN PRIVACY RULES -->";
 const PRIVACY_RULES_END = "<!-- END BRAIN PRIVACY RULES -->";
-const GRANOLA_PENDING_PREFIX = `${GRANOLA_EVENTS_PREFIX}pending/`;
-const GRANOLA_COMPLETED_PREFIX = `${GRANOLA_EVENTS_PREFIX}completed/`;
 const PROPOSAL_PENDING_PREFIX = `${PROPOSAL_PREFIX}pending/`;
 const PROPOSAL_REVIEWED_PREFIX = `${PROPOSAL_PREFIX}reviewed/`;
 
@@ -542,9 +555,6 @@ const LOGICAL_MOVE_WORKSPACES = new Set();
 const PROPOSAL_PENDING_CAP = 100;
 const PROPOSAL_CONTENT_BYTE_CAP = 500_000;
 const CHAT_HISTORY_CONTENT_BYTE_CAP = 2_000_000;
-const INBOX_CONTENT_BYTE_CAP = 2_000_000;
-const GRANOLA_WEBHOOK_BYTE_CAP = 100_000;
-const GRANOLA_WEBHOOK_MAX_AGE_SECONDS = 5 * 60;
 /** Pages a single listing may fetch — 1000 keys each, so 100k objects. */
 const LIST_PAGE_CAP = 100;
 
@@ -684,25 +694,6 @@ function namedWithRest(names, charCap, restLabel) {
   }
   const rest = names.length - shown.length;
   return rest > 0 ? [...shown, `(+${rest} ${restLabel})`] : shown;
-}
-
-/**
- * A store for the deployment's own local bucket, for the two features that have
- * no user behind them: the calendar cron and the Granola webhook.
- *
- * **This is not an access path and no MCP session can reach it.** It exists
- * only for a single-deployment install — someone self-hosting the gateway over
- * their own bucket — where there is no customer credential to fetch and no
- * OAuth token on a cron tick. On the multi-tenant product deployment
- * `LOCAL_CONTEXT_BUCKET` is unset, and both features are inert.
- *
- * Anything a *caller* can reach goes through `storeForSession`, which requires a
- * live grant. Do not call this from a request path that carries a token.
- */
-function localIngestionStore(env) {
-  const bucket = env?.LOCAL_CONTEXT_BUCKET;
-  if (!bucket || typeof bucket.get !== "function") return null;
-  return new R2Store(bucket, { rootPrefix: env.LOCAL_CONTEXT_ROOT_PREFIX });
 }
 
 async function route(request, env, ctx) {
@@ -11816,167 +11807,6 @@ async function writeInboxCapture(store, capture, { actorScope = "inbox", replace
   return { path: key, duplicate: false, updated: Boolean(existing) };
 }
 
-function singleLine(value) {
-  return String(value ?? "").replace(/[\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim();
-}
-
-function safeSlug(value, maxLength) {
-  return singleLine(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, maxLength) || "capture";
-}
-
-function normalizeInboxAttendees(value) {
-  if (Array.isArray(value)) {
-    return value.map(formatInboxAttendee).filter(Boolean).slice(0, 200);
-  }
-  if (typeof value === "string") {
-    return value.split(/[\n,;]+/).map(singleLine).filter(Boolean).slice(0, 200);
-  }
-  return [];
-}
-
-function formatInboxAttendee(value) {
-  if (value && typeof value === "object") {
-    const name = singleLine(value.name || "");
-    const email = singleLine(value.email || "");
-    if (name && email) return `${name} <${email}>`;
-    return name || email;
-  }
-  return singleLine(value);
-}
-
-async function sha256Hex(value) {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-/* -------------------------------- meetings -------------------------------- */
-
-/**
- * Write one meeting note into the customer's bucket.
- *
- * `src/meetings/` decides what a meeting is, what Markdown it renders to, and
- * which path it claims. This decides what *writing a note* means here, and it
- * is deliberately the only thing the meeting handlers are given: a second
- * answer to "what visibility does a new note get" is where privacy bugs come
- * from, so the meeting path gets the same three rules every other write obeys.
- *
- *  - **A meeting note is a note.** Its visibility is `privacy.md`'s to decide,
- *    by folder default and exact override, exactly as `write_note`'s is. There
- *    is no meeting-shaped bypass and nothing here consults the session's own
- *    idea of who was in the room.
- *  - **A personal connection's new note is private**, and the override is
- *    written *before* the content, so there is no window in which the words are
- *    in the bucket at a wider visibility than they will end up at.
- *  - **A team connection may only create team content, in a folder whose
- *    default is already team.** The same two refusals `toolWriteNote` gives,
- *    for the same reason: a connection that cannot see private content must not
- *    be able to create it either, and a destination outside the team-writable
- *    surface is refused without saying what is there.
- *
- * The audit record carries the acting identity through `store.actor`, the path,
- * the visibility and how many segments the transcript held — and no title, no
- * attendees and no transcript. What was said in a meeting is note content, and
- * `.context/audit/` is a record of actions on paths.
- */
-/**
- * The transcription service this deployment is configured with, or `null`.
- *
- * ## Two variables, or nothing at all
- *
- * `TRANSCRIBE_WORKER_URL` and `TRANSCRIBE_WORKER_SECRET`, both or neither. A
- * URL with no secret would post somebody's meeting audio to an endpoint
- * unauthenticated, which is worse than the refusal it replaces; a secret with
- * no URL is a deployment that thinks it is configured and is not. Absent is a
- * first-class state: the route answers 501 and every recorder degrades to typed
- * notes, which is exactly what a self-hoster who has not set this up should get.
- *
- * The URL must be `https`. It is where audio goes.
- *
- * ## What crosses, and what deliberately does not
- *
- * The audio, its container, and how long it is. **Not** the session id, not the
- * chunk id, not the workspace id and not the note it will become: a stateless
- * transcriber that also knew where a chunk sat in a recording would be holding
- * a fragment of somebody's meeting, and `infra/transcribe-worker` is built so
- * that it cannot. The offsets and the ids are added back on this side, where
- * they came from.
- *
- * `X-Caller-Hash` is the one identifier that travels, and it is an **HMAC of
- * the workspace id under the shared secret** rather than the id. It exists so a
- * surprising bill has an account behind it and so the service can bound one
- * account's spend; it is not reversible by anyone who does not already hold the
- * secret, and holding the secret is what being that service means. Same
- * construction, for the same reason, as the control plane's `callerHash`.
- *
- * Nothing here logs the audio, its length, or the words that come back. A
- * transcript is note content, and the standard is that logs never carry it.
- */
-function transcriptionForwarder(env) {
-  const endpoint = typeof env?.TRANSCRIBE_WORKER_URL === "string" ? env.TRANSCRIBE_WORKER_URL.trim() : "";
-  const secret = typeof env?.TRANSCRIBE_WORKER_SECRET === "string" ? env.TRANSCRIBE_WORKER_SECRET.trim() : "";
-  if (!endpoint || !secret) return null;
-  let url;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:") return null;
-  const target = new URL("transcribe", url.href.endsWith("/") ? url.href : `${url.href}/`).href;
-
-  return async ({ audioBase64, mimeType, durationMs, callerId }) => {
-    const response = await fetch(target, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secret}`,
-        "Content-Type": "application/json",
-        "X-Caller-Hash": await callerHash(callerId, secret),
-      },
-      body: JSON.stringify({ audioBase64, mimeType, durationMs }),
-    });
-    if (!response.ok) {
-      // The status and nothing else. Never the body: it is the far end's prose
-      // about a request that carried audio.
-      console.warn(JSON.stringify({ event: "transcribe_upstream", status: response.status }));
-      throw new Error(`transcription answered ${response.status}`);
-    }
-    /*
-      The whole answer, not just its segments.
-
-      It used to be `payload?.segments`, which threw away the one field that
-      says why an answer is short: `refused` is how many segments the service
-      dropped because the engine's own evidence said they were not speech. An
-      empty transcript with `refused: 3` is a quiet room and one with
-      `refused: 0` is a broken engine, and a caller that cannot tell them apart
-      shows the wrong sentence for one of them. See
-      `infra/transcribe-worker/src/transcribe.ts`.
-    */
-    return await response.json();
-  };
-}
-
-/**
- * Who is spending, opaquely.
- *
- * HMAC-SHA256 of the workspace id under the shared secret, hex. Not the id, and
- * not a hash anybody without the secret can build a rainbow table for.
- */
-async function callerHash(workspaceId, secret) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(workspaceId)));
-  return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 /**
  * How many store operations one note-path resolution may spend, once the
  * direct read at the stored path has already come back missing.
@@ -12647,71 +12477,6 @@ async function handleGranolaWebhook(request, env, store, ctx) {
   return json({ ok: true, accepted: true }, 202);
 }
 
-async function verifyGranolaSignature(headers, rawBody, signingSecret) {
-  if (!signingSecret.startsWith("whsec_")) return false;
-  const webhookId = headers.get("webhook-id") || "";
-  const timestampText = headers.get("webhook-timestamp") || "";
-  const signatureHeader = headers.get("webhook-signature") || "";
-  const timestamp = Number(timestampText);
-  if (!webhookId || !Number.isFinite(timestamp)) return false;
-  if (Math.abs(Date.now() / 1000 - timestamp) > GRANOLA_WEBHOOK_MAX_AGE_SECONDS) return false;
-
-  let keyBytes;
-  try {
-    keyBytes = decodeBase64(signingSecret.slice("whsec_".length));
-  } catch {
-    return false;
-  }
-  const key = await crypto.subtle.importKey(
-    "raw",
-    keyBytes,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signedContent = `${webhookId}.${timestampText}.${rawBody}`;
-  const signature = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent))
-  );
-  const expected = encodeBase64(signature);
-  return signatureHeader.split(/\s+/).some((candidate) => {
-    const [version, provided = ""] = candidate.split(",");
-    return version === "v1" && timingSafeEqual(provided, expected);
-  });
-}
-
-/**
- * Constant-time string comparison, for the webhook HMAC above.
- *
- * The only remaining secret comparison in this worker. Access tokens are not
- * compared here at all — they are hashed and resolved by the control plane —
- * which is why this lives beside its one caller instead of in a shared auth
- * section that no longer exists.
- */
-function timingSafeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string" || !a || !b) return false;
-  const enc = new TextEncoder();
-  const ba = enc.encode(a);
-  const bb = enc.encode(b);
-  if (ba.length !== bb.length) return false;
-  let diff = 0;
-  for (let i = 0; i < ba.length; i++) diff |= ba[i] ^ bb[i];
-  return diff === 0;
-}
-
-function decodeBase64(value) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  const binary = atob(padded);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
-function encodeBase64(bytes) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
 async function processGranolaEventSafely(env, store, pendingKey) {
   try {
     await processGranolaEvent(env, store, pendingKey);
@@ -12849,311 +12614,6 @@ async function syncCalendar(env, store) {
   await recordChange(store, "calendar_sync", "system", ["2-areas/calendar/next-14-days.md"], {
     count: upcoming.length,
   });
-}
-
-function parseIcs(ics) {
-  // Unfold continuation lines (RFC 5545 §3.1)
-  const lines = ics.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "").split("\n");
-  const events = [];
-  let cur = null;
-  for (const line of lines) {
-    if (line === "BEGIN:VEVENT") cur = {};
-    else if (line === "END:VEVENT") {
-      if (cur) events.push(cur);
-      cur = null;
-    } else if (cur) {
-      const idx = line.indexOf(":");
-      if (idx < 0) continue;
-      const nameAndParams = line.slice(0, idx);
-      const value = line.slice(idx + 1);
-      const name = nameAndParams.split(";")[0];
-      if (name === "SUMMARY") cur.summary = unescapeIcs(value);
-      else if (name === "LOCATION") cur.location = unescapeIcs(value);
-      else if (name === "UID") cur.uid = value;
-      else if (name === "STATUS") cur.status = value;
-      else if (name === "RRULE") cur.rrule = value;
-      else if (name === "RECURRENCE-ID") cur.recurrenceId = parseIcsDate(value);
-      else if (name === "EXDATE") {
-        cur.exdates ||= [];
-        cur.exdates.push(...value.split(",").map(parseIcsDate).filter(Boolean));
-      } else if (name === "RDATE") {
-        cur.rdates ||= [];
-        cur.rdates.push(...value.split(",").map((v) => parseIcsDate(v.split("/")[0])).filter(Boolean));
-      }
-      else if (name === "DTSTART") {
-        cur.allDay = nameAndParams.includes("VALUE=DATE") || /^\d{8}$/.test(value);
-        cur.start = parseIcsDate(value);
-      }
-    }
-  }
-  return events;
-}
-
-const WEEKDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-
-function expandCalendarEvents(events, windowStart, windowEnd) {
-  const exceptions = new Map();
-  for (const event of events) {
-    if (!event.uid || !event.recurrenceId) continue;
-    if (!exceptions.has(event.uid)) exceptions.set(event.uid, new Map());
-    exceptions.get(event.uid).set(event.recurrenceId.getTime(), event);
-  }
-
-  const usedExceptions = new Set();
-  const expanded = [];
-  for (const event of events) {
-    if (!event.start || event.recurrenceId || event.status === "CANCELLED") continue;
-    const starts = event.rrule
-      ? expandRecurrenceStarts(event, windowStart, windowEnd)
-      : [event.start];
-    for (const rdate of event.rdates || []) starts.push(rdate);
-
-    const seenStarts = new Set();
-    for (const recurrenceStart of starts.sort((a, b) => a - b)) {
-      const recurrenceTime = recurrenceStart.getTime();
-      if (seenStarts.has(recurrenceTime)) continue;
-      seenStarts.add(recurrenceTime);
-      if ((event.exdates || []).some((date) => date.getTime() === recurrenceTime)) continue;
-
-      const exception = event.uid ? exceptions.get(event.uid)?.get(recurrenceTime) : null;
-      if (exception) usedExceptions.add(exception);
-      if (exception?.status === "CANCELLED") continue;
-
-      const actualStart = exception?.start || recurrenceStart;
-      if (actualStart < windowStart || actualStart > windowEnd) continue;
-      expanded.push({
-        ...event,
-        ...exception,
-        start: actualStart,
-        summary: exception?.summary ?? event.summary,
-        location: exception?.location ?? event.location,
-        allDay: exception?.allDay ?? event.allDay,
-        rrule: undefined,
-        recurrenceId: undefined,
-      });
-    }
-  }
-
-  // A moved exception can land inside the window even when its original
-  // occurrence is outside it, so include any such unconsumed exception.
-  for (const event of events) {
-    if (
-      event.recurrenceId &&
-      !usedExceptions.has(event) &&
-      event.status !== "CANCELLED" &&
-      event.start &&
-      event.start >= windowStart &&
-      event.start <= windowEnd
-    ) {
-      expanded.push({ ...event, recurrenceId: undefined });
-    }
-  }
-
-  return expanded;
-}
-
-function expandRecurrenceStarts(event, windowStart, windowEnd) {
-  const rule = parseRrule(event.rrule);
-  if (!rule || !["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(rule.freq)) {
-    return [event.start];
-  }
-
-  const start = event.start;
-  const until = rule.until || windowEnd;
-  const scanEnd = until < windowEnd ? until : windowEnd;
-  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-  const lastDay = new Date(Date.UTC(scanEnd.getUTCFullYear(), scanEnd.getUTCMonth(), scanEnd.getUTCDate()));
-  const matches = [];
-
-  while (cursor <= lastDay) {
-    const candidate = new Date(Date.UTC(
-      cursor.getUTCFullYear(),
-      cursor.getUTCMonth(),
-      cursor.getUTCDate(),
-      start.getUTCHours(),
-      start.getUTCMinutes(),
-      start.getUTCSeconds(),
-      start.getUTCMilliseconds()
-    ));
-    if (candidate >= start && candidate <= until && matchesRecurrenceDate(candidate, start, rule)) {
-      matches.push(candidate);
-    }
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  const positioned = applyBySetPos(matches, rule);
-  const counted = rule.count ? positioned.slice(0, rule.count) : positioned;
-  return counted.filter((date) => date >= windowStart && date <= windowEnd);
-}
-
-function parseRrule(text) {
-  if (!text) return null;
-  const values = {};
-  for (const part of text.split(";")) {
-    const idx = part.indexOf("=");
-    if (idx > 0) values[part.slice(0, idx)] = part.slice(idx + 1);
-  }
-  if (!values.FREQ) return null;
-  const until = values.UNTIL ? parseIcsDate(values.UNTIL) : null;
-  if (until && /^\d{8}$/.test(values.UNTIL)) until.setUTCHours(23, 59, 59, 999);
-  const weekStart = WEEKDAYS.indexOf(values.WKST || "MO");
-  return {
-    freq: values.FREQ,
-    interval: Math.max(1, Number.parseInt(values.INTERVAL || "1", 10) || 1),
-    count: Math.max(0, Number.parseInt(values.COUNT || "0", 10) || 0),
-    until,
-    byday: parseByDay(values.BYDAY),
-    bymonthday: parseNumberList(values.BYMONTHDAY),
-    bymonth: parseNumberList(values.BYMONTH),
-    bysetpos: parseNumberList(values.BYSETPOS),
-    wkst: weekStart < 0 ? 1 : weekStart,
-  };
-}
-
-function parseNumberList(value) {
-  if (!value) return [];
-  return value.split(",").map((item) => Number.parseInt(item, 10)).filter(Number.isFinite);
-}
-
-function parseByDay(value) {
-  if (!value) return [];
-  return value.split(",").map((item) => {
-    const match = item.match(/^([+-]?\d+)?(SU|MO|TU|WE|TH|FR|SA)$/);
-    return match
-      ? { ordinal: Number.parseInt(match[1] || "0", 10), weekday: WEEKDAYS.indexOf(match[2]) }
-      : null;
-  }).filter(Boolean);
-}
-
-function matchesRecurrenceDate(candidate, start, rule) {
-  const dayMs = 24 * 3600 * 1000;
-  const dayDiff = Math.floor((startOfUtcDay(candidate) - startOfUtcDay(start)) / dayMs);
-  const monthDiff =
-    (candidate.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    candidate.getUTCMonth() - start.getUTCMonth();
-  const yearDiff = candidate.getUTCFullYear() - start.getUTCFullYear();
-
-  if (rule.bymonth.length && !rule.bymonth.includes(candidate.getUTCMonth() + 1)) return false;
-  if (rule.bymonthday.length && !matchesMonthDay(candidate, rule.bymonthday)) return false;
-  if (rule.byday.length && !matchesByDay(candidate, rule.byday, rule.freq, rule.bymonth.length > 0)) return false;
-
-  if (rule.freq === "DAILY") return dayDiff % rule.interval === 0;
-  if (rule.freq === "WEEKLY") {
-    const weekDiff = Math.floor(
-      (startOfWeek(candidate, rule.wkst) - startOfWeek(start, rule.wkst)) / (7 * dayMs)
-    );
-    const allowedDays = rule.byday.length
-      ? rule.byday.map((item) => item.weekday)
-      : [start.getUTCDay()];
-    return weekDiff % rule.interval === 0 && allowedDays.includes(candidate.getUTCDay());
-  }
-  if (rule.freq === "MONTHLY") {
-    if (monthDiff % rule.interval !== 0) return false;
-    if (!rule.bymonthday.length && !rule.byday.length) {
-      return candidate.getUTCDate() === start.getUTCDate();
-    }
-    return true;
-  }
-  if (rule.freq === "YEARLY") {
-    if (yearDiff % rule.interval !== 0) return false;
-    if (!rule.bymonth.length && candidate.getUTCMonth() !== start.getUTCMonth()) return false;
-    if (!rule.bymonthday.length && !rule.byday.length) {
-      return candidate.getUTCDate() === start.getUTCDate();
-    }
-    return true;
-  }
-  return false;
-}
-
-function matchesMonthDay(date, values) {
-  const day = date.getUTCDate();
-  const daysInMonth = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-  return values.some((value) => value > 0 ? day === value : day === daysInMonth + value + 1);
-}
-
-function matchesByDay(date, values, frequency, hasByMonth) {
-  return values.some(({ ordinal, weekday }) => {
-    if (date.getUTCDay() !== weekday) return false;
-    if (!ordinal || frequency === "DAILY" || frequency === "WEEKLY") return true;
-    if (frequency === "MONTHLY" || (frequency === "YEARLY" && hasByMonth)) {
-      const ordinals = weekdayOrdinalsInMonth(date);
-      return ordinal > 0 ? ordinal === ordinals.positive : ordinal === ordinals.negative;
-    }
-    if (frequency === "YEARLY") {
-      const ordinals = weekdayOrdinalsInYear(date);
-      return ordinal > 0 ? ordinal === ordinals.positive : ordinal === ordinals.negative;
-    }
-    return true;
-  });
-}
-
-function weekdayOrdinalsInMonth(date) {
-  const daysInMonth = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-  return {
-    positive: Math.ceil(date.getUTCDate() / 7),
-    negative: -Math.ceil((daysInMonth - date.getUTCDate() + 1) / 7),
-  };
-}
-
-function weekdayOrdinalsInYear(date) {
-  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
-  const nextYear = Date.UTC(date.getUTCFullYear() + 1, 0, 1);
-  const dayOfYear = Math.floor((startOfUtcDay(date) - yearStart) / (24 * 3600 * 1000)) + 1;
-  const daysInYear = Math.floor((nextYear - yearStart) / (24 * 3600 * 1000));
-  return {
-    positive: Math.ceil(dayOfYear / 7),
-    negative: -Math.ceil((daysInYear - dayOfYear + 1) / 7),
-  };
-}
-
-function applyBySetPos(matches, rule) {
-  if (!rule.bysetpos.length) return matches;
-  const groups = new Map();
-  for (const date of matches) {
-    const key = recurrencePeriodKey(date, rule);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(date);
-  }
-  const selected = [];
-  for (const dates of groups.values()) {
-    for (const position of rule.bysetpos) {
-      const index = position > 0 ? position - 1 : dates.length + position;
-      if (dates[index]) selected.push(dates[index]);
-    }
-  }
-  return [...new Map(selected.map((date) => [date.getTime(), date])).values()].sort((a, b) => a - b);
-}
-
-function recurrencePeriodKey(date, rule) {
-  if (rule.freq === "YEARLY") return `${date.getUTCFullYear()}`;
-  if (rule.freq === "MONTHLY") return `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
-  if (rule.freq === "WEEKLY") return `${startOfWeek(date, rule.wkst)}`;
-  return `${startOfUtcDay(date)}`;
-}
-
-function startOfUtcDay(date) {
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-}
-
-function startOfWeek(date, weekStart) {
-  const dayStart = startOfUtcDay(date);
-  const offset = (date.getUTCDay() - weekStart + 7) % 7;
-  return dayStart - offset * 24 * 3600 * 1000;
-}
-
-function parseIcsDate(v) {
-  let mm = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-  if (mm) {
-    // Treat non-UTC (TZID) timestamps as UTC — approximate but predictable.
-    return new Date(Date.UTC(+mm[1], +mm[2] - 1, +mm[3], +mm[4], +mm[5], +mm[6]));
-  }
-  mm = v.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (mm) return new Date(Date.UTC(+mm[1], +mm[2] - 1, +mm[3]));
-  return null;
-}
-
-function unescapeIcs(s) {
-  return s.replace(/\\n/g, " · ").replace(/\\([,;\\])/g, "$1");
 }
 
 /* -------------------------------- helpers --------------------------------- */
