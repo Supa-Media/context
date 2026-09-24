@@ -24,15 +24,24 @@
  * this catches, which is somebody reverting a call site to what it used to say.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const ROOT = join(__dirname, "..", "..", "..");
 
+// `lib/fileOps.ts` is a facade over `lib/fileOps/<subject>.ts`, which is where
+// every override read now lives — so each of those modules is read too, and a
+// new one is covered the moment it is added.
+const FILE_OPS_MODULES = readdirSync(join(ROOT, "apps/convex/functions/lib/fileOps"))
+  .filter((name) => name.endsWith(".ts"))
+  .sort()
+  .map((name) => `apps/convex/functions/lib/fileOps/${name}`);
+
 const FILES = [
   "apps/convex/functions/lib/privacy.ts",
   "apps/convex/functions/lib/fileOps.ts",
+  ...FILE_OPS_MODULES,
   "apps/mcp/src/index.js",
 ];
 
