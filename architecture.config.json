@@ -100,15 +100,11 @@
     "apps/mcp/test/toolArguments.test.mjs": 1414,
     "apps/mobile/app/(app)/console/_layout.tsx": 2402,
     "apps/mobile/features/app/AppFrame.tsx": 2735,
-    "apps/mobile/features/console/files/Explorer.tsx": 1806,
-    "apps/mobile/features/console/files/ShareDialog.tsx": 1784,
     "apps/mobile/features/console/files/useFileBrowser.ts": 4853,
-    "apps/mobile/features/console/panes/BrowsePane.tsx": 2097,
     "apps/mobile/features/console/plugins/useRuntime.ts": 1187,
     "apps/mobile/features/console/presence/usePresence.ts": 1353,
     "apps/mobile/features/console/useLiveConsoleData.ts": 1282,
     "apps/mobile/features/meetings/capture/audio.ts": 1843,
-    "apps/mobile/features/offline/useOfflineNotes.ts": 1193,
-    "packages/obsidian-runtime/src/sandbox.js": 2247
+    "apps/mobile/features/offline/useOfflineNotes.ts": 1193
   }
 }
