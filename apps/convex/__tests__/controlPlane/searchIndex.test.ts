@@ -194,7 +194,7 @@ describe("/gateway/binding — the search index", () => {
     const wire = await response.text();
 
     // The gateway's own modules, evaluated here for the same reason
-    // `gatewayFormat.helpers.ts` evaluates `index.js`: a ported copy of either
+    // `gatewayFormat.helpers.ts` evaluates `privacy/engine.js`: a ported copy of either
     // would be a third opinion about the contract, and three opinions is how
     // this bug survived two of them.
     const { createControlPlane } = await import("../../../mcp/src/controlPlane.js");
