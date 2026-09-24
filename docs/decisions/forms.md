@@ -661,3 +661,36 @@ it, which is worse than saying nothing.
   `tools/list`** makes the exemption hide the thing it exempts: a name in
   `UNLISTED_TOOLS` that `toolsForSession` forgot to filter would pass either
   way. Sabotage: removing the filter reddens exactly that check.
+
+## Asking for a link publishes the form, and a refused mint says why
+
+Found in production on 2026-09-24. An owner asked their assistant for a client
+intake form and a link to send. `write_note(share: "collect")` wrote the form
+and its answers note, then failed with "control plane unavailable: status 500"
+on every retry, whatever short name was asked for. Every owner who asked for a
+form this way hit it; nobody had yet.
+
+Two faults, both fixed together:
+
+- **A personal connection's new note is private, and a link only opens what
+  the workspace can read** (non-negotiable #5). So the mint refused every note
+  `write_note` had just written for an owner. Asking for a link anyone can open
+  is approval for something wider than publishing the note to the owner's own
+  workspace, so `share` now does that too and stands in for
+  `confirm_team_publish`. It never overrides `visibility: "private"` passed in
+  the same call: that contradiction is refused before anything is written. The
+  answers note is untouched, because who reads the answers is a separate
+  question the owner did not ask.
+- **A mint refusal escaped the HTTP route as a 500.** The mint throws
+  `ConvexError`s the console turns into sentences. `gatewayCreateLinkHandler`
+  now catches those after the owner clearance and answers `{ refused }`, which
+  the gateway prints. A caller who is not cleared still gets the bare `null`, so
+  nobody else can tell "not yours" from "not a note". Anything that is not a
+  `ConvexError` still throws, because an outage reported as "publish your note
+  first" would send an owner to fix a manifest that was fine.
+
+The gateway's control-plane stub minted over any path, which is why the suite
+stayed green; it now takes a `linkRefusal` hook answered from the live manifest.
+Dropping the implied publish reddens 10 `linkTools` checks; the real route is
+covered by `__tests__/controlPlane/linksCreate.test.ts`, and letting `refused`
+reach an uncleared caller would make link creation an existence oracle.

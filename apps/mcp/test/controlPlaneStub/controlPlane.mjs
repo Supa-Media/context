@@ -656,6 +656,19 @@ export function createControlPlaneStub(options = {}) {
         if (typeof body.path !== "string" || body.path === "") {
           return ok({ link: null, shortRefused: null });
         }
+        /*
+          The real mint refuses a note the workspace cannot read, and says so
+          to the owner it cleared. This stub has no bucket, so a test that
+          publishes hands it the question: `options.linkRefusal(workspaceId,
+          path)` answers the refusal sentence, or null to mint. Without it the
+          stub minted over private notes the real control plane refuses —
+          which is how every owner's `write_note(share)` 500'd in production
+          while this suite stayed green (2026-09-24).
+        */
+        if (typeof options.linkRefusal === "function") {
+          const refused = await options.linkRefusal(cleared.workspaceId, body.path);
+          if (refused) return ok({ link: null, shortRefused: null, refused });
+        }
         const audience = body.audience === "members" ? "members" : "anyone";
         const key = `${cleared.workspaceId}:${body.path}:${audience}`;
         const existing = [...links.values()].find(

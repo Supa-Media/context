@@ -128,6 +128,9 @@ export async function toolCreateLink(store, scope, args) {
  */
 async function mintAndDescribe(calls, request) {
   const result = await calls.create(request);
+  if (result !== null && typeof result.refused === "string") {
+    return { ok: false, error: `the link was refused: ${result.refused}` };
+  }
   if (result === null) {
     return {
       ok: false,

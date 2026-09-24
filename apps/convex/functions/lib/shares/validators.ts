@@ -108,6 +108,11 @@ export const gatewayCreateLinkReturns = v.union(
     /** Why the short name was not claimed, or `null`. */
     shortRefused: v.union(v.string(), v.null()),
   }),
+  /**
+   * The owner was cleared and the mint refused: the sentence the console
+   * shows for the same refusal. See `gatewayCreateLinkHandler`.
+   */
+  v.object({ refused: v.string() }),
 );
 
 export const gatewayMintUnlistedArgs = {

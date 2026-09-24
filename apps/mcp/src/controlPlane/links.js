@@ -15,9 +15,11 @@ export function createLinkMethods({ post, required }) {
      * origin of a self-hosted deployment. The control plane builds it from the
      * same function the console's Copy link uses.
      *
-     * `null` for every refusal — not an owner, not a note, already encrypted,
-     * not team-visible. One answer, so nothing here reconstructs a reason the
-     * control plane deliberately did not give.
+     * `null` for a caller the control plane did not clear as the owner — one
+     * answer, so nothing here reconstructs a reason it deliberately did not
+     * give. `{ refused }` for a cleared owner whose mint was refused (a note
+     * the team cannot read, an encrypted note, the share cap): the owner is
+     * owed the reason, and it used to arrive as a 500.
      */
     async createLink(accessToken, expectedWorkspaceId, request) {
       const parsed = await post("/gateway/links/create", {
@@ -26,7 +28,13 @@ export function createLinkMethods({ post, required }) {
         ...request,
       });
       const link = required(parsed, "link");
-      if (link === null) return null;
+      if (link === null) {
+        // Present only when the caller was cleared as the owner and the mint
+        // itself refused — the console's sentence for the same refusal.
+        return typeof parsed.refused === "string" && parsed.refused !== ""
+          ? { refused: parsed.refused }
+          : null;
+      }
       if (!link || typeof link !== "object") throw new ControlPlaneError("malformed link");
       const shortRefused = parsed.shortRefused ?? null;
       return { link, shortRefused: typeof shortRefused === "string" ? shortRefused : null };

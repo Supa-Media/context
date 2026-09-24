@@ -159,6 +159,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The response table scrolls sideways, and never truncates an answer
 - The gateway writes the block too, not only the row
 - A form on a share page draws itself, and is the page's one write
+- Asking for a link publishes the form, and a refused mint says why
 - What is deliberately not built
 
 ## [Search and the derived index](./search.md)

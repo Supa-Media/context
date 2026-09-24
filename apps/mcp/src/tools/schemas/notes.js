@@ -70,12 +70,12 @@ export function noteWriteToolDefinitions() {
             type: "string",
             enum: ["members", "anyone", "collect"],
             description:
-              "Also publish this note, in the same call. members needs a live membership, so a link that leaks opens nothing. anyone opens with no account. collect is anyone AND takes answers to a form on this note from people with no account — that is how a published intake form gets filled in, and it is the only write in this product with no account behind it. Owner-only: a writer who is not the owner still gets their note, and is told the link was refused. Omit it to publish nothing.",
+              "Also publish this note, in the same call. members needs a live membership, so a link that leaks opens nothing. anyone opens with no account. collect is anyone AND takes answers to a form on this note from people with no account — that is how a published intake form gets filled in, and it is the only write in this product with no account behind it. Asking for a link publishes this note to the workspace too (a link only opens what the workspace can read), so it needs no confirm_team_publish; the answers note keeps its own visibility. Owner-only: a writer who is not the owner still gets their note, and is told the link was refused. Omit it to publish nothing.",
           },
           share_short: {
             type: "string",
             description:
-              "With share, a memorable name under their handle: context.lc/@name/<short>, lowercase letters, digits and hyphens. Say first that a short name is guessable by anyone who types it, which is the point of having one and is not true of the long link. A name that is taken or reserved does not lose the link — you are told why it was refused.",
+              "With share, a memorable name under their handle: context.lc/@name/<short>, lowercase letters, digits and hyphens. When they ask for a form or a link to send people, pick one from the note's name (new-client, feedback) rather than asking, and tell them it is guessable by anyone who types it, which is the point of having one and is not true of the long link. A name that is taken or reserved does not lose the link — you are told why it was refused.",
           },
         },
         required: ["path", "content"],
