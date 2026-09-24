@@ -219,10 +219,7 @@ import {
   withDeadline,
 } from "./lib/filesFns/searchDeadline";
 import {
-  MAX_VAULT_IMPORT_BATCH_BYTES,
-  MAX_VAULT_IMPORT_BATCH_FILES,
   type VaultImportJobStatus,
-  vaultImportJobStatus,
 } from "./lib/filesFns/vaultImportPlan";
 import {
   latestVaultImportJobHandler,
@@ -276,6 +273,11 @@ import {
   removeNoteEncryptionHandler,
   writeNoteHandler,
 } from "./lib/filesFns/noteWrites";
+import {
+  clearVaultImportBatchHandler,
+  importVaultBatchHandler,
+  importVaultJobBatchHandler,
+} from "./lib/filesFns/vaultImportBatches";
 export { scopeForRole, resolveFileAccess, callerId } from "./lib/filesFns/access";
 export { executeOperation } from "./lib/filesFns/executeOperation";
 
@@ -2287,57 +2289,7 @@ export const clearVaultImportBatch = action({
     sourceFingerprint: v.string(),
   },
   returns: vaultImportJobStatusValidator,
-  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "owner",
-    });
-    const job = await ctx.runQuery(internal.functions.files.vaultImportJobForBatch, {
-      jobId: args.jobId,
-    }) as Doc<"vaultImportJobs"> | null;
-    if (
-      job === null ||
-      job.workspaceId !== args.workspaceId ||
-      job.actorUserId !== actorUserId ||
-      job.sourceFingerprint !== args.sourceFingerprint ||
-      job.strategy !== "replace" ||
-      job.replacement === undefined
-    ) {
-      throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "That replacement is no longer available." });
-    }
-    if (job.replacement.phase === "uploading") return vaultImportJobStatus(job);
-
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "clearVault", countOnly: job.replacement.phase === "counting" },
-    }) as Extract<OperationResult, { kind: "vaultCleared" }>;
-    const recorded = await ctx.runMutation(internal.functions.files.recordVaultClearBatch, {
-      jobId: args.jobId,
-      actorUserId,
-      workspaceId: args.workspaceId,
-      sourceFingerprint: args.sourceFingerprint,
-      mode: result.mode,
-      objects: result.objects,
-      complete: result.complete,
-    });
-    if (recorded === null) {
-      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
-    }
-    if (result.mode === "deleted" && result.objects > 0) {
-      await ctx.runMutation(internal.functions.audit.recordEvent, {
-        workspaceId: args.workspaceId,
-        actorUserId,
-        action: "vault.replace.clear",
-        paths: [],
-        details: { objectsDeleted: result.objects },
-      });
-    }
-    return recorded;
-  },
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => await clearVaultImportBatchHandler(ctx, args),
 });
 
 /** The latest unfinished import for this owner and workspace, without paths or content. */
@@ -2389,101 +2341,7 @@ export const importVaultJobBatch = action({
     files: v.array(v.object({ path: v.string(), bytes: v.bytes(), contentType: v.string() })),
   },
   returns: vaultImportJobStatusValidator,
-  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
-    if (args.files.length === 0 || args.files.length > MAX_VAULT_IMPORT_BATCH_FILES) {
-      throw new ConvexError({
-        code: "IMPORT_BATCH_INVALID",
-        message: `Upload between 1 and ${MAX_VAULT_IMPORT_BATCH_FILES} files at a time.`,
-      });
-    }
-    const batchBytes = args.files.reduce((total, file) => total + file.bytes.byteLength, 0);
-    if (batchBytes > MAX_VAULT_IMPORT_BATCH_BYTES) {
-      throw new ConvexError({ code: "IMPORT_BATCH_INVALID", message: "That upload batch is too large." });
-    }
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "owner",
-    });
-    const job = await ctx.runQuery(internal.functions.files.vaultImportJobForBatch, { jobId: args.jobId }) as Doc<"vaultImportJobs"> | null;
-    if (job === null || job.workspaceId !== args.workspaceId || job.actorUserId !== actorUserId) {
-      throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "That import is no longer available." });
-    }
-    if (
-      job.sourceFingerprint !== args.sourceFingerprint ||
-      !Number.isSafeInteger(args.batchIndex) ||
-      args.batchIndex < 0 ||
-      args.batchIndex >= job.totalBatches
-    ) {
-      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
-    }
-    if (job.strategy === "replace" && job.replacement?.phase !== "uploading") {
-      throw new ConvexError({
-        code: "IMPORT_REPLACE_NOT_READY",
-        message: "The existing bucket must finish clearing before files upload.",
-      });
-    }
-    if (job.completedBatches.includes(args.batchIndex)) return vaultImportJobStatus(job);
-    const completedFilesAfterBatch = job.completedFiles + args.files.length;
-    const completedBatchCountAfterBatch = job.completedBatches.length + 1;
-    if (
-      completedFilesAfterBatch > job.totalFiles ||
-      (completedBatchCountAfterBatch === job.totalBatches && completedFilesAfterBatch !== job.totalFiles) ||
-      (completedBatchCountAfterBatch < job.totalBatches && completedFilesAfterBatch >= job.totalFiles)
-    ) {
-      throw new ConvexError({ code: "IMPORT_PLAN_INVALID", message: "Choose the vault again to restart this import." });
-    }
-
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "importVault", files: args.files },
-    })) as Extract<OperationResult, { kind: "vaultImported" }>;
-    if (
-      job.strategy === "replace" &&
-      job.completedBatches.length + 1 === job.totalBatches &&
-      job.completedFiles + args.files.length === job.totalFiles
-    ) {
-      // Idempotent so a retry after storage succeeded but progress recording
-      // failed still restores the private access map before completing.
-      await ctx.runAction(internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope,
-        grantedNames,
-        operation: { kind: "ensurePrivacy" },
-      });
-    }
-    const recorded = await ctx.runMutation(internal.functions.files.recordVaultImportBatch, {
-      jobId: args.jobId,
-      actorUserId,
-      workspaceId: args.workspaceId,
-      sourceFingerprint: args.sourceFingerprint,
-      batchIndex: args.batchIndex,
-      filesProcessed: args.files.length,
-      filesCreated: result.created.length,
-      filesSkipped: result.skipped.length,
-    });
-    if (recorded === null) {
-      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
-    }
-    if (result.created.length > 0) {
-      await ctx.runMutation(internal.functions.audit.recordEvent, {
-        workspaceId: args.workspaceId,
-        actorUserId,
-        action: "vault.import",
-        paths: result.created,
-        details: {
-          filesCreated: result.created.length,
-          filesSkipped: result.skipped.length,
-          bytesCreated: result.bytesCreated,
-          batchIndex: args.batchIndex,
-        },
-      });
-    }
-    return recorded;
-  },
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => await importVaultJobBatchHandler(ctx, args),
 });
 
 /**
@@ -2499,49 +2357,7 @@ export const importVaultBatch = action({
     files: v.array(v.object({ path: v.string(), bytes: v.bytes(), contentType: v.string() })),
   },
   returns: vaultImportResultValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "vaultImported" }>> => {
-    if (args.files.length === 0 || args.files.length > MAX_VAULT_IMPORT_BATCH_FILES) {
-      throw new ConvexError({
-        code: "IMPORT_BATCH_INVALID",
-        message: `Upload between 1 and ${MAX_VAULT_IMPORT_BATCH_FILES} files at a time.`,
-      });
-    }
-    const batchBytes = args.files.reduce((total, file) => total + file.bytes.byteLength, 0);
-    if (batchBytes > MAX_VAULT_IMPORT_BATCH_BYTES) {
-      throw new ConvexError({
-        code: "IMPORT_BATCH_INVALID",
-        message: "That upload batch is too large. Choose the vault again to retry in smaller pieces.",
-      });
-    }
-
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "owner",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "importVault", files: args.files },
-    })) as Extract<OperationResult, { kind: "vaultImported" }>;
-
-    if (result.created.length > 0) {
-      await ctx.runMutation(internal.functions.audit.recordEvent, {
-        workspaceId: args.workspaceId,
-        actorUserId,
-        action: "vault.import",
-        paths: result.created,
-        details: {
-          filesCreated: result.created.length,
-          filesSkipped: result.skipped.length,
-          bytesCreated: result.bytesCreated,
-        },
-      });
-    }
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "vaultImported" }>> => await importVaultBatchHandler(ctx, args),
 });
 
 /**
