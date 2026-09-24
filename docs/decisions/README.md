@@ -21,6 +21,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Never cache a decrypted credential across requests
 - Scheduling is not calling
 - Credential barriers are enumerated, never inferred
+- The credential graph follows imports, and refuses what it cannot follow
 - The setup credential is not a stored credential
 - Staff is an environment allowlist, never a column
 - Platform credentials seal to a scope, customers' seal to a workspace

@@ -45,13 +45,118 @@ targets must still be statically resolvable `internal.` references.
 Reading a bucket needs a credential, so a console read path cannot exist under
 a blanket "no public function may reach a decrypt". Taint stops at an
 explicitly listed barrier — see `CREDENTIAL_BARRIERS` in
-`__tests__/structure.test.ts`. Barriers must be internal actions whose return
+`apps/convex/__tests__/structure/analyzer/pins.helpers.ts`. Barriers must be internal actions whose return
 validators are checked for credential fields.
 
 This is a genuine relaxation with a real residual risk: a future operation that
 returns a credential from inside a barrier would not be caught statically. The
 enumeration is the mitigation — adding a second barrier fails CI loudly, which
 forces the conversation.
+
+### The credential graph follows imports, and refuses what it cannot follow
+
+`apps/convex/__tests__/structure/` proves that no public Convex function or
+unlisted HTTP route can reach a decrypted credential. Its nodes are registered
+functions, and until this decision its edges were read only from the text of
+each one's own export block: `ctx.run…(internal.…)`, `scheduler.run…`, and
+`decryptSecret(`. A module under `functions/lib/` registers nothing, so a
+dispatch or a decrypt written there belonged to no node, and a public function
+that imported the helper contained neither string and passed. No credential
+path went through that gap — `ctx.run…` and the decrypt stayed out of helpers
+by convention, and that convention is what kept `storage.ts`, `shares.ts` and `http.ts` from being split into
+helpers. A guard that holds only while nobody refactors is exactly what
+[a guard nobody has checked is not a guard](../testing.md#a-guard-nobody-has-checked-is-not-a-guard)
+is about.
+
+**What the analyzer does now.** Beside the text rules (which stay, unchanged,
+and can only be added to), every registered function's reach is walked over a
+real TypeScript parse (`analyzer/imports.helpers.ts`, `moduleIndex.helpers.ts`,
+`references.helpers.ts`): from its own statement, through every name it uses
+in value position, into same-module helpers and static imports — named,
+default, namespace, `export { … } from`, `export *`, `import x = require(…)` —
+transitively, each top-level statement at most once per reach, so a cycle ends.
+Each helper's calls, schedules and decrypt become edges of *every* registered
+function that reaches it, held to exactly the rules its caller is held to
+(`facts.helpers.ts` is the one reading of a piece of text). A registered
+function named directly is an edge, because Convex runs its handler inline. A
+module entered also contributes its load-time statements. Packages and
+`_generated/` are not walked; a relative import that leaves `apps/convex` (the
+gateway's modules, `packages/*`) is not walked either, and
+`helperDispatch.test.ts` reads every file such an import reaches, transitively,
+and requires that none can dispatch into Convex, name the decrypt, or import
+back in.
+
+**What it refuses.** Every pattern the walk cannot resolve is a violation on
+each registered function whose reach includes it, never an assumption that it
+is safe: `import()` of anything but a string-literal package, `require()`, a
+namespace import indexed with `[…]` or passed as a value, a relative import
+naming no module, a name its module does not export, `_handler`/`invoke*`, a
+dispatch in any form but `x.runQuery(internal.a.b)` with the reference written
+out (destructured off the context, `.call`, bracketed, reached through
+`Reflect` or a string, a computed member of `ctx`, a target behind a type
+argument that the text pattern never saw), a call through any computed member,
+an `internal.a` chain that stops short of one registered function, and the
+generated `api`/`internal` bound under another name, imported whole or
+re-exported.
+
+**What its first run found.** Run against the real codebase and dumped per
+function, old against new: no edge removed, no change to which functions can
+reach a decrypt, no new violation — and new edges on 52 functions. None touched
+a credential, and each was an edge the guard could not see:
+
+- *Through lib helpers, the attack itself* (6). Every share mutation schedules
+  its card render through `lib/shares/{mint,linkRow,manage}.ts`, which call
+  `scheduleCardRender` — an ordinary exported function in `shareCard.ts`. The
+  old graph gave that `runAfter` to whichever export's block the helper sits
+  in. Schedule edges only, so no taint moved; a `runAction` in the same place
+  would have been invisible the same way.
+- *Same-module helpers in someone else's block* (15). A helper written between
+  two exports sits in the earlier one's block, so its edges went to that export
+  rather than to the function calling it: `runForm` in `formActor`'s block,
+  calling `files.runFileOperation` for all four form actions;
+  `listOrCreateDataKeyRows` in `insertDataKeyIfAbsent`'s;
+  `deleteWorkspaceCascade` in `deleteAccount`'s, scheduling the grant
+  revocations for `deleteWorkspace` too.
+- *Over-reading, harmless* (31, every `http.ts` route). The router's load-time
+  `auth.addHttpRoutes(http)` reaches the `createSupaAuth` statement in
+  `auth.ts`, whose comment spells `api.auth.signIn`. The text rules have always
+  read comments; over-reading only ever adds an edge.
+
+**What simplifying it would cost.**
+
+- *Dropping the follower* reopens laundering by refactor. Measured: moving the
+  real `providers.openProviderForGateway` handler, decrypt and all, into a
+  `functions/lib/` helper leaves the new analyzer's graph unchanged, while the
+  old one loses the taint on that function and on `/gateway/provider`; add a
+  public action whose handler is that helper and the new analyzer reports it,
+  the old one reports nothing. With the follower switched off, 23 of the 28
+  tests in `helperImports.test.ts` and `helperDispatch.test.ts` fail; the five
+  that pass are three negative controls, the text rule's own case and the
+  outside-module check, none of which use the follower.
+- *Treating a refusal as "probably fine"* turns each refused pattern into a
+  one-line bypass. The list is long because each entry is one.
+- *Reading names with regexes instead of a parse* reads comments, strings and
+  property names as references — `row.open` as `open` — and cannot tell a
+  parameter from the import it shadows.
+- *Retiring `DECRYPT_IMPORTERS` because the graph now sees helpers* loses the
+  other question. The follower answers "can a public function reach this";
+  the pin answers "should this module be able to open a credential at all",
+  which is a conversation, not an inference.
+- *Looking keys up with `in`*: `"valueOf" in exports` is true for every module,
+  and the first version resolved a helper named `valueOf` to a registered
+  function that did not exist and never read its body. The text rule had the
+  same bug for an `export const constructor` block. Both are pinned.
+
+**What it still cannot see, said rather than implied.** It is static analysis
+of source, and a dispatch name *built* at run time and reached through an
+alias of the context (`const c = ctx; const run = c["run" + kind]`) is
+outside it, as is
+`eval`. `adminSurface.test.ts` still reads `admin.ts` per export for its own,
+narrower claims; a decrypt moved out of `admin.ts` into a helper is invisible
+to that file and caught here. And granularity is one top-level declaration: a
+function reaches the statements it names, and a module-level `let` or fresh
+container pulls in every statement of its module that names it, because what
+it holds is decided by whoever writes to it.
 
 ### The setup credential is not a stored credential
 

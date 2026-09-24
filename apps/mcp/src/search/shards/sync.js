@@ -77,7 +77,7 @@ import {
  *   written. The shards were, so nothing is lost; the diff simply cannot record
  *   what it did until the manifest fits.
  *
- * @param {import("../store/index.js").ContextStore} store
+ * @param {import("../../store/index.js").ContextStore} store
  * @param {{
  *   budget: number | ReturnType<typeof createSearchBudget>,
  *   reserve?: number,
