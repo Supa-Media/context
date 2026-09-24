@@ -1492,6 +1492,86 @@ cleared. The document directory is included in device backups, as
 fake `expo-file-system`: `Directory.list()` naming, and write throughput on a real iPhone and
 Android device are unverified until somebody runs a first sync on one.
 
+### The file tree is drawn from the mirror's metadata, so a folder opens without a request
+
+Clicking a folder in the sidebar used to wait on `listFiles`: membership,
+storage, a read of `privacy.md`, then a provider listing, every time a folder
+had not been opened in this session — 200 to 800 ms on staging for folders of
+three entries. The mirror already held every visible path on the device, and
+the online tree did not use it. Now it does, and the tree is metadata, kept
+apart from bodies.
+
+**The manifest names the folders, by `listFolder`'s own test.** `syncManifest`
+returns `folders`: every folder the walked keys live under that
+`folderVisibleAtScope` keeps, with `visibilityOf` as its default, the root
+first. It is derived from every key the page walked, hidden ones included —
+which is what `listFolder`'s delimited prefixes are — so it names a shared
+folder whose only notes are held back, and an empty folder a tool made with a
+marker key, and it names nothing a listing would not. The test walks
+`listFolder` from the root for owner, team and a group member, and requires
+the manifest's folders and defaults to equal it exactly, in one page and in
+pages of two keys.
+
+**Metadata is committed before any body is read, for every context.** The
+sync walks each context's manifest and commits its paths and folders to the
+index first; a note new to the device is an entry with `body: false` — drawn
+in the tree, never served as a note (`mirroredNote` requires a body), never
+counted as on the device. `syncAll` lists every context before downloading
+any, so the second context's tree no longer waits on the first context's
+bodies, and the context somebody opened is listed first. Opening a context
+also asks for a metadata-only walk of it outside the sync's single flight
+(`requestMirrorRefresh`), so it never waits behind a download either.
+
+**A walk only moves the tree forward.** Two walks can overlap — the five-minute
+pass and the refresh opening a context asks for — so the index records when
+its listing started (`listedAt`), and an older walk neither commits over a
+newer one nor, at the end of its downloads, prunes or rewrites entries the
+newer one corrected. The console applies the same rule per folder: a
+committed walk replaces a folder only if that folder's own live listing
+started before the walk did, so a note this console just created does not
+vanish under a manifest walked a moment earlier.
+
+**On entry the device's tree is drawn at once, and the bucket confirms it.**
+`useFileBrowser` reads the whole tree from the index in one pass (`treeOf`,
+a parent-to-children map built once rather than a scan per folder), fills
+every folder the bucket has not answered yet, and stops showing "Reading your
+bucket…". The root listing still goes out and replaces the root; every later
+committed walk redraws the tree (`onMirrorListed`), which is how a folder
+somebody else made appears. A complete walk drops folders it no longer names;
+an incomplete one only adds. A refusal takes the device's rows down: a
+refused root clears the whole tree, a refused folder its own listing —
+repainting a listing after a refusal discloses exactly what the refusal
+withheld, and drawing it *before* one must not become the way around that.
+
+What a simplification costs, and what fails:
+
+- Deriving folders only from visible keys, or without
+  `folderVisibleAtScope`, loses held-back folders or names private ones. "for
+  team / a group member, exactly the folders … walking listFolder would draw"
+  and "a team reader is named no private folder" (`offlineSync.test.ts`) fail.
+- Committing metadata only at the end of a sync puts the tree behind the
+  downloads again: "every listed path is in the index, bodiless, when the
+  first read goes out" and "every context's metadata is listed before any body
+  is read" (`offlineMirrorSync.test.ts`) fail.
+- Letting an older walk prune fails "an older walk does not undo a newer
+  one"; letting it replace a newer live listing fails "a walk older than a
+  live listing does not undo it" (`fileTreeMetadata.test.ts`).
+- Drawing only the root from the device fails "a nested folder opens from the
+  tree without asking the bucket"; not redrawing on a committed walk fails "a
+  folder somebody else made appears without a reload"; keeping device rows
+  after a refusal fails "a refused context shows none of the device's tree".
+
+**What this does not do.** The redraw is only as fresh as the last walk: the
+five-minute pass and the walk opening a context asks for. Pushing a hint when
+somebody else writes is the next change, and it rides this path — a hint
+triggers a walk, and the walk is what redraws. A walk is a whole-bucket
+listing, so a context of tens of thousands of keys costs that many listed keys
+per walk; a truncated walk leaves missing folders to `listFiles` as before, and
+never reads an absence as a deletion. The device's tree is keyed by workspace
+and clearance, not by storage binding, so a context reconnected to a different
+bucket shows the old bucket's folders until the root listing and the first
+complete walk replace them — seconds, and only to somebody who could see both.
+
 ### Offline is more than saving: create, rename, move, delete
 
 The owner's requirement is that people can *take notes* offline, the way they

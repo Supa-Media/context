@@ -80,6 +80,8 @@ import {
 import { canDrop as planDrop } from "./dnd";
 import { raceTimeout } from "../storage/timeout";
 import { useOfflineNotes } from "../../offline/useOfflineNotes";
+import { onMirrorListed, requestMirrorRefresh } from "../../offline/mirrorEvents";
+import type { MirroredTree } from "../../offline/mirror";
 import { holdAncestors, releaseAncestors } from "../../offline/mirrorHolds";
 import { useMirrorStatus } from "../../offline/mirrorStatus";
 import { restoreFor } from "../../offline/restore";
@@ -324,6 +326,29 @@ export function useFileBrowser(options: {
     notes and new folders laid over them (`overlay.ts`).
   */
   const [bucketListings, setListings] = useState<Listings>({});
+  /**
+   * When the request behind each folder's live listing started. A tree drawn
+   * from the mirror's index replaces a folder only when the walk behind it
+   * started later: otherwise a note this console just created, and refreshed
+   * its folder for, would vanish under a manifest walked a moment before it.
+   */
+  const listedAtRef = useRef(new Map<string, number>());
+  /**
+   * A change this console drew before the bucket confirmed it — a move, a new
+   * folder, or undoing one. Every folder whose listing it touched counts as
+   * listed now, so a walk that started before the change cannot redraw the
+   * tree without it in the moment before the confirming refresh lands.
+   */
+  const drawLocally = useCallback((change: (current: Listings) => Listings) => {
+    const at = Date.now();
+    setListings((current) => {
+      const next = change(current);
+      for (const folder of new Set([...Object.keys(current), ...Object.keys(next)])) {
+        if (current[folder] !== next[folder]) listedAtRef.current.set(folder, at);
+      }
+      return next;
+    });
+  }, []);
   /**
    * Every note path the search index's docmap knows about for this context,
    * or `null` while there is nothing to answer from — no index yet, offline,
@@ -1056,8 +1081,10 @@ export function useFileBrowser(options: {
         stale entry instead of keeping it.
       */
       const fetched: Listings = {};
-      const commit = (folder: string, page: FolderListing | null) => {
+      const started = Date.now();
+      const commit = (folder: string, page: FolderListing | null, live = false) => {
         fetched[folder] = page ?? undefined;
+        if (live) listedAtRef.current.set(folder, started);
         setListings((current) => {
           const next = { ...current };
           if (page === null) delete next[folder];
@@ -1081,22 +1108,27 @@ export function useFileBrowser(options: {
           try {
             const page = await listFiles({ workspaceId, path: folder });
             offline.rememberListing(page);
-            commit(folder, page);
+            commit(folder, page, true);
             return;
           } catch (error) {
             const failure = toFileError(error);
             // A folder that has become invisible (its visibility changed, or
             // it was moved) is not an error worth shouting about — it is a
             // listing that should stop existing.
-            if (failure.code === "FILE_NOT_FOUND") return commit(folder, null);
+            if (failure.code === "FILE_NOT_FOUND") return commit(folder, null, true);
             // Every *other* refusal ends here rather than in the cache. The
             // line above is one too, and keeps its own answer — a folder that
             // is gone should stop existing rather than be redrawn from the
             // device. The rest have to reach the caller: a listing is a list of
             // somebody's note names, and repainting it after a refusal
             // discloses exactly what the refusal withheld. Only a transport
-            // failure may fall back.
-            if (isServerRefusal(error)) throw error;
+            // failure may fall back. And a listing already on screen — drawn
+            // from the device's tree before anybody asked — goes with it, for
+            // the same reason.
+            if (isServerRefusal(error)) {
+              commit(folder, null, true);
+              throw error;
+            }
             const cached = await offline.cachedListing(folder);
             if (cached !== null) {
               servedFromCache = true;
@@ -1163,6 +1195,43 @@ export function useFileBrowser(options: {
   const [contextId, setContextId] = useState<string | null>(null);
 
   /**
+   * Lay a tree read off the device over the listings — every folder at once.
+   *
+   * `fromDevice` is the tree as it was when this context was opened: it fills
+   * only folders nothing has listed yet, because anything already here came
+   * from the bucket this session. Otherwise the tree is a walk the mirror just
+   * committed, and it replaces each folder whose own live listing started
+   * before that walk did; when the walk was complete it also drops folders it
+   * no longer names — deleted, moved, or no longer visible — unless a newer
+   * live listing says otherwise.
+   */
+  const adoptTree = useCallback(
+    (tree: MirroredTree, options: { fromDevice: boolean }) => {
+      const listedAt = listedAtRef.current;
+      const newer = (folder: string) => (listedAt.get(folder) ?? -Infinity) >= tree.listedAt;
+      setListings((current) => {
+        const next: Listings = { ...current };
+        for (const [folder, listing] of tree.value) {
+          // From the device: only where the bucket has said nothing yet — no
+          // listing, and no refusal either.
+          const skip = options.fromDevice
+            ? current[folder] !== undefined || listedAt.has(folder)
+            : newer(folder);
+          if (skip) continue;
+          next[folder] = listing;
+        }
+        if (!options.fromDevice && tree.complete) {
+          for (const folder of Object.keys(current)) {
+            if (!tree.value.has(folder) && !newer(folder)) delete next[folder];
+          }
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  /**
    * Take the root's own listing without disturbing anything else in the map.
    *
    * **This used to be `setListings({ "": page })`, and the wholesale replace
@@ -1192,6 +1261,7 @@ export function useFileBrowser(options: {
     // context's editor.
     openRun.current += 1;
     setListings({});
+    listedAtRef.current = new Map();
     setExpanded(new Set());
     setSelectedPath(null);
     // Nothing is on its way in a context nothing has asked for yet. A read
@@ -1206,6 +1276,22 @@ export function useFileBrowser(options: {
 
     let cancelled = false;
     setLoading(true);
+    /*
+      The tree this device already holds, drawn at once — before, and
+      independently of, the root request below. Every folder the mirror knows
+      opens from it without a request; the live root listing and the refresh
+      asked for here replace it as they land. It never paints over a listing
+      that is already here, so a slower read of the device cannot put an older
+      answer on top of a live one.
+    */
+    const root = { refused: false };
+    void (async () => {
+      const tree = await offlineRef.current.cachedTree(workspaceId).catch(() => null);
+      if (cancelled || tree === null || root.refused) return;
+      adoptTree(tree, { fromDevice: true });
+      setLoading(false);
+    })();
+    if (offlineRef.current.reachability !== "offline") requestMirrorRefresh(workspaceId);
     void (async () => {
       const offline = offlineRef.current;
       try {
@@ -1227,8 +1313,10 @@ export function useFileBrowser(options: {
           takeRootListing(cached.value);
           return;
         }
+        const started = Date.now();
         const page = await listFiles({ workspaceId, path: "" });
         if (cancelled) return;
+        listedAtRef.current.set("", started);
         offline.rememberListing(page);
         takeRootListing(page);
       } catch (error: unknown) {
@@ -1236,7 +1324,12 @@ export function useFileBrowser(options: {
         // A refusal is an answer, and the tree is not repainted from the
         // device over one — see `isServerRefusal`. The person gets the
         // server's own sentence instead of a root listing it just declined
-        // to give them.
+        // to give them, and whatever the device's tree had already drawn is
+        // taken down with it.
+        if (isServerRefusal(error)) {
+          root.refused = true;
+          setListings({});
+        }
         const cached = isServerRefusal(error) ? null : await offline.cachedListing("");
         if (cancelled) return;
         if (cached !== null) {
@@ -1251,7 +1344,28 @@ export function useFileBrowser(options: {
     return () => {
       cancelled = true;
     };
-  }, [listFiles, takeRootListing, workspaceId]);
+  }, [adoptTree, listFiles, takeRootListing, workspaceId]);
+
+  /*
+    Redraw from the device's tree whenever the mirror commits a new listing of
+    this context — its own five-minute pass, or the refresh the effect above
+    asked for. That is how a folder another person or an agent created appears
+    without anybody reloading.
+  */
+  useEffect(() => {
+    if (workspaceId === null) return;
+    let latest = 0;
+    return onMirrorListed((listed) => {
+      if (listed !== workspaceId) return;
+      const ticket = (latest += 1);
+      void offlineRef.current
+        .cachedTree(workspaceId)
+        .then((tree) => {
+          if (tree !== null && ticket === latest) adoptTree(tree, { fromDevice: false });
+        })
+        .catch(() => {});
+    });
+  }, [adoptTree, workspaceId]);
 
   /**
    * The note-path index, fetched once per context — best-effort, and never
@@ -2530,14 +2644,14 @@ export function useFileBrowser(options: {
    */
   const drawListingMove = useCallback(
     (from: string, to: string): (() => void) => {
-      setListings((current) => applyMove(current, from, to));
+      drawLocally((current) => applyMove(current, from, to));
       setExpanded((current) => rekeyPaths(current, from, to));
       return () => {
-        setListings((current) => applyMove(current, to, from));
+        drawLocally((current) => applyMove(current, to, from));
         setExpanded((current) => rekeyPaths(current, to, from));
       };
     },
-    [],
+    [drawLocally],
   );
 
   /** `drawListingMove`, and the selection closed if it travelled with it. */
@@ -2808,17 +2922,17 @@ export function useFileBrowser(options: {
         above has always drawn it immediately (`queueFolder`, through
         `overlay.ts`); this is the online arm finally doing the same thing.
       */
-      setListings((current) => applyFolderCreate(current, path));
+      drawLocally((current) => applyFolderCreate(current, path));
       void run(
         async () => {
           await createDirectory({ workspaceId: workspaceId!, path });
           return { touched: [path, joinPath(path, "README.md")] };
         },
-        () => setListings((current) => undoFolderCreate(current, path)),
+        () => drawLocally((current) => undoFolderCreate(current, path)),
       );
       setExpanded((current) => new Set([...current, path]));
     },
-    [createDirectory, listings, options.canEdit, queuedToast, run, workspaceId],
+    [createDirectory, drawLocally, listings, options.canEdit, queuedToast, run, workspaceId],
   );
 
   const move = useCallback(

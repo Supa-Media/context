@@ -23,6 +23,8 @@ import {
   forgetMirroredNote,
   mirroredAncestor,
   mirroredListing,
+  mirroredTree,
+  type MirroredTree,
   mirroredNote,
   moveMirroredBody,
   putMirroredNotes,
@@ -171,6 +173,15 @@ export interface OfflineNotes {
   rememberListing: (listing: FolderListing) => void;
   cachedNote: (path: string) => Promise<Cached<OpenNote> | null>;
   cachedListing: (path: string) => Promise<Cached<FolderListing> | null>;
+  /**
+   * Every folder's listing this device holds for `workspaceId`, from the
+   * mirror's index in one pass — what the tree is drawn from before, and
+   * instead of, asking the bucket folder by folder. `null` with no mirror, at
+   * an unknown clearance, or for any context but the one this hook is for.
+   * `listedAt` is when the walk behind it started; `complete` is whether that
+   * walk named everything, so a folder it does not name is gone.
+   */
+  cachedTree: (workspaceId: string) => Promise<MirroredTree | null>;
   /**
    * The body a three-way merge may use as the ancestor of a draft typed on
    * `baseEtag` — see `mirroredAncestor`. Not `cachedNote`: that is the newest
@@ -815,6 +826,11 @@ export function useOfflineNotes(options: {
         return mirror === null
           ? getListing(store, copies.scope, copies.workspaceId, path)
           : mirroredListing(mirror, copies.scope, copies.workspaceId, path);
+      },
+      cachedTree: async (workspaceId) => {
+        if (copies === null || copies.workspaceId !== workspaceId) return null;
+        const mirror = await openMirrorStore();
+        return mirror === null ? null : mirroredTree(mirror, copies.scope, copies.workspaceId);
       },
       instantCopy: async (path) => {
         if (copies === null) return null;

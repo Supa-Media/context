@@ -647,6 +647,11 @@ const manifestEntryValidator = v.object({
 const manifestValidator = v.object({
   kind: v.literal("manifest"),
   entries: v.array(manifestEntryValidator),
+  /**
+   * Every folder the tree would draw for this caller, the root first. See
+   * `ManifestFolder` in `lib/fileOps.ts`.
+   */
+  folders: v.array(v.object({ path: v.string(), visibility: visibilityReadValidator })),
   /** Pass back to get what follows. Always a path this caller was given. */
   cursor: v.union(v.string(), v.null()),
   /** The walk could not finish: the pages so far are a floor, not a total. */
