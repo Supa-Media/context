@@ -68,10 +68,6 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import {
-  WORKSPACE_ICON_CONTENT_TYPES,
-  WORKSPACE_ICON_MAX_BYTES,
-} from "@context/shared";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
@@ -167,8 +163,6 @@ import {
   loadPrivacyState,
   READ_BATCH_PATHS,
   type ProjectionClient,
-  pasteImageLeaf,
-  workspaceIconLeaf,
 } from "./lib/fileOps";
 import {
   type FormNotifyMaterial,
@@ -264,6 +258,12 @@ import {
   setNoteGroupHandler,
   setNoteVisibilityHandler,
 } from "./lib/filesFns/visibility";
+import {
+  readNoteImageHandler,
+  setWorkspaceIconPhotoHandler,
+  storeNoteImageHandler,
+  workspaceIconPhotoHandler,
+} from "./lib/filesFns/images";
 export { scopeForRole, resolveFileAccess, callerId } from "./lib/filesFns/access";
 export { executeOperation } from "./lib/filesFns/executeOperation";
 
@@ -2263,15 +2263,6 @@ export const writeNote = action({
 /*                    a pasted image, in and back out again                    */
 /* -------------------------------------------------------------------------- */
 
-/** Sixteen hex characters of SHA-256, which is what names the object. */
-async function contentHash(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 16);
-}
-
 /**
  * Store an image somebody pasted into a note.
  *
@@ -2294,29 +2285,7 @@ export const storeNoteImage = action({
     contentType: v.string(),
   },
   returns: v.object({ leaf: v.string() }),
-  handler: async (ctx, args): Promise<{ leaf: string }> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(
-      internal.functions.files.authorizeFileAccess,
-      { actorUserId, workspaceId: args.workspaceId, minimum: "editor" },
-    );
-    const leaf = pasteImageLeaf({
-      hash: await contentHash(args.bytes),
-      contentType: args.contentType,
-    });
-    await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: {
-        kind: "writeImage",
-        leaf,
-        bytes: args.bytes,
-        contentType: args.contentType,
-      },
-    });
-    return { leaf };
-  },
+  handler: async (ctx, args): Promise<{ leaf: string }> => await storeNoteImageHandler(ctx, args),
 });
 
 /**
@@ -2348,43 +2317,7 @@ export const readNoteImage = action({
     leaf: v.string(),
   },
   returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
-  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(
-      internal.functions.files.authorizeFileAccess,
-      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
-    );
-    const note = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "read", path: args.notePath },
-    })) as Extract<OperationResult, { kind: "file" }>;
-    if (!note.text.includes(args.leaf)) {
-      throw new ConvexError({
-        code: "FILE_NOT_FOUND",
-        message: "No note you can see references that image.",
-      });
-    }
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "readImage", leaf: args.leaf },
-    })) as Extract<OperationResult, { kind: "image" }>;
-    /*
-      The type comes from the extension rather than from the store, because an
-      adapter is not obliged to hand one back and a picture served as
-      `application/octet-stream` is a download rather than an image. The leaf has
-      already been through `readImage`'s own gate by this point, so the extension
-      here is one of the set.
-    */
-    const extension = args.leaf.slice(args.leaf.lastIndexOf(".") + 1).toLowerCase();
-    return {
-      bytes: result.bytes,
-      contentType: extension === "jpg" || extension === "jpeg" ? "image/jpeg" : `image/${extension}`,
-    };
-  },
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => await readNoteImageHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -2426,51 +2359,7 @@ export const setWorkspaceIconPhoto = action({
     contentType: v.string(),
   },
   returns: v.object({ leaf: v.string() }),
-  handler: async (ctx, args): Promise<{ leaf: string }> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(
-      internal.functions.files.authorizeFileAccess,
-      { actorUserId, workspaceId: args.workspaceId, minimum: "owner" },
-    );
-    /*
-      The type is checked before the hash is taken rather than left to
-      `workspaceIconLeaf`, so the refusal names the actual problem. The two
-      agree because they read the same map out of `@context/shared`.
-    */
-    if (!WORKSPACE_ICON_CONTENT_TYPES.has(args.contentType)) {
-      throw new ConvexError({
-        code: "WORKSPACE_ICON_TYPE",
-        message: "A workspace icon must be a PNG, JPEG or WebP.",
-      });
-    }
-    if (args.bytes.byteLength > WORKSPACE_ICON_MAX_BYTES) {
-      throw new ConvexError({
-        code: "WORKSPACE_ICON_TOO_LARGE",
-        message: `A workspace icon must be at most ${WORKSPACE_ICON_MAX_BYTES} bytes.`,
-      });
-    }
-    const leaf = workspaceIconLeaf({
-      hash: await contentHash(args.bytes),
-      contentType: args.contentType,
-    });
-    await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: {
-        kind: "writeImage",
-        leaf,
-        bytes: args.bytes,
-        contentType: args.contentType,
-      },
-    });
-    await ctx.runMutation(internal.functions.workspaces.recordWorkspaceIconPhoto, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      leaf,
-    });
-    return { leaf };
-  },
+  handler: async (ctx, args): Promise<{ leaf: string }> => await setWorkspaceIconPhotoHandler(ctx, args),
 });
 
 /**
@@ -2502,41 +2391,7 @@ export const setWorkspaceIconPhoto = action({
 export const workspaceIconPhoto = action({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
-  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(
-      internal.functions.files.authorizeFileAccess,
-      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
-    );
-    const leaf = await ctx.runQuery(internal.functions.workspaces.workspaceIconLeaf, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-    });
-    if (leaf === null) {
-      throw new ConvexError({
-        code: "FILE_NOT_FOUND",
-        message: "That workspace has no icon photo.",
-      });
-    }
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "readImage", leaf },
-    })) as Extract<OperationResult, { kind: "image" }>;
-    /*
-      From the extension, for the reason `readNoteImage` gives: an adapter is
-      not obliged to hand a type back, and a picture served as
-      `application/octet-stream` is a download rather than an image. The leaf
-      came off our own row and through `readImage`'s gate, so the extension here
-      is one of the three.
-    */
-    const extension = leaf.slice(leaf.lastIndexOf(".") + 1).toLowerCase();
-    return {
-      bytes: result.bytes,
-      contentType: extension === "jpg" ? "image/jpeg" : `image/${extension}`,
-    };
-  },
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => await workspaceIconPhotoHandler(ctx, args),
 });
 
 export const startVaultImport = mutation({
