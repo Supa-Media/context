@@ -22,6 +22,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY, type PrivacyRule, type Visibility } from "../functions/lib/privacy";
+import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { audiencesOf, treeAudiences } from "../functions/lib/treeAudiences";
@@ -231,6 +232,69 @@ describe("the console's writes move the right hints", () => {
       to: "2-areas/plan.md",
     });
     expect(await hint(f, f.member)).toBeGreaterThan(first!);
+  });
+
+  /**
+   * A DELETE RE-DATES A NOTE THE DELETION ITSELF UNHIDES.
+   *
+   * `1-projects` is a team folder holding one note kept back by an exact
+   * override. `deletePath` calls `forgetPrivacy`, which clears that override —
+   * correctly, the note is gone and the exception has nothing left to except.
+   * But `announceTreeChange` reads the manifest AFTER the operation, so
+   * `effectiveVisibility` for the deleted path now falls back to the folder's
+   * `team` default and the team audience is stamped for a note no team caller
+   * ever saw.
+   *
+   * The member's hint moving is the whole disclosure: they re-walk, find
+   * nothing of theirs changed, and have dated a private note's deletion —
+   * which `treeAudiences` promises in its own words they cannot ("a reader
+   * never sees one moved by a change they cannot see").
+   */
+  test("deleting a note held back by name does not re-date it for the member", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/plan.md",
+      visibility: "private",
+    });
+    // Narrowing it legitimately told the member the note went; that stamp stands.
+    const afterNarrowing = await hint(f, f.member);
+    expect(afterNarrowing).not.toBeNull();
+    await tick();
+
+    await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/plan.md",
+      confirmation: DELETE_CONFIRMATION,
+    });
+
+    expect(await hint(f, f.member)).toBe(afterNarrowing);
+    // And the owner, who could see it, is told.
+    expect(await hint(f, f.owner)).toBeGreaterThan(afterNarrowing!);
+  });
+
+  test("moving a note held back by name out of a shared folder tells the member nothing", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/plan.md",
+      visibility: "private",
+    });
+    const afterNarrowing = await hint(f, f.member);
+    expect(afterNarrowing).not.toBeNull();
+    await tick();
+
+    // `movedOverrides` carries the exception to the destination, so the source
+    // path reads as its folder's `team` default afterwards — the same hole the
+    // delete above opens, through a different door.
+    await asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: "1-projects/plan.md",
+      to: "2-areas/plan.md",
+    });
+
+    expect(await hint(f, f.member)).toBe(afterNarrowing);
+    expect(await hint(f, f.owner)).toBeGreaterThan(afterNarrowing!);
   });
 
   test("a refused operation announces nothing", async () => {
