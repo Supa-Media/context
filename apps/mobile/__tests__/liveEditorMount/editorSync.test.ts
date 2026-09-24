@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { EditorView } from "@codemirror/view";
-import { deleteCharBackward, insertNewline } from "@codemirror/commands";
+import { insertNewline } from "@codemirror/commands";
 import { mount, viewIn, renderedText } from "./fixtures";
 
 describe("React must not fight the editor", () => {
