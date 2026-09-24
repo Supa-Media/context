@@ -383,7 +383,7 @@ index d0719bbe..f798c2bd 100644
 +  }
    const isPublishing =
      scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
-   if (isPublishing && args.confirm_team_publish !== true) {
+   if (isPublishing && args.confirm_team_publish !== true && !publishedForLink) {
 diff --git a/apps/mcp/src/tools/visibility.js b/apps/mcp/src/tools/visibility.js
 index 4d9f79d3..22ae855e 100644
 --- a/apps/mcp/src/tools/visibility.js
