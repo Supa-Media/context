@@ -577,8 +577,7 @@ describe("the unlisted link has a control of its own", () => {
     await act(async () => {});
 
     expect(document.body.querySelector('[data-testid="share-short-link"]')).not.toBeNull();
-    // The editor opens on Add; the field behind it has to be reachable too.
-    press("share-short-link-add");
+    press("share-short-link-add"); // the editor opens on Add
     expect(
       document.body.querySelector('[data-testid="share-short-link-name"]'),
     ).not.toBeNull();
@@ -655,12 +654,8 @@ describe("the unlisted link has a control of its own", () => {
     expect(
       document.body.querySelector('[data-testid="share-open-link"]')?.textContent,
     ).toContain("Copy link");
-    // Turning it off is a rarer act than copying it, so it sits in the
-    // header's menu rather than beside every Copy link.
-    press("share-more");
-    expect(
-      document.body.querySelector('[data-testid="share-open-link-revoke"]'),
-    ).not.toBeNull();
+    press("share-more"); // turning it off is rarer, so it is in the header menu
+    expect(document.body.querySelector('[data-testid="share-open-link-revoke"]')).not.toBeNull();
   });
 
   test("revoking asks for that row, and not for some other share on the note", () => {
@@ -690,11 +685,8 @@ describe("the unlisted link has a control of its own", () => {
     const pane = paneRoot();
     pane.render(dataWith({ shares: [openShare] } as never));
     press("browse-share");
-    // The long sentences moved out of the dialog's path and into "How
-    // sharing works" in the header's menu, where they are one tap away for
-    // whoever asks. They are still on a screen, which is what this pins.
     press("share-more");
-    press("share-help-toggle");
+    press("share-help-toggle"); // the long sentences live in "How sharing works"
     const text = document.body.textContent ?? "";
     expect(text).toContain("Anyone with the link");
     expect(text).toMatch(/no account, no sign-in/i);
