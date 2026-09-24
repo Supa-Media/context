@@ -16,7 +16,7 @@ export async function runStoreWorkerWiringChecks(check) {
   // (see ../gatewaySource.mjs).
   const files = gatewaySourceFiles();
   const workerSource = files.map((file) => file.text).join("\n");
-  const router = soleSource(files, /^(?:export )?async function route\(request, env, ctx\)/m, "index.js");
+  const router = soleSource(files, /^(?:export )?async function route\(request, env, ctx\)/m, "http/route.js");
   const routeStart = router.text.indexOf("async function route(request, env, ctx)");
   const routeBody =
     routeStart === -1 ? "" : router.text.slice(routeStart, router.text.indexOf("\n}\n", routeStart));

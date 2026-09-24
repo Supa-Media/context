@@ -603,15 +603,15 @@ export async function runToolArgumentChecks(check) {
   const DISPATCH = soleSource(
     GATEWAY,
     /^(?:export )?async function callTool\(name, args, store, scope\)/m,
-    "index.js"
+    "tools/dispatch.js"
   );
   const SESSION = soleSource(
     GATEWAY,
     /^(?:export )?async function callToolForSession\(params, store, session\)/m,
-    "index.js"
+    "tools/session.js"
   );
-  const ALIASES = soleSource(GATEWAY, /^(?:export )?const TOOL_NAME_ALIASES\b/m, "index.js");
-  const UNLISTED = soleSource(GATEWAY, /^(?:export )?const UNLISTED_TOOLS\b/m, "index.js");
+  const ALIASES = soleSource(GATEWAY, /^(?:export )?const TOOL_NAME_ALIASES\b/m, "tools/advertised.js");
+  const UNLISTED = soleSource(GATEWAY, /^(?:export )?const UNLISTED_TOOLS\b/m, "tools/advertised.js");
   for (const [what, found] of [
     ["callTool", DISPATCH],
     ["callToolForSession", SESSION],

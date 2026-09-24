@@ -1050,7 +1050,7 @@ export async function runCrossContextChecks(check) {
   // the only module under `src/` that does (`gatewaySource.mjs`).
   check(
     "the addressing argument is stripped before the tool sees the arguments",
-    soleSource(gatewaySourceFiles(), /delete args\.context;/, "index.js").ok
+    soleSource(gatewaySourceFiles(), /delete args\.context;/, "tools/session.js").ok
   );
 
   /* -------------------------- the tools advertise it ----------------------- */

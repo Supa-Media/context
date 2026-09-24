@@ -181,7 +181,10 @@ describe("resolving a name that may receive mail", () => {
     // broken-link failure this feature exists to avoid. The two numbers live in
     // different packages, because the gateway is dependency-free on purpose, so
     // this check is the only thing keeping them honest.
-    const gateway = readFileSync(resolvePath(__dirname, "../../../mcp/src/index.js"), "utf8");
+    const gateway = readFileSync(
+      resolvePath(__dirname, "../../../mcp/src/tools/readImage.js"),
+      "utf8",
+    );
     const declared = gateway.match(/const MAX_INLINE_IMAGE_BYTES = ([\d_]+);/);
     expect(declared, "MAX_INLINE_IMAGE_BYTES is no longer declared in apps/mcp").not.toBeNull();
 
