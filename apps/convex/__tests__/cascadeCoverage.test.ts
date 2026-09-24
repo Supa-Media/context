@@ -77,7 +77,9 @@ const CASCADE_SOURCE = (() => {
   // The cascade only — a mention in the file's header prose must not count as
   // a sweep. The header is exactly where an unswept table gets *described*.
   const start = source.indexOf("async function deleteWorkspaceCascade");
-  const end = source.indexOf("async function voidCapabilitiesAddressedTo");
+  // To the cascade's own closing brace: the helper that used to follow it
+  // (`voidCapabilitiesAddressedTo`) now lives in `lib/account/addressedTo.ts`.
+  const end = start < 0 ? -1 : source.indexOf("\n}\n", start);
   if (start < 0 || end < 0 || end <= start) {
     throw new Error(
       "cascadeCoverage.test.ts could not locate deleteWorkspaceCascade",
