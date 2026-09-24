@@ -19,6 +19,7 @@ import { mayPersist, type SharedDoc } from "../../presence/sharedDoc";
 import { editorExtensions, openingCaret, runCommand, type HandlerRef } from "../editorSetup";
 import type { NoteLinkContext } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
+import { listHost, type ListHostRef } from "../listBlock/model";
 import type { ImageHostRef } from "../imageBlock";
 import type { EditorControls, EditorHandlers, LiveEditorProps, MenuPoint } from "./contract";
 import { contextMenuListener } from "./contextMenu";
@@ -37,6 +38,7 @@ export function mountEditor({
   links,
   forms,
   images,
+  lists,
   onImageProblem,
   suggesters,
   onPreviewLinks,
@@ -58,6 +60,7 @@ export function mountEditor({
   links: { current: NoteLinkContext };
   forms: FormHostRef;
   images: ImageHostRef;
+  lists: ListHostRef;
   onImageProblem: LiveEditorProps["onImageProblem"];
   suggesters: { current: PluginSuggestRef };
   onPreviewLinks: LiveEditorProps["onPreviewLinks"];
@@ -186,6 +189,9 @@ export function mountEditor({
         ? []
         : [pluginLinkPreview(previews.current), pluginPreviewTheme]),
       findInNote(),
+      // Folder lists: web only, like find-in-note. The native guest has no
+      // copy of the workspace to read, so its lists stay as source.
+      listHost.of(lists),
       /*
         Other people's carets, and this editor's own going out.
 
@@ -249,6 +255,7 @@ export function mountEditor({
   view.current = created;
   latestValue.current = value;
   forms.generation = (forms.generation ?? 0) + 1;
+  lists.generation = (lists.generation ?? 0) + 1;
 
   /*
     The imperative handle, built against `created` rather than `view.current`

@@ -54,6 +54,7 @@ import { editability, replaceDocument } from "../editorSetup";
 import type { NoteLinkContext } from "../noteLinks";
 import { webUrl } from "../webUrl";
 import type { FormHostRef, FormResponseRetract, FormResponseUpdate, FormVote } from "../formBlock";
+import { listHost, type ListHostRef } from "../listBlock/model";
 import type { ImageHostRef } from "../imageBlock";
 import { useColors } from "../../../design/theme";
 import type { LiveEditorProps } from "./contract";
@@ -83,6 +84,7 @@ export function LiveEditor({
   onLoadImage,
   onStoreImage,
   onImageProblem,
+  folderLists,
   onSuggest,
   onPickSuggestion,
   onPreviewLinks,
@@ -176,6 +178,21 @@ export function LiveEditor({
     whichever note was open then.
   */
   const images = useRef<ImageHostRef>({ current: null }).current;
+  /*
+    Folder lists, on the same ref arrangement: a list widget is kept across
+    every transaction that does not change its fence, so it reads the source,
+    the open note and where a row goes at the moment it needs them.
+  */
+  const lists = useRef<ListHostRef>({ current: null, generation: 0 }).current;
+  lists.current =
+    folderLists === undefined || onOpenNote === undefined
+      ? null
+      : {
+          load: (folder, subfolders) => folderLists.load(folder, subfolders),
+          ...(folderLists.subscribe === undefined ? {} : { subscribe: folderLists.subscribe }),
+          open: (path, background) => onOpenNote(path, background ? "background" : "foreground"),
+          selfPath: notePath ?? null,
+        };
   images.current =
     onLoadImage === undefined || onStoreImage === undefined
       ? null
@@ -287,6 +304,7 @@ export function LiveEditor({
       links,
       forms,
       images,
+      lists,
       onImageProblem,
       suggesters,
       onPreviewLinks,
@@ -492,6 +510,7 @@ export function LiveEditor({
             apple: isApplePlatform(),
             canDictate: onDictate !== undefined,
             canAsk: onAsk !== undefined,
+            canList: view.current.state.facet(listHost)?.current != null,
           })}
           anchor={menuAt}
           title="Format"

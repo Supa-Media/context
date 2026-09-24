@@ -1,267 +1,381 @@
 import { StyleSheet } from "react-native";
-import { fonts, leading, pointerType as t, radii, touchType } from "../../../design/tokens";
+import { fonts, leading, pointerType, radii, touchType } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
-/** Shared by every part of the share sheet, so they all draw from one sheet of styles. */
+/**
+ * One sheet of styles for every part of the share dialog.
+ *
+ * The dialog follows the shape people already know from Google Docs: a title,
+ * one field, a list of people, one line for general access, and Copy link
+ * beside Done. Everything here is drawn from the Paper tokens — no colour is
+ * named that `theme` does not already own, and hue is rationed the way the
+ * palette asks: petrol for the one thing that is live (the public link's
+ * tile, focus, a checked item), iris for a group, rust for the two acts that
+ * take something away.
+ *
+ * `compact` is the phone. The phone is not this dialog shrunk: its text is
+ * `touchType`, its menus are sheets from the bottom edge, and its footer
+ * buttons split the width between them.
+ */
 export const makeStyles = (colors: Colors) => StyleSheet.create({
-  access: { gap: 8, marginBottom: 4 },
-  audienceWrap: { gap: 6 },
-  audience: {
-    flexDirection: "row",
-    gap: 4,
-    padding: 3,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
-  },
-  segment: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 0,
-    minWidth: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 7,
-    paddingHorizontal: 4,
-    borderRadius: radii.md,
-  },
-  segmentOn: { backgroundColor: colors.surface },
-  segmentText: { color: colors.muted },
-  segmentTextOn: { color: colors.text },
-
-  /* ---------------------------------------------------------------- *
-   * The phone's grouped list. See `AudienceControl`.
-   * ---------------------------------------------------------------- */
-  positions: {
-    borderRadius: radii.sheet,
-    backgroundColor: colors.well,
-    overflow: "hidden",
-  },
-  /*
-    56, which is the row height this phone already uses for a grouped list and
-    is comfortably past the 44 a thumb needs. The segmented control it replaces
-    was 7pt of padding around an 11pt label.
-  */
-  position: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  /*
-    Inset from the icon rather than from the card edge — the rule separates the
-    rows' CONTENT, and a full-bleed one reads as the end of the card.
-  */
-  positionRuled: { borderTopWidth: 1, borderTopColor: colors.line, marginLeft: 16 },
-  positionMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
-  /*
-    `touchType.ui`, and the reason is `Text`'s own `railTouch`: this list is
-    how the decision gets made on a phone, and a decision is read at the size
-    the screen is read at rather than at a 216pt column's supporting-label
-    size. The position not in force is dimmed rather than drawn smaller.
-  */
-  positionName: {
-    fontFamily: fonts.body,
-    fontSize: touchType.ui,
-    lineHeight: leading(touchType.ui, 1.4),
-    fontWeight: "500",
-    color: colors.text,
-  },
-  positionNameOff: {
-    fontFamily: fonts.body,
-    fontSize: touchType.ui,
-    lineHeight: leading(touchType.ui, 1.4),
-    fontWeight: "500",
-    color: colors.text2,
-  },
-  positionDetail: { color: colors.muted },
-  confirm: {
-    gap: 8,
-    padding: 10,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.critBorder,
-    backgroundColor: colors.critWash,
-  },
-  accessRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    /*
-      No `flexWrap`. It was harmless while the trailing slot was a one-word
-      role, and wrong the moment it became a control: a long reason line
-      pushed the button onto its own row, where it stretched full width and
-      read as the sheet's primary action rather than as this person's.
-      `accessMain` has `minWidth: 0`, so the text shrinks instead.
-    */
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-  },
-  accessMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
-  accessReason: { color: colors.muted },
-  /* Row plus whatever it has expanded, so the divider stays on the row. */
-  accessGroup: { gap: 0 },
-  routes: {
-    gap: 2,
-    marginBottom: 8,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
-    overflow: "hidden",
-  },
-  route: { paddingVertical: 9, paddingHorizontal: 10, gap: 1 },
-  routeDanger: { color: colors.crit },
-  linkRow: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" },
-  linkMain: { flexGrow: 1, flexShrink: 1, minWidth: 160, gap: 1 },
-  linkNote: { color: colors.muted },
-  shortLinkField: {
-    flexGrow: 1,
-    flexShrink: 1,
-    minWidth: 180,
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
-    paddingLeft: 10,
-  },
-  shortLinkPrefix: { color: colors.muted },
-  shortLinkInput: {
-    flexGrow: 1,
-    flexShrink: 1,
-    minWidth: 60,
-    paddingVertical: 9,
-    paddingRight: 10,
-    color: colors.text,
-  },
-  shortLinkClaimed: { flexGrow: 1, flexShrink: 1, minWidth: 160, color: colors.accentText },
+  /* ------------------------------- frame -------------------------------- */
   scrim: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    backgroundColor: colors.scrim,
     alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+    justifyContent: "flex-start",
+    /*
+      Pinned from the top rather than centred (the top offset is set from the
+      window height where the card is drawn). A centred card moves every time
+      a row is added or a confirmation opens, and the field the person is
+      typing into jumps with it.
+    */
+    paddingHorizontal: 20,
   },
-  /** The sheet is at the bottom, and pays no gutter it would only waste. */
-  scrimSheet: { justifyContent: "flex-end", padding: 0 },
-  /**
-   * The phone's sheet: full width, top corners only, and `radii.sheet` for
-   * them — the token documented as "a grouped list card, and the drawer's
-   * trailing corners", which is the family every other surface that comes up
-   * from an edge on this phone already uses.
-   */
+  scrimSheet: { justifyContent: "flex-end", paddingTop: 0, paddingHorizontal: 0 },
+  card: {
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: radii.card + 2,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    boxShadow: "0 30px 70px -24px rgba(26,23,20,.40)",
+  },
   sheet: {
     maxWidth: undefined,
     borderRadius: 0,
     borderTopLeftRadius: radii.sheet,
     borderTopRightRadius: radii.sheet,
     borderWidth: 0,
-    paddingTop: 10,
-    paddingBottom: 34,
+    paddingTop: 8,
   },
-  /** The grab handle. Drawn, inert — see its use site. */
   handle: {
     width: 36,
     height: 4,
     alignSelf: "center",
-    marginBottom: 14,
+    marginBottom: 4,
     borderRadius: radii.pill,
     backgroundColor: colors.lineStrong,
   },
-  card: {
-    width: "100%",
-    maxWidth: 560,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface,
-    padding: 20,
-    gap: 14,
+  body: { maxHeight: 560 },
+  bodyContent: { gap: 22, paddingHorizontal: 24, paddingTop: 22, paddingBottom: 8 },
+  bodyContentCompact: { paddingHorizontal: 16, paddingTop: 12 },
+
+  /* ------------------------------- header ------------------------------- */
+  head: { flexDirection: "row", alignItems: "center", gap: 12 },
+  title: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontFamily: fonts.display,
+    fontSize: pointerType.h3,
+    lineHeight: leading(pointerType.h3, 1.3),
+    fontWeight: "600",
+    color: colors.text,
   },
-  /*
-    A scroll surface with a ceiling, so the sheet cannot grow past the screen.
-    It used to be a plain `View`: with three prose sections, a shared-with list
-    and an advanced block, the Done button left the bottom of a phone entirely.
-  */
-  body: { maxHeight: 460 },
-  bodyContent: { gap: 16, paddingBottom: 4 },
-  section: { gap: 8 },
-  row: { flexDirection: "row", gap: 10, alignItems: "center" },
+  titleCompact: { fontSize: touchType.h3, lineHeight: leading(touchType.h3, 1.3) },
+  iconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radii.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconButtonOn: { backgroundColor: colors.surface3 },
+
+  /* -------------------------------- field ------------------------------- */
+  field: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.lg + 2,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface,
+  },
+  fieldCompact: { minHeight: 48 },
+  fieldFocused: {
+    borderColor: colors.accent,
+    boxShadow: `0 0 0 3px ${colors.accentDim}`,
+  },
   input: {
     flexGrow: 1,
     flexShrink: 1,
     /*
       Flexbox gives a form control `min-width: auto`, so `flexShrink` alone
-      does not let it go below its intrinsic width — which pushed the group
-      maker's Cancel button off the right edge of its own panel.
+      does not let it go below its intrinsic width.
     */
+    minWidth: 80,
+    color: colors.text,
+    fontFamily: fonts.body,
+    fontSize: pointerType.lede,
+    paddingVertical: 6,
+    outlineStyle: "none" as never,
+  },
+  inputCompact: { fontSize: touchType.ui },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 28,
+    paddingLeft: 3,
+    paddingRight: 6,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surface3,
+  },
+  chipText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "500", color: colors.text },
+  pickedRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: -10 },
+  pickedNote: { flexGrow: 1, flexShrink: 1, color: colors.muted },
+
+  /* ----------------------------- suggestions ---------------------------- */
+  suggestions: {
+    marginTop: -12,
+    padding: 6,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    boxShadow: "0 16px 40px -18px rgba(26,23,20,.30)",
+  },
+  suggestion: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: radii.md,
+  },
+  suggestionHover: { backgroundColor: colors.surface2 },
+  suggestionReaching: { opacity: 0.55 },
+  hasAccess: { color: colors.muted },
+  divider: { height: 1, backgroundColor: colors.line, marginVertical: 5, marginHorizontal: 4 },
+
+  /* ------------------------------ sections ------------------------------ */
+  section: { gap: 4 },
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    fontFamily: fonts.body,
+    fontSize: pointerType.ui,
+    lineHeight: leading(pointerType.ui, 1.4),
+    fontWeight: "600",
+    color: colors.text2,
+  },
+  sectionTitleCompact: { fontSize: pointerType.lede },
+
+  /* -------------------------------- rows -------------------------------- */
+  row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 },
+  rowCompact: { minHeight: 54 },
+  rowTop: { alignItems: "flex-start", paddingTop: 4 },
+  rowMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
+  name: {
+    fontFamily: fonts.body,
+    fontSize: pointerType.ui,
+    lineHeight: leading(pointerType.ui, 1.45),
+    fontWeight: "500",
+    color: colors.text,
+  },
+  nameCompact: { fontSize: touchType.ui },
+  meta: { color: colors.muted },
+  metaCompact: { fontSize: pointerType.ui },
+  role: { fontFamily: fonts.body, fontSize: pointerType.ui, color: colors.muted },
+  roleCompact: { fontSize: pointerType.lede },
+  link: { color: colors.accent, fontWeight: "500" },
+
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: radii.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.well,
+  },
+  avatarCompact: { width: 36, height: 36 },
+  avatarSmall: { width: 22, height: 22 },
+  avatarGroup: { backgroundColor: colors.sharedWash },
+  avatarOwner: { backgroundColor: colors.warnWash },
+  avatarText: { fontFamily: fonts.body, fontSize: pointerType.meta, fontWeight: "600", color: colors.text2 },
+  avatarTextSmall: { fontSize: pointerType.label },
+
+  dropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 5,
+    paddingLeft: 10,
+    paddingRight: 6,
+    borderRadius: radii.md,
+  },
+  dropdownOpen: { backgroundColor: colors.surface3 },
+  dropdownText: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "500", color: colors.text2 },
+
+  /* --------------------------- general access --------------------------- */
+  tile: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface3,
+  },
+  tileCompact: { width: 40, height: 40 },
+  tileLive: { backgroundColor: colors.accentDim },
+  audienceTrigger: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: -6,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: radii.md,
+  },
+  audienceLabel: {
+    fontFamily: fonts.body,
+    fontSize: pointerType.ui,
+    lineHeight: leading(pointerType.ui, 1.4),
+    fontWeight: "600",
+    color: colors.text,
+  },
+  audienceLabelCompact: { fontSize: touchType.ui },
+  tag: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface2,
+  },
+  indent: { marginLeft: 48 },
+  indentCompact: { marginLeft: 52 },
+  subList: { marginTop: 6, borderTopWidth: 1, borderTopColor: colors.line },
+  subRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 44,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  subRowLast: { borderBottomWidth: 0 },
+  confirm: {
+    marginTop: 10,
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: radii.lg + 2,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface2,
+  },
+  confirmText: { color: colors.text2 },
+  confirmActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+
+  /* ------------------------------ short link ---------------------------- */
+  shortLinkField: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface,
+    paddingLeft: 10,
+  },
+  shortLinkInput: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 40,
+    paddingVertical: 7,
+    paddingRight: 10,
+    color: colors.text,
+    fontFamily: fonts.body,
+    fontSize: pointerType.meta,
+    outlineStyle: "none" as never,
+  },
+
+  /* -------------------------------- maker ------------------------------- */
+  maker: {
+    gap: 10,
+    padding: 12,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface2,
+  },
+  makerRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  makerInput: {
+    flexGrow: 1,
+    flexShrink: 1,
     minWidth: 0,
     borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.lg,
-    backgroundColor: colors.well,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
     color: colors.text,
-    fontFamily: fonts.mono,
-    fontSize: t.ui,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  list: { gap: 8 },
-  listHead: { letterSpacing: 1, color: colors.muted },
-  // Capped so a note shared with a dozen people does not push Done off screen.
-  listScroll: { maxHeight: 260 },
-  share: {
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
-    marginBottom: 8,
-  },
-  shareTop: { flexDirection: "row", alignItems: "center", gap: 10 },
-  recipient: { flexGrow: 1, flexShrink: 1, color: colors.text },
-  suggestions: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.md,
-    overflow: "hidden",
-  },
-  suggestion: { paddingVertical: 8, paddingHorizontal: 10, gap: 2 },
-  makeGroup: { paddingVertical: 2 },
-  makeGroupText: { color: colors.accent },
-  /* Wraps rather than clips: three controls on a 390pt phone, inside a panel. */
-  makerRow: { flexDirection: "row", gap: 8, alignItems: "center", flexWrap: "wrap" },
-  maker: {
-    gap: 8,
-    padding: 10,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    backgroundColor: colors.well,
+    fontFamily: fonts.body,
+    fontSize: pointerType.ui,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   pickList: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   pick: {
-    paddingVertical: 5,
-    paddingHorizontal: 9,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
     borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,
   },
   pickOn: { borderColor: colors.accent, backgroundColor: colors.accentDim },
-  /* An answer rather than an offer: on the well, so it does not read as a button. */
-  suggestionReaching: { backgroundColor: colors.well },
-  suggestionMuted: { color: colors.text2 },
-  suggestionDetail: { color: colors.muted },
-  previewRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  previewText: { flexGrow: 1, flexShrink: 1 },
-  actions: { flexDirection: "row", justifyContent: "flex-end", gap: 10 },
+  danger: { color: colors.critText },
+
+  /* -------------------------------- footer ------------------------------ */
+  problem: { paddingHorizontal: 24, paddingTop: 4, color: colors.critText },
+  foot: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  footCompact: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 34 },
+  footButton: {
+    height: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    borderRadius: radii.lg + 2,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface,
+  },
+  footButtonCompact: { flexGrow: 1, flexBasis: 0, height: 48 },
+  footPrimary: { borderColor: colors.text, backgroundColor: colors.text, paddingHorizontal: 20 },
+  footLabel: { fontFamily: fonts.body, fontSize: pointerType.ui, fontWeight: "600", color: colors.text },
+  footLabelCompact: { fontSize: touchType.ui },
+  footPrimaryLabel: { color: colors.surface },
+  smallButton: { height: 30, paddingHorizontal: 12 },
+  ghostButton: { borderColor: "transparent", backgroundColor: "transparent" },
 });

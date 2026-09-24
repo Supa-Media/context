@@ -55,13 +55,13 @@ import type { Id } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
 import { isProductionTestAccount } from "./lib/testAccount";
 import { managedBucketName } from "./lib/managedStorage";
-import { voidCapabilitiesAddressedTo } from "./lib/account/addressedTo";
 import { type GenericConnectAttemptQuery, INVITATION_STATUSES } from "./lib/account/cascadeShapes";
 import {
   authorizeTestWorkspaceDeletion,
   authorizeWorkspaceDeletion,
 } from "./lib/account/deletionGuards";
 import { deletePersonalRows } from "./lib/account/personalRows";
+import { finalizeWorkspaceDeletion } from "./lib/account/finalizeWorkspaceDeletion";
 
 /**
  * Delete one disposable workspace owned by the production CUJ account.
@@ -233,6 +233,7 @@ export const deleteAccount = mutation({
  *    how `dropboxConnectAttempts` and `googleConnectAttempts` are both
  *    covered by one loop instead of one hand-maintained call per provider.
  *  - **`ingestionSettings`**, **`vaultImportJobs`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
+ *    **`websiteStates`**,
  *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
  *    **`oauthGrants`**, **`noteShares`** (every status), **`auditEvents`**,
  *    **`workspaceMembers`**, **`names`** — swept below, each with its own
@@ -654,38 +655,7 @@ async function deleteWorkspaceCascade(
     }
   }
 
-  // The audit trail. Unlike a disconnect — where "storage was disconnected"
-  // must remain visible — there is nobody left to read this one: the context
-  // and its only owner are both going.
-  const events = await ctx.db
-    .query("auditEvents")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const event of events) {
-    await ctx.db.delete(event._id);
-  }
-
-  // Every membership, the deleting owner's included.
-  const memberships = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const membership of memberships) {
-    await ctx.db.delete(membership._id);
-  }
-
-  // The slug's row in the shared namespace. This is what frees the name for
-  // anyone — including the departing person, should they return.
-  const nameRows = await ctx.db
-    .query("names")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const row of nameRows) {
-    await voidCapabilitiesAddressedTo(ctx, row.name);
-    await ctx.db.delete(row._id);
-  }
-
-  await ctx.db.delete(workspaceId);
+  await finalizeWorkspaceDeletion(ctx, workspaceId);
 }
 
 /**

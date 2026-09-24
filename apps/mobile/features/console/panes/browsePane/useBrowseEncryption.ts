@@ -48,7 +48,7 @@ export function useBrowseEncryption({
   /**
    * The one error the "Password-encrypt content" dialog shows, if the write
    * that locks the note failed. Held here rather than inside
-   * `EncryptionAdvancedSection` because the operation it reports on
+   * `useEncryptionAction` because the operation it reports on
    * (`noteEncryption.protect`) is called from here, against `files.editor`.
    */
   const [lockBusy, setLockBusy] = useState(false);

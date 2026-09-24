@@ -164,6 +164,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Asking for a link publishes the form, and a refused mint says why
 - What is deliberately not built
 
+## [Folder lists](./folder-lists.md)
+
+- Nothing about it is website-specific
+- Selection only ever narrows
+- A block that does not parse draws its error
+- The filter lives in the block
+
 ## [Search and the derived index](./search.md)
 
 - Search answers from a derived index, and the index is budgeted, filtered, and disposable

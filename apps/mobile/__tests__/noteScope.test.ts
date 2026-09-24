@@ -46,7 +46,7 @@ describe("what the control shows", () => {
  * lives: **no single press takes a note from private to a public link.**
  * `stepsTo` is the model the sheet drives, and reaching `anyone` from
  * `private` is two steps there — the manifest write and then the link — so the
- * sheet cannot offer it as one action, and `AudienceControl` additionally
+ * sheet cannot offer it as one action, and `GeneralAccess` additionally
  * confirms the public step in words.
  */
 describe("publishing is never one step from private", () => {
@@ -60,7 +60,7 @@ describe("publishing is never one step from private", () => {
   /**
    * A folder has no third position, and not as a policy choice made in the
    * console: `createLinkShare` is note-only, so a control drawing one would be
-   * a press that always fails. `AudienceControl` reads `canOpenLink` for this.
+   * a press that always fails. (Folder links now exist, so the sheet offers it on both.)
    */
   test("closing all the way takes the link back first", () => {
     expect(stepsTo("anyone", "private")).toEqual([

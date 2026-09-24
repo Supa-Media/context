@@ -138,6 +138,9 @@ describe("the short link's block", () => {
   test("offers the name under the owner's own handle", () => {
     dialog([openShare], async () => true);
     expect(node("share-short-link")).not.toBeNull();
+    // Closed, it says there is none; opened, the field sits under the handle.
+    expect(node("share-short-link-name")).toBeNull();
+    press("share-short-link-add");
     expect(document.body.textContent).toContain("context.lc/@seyi/");
   });
 });
@@ -145,6 +148,8 @@ describe("the short link's block", () => {
 describe("what the warning is drawn on", () => {
   test("an unlisted link says that memorable means guessable", () => {
     dialog([openShare], async () => true);
+    // The editor is closed until asked for; the warning belongs to it.
+    press("share-short-link-add");
     expect(node("share-short-link-warning")?.textContent).toContain("guessable");
   });
 
@@ -153,6 +158,8 @@ describe("what the warning is drawn on", () => {
     // The block is there — a team handbook is a good reason to want a short
     // link — and the sentence is not.
     expect(node("share-short-link")).not.toBeNull();
+    press("share-short-link-add");
+    expect(node("share-short-link-name")).not.toBeNull();
     expect(node("share-short-link-warning")).toBeNull();
   });
 });
@@ -165,6 +172,7 @@ describe("claiming and releasing", () => {
       return true;
     });
 
+    press("share-short-link-add");
     typeInto("share-short-link-name", "Intake");
     await act(async () => {
       press("share-short-link-claim");
@@ -183,6 +191,7 @@ describe("claiming and releasing", () => {
       return true;
     });
 
+    press("share-short-link-add");
     typeInto("share-short-link-name", "not a name");
     expect(
       (node("share-short-link-claim") as HTMLButtonElement | null)?.getAttribute(
@@ -217,6 +226,7 @@ describe("claiming and releasing", () => {
       asked.push([shareId, slug]);
       return true;
     });
+    press("share-short-link-add");
     typeInto("share-short-link-name", "intake");
     act(() => {
       press("share-short-link-claim");

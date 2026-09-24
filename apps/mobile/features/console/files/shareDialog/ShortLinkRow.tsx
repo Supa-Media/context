@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { TextInput, View } from "react-native";
-import { Button } from "../../../design/components/Button";
+import { Pressable, TextInput, View } from "react-native";
+import { Icon } from "../../../design/components/Icon";
 import { Text } from "../../../design/components/Text";
 import { useColors, useThemedStyles } from "../../../design/theme";
 import type { NoteShare } from "../shares";
@@ -35,8 +35,10 @@ export function ShortLinkRow({
   handle,
   share,
   onSetSlug,
+  compact,
 }: {
   handle: string;
+  compact: boolean;
   share: NoteShare;
   onSetSlug: (shareId: string, slug: string | null) => Promise<boolean>;
 }) {
@@ -44,6 +46,9 @@ export function ShortLinkRow({
   const colors = useColors();
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
+  // Closed until asked for: most links never get a name, and an always-open
+  // field, a disabled button and a warning made every link taller for it.
+  const [editing, setEditing] = useState(false);
 
   const claimed = share.slug ?? null;
   const candidate = typed.trim().toLowerCase();
@@ -61,7 +66,10 @@ export function ShortLinkRow({
         // Cleared on success, kept on a refusal: the notice explaining why is
         // behind this modal, and retyping a name somebody has just had
         // rejected is the worst moment to make them start over.
-        if (ok) setTyped("");
+        if (ok) {
+          setTyped("");
+          setEditing(false);
+        }
       })
       .finally(() => setBusy(false));
   };
@@ -72,66 +80,92 @@ export function ShortLinkRow({
     void onSetSlug(share.shareId, null).finally(() => setBusy(false));
   };
 
-  return (
-    <View style={styles.section} testID="share-short-link">
-      <View style={styles.linkRow}>
-        <View style={styles.linkMain}>
-          <Text variant="rowTitle">Short link</Text>
-          <Text variant="meta" style={styles.linkNote}>
-            {claimed === null
-              ? "A name you choose, under your handle."
-              : "This link also opens at the name you chose."}
-          </Text>
-        </View>
-      </View>
+  const nameStyle = [styles.name, compact && styles.nameCompact];
+  const metaStyle = [styles.meta, compact && styles.metaCompact];
 
-      {claimed === null ? (
-        <View style={styles.row}>
-          <View style={styles.shortLinkField}>
-            <Text variant="meta" style={styles.shortLinkPrefix}>
-              {`context.lc/@${handle}/`}
-            </Text>
-            <TextInput
-              value={typed}
-              onChangeText={setTyped}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.shortLinkInput}
-              placeholder="intake"
-              placeholderTextColor={colors.muted}
-              accessibilityLabel="Short link name"
-              onSubmitEditing={claim}
-              testID="share-short-link-name"
-            />
-          </View>
-          <Button
-            label="Claim"
-            variant="white"
-            disabled={!wellFormed || busy}
-            onPress={claim}
-            testID="share-short-link-claim"
-          />
-        </View>
-      ) : (
-        <View style={styles.linkRow}>
-          <Text variant="meta" style={styles.shortLinkClaimed} selectable>
+  return (
+    <View
+      style={[styles.subRow, styles.subRowLast, { alignItems: "flex-start" }]}
+      testID="share-short-link"
+    >
+      <Icon name="link" size={16} color={colors.muted} style={{ marginTop: 3 }} />
+      <View style={styles.rowMain}>
+        <Text style={nameStyle}>Short link</Text>
+        {claimed !== null ? (
+          <Text variant="meta" style={[metaStyle, { color: colors.text2 }]} selectable>
             {`context.lc/@${handle}/${claimed}`}
           </Text>
-          <Button
-            label="Release"
-            disabled={busy}
-            onPress={release}
-            testID="share-short-link-release"
-          />
-        </View>
-      )}
-
-      {share.audience !== "anyone" ? null : (
-        <Text variant="meta" style={styles.linkNote} testID="share-short-link-warning">
-          A short link is memorable, which means guessable. Anyone who types it
-          gets what this link gives — treat it as published. The long link stays
-          unguessable if you would rather.
-        </Text>
+        ) : !editing ? (
+          <Text variant="meta" style={metaStyle}>
+            None yet
+          </Text>
+        ) : (
+          <>
+            {/* Wraps the Claim button under the field on a phone rather than breaking the prefix. */}
+            <View style={[styles.row, { minHeight: 0, gap: 8, marginTop: 6, flexWrap: compact ? "wrap" : "nowrap" }]}>
+              <View style={[styles.shortLinkField, { minWidth: 220 }]}>
+                <Text variant="meta" style={[styles.meta, { flexShrink: 0 }]} numberOfLines={1}>
+                  {`context.lc/@${handle}/`}
+                </Text>
+                <TextInput
+                  value={typed}
+                  onChangeText={setTyped}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoFocus
+                  style={styles.shortLinkInput}
+                  placeholder="intake"
+                  placeholderTextColor={colors.muted}
+                  accessibilityLabel="Short link name"
+                  onSubmitEditing={claim}
+                  testID="share-short-link-name"
+                />
+              </View>
+              <Pressable
+                accessibilityLabel="Claim"
+                aria-disabled={!wellFormed || busy}
+                disabled={!wellFormed || busy}
+                testID="share-short-link-claim"
+                style={[styles.footButton, styles.smallButton, (!wellFormed || busy) && { opacity: 0.45 }]}
+                onPress={claim}
+              >
+                <Text style={styles.footLabel}>Claim</Text>
+              </Pressable>
+            </View>
+            {share.audience !== "anyone" ? null : (
+              <Text variant="meta" style={[metaStyle, { marginTop: 6 }]} testID="share-short-link-warning">
+                Short names are guessable. Anyone who types it gets what this link gives.
+              </Text>
+            )}
+          </>
+        )}
+      </View>
+      {claimed !== null ? (
+        <Pressable
+          accessibilityLabel="Remove short link"
+          disabled={busy}
+          testID="share-short-link-release"
+          onPress={release}
+          style={{ marginTop: 2 }}
+        >
+          <Text variant="meta" style={styles.link}>
+            Remove
+          </Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityLabel={editing ? "Cancel short link" : "Add a short link"}
+          testID="share-short-link-add"
+          onPress={() => {
+            setTyped("");
+            setEditing((open) => !open);
+          }}
+          style={{ marginTop: 2 }}
+        >
+          <Text variant="meta" style={styles.link}>
+            {editing ? "Cancel" : "Add"}
+          </Text>
+        </Pressable>
       )}
     </View>
   );
