@@ -9,6 +9,11 @@ import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { resolveAddressedUser } from "../identities";
 
+/**
+ * INTERNAL. The database half of `resolveNamedAudience`.
+ *
+ * Returns the name to store, or `null` for every way of saying no.
+ */
 export async function namedAudienceHandler(
   ctx: QueryCtx,
   args: { workspaceId: Id<"workspaces">; name: string },
