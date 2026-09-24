@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { EncryptionAdvancedSection } from "../../encryption/EncryptionAdvancedSection";
+import { useEncryptionAction } from "../../encryption/useEncryptionAction";
 import { ShareDialog } from "../../files/ShareDialog";
 import type { FileBrowser } from "../../files/browser";
 import { consoleOrigin } from "../../files/shareOrigin";
@@ -45,6 +45,70 @@ export function BrowseShareDialog({
   lockError: string | undefined;
   setLockError: BrowseEncryption["setLockError"];
 }) {
+  /*
+    Only when the editor is actually holding this note — the same guard the
+    breadcrumb's title uses, for the same reason: the plaintext this locks is
+    `files.editor.draft`, and a draft belonging to a different path is a
+    different note's content.
+  */
+  const encryption = useEncryptionAction({
+    enabled: files.editor.path === sharing,
+    path: sharing,
+    encrypted: files.editor.encrypted,
+    busy: lockBusy,
+    error: lockError,
+    onLock: (passphrase) => {
+      setLockBusy(true);
+      setLockError(undefined);
+      noteEncryption
+        .protect({
+          path: sharing,
+          plaintext: files.editor.draft,
+          etag: files.editor.etag,
+          passphrase,
+        })
+        .then(() => {
+          /*
+            The lock just wrote an envelope over `sharing`. The
+            plaintext this call sent — `files.editor.draft` above
+            — is exactly what a local draft or a queued write for
+            this path would also be holding, and either one left
+            behind would be a plaintext copy sitting outside the
+            envelope this success is the whole promise of closing.
+            `useNoteEncryption.ts`'s own header explains why this
+            cannot be that call's job: it never touches
+            `features/offline`, on purpose, so the door has to be
+            reached from out here instead. See `discardLocalCopies`'s
+            own comment on `FileBrowser` for the rest of the
+            argument, including the boundary this keeps rather
+            than widens.
+
+            Before `select`, not after: `select` is what makes
+            `files.editor.path` this note's next open, and
+            `openNote` now refuses to restore anything for an
+            encrypted note regardless — but there is no reason to
+            depend on that ordering here when this is the one
+            call that actually knows a lock, not a mere reopen,
+            is what just happened.
+          */
+          files.discardLocalCopies(sharing);
+          announceNoteLock(sharing);
+          // Reopen so `files.editor.encrypted` catches up — the
+          // note this session just locked is unlocked in it
+          // already (`useNoteEncryption.protect` leaves it so),
+          // but the ordinary editor state still shows the
+          // plaintext it had a moment ago until it re-reads.
+          files.select(sharing);
+        })
+        .catch((caught: unknown) => {
+          setLockError(
+            caught instanceof Error ? caught.message : "That did not work.",
+          );
+        })
+        .finally(() => setLockBusy(false));
+    },
+  });
+
   return (
     <ShareDialog
       path={sharing}
@@ -152,72 +216,7 @@ export function BrowseShareDialog({
             ? undefined
             : () => onOpenSettings("sharing"),
       })}
-      /*
-        Only when the editor is actually holding this note — the same
-        guard the breadcrumb's title uses, for the same reason: the
-        plaintext this locks is `files.editor.draft`, and a draft
-        belonging to a different path is a different note's content.
-      */
-      advanced={
-        files.editor.path !== sharing ? undefined : (
-          <EncryptionAdvancedSection
-            path={sharing}
-            encrypted={files.editor.encrypted}
-            busy={lockBusy}
-            error={lockError}
-            onLock={(passphrase) => {
-              setLockBusy(true);
-              setLockError(undefined);
-              noteEncryption
-                .protect({
-                  path: sharing,
-                  plaintext: files.editor.draft,
-                  etag: files.editor.etag,
-                  passphrase,
-                })
-                .then(() => {
-                  /*
-                    The lock just wrote an envelope over `sharing`. The
-                    plaintext this call sent — `files.editor.draft` above
-                    — is exactly what a local draft or a queued write for
-                    this path would also be holding, and either one left
-                    behind would be a plaintext copy sitting outside the
-                    envelope this success is the whole promise of closing.
-                    `useNoteEncryption.ts`'s own header explains why this
-                    cannot be that call's job: it never touches
-                    `features/offline`, on purpose, so the door has to be
-                    reached from out here instead. See `discardLocalCopies`'s
-                    own comment on `FileBrowser` for the rest of the
-                    argument, including the boundary this keeps rather
-                    than widens.
-
-                    Before `select`, not after: `select` is what makes
-                    `files.editor.path` this note's next open, and
-                    `openNote` now refuses to restore anything for an
-                    encrypted note regardless — but there is no reason to
-                    depend on that ordering here when this is the one
-                    call that actually knows a lock, not a mere reopen,
-                    is what just happened.
-                  */
-                  files.discardLocalCopies(sharing);
-                  announceNoteLock(sharing);
-                  // Reopen so `files.editor.encrypted` catches up — the
-                  // note this session just locked is unlocked in it
-                  // already (`useNoteEncryption.protect` leaves it so),
-                  // but the ordinary editor state still shows the
-                  // plaintext it had a moment ago until it re-reads.
-                  files.select(sharing);
-                })
-                .catch((caught: unknown) => {
-                  setLockError(
-                    caught instanceof Error ? caught.message : "That did not work.",
-                  );
-                })
-                .finally(() => setLockBusy(false));
-            }}
-          />
-        )
-      }
+      advanced={encryption}
     />
   );
 }

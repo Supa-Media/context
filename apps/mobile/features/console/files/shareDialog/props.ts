@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { IconName } from "../../../design/components/icons/names";
 import type { AccessMember, AccessRow, RemovalRoute } from "../access";
 import type { RecipientGroup } from "../recipients";
 import type { Visibility } from "../types";
@@ -105,16 +106,17 @@ export type ShareDialogProps = {
    */
   onSetScope?: (from: NoteScope, to: NoteScope) => void;
   /**
-   * A section drawn under everything else here, behind its own "ADVANCED"
-   * label — today, whatever `EncryptionAdvancedSection` in
-   * `features/console/encryption/` has to say about this note. This dialog
-   * stays agnostic about what it is: sharing decides who may read a note
-   * through the gateway, and encryption decides what the bytes are while
-   * nobody is asking — `docs/decisions/encryption.md`'s opening argument for
-   * why the two never collapse into one control. Absent where the caller has
-   * nothing to add, rather than an empty labelled section.
+   * One more thing the header's menu can do, supplied by the caller — today,
+   * locking the note behind a password (`useEncryptionAction` in
+   * `features/console/encryption/`). This dialog stays agnostic about what it
+   * is: sharing decides who may read a note through the gateway, and
+   * encryption decides what the bytes are while nobody is asking, which is
+   * `docs/decisions/encryption.md`'s argument for never collapsing the two
+   * into one control. `overlay` is whatever the action opens, drawn inside
+   * this dialog's modal so it layers above it. Absent where the caller has
+   * nothing to add.
    */
-  advanced?: ReactNode;
+  advanced?: { action: ShareMoreAction; overlay?: ReactNode };
   /**
    * Put a link on the clipboard. Answers whether it landed.
    *
@@ -167,6 +169,17 @@ export type ShareDialogProps = {
     members: readonly AccessMember[] | undefined;
   };
 };
+
+/** An item a caller adds to the header's menu. */
+export interface ShareMoreAction {
+  id: string;
+  label: string;
+  detail?: string;
+  icon?: IconName;
+  disabled?: boolean;
+  testID?: string;
+  onPress: () => void;
+}
 
 /** What `copyAndClose` is asked to copy — the same three targets as `onCopyLink`. */
 export type CopyTarget = Parameters<ShareDialogProps["onCopyLink"]>[0];

@@ -5,6 +5,15 @@
 import { describe, expect, test } from "@jest/globals";
 import { dataWith, emptyEditor, FILE, mountConsole, NOTE, OPEN_LINK, sheet } from "./fixtures";
 
+/**
+ * The positions live in a dropdown on the General access line now, the way
+ * Google Docs draws "Restricted ⌄", so a test opens it the way a person would
+ * before reading or pressing one.
+ */
+function openAudience(app: { press: (node: HTMLElement | null) => void }): void {
+  app.press(sheet("share-audience"));
+}
+
 describe("the top row ends in one group, and it is the note's", () => {
   /**
    * **This was `the top bar is a toggle and one group › nothing sits between
@@ -162,6 +171,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     expect(document.body.querySelector('[aria-label="Share plan.md"]')).toBeNull();
 
     app.press(app.find("note-share"));
+
     expect(document.body.querySelector('[aria-label="Share plan.md"]')).not.toBeNull();
   });
 
@@ -214,6 +224,7 @@ describe("the top row ends in one group, and it is the note's", () => {
       dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
     );
     app.press(app.find("note-share"));
+    openAudience(app);
     expect(sheet("share-audience-private")).not.toBeNull();
     expect(sheet("share-audience-team")).not.toBeNull();
     expect(sheet("share-audience-anyone")).not.toBeNull();
@@ -234,6 +245,7 @@ describe("the top row ends in one group, and it is the note's", () => {
   test("the sheet names the context rather than saying `team`", () => {
     const app = mountConsole(dataWith());
     app.press(app.find("note-share"));
+    openAudience(app);
     const team = sheet("share-audience-team")!;
     expect(team.getAttribute("aria-label")).toMatch(/^Everyone in @/);
     expect(team.getAttribute("aria-label")).not.toMatch(/workspace/i);
@@ -247,11 +259,13 @@ describe("the top row ends in one group, and it is the note's", () => {
   test("the sheet names every position and marks the one it is in", () => {
     const shared = mountConsole(dataWith());
     shared.press(shared.find("note-share"));
+    openAudience(shared);
     expect(sheet("share-audience-team")!.getAttribute("aria-checked")).toBe("true");
     expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("false");
 
     const priv = mountConsole(dataWith({}, { visibility: "private", inherited: "private" }));
     priv.press(priv.find("note-share"));
+    openAudience(priv);
     expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("true");
   });
 
@@ -266,6 +280,7 @@ describe("the top row ends in one group, and it is the note's", () => {
       dataWith({ setScope: (...args: unknown[]) => moved.push(args) } as never),
     );
     app.press(app.find("note-share"));
+    openAudience(app);
     app.press(sheet("share-audience-private"));
     expect(moved).toEqual([[NOTE, "file", "team", "private"]]);
   });
@@ -284,6 +299,7 @@ describe("the top row ends in one group, and it is the note's", () => {
       dataWith({ setScope: (...args: unknown[]) => moved.push(args) } as never),
     );
     app.press(app.find("note-share"));
+    openAudience(app);
     app.press(sheet("share-audience-anyone"));
 
     // Asked, and NOT done.
@@ -306,6 +322,7 @@ describe("the top row ends in one group, and it is the note's", () => {
       390,
     );
     app.press(app.find("note-share"));
+    openAudience(app);
     expect(sheet("share-audience-anyone")!.getAttribute("aria-checked")).toBe("true");
   });
 
@@ -320,6 +337,7 @@ describe("the top row ends in one group, and it is the note's", () => {
       }),
     );
     app.press(app.find("note-share"));
+    openAudience(app);
     expect(sheet("share-audience-private")!.getAttribute("aria-checked")).toBe("true");
     expect(sheet("share-audience-anyone")!.getAttribute("aria-checked")).toBe("false");
   });

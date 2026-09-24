@@ -13,7 +13,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * *browser*, at any width, has real Web Crypto and is not Hermes. That case
  * is `lockedNoteView.test.ts`'s "a phone" describe block, against a mocked
  * `kdfSupport`, which is the only place it can be told the truth. Share and
- * its "ADVANCED" section are also only drawn on a pointer layout
+ * its header menu are also only drawn on a pointer layout
  * (`BrowsePane.tsx`'s own `!compact` guard) — a phone reaches Share from the
  * top bar's trailing group, which `E2EFixtureScreen` does not reproduce (see
  * its own header) — so a pointer viewport is what this suite needs to reach
@@ -140,12 +140,14 @@ async function fillReliably(locator: Locator, value: string): Promise<void> {
  */
 async function lockNote(page: Page, passphrase: string): Promise<void> {
   await openShareDialog(page);
+  // Encryption is a rare act, so it sits in the share dialog's header menu.
+  await page.getByTestId("share-more").click();
   await page.getByTestId("share-lock-note").click();
   await fillReliably(page.getByLabel("Passphrase", { exact: true }), passphrase);
   await fillReliably(page.getByLabel("Passphrase again", { exact: true }), passphrase);
   await fillReliably(page.getByLabel("Type I understand to confirm", { exact: true }), "I understand");
   await page.getByLabel("Lock this note", { exact: true }).click();
-  // The lock dialog unmounts itself once `EncryptionAdvancedSection` sees
+  // The lock dialog unmounts itself once `useEncryptionAction` sees
   // `encrypted: true`, but the Share dialog it was opened over does not —
   // it is a plain modal, dismissed only by "Done" or its scrim, and its
   // scrim otherwise sits over `LockedNoteView`'s own controls.

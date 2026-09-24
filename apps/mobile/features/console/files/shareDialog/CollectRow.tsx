@@ -2,7 +2,8 @@ import { useState } from "react";
 import { View } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { Switch } from "../../../design/components/Switch";
-import { useThemedStyles } from "../../../design/theme";
+import { useColors, useThemedStyles } from "../../../design/theme";
+import { Icon } from "../../../design/components/Icon";
 import type { NoteShare } from "../shares";
 import { makeStyles } from "./styles";
 
@@ -35,11 +36,16 @@ import { makeStyles } from "./styles";
 export function CollectRow({
   share,
   onSetCollecting,
+  compact,
+  last,
 }: {
   share: NoteShare;
+  compact: boolean;
+  last: boolean;
   onSetCollecting: (shareId: string, collecting: boolean) => Promise<boolean>;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [busy, setBusy] = useState(false);
   /*
     The switch shows what the SERVER said, except while a press is in flight.
@@ -62,20 +68,21 @@ export function CollectRow({
   };
 
   return (
-    <View style={styles.linkRow} testID="share-collect-row">
-      <View style={styles.linkMain}>
-        <Text variant="rowTitle">Take answers</Text>
-        <Text variant="meta" style={styles.linkNote}>
+    <View style={[styles.subRow, last && styles.subRowLast]} testID="share-collect-row">
+      <Icon name="bulletList" size={16} color={colors.muted} />
+      <View style={styles.rowMain}>
+        <Text style={[styles.name, compact && styles.nameCompact]}>Collect form answers</Text>
+        <Text variant="meta" style={[styles.meta, compact && styles.metaCompact]}>
           {on
-            ? "Anyone holding this link can fill in a form on this note without an account. " +
-              "Nobody can read the answers through it, and an answer cannot be taken back."
-            : "Let anyone holding this link fill in a form on this note, without an account."}
+            ? "Anyone with the link can fill in a form here without an account. " +
+              "They can't read other answers, and an answer can't be taken back."
+            : "Let anyone with the link fill in a form here, without an account."}
         </Text>
       </View>
       <Switch
         value={on}
         onValueChange={flip}
-        label="Take answers through this link"
+        label="Collect form answers through this link"
         disabled={busy}
         testID="share-collect-switch"
       />
