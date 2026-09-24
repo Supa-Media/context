@@ -3,7 +3,12 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { stripePriceId, type Entitlements, type PlanStatus } from "../premium";
-import { managedBucketName, managedAccountId, stagingStorageIsFree } from "../managedStorage";
+import {
+  freeManagedStorageSwitchedOn,
+  managedAccountId,
+  managedBucketName,
+  stagingStorageIsFree,
+} from "../managedStorage";
 
 /**
  * What a context's plan row says, and what this deployment can sell.
@@ -112,6 +117,26 @@ export function deploymentSells(): boolean {
  */
 export function deploymentProvidesManagedStorage(): boolean {
   if (!stagingStorageIsFree() && !deploymentSells()) return false;
+  try {
+    return managedAccountId() !== null;
+  } catch {
+    console.error("billing.managed_account_malformed");
+    return false;
+  }
+}
+
+/**
+ * Does this deployment offer the free managed tier right now?
+ *
+ * The deployment switch *and* somewhere to put the bucket. The switch is off in
+ * production until the export and hand-off path lands (non-negotiable #1;
+ * `docs/decisions/billing.md`, "The free managed tier"). No price is needed —
+ * nothing is sold — but a bucket still needs the customer-data account, and a
+ * malformed one is false here for the reason
+ * `deploymentProvidesManagedStorage` gives.
+ */
+export function deploymentOffersFreeManaged(): boolean {
+  if (!freeManagedStorageSwitchedOn()) return false;
   try {
     return managedAccountId() !== null;
   } catch {

@@ -186,6 +186,16 @@ export const billingTables = {
     managedProvisioningError: v.optional(v.string()),
     /** When the last attempt ended, so a retry can be rate-limited by a human. */
     managedProvisioningAt: v.optional(v.number()),
+    /**
+     * This context started on the free managed tier: a bucket we run, no
+     * card, a note cap (`lib/premium.ts`, `FREE_MANAGED_NOTE_CAP`).
+     *
+     * A record of how it *started*, not of what it is paying for: paying
+     * lifts the cap, and a free context that upgraded and then cancelled falls
+     * back onto the cap rather than going read-only (`noteCapFor`,
+     * `cancellationMakesReadOnly`). Absent on every other row.
+     */
+    freeManaged: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -272,6 +282,16 @@ export const billingTables = {
     managedProvisioningError: v.optional(v.string()),
     /** When the last attempt ended, so a retry can be rate-limited by a human. */
     managedProvisioningAt: v.optional(v.number()),
+    /**
+     * This context started on the free managed tier: a bucket we run, no
+     * card, a note cap (`lib/premium.ts`, `FREE_MANAGED_NOTE_CAP`).
+     *
+     * A record of how it *started*, not of what it is paying for: paying
+     * lifts the cap, and a free context that upgraded and then cancelled falls
+     * back onto the cap rather than going read-only (`noteCapFor`,
+     * `cancellationMakesReadOnly`). Absent on every other row.
+     */
+    freeManaged: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
