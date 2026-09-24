@@ -74,6 +74,7 @@
     "apps/convex/__tests__/structure/httpRoutes.test.ts": "The gateway's HTTP routes, plus the route-factory constants and helpers only these checks use.",
     "apps/convex/__tests__/structure/reachability.test.ts": "One guard: no public Convex function can reach the storage-secret decrypt path, checked over the shared analyzer's whole call graph.",
     "apps/convex/functions/managedProvisioning.ts": "provisionManagedStorage and deleteManagedTestResources keep full bodies inline, and two others keep their decryptSecret calls inline, because the credential-reachability analyzer only reads a registered function's own block.",
+    "apps/convex/http.ts": "The HTTP router: every route declaration, its factory and registration order, plus the unauthenticated share-preview and ingest routes that httpRoutes.test.ts and ingestionGateway tests read field by field from this file; handler bodies live in lib/gatewayRoutes.",
     "apps/desktop/test/appShell.test.mjs": "One suite of text checks on the desktop main-process wiring; it grew only because each check now names the module that holds its code after main/index.ts was split.",
     "apps/desktop/test/consoleBridge/senderGuard.test.mjs": "One invariant (every IPC handler refuses a sender that is not the console window) checked across all handlers; the per-handler cases share one harness.",
     "apps/desktop/test/packaging/deployWorkflow.test.mjs": "Checks one workflow file; every check reads the same parsed steps, so splitting would duplicate the parse or scatter one contract.",
@@ -91,9 +92,6 @@
   "baseline": {
     "apps/convex/functions/files.ts": 6939,
     "apps/convex/functions/lib/fileOps.ts": 6014,
-    "apps/convex/functions/shares.ts": 1045,
-    "apps/convex/functions/storage.ts": 1401,
-    "apps/convex/http.ts": 1803,
     "apps/mcp/test/test.mjs": 4798,
     "apps/mobile/app/(app)/console/_layout.tsx": 2402,
     "apps/mobile/features/app/AppFrame.tsx": 2735,
