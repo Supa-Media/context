@@ -102,6 +102,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A short link is a second locator, never a second tier
 - A collect link is a write path, and the only one with no account behind it
 - The switch that hands out a write sits under the link, and says so
+- A custom domain is a third locator, never a wider tier
+- Ownership is a TXT record minted per claim, because a CNAME is not proof
+- Which workspace a host serves comes from the host alone
+- Premium serves the domain, and a lapse deletes nothing
 
 ## [Per-note encryption](./encryption.md)
 

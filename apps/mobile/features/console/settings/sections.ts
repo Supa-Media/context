@@ -349,6 +349,24 @@ export const SETTINGS_SECTIONS = [
   },
   {
     /*
+      The address the world types, which no other row answers. Not under
+      Sharing & Access — that section's first sentence is "Nothing here is
+      public", and a domain is the most public thing in the product — and not
+      under Premium, which is about paying rather than what is served.
+
+      Singular, because a workspace has one. "domains" stays a keyword.
+    */
+    key: "domain",
+    keywords:
+      "domain domains custom own address url website site web dns cname alias aname flattening txt record host hostname subdomain apex root www https ssl certificate cert homepage vanity branded publish published static hosting",
+    scope: "context",
+    label: "Domain",
+    group: null,
+    icon: "globe",
+    personalOnly: false,
+  },
+  {
+    /*
       Between Search and Advanced, and inside "Your notes" rather than a group
       of its own.
 

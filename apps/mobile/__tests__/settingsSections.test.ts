@@ -75,9 +75,11 @@ describe("the order and the grouping", () => {
     expect(rank("model")).toBeLessThan(rank("meetings"));
     expect(rank("meetings")).toBeLessThan(rank("premium"));
     expect(rank("premium")).toBeLessThan(rank("sharing"));
+    // Who can see it, then the address the world types: widening order.
+    expect(rank("sharing")).toBeLessThan(rank("domain"));
   });
 
-  test("eight rows, and one of them only when it has something to say", () => {
+  test("nine rows, and one of them only when it has something to say", () => {
     // The whole of the change: twenty rows under four headings became seven
     // under none, and Model made it eight. `plugins` is deprecated behind
     // `shown` and `invitations` appears only while an invitation is pending.
@@ -90,10 +92,11 @@ describe("the order and the grouping", () => {
       "meetings",
       "premium",
       "sharing",
+      "domain",
     ]);
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(9);
+    ).toHaveLength(10);
   });
 
   test("every section sits under a heading somebody can answer", () => {

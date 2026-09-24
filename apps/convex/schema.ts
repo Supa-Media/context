@@ -14,6 +14,7 @@ import { rateLimitTables } from "./functions/lib/schema/rateLimits";
 import { oauthTables } from "./functions/lib/schema/oauth";
 import { platformTables } from "./functions/lib/schema/platform";
 import { billingTables } from "./functions/lib/schema/billing";
+import { domainTables } from "./functions/lib/schema/domains";
 
 /**
  * Control-plane schema for Context.
@@ -59,6 +60,7 @@ const schema = defineSchema({
   ...oauthTables,
   ...platformTables,
   ...billingTables,
+  ...domainTables,
 });
 
 export default schema;

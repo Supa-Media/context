@@ -15,6 +15,11 @@ import { keepAppShellOffline } from "../features/offline/appShell";
 import { useColors, useScheme } from "../features/design/theme";
 import { useConvexAuth } from "convex/react";
 import { useEffect } from "react";
+import { SiteRoot } from "../features/site/SiteRoot";
+import { siteHostname } from "../features/site/host";
+
+/** Read once: a page does not change host. */
+const SITE_HOSTNAME = siteHostname();
 
 /**
  * Root layout for Context.
@@ -159,7 +164,12 @@ function AppGround() {
         <RootShellTitleBand />
         <View style={{ flex: 1, minHeight: 0 }}>
           <ErrorBoundary>
-            <Slot />
+            {/*
+              A customer's domain gets the site and never the route tree, so
+              no console, sign-in or settings screen can render on somebody
+              else's origin. See `features/site/SiteRoot.tsx`.
+            */}
+            {SITE_HOSTNAME !== null ? <SiteRoot hostname={SITE_HOSTNAME} /> : <Slot />}
           </ErrorBoundary>
         </View>
       </View>
