@@ -149,7 +149,7 @@ export async function runNoteCapGatewayChecks(check) {
     check("a context at its cap refuses a new note", refused.isError && !capped.objects.has("1-projects/c.md"));
     check(
       "…and says what still works and how to get more room",
-      /free plan/.test(refused.text) && /exported/.test(refused.text) && /Premium/.test(refused.text),
+      /free plan/.test(refused.text) && /exported/.test(refused.text) && /level up/.test(refused.text),
     );
     check("…without naming the note it refused", !refused.text.includes("1-projects/c.md"));
 

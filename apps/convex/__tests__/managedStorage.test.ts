@@ -231,8 +231,8 @@ describe("the free managed tier's deployment switch", () => {
     vi.stubEnv(FREE_MANAGED_STORAGE_ENV_VAR, undefined);
     vi.stubEnv("APP_ENV", "staging");
     vi.stubEnv("APP_ORIGIN", "https://staging.context.lc");
-    vi.stubEnv("STAGING_CONVEX_DEPLOYMENT", "fake-staging-123");
-    vi.stubEnv("CONVEX_CLOUD_URL", "https://fake-staging-123.convex.cloud");
+    vi.stubEnv("STAGING_CONVEX_DEPLOYMENT", "example-deployment");
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://example-deployment.convex.cloud");
     try {
       expect(freeManagedStorageSwitchedOn()).toBe(true);
     } finally { vi.unstubAllEnvs(); }

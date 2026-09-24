@@ -11,6 +11,16 @@
  * a different thing from a limit on leaving with it (non-negotiable #1).
  * `docs/decisions/billing.md`, "The free managed tier".
  *
+ * ## This file is on the exit path, and holds no billing state
+ *
+ * `scripts/check-exit-is-ungated.mjs` scans `apps/mcp/src` for billing
+ * vocabulary, because every export reads through the store this wraps. What
+ * arrives here is a number and nothing else — never the plan, never whether
+ * anyone paid — and the wrapper touches only `put`, `copy` and `delete`.
+ * Every read (`get`, `list`, `exists`, `head`) passes straight through, so a
+ * full context exports exactly as an empty one does; `noteCap.test.mjs`
+ * ("a full store still hands out every note") is what fails if that changes.
+ *
  * ## Why here, and not in the tools
  *
  * A note is created by `write_note`, `save_context`, an email landing in the
@@ -87,7 +97,7 @@ export function noteCapMessage(cap) {
   return (
     `This workspace is on the free plan, which holds ${figure} notes, and it is full. ` +
     "Existing notes can still be read, edited, moved and exported. " +
-    "To add more, move to Premium or connect storage of your own."
+    "To add more, level up this workspace or connect storage of your own."
   );
 }
 

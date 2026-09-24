@@ -242,3 +242,22 @@ test("over the logical-delete view, a deleted note neither counts nor escapes th
   const again = await refusal(store.put("1-projects/note-2.md", "back", { onlyIf: { absent: true } }));
   assert.ok(again instanceof NoteCapReached, "recreating a deleted note is a create");
 });
+
+test("a full store still hands out every note — the cap never touches the exit", async () => {
+  // Non-negotiable #1: leaving is never gated. The cap refuses adding a note
+  // and nothing else, so reading, listing and checking every note on a full
+  // context must answer exactly as the raw bucket does.
+  const raw = storeWithNotes(5);
+  const store = withNoteCap(raw, 5);
+  assert.ok((await refusal(store.put("new.md", "x", { onlyIf: { absent: true } }))) instanceof NoteCapReached);
+  for (const key of raw.objects.keys()) {
+    const object = await store.get(key);
+    assert.ok(object, key);
+    assert.equal(await object.text(), await (await raw.get(key)).text());
+    assert.equal(await store.exists(key), true, key);
+  }
+  const listed = await store.list({ prefix: "" });
+  assert.deepEqual(listed.objects.map((o) => o.key), (await raw.list({ prefix: "" })).objects.map((o) => o.key));
+  assert.equal(store.get, raw.get, "reads are the raw store's own, not a wrapper");
+  assert.equal(store.list, raw.list);
+});
