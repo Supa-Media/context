@@ -14,6 +14,7 @@ import type {
   FormVote,
 } from "../formBlock";
 import type { Visibility } from "../types";
+import type { FolderListSource } from "../listBlock/model";
 
 /** What a surface mounts `NoteEditor` with. */
 export interface NoteEditorProps {
@@ -73,6 +74,8 @@ export interface NoteEditorProps {
   }) => Promise<{ target: string } | { error: string }>;
   /** Say a refused paste out loud. */
   onImageProblem?: (message: string) => void;
+  /** Where a folder list block reads its notes. Absent: lists stay as source. */
+  folderLists?: FolderListSource;
   /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
