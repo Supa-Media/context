@@ -1,8 +1,8 @@
-diff --git a/apps/convex/__tests__/fileOps.test.ts b/apps/convex/__tests__/fileOps.test.ts
-index 49df132..c69af2f 100644
---- a/apps/convex/__tests__/fileOps.test.ts
-+++ b/apps/convex/__tests__/fileOps.test.ts
-@@ -4418,41 +4418,49 @@ describe("a rule no survivor needs, told truthfully", () => {
+diff --git a/apps/convex/__tests__/fileOps/guardsAndEncryptedNote.test.ts b/apps/convex/__tests__/fileOps/guardsAndEncryptedNote.test.ts
+index 6d6ca2e3..498136e8 100644
+--- a/apps/convex/__tests__/fileOps/guardsAndEncryptedNote.test.ts
++++ b/apps/convex/__tests__/fileOps/guardsAndEncryptedNote.test.ts
+@@ -190,41 +190,49 @@ describe("a rule no survivor needs, told truthfully", () => {
   * nothing, the manifest comes back identical, and the console reported the
   * publish as done over a note no team member could read.
   *
