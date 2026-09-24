@@ -73,6 +73,7 @@
     "apps/convex/__tests__/storage/rotation.test.ts": "One encryption-key rotation scenario covering every envelope column in ROTATED_ENVELOPE_COLUMNS; splitting it separates the rotation from the column list it is proven against.",
     "apps/convex/__tests__/structure/httpRoutes.test.ts": "The gateway's HTTP routes, plus the route-factory constants and helpers only these checks use.",
     "apps/convex/__tests__/structure/reachability.test.ts": "One guard: no public Convex function can reach the storage-secret decrypt path, checked over the shared analyzer's whole call graph.",
+    "apps/convex/functions/lib/filesFns/executeOperation.ts": "One function, executeOperation: a single switch over every file operation; splitting it means rewriting the dispatch rather than moving code.",
     "apps/convex/functions/managedProvisioning.ts": "provisionManagedStorage and deleteManagedTestResources keep full bodies inline, and two others keep their decryptSecret calls inline, because the credential-reachability analyzer only reads a registered function's own block.",
     "apps/convex/http.ts": "The HTTP router: every route declaration, its factory and registration order, plus the unauthenticated share-preview and ingest routes that httpRoutes.test.ts and ingestionGateway tests read field by field from this file; handler bodies live in lib/gatewayRoutes.",
     "apps/desktop/test/appShell.test.mjs": "One suite of text checks on the desktop main-process wiring; it grew only because each check now names the module that holds its code after main/index.ts was split.",
@@ -91,9 +92,7 @@
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
   "baseline": {
-    "apps/convex/functions/files.ts": 6939,
-    "apps/convex/functions/lib/fileOps.ts": 6014,
-    "apps/mcp/test/test.mjs": 4798,
-    "apps/mobile/features/console/files/useFileBrowser.ts": 4853
+    "apps/convex/functions/files.ts": 3678,
+    "apps/mcp/test/test.mjs": 4798
   }
 }
