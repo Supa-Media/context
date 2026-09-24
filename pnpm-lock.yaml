@@ -14,8 +14,8 @@ importers:
   .:
     devDependencies:
       '@supa-media/scripts':
-        specifier: ^1.2.0
-        version: 1.2.0
+        specifier: ^1.2.1
+        version: 1.2.1
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -3504,8 +3504,8 @@ packages:
       nativewind:
         optional: true
 
-  '@supa-media/scripts@1.2.0':
-    resolution: {integrity: sha512-dELEH8Aa/9OLyWXM2ePF5YXw4Dth3VmRnUW4MQ+z+OVizohxuO+/7nx9sT1bDwaFcpLVz8VkgZx4828SUZw7HA==}
+  '@supa-media/scripts@1.2.1':
+    resolution: {integrity: sha512-gOIQ7bnKnPzM+AW/dP3Q9reJ/GZOCZcUzTPppuN+ZPMaPhBc5q+gH9DaQ0t4ZIN/6cs/y14FOP7mFBSUjtgkgg==}
     hasBin: true
 
   '@supa-media/testing@1.0.1':
@@ -11707,7 +11707,7 @@ snapshots:
     optionalDependencies:
       '@sentry/react-native': 8.26.0(@expo/env@2.0.12)(dotenv@17.4.2)(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(rollup@4.63.0)
 
-  '@supa-media/scripts@1.2.0': {}
+  '@supa-media/scripts@1.2.1': {}
 
   '@supa-media/testing@1.0.1': {}
 
