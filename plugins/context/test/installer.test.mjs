@@ -182,16 +182,109 @@ installs = JSON.parse(await readFile(join(home, ".context", "installs.json"), "u
 check("...and the record is empty afterwards", installs.length === 0);
 check("...and the sign-in is kept", (await readFile(process.env.CONTEXT_HOOK_CONFIG, "utf8")).includes("cat_fake"));
 
+// -- the wizard: every question a flag does not answer, then a confirmation
+
+/*
+  A stand-in for src/prompt.js that answers from a script and records which
+  questions were asked. The real module draws @clack/prompts menus, which need
+  a terminal; what matters here is which questions install asks, in what
+  order, and that nothing changes before the person confirms.
+*/
+function scripted(answers) {
+  const asked = [];
+  const answer = (name) => async (...args) => {
+    asked.push(name);
+    if (!(name in answers)) throw new Error(`unexpected question: ${name}`);
+    const value = answers[name];
+    return typeof value === "function" ? value(...args) : value;
+  };
+  return {
+    asked,
+    prompts: {
+      chooseScope: answer("scope"),
+      chooseWorkspace: answer("workspace"),
+      chooseAgents: answer("agents"),
+      chooseCapture: answer("capture"),
+      confirmPlan: answer("confirm"),
+    },
+  };
+}
+
+const wizardRepo = join(home, "work", "wizard-repo");
+await mkdir(wizardRepo, { recursive: true });
+spawnSync("git", ["init", "-q"], { cwd: wizardRepo });
+upserts.length = 0;
+let plan = null;
+let script = scripted({
+  scope: "project",
+  workspace: (list) => list.find((entry) => entry.slug === "team").slug,
+  agents: (detected) => detected.filter((agent) => agent.id === "cursor"),
+  capture: "off",
+  confirm: (summary) => {
+    plan = summary;
+    return true;
+  },
+});
+await install({ endpoint, home, cwd: wizardRepo, run, addMcp, log, prompts: script.prompts });
+check(
+  "with no flags, the wizard asks scope, workspace, agents and capture, then confirms",
+  script.asked.join(",") === "scope,workspace,agents,capture,confirm"
+);
+check(
+  "the confirmation shows what will happen before it happens",
+  plan?.scope === "project" && plan?.workspace === "team" && plan?.agents.join(",") === "Cursor" && plan?.capture === "off"
+);
+check(
+  "...and then it does exactly that",
+  JSON.parse(await readFile(join(wizardRepo, ".context.json"), "utf8")).workspace === "team" &&
+    upserts.some((entry) => entry.agent === "cursor" && entry.options.cwd === wizardRepo)
+);
+check("the capture answer is saved", JSON.parse(await readFile(process.env.CONTEXT_CONFIG, "utf8")).capture === "off");
+
+const declinedRepo = join(home, "work", "declined-repo");
+await mkdir(declinedRepo, { recursive: true });
+spawnSync("git", ["init", "-q"], { cwd: declinedRepo });
+upserts.length = 0;
+const recordBefore = await readFile(join(home, ".context", "installs.json"), "utf8");
+script = scripted({ scope: "local", workspace: "me", agents: (detected) => detected, capture: "on", confirm: false });
+const declined = await install({ endpoint, home, cwd: declinedRepo, run, addMcp, log, prompts: script.prompts });
+check(
+  "answering no at the confirmation changes nothing",
+  declined.records.length === 0 &&
+    upserts.length === 0 &&
+    !existsSync(join(declinedRepo, ".context.json")) &&
+    (await readFile(join(home, ".context", "installs.json"), "utf8")) === recordBefore &&
+    JSON.parse(await readFile(process.env.CONTEXT_CONFIG, "utf8")).capture === "off"
+);
+
+script = scripted({ capture: "on", confirm: true });
+await install({ scope: "user", agents: ["cursor"], endpoint, home, cwd: home, run, addMcp, log, prompts: script.prompts });
+check("a flag answers its question, so only the rest are asked", script.asked.join(",") === "capture,confirm");
+
+script = scripted({});
+await install({ yes: true, agents: ["cursor"], endpoint, home, cwd: home, run, addMcp, log, prompts: script.prompts });
+check("-y asks nothing at all, so scripts and CI need no terminal", script.asked.length === 0);
+
 // -- the dependency stays on the install path
 
 const src = new URL("../src/", import.meta.url);
+const commandsText = await readFile(new URL("commands.js", src), "utf8");
 const importers = [];
 for (const file of await readdir(src)) {
   const text = await readFile(new URL(file, src), "utf8");
   if (/from\s+["']add-mcp["']|import\(\s*["']add-mcp["']\s*\)/.test(text)) importers.push(file);
 }
 check("installer.js is the only file that loads add-mcp", importers.join(",") === "installer.js");
-const commandsText = await readFile(new URL("commands.js", src), "utf8");
+const clackImporters = [];
+for (const file of await readdir(src)) {
+  const text = await readFile(new URL(file, src), "utf8");
+  if (/["']@clack\/prompts["']/.test(text)) clackImporters.push(file);
+}
+check("prompt.js is the only file that loads @clack/prompts", clackImporters.join(",") === "prompt.js");
+check(
+  "commands.js reaches the wizard only through a dynamic import, so the hooks never load it",
+  !/^import .*prompt\.js/m.test(commandsText) && commandsText.includes('await import("./prompt.js")')
+);
 check(
   "commands.js reaches the installer only through a dynamic import, so the hooks never load it",
   !/^import .*installer\.js/m.test(commandsText) && commandsText.includes('await import("./installer.js")')

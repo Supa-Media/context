@@ -4,11 +4,16 @@ Your [Context](https://context.lc) in every coding agent you use, and your notes
 from the terminal. One command:
 
 ```sh
-npx -y @supa-media/context install
+npx -y @supa-media/context
 ```
 
-It signs you in once in your browser, finds the coding agents on this machine,
-asks which to use, and adds Context to each:
+It signs you in once in your browser, then asks four questions with arrow-key
+menus (where to install, which workspace a project belongs to, which of the
+coding agents it found, and whether to save sessions to your inbox), shows a
+summary, and changes nothing until you confirm. Each flag on `install`
+answers one question (`--scope`, `--workspace`, `--agent`), and `-y` takes
+every default without asking, for scripts and CI. It adds Context to each
+agent like this:
 
 - **Claude Code** and **Gemini CLI**, and **Codex** where its `plugin` command
   exists: the `context` plugin, which brings the MCP server, two skills, and two
@@ -145,12 +150,14 @@ once with `login` (or `install`).
 
 ## Dependencies
 
-One: `add-mcp`, pinned to an exact version, which writes the MCP entry into the
-config files of agents with no plugin system (Cursor, OpenCode, VS Code,
-Windsurf, Copilot CLI) during `install`. Everything else is Node built-ins.
+Two, each pinned to an exact version: `add-mcp`, which writes the MCP entry
+into the config files of agents with no plugin system (Cursor, OpenCode, VS
+Code, Windsurf, Copilot CLI), and `@clack/prompts`, which draws the setup
+wizard's menus. Everything else is Node built-ins.
 
-It is loaded only by `src/installer.js`, and only when `install` or `uninstall`
-runs. The session hooks and the code that holds your credential never load
-it, so no third-party code runs while a token or a transcript is in hand. CI
-fails a pull request that adds any other dependency, loosens the pin, or
-imports `add-mcp` from any other file.
+`add-mcp` is loaded only by `src/installer.js` and `@clack/prompts` only by
+`src/prompt.js`, and only when `install` or `uninstall` runs. The session hooks
+and the code that holds your credential load neither, so no third-party code
+runs while a token or a transcript is in hand. CI fails a pull request that
+adds any other dependency, loosens a pin, or imports either from any other
+file.

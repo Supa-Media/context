@@ -1,40 +1,88 @@
 /**
- * The two questions `install` asks, on a plain terminal with no dependency.
+ * The questions `install` asks, as arrow-key menus.
  *
- * Both have a default that is right for most people, so pressing Enter works,
- * and `-y` skips them entirely (it never needs a terminal, so scripts and CI
- * can install too).
+ * Each has a default that is right for most people, so Enter works, and each
+ * is skipped by the flag that answers it (`--scope`, `--workspace`, `--agent`);
+ * `-y` skips them all and needs no terminal. Loaded only by `install` through a
+ * dynamic import, so the session hooks never load `@clack/prompts`.
+ *
+ * Ctrl-C at any question throws `CANCELLED`, before anything has been changed:
+ * install asks everything first and acts only after `confirmPlan`.
  */
 
-import { createInterface } from "node:readline/promises";
+import * as clack from "@clack/prompts";
 
-async function ask(question, { input = process.stdin, output = process.stdout } = {}) {
-  const rl = createInterface({ input, output });
-  try {
-    return (await rl.question(question)).trim();
-  } finally {
-    rl.close();
-  }
+export const CANCELLED = "cancelled; nothing was changed";
+
+function answered(value) {
+  if (clack.isCancel(value)) throw new Error(CANCELLED);
+  return value;
 }
 
-/**
- * Pick agents from a numbered list. Everything detected starts ticked; typing
- * numbers (`1 3`) keeps only those.
- */
-export async function chooseAgents(agents, io) {
-  if (!agents.length) return [];
-  const lines = agents.map((agent, index) => `  ${index + 1}. ${agent.name}`).join("\n");
-  const answer = await ask(`Install Context into:\n${lines}\nPress Enter for all, or type the numbers to keep: `, io);
-  if (!answer) return agents;
-  const picked = new Set(answer.split(/[\s,]+/).map((token) => Number(token) - 1));
-  return agents.filter((_, index) => picked.has(index));
+export async function chooseScope() {
+  clack.intro("Context");
+  return answered(
+    await clack.select({
+      message: "Where should Context be installed?",
+      initialValue: "user",
+      options: [
+        { value: "user", label: "Everywhere", hint: "every folder on this computer" },
+        { value: "project", label: "This project, for the team", hint: ".context.json is committed" },
+        { value: "local", label: "This project, just for me", hint: ".context.json stays out of git" },
+      ],
+    })
+  );
 }
 
-/** Pick one workspace for this folder; Enter takes the first (the default). */
-export async function chooseWorkspace(workspaces, io) {
-  if (workspaces.length <= 1) return workspaces[0]?.slug || null;
-  const lines = workspaces.map((entry, index) => `  ${index + 1}. @${entry.slug} (${entry.kind})`).join("\n");
-  const answer = await ask(`Which workspace does this folder belong to?\n${lines}\nPress Enter for 1: `, io);
-  const index = answer ? Number(answer) - 1 : 0;
-  return workspaces[index]?.slug || workspaces[0].slug;
+/** `list` arrives with the suggested workspace first. */
+export async function chooseWorkspace(list) {
+  if (list.length <= 1) return list[0]?.slug || null;
+  return answered(
+    await clack.select({
+      message: "Which workspace does this project belong to?",
+      initialValue: list[0].slug,
+      options: list.map((entry) => ({ value: entry.slug, label: `@${entry.slug}`, hint: `${entry.kind}, ${entry.role}` })),
+    })
+  );
+}
+
+export async function chooseAgents(detected) {
+  if (!detected.length) return [];
+  const ids = answered(
+    await clack.multiselect({
+      message: "Install into which coding agents? (space to toggle)",
+      initialValues: detected.map((agent) => agent.id),
+      required: false,
+      options: detected.map((agent) => ({
+        value: agent.id,
+        label: agent.name,
+        hint: agent.method === "mcp" ? "MCP server and skills" : "plugin: MCP server, skills, session hooks",
+      })),
+    })
+  );
+  return detected.filter((agent) => ids.includes(agent.id));
+}
+
+export async function chooseCapture(current) {
+  const on = answered(
+    await clack.confirm({
+      message: "Save each coding session to your Context inbox when it ends?",
+      initialValue: current !== "off",
+    })
+  );
+  return on ? "on" : "off";
+}
+
+export async function confirmPlan({ scope, workspace, agents, capture }) {
+  const where = { user: "every folder", project: "this project, for the team", local: "this project, just for me" }[scope];
+  clack.note(
+    [
+      `Where:      ${where}`,
+      ...(workspace ? [`Workspace:  @${workspace}`] : []),
+      `Agents:     ${agents.join(", ")}`,
+      `Capture:    ${capture === "on" ? "sessions saved to your inbox" : "off"}`,
+    ].join("\n"),
+    "Ready to install"
+  );
+  return answered(await clack.confirm({ message: "Install now?", initialValue: true }));
 }

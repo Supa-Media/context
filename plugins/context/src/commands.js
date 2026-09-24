@@ -631,7 +631,7 @@ async function defaultOpenBrowser(href) {
  * installer module, and with it `add-mcp`, is loaded only here.
  */
 export async function install({
-  scope = "user",
+  scope,
   agents: agentIds,
   yes = false,
   workspace,
@@ -644,12 +644,15 @@ export async function install({
   addMcp,
   openBrowser,
   fetchImpl = fetch,
-  io,
+  prompts,
   log = console.log,
 }) {
-  if (!["user", "project", "local"].includes(scope)) throw new Error(`scope must be user, project or local, not "${scope}"`);
+  if (scope !== undefined && !["user", "project", "local"].includes(scope)) {
+    throw new Error(`scope must be user, project or local, not "${scope}"`);
+  }
   const installer = await import("./installer.js");
-  const prompt = await import("./prompt.js");
+  // The wizard asks only what no flag answered, and nothing at all with -y.
+  const prompt = yes ? null : prompts || (await import("./prompt.js"));
   const { settings } = await resolveSettings({ flags: { endpoint }, cwd });
   const base = baseEndpoint(settings.endpoint);
 
@@ -658,18 +661,15 @@ export async function install({
     await login({ endpoint: base, configPath, fetchImpl, openBrowser, log });
   }
 
+  scope = scope ?? (prompt ? await prompt.chooseScope() : "user");
   let chosen = normalizeWorkspace(workspace);
-  if (scope !== "user") {
-    if (!chosen) {
-      const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
-      const list = (await listWorkspaces({ url: base, token, fetchImpl })) || [];
-      const fallback = settings.workspace || list.find((entry) => entry.kind === "personal")?.slug || list[0]?.slug || null;
-      chosen = yes ? fallback : await prompt.chooseWorkspace(
-        [...list].sort((a, b) => (a.slug === fallback ? -1 : b.slug === fallback ? 1 : 0)),
-        io
-      );
-    }
-    if (chosen) await link({ workspace: chosen, cwd, private: scope === "local", endpoint: base, configPath, fetchImpl, log });
+  if (scope !== "user" && !chosen) {
+    const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
+    const list = (await listWorkspaces({ url: base, token, fetchImpl })) || [];
+    const fallback = settings.workspace || list.find((entry) => entry.kind === "personal")?.slug || list[0]?.slug || null;
+    chosen = prompt
+      ? await prompt.chooseWorkspace([...list].sort((a, b) => (a.slug === fallback ? -1 : b.slug === fallback ? 1 : 0)))
+      : fallback;
   }
 
   const detected = await installer.detectAgents({ run, addMcp, cwd });
@@ -682,12 +682,25 @@ export async function install({
     );
     const unknown = agentIds.filter((_, index) => !selected[index]);
     if (unknown.length) throw new Error(`unknown agent: ${unknown.join(", ")}`);
-  } else if (!yes) {
-    selected = await prompt.chooseAgents(detected, io);
+  } else if (prompt) {
+    selected = await prompt.chooseAgents(detected);
   }
   if (!selected.length) {
     log("No coding agents found. Name one with --agent, for example --agent cursor.");
     return { records: [] };
+  }
+
+  const capture = prompt ? await prompt.chooseCapture(settings.capture) : settings.capture;
+  if (prompt && !(await prompt.confirmPlan({ scope, workspace: chosen, agents: selected.map((agent) => agent.name), capture }))) {
+    log("Nothing was changed.");
+    return { records: [], cancelled: true };
+  }
+
+  // Up to here only the sign-in was stored (the workspace question needs it);
+  // settings, the folder link and the installs happen only after confirmation.
+  if (capture !== settings.capture) await writeSetting("capture", capture);
+  if (scope !== "user" && chosen) {
+    await link({ workspace: chosen, cwd, private: scope === "local", endpoint: base, configPath, fetchImpl, log });
   }
 
   // Hooks the old @supa-media/context-hook wrote into settings files would run
@@ -707,7 +720,7 @@ export async function install({
   await installer.saveInstalls([...kept, ...records.filter((record) => record.ok)], path);
 
   log("");
-  log(`When a session ends, its messages are saved to your Context inbox${settings.capture === "off" ? " (capture is off right now)" : ""}.`);
+  log(`When a session ends, its messages are saved to your Context inbox${capture === "off" ? " (capture is off right now)" : ""}.`);
   log("Turn that off with: npx @supa-media/context config set capture off");
   if (scope !== "user" && selected.some((agent) => ["claude-code", "codex", "gemini-cli"].includes(agent.id))) {
     log("Claude Code, Codex and Gemini ignore a project's settings until you trust the folder: open it in each and accept.");

@@ -13,7 +13,8 @@ const DEFAULT_ENDPOINT = "https://mcp.context.lc/mcp";
 
 const USAGE = `Context in your coding agents, and your notes from the terminal.
 
-  npx @supa-media/context install            sign in, then add Context to your coding agents
+  npx @supa-media/context                    set up: sign in, then a few questions, then install
+  npx @supa-media/context install            the same; each flag below answers one question
       --scope user|project|local             every folder (default), this folder shared
                                              with the team, or this folder only for you
       --agent claude-code,cursor             only these agents (default: every one found)
@@ -62,7 +63,9 @@ function parseArgs(argv) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const command = args._[0];
+  // With no command at a terminal, the setup wizard: nobody has to know the
+  // word `install`. Piped or in CI, the help text, so nothing waits on input.
+  const command = args._[0] || (!args.help && process.stdin.isTTY && process.stdout.isTTY ? "install" : undefined);
   const BUILT_IN = ["install", "uninstall", "status", "login", "logout", "use", "link", "unlink", "config", "session-start", "capture"];
   if (!command || (args.help && BUILT_IN.includes(command))) {
     console.log(USAGE);
@@ -96,7 +99,7 @@ async function main() {
       return 0;
     case "install":
       await commands.install({
-        scope: typeof args.scope === "string" ? args.scope : "user",
+        scope: typeof args.scope === "string" ? args.scope : undefined,
         agents: typeof args.agent === "string" ? args.agent.split(",").map((id) => id.trim()).filter(Boolean) : undefined,
         yes: args.yes === true,
         workspace: typeof args.workspace === "string" ? args.workspace : undefined,

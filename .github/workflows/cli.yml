@@ -60,18 +60,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # One runtime dependency is allowed, pinned exactly, and nothing else:
+      # Two runtime dependencies are allowed, pinned exactly, and nothing else:
       # `add-mcp`, which writes MCP entries into other agents' config files
-      # during `install`. The hooks and the credential code never load it; the
-      # import check below confines it to src/installer.js. A new dependency is
+      # during `install`, and `@clack/prompts`, the setup wizard's menus. The
+      # hooks and the credential code load neither; the import check below
+      # confines them to src/installer.js and src/prompt.js. A new dependency is
       # added to the allowlist here, pinned, and argued for in its pull request
       # and in docs/decisions/plugins.md.
-      - name: Assert plugins/context declares only its one reviewed dependency
+      - name: Assert plugins/context declares only its reviewed dependencies
         run: |
           set -euo pipefail
           node -e '
             const pkg = require("./plugins/context/package.json");
-            const allowed = { "add-mcp": /^\d+\.\d+\.\d+$/ };
+            const allowed = { "add-mcp": /^\d+\.\d+\.\d+$/, "@clack/prompts": /^\d+\.\d+\.\d+$/ };
             let bad = false;
             for (const field of ["optionalDependencies", "peerDependencies", "bundleDependencies"]) {
               if (pkg[field] && Object.keys(pkg[field]).length) { console.log(`plugins/context declared ${field}`); bad = true; }
@@ -86,7 +87,7 @@ jobs:
               console.log("Add it to the allowlist here, pinned, and argue for it in the PR and docs/decisions.");
               process.exit(1);
             }
-            console.log("OK: only the reviewed dependency, pinned.");
+            console.log("OK: only reviewed dependencies, each pinned.");
           '
 
       # The same invariant the gateway holds, for the same reason: the package
@@ -101,4 +102,4 @@ jobs:
       - name: "Assert plugins/context imports only node: built-ins and relative paths"
         run: |
           node scripts/check-gateway-imports.mjs --self-test
-          node scripts/check-gateway-imports.mjs --allow-node-builtins --allow-import=add-mcp:src/installer.js plugins/context/src plugins/context/bin plugins/context/hooks
+          node scripts/check-gateway-imports.mjs --allow-node-builtins --allow-import=add-mcp:src/installer.js --allow-import=@clack/prompts:src/prompt.js plugins/context/src plugins/context/bin plugins/context/hooks
