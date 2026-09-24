@@ -74,8 +74,10 @@
     "apps/convex/__tests__/structure/fixtures.ts": "The shared source analyzer (classify, exportBlocks, analyze) every structure test runs on.",
     "apps/convex/__tests__/structure/httpRoutes.test.ts": "The gateway's HTTP routes, plus the route-factory constants and helpers only these checks use.",
     "apps/convex/__tests__/structure/reachability.test.ts": "One guard: no public Convex function can reach the storage-secret decrypt path, checked over the shared analyzer's whole call graph.",
+    "apps/convex/functions/managedProvisioning.ts": "provisionManagedStorage and deleteManagedTestResources keep full bodies inline, and two others keep their decryptSecret calls inline, because the credential-reachability analyzer only reads a registered function's own block.",
     "apps/desktop/test/consoleBridge/senderGuard.test.mjs": "One invariant (every IPC handler refuses a sender that is not the console window) checked across all handlers; the per-handler cases share one harness.",
     "apps/desktop/test/packaging/deployWorkflow.test.mjs": "Checks one workflow file; every check reads the same parsed steps, so splitting would duplicate the parse or scatter one contract.",
+    "apps/mcp/src/search/shards/sync.js": "syncShardedIndex is one orchestration function moved verbatim with its comments; its interior was not restructured in this move.",
     "apps/mcp/src/tools/schemas.js": "One function returning the gateway's tool definition array verbatim; splitting it means editing the literal, left for the follow-up that retargets the text-reading gateway tests.",
     "apps/mcp/test/controlPlaneStub/controlPlane.mjs": "createControlPlaneStub is one closure over in-memory Maps that every route shares; splitting it means threading that state across modules.",
     "apps/mcp/test/presence/route.test.mjs": "One try/finally scenario sharing a bucket, env, rooms and control plane across every route check.",
@@ -85,24 +87,13 @@
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
   "baseline": {
-    "apps/convex/functions/admin.ts": 1051,
-    "apps/convex/functions/cloudflare.ts": 1053,
-    "apps/convex/functions/fastSearch.ts": 1095,
     "apps/convex/functions/files.ts": 6939,
-    "apps/convex/functions/lib/cloudflare.ts": 1015,
     "apps/convex/functions/lib/fileOps.ts": 6014,
-    "apps/convex/functions/lib/scaffold.ts": 1338,
-    "apps/convex/functions/managedProvisioning.ts": 1246,
     "apps/convex/functions/shares.ts": 1045,
     "apps/convex/functions/storage.ts": 1401,
-    "apps/convex/functions/workspaces.ts": 1228,
     "apps/convex/http.ts": 1803,
     "apps/desktop/src/main/index.ts": 2619,
-    "apps/mcp/src/communications/gmailSync.js": 1359,
-    "apps/mcp/src/controlPlane.js": 1073,
-    "apps/mcp/src/forms.js": 1114,
     "apps/mcp/src/index.js": 9227,
-    "apps/mcp/src/search/shards.js": 2508,
     "apps/mcp/test/crossContext.test.mjs": 1306,
     "apps/mcp/test/test.mjs": 4798,
     "apps/mcp/test/toolArguments.test.mjs": 1414,
@@ -126,6 +117,6 @@
     "apps/mobile/features/meetings/controller.ts": 1768,
     "apps/mobile/features/offline/useOfflineNotes.ts": 1193,
     "packages/hook/test/test.mjs": 1317,
-    "packages/obsidian-runtime/src/sandbox.js": 2760
+    "packages/obsidian-runtime/src/sandbox.js": 2247
   }
 }

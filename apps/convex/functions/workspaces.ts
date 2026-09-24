@@ -5,166 +5,33 @@
  * different membership. Nothing here special-cases "personal", and nothing
  * should: the moment a second person is added, an app that modelled personal
  * contexts separately needs a migration instead of an insert.
+ *
+ * Every export below is a thin Convex registration — name, args and returns
+ * validator here, in the one file Convex derives `api.workspaces.*` from —
+ * whose handler delegates to `lib/workspaces/`, where the logic (and its
+ * comments) actually live. See that folder for the how; this file's doc
+ * comments are the what and the why of each function's contract.
  */
 
-import { ConvexError, v } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
-import { internal } from "../_generated/api";
+import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
-import { recordAudit } from "./lib/audit";
-import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
-import { seedIngestionSettings } from "./lib/ingestionStore";
-import { consumeRateLimit } from "./lib/rateLimit";
-import { PINNED_CONTEXT_ROLE, isSingleEmoji } from "@context/shared";
-import { pinnedContextWorkspace, reachesPinnedContext } from "./lib/pinnedContext";
-/*
-  The gateway's own gate on this value, not a second one. An offer
-  `normalizeMeetingFolder` refuses is an offer the meeting write then rejects,
-  so a setting validated any other way could be saved and silently ignored.
-*/
-import { MEETINGS_FOLDER, normalizeMeetingFolder } from "../../../packages/meetings/src/paths.js";
-import { isProductionTestAccount } from "./lib/testAccount";
+import { createWorkspaceHandler } from "./lib/workspaces/create";
+import { applyStructureHandler } from "./lib/workspaces/structure";
+import { listMyWorkspacesHandler } from "./lib/workspaces/list";
+import { getWorkspaceHandler } from "./lib/workspaces/read";
 import {
-  type FolderRejection,
-  MAX_CUSTOM_FOLDERS,
-  MAX_FOLDER_DESCRIPTION_LENGTH,
-  MAX_FOLDER_NAME_LENGTH,
-  validateCustomFolders,
-} from "./lib/scaffold";
+  leaveWorkspaceHandler,
+  listMembersHandler,
+  removeMemberHandler,
+  setMemberRoleHandler,
+} from "./lib/workspaces/members";
+import { setMeetingsFolderHandler } from "./lib/workspaces/settings";
 import {
-  getMembership,
-  requireWorkspaceAccess,
-  requireWorkspaceRole,
-  workspaceNotFound,
-} from "./lib/workspaceAuth";
-
-const MAX_DISPLAY_NAME_LENGTH = 80;
-
-/**
- * How many contexts one account may own, and how fast it may create them.
- *
- * ## Why there is a limit at all
- *
- * Creating a workspace claims a name out of a single global namespace that has
- * no release, rename, or delete path — a claim is permanent. The short end of
- * `[a-z0-9-]{2,32}` is small (~1.3k two-character names, ~46k three-character
- * ones), so an unlimited account can exhaust the memorable part of the
- * namespace in minutes and keep it forever. Names are also the addressing
- * scheme (`@name/1-projects/foo.md`) and a future subdomain, which makes a
- * squatted name an impersonation surface as well as a denial of one.
- *
- * ## The numbers, and what they are a guess at
- *
- * These are a **product decision made here rather than left implicit**, and
- * they are deliberately loose enough that no honest user meets them:
- *
- *  - `MAX_WORKSPACES_PER_USER` — one personal context plus a healthy number of
- *    shared ones. Someone genuinely running more than this is a case to look
- *    at, and raising a constant is a one-line change; un-squatting a namespace
- *    is not.
- *  - `WORKSPACE_CREATE_*` — a burst limit, aimed at scripted claiming rather
- *    than at people. Creating ten contexts in an hour by hand does not happen.
- *
- * Ownership is counted from `workspaceMembers`, so this bounds contexts a user
- * *owns*, not contexts they were invited into: being added to a colleague's
- * shared context must never use up your own allowance.
- */
-const MAX_WORKSPACES_PER_USER = 10;
-const WORKSPACE_CREATE_LIMIT = 5;
-const WORKSPACE_CREATE_WINDOW_MS = 60 * 60 * 1000;
-
-/**
- * Caps on how many rows one response carries.
- *
- * An unbounded `.collect()` reads however many rows exist, which is a cost set
- * by whoever can insert them. These bound the read; if a real workspace ever
- * approaches one, it needs pagination rather than a bigger constant.
- */
-const MAX_MEMBERS_RETURNED = 200;
-const MAX_WORKSPACES_RETURNED = 100;
-
-/**
- * The mark a workspace draws, as it crosses the wire.
- *
- * A union rather than two optional fields, matching the schema: a mark shows
- * one thing, and "photo set, emoji also set" would leave every drawing surface
- * to invent its own tie-break. See `@context/shared`'s `workspaceIcon` module.
- *
- * A photo arrives as its **leaf, not its bytes**. The console asks for the
- * bytes separately, once, and caches them on the leaf — which is a content
- * hash, so the cache is sound forever. Inlining a megabyte per row into a query
- * every console paint re-runs would make the context list a download.
- */
-const workspaceIconValidator = v.union(
-  v.object({ kind: v.literal("photo"), leaf: v.string() }),
-  v.object({ kind: v.literal("emoji"), emoji: v.string() }),
-);
-
-const workspaceSummary = v.object({
-  workspaceId: v.id("workspaces"),
-  slug: v.string(),
-  displayName: v.string(),
-  kind: v.string(),
-  structureTemplate: v.string(),
-  role: v.string(),
-  /** Absent is the letter, which is what every workspace drew before this. */
-  icon: v.optional(workspaceIconValidator),
-  /**
-   * Where meetings land in this context, when somebody has chosen.
-   *
-   * Absent means the default, and the *console* resolves that rather than this
-   * query substituting one: `MEETINGS_FOLDER` lives in `packages/meetings`,
-   * which is the gateway's own gate on the same value, and a second copy here
-   * would be a second place for the default to drift.
-   */
-  meetingsFolder: v.optional(v.string()),
-  /**
-   * When this context last changed, and when this member last caught up.
-   *
-   * The pair, rather than a boolean, because the console decides what to draw
-   * from it — a dot on this context's mark when the first is newer than the
-   * second — and a server-computed `hasNew` would be a second place for that
-   * rule to live. Both are absent for a context nothing has been recorded in
-   * and a member who has never looked, which reads as "nothing to say" and is
-   * the right answer for a context that has just been created.
-   *
-   * Neither is a count. A count would have to be a count of what *this* reader
-   * may see, which is a per-member question over a shared row — the number
-   * lives in the context itself, one press away.
-   *
-   * **`activityAt` is already narrowed to this reader** by the query: an owner
-   * is served the context's own stamp, and everybody else the team-tier one,
-   * so the dot never reports the time of a private change to somebody the file
-   * itself would refuse. See `schema.ts`, `activityTeamAt`.
-   */
-  activityAt: v.optional(v.number()),
-  activitySeenAt: v.optional(v.number()),
-  joinedAt: v.number(),
-  createdAt: v.number(),
-  /**
-   * True on the one row that is here because it is **pinned for everybody**
-   * rather than because this person is a member of it — see
-   * `lib/pinnedContext.ts`.
-   *
-   * Optional, and absent is false, so every existing consumer keeps reading
-   * exactly what it read before. It is on the row rather than in a second query
-   * because every consumer that needs it already has the row, and because the
-   * two things that must treat it differently would otherwise have to re-derive
-   * "is this the pinned one" from the slug:
-   *
-   *  - **The console draws it apart** — last in the rail, under a rule, marked
-   *    read-only (`features/console/rail.ts`).
-   *  - **Onboarding must not count it.** The `(app)` gate asks "is there
-   *    anything here for you" off this same list, so without this flag a
-   *    brand-new account would arrive with one reachable context, skip
-   *    `/welcome`, and never claim a name. `standingFrom` filters on it.
-   *
-   * A real membership wins and is reported as an ordinary row: somebody who
-   * owns or edits that workspace sees their real role and no flag.
-   */
-  pinned: v.optional(v.boolean()),
-});
+  recordWorkspaceIconPhotoHandler,
+  setWorkspaceIconHandler,
+  workspaceIconLeafHandler,
+} from "./lib/workspaces/icon";
+import { workspaceIconValidator, workspaceSummary } from "./lib/workspaces/validators";
 
 /**
  * Create a workspace, claim its name, and make the creator its owner —
@@ -200,148 +67,12 @@ export const createWorkspace = mutation({
     workspaceId: v.id("workspaces"),
     slug: v.string(),
   }),
-  handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const user = await ctx.db.get(userId);
-    const isTestAccount = isProductionTestAccount(user);
-
-    const displayName = args.displayName.trim();
-    if (displayName.length === 0) {
-      throw new ConvexError({
-        code: "INVALID_DISPLAY_NAME",
-        message: "A workspace needs a display name.",
-      });
-    }
-    if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
-      throw new ConvexError({
-        code: "INVALID_DISPLAY_NAME",
-        message: `Display names must be at most ${MAX_DISPLAY_NAME_LENGTH} characters.`,
-      });
-    }
-
-    // How many contexts this account already owns. Read before the name is
-    // even looked at: hitting the cap must not depend on what you asked for.
-    const owned = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(MAX_WORKSPACES_PER_USER + 1);
-    if (!isTestAccount && owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
-      throw new ConvexError({
-        code: "WORKSPACE_LIMIT_REACHED",
-        message: `You can own at most ${MAX_WORKSPACES_PER_USER} contexts.`,
-        limit: MAX_WORKSPACES_PER_USER,
-      });
-    }
-
-    // Counts commits, not attempts: this whole mutation is one transaction, so
-    // a creation that goes on to fail rolls the increment back with it. That
-    // is the right unit here — a failed claim takes nothing out of the
-    // namespace — but see `lib/rateLimit.ts` for what it does not protect.
-    if (!isTestAccount) {
-      await consumeRateLimit(ctx, {
-        key: `workspace.create:${userId}`,
-        limit: WORKSPACE_CREATE_LIMIT,
-        windowMs: WORKSPACE_CREATE_WINDOW_MS,
-      });
-    }
-
-    // Check first so a bad slug fails before we write anything. `claimName`
-    // re-checks inside the same transaction, which is what actually enforces
-    // uniqueness; this pass only buys a clean early error.
-    const availability = await checkAvailability(ctx, args.slug);
-    if (!availability.available) {
-      throw nameRejectionError(availability.normalized, availability.reason);
-    }
-
-    const now = Date.now();
-    const workspaceId = await ctx.db.insert("workspaces", {
-      slug: availability.normalized,
-      displayName,
-      createdBy: userId,
-      kind: args.kind,
-      structureTemplate: args.structureTemplate ?? "para",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await claimName(ctx, availability.normalized, userId, {
-      kind: "workspace",
-      workspaceId,
-    });
-
-    await ctx.db.insert("workspaceMembers", {
-      workspaceId,
-      userId,
-      role: "owner",
-      joinedAt: now,
-    });
-
-    // A **personal** context's capture address `<slug>@context.lc` becomes live
-    // the moment the slug is claimed, so the policy governing it has to exist by
-    // the time this transaction commits — a context that is addressable but has
-    // no stored policy is a window, however brief. Seeded closed: the owner's
-    // own account email and nobody else.
-    //
-    // A shared context gets no row, because it has no capture address to govern.
-    // Mail lands in a personal context and nowhere else; a shared context
-    // receives a note only when a person moves one there. Read the header of
-    // `lib/ingestionStore.ts` before changing this line — the absence of the row
-    // is the feature, and `seedIngestionSettings` throws if called anyway.
-    if (args.kind === "personal") {
-      await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
-    }
-
-    return { workspaceId, slug: availability.normalized };
-  },
+  handler: (ctx, args) => createWorkspaceHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
 /*                        choosing the starting layout                        */
 /* -------------------------------------------------------------------------- */
-
-/**
- * How often one workspace may ask us to write a starting layout into its
- * bucket.
- *
- * Scaffolding is a handful of outbound writes to a customer-supplied endpoint,
- * so the reasoning is `reverifyStorage`'s: keyed by **workspace**, because the
- * workspace is what has a bucket, and loose enough that a person retrying a
- * failed connect never meets it.
- */
-const APPLY_STRUCTURE_LIMIT = 10;
-const APPLY_STRUCTURE_WINDOW_MS = 60 * 60 * 1000;
-
-/** The refusal, worded so the person can act on it. Names no key and no bucket. */
-function folderRejectionError(
-  reason: FolderRejection,
-  folder: string | undefined,
-): ConvexError<{ code: string; message: string; reason: string }> {
-  const named = folder === undefined ? "That folder name" : `"${folder}"`;
-  const message: Record<FolderRejection, string> = {
-    "too-many": `A starting layout can have at most ${MAX_CUSTOM_FOLDERS} folders. You can add more later.`,
-    empty: "Every folder needs a name.",
-    untrimmed: `${named} starts or ends with a space. Folder names become part of every file's path, so spaces at the edges are too easy to lose.`,
-    "too-long": `${named} is longer than ${MAX_FOLDER_NAME_LENGTH} characters.`,
-    "control-character":
-      "A folder name contains a character that cannot appear in a file path.",
-    backslash: `${named} contains a backslash. Use a plain name — this is one folder, not a path.`,
-    "not-a-single-segment": `${named} contains a slash. Name one folder; you can nest inside it afterwards.`,
-    traversal: `${named} is not a folder name.`,
-    hidden: `${named} starts with a dot. Names beginning with a dot are reserved for plumbing and are hidden from every client.`,
-    reserved: `${named} is the name of a file this context already creates.`,
-    duplicate: `${named} is listed twice.`,
-    "description-empty": `${named} needs a one-line description. It becomes that folder's README.`,
-    "description-too-long": `The description for ${named} is longer than ${MAX_FOLDER_DESCRIPTION_LENGTH} characters.`,
-    "description-control-character": `The description for ${named} must be a single line.`,
-  };
-  return new ConvexError({
-    code: "INVALID_FOLDER",
-    message: message[reason],
-    // A code from a closed set, so an interface can point at the offending
-    // field without matching on English.
-    reason,
-  });
-}
 
 /**
  * Write the starting layout the owner chose.
@@ -400,149 +131,7 @@ export const applyStructure = mutation({
     /** The folder names as they will be written. Echoed so a client can confirm. */
     folders: v.array(v.string()),
   }),
-  handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
-
-    // Read here, and handed to the scaffolder below, because it decides what
-    // `privacy.md` says the new folders default to: a personal workspace starts
-    // all-private, a shared workspace starts team-visible to its members. See
-    // `startingVisibility` in `lib/scaffold.ts` for why that is not a widening.
-    // Loaded from the row rather than taken as an argument — `kind` is fixed at
-    // creation, and a client that could name it could scaffold somebody's workspace
-    // open.
-    // `requireWorkspaceRole` already proved the membership, so this can only be
-    // null if the row was deleted between the two reads. Same error either way,
-    // from the one helper that constructs it — see `lib/workspaceAuth.ts`.
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null) throw workspaceNotFound();
-
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (binding === null) {
-      throw new ConvexError({
-        code: "NO_STORAGE_BINDING",
-        message: "Connect storage before choosing a folder layout.",
-      });
-    }
-    if (binding.status !== "connected") {
-      throw new ConvexError({
-        code: "STORAGE_NOT_VERIFIED",
-        message:
-          "This context's storage has not been verified yet. Wait for the connection check to finish, or fix the error it reported.",
-      });
-    }
-    // FINISHING SOMETHING WE STARTED IS NOT THE SAME AS SCAFFOLDING OVER
-    // SOMEBODY'S VAULT, AND THIS IS THE LINE BETWEEN THEM.
-    //
-    // A scaffold that stopped halfway leaves real files in the bucket, so from
-    // then on every detector correctly reports "this bucket holds a context" —
-    // and the retry got refused with `CONTEXT_NOT_EMPTY`, telling the owner
-    // nothing had been changed while their bucket sat half-written. Finishing
-    // it needed a person deleting objects over S3 (issue #22).
-    //
-    // `scaffoldMissing` is the discriminator, and it is the only thing here
-    // that could be: it is written exclusively by an attempt that got past the
-    // emptiness guard, which is to say by us, into a bucket we had just
-    // observed empty. A vault that was here before we arrived never gets one —
-    // the guard refuses before the first `get` — so the refusal below is
-    // untouched for the case it exists to protect.
-    const unfinished = (binding.scaffoldMissing?.length ?? 0) > 0;
-    if (binding.scaffoldReason === "existing-context" && !unfinished) {
-      throw new ConvexError({
-        code: "CONTEXT_NOT_EMPTY",
-        message:
-          "This bucket already holds a context, so there is nothing to set up. Nothing has been changed.",
-      });
-    }
-    if (binding.scaffoldReason === "created") {
-      throw new ConvexError({
-        code: "STRUCTURE_ALREADY_APPLIED",
-        message:
-          "A starting layout has already been written to this bucket. Rename or add folders from the console.",
-      });
-    }
-
-    // Validated before anything is written or persisted: these become keys in
-    // somebody's own bucket, and a bad one is refused rather than repaired.
-    let folders: { folder: string; description: string }[] = [];
-    if (args.template === "custom") {
-      const proposed = args.folders ?? [];
-      if (proposed.length === 0) {
-        throw new ConvexError({
-          code: "INVALID_STRUCTURE",
-          message: "Name at least one folder, or choose the standard layout.",
-        });
-      }
-      const validation = validateCustomFolders(proposed);
-      if (!validation.ok) {
-        throw folderRejectionError(validation.reason, validation.folder);
-      }
-      folders = validation.folders;
-    } else if (args.folders !== undefined && args.folders.length > 0) {
-      // Refused rather than ignored. Silently dropping folders somebody typed
-      // would have them look for folders that were never created.
-      throw new ConvexError({
-        code: "INVALID_STRUCTURE",
-        message:
-          "The standard layout has its own folders. Choose a custom layout to name your own.",
-      });
-    }
-
-    // Counted before the schedule, in the same transaction: a refusal throws
-    // and rolls the whole thing back, so a scaffold is never queued uncounted.
-    await consumeRateLimit(ctx, {
-      key: `workspace.applyStructure:${args.workspaceId}`,
-      limit: APPLY_STRUCTURE_LIMIT,
-      windowMs: APPLY_STRUCTURE_WINDOW_MS,
-    });
-
-    // The row records what was asked for. What actually reached the bucket is
-    // recorded on the binding as `scaffoldReason`, by the job below — this
-    // field is a note for the console, never an input to a later write.
-    await ctx.db.patch(args.workspaceId, {
-      structureTemplate: args.template,
-      customFolders: args.template === "custom" ? folders : undefined,
-      updatedAt: Date.now(),
-    });
-
-    await ctx.scheduler.runAfter(
-      0,
-      internal.functions.provisioning.verifyStorageBinding,
-      {
-        workspaceId: args.workspaceId,
-        actorUserId: userId,
-        structure: { template: args.template, folders, kind: workspace.kind },
-        // Only ever true for a bucket we half-wrote ourselves. The scaffolder
-        // still refuses anything it did not write, byte for byte, and still
-        // `get`s every key before it `put`s it.
-        resume: unfinished,
-      },
-    );
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: userId,
-      action: "workspace.structure_applied",
-      // The folders go in `paths`, which is what that field is for: they are
-      // bucket-relative paths, and they are about to exist as keys in the
-      // owner's own bucket. The descriptions are not recorded anywhere — they
-      // are prose, and prose does not belong in an audit trail.
-      paths: folders.map((entry) => `${entry.folder}/README.md`),
-      details: {
-        template: args.template,
-        folderCount: folders.length,
-      },
-    });
-
-    return {
-      queued: true,
-      template: args.template,
-      folders: folders.map((entry) => entry.folder),
-    };
-  },
+  handler: (ctx, args) => applyStructureHandler(ctx, args),
 });
 
 /**
@@ -578,78 +167,7 @@ export const applyStructure = mutation({
 export const listMyWorkspaces = query({
   args: {},
   returns: v.array(workspaceSummary),
-  handler: async (ctx) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-
-    const memberships = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(MAX_WORKSPACES_RETURNED);
-
-    const summaries = [];
-    for (const membership of memberships) {
-      const workspace = await ctx.db.get(membership.workspaceId);
-      if (workspace === null) continue;
-      summaries.push({
-        workspaceId: workspace._id,
-        slug: workspace.slug,
-        displayName: workspace.displayName,
-        kind: workspace.kind,
-        structureTemplate: workspace.structureTemplate,
-        role: membership.role,
-        icon: workspace.icon,
-        meetingsFolder: workspace.meetingsFolder,
-        /*
-          The owner's stamp counts every line; everybody else's counts the
-          `team` ones. Narrowed here rather than on the client, because a
-          number that reaches a device has been disclosed whatever the device
-          then does with it.
-        */
-        activityAt:
-          membership.role === "owner" ? workspace.activityAt : workspace.activityTeamAt,
-        activitySeenAt: membership.activitySeenAt,
-        joinedAt: membership.joinedAt,
-        createdAt: workspace.createdAt,
-      });
-    }
-    summaries.sort((a, b) => a.createdAt - b.createdAt);
-
-    const pinned = await pinnedContextWorkspace(ctx);
-    if (
-      pinned !== null &&
-      !summaries.some((summary) => summary.workspaceId === pinned._id)
-    ) {
-      summaries.push({
-        workspaceId: pinned._id,
-        slug: pinned.slug,
-        displayName: pinned.displayName,
-        kind: pinned.kind,
-        structureTemplate: pinned.structureTemplate,
-        role: PINNED_CONTEXT_ROLE,
-        icon: pinned.icon,
-        meetingsFolder: pinned.meetingsFolder,
-        /*
-          A pinned reader has no membership row, so there is nothing that could
-          hold "when did they last look" — and a mark that lights for everybody
-          and never goes out is worse than one that never lights. The shared
-          context's own activity is still there when they open it.
-        */
-        activityAt: undefined,
-        activitySeenAt: undefined,
-        /*
-          Nobody joined, so there is no join time. The workspace's own creation
-          is the only honest date available and is what the field means for a
-          row that has always been there — and it is never read as "when this
-          person joined" for this row, because `pinned` says it was not joined.
-        */
-        joinedAt: pinned.createdAt,
-        createdAt: pinned.createdAt,
-        pinned: true,
-      });
-    }
-
-    return summaries;
-  },
+  handler: (ctx) => listMyWorkspacesHandler(ctx),
 });
 
 /**
@@ -672,35 +190,7 @@ export const getWorkspace = query({
     updatedAt: v.number(),
     memberCount: v.number(),
   }),
-  handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const { workspace, membership } = await requireWorkspaceAccess(
-      ctx,
-      args.workspaceId,
-      userId,
-    );
-
-    // Bounded, so `memberCount` saturates at the cap rather than paying for an
-    // unbounded read. A context with more members than this does not exist,
-    // and if one ever does the number wants pagination, not a full scan.
-    const members = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .take(MAX_MEMBERS_RETURNED);
-
-    return {
-      workspaceId: workspace._id,
-      slug: workspace.slug,
-      displayName: workspace.displayName,
-      kind: workspace.kind,
-      structureTemplate: workspace.structureTemplate,
-      role: membership.role,
-      icon: workspace.icon,
-      createdAt: workspace.createdAt,
-      updatedAt: workspace.updatedAt,
-      memberCount: members.length,
-    };
-  },
+  handler: (ctx, args) => getWorkspaceHandler(ctx, args),
 });
 
 /**
@@ -729,46 +219,8 @@ export const listMembers = query({
       joinedAt: v.number(),
     }),
   ),
-  handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-    await requireWorkspaceAccess(ctx, args.workspaceId, userId);
-
-    const members = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .take(MAX_MEMBERS_RETURNED);
-
-    const rows = [];
-    for (const member of members) {
-      const user = await ctx.db.get(member.userId);
-      rows.push({
-        userId: member.userId,
-        role: member.role,
-        email: user?.email,
-        name: user?.name,
-        isMe: member.userId === userId,
-        joinedAt: member.joinedAt,
-      });
-    }
-    return rows.sort((a, b) => a.joinedAt - b.joinedAt);
-  },
+  handler: (ctx, args) => listMembersHandler(ctx, args),
 });
-
-/**
- * The refusal for a member this workspace does not have.
- *
- * Safe to be distinct from every other error here, and distinct on purpose:
- * only an `owner` reaches this line, and an owner can already enumerate their
- * own members with `listMembers`. There is nothing for the refusal to disclose,
- * and "that person is not in this context" is the only form of it they can act
- * on.
- */
-function memberNotFound(): ConvexError<{ code: string; message: string }> {
-  return new ConvexError({
-    code: "MEMBER_NOT_FOUND",
-    message: "That person is not a member of this context.",
-  });
-}
 
 /**
  * Remove somebody from a context. Owner-only.
@@ -804,32 +256,7 @@ export const removeMember = mutation({
     userId: v.id("users"),
   },
   returns: v.object({ removed: v.boolean() }),
-  handler: async (ctx, args) => {
-    const actorId = (await requireAuthId(ctx)) as Id<"users">;
-    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
-
-    const target = await getMembership(ctx, args.workspaceId, args.userId);
-    if (target === null) return { removed: false };
-
-    if (target.role === "owner") {
-      throw new ConvexError({
-        code: "CANNOT_REMOVE_OWNER",
-        message:
-          "A context's owner cannot be removed. Transferring ownership is a separate step, and is not built yet.",
-      });
-    }
-
-    await ctx.db.delete(target._id);
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: actorId,
-      action: "member.removed",
-      details: { targetUserId: args.userId, previousRole: target.role },
-    });
-
-    return { removed: true };
-  },
+  handler: (ctx, args) => removeMemberHandler(ctx, args),
 });
 
 /**
@@ -873,55 +300,7 @@ export const setMeetingsFolder = mutation({
     folder: v.union(v.string(), v.null()),
   },
   returns: v.object({ folder: v.string() }),
-  handler: async (ctx, args) => {
-    const actorId = (await requireAuthId(ctx)) as Id<"users">;
-    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
-
-    const workspace = await ctx.db.get(args.workspaceId);
-    /*
-      The helper, not a literal. `workspaceAuth.ts` is the one place this error
-      is constructed so that "not a member" and "does not exist" stay
-      byte-identical, and `workspaceAuth.test.ts` fails if the string appears
-      anywhere else in `functions/` — which is how this line was caught.
-    */
-    if (workspace === null) throw workspaceNotFound();
-    if (workspace.kind !== "personal") {
-      throw new ConvexError({
-        code: "MEETINGS_FOLDER_NOT_PERSONAL",
-        message:
-          "Meetings are offered your own workspace first, so the folder is a setting on a personal workspace rather than on a shared one.",
-      });
-    }
-
-    /*
-      `null` clears the choice rather than storing the default's spelling. A
-      stored "0-inbox/meetings" would stop following the default if it ever
-      moved, which is how a person who never expressed a preference ends up
-      pinned to an old one.
-    */
-    const folder =
-      args.folder === null ? null : normalizeMeetingFolder(args.folder);
-    if (args.folder !== null && folder === null) {
-      throw new ConvexError({
-        code: "MEETINGS_FOLDER_INVALID",
-        message: "Use a folder inside this context — not the root, and not a note.",
-      });
-    }
-
-    await ctx.db.patch(args.workspaceId, {
-      meetingsFolder: folder ?? undefined,
-      updatedAt: Date.now(),
-    });
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: actorId,
-      action: "meetings.folder_set",
-      details: { meetingsFolder: folder ?? MEETINGS_FOLDER },
-    });
-
-    return { folder: folder ?? MEETINGS_FOLDER };
-  },
+  handler: (ctx, args) => setMeetingsFolderHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -967,74 +346,7 @@ export const setWorkspaceIcon = mutation({
     emoji: v.union(v.string(), v.null()),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    const actorId = (await requireAuthId(ctx)) as Id<"users">;
-    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
-
-    const workspace = await ctx.db.get(args.workspaceId);
-    /*
-      The helper rather than a literal, so "not a member" and "does not exist"
-      stay byte-identical — `workspaceAuth.test.ts` fails if this string is
-      built anywhere else in `functions/`.
-    */
-    if (workspace === null) throw workspaceNotFound();
-
-    if (args.emoji === null) {
-      /*
-        THE BUCKET OBJECT IS DELIBERATELY LEFT WHERE IT IS.
-
-        Deleting the photo on clear looks tidy and is wrong twice. The store is
-        content-addressed, so those bytes may equally be another workspace's
-        icon in the same bucket or the target of a paste in a note, and a delete
-        here would break both. And it is the customer's bucket: an object we put
-        there is theirs to keep or remove.
-      */
-      await ctx.db.patch(args.workspaceId, { icon: undefined, updatedAt: Date.now() });
-      await recordAudit(ctx, {
-        workspaceId: args.workspaceId,
-        actorUserId: actorId,
-        action: "workspace.icon_cleared",
-        details: { was: workspace.icon?.kind ?? "none" },
-      });
-      return null;
-    }
-
-    /*
-      THE VALIDATOR IS SHARED, AND IT IS STRUCTURAL.
-
-      Not a length check. This value is drawn in an 18pt square on the screen of
-      every member of the workspace, so what has to be refused is not "too long"
-      but "not one glyph": a right-to-left override, a stack of combining marks
-      that draws over the row above, or plain text. `isSingleEmoji` answers that
-      shape question, and the console pre-flights the same function so the
-      picker can never offer what this refuses.
-    */
-    if (!isSingleEmoji(args.emoji)) {
-      throw new ConvexError({
-        code: "WORKSPACE_ICON_INVALID",
-        message: "A workspace icon is a single emoji.",
-      });
-    }
-
-    await ctx.db.patch(args.workspaceId, {
-      icon: { kind: "emoji", emoji: args.emoji },
-      updatedAt: Date.now(),
-    });
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: actorId,
-      action: "workspace.icon_set",
-      /*
-        The emoji is in the audit detail; a photo's leaf is too. Neither is note
-        content and neither is a secret — the leaf is a content hash of a
-        picture the workspace already shows everybody — and an audit line
-        reading "an icon was set" answers none of the questions an audit trail
-        is read for.
-      */
-      details: { icon: "emoji", emoji: args.emoji },
-    });
-    return null;
-  },
+  handler: (ctx, args) => setWorkspaceIconHandler(ctx, args),
 });
 
 /**
@@ -1057,20 +369,7 @@ export const recordWorkspaceIconPhoto = internalMutation({
     leaf: v.string(),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    await requireWorkspaceRole(ctx, args.workspaceId, args.actorUserId, "owner");
-    await ctx.db.patch(args.workspaceId, {
-      icon: { kind: "photo", leaf: args.leaf },
-      updatedAt: Date.now(),
-    });
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: "workspace.icon_set",
-      details: { icon: "photo", leaf: args.leaf },
-    });
-    return null;
-  },
+  handler: (ctx, args) => recordWorkspaceIconPhotoHandler(ctx, args),
 });
 
 /**
@@ -1102,32 +401,7 @@ export const recordWorkspaceIconPhoto = internalMutation({
 export const workspaceIconLeaf = internalQuery({
   args: { workspaceId: v.id("workspaces"), actorUserId: v.id("users") },
   returns: v.union(v.string(), v.null()),
-  handler: async (ctx, args) => {
-    /*
-      THE PIN IS REACH WITHOUT A MEMBERSHIP ROW, AND THIS HAS TO KNOW THAT.
-
-      `requireWorkspaceAccess` answers from `workspaceMembers`, and nobody is a
-      member of `@context-lc` — so asking it alone would refuse the one
-      workspace that is in *every* account's rail, after `authorizeFileAccess`
-      (which does know about the pin) had already admitted the caller. The two
-      gates would disagree on exactly one row in the product.
-
-      Tried before the membership read rather than after a caught failure, for
-      the reason `authorizeFileAccess` gives: the refusal is byte-identical for
-      "not a member" and "no such workspace", so catching it would mean guessing
-      which one this was. Asking the narrower question first needs no guess.
-    */
-    if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
-      const pinned = await ctx.db.get(args.workspaceId);
-      return pinned?.icon?.kind === "photo" ? pinned.icon.leaf : null;
-    }
-    const { workspace } = await requireWorkspaceAccess(
-      ctx,
-      args.workspaceId,
-      args.actorUserId,
-    );
-    return workspace.icon?.kind === "photo" ? workspace.icon.leaf : null;
-  },
+  handler: (ctx, args) => workspaceIconLeafHandler(ctx, args),
 });
 
 /**
@@ -1147,31 +421,7 @@ export const workspaceIconLeaf = internalQuery({
 export const leaveWorkspace = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ left: v.boolean() }),
-  handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-
-    const membership = await getMembership(ctx, args.workspaceId, userId);
-    if (membership === null) return { left: false };
-
-    if (membership.role === "owner") {
-      throw new ConvexError({
-        code: "OWNER_CANNOT_LEAVE",
-        message:
-          "You own this context, so leaving would orphan it. Transferring ownership is a separate step, and is not built yet.",
-      });
-    }
-
-    await ctx.db.delete(membership._id);
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: userId,
-      action: "member.left",
-      details: { previousRole: membership.role },
-    });
-
-    return { left: true };
-  },
+  handler: (ctx, args) => leaveWorkspaceHandler(ctx, args),
 });
 
 /**
@@ -1193,36 +443,5 @@ export const setMemberRole = mutation({
     role: v.union(v.literal("editor"), v.literal("member")),
   },
   returns: v.object({ role: v.string() }),
-  handler: async (ctx, args) => {
-    const actorId = (await requireAuthId(ctx)) as Id<"users">;
-    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
-
-    const target = await getMembership(ctx, args.workspaceId, args.userId);
-    if (target === null) throw memberNotFound();
-
-    if (target.role === "owner") {
-      throw new ConvexError({
-        code: "CANNOT_CHANGE_OWNER_ROLE",
-        message:
-          "A context's owner keeps the owner role. Transferring ownership is a separate step, and is not built yet.",
-      });
-    }
-
-    if (target.role === args.role) return { role: target.role };
-
-    await ctx.db.patch(target._id, { role: args.role });
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: actorId,
-      action: "member.role_changed",
-      details: {
-        targetUserId: args.userId,
-        previousRole: target.role,
-        role: args.role,
-      },
-    });
-
-    return { role: args.role };
-  },
+  handler: (ctx, args) => setMemberRoleHandler(ctx, args),
 });
