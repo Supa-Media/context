@@ -60,6 +60,7 @@ import { runCrossContextOrientationChecks } from "./crossContext/orientation.tes
 import { runCrossContextModernEraChecks } from "./crossContext/modernEra.test.mjs";
 import { runCrossContextAdvertisingChecks } from "./crossContext/advertising.test.mjs";
 import { runCrossContextStoreIdentityChecks } from "./crossContext/storeIdentity.test.mjs";
+import { runCrossContextChangeReportingChecks } from "./crossContext/changeReporting.test.mjs";
 
 /**
  * The checks themselves live in `crossContext/*.test.mjs`, split by behaviour
@@ -76,6 +77,7 @@ export async function runCrossContextChecks(check) {
   await runCrossContextModernEraChecks(check, harness);
   await runCrossContextAdvertisingChecks(check, harness);
   await runCrossContextStoreIdentityChecks(check, harness);
+  await runCrossContextChangeReportingChecks(check, harness);
 
   const { restoreControlPlane, restoreS3 } = harness;
   restoreControlPlane();
