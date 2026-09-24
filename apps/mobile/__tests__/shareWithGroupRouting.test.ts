@@ -63,7 +63,7 @@ describe("the share dialog's group callback carries what it is sharing", () => {
   });
 
   test("the hook routes a folder to the folder action and a note to the note one", () => {
-    const source = stripComments(read("files", "useFileBrowser.ts"));
+    const source = stripComments(read("files", "fileBrowser", "useShareScope.ts"));
     const start = source.indexOf("const shareWithGroup = useCallback(");
     expect(start).toBeGreaterThan(-1);
     const body = source.slice(start, source.indexOf("}, [", start));
