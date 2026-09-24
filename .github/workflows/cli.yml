@@ -45,9 +45,18 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # This workflow never installs pnpm, and setup-node's default cache
-          # detection shells out to it. See mcp.yml.
+          # setup-node's default cache detection shells out to pnpm before
+          # the step below installs it. See mcp.yml.
           package-manager-cache: false
+
+      - uses: pnpm/action-setup@v4
+
+      # The package's two reviewed dependencies (add-mcp, @clack/prompts).
+      # Most suites inject a stand-in for add-mcp, but cleanup.test.mjs runs
+      # the real one; without this it cannot be imported and the install it
+      # checks fails for that reason instead of the one being tested.
+      - name: Install the CLI's dependencies
+        run: pnpm install --filter "@supa-media/context..." --frozen-lockfile
 
       - name: Run test suite
         working-directory: plugins/context

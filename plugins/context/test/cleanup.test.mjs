@@ -30,7 +30,7 @@ const options = (cwd) => ({ scope: "local", endpoint: "https://mcp.example.test/
 // A project with nothing in it: everything install makes, uninstall removes.
 const fresh = await mkdtemp(join(tmpdir(), "context-cleanup-"));
 let records = await installInto(codex, options(fresh));
-check("install wrote the MCP config and the skills", records[0].ok && existsSync(join(fresh, ".codex", "config.toml")) && existsSync(join(fresh, ".agents", "skills", "context")));
+check(`install wrote the MCP config and the skills${records[0].ok ? "" : ` (install said: ${records[0].error})`}`, records[0].ok && existsSync(join(fresh, ".codex", "config.toml")) && existsSync(join(fresh, ".agents", "skills", "context")));
 await uninstallRecords(records, { log: () => {} });
 check("uninstall removes the config file install created", !existsSync(join(fresh, ".codex")));
 check("...and the skills folders it created", !existsSync(join(fresh, ".agents")));

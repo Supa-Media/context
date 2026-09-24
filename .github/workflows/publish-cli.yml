@@ -107,12 +107,17 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # Bare node, no pnpm install: the package has zero dependencies in
-          # any field (cli.yml's own "Hook stays dependency-free" job proves
-          # it on every push), so nothing here needs the workspace installed.
+          # The package's two reviewed dependencies are installed below for the
+          # tests; the published tarball lists them and npm installs them for
+          # the person running it. cli.yml's dependency job allows only those.
           package-manager-cache: false
           registry-url: "https://registry.npmjs.org"
           scope: "@supa-media"
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install the CLI's dependencies
+        run: pnpm install --filter "@supa-media/context..." --frozen-lockfile
 
       - name: Run test suite
         run: npm test
