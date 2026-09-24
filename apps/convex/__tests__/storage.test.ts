@@ -1320,15 +1320,7 @@ describe("rotating the encryption key", () => {
    * straight through it.
    */
   test("every encrypted column in the whole schema is one rotation moves", () => {
-    // The whole schema: `schema.ts` and every table module it spreads in.
-    const schemaDir = new URL("../functions/lib/schema/", import.meta.url);
-    const schema = [
-      readFileSync(new URL("../schema.ts", import.meta.url), "utf8"),
-      ...readdirSync(schemaDir)
-        .filter((name) => name.endsWith(".ts"))
-        .sort()
-        .map((name) => readFileSync(new URL(name, schemaDir), "utf8")),
-    ].join("\n");
+    const schema = ["../schema.ts", ...readdirSync(new URL("../functions/lib/schema/", import.meta.url)).sort().map((name) => `../functions/lib/schema/${name}`)].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
     const declared = [
       ...new Set(
         [...schema.matchAll(/^\s+(encrypted[A-Za-z0-9]*)\s*:\s*v\./gm)].map(
