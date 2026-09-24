@@ -23,6 +23,7 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { effectiveVisibility, parsePrivacyManifest } from "../src/privacy/engine.js";
 
 const OWNER_TOKEN = `cat_links_owner_${"0".repeat(16)}`;
 const READONLY_TOKEN = `cat_links_readonly_${"0".repeat(13)}`;
@@ -38,6 +39,9 @@ const MANIFEST =
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 const NOTE = "1-projects/plan.md";
+/** What the real control plane tells an owner it cleared and could not link. */
+const NOTE_REFUSED_SENTENCE = "Your team cannot read that note, so a link cannot either.";
+const NOT_TEAM_VISIBLE = NOTE_REFUSED_SENTENCE;
 
 function createBucket() {
   const objects = new Map();
@@ -112,11 +116,25 @@ function idIn(text) {
 }
 
 export async function runLinkToolChecks(check) {
-  const controlPlane = createControlPlaneStub();
+  const bucket = createBucket();
+  const otherBucket = createBucket();
+  /*
+    The real mint refuses a note the workspace cannot read, with the sentence
+    below. Judged from the bucket's own live manifest, as the real one is —
+    a stub that minted over anything is how this suite stayed green while
+    every owner's `write_note(share)` failed in production.
+  */
+  const controlPlane = createControlPlaneStub({
+    linkRefusal: async (workspaceId, path) => {
+      const held = (workspaceId === "ws_links" ? bucket : otherBucket).objects;
+      const manifest = held.get("privacy.md")?.body;
+      if (!manifest || !held.has(path)) return NOT_TEAM_VISIBLE;
+      const { rules, overrides } = parsePrivacyManifest(manifest);
+      return effectiveVisibility(path, rules, overrides) === "team" ? null : NOT_TEAM_VISIBLE;
+    },
+  });
   const restore = controlPlane.install();
   try {
-    const bucket = createBucket();
-    const otherBucket = createBucket();
 
     const binding = (bindingName) => ({
       provider: "r2-binding",
@@ -124,7 +142,12 @@ export async function runLinkToolChecks(check) {
       capabilities: { conditionalWrite: true, conditionalCreate: true },
       status: "active",
     });
-    controlPlane.addWorkspace("ws_links", "seyi", binding("LINKS_BUCKET"));
+    // A key, so an encrypted note can really be written here — see the
+    // encrypted-note check under "publishing without the link tools".
+    controlPlane.addWorkspace("ws_links", "seyi", {
+      ...binding("LINKS_BUCKET"),
+      encryptionKey: { current: "k1", keys: { k1: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=" } },
+    });
     controlPlane.addWorkspace("ws_other", "other", binding("OTHER_BUCKET"));
 
     await controlPlane.addGrant({
@@ -178,6 +201,20 @@ export async function runLinkToolChecks(check) {
     bucket.seed("privacy.md", MANIFEST);
     bucket.seed("index.md", "# Context\n");
     bucket.seed(NOTE, "# Plan\n");
+    // Real, team-visible notes for `create_link` to point at. The real mint
+    // refuses a path the workspace cannot read, and so does the stub now.
+    for (const path of [
+      "1-projects/intake.md",
+      "1-projects/other.md",
+      "1-projects/reserved.md",
+      "1-projects/clients.md",
+      "1-projects/plain.md",
+      "1-projects/typo.md",
+      "1-projects/big-intake.md",
+      "1-projects/silly.md",
+    ]) {
+      bucket.seed(path, "# Linked\n");
+    }
     otherBucket.seed("privacy.md", MANIFEST);
 
     /* ------------------------- the URL, not the token ---------------------- */
@@ -321,12 +358,12 @@ export async function runLinkToolChecks(check) {
     */
 
     const published = await call(env, OWNER_TOKEN, "write_note", {
-      path: "1-projects/intake.md",
+      path: "1-projects/published-intake.md",
       content: "# Intake\n\nTell me about the project.\n",
       share: "anyone",
     });
     check("write_note can publish the note it just wrote", !published.isError);
-    check("...and the note landed", /written: 1-projects\/intake\.md/.test(published.text));
+    check("...and the note landed", /written: 1-projects\/published-intake\.md/.test(published.text));
     check("...and the URL came back, not a token", /link: https:\/\/\S+\/s\/\S+/.test(published.text));
     check(
       "...and it says the reader needs no account",
@@ -385,6 +422,112 @@ export async function runLinkToolChecks(check) {
     check(
       "...and the agent is told to pass on what a collect link hands out",
       /without an account and without being named/.test(collectWrite.text),
+    );
+
+    /*
+      THE INCIDENT, EXACTLY (2026-09-24).
+
+      An owner asked their assistant for a client intake form and a link. The
+      form went where their own clients live — a folder that defaults to
+      private — and a personal connection's new note is private anyway. The
+      link was refused, the refusal arrived as "control plane unavailable:
+      status 500", and four retries changed nothing.
+
+      Asking for a link anyone can open is asking for the note to be readable
+      by the workspace, so the one call now does both — and leaves the answers
+      where their folder puts them, because who reads the answers is a
+      separate question the owner did not ask.
+    */
+    const intake = await call(env, OWNER_TOKEN, "write_note", {
+      path: "2-areas/clients/new-client.md",
+      content: [
+        "# New client intake",
+        "",
+        "```form",
+        "id: new-client",
+        "responses: 2-areas/clients/new-client-responses.md",
+        "layout: table",
+        "submit: member",
+        "fields:",
+        "  - { name: name, type: line, max: 120, required: true }",
+        "  - { name: brief, type: text, max: 4000, required: true }",
+        "```",
+        "",
+      ].join("\n"),
+      share: "collect",
+      share_short: "new-client",
+    });
+    check("a form in a private folder publishes with one call", !intake.isError);
+    check(
+      "...and comes back with its short link",
+      intake.text.includes("short link: ") && intake.text.includes("/@seyi/new-client"),
+    );
+    check("...and it takes answers", /taking answers: yes/.test(intake.text));
+    check(
+      "...and it says the note was published to the workspace for the link",
+      /visibility: team \(published to this workspace so the link can open it/.test(intake.text),
+    );
+    {
+      const { rules, overrides } = parsePrivacyManifest(bucket.objects.get("privacy.md").body);
+      check(
+        "...and the form note really is team-visible now",
+        effectiveVisibility("2-areas/clients/new-client.md", rules, overrides) === "team",
+      );
+      check(
+        "...while its answers stay where their folder puts them — private",
+        effectiveVisibility("2-areas/clients/new-client-responses.md", rules, overrides) === "private",
+      );
+    }
+
+    const contradictory = await call(env, OWNER_TOKEN, "write_note", {
+      path: "2-areas/clients/kept-private.md",
+      content: "# Kept private\n",
+      visibility: "private",
+      share: "anyone",
+    });
+    check("share with visibility=private is refused as a contradiction", contradictory.isError);
+    check(
+      "...before anything is written",
+      !bucket.objects.has("2-areas/clients/kept-private.md"),
+    );
+
+    // An encrypted note is never linked for anyone, so asking for that link
+    // must not first publish it to the workspace for a link that is then
+    // refused. A real encrypted note, written with this workspace's key.
+    await call(env, OWNER_TOKEN, "write_note", { path: "2-areas/sealed.md", content: "# Sealed\n" });
+    const sealing = await call(env, OWNER_TOKEN, "set_encryption", {
+      path: "2-areas/sealed.md",
+      encrypted: true,
+    });
+    check("(fixture) the note is really encrypted", !sealing.isError);
+    const sealedBefore = bucket.objects.get("2-areas/sealed.md").body;
+    const sealedShare = await call(env, OWNER_TOKEN, "write_note", {
+      path: "2-areas/sealed.md",
+      content: "# Sealed\n\nnew words\n",
+      share: "anyone",
+    });
+    check("an encrypted note asked for an open link is refused", sealedShare.isError);
+    {
+      const { rules, overrides } = parsePrivacyManifest(bucket.objects.get("privacy.md").body);
+      check(
+        "...and is neither published to the workspace nor rewritten on the way",
+        effectiveVisibility("2-areas/sealed.md", rules, overrides) === "private" &&
+          bucket.objects.get("2-areas/sealed.md").body === sealedBefore,
+      );
+    }
+
+    /*
+      A REFUSAL THAT IS THE OWNER'S TO FIX IS NAMED, NOT A 500.
+
+      `create_link` never publishes on its own — it only links — so a private
+      note is refused. The owner is told why, in the control plane's own words.
+    */
+    bucket.seed("2-areas/salaries.md", "# Salaries\n");
+    const privateLink = await call(env, OWNER_TOKEN, "create_link", { path: "2-areas/salaries.md" });
+    check("create_link over a private note is refused", privateLink.isError);
+    check(
+      "...with the reason, rather than 'control plane unavailable'",
+      privateLink.text.includes(NOTE_REFUSED_SENTENCE) && !/unavailable/.test(privateLink.text),
     );
 
     const plainWrite = await call(env, OWNER_TOKEN, "write_note", {
