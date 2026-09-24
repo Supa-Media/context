@@ -31,6 +31,15 @@
  * authenticated data, so it opens in exactly one workspace's row. Copying a
  * row's envelope into another workspace yields a decrypt failure, not that
  * workspace's credential.
+ *
+ * ## Where the rest of it lives
+ *
+ * Every storage function is still registered here, under the same name, kind
+ * and validators. Bodies that call, schedule or decrypt stay here in full,
+ * because `__tests__/structure.test.ts` reads each registered function's own
+ * text to decide what it can reach — that is where the rule above is held.
+ * Everything else — the shapes, endpoint rules, probe records, the rekey
+ * sweep's reads and writes, the member's view — is in `./lib/storage/`.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -50,432 +59,84 @@ import {
   query,
 } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { decodeSegment } from "../../mcp/src/store/index.js";
 import {
   CredentialCryptoError,
   decryptSecret,
   encryptSecret,
-  envelopeKeyId,
-  maskAccessKeyId,
   requireKeyset,
 } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
-import { redactSigningArtifacts } from "./lib/verification";
+import { storageLayoutAnswerIsCurrent } from "./lib/storageLayout";
+import { requireWorkspaceRole } from "./lib/workspaceAuth";
+import { managedBucketName } from "./lib/managedStorage";
 import {
-  STORAGE_LAYOUT_PROBE_VERSION,
-  storageLayoutAnswerIsCurrent,
-  storageLayoutStateValidator,
-} from "./lib/storageLayout";
+  capabilitiesValidator,
+  initialCapabilities,
+  type BindingResult,
+  type DataKeyRekeyCandidates,
+  type GatewayCredential,
+  type ManagedMigrationRekeyCandidates,
+  type PlatformSecretRekeyCandidates,
+  type RekeyCandidates,
+  type RekeyResult,
+  type SealedBinding,
+} from "./lib/storage/shapes";
 import {
-  requireWorkspaceAccess,
-  requireWorkspaceRole,
-} from "./lib/workspaceAuth";
+  addressingIsAmbiguous,
+  ambiguousAddressingError,
+  assertUsableEndpoint,
+  normalizeRootPrefix,
+  storageMoved,
+} from "./lib/storage/address";
+import { ACCESS_TOKEN_MARGIN_MS } from "./lib/storage/gatewayBinding";
 import {
-  managedAccountId,
-  managedBucketName,
-  refuseManagedEndpoint,
-} from "./lib/managedStorage";
+  REKEY_BATCH_SIZE,
+  type GoogleConnectionRekeyCandidates,
+  type ProviderCredentialRekeyCandidates,
+} from "./lib/storage/rekeyColumns";
+import {
+  CAPABILITY_SWEEP_BATCH,
+  OBSERVE_LAYOUT_LIMIT,
+  OBSERVE_LAYOUT_WINDOW_MS,
+  REVERIFY_LIMIT,
+  REVERIFY_WINDOW_MS,
+} from "./lib/storage/limits";
+import * as bindingState from "./lib/storage/bindingState";
+import * as gatewayBinding from "./lib/storage/gatewayBinding";
+import * as rekeyWorkspace from "./lib/storage/rekeyWorkspaceSecrets";
+import * as rekeyPlatform from "./lib/storage/rekeyPlatformSecrets";
+import * as bindingView from "./lib/storage/bindingView";
+import * as validators from "./lib/storage/validators";
 
-const providerValidator = v.union(
-  v.literal("r2"),
-  v.literal("s3"),
-  v.literal("b2"),
-  v.literal("s3-compatible"),
-);
-
-/**
- * Providers whose conditional-write support we do not assume.
- *
- * R2 (`onlyIf: { etagMatches }`) and AWS S3 (`If-Match`) support it. B2 and
- * arbitrary S3-compatible endpoints do not reliably, so a new binding starts
- * with `conditionalWrite: false` and only a real probe at verification time
- * may turn it on. Optimistically claiming the capability would mean silently
- * dropping conflict detection — a lost write with no error, which is the one
- * failure mode a notes product cannot have.
- */
-function initialCapabilities(): StorageCapabilities {
-  return {
-    conditionalWrite: false,
-    conditionalCreate: false,
-    conditionalDelete: false,
-    serverSideCopy: false,
-  };
-}
-
-export interface StorageCapabilities {
-  conditionalWrite: boolean;
-  conditionalCreate?: boolean;
-  conditionalDelete?: boolean;
-  serverSideCopy?: boolean;
-}
-
-/**
- * The capability object, once, for every validator that carries it.
- *
- * It was restated in four places — `recordVerification`, the sealed-row query,
- * the gateway credential union (twice) and the console's binding view — and a
- * field added to the schema and to three of the five is a field the gateway
- * never sees, which is a silent capability loss rather than a type error.
- * `serverSideCopy` was added as exactly that: probed since #374, in the schema
- * from this change, and worth nothing until every hop below carries it.
- */
-export const capabilitiesValidator = v.object({
-  conditionalWrite: v.boolean(),
-  conditionalCreate: v.optional(v.boolean()),
-  conditionalDelete: v.optional(v.boolean()),
-  serverSideCopy: v.optional(v.boolean()),
-});
-
-/** What the binding write returns. Named so the action can annotate itself. */
-export interface BindingResult {
-  bindingId: Id<"storageBindings">;
-  status: string;
-}
-
-/**
- * The sealed row, as `getBindingRow` returns it.
- *
- * The S3 fields are optional because a Dropbox binding has none of them. What
- * used to be guaranteed by the type is now a per-provider check at the two
- * places that consume it, both of which refuse rather than half-build.
- */
-export interface SealedBinding {
-  provider: "r2" | "s3" | "b2" | "s3-compatible" | "dropbox";
-  endpoint?: string;
-  region?: string;
-  bucket?: string;
-  rootPrefix?: string;
-  accessKeyId?: string;
-  encryptedSecretAccessKey?: string;
-  encryptedRefreshToken?: string;
-  encryptedAccessToken?: string;
-  accessTokenExpiresAt?: number;
-  dropboxAccountId?: string;
-  /** Absent means "let the adapter decide". See the schema for why. */
-  forcePathStyle?: boolean;
-  capabilities: StorageCapabilities;
-  status: string;
-}
-
-/**
- * What the gateway gets: an opened credential that is complete.
- *
- * Spelled out rather than derived from `SealedBinding`, because the two stopped
- * being the same shape when Dropbox arrived. A *row* may be missing every S3
- * field; a credential handed to the gateway may not — `getBindingForGateway`
- * refuses a Dropbox row by name and narrows the rest before returning, so the
- * required fields here are a guarantee it has already made. Deriving this from
- * the row would push that guarantee onto every consumer as an optional-check
- * they would each get slightly wrong.
- */
-export interface S3GatewayCredential {
-  /**
-   * A literal union, not `string`, so the two credential shapes actually
-   * discriminate. With `string` here, `credential.provider === "dropbox"`
-   * narrows nothing and every consumer sees a union it cannot take apart.
-   */
-  provider: "r2" | "s3" | "b2" | "s3-compatible";
-  endpoint: string;
-  region: string;
-  bucket: string;
-  rootPrefix?: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  forcePathStyle?: boolean;
-  capabilities: StorageCapabilities;
-  status: string;
-}
-
-/**
- * What a Dropbox-backed workspace hands the gateway.
- *
- * Deliberately a *different shape*, not the S3 one with holes in it. The
- * gateway's factory refuses a binding carrying a credential its provider does
- * not use, so a union here is what makes that refusal unreachable by accident
- * rather than something to remember.
- */
-export interface DropboxGatewayCredential {
-  provider: "dropbox";
-  accessToken: string;
-  rootPrefix?: string;
-  capabilities: StorageCapabilities;
-  status: string;
-}
-
-export type GatewayCredential = S3GatewayCredential | DropboxGatewayCredential;
-
-/** One batch of envelopes still sealed under an older key. */
-export interface RekeyCandidates {
-  candidates: {
-    bindingId: Id<"storageBindings">;
-    workspaceId: Id<"workspaces">;
-    field: EnvelopeField;
-    envelope: string;
-  }[];
-  unreadable: number;
-}
-
-/** Candidate rows outside `storageBindings`, one per envelope. */
-export interface DataKeyRekeyCandidates {
-  candidates: {
-    rowId: Id<"workspaceDataKeys">;
-    workspaceId: Id<"workspaces">;
-    envelope: string;
-  }[];
-  unreadable: number;
-}
-
-/**
- * What one re-encrypt pass moved.
- *
- * The data-key counts are reported separately rather than folded into the
- * first three, because the two failures are not the same size. A binding this
- * pass cannot open is a credential the owner re-enters. A **workspace data key**
- * it cannot open is every encrypted note in that context, and there is no
- * re-entering it: the operator must stop and put the previous envelope key
- * back rather than finish step 4.
- */
-export interface RekeyResult {
-  rekeyed: number;
-  skipped: number;
-  unreadable: number;
-  dataKeysRekeyed: number;
-  dataKeysSkipped: number;
-  dataKeysUnreadable: number;
-  googleConnectionsRekeyed: number;
-  googleConnectionsSkipped: number;
-  googleConnectionsUnreadable: number;
-  providerCredentialsRekeyed: number;
-  providerCredentialsSkipped: number;
-  providerCredentialsUnreadable: number;
-  platformSecretsRekeyed: number;
-  platformSecretsSkipped: number;
-  platformSecretsUnreadable: number;
-  managedMigrationsRekeyed: number;
-  managedMigrationsSkipped: number;
-  managedMigrationsUnreadable: number;
-}
-
-export interface ManagedMigrationRekeyCandidates {
-  candidates: {
-    rowId: Id<"managedStorageMigrations">;
-    workspaceId: Id<"workspaces">;
-    envelope: string;
-  }[];
-  unreadable: number;
-}
-
-/** Platform-scoped envelopes, one per `appSecrets` row. */
-export interface PlatformSecretRekeyCandidates {
-  candidates: { rowId: Id<"appSecrets">; envelope: string }[];
-  unreadable: number;
-}
-
-/**
- * Hostnames and literal addresses that are not somewhere on the public
- * internet.
- *
- * The endpoint is a URL an owner supplies and something of ours later makes a
- * request to — the connect probe today, the gateway afterwards. That makes it
- * an SSRF sink: `https://169.254.169.254/…` is the cloud instance-metadata
- * service, `https://localhost:8080/…` and `https://10.0.0.5/…` are whatever
- * else is reachable from the machine running the probe. "The owner chose it"
- * is not a defense, because the owner is not who the request is made *as*.
- *
- * This is a literal-address filter, not a resolution-time one. A hostname that
- * resolves to a private address still passes here, and DNS rebinding still
- * beats any check made at this layer — whichever component ultimately performs
- * the request has to enforce its own egress policy. What this does buy is that
- * the obvious form of the attack cannot simply be typed into the connect form.
- */
-const BLOCKED_HOST_PATTERNS: ReadonlyArray<RegExp> = [
-  /^localhost$/i,
-  /\.localhost$/i,
-  /\.local$/i,
-  /\.internal$/i,
-  /^127(\.\d{1,3}){3}$/, // loopback
-  /^0(\.\d{1,3}){3}$/, // "this host"
-  /^10(\.\d{1,3}){3}$/, // RFC 1918
-  /^192\.168(\.\d{1,3}){2}$/, // RFC 1918
-  /^172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}$/, // RFC 1918
-  /^169\.254(\.\d{1,3}){2}$/, // link-local, including instance metadata
-  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])(\.\d{1,3}){2}$/, // RFC 6598 CGNAT
-];
-
-/** IPv6 literals arrive from `URL` bracketed and lowercased. */
-function isBlockedIpv6(hostname: string): boolean {
-  if (!hostname.startsWith("[")) return false;
-  const address = hostname.slice(1, -1);
-  return (
-    address === "::1" || // loopback
-    address === "::" || // unspecified
-    /^f[cd][0-9a-f]{2}:/.test(address) || // fc00::/7 unique-local
-    /^fe[89ab][0-9a-f]:/.test(address) // fe80::/10 link-local
-  );
-}
-
-/**
- * Reject an endpoint that would send the credential somewhere unencrypted, that
- * is not an absolute URL at all, that points back inside our own network, or
- * that addresses the account holding managed buckets.
- */
-function assertUsableEndpoint(endpoint: string): void {
-  // No-ops on a deployment with no managed account, which is most of them —
-  // see `managedAccountId`. Reads an environment variable and never a
-  // credential, which is what keeps this callable from a public function:
-  // `__tests__/structure.test.ts` fails any public path reaching `decryptSecret`.
-  refuseManagedEndpoint(endpoint, managedAccountId());
-
-  let parsed: URL;
-  try {
-    parsed = new URL(endpoint);
-  } catch {
-    throw new ConvexError({
-      code: "INVALID_ENDPOINT",
-      message: "The storage endpoint must be an absolute URL.",
-    });
-  }
-  if (parsed.protocol !== "https:") {
-    throw new ConvexError({
-      code: "INVALID_ENDPOINT",
-      message: "The storage endpoint must use https.",
-    });
-  }
-  if (parsed.username !== "" || parsed.password !== "") {
-    throw new ConvexError({
-      code: "INVALID_ENDPOINT",
-      message: "Credentials must not be embedded in the endpoint URL.",
-    });
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-  const blocked =
-    isBlockedIpv6(hostname) ||
-    BLOCKED_HOST_PATTERNS.some((pattern) => pattern.test(hostname));
-  if (blocked) {
-    throw new ConvexError({
-      code: "INVALID_ENDPOINT",
-      message:
-        "The storage endpoint must be a public address, not a loopback, link-local, or private-network one.",
-    });
-  }
-}
-
-/**
- * `rootPrefix` is a convenience for customers whose bucket holds other things
- * — it is applied at the adapter boundary and is invisible above it. It is
- * emphatically NOT tenancy, so it must never be derived from a workspace id.
- * Normalized to `foo/bar/` (no leading slash, one trailing slash).
- */
-function normalizeRootPrefix(
-  rootPrefix: string | undefined,
-): string | undefined {
-  if (rootPrefix === undefined) return undefined;
-  const trimmed = rootPrefix.trim().replace(/^\/+/, "").replace(/\/+$/, "");
-  if (trimmed.length === 0) return undefined;
-  if (trimmed.includes("..")) {
-    throw new ConvexError({
-      code: "INVALID_ROOT_PREFIX",
-      message: "The root prefix must not contain '..'.",
-    });
-  }
-  /*
-    AND THE SAME RULE ON THE DECODED SEGMENT.
-
-    The check above compares raw text; the adapter's `describeKeyProblem` does
-    not — it percent-decodes each segment before comparing, so `%2E%2E` is a
-    ".." to the layer that finally builds the request and to no layer above it.
-    A prefix refused only there is a binding that saves, probes into `error`,
-    and throws on every request afterwards, which is the outcome the addressing
-    check below is written to avoid: a probe records a status, it cannot explain
-    a value, and the screen where the value was typed is where it can be.
-
-    `decodeSegment` is the adapter's own, imported rather than restated — the
-    decoding is the subtle half, and `apps/convex` already bundles this module.
-    Equality per segment rather than `includes`, because the adapter compares
-    whole segments: `a%2E%2Eb` is a prefix it accepts, and refusing it here
-    would refuse a folder no layer objects to. Nothing escapes a bucket either
-    way — the adapter holds — so this is about which door says so.
-  */
-  for (const segment of trimmed.split("/")) {
-    const decoded = decodeSegment(segment);
-    if (decoded === "." || decoded === "..") {
-      throw new ConvexError({
-        code: "INVALID_ROOT_PREFIX",
-        message: "The root prefix must not contain '..'.",
-      });
-    }
-  }
-  return `${trimmed}/`;
-}
-
-/**
- * Is this endpoint/bucket pair one where nothing can tell path-style from
- * virtual-hosted addressing?
- *
- * **This must mean exactly what `S3Store`'s constructor means by it.** The
- * adapter refuses to guess when the endpoint's first host label is the bucket
- * name, because `https://my-context.s3.example` with bucket `my-context` is
- * either a virtual-hosted endpoint (the bucket is already in the host, so the
- * path must not repeat it) or a path-style endpoint that collides by
- * coincidence (`s3.wasabisys.com` with a bucket called `s3`,
- * `<account>.r2.cloudflarestorage.com` with a bucket named after the account).
- * Guessing wrong drops or adds a path segment, so the provider reads the first
- * *key* segment as the bucket and a write lands in a different bucket entirely,
- * silently.
- *
- * The point of duplicating the rule here is *when* it fires, not *whether*.
- * Left to the adapter alone it fires inside the connect probe, which cannot
- * throw usefully: the probe's job is to record a status, so the owner gets a
- * permanently-`error` binding and no way to say which addressing style they
- * meant. Checked at bind time it is a `ConvexError` naming both answers, on the
- * screen where the value would be typed.
- *
- * Two copies of a rule drift, so `__tests__/addressing.test.ts` pins this one
- * against the real `S3Store` constructor: for a matrix of endpoints and buckets
- * it asserts that this returns `true` exactly when constructing the adapter
- * without `forcePathStyle` throws.
- *
- * `URL` lowercases the hostname; the bucket is compared as given, which is the
- * same comparison `S3Store` makes.
- */
-export function addressingIsAmbiguous(
-  endpoint: string,
-  bucket: string,
-): boolean {
-  let hostname: string;
-  try {
-    hostname = new URL(endpoint).hostname;
-  } catch {
-    // Not a URL at all. `assertUsableEndpoint` is what reports that; there is
-    // no addressing question to answer about a string that is not an endpoint.
-    return false;
-  }
-  return hostname.startsWith(`${bucket}.`);
-}
-
-/**
- * The refusal, worded so the person can act on it without reading this file.
- *
- * It names the bucket (which they just typed, so it is not a disclosure) and
- * both possible answers. It carries **no** access key id and no secret — an
- * error string is the easiest place in a system for a credential to escape, and
- * this one is shown to a user and likely pasted into a support thread.
- */
-function ambiguousAddressingError(
-  bucket: string,
-): ConvexError<{ code: string; message: string }> {
-  return new ConvexError({
-    code: "AMBIGUOUS_ADDRESSING",
-    message:
-      `The endpoint's first host label is the bucket name ("${bucket}"), so nothing ` +
-      "can tell whether this bucket is addressed by host or by path. Set " +
-      "forcePathStyle to false if the endpoint already contains the bucket " +
-      `(virtual-hosted, e.g. https://${bucket}.s3.amazonaws.com), or to true if the ` +
-      "bucket belongs in the path and the host merely starts with the same word.",
-  });
-}
+export {
+  capabilitiesValidator,
+  type BindingResult,
+  type DataKeyRekeyCandidates,
+  type DropboxGatewayCredential,
+  type GatewayCredential,
+  type ManagedMigrationRekeyCandidates,
+  type PlatformSecretRekeyCandidates,
+  type RekeyCandidates,
+  type RekeyResult,
+  type S3GatewayCredential,
+  type SealedBinding,
+  type StorageCapabilities,
+} from "./lib/storage/shapes";
+export {
+  addressingIsAmbiguous,
+  storageAddress,
+  storageMoved,
+} from "./lib/storage/address";
+export {
+  ENVELOPE_FIELDS,
+  ROTATED_ENVELOPE_COLUMNS,
+  ROTATION_EXEMPT_ENVELOPE_COLUMNS,
+  type EnvelopeField,
+  type GoogleConnectionRekeyCandidates,
+  type ProviderCredentialRekeyCandidates,
+} from "./lib/storage/rekeyColumns";
+export { CAPABILITY_SWEEP_BATCH } from "./lib/storage/limits";
 
 /**
  * Bind (or rebind) a workspace's storage.
@@ -495,27 +156,8 @@ function ambiguousAddressingError(
  * something has actually talked to it.
  */
 export const bindStorage = action({
-  args: {
-    workspaceId: v.id("workspaces"),
-    provider: providerValidator,
-    endpoint: v.string(),
-    region: v.string(),
-    bucket: v.string(),
-    rootPrefix: v.optional(v.string()),
-    accessKeyId: v.string(),
-    secretAccessKey: v.string(),
-    /**
-     * Optional, and meant to stay unset.
-     *
-     * Absent is "let the adapter decide", which is correct for R2 and for the
-     * classic AWS regional endpoints. It only has to be supplied for an
-     * endpoint whose first host label is the bucket name, and in that case the
-     * refusal below tells the owner so in as many words rather than letting the
-     * probe fail with a status they cannot act on.
-     */
-    forcePathStyle: v.optional(v.boolean()),
-  },
-  returns: v.object({ bindingId: v.id("storageBindings"), status: v.string() }),
+  args: validators.bindStorageArgs,
+  returns: validators.bindStorageReturns,
   // The explicit return type breaks the inference cycle created by calling
   // `internal.functions.storage.applyBinding` from inside this same module.
   handler: async (ctx, args): Promise<BindingResult> => {
@@ -581,82 +223,6 @@ export const bindStorage = action({
 });
 
 /**
- * Where a binding's notes actually live, as one comparable string.
- *
- * ## What this is for, and why it is not "did anything change"
- *
- * A binding row changes for two very different reasons, and every field on it
- * that describes the old bucket is cleared on both — `applyBinding` says so
- * eleven times over. The **projection of the notes** cannot be treated that
- * way, because releasing it deletes a billed database and re-provisioning one
- * is minutes of work against a bucket that may not even be reachable yet.
- *
- * So the question is narrower than "was this row rewritten": it is *"do the
- * notes live somewhere else now"*. Rotating an access key on the bucket
- * somebody already had is a repair and keeps its index. Pointing the workspace
- * at a different bucket, or at a different Dropbox account, is a move, and the
- * projection describes somewhere the person has left.
- *
- * `rootPrefix` is part of the address for the same reason it is part of every
- * key: the same bucket under a different prefix is a different context's worth
- * of notes. The credential is deliberately **not** — it is the thing that
- * changes on a repair.
- *
- * `null` where the row names nowhere yet, which compares equal to nothing,
- * including to another `null`: a half-built binding is not evidence that the
- * notes stayed put.
- */
-export function storageAddress(
-  binding: {
-    provider?: string;
-    endpoint?: string;
-    bucket?: string;
-    rootPrefix?: string;
-    dropboxAccountId?: string;
-  } | null,
-): string | null {
-  if (binding === null || binding === undefined) return null;
-  const prefix = binding.rootPrefix ?? "";
-  if (binding.provider === "dropbox") {
-    return binding.dropboxAccountId
-      ? `dropbox\u0000${binding.dropboxAccountId}\u0000${prefix}`
-      : null;
-  }
-  if (!binding.provider || !binding.bucket) return null;
-  return `${binding.provider}\u0000${binding.endpoint ?? ""}\u0000${binding.bucket}\u0000${prefix}`;
-}
-
-/**
- * Do these two rows name different places for the notes to be?
- *
- * **No row is not the same as a row that names nowhere**, and the difference
- * decides which way this fails. A `null` `before` is a first connect: there is
- * nothing to have moved from, so nothing is released. A row that exists and
- * whose address `storageAddress` cannot read is the other case — we cannot
- * tell where its notes were — and "cannot tell" is answered here the way the
- * rest of this codebase answers it, by taking the cost rather than the risk.
- * Keeping the projection leaves a D1 database of one bucket's note text
- * attached to a binding for a different bucket; releasing it costs a rebuild
- * of a derivative that is disposable by construction.
- *
- * It is not a hypothetical shape. `recordConnectFailure` records a failed
- * Dropbox sign-in by patching `provider: "dropbox"` onto a row that is not
- * `connected` — with no account id, and with the S3 fields it is written over
- * left in place — so one expired sign-in on a workspace whose binding is in
- * `error` is enough to make the address unreadable while its projection is
- * still `ready`. The next rebind is then a move nothing could see.
- */
-export function storageMoved(
-  before: Parameters<typeof storageAddress>[0],
-  after: Parameters<typeof storageAddress>[0],
-): boolean {
-  if (before === null || before === undefined) return false;
-  const from = storageAddress(before);
-  if (from === null) return true;
-  return from !== storageAddress(after);
-}
-
-/**
  * Write the binding. Internal — the plaintext secret never reaches here.
  *
  * `actorUserId` is supplied by the calling action rather than read from auth,
@@ -665,21 +231,8 @@ export function storageMoved(
  * checks below are what actually authorize the write.
  */
 export const applyBinding = internalMutation({
-  args: {
-    actorUserId: v.id("users"),
-    workspaceId: v.id("workspaces"),
-    provider: providerValidator,
-    endpoint: v.string(),
-    region: v.string(),
-    bucket: v.string(),
-    rootPrefix: v.optional(v.string()),
-    accessKeyId: v.string(),
-    encryptedSecretAccessKey: v.string(),
-    forcePathStyle: v.optional(v.boolean()),
-    /** Keep a newly minted managed credential amber while IAM propagates. */
-    verificationRetryUntil: v.optional(v.number()),
-  },
-  returns: v.object({ bindingId: v.id("storageBindings"), status: v.string() }),
+  args: validators.applyBindingArgs,
+  returns: validators.applyBindingReturns,
   handler: async (ctx, args) => {
     await requireWorkspaceRole(
       ctx,
@@ -887,359 +440,28 @@ export const applyBinding = internalMutation({
   },
 });
 
-/**
- * How much provider failure text we keep.
- *
- * `lastError` is readable by every member of the workspace and is written by
- * whatever performed the probe, so it is an untrusted string on a published
- * surface. A cap stops an unbounded provider response (or a deliberately
- * enormous one) from being stored and served, and keeps the field to the size
- * of the thing it is for: one line a human can act on.
- */
-const MAX_LAST_ERROR_LENGTH = 300;
-
-/**
- * Redact the credential-shaped fragments we can actually recognize.
- *
- * The schema used to claim `lastError` "never contains the secret" with nothing
- * enforcing it. This enforces what is enforceable and no more, which is worth
- * being precise about:
- *
- *  - The **access key id** and the **stored envelope** are values we hold, so
- *    an error echoing them is detectable and gets replaced.
- *  - A signing artifact (`Signature=…`, `Credential=…`, `X-Amz-Security-Token=…`)
- *    is recognizable by shape, so it goes too — S3 error bodies quote the
- *    canonical request, and that is the realistic way one leaks.
- *  - The **plaintext secret** is not something this mutation holds; it exists
- *    only inside `bindStorage` and inside the gateway. It cannot be scrubbed
- *    here by matching, so the rule that the caller must not put it in an error
- *    string remains a rule. Truncation limits the blast radius; it does not
- *    remove it.
- */
-function scrubProviderError(
-  raw: string,
-  binding: {
-    accessKeyId?: string;
-    encryptedSecretAccessKey?: string;
-    encryptedRefreshToken?: string;
-    encryptedAccessToken?: string;
-  },
-): string {
-  let scrubbed = raw;
-  // Every credential-shaped value the binding holds, whichever provider it is.
-  // Listing them explicitly rather than iterating the row keeps a future
-  // non-secret field from being redacted out of an error by accident, and a
-  // future secret one from being missed — it has to be named here either way.
-  for (const known of [
-    binding.encryptedSecretAccessKey,
-    binding.accessKeyId,
-    binding.encryptedRefreshToken,
-    binding.encryptedAccessToken,
-  ]) {
-    if (typeof known === "string" && known.length > 0) {
-      scrubbed = scrubbed.split(known).join("[redacted]");
-    }
-  }
-  // Shared with the verifying action, which applies the same rule to the value
-  // it returns. Two redactors that drifted apart would mean one published
-  // surface quietly became the weak one.
-  scrubbed = redactSigningArtifacts(scrubbed);
-  return scrubbed.length > MAX_LAST_ERROR_LENGTH
-    ? `${scrubbed.slice(0, MAX_LAST_ERROR_LENGTH - 1)}…`
-    : scrubbed;
-}
-
-/**
- * Record the outcome of an actual round trip to the customer's bucket.
- *
- * Internal, because only something that has genuinely talked to the provider
- * may set `connected` — a client-callable "mark me verified" would let a
- * broken binding claim to be healthy. The gateway calls this after its connect
- * probe, and passes the probed capabilities rather than assumptions.
- */
 export const recordVerification = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    ok: v.boolean(),
-    capabilities: v.optional(capabilitiesValidator),
-    error: v.optional(v.string()),
-    /**
-     * The machine-readable companion to `error`. See the schema's `errorCode`
-     * and `VerificationErrorCode` in `functions/provisioning.ts`.
-     *
-     * Not scrubbed, because it is not provider text: the caller picks it from a
-     * closed set. A caller that puts a provider string in here is putting
-     * unscrubbed text on a published surface — do not.
-     */
-    errorCode: v.optional(v.string()),
-    /**
-     * What the prober found in the bucket, and whether it wrote anything.
-     *
-     * Recorded here rather than computed on read because it is the *observed*
-     * state of somebody else's bucket at a moment we had a credential — a query
-     * cannot recompute it, and giving one the ability to would mean a public
-     * function that opens a credential. See the schema for the closed set.
-     *
-     * Omitted leaves whatever is on the row, so a re-verification that fails
-     * before it gets as far as looking does not erase what the last successful
-     * one learned.
-     */
-    scaffolded: v.optional(v.boolean()),
-    scaffoldReason: v.optional(v.string()),
-    /**
-     * Which keys of the chosen layout are still not in the bucket.
-     *
-     * Supplied only by a verification that actually attempted a scaffold. A
-     * look-only probe omits it, which leaves the previous attempt's list
-     * standing — that list is the record of what we still owe this bucket, and
-     * it is what lets `applyStructure` tell a scaffold of ours that stopped
-     * halfway from a vault that was here before we arrived. Erasing it because
-     * a re-verification wandered past would strand the owner.
-     */
-    scaffoldMissing: v.optional(v.array(v.string())),
-    actorUserId: v.optional(v.id("users")),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (binding === null) {
-      throw new ConvexError({
-        code: "NO_STORAGE_BINDING",
-        message: "This workspace has no storage binding.",
-      });
-    }
-
-    const now = Date.now();
-    await ctx.db.patch(binding._id, {
-      status: args.ok ? "connected" : "error",
-      capabilities: args.capabilities ?? binding.capabilities,
-      lastVerifiedAt: args.ok ? now : binding.lastVerifiedAt,
-      // Clearing the error on success matters: a stale `lastError` next to a
-      // green status is how support tickets get misdiagnosed.
-      lastError: args.ok
-        ? undefined
-        : scrubProviderError(args.error ?? "Verification failed", binding),
-      errorCode: args.ok ? undefined : args.errorCode,
-      scaffolded: args.scaffolded ?? binding.scaffolded,
-      scaffoldReason: args.scaffoldReason ?? binding.scaffoldReason,
-      scaffoldMissing: args.scaffoldMissing ?? binding.scaffoldMissing,
-      updatedAt: now,
-    });
-
-    // A managed bucket is not delivered when its row is written; it is
-    // delivered when the exact credential the gateway will use has answered.
-    // Transient failures inside the IAM propagation window never reach this
-    // mutation (the verifier reschedules them), so a failure here is final for
-    // this attempt and may truthfully replace the running state.
-    if (binding.bucket === managedBucketName(args.workspaceId)) {
-      const plan = await ctx.db
-        .query("workspacePlans")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-        .unique();
-      if (
-        plan !== null &&
-        plan.managedStorage === true &&
-        (plan.managedProvisioning === "running" ||
-          plan.managedProvisioning === "failed")
-      ) {
-        await ctx.db.patch(plan._id, {
-          managedProvisioning: args.ok ? "ready" : "failed",
-          managedProvisioningError: args.ok ? undefined : args.errorCode,
-          managedProvisioningAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: args.ok ? "storage.verified" : "storage.verification_failed",
-      details: {
-        conditionalWrite: (args.capabilities ?? binding.capabilities)
-          .conditionalWrite,
-      },
-    });
-    return null;
-  },
+  args: bindingState.recordVerificationArgs,
+  returns: bindingState.recordVerificationReturns,
+  handler: bindingState.recordVerificationHandler,
 });
 
-/**
- * Record where the storage-layout migration got to.
- *
- * Internal, and the same shape as `recordNoteCount` for the same reason: it is
- * a thing we observed while holding a credential, which no query can recompute
- * without becoming a public function that opens one.
- *
- * The bucket stays authoritative — `migrateStorageLayout` persists its own
- * state under `.context/` and short-circuits on `complete`. This is the copy
- * the console reads, and it exists because the console had nothing to read:
- * "available" was as close to "pending" as it could get, so the offer to run
- * the migration was answered by a flag on one device and came back on every
- * other one, for a bucket that had already been migrated.
- *
- * Called on every outcome, including the refusals — a bucket without
- * conflict-safe writes answers `unsupported` and that is an answer, not a
- * failure to record. A binding that vanished mid-migration drops the write,
- * exactly as the count does: the state describes a bucket this row no longer
- * names.
- *
- * ## An absent `state` is an answer too, and it is why this takes one
- *
- * `state` is optional because **"we looked, and this bucket has never run the
- * migration" is a different fact from "nobody has looked"** — and the console
- * had no way to tell them apart, so it offered the update to every context
- * migrated before this field existed, for ever, on every device. Recording the
- * *question* separately from the *answer* is what ends that:
- * `storageLayoutCheckedAt` says the bucket was asked, and is set on every call
- * here; `storageLayoutState` stays what it said, and is left absent when it
- * has genuinely never run.
- *
- * A bucket that would not answer at all must not reach this function. That is
- * not a state, it is the absence of an observation, and writing a timestamp
- * for it would claim we know something we do not — `readStorageLayout` returns
- * `observed: false` and its caller records nothing.
- */
 export const recordStorageLayoutState = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    /** Absent means the bucket answered that it has never run this. */
-    state: v.optional(storageLayoutStateValidator),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (binding === null) return null;
-
-    const now = Date.now();
-    await ctx.db.patch(binding._id, {
-      /*
-        Written even when it clears a state we had. The bucket is authoritative
-        and this row is a copy of it: a state file that is gone means this
-        bucket is no longer migrated as far as anything can tell, and the
-        honest consequence is that the console offers the update again. A copy
-        that outlived the thing it copied is the stale-green-check failure the
-        rebind clear exists to avoid.
-      */
-      storageLayoutState: args.state,
-      ...(args.state === undefined ? {} : { storageLayoutAt: now }),
-      storageLayoutCheckedAt: now,
-      /*
-        And which generation of the question this answer came from. The one
-        before it looked only for a migration state file, so a bucket we
-        scaffolded ourselves answered "never run" and every new workspace was
-        offered an update with nothing behind it. Stamping the answer is what
-        lets those rows be asked once more instead of backfilled by hand.
-      */
-      storageLayoutCheckedVersion: STORAGE_LAYOUT_PROBE_VERSION,
-    });
-    return null;
-  },
+  args: bindingState.recordStorageLayoutStateArgs,
+  returns: bindingState.recordStorageLayoutStateReturns,
+  handler: bindingState.recordStorageLayoutStateHandler,
 });
 
-/**
- * Record what a walk of the bucket counted. Internal, and separate from
- * `recordVerification` on purpose.
- *
- * They are two different observations, and folding the count into the status
- * write made the status wait on it. The walk is up to forty sequential LIST
- * round trips against somebody else's bucket; with both in one write, all of
- * that sat inside the window where the binding still read `unverified`, and an
- * action that died mid-walk left a perfectly good bucket permanently unverified
- * over a number nobody was waiting for.
- *
- * So the status lands first and this follows. A count that never arrives simply
- * never calls this, which is also why there is no "clear the count" path here:
- * absence is expressed by not calling, and the row keeps what the last real
- * walk found. See `noteCount.ts` for why absent must never become zero.
- */
 export const recordNoteCount = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    notes: v.number(),
-    truncated: v.boolean(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    // Disconnected or rebound while we were walking. The count describes a
-    // bucket this row no longer names, so it is dropped rather than written.
-    if (binding === null) return null;
-
-    await ctx.db.patch(binding._id, {
-      noteCount: args.notes,
-      // Stamped from the walk that produced it, never from the last
-      // verification that happened to succeed.
-      noteCountedAt: Date.now(),
-      noteCountTruncated: args.truncated,
-    });
-    return null;
-  },
+  args: bindingState.recordNoteCountArgs,
+  returns: bindingState.recordNoteCountReturns,
+  handler: bindingState.recordNoteCountHandler,
 });
 
-/**
- * The binding row with the envelope still sealed. Internal.
- *
- * Split out from `getBindingForGateway` so the decrypting action can read the
- * row without an action-to-action hop, and so nothing that only needs
- * configuration ever has to touch the decryption path.
- */
 export const getBindingRow = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      provider: v.string(),
-      endpoint: v.optional(v.string()),
-      region: v.optional(v.string()),
-      bucket: v.optional(v.string()),
-      rootPrefix: v.optional(v.string()),
-      accessKeyId: v.optional(v.string()),
-      encryptedSecretAccessKey: v.optional(v.string()),
-      // The Dropbox columns. Absent from this validator, Convex strips them
-      // from the row and the gateway path reads a connection that looks
-      // incomplete — which is exactly how this was found.
-      encryptedRefreshToken: v.optional(v.string()),
-      encryptedAccessToken: v.optional(v.string()),
-      accessTokenExpiresAt: v.optional(v.number()),
-      dropboxAccountId: v.optional(v.string()),
-      forcePathStyle: v.optional(v.boolean()),
-      capabilities: capabilitiesValidator,
-      status: v.string(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (binding === null) return null;
-    return {
-      provider: binding.provider,
-      endpoint: binding.endpoint,
-      region: binding.region,
-      bucket: binding.bucket,
-      rootPrefix: binding.rootPrefix,
-      accessKeyId: binding.accessKeyId,
-      encryptedSecretAccessKey: binding.encryptedSecretAccessKey,
-      encryptedRefreshToken: binding.encryptedRefreshToken,
-      encryptedAccessToken: binding.encryptedAccessToken,
-      accessTokenExpiresAt: binding.accessTokenExpiresAt,
-      dropboxAccountId: binding.dropboxAccountId,
-      forcePathStyle: binding.forcePathStyle,
-      capabilities: binding.capabilities,
-      status: binding.status,
-    };
-  },
+  args: gatewayBinding.getBindingRowArgs,
+  returns: gatewayBinding.getBindingRowReturns,
+  handler: gatewayBinding.getBindingRowHandler,
 });
 
 /**
@@ -1382,26 +604,6 @@ export const getBindingForGateway = internalAction({
   },
 });
 
-/**
- * A usable Dropbox access token, refreshing if the cached one is near expiry.
- *
- * A plain function rather than its own action, deliberately: an internal
- * action here would be a *fourth* enumerated way to reach a decrypted
- * credential, and `__tests__/structure.test.ts` is right that each one needs
- * the scrutiny `getBindingForGateway` got. This does the same work inside the
- * function that already holds that permission, so the blast radius does not
- * grow.
- *
- * ## Refreshed on a clock, not on a 401
- *
- * Finding out a token expired by failing a customer's read is a worse way to
- * learn it: the read has already gone out, it surfaces as a storage outage,
- * and the retry costs a round trip somebody is waiting on. Dropbox access
- * tokens are short by design, so the expiry is stored and consulted, with a
- * minute of margin for a request that takes a moment to arrive.
- */
-const ACCESS_TOKEN_MARGIN_MS = 60_000;
-
 async function dropboxAccessToken(
   ctx: { runMutation: (ref: never, args: never) => Promise<unknown> },
   workspaceId: Id<"workspaces">,
@@ -1502,632 +704,82 @@ async function dropboxAccessToken(
   return refreshed.accessToken;
 }
 
-/**
- * Persist a refreshed pair.
- *
- * Conditional on the binding still being Dropbox: a workspace rebound to a
- * bucket mid-refresh must not have Dropbox tokens written back onto it.
- */
 export const recordDropboxRefresh = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    encryptedAccessToken: v.string(),
-    accessTokenExpiresAt: v.number(),
-    encryptedRefreshToken: v.optional(v.string()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (binding === null || binding.provider !== "dropbox") return null;
-
-    await ctx.db.patch(binding._id, {
-      encryptedAccessToken: args.encryptedAccessToken,
-      accessTokenExpiresAt: args.accessTokenExpiresAt,
-      // Dropbox rotates the refresh token only sometimes. Writing `undefined`
-      // over a good one would lose the grant entirely, so it is patched only
-      // when a replacement actually arrived.
-      ...(args.encryptedRefreshToken
-        ? { encryptedRefreshToken: args.encryptedRefreshToken }
-        : {}),
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
+  args: gatewayBinding.recordDropboxRefreshArgs,
+  returns: gatewayBinding.recordDropboxRefreshReturns,
+  handler: gatewayBinding.recordDropboxRefreshHandler,
 });
 
-// ---------------------------------------------------------------------------
-// Key rotation.
-//
-// A key id in the envelope makes a rotation *survivable* — old rows still open
-// while the new key is in use. These three make it *finishable*: without a
-// re-encrypt pass, the outgoing key can never actually be retired, and "we
-// rotated the key" means "we now have two keys to protect instead of one".
-//
-// The operator sequence is:
-//   1. move the live key to STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS (+ _ID),
-//   2. put the new key in STORAGE_SECRET_ENCRYPTION_KEY (+ a new _ID),
-//   3. run `rekeyStorageBindings` until it reports nothing left,
-//   4. unset the PREVIOUS variables.
-//
-// **The pass covers every envelope this control plane holds, not only the ones
-// on a binding.** `workspaceDataKeys.encryptedDataKey` is sealed by the same
-// scheme and carries the same key id, and it is the one envelope whose loss
-// cannot be repaired by asking the owner for the credential again — it opens
-// the encrypted notes in somebody's bucket, and nothing else does. A rotation
-// that walked only `storageBindings` would report "nothing left" while those
-// rows still sat under the outgoing key, and step 4 would then destroy them.
-// `ROTATED_ENVELOPE_COLUMNS` below is coupled to the schema so a fifth
-// encrypted column in any table fails a test rather than being remembered.
-// ---------------------------------------------------------------------------
-
-/** How many bindings one `rekeyStorageBindings` pass moves. */
-const REKEY_BATCH_SIZE = 50;
-
-/**
- * Every field on a binding that holds an encrypted envelope.
- *
- * **A binding no longer has exactly one secret.** An S3 binding has the bucket
- * secret; a Dropbox binding has a refresh token and a cached access token, and
- * no bucket secret at all. Rotation walks this list rather than one hardcoded
- * field, because a rotation that silently skipped a field would leave those
- * envelopes readable only by a key the operator is about to delete — the
- * failure would not appear until the customer's next read, long after the
- * pass reported success.
- *
- * Adding a fourth encrypted field means adding it here. There is a test that
- * fails if a schema field matching `encrypted*` is missing from this list, so
- * the coupling is enforced rather than remembered.
- */
-export const ENVELOPE_FIELDS = [
-  "encryptedSecretAccessKey",
-  "encryptedRefreshToken",
-  "encryptedAccessToken",
-] as const;
-
-export type EnvelopeField = (typeof ENVELOPE_FIELDS)[number];
-
-/**
- * Every encrypted column in the schema that a rotation pass moves forward.
- *
- * `ENVELOPE_FIELDS` is the `storageBindings` half; this is the whole set, and
- * it exists because the guard that used to enforce the coupling read only the
- * `storageBindings` slice of `schema.ts`. A credential in a *new table* was
- * therefore invisible to it — the same blindness that guard's own rationale
- * warns about one level down, where a hand-maintained list does not know about
- * the field nobody has thought about yet. `workspaceDataKeys.encryptedDataKey`
- * was exactly that field.
- */
-export const ROTATED_ENVELOPE_COLUMNS = [
-  ...ENVELOPE_FIELDS,
-  "encryptedDataKey",
-  "encryptedValue",
-  "encryptedTargetSecretAccessKey",
-  "encryptedApiKey",
-] as const;
-
-/**
- * Encrypted columns a rotation deliberately does **not** move, and why.
- *
- * An exemption has to be written down rather than left as a column nobody
- * listed, because those two states look identical from inside a passing test
- * suite and only one of them is a decision. The bar is not "small" or "not very
- * secret" — it is that losing the envelope costs nothing that cannot be
- * recreated by repeating an action the owner is already in the middle of.
- *
- *  - `cloudflareProvisioning.encryptedSetupCredential` — one in-flight bucket
- *    creation, alive for seconds, deleted in the transaction that writes the
- *    binding and cleared on failure. A rotation landing inside that window
- *    fails that one attempt, which the owner retries. There is nothing here to
- *    carry forward: by design the row is gone before a pass would reach it.
- *
- *  - `dropboxConnectAttempts.encryptedVerifier` and
- *    `googleConnectAttempts.encryptedVerifier` — one in-flight OAuth
- *    authorization each. The PKCE verifier is replayed to the provider at the
- *    exchange minutes later and the row is spent there; an unreadable one
- *    costs the person a second press of Connect. Two tables, one column name,
- *    one exemption — the guard below matches by name, and both rows carry
- *    the identical ten-minute-lived shape this paragraph argues for.
- */
-export const ROTATION_EXEMPT_ENVELOPE_COLUMNS = [
-  "encryptedSetupCredential",
-  "encryptedVerifier",
-] as const;
-
-const envelopeFieldValidator = v.union(
-  v.literal("encryptedSecretAccessKey"),
-  v.literal("encryptedRefreshToken"),
-  v.literal("encryptedAccessToken"),
-);
-
-/** Envelopes written under some other key id, one row per envelope. */
 export const listRekeyCandidates = internalQuery({
-  args: { currentKeyId: v.string(), limit: v.number() },
-  returns: v.object({
-    candidates: v.array(
-      v.object({
-        bindingId: v.id("storageBindings"),
-        workspaceId: v.id("workspaces"),
-        field: envelopeFieldValidator,
-        envelope: v.string(),
-      }),
-    ),
-    /** Rows in a format no configured key can open — v1, or corrupt. */
-    unreadable: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const bindings = await ctx.db.query("storageBindings").take(args.limit);
-    const candidates = [];
-    let unreadable = 0;
-    for (const binding of bindings) {
-      for (const field of ENVELOPE_FIELDS) {
-        const envelope = binding[field];
-        // Absent is normal now, not a defect: a Dropbox binding has no bucket
-        // secret and an S3 one has no tokens. Only a *present* envelope that
-        // cannot be read is unreadable.
-        if (typeof envelope !== "string" || envelope.length === 0) continue;
-        let keyId: string;
-        try {
-          keyId = envelopeKeyId(envelope);
-        } catch {
-          unreadable += 1;
-          continue;
-        }
-        if (keyId === args.currentKeyId) continue;
-        candidates.push({
-          bindingId: binding._id,
-          workspaceId: binding.workspaceId,
-          field,
-          envelope,
-        });
-      }
-    }
-    return { candidates, unreadable };
-  },
+  args: rekeyWorkspace.listRekeyCandidatesArgs,
+  returns: rekeyWorkspace.listRekeyCandidatesReturns,
+  handler: rekeyWorkspace.listRekeyCandidatesHandler,
 });
 
-/**
- * Swap one envelope for an equivalent one under the current key.
- *
- * Conditional on the envelope we read: if the owner rebound storage while the
- * pass was running, the row already holds a *newer* credential under the
- * current key, and overwriting it with a re-encryption of the old one would
- * quietly restore a credential the customer just replaced.
- */
 export const applyRekey = internalMutation({
-  args: {
-    bindingId: v.id("storageBindings"),
-    field: envelopeFieldValidator,
-    expectedEnvelope: v.string(),
-    envelope: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db.get(args.bindingId);
-    if (binding === null) return false;
-    // Still conditional, and now per field: a Dropbox binding whose access
-    // token was refreshed mid-pass must not have the stale one restored.
-    if (binding[args.field] !== args.expectedEnvelope) return false;
-
-    await ctx.db.patch(args.bindingId, {
-      [args.field]: args.envelope,
-      updatedAt: Date.now(),
-    });
-    // No actor: this is a maintenance pass, not a person. The credential and
-    // the bucket are unchanged; only the key protecting it moved.
-    await recordAudit(ctx, {
-      workspaceId: binding.workspaceId,
-      action: "storage.rekeyed",
-    });
-    return true;
-  },
+  args: rekeyWorkspace.applyRekeyArgs,
+  returns: rekeyWorkspace.applyRekeyReturns,
+  handler: rekeyWorkspace.applyRekeyHandler,
 });
 
-/**
- * Workspace data keys still on an older envelope key, one row per envelope.
- *
- * Its own query rather than a second shape inside `listRekeyCandidates`,
- * because the two write to different tables and a union of row ids in one
- * validator is a way to patch the wrong one.
- */
 export const listDataKeyRekeyCandidates = internalQuery({
-  args: { currentKeyId: v.string(), limit: v.number() },
-  returns: v.object({
-    candidates: v.array(
-      v.object({
-        rowId: v.id("workspaceDataKeys"),
-        workspaceId: v.id("workspaces"),
-        envelope: v.string(),
-      }),
-    ),
-    unreadable: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db.query("workspaceDataKeys").take(args.limit);
-    const candidates = [];
-    let unreadable = 0;
-    for (const row of rows) {
-      const envelope = row.encryptedDataKey;
-      if (typeof envelope !== "string" || envelope.length === 0) {
-        unreadable += 1;
-        continue;
-      }
-      let keyId: string;
-      try {
-        keyId = envelopeKeyId(envelope);
-      } catch {
-        unreadable += 1;
-        continue;
-      }
-      if (keyId === args.currentKeyId) continue;
-      candidates.push({
-        rowId: row._id,
-        workspaceId: row.workspaceId,
-        envelope,
-      });
-    }
-    return { candidates, unreadable };
-  },
+  args: rekeyWorkspace.listDataKeyRekeyCandidatesArgs,
+  returns: rekeyWorkspace.listDataKeyRekeyCandidatesReturns,
+  handler: rekeyWorkspace.listDataKeyRekeyCandidatesHandler,
 });
 
-/**
- * Re-seal one workspace data key under the current envelope key.
- *
- * **This is not an update path for the key.** The material is identical on both
- * sides — only the envelope around it moves — and the write is conditional on
- * the exact bytes the pass read, so a row that changed underneath it is skipped
- * rather than overwritten. A path that could write *different* material is the
- * one this feature may never have: it would make every note already encrypted
- * under the old material unreadable, and it would look like a fix.
- */
 export const applyDataKeyRekey = internalMutation({
-  args: {
-    rowId: v.id("workspaceDataKeys"),
-    expectedEnvelope: v.string(),
-    envelope: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.rowId);
-    if (row === null) return false;
-    if (row.encryptedDataKey !== args.expectedEnvelope) return false;
-    await ctx.db.patch(args.rowId, { encryptedDataKey: args.envelope });
-    await recordAudit(ctx, {
-      workspaceId: row.workspaceId,
-      action: "encryption.rekeyed",
-    });
-    return true;
-  },
+  args: rekeyWorkspace.applyDataKeyRekeyArgs,
+  returns: rekeyWorkspace.applyDataKeyRekeyReturns,
+  handler: rekeyWorkspace.applyDataKeyRekeyHandler,
 });
 
-/**
- * Candidate envelopes on `providerCredentials`, the agent's model account.
- *
- * A fourth table and therefore a fourth walk, for the reason the mail
- * connection's own header gives one paragraph down: the cross-schema guard
- * catches an unaccounted column *name*, and cannot catch a table this pass
- * never visits. `providerCredentials` is not exempt — losing the envelope
- * means the customer re-pastes an API key from somebody else's console, which
- * is not "an action the owner is already in the middle of" — so it moves
- * forward with everything else.
- */
 export const listProviderCredentialRekeyCandidates = internalQuery({
-  args: { currentKeyId: v.string(), limit: v.number() },
-  returns: v.object({
-    candidates: v.array(
-      v.object({
-        rowId: v.id("providerCredentials"),
-        workspaceId: v.id("workspaces"),
-        envelope: v.string(),
-      }),
-    ),
-    unreadable: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db.query("providerCredentials").take(args.limit);
-    const candidates = [];
-    let unreadable = 0;
-    for (const row of rows) {
-      const envelope = row.encryptedApiKey;
-      if (typeof envelope !== "string" || envelope.length === 0) {
-        unreadable += 1;
-        continue;
-      }
-      let keyId: string;
-      try {
-        keyId = envelopeKeyId(envelope);
-      } catch {
-        unreadable += 1;
-        continue;
-      }
-      if (keyId === args.currentKeyId) continue;
-      candidates.push({ rowId: row._id, workspaceId: row.workspaceId, envelope });
-    }
-    return { candidates, unreadable };
-  },
+  args: rekeyWorkspace.listProviderCredentialRekeyCandidatesArgs,
+  returns: rekeyWorkspace.listProviderCredentialRekeyCandidatesReturns,
+  handler: rekeyWorkspace.listProviderCredentialRekeyCandidatesHandler,
 });
 
-/**
- * Re-seal one provider key under the current envelope key.
- *
- * Conditional on the bytes the pass read, like every other apply here: a
- * customer who reconnected a provider mid-pass holds a *newer* key under the
- * current generation, and restoring a re-encryption of the old one would
- * quietly put back a credential they had just replaced.
- */
 export const applyProviderCredentialRekey = internalMutation({
-  args: {
-    rowId: v.id("providerCredentials"),
-    expectedEnvelope: v.string(),
-    envelope: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.rowId);
-    if (row === null) return false;
-    if (row.encryptedApiKey !== args.expectedEnvelope) return false;
-    await ctx.db.patch(args.rowId, { encryptedApiKey: args.envelope });
-    await recordAudit(ctx, {
-      workspaceId: row.workspaceId,
-      action: "encryption.rekeyed",
-    });
-    return true;
-  },
+  args: rekeyWorkspace.applyProviderCredentialRekeyArgs,
+  returns: rekeyWorkspace.applyProviderCredentialRekeyReturns,
+  handler: rekeyWorkspace.applyProviderCredentialRekeyHandler,
 });
-
-/**
- * Every field on a mail connection that holds an encrypted envelope.
- *
- * A mailbox connection has its own table (`googleConnections`, never a column
- * on `storageBindings` — different credential, different provider, different
- * lifecycle), so it needs its own candidate query the way
- * `workspaceDataKeys` does. **This is the exact miss `encryptedDataKey` was**:
- * a credential in a table `listRekeyCandidates` never queries is invisible to
- * a rotation pass no matter how completely `ENVELOPE_FIELDS` is enumerated,
- * because that list is read against `storageBindings` rows only. The
- * cross-table guard in `storage.test.ts` ("every encrypted column in the
- * whole schema is one rotation moves") catches the column *name* being
- * unaccounted for; it cannot catch a table the walk itself never visits — only
- * this function, actually wired into `rekeyStorageBindings`, does that.
- */
-const googleConnectionEnvelopeField = v.union(
-  v.literal("encryptedRefreshToken"),
-  v.literal("encryptedAccessToken"),
-);
-type GoogleConnectionEnvelopeField =
-  "encryptedRefreshToken" | "encryptedAccessToken";
-
-/** Candidate envelopes on `providerCredentials`, one per row. */
-export interface ProviderCredentialRekeyCandidates {
-  candidates: {
-    rowId: Id<"providerCredentials">;
-    workspaceId: Id<"workspaces">;
-    envelope: string;
-  }[];
-  unreadable: number;
-}
-
-/** Candidate envelopes on `googleConnections`, one per field. */
-export interface GoogleConnectionRekeyCandidates {
-  candidates: {
-    connectionId: Id<"googleConnections">;
-    workspaceId: Id<"workspaces">;
-    field: GoogleConnectionEnvelopeField;
-    envelope: string;
-  }[];
-  unreadable: number;
-}
 
 export const listGoogleConnectionRekeyCandidates = internalQuery({
-  args: { currentKeyId: v.string(), limit: v.number() },
-  returns: v.object({
-    candidates: v.array(
-      v.object({
-        connectionId: v.id("googleConnections"),
-        workspaceId: v.id("workspaces"),
-        field: googleConnectionEnvelopeField,
-        envelope: v.string(),
-      }),
-    ),
-    unreadable: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db.query("googleConnections").take(args.limit);
-    const candidates = [];
-    let unreadable = 0;
-    for (const row of rows) {
-      for (const field of [
-        "encryptedRefreshToken",
-        "encryptedAccessToken",
-      ] as const) {
-        const envelope = row[field];
-        // A disconnected mailbox's refresh token is the empty string, not a
-        // missing envelope — see `disconnectGoogleConnection`. Empty is never a
-        // candidate: there is nothing there to re-seal.
-        if (typeof envelope !== "string" || envelope.length === 0) continue;
-        let keyId: string;
-        try {
-          keyId = envelopeKeyId(envelope);
-        } catch {
-          unreadable += 1;
-          continue;
-        }
-        if (keyId === args.currentKeyId) continue;
-        candidates.push({
-          connectionId: row._id,
-          workspaceId: row.workspaceId,
-          field,
-          envelope,
-        });
-      }
-    }
-    return { candidates, unreadable };
-  },
+  args: rekeyWorkspace.listGoogleConnectionRekeyCandidatesArgs,
+  returns: rekeyWorkspace.listGoogleConnectionRekeyCandidatesReturns,
+  handler: rekeyWorkspace.listGoogleConnectionRekeyCandidatesHandler,
 });
 
-/**
- * Re-seal one mail connection's envelope, conditional on the exact bytes read
- * — same reasoning as `applyRekey`: a connection reconnected or disconnected
- * mid-pass must not have a stale credential (or a disconnect's empty string)
- * overwritten by a re-encryption of what this pass read earlier.
- */
 export const applyGoogleConnectionRekey = internalMutation({
-  args: {
-    connectionId: v.id("googleConnections"),
-    field: googleConnectionEnvelopeField,
-    expectedEnvelope: v.string(),
-    envelope: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const connection = await ctx.db.get(args.connectionId);
-    if (connection === null) return false;
-    if (connection[args.field] !== args.expectedEnvelope) return false;
-    await ctx.db.patch(args.connectionId, {
-      [args.field]: args.envelope,
-      updatedAt: Date.now(),
-    });
-    await recordAudit(ctx, {
-      workspaceId: connection.workspaceId,
-      action: "mail.rekeyed",
-    });
-    return true;
-  },
+  args: rekeyWorkspace.applyGoogleConnectionRekeyArgs,
+  returns: rekeyWorkspace.applyGoogleConnectionRekeyReturns,
+  handler: rekeyWorkspace.applyGoogleConnectionRekeyHandler,
 });
 
-/**
- * Platform secrets still on an older envelope key.
- *
- * `appSecrets` is bound to the `integration` scope rather than to a workspace,
- * so it needs its own context and could not have ridden the binding query even
- * if the tables had matched.
- */
 export const listPlatformSecretRekeyCandidates = internalQuery({
-  args: { currentKeyId: v.string(), limit: v.number() },
-  returns: v.object({
-    candidates: v.array(
-      v.object({ rowId: v.id("appSecrets"), envelope: v.string() }),
-    ),
-    unreadable: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db.query("appSecrets").take(args.limit);
-    const candidates = [];
-    let unreadable = 0;
-    for (const row of rows) {
-      const envelope = row.encryptedValue;
-      if (typeof envelope !== "string" || envelope.length === 0) {
-        unreadable += 1;
-        continue;
-      }
-      let keyId: string;
-      try {
-        keyId = envelopeKeyId(envelope);
-      } catch {
-        unreadable += 1;
-        continue;
-      }
-      if (keyId === args.currentKeyId) continue;
-      candidates.push({ rowId: row._id, envelope });
-    }
-    return { candidates, unreadable };
-  },
+  args: rekeyPlatform.listPlatformSecretRekeyCandidatesArgs,
+  returns: rekeyPlatform.listPlatformSecretRekeyCandidatesReturns,
+  handler: rekeyPlatform.listPlatformSecretRekeyCandidatesHandler,
 });
 
-/**
- * Re-seal one platform secret, conditional on the bytes the pass read.
- *
- * `fingerprint` is not recomputed and must not change: it is derived from the
- * plaintext, which this does not touch. A fingerprint that moved during a
- * rotation would tell an operator their credential had been replaced.
- *
- * No audit row: `recordAudit` is keyed by workspace and this credential belongs
- * to no customer's context. Writing it against an arbitrary workspace would put
- * a platform maintenance event in somebody's own audit trail.
- */
 export const applyPlatformSecretRekey = internalMutation({
-  args: {
-    rowId: v.id("appSecrets"),
-    expectedEnvelope: v.string(),
-    envelope: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.rowId);
-    if (row === null) return false;
-    if (row.encryptedValue !== args.expectedEnvelope) return false;
-    await ctx.db.patch(args.rowId, { encryptedValue: args.envelope });
-    return true;
-  },
+  args: rekeyPlatform.applyPlatformSecretRekeyArgs,
+  returns: rekeyPlatform.applyPlatformSecretRekeyReturns,
+  handler: rekeyPlatform.applyPlatformSecretRekeyHandler,
 });
 
-/** Destination credentials parked while a managed-storage copy is in flight. */
 export const listManagedMigrationRekeyCandidates = internalQuery({
-  args: { currentKeyId: v.string(), limit: v.number() },
-  returns: v.object({
-    candidates: v.array(
-      v.object({
-        rowId: v.id("managedStorageMigrations"),
-        workspaceId: v.id("workspaces"),
-        envelope: v.string(),
-      }),
-    ),
-    unreadable: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("managedStorageMigrations")
-      .take(args.limit);
-    const candidates = [];
-    let unreadable = 0;
-    for (const row of rows) {
-      const envelope = row.encryptedTargetSecretAccessKey;
-      let keyId: string;
-      try {
-        keyId = envelopeKeyId(envelope);
-      } catch {
-        unreadable += 1;
-        continue;
-      }
-      if (keyId !== args.currentKeyId) {
-        candidates.push({
-          rowId: row._id,
-          workspaceId: row.workspaceId,
-          envelope,
-        });
-      }
-    }
-    return { candidates, unreadable };
-  },
+  args: rekeyPlatform.listManagedMigrationRekeyCandidatesArgs,
+  returns: rekeyPlatform.listManagedMigrationRekeyCandidatesReturns,
+  handler: rekeyPlatform.listManagedMigrationRekeyCandidatesHandler,
 });
 
 export const applyManagedMigrationRekey = internalMutation({
-  args: {
-    rowId: v.id("managedStorageMigrations"),
-    expectedEnvelope: v.string(),
-    envelope: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.rowId);
-    if (
-      row === null ||
-      row.encryptedTargetSecretAccessKey !== args.expectedEnvelope
-    ) {
-      return false;
-    }
-    await ctx.db.patch(row._id, {
-      encryptedTargetSecretAccessKey: args.envelope,
-      updatedAt: Date.now(),
-    });
-    await recordAudit(ctx, {
-      workspaceId: row.workspaceId,
-      action: "storage.rekeyed",
-    });
-    return true;
-  },
+  args: rekeyPlatform.applyManagedMigrationRekeyArgs,
+  returns: rekeyPlatform.applyManagedMigrationRekeyReturns,
+  handler: rekeyPlatform.applyManagedMigrationRekeyHandler,
 });
 
 /**
@@ -2141,26 +793,7 @@ export const applyManagedMigrationRekey = internalMutation({
  */
 export const rekeyStorageBindings = internalAction({
   args: { limit: v.optional(v.number()) },
-  returns: v.object({
-    rekeyed: v.number(),
-    skipped: v.number(),
-    unreadable: v.number(),
-    dataKeysRekeyed: v.number(),
-    dataKeysSkipped: v.number(),
-    dataKeysUnreadable: v.number(),
-    googleConnectionsRekeyed: v.number(),
-    googleConnectionsSkipped: v.number(),
-    googleConnectionsUnreadable: v.number(),
-    providerCredentialsRekeyed: v.number(),
-    providerCredentialsSkipped: v.number(),
-    providerCredentialsUnreadable: v.number(),
-    platformSecretsRekeyed: v.number(),
-    platformSecretsSkipped: v.number(),
-    platformSecretsUnreadable: v.number(),
-    managedMigrationsRekeyed: v.number(),
-    managedMigrationsSkipped: v.number(),
-    managedMigrationsUnreadable: v.number(),
-  }),
+  returns: validators.rekeyStorageBindingsReturns,
   handler: async (ctx, args): Promise<RekeyResult> => {
     const keyset = requireKeyset();
     const limit = Math.min(Math.max(args.limit ?? REKEY_BATCH_SIZE, 1), 200);
@@ -2391,202 +1024,11 @@ export const rekeyStorageBindings = internalAction({
   },
 });
 
-/**
- * What the dashboard is allowed to see: is it connected, to what, and does it
- * support conditional writes.
- *
- * Any member may read this. Knowing that your context is healthy is not a
- * privileged operation, and hiding it from read-only members just means they
- * cannot tell a broken bucket from an empty one. The access key id is masked
- * and the secret is not present in any form.
- */
 export const getStorageBinding = query({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      provider: v.string(),
-      endpoint: v.optional(v.string()),
-      region: v.optional(v.string()),
-      bucket: v.optional(v.string()),
-      rootPrefix: v.optional(v.string()),
-      maskedAccessKeyId: v.optional(v.string()),
-      forcePathStyle: v.optional(v.boolean()),
-      /**
-       * Whose Dropbox this is — `dbid:…`, never a token. Absent for every
-       * other provider, and absent for a Dropbox binding nobody has finished
-       * connecting yet.
-       *
-       * Not gated by role: it identifies an account the same way `bucket`
-       * identifies a bucket, and every member of a context can already see
-       * that. It is a live read of the row, so a reconnect onto a different
-       * Dropbox account is reflected the moment the binding is patched — the
-       * console never caches the account it showed last.
-       */
-      dropboxAccountId: v.optional(v.string()),
-      capabilities: capabilitiesValidator,
-      status: v.string(),
-      lastVerifiedAt: v.optional(v.number()),
-      lastError: v.optional(v.string()),
-      /**
-       * A code from a closed set, so a client can branch on the failure
-       * without matching on provider prose. See the schema's `errorCode`.
-       */
-      errorCode: v.optional(v.string()),
-      /**
-       * WHAT ONBOARDING BRANCHES ON.
-       *
-       * `scaffoldReason === "existing-context"` means this bucket already holds
-       * a context: say so and use it, and do **not** ask which folder layout
-       * they want. `"empty"` is the only value that makes that question worth
-       * asking. See the schema for the full set.
-       *
-       * Both absent until something has verified the binding. Neither is a
-       * credential, a key name, or note content — `scaffolded` is a boolean we
-       * computed and `scaffoldReason` is a code from a closed set we chose, so
-       * neither can carry provider text.
-       */
-      scaffolded: v.optional(v.boolean()),
-      scaffoldReason: v.optional(v.string()),
-      /**
-       * WHAT IS STILL NOT THERE, WHEN `scaffoldReason` IS `partial`.
-       *
-       * A layout whose `privacy.md` landed and whose `3-resources/README.md`
-       * did not is a working context with a gap, and this is the gap: bucket
-       * keys, ours, generated. Say so plainly and offer to try again — do not
-       * dress a `partial` up as a failure, and do not hide it either. Empty or
-       * absent means nothing is outstanding.
-       */
-      scaffoldMissing: v.optional(v.array(v.string())),
-      /**
-       * HOW MANY NOTES, AND WHEN SOMETHING LAST LOOKED.
-       *
-       * All three absent until a verification has walked the bucket, **and
-       * absent to everyone but the owner.**
-       *
-       * The count is of every Markdown file in the bucket, private ones
-       * included, while a member of somebody else's context may read only the
-       * `team` tier. Handing them the total would let them derive exactly how
-       * much they are not being shown — an exact private-note count for a
-       * person who deliberately shared a subset. Roles clamp what a client may
-       * *read* in three places already; this is the same rule applied to a
-       * number about the same notes.
-       *
-       * A client must render nothing rather than a zero when they are absent —
-       * see the schema. `noteCountTruncated` means `noteCount` is a floor; say
-       * "40,000+", never "40,000".
-       */
-      noteCount: v.optional(v.number()),
-      noteCountedAt: v.optional(v.number()),
-      noteCountTruncated: v.optional(v.boolean()),
-      /**
-       * Where the storage-layout migration got to, and when we last heard.
-       *
-       * Absent means nobody has run it through us, which is the only state
-       * that still offers it — see `lib/storageLayout.ts` for the other six.
-       *
-       * Not clamped to the owner, unlike `noteCount`. That number is about
-       * private notes and this is about our own plumbing: it names no key and
-       * counts nothing of the customer's. Every member of a context can
-       * already see its provider, its bucket and its verification status, and
-       * this says less than any of them.
-       */
-      storageLayoutState: v.optional(storageLayoutStateValidator),
-      storageLayoutAt: v.optional(v.number()),
-      /**
-       * Whether the bucket has been *asked*, which is the half that decides
-       * whether the console offers at all. Absent state plus absent checked is
-       * "nobody has looked"; absent state with this set is the real "nobody
-       * has run it". See the schema column for what conflating them cost.
-       */
-      storageLayoutCheckedAt: v.optional(v.number()),
-      /**
-       * Which generation of the question that answer came from, so a console
-       * can tell an answer the current probe stands behind from one the
-       * probe before it got wrong. `storageLayoutAnswerIsCurrent` is the
-       * predicate, and the console and `observeStorageLayout` share it rather
-       * than each deciding — a console that thought the question was open
-       * while the mutation refused to ask it would put the notice back on
-       * exactly the buckets this closed it for.
-       */
-      storageLayoutCheckedVersion: v.optional(v.number()),
-      updatedAt: v.number(),
-      /** True only for the deterministic bucket this service operates. */
-      managed: v.boolean(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const { membership } = await requireWorkspaceAccess(
-      ctx,
-      args.workspaceId,
-      userId,
-    );
-    const isOwner = membership.role === "owner";
-
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (binding === null) return null;
-
-    return {
-      provider: binding.provider,
-      endpoint: binding.endpoint,
-      region: binding.region,
-      bucket: binding.bucket,
-      rootPrefix: binding.rootPrefix,
-      // Absent for Dropbox, which has no access key. `undefined` rather than
-      // an empty string, so the console renders nothing instead of a masked
-      // credential that does not exist.
-      maskedAccessKeyId: binding.accessKeyId
-        ? maskAccessKeyId(binding.accessKeyId)
-        : undefined,
-      forcePathStyle: binding.forcePathStyle,
-      dropboxAccountId: binding.dropboxAccountId,
-      capabilities: binding.capabilities,
-      status: binding.status,
-      lastVerifiedAt: binding.lastVerifiedAt,
-      lastError: binding.lastError,
-      errorCode: binding.errorCode,
-      scaffolded: binding.scaffolded,
-      scaffoldReason: binding.scaffoldReason,
-      scaffoldMissing: binding.scaffoldMissing,
-      // Owner only. See the validator above: this is a number about private
-      // notes, and a member of this context cannot read them.
-      noteCount: isOwner ? binding.noteCount : undefined,
-      noteCountedAt: isOwner ? binding.noteCountedAt : undefined,
-      noteCountTruncated: isOwner ? binding.noteCountTruncated : undefined,
-      storageLayoutState: binding.storageLayoutState,
-      storageLayoutAt: binding.storageLayoutAt,
-      storageLayoutCheckedAt: binding.storageLayoutCheckedAt,
-      storageLayoutCheckedVersion: binding.storageLayoutCheckedVersion,
-      updatedAt: binding.updatedAt,
-      managed: binding.bucket === managedBucketName(args.workspaceId),
-    };
-  },
+  args: bindingView.getStorageBindingArgs,
+  returns: bindingView.getStorageBindingReturns,
+  handler: bindingView.getStorageBindingHandler,
 });
-
-/**
- * How often one workspace may ask us to talk to its bucket again.
- *
- * The endpoint is a URL a customer typed, and re-verifying makes us issue an
- * outbound HTTPS request to it. Unlimited, that is a request amplifier pointed
- * at somebody else's infrastructure with our egress IP on it, and a way to keep
- * an action runtime busy for `REQUEST_TIMEOUT_MS` at a time.
- *
- * Keyed by **workspace**, not by user, because the workspace is what has an
- * endpoint. Keying it to the person would let two owners of a shared context
- * double the rate against one bucket, and would throttle an owner of five
- * contexts for checking each of them once.
- *
- * A handful an hour is far more than a person clicking "check again" needs, and
- * far less than a useful probe rate. `lib/rateLimit.ts` counts successful
- * mutations in a fixed window, so the true worst case is `limit * 2` across a
- * window boundary; at this size that does not matter.
- */
-const REVERIFY_LIMIT = 6;
-const REVERIFY_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Ask this bucket where the storage-layout migration got to, and run nothing.
@@ -2676,17 +1118,6 @@ export const observeStorageLayout = mutation({
 });
 
 /**
- * The guard above spends itself after one success, so this is only ever the
- * ceiling on *unsuccessful* probes — a bucket that will not answer, asked
- * again by a console that mounted again. Low, because nobody is waiting on it:
- * it is a background reconcile, and the cost of a refusal is that a notice
- * somebody can already dismiss stays up a while longer.
- */
-const OBSERVE_LAYOUT_LIMIT = 4;
-const OBSERVE_LAYOUT_WINDOW_MS = 60 * 60 * 1000;
-
-
-/**
  * Check an existing binding again, without re-supplying the credential.
  *
  * ## Why this has to exist
@@ -2733,15 +1164,7 @@ const OBSERVE_LAYOUT_WINDOW_MS = 60 * 60 * 1000;
  */
 export const reverifyStorage = mutation({
   args: { workspaceId: v.id("workspaces") },
-  returns: v.object({
-    queued: v.boolean(),
-    /**
-     * The status *before* the probe. The probe has not run yet — it cannot
-     * have, it is scheduled — so anything else here would be a guess. Watch
-     * `getStorageBinding` for the outcome.
-     */
-    status: v.string(),
-  }),
+  returns: validators.reverifyStorageReturns,
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
@@ -2784,9 +1207,6 @@ export const reverifyStorage = mutation({
     return { queued: true, status: binding.status };
   },
 });
-
-/** Bindings one sweep may re-probe. Matches the other sweeps in `crons.ts`. */
-export const CAPABILITY_SWEEP_BATCH = 20;
 
 /**
  * Re-probe a binding that predates a capability field, so the field reaches it.
