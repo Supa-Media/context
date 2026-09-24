@@ -247,6 +247,16 @@ import {
   markActivitySeenHandler,
   markWorkspaceActivityHandler,
 } from "./lib/filesFns/activityMarks";
+import {
+  archiveEntryHandler,
+  copyEntryHandler,
+  createDirectoryHandler,
+  deleteEntryHandler,
+  duplicateEntryHandler,
+  moveEntryHandler,
+  restoreTrashEntryHandler,
+  trashEntryHandler,
+} from "./lib/filesFns/entries";
 export { scopeForRole, resolveFileAccess, callerId } from "./lib/filesFns/access";
 export { executeOperation } from "./lib/filesFns/executeOperation";
 
@@ -2880,31 +2890,7 @@ export const removeNoteEncryption = action({
 export const createDirectory = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: folderCreatedValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "folderCreated" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "createFolder", path: args.path },
-    })) as Extract<OperationResult, { kind: "folderCreated" }>;
-
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "folder.create",
-      paths: [result.path],
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "folderCreated" }>> => await createDirectoryHandler(ctx, args),
 });
 
 /** Move or rename a file or folder. Requires `editor`. */
@@ -2922,102 +2908,21 @@ export const moveEntry = action({
     expectedEtag: v.optional(v.string()),
   },
   returns: movedValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      actorName,
-      operation: {
-        kind: "move",
-        from: args.from,
-        to: args.to,
-        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
-      },
-    })) as Extract<OperationResult, { kind: "moved" }>;
-
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.move",
-      paths: [result.from, result.to],
-      details: { files: result.paths.length },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await moveEntryHandler(ctx, args),
 });
 
 /** Paste a copy at an explicit destination. Requires `editor`. */
 export const copyEntry = action({
   args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
   returns: movedValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "copy", from: args.from, to: args.to },
-    })) as Extract<OperationResult, { kind: "moved" }>;
-
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.copy",
-      paths: [result.from, result.to],
-      details: { files: result.paths.length },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await copyEntryHandler(ctx, args),
 });
 
 /** Copy beside itself under a free "… copy" name. Requires `editor`. */
 export const duplicateEntry = action({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: movedValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "duplicate", path: args.path },
-    })) as Extract<OperationResult, { kind: "moved" }>;
-
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.duplicate",
-      paths: [result.from, result.to],
-      details: { files: result.paths.length },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await duplicateEntryHandler(ctx, args),
 });
 
 /**
@@ -3034,37 +2939,7 @@ export const archiveEntry = action({
     expectedEtag: v.optional(v.string()),
   },
   returns: movedValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      actorName,
-      operation: {
-        kind: "archive",
-        path: args.path,
-        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
-      },
-    })) as Extract<OperationResult, { kind: "moved" }>;
-
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.archive",
-      paths: [result.from, result.to],
-      details: { files: result.paths.length, recoverable: true },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await archiveEntryHandler(ctx, args),
 });
 
 /** Move an entry into hidden, recoverable trash. Requires `editor`. */
@@ -3076,60 +2951,14 @@ export const trashEntry = action({
     expectedEtag: v.optional(v.string()),
   },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: {
-        kind: "trash",
-        path: args.path,
-        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
-      },
-    })) as Extract<OperationResult, { kind: "moved" }>;
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.archive",
-      paths: [result.from, result.to],
-      details: { files: result.paths.length, recoverable: true, trash: true },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await trashEntryHandler(ctx, args),
 });
 
 /** Restore the exact entry returned by `trashEntry`. Requires `editor`. */
 export const restoreTrashEntry = action({
   args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
   returns: movedValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: { kind: "restoreTrash", from: args.from, to: args.to },
-    })) as Extract<OperationResult, { kind: "moved" }>;
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.move",
-      paths: [result.from, result.to],
-      details: { files: result.paths.length, restoredFromTrash: true },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => await restoreTrashEntryHandler(ctx, args),
 });
 
 /**
@@ -3154,36 +2983,7 @@ export const deleteEntry = action({
     confirmation: v.string(),
   },
   returns: deletedValidator,
-  handler: async (
-      ctx,
-      args,
-    ): Promise<Extract<OperationResult, { kind: "deleted" }>> => {
-    const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "editor",
-    });
-    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope,
-      grantedNames,
-      operation: {
-        kind: "delete",
-        path: args.path,
-        confirmation: args.confirmation,
-      },
-    })) as Extract<OperationResult, { kind: "deleted" }>;
-
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "file.delete",
-      paths: result.paths,
-      details: { recoverable: false },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "deleted" }>> => await deleteEntryHandler(ctx, args),
 });
 
 /**
