@@ -15,6 +15,8 @@ import { RangeSet, type EditorState, type Range } from "@codemirror/state";
 import { Decoration, type DecorationSet } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { FormWidget, formFences, formHost } from "../formBlock";
+import { ListWidget } from "../listBlock/widget";
+import { listFences, listHost } from "../listBlock/model";
 /*
   Images are a separate module for the reason `formBlock.ts` is one: the grammar
   and the gestures are testable without a tree, and this file is already the
@@ -196,6 +198,11 @@ export function decorationsFor(state: EditorState): DecorationSet {
   */
   const forms = formFences(state, frontEnd);
   /*
+    A `list` fence is replaced the same way; it gives its source back when the
+    caret reaches it, like a diagram — see `listFences`.
+  */
+  const lists = listFences(state, frontEnd);
+  /*
     A line that is nothing but image embeds is drawn as the images — see
     `imageRows`. Third in the list of block replacements and under the same rule
     as the other two: the passes below keep out of the range it swallows, and it
@@ -213,6 +220,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   const insidePreview = (pos: number): boolean =>
     previews.some((preview) => pos >= preview.from && pos < preview.to) ||
     forms.some((form) => pos >= form.from && pos < form.to) ||
+    lists.some((list) => pos >= list.from && pos < list.to) ||
     rows.some((row) => pos >= row.from && pos < row.to) ||
     insideGrid(pos);
 
@@ -304,6 +312,16 @@ export function decorationsFor(state: EditorState): DecorationSet {
         widget: new FormWidget(form, host),
         block: true,
       }).range(form.from, form.to),
+    );
+  }
+
+  const listHostRef = state.facet(listHost);
+  for (const list of lists) {
+    hides.push(
+      Decoration.replace({
+        widget: new ListWidget(list, listHostRef),
+        block: true,
+      }).range(list.from, list.to),
     );
   }
 

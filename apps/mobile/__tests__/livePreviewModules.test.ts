@@ -94,12 +94,12 @@ describe("every state object is still a single object", () => {
 });
 
 describe("the stylesheet is still one sheet, in its original order", () => {
-  test("the heading ladder opens it and the image rules close it", () => {
+  test("the heading ladder opens it and the folder-list rules close it", () => {
     const css = facade.livePreviewStyles;
     expect(css.startsWith("\n.cm-lp-h1, .cm-lp-h2, .cm-lp-h3, .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 {\n")).toBe(
       true,
     );
-    expect(css.endsWith("  padding: 6px 0;\n}\n")).toBe(true);
+    expect(css.endsWith("  .cm-lp-list-value:not(:last-child) { display: none; }\n}\n")).toBe(true);
   });
 
   test("the slices are joined without a seam", () => {
@@ -111,12 +111,13 @@ describe("the stylesheet is still one sheet, in its original order", () => {
       ["text-decoration-thickness: 1px;\n}\n/*", "AN EDITABLE table"],
       [".cm-lp-rule { color: var(--lp-muted); }\n/*", "A FORM, DRAWN"],
       [".cm-lp-form-hint { font-size: 0.85em; margin-top: 6px; }\n/*", "IMAGES IN A NOTE"],
+      ["  padding: 6px 0;\n}\n/*", "A FOLDER LIST"],
     ] as const) {
       const at = css.indexOf(before);
       expect(at).toBeGreaterThan(-1);
       expect(css.slice(at + before.length, at + before.length + 40)).toContain(after);
     }
-    const order = [".cm-lp-h1 {", ".cm-lp-frontmatter {", ".cm-lp-grid {", ".cm-lp-form {", ".cm-lp-images {"];
+    const order = [".cm-lp-h1 {", ".cm-lp-frontmatter {", ".cm-lp-grid {", ".cm-lp-form {", ".cm-lp-images {", ".cm-lp-list {"];
     const positions = order.map((selector) => css.indexOf(selector));
     expect(positions.every((position) => position > -1)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);

@@ -6,6 +6,7 @@ import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
 import { NoteEditor } from "../../files/NoteEditor";
 import { entryAt } from "../../files/tree";
+import { useFolderLists } from "../../../offline/useFolderLists";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
@@ -67,6 +68,8 @@ export function BrowseDocument({
   notices: ReactNode;
   pathBar: ReactNode;
 }) {
+  // Where a folder list in the open note reads its notes: this device's copy.
+  const folderLists = useFolderLists(current?.id, current?.role);
   /**
    * Where a phone starts, when nothing has been opened yet.
    *
@@ -283,6 +286,7 @@ export function BrowseDocument({
         onVoteForm={files.voteForm}
         onUpdateFormResponse={files.updateFormResponse}
         onRetractFormResponse={files.retractFormResponse}
+        folderLists={folderLists}
         /*
           Images in the note: where the bytes come from, where a pasted one
           goes, and where a refusal is said. All three from `files`, because the
