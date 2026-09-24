@@ -21,7 +21,10 @@ function check(label, condition) {
 }
 
 const SKILLS = new URL("../skills/", import.meta.url);
-const GATEWAY = new URL("../../../apps/mcp/src/index.js", import.meta.url);
+// The whole gateway source, not one file: tool definitions have moved between
+// modules as the gateway was split, and a check pinned to a file path passes
+// silently or fails for the wrong reason when they do.
+const GATEWAY = new URL("../../../apps/mcp/src/", import.meta.url);
 
 /** The tools the skills tell an agent to call, by name. */
 const TOOLS_NAMED = ["orient", "search_notes", "read_note", "write_note", "save_context"];
@@ -56,7 +59,9 @@ for (const folder of folders) {
   );
 }
 
-const gateway = await readFile(GATEWAY, "utf8");
+const gatewayFiles = (await readdir(GATEWAY, { recursive: true })).filter((file) => file.endsWith(".js"));
+const gateway = (await Promise.all(gatewayFiles.map((file) => readFile(new URL(file, GATEWAY), "utf8")))).join("\n");
+check("the gateway source was found", gatewayFiles.length > 10);
 const allSkills = Object.values(texts).join("\n");
 for (const tool of TOOLS_NAMED) {
   check(`the skills name \`${tool}\``, allSkills.includes(`\`${tool}\``));
