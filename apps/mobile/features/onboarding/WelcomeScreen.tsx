@@ -1,14 +1,13 @@
 import type { ReactNode } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useLocalSearchParams, Redirect, useRouter } from "expo-router";
 import { checkoutOutcomeFrom } from "@context/shared";
 import { ScreenScroll } from "../app/Screen";
 import { Text } from "../design/components/Text";
-import { StageBackdrop } from "../design/components/StageBackdrop";
-import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { fonts, layout, leading, pointerType as t, tracking } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { browseHref } from "../console/nav";
-import { STEP_LABELS, stepTitle, stepsFor, type FlowShape, type StepKey } from "./flow";
+import { STEP_LABELS, stepProgress, stepTitle, type FlowShape, type StepKey } from "./flow";
 import { resolveWelcomeRoute } from "./route";
 import { useOnboarding } from "./useOnboarding";
 import { NameStep } from "./steps/NameStep";
@@ -20,6 +19,7 @@ import { ForkStep } from "./redesign/ForkStep";
 import { DryRunStep } from "./redesign/DryRunStep";
 import { ConnectionsContainer, ToolsLiveContainer } from "./steps/ToolsSteps";
 import { INVITE_ROUTE } from "../auth/redirect";
+import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { DoneStep } from "./steps/DoneStep";
 
 /**
@@ -77,6 +77,7 @@ export function WelcomeScreen() {
           router.replace(slug === undefined ? "/console" : browseHref(slug));
         }}
         onOpenInvitations={() => router.push(INVITE_ROUTE)}
+        onNewWorkspace={() => router.push(NEW_WORKSPACE_ROUTE)}
       />
     </WelcomeChrome>
   );
@@ -100,8 +101,7 @@ export function WelcomeChrome({
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const { width } = useWindowDimensions();
-  const titleSize = clamp(27, 3.1, 38, width);
+  const progress = stepProgress(step, shape);
 
   return (
     <ScreenScroll
@@ -114,46 +114,37 @@ export function WelcomeChrome({
       */
       chrome={WELCOME_TAIL}
     >
-      <StageBackdrop />
-      <View style={styles.wrap}>
-        <View style={styles.mark}>
-          <Text variant="mark">
-            Context
-            <Text variant="mark" style={styles.markSuffix}>
-              .lc
-            </Text>
+      {/*
+        The canvas's first-run frame (A-03, A-04, B1-01): the wordmark and where
+        you are on one line, then the question as a plain heading and the step
+        beneath it — no card around it, and no rail of every step's name. The
+        rail named steps a person had not reached yet and might never see, and
+        "Step 3 of 9" says the same thing in four words.
+      */}
+      <View style={styles.header}>
+        <Text variant="mark">
+          Context
+          <Text variant="mark" style={styles.markSuffix}>
+            .lc
           </Text>
-        </View>
+        </Text>
+        {progress === null ? null : (
+          <Text variant="eyebrow" style={styles.progress} testID="welcome-progress">
+            {`Step ${progress.index} of ${progress.total} · ${STEP_LABELS[step]}`}
+          </Text>
+        )}
+      </View>
 
-        <StepRail step={step} shape={shape} />
-
-        <Text
-          role="heading"
-          aria-level={1}
-          style={[
-            styles.title,
-            {
-              fontSize: titleSize,
-              lineHeight: leading(titleSize, 1.05),
-              letterSpacing: tracking(titleSize, -0.03),
-            },
-          ]}
-        >
-          {stepTitle(step)}
+      <View style={styles.wrap}>
+        <Text role="heading" aria-level={1} style={styles.title}>
+          {stepTitle(step, shape)}
         </Text>
 
-        {/*
-          No "Step 2 of 4" line: the rail above already shows where you are, by
-          name, and saying it twice in two formats is the sort of padding this
-          flow is meant to be free of. The count still exists for screen
-          readers, on the rail's own label.
-        */}
-
-        <View style={styles.card}>{children}</View>
+        <View style={styles.body}>{children}</View>
 
         <Text variant="foot" style={styles.foot}>
           Your notes are plain files, in storage that answers to you. Nothing here moves a
-        file you already have, and everything here leaves with you.
+          file you already have, and everything here leaves with you.
         </Text>
       </View>
     </ScreenScroll>
@@ -164,10 +155,12 @@ function StepBody({
   controller,
   onOpenConsole,
   onOpenInvitations,
+  onNewWorkspace,
 }: {
   controller: ReturnType<typeof useOnboarding>;
   onOpenConsole: () => void;
   onOpenInvitations: () => void;
+  onNewWorkspace: () => void;
 }) {
   const workspaceId = controller.claimed?.workspaceId ?? null;
   switch (controller.step) {
@@ -218,44 +211,8 @@ function StepBody({
     case "live":
       return <ToolsLiveContainer workspaceId={workspaceId} onContinue={controller.finishLive} />;
     case "done":
-      return <DoneStep controller={controller} onOpenConsole={onOpenConsole} />;
+      return <DoneStep controller={controller} onOpenConsole={onOpenConsole} onNewWorkspace={onNewWorkspace} />;
   }
-}
-
-/**
- * The steps, as a row of labels rather than a progress bar.
- *
- * A bar implies a percentage, and this flow's length changes when somebody
- * skips storage. Naming the steps is both more honest and more useful — it
- * says what is coming.
- */
-function StepRail({ step, shape }: { step: StepKey; shape: FlowShape }) {
-  const styles = useThemedStyles(makeStyles);
-  const steps = stepsFor(shape);
-  const current = steps.indexOf(step);
-
-  return (
-    <View style={styles.rail} accessibilityLabel={`Step ${current + 1} of ${steps.length}`}>
-      {steps.map((key, index) => (
-        <View key={key} style={styles.railItem}>
-          <View
-            style={[
-              styles.railPip,
-              index < current && styles.railPipDone,
-              index === current && styles.railPipOn,
-            ]}
-            aria-hidden
-          />
-          <Text
-            variant="foot"
-            style={[styles.railLabel, index === current && styles.railLabelOn]}
-          >
-            {STEP_LABELS[key]}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
 }
 
 /** The page's own tail, added to the home indicator rather than replacing it. */
@@ -264,37 +221,35 @@ const WELCOME_TAIL = { bottom: 60 } as const;
 const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground },
   scroll: { minHeight: "100%" },
-  wrap: {
+  header: {
     width: "100%",
-    maxWidth: 640,
+    maxWidth: 620,
     marginHorizontal: "auto",
     paddingHorizontal: layout.gutter,
+    paddingTop: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
   },
-  mark: { alignSelf: "flex-start", paddingTop: 30, marginBottom: 30 },
-  markSuffix: { color: colors.muted },
-  rail: { flexDirection: "row", flexWrap: "wrap", gap: 18, marginBottom: 22 },
-  railItem: { flexDirection: "row", alignItems: "center", gap: 7 },
-  railPip: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.surface3,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
+  markSuffix: { color: colors.accent },
+  progress: { color: colors.muted },
+  wrap: {
+    width: "100%",
+    maxWidth: 520,
+    marginHorizontal: "auto",
+    paddingHorizontal: layout.gutter,
+    marginTop: 32,
   },
-  railPipDone: { backgroundColor: colors.ok, borderColor: colors.ok },
-  railPipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  railLabel: { color: colors.muted },
-  railLabelOn: { color: colors.text },
-  title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text },
-  card: {
-    marginTop: 22,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    backgroundColor: colors.surface2,
-    paddingVertical: 22,
-    paddingHorizontal: 22,
+  title: {
+    fontFamily: fonts.display,
+    fontSize: t.title,
+    lineHeight: leading(30, 1.1),
+    letterSpacing: tracking(30, -0.02),
+    fontWeight: "600",
+    color: colors.text,
   },
-  foot: { marginTop: 22, lineHeight: leading(12.5, 1.6) },
+  body: { marginTop: 14 },
+  foot: { marginTop: 36, lineHeight: leading(12.5, 1.6), color: colors.muted },
 });
