@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { normalizeHostname, relativeRecordName } from "../../functions/lib/customDomains/hostname";
 import { unquoteTxt } from "../../functions/lib/customDomains/dns";
-import { applyCheck, nextCheckDelay, stageOf, CHECK_WINDOW_MS } from "../../functions/lib/customDomains/lifecycle";
+import { applyCheck, nextCheckDelay, stageOf, CHECK_DEADLINE_MS } from "../../functions/lib/customDomains/lifecycle";
 import type { Doc } from "../../_generated/dataModel";
 
 describe("normalizeHostname", () => {
@@ -91,7 +91,7 @@ describe("applyCheck", () => {
   });
 
   test("a run stops after its window and says so", () => {
-    const outcome = applyCheck(row(), { ownership: false, readiness: { routing: false, https: false, problem: null } }, CHECK_WINDOW_MS);
+    const outcome = applyCheck(row(), { ownership: false, readiness: { routing: false, https: false, problem: null } }, CHECK_DEADLINE_MS);
     expect(outcome.patch.problem).toBe("TIMED_OUT");
     expect(outcome.checkAgainIn).toBeNull();
   });

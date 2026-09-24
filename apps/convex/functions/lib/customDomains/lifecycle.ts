@@ -28,7 +28,7 @@ type Row = Doc<"customDomains">;
 export type DomainProblem = NonNullable<Row["problem"]>;
 
 /** How long a run of checks continues before it stops and waits for "Check again". */
-export const CHECK_WINDOW_MS = 72 * 60 * 60 * 1000;
+export const CHECK_DEADLINE_MS = 72 * 60 * 60 * 1000;
 
 /**
  * How long an unverified claim holds its hostname before it is released.
@@ -106,7 +106,7 @@ export function applyCheck(row: Row, findings: CheckFindings, now: number): Chec
     };
   }
 
-  if (now - row.checkingSince >= CHECK_WINDOW_MS) {
+  if (now - row.checkingSince >= CHECK_DEADLINE_MS) {
     return { patch: { ...base, problem: problem ?? "TIMED_OUT" }, checkAgainIn: null };
   }
   return { patch: base, checkAgainIn: nextCheckDelay(row.checkCount) };
