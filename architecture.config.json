@@ -92,7 +92,5 @@
     "docs/deferred/folded-twin-refusals.patch": "One deferred change kept as a patch that deferredPatches.test.ts applies whole; it grew only because its hunks now land in the modules the gateway split moved the code to.",
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
-  "baseline": {
-    "apps/mcp/test/test.mjs": 4798
-  }
+  "baseline": {}
 }

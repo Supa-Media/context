@@ -48,7 +48,7 @@ messages said it had been checked. The check has to run after the tree settles.
 
 It restores four files to the last commit where the write-path apparatus was
 complete, so it also reverts what those files gained afterwards — most notably
-the two exact-delete checks in `apps/mcp/test/test.mjs`, which pin
+the two exact-delete checks in `apps/mcp/test/attachmentsCore.test.mjs`, which pin
 `persistExactVisibility` and `clearExactVisibility` and which exist *because*
 the apparatus is absent. Re-add them; with the refusals back in front of them
 they become defence-in-depth again rather than the load-bearing guards they are
