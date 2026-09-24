@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useConsoleGrant } from "./useConsoleGrant";
+import type { GrantRefresh } from "./consoleGrantCache";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { NO_PROVIDER, type AgentEngine } from "./engine";
 import {
@@ -74,8 +75,8 @@ export function useAgentEngine(options: {
    * costs a whole turn: the person waits for the model, and gets a 401.
    */
   const tokenFor = useCallback(
-    async (force: boolean): Promise<string> => {
-      const minted = await mint({ workspaceId: workspaceId as Id<"workspaces"> }, force);
+    async (refresh: GrantRefresh): Promise<string> => {
+      const minted = await mint({ workspaceId: workspaceId as Id<"workspaces"> }, refresh);
       return minted.accessToken;
     },
     [mint, workspaceId],
@@ -136,10 +137,13 @@ export function useAgentEngine(options: {
 
       let response: Response;
       try {
-        response = await send(await tokenFor(false));
-        // One re-mint, never a loop. See the header.
+        const token = await tokenFor(false);
+        response = await send(token);
+        // One re-mint, never a loop. See the header. Naming the refused token
+        // lets the shared cache hand over a replacement another consumer
+        // already minted instead of revoking it with a mint of its own.
         if (response.status === 401 || response.status === 403) {
-          response = await send(await tokenFor(true));
+          response = await send(await tokenFor({ rejected: token }));
         }
       } catch {
         /*

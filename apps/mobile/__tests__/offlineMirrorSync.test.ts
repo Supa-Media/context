@@ -5,12 +5,15 @@ import {
   mirroredAncestor,
   mirroredListing,
   mirroredNote,
+  mirroredTree,
+  treeOf,
   putMirroredNotes,
   readIndex,
   type Needed,
 } from "../features/offline/mirror";
 import { memoryMirrorStore, type MirrorStore } from "../features/offline/mirrorStoreCore";
 import {
+  refreshMetadata,
   syncAll,
   syncContext,
   type BatchRead,
@@ -298,8 +301,9 @@ describe("a first sync does not rewrite the index per batch", () => {
     const run = await syncContext(deps({ store: counted }), { workspaceId: W1, tier: "private" });
     expect(run?.complete).toBe(true);
     expect((await readIndex(store, "private", W1))?.entries.size).toBe(600);
-    // Three commits of up to 250 and the final reconcile — not twelve batches.
-    expect(indexWrites).toBeLessThanOrEqual(4);
+    // The metadata, three commits of up to 250 and the final reconcile — not
+    // twelve batches.
+    expect(indexWrites).toBeLessThanOrEqual(5);
   });
 });
 
@@ -423,13 +427,23 @@ describe("the clearance decides everything, and an unknown one decides nothing",
     expect((await readIndex(store, "private", W2))?.entries.size).toBe(1);
   });
 
-  test("contexts are synced one after another, never interleaved", async () => {
+  test("every context's metadata is listed before any body is read, then bodies one context at a time", async () => {
     await syncAll(deps(), [
       { workspaceId: W1, tier: "private" },
       { workspaceId: W2, tier: "team" },
     ]);
-    const firstW2 = calls.findIndex((call) => call.includes(`:${W2}:`));
-    const lastW1 = calls.map((call) => call.includes(`:${W1}:`)).lastIndexOf(true);
+    // Metadata first: W2's tree must not wait on W1's downloads.
+    const lastManifest = calls.map((call) => call.startsWith("manifest:")).lastIndexOf(true);
+    const firstRead = calls.findIndex((call) => call.startsWith("read:"));
+    expect(calls.filter((call) => call.startsWith("manifest:"))).toEqual([
+      `manifest:${W1}:`,
+      `manifest:${W2}:`,
+    ]);
+    expect(lastManifest).toBeLessThan(firstRead);
+    // Bodies still one context after another, never interleaved.
+    const reads = calls.filter((call) => call.startsWith("read:"));
+    const firstW2 = reads.findIndex((call) => call.includes(`:${W2}:`));
+    const lastW1 = reads.map((call) => call.includes(`:${W1}:`)).lastIndexOf(true);
     expect(lastW1).toBeLessThan(firstW2);
   });
 });
@@ -555,5 +569,168 @@ describe("a listing is derived for every folder, opened before or not", () => {
     // A folder row's badge, with no listing ever seen: its direct note's rule.
     expect(deep?.value.folderDefault).toBe("team");
     expect(await mirroredListing(store, "private", W1, "nowhere")).toBeNull();
+  });
+});
+
+/**
+ * The tree is metadata, and it arrives before the bodies do.
+ *
+ * The console draws its file tree from the index (`treeOf`), so every path
+ * the manifest names has to be in the index before the first body is asked
+ * for — and a path with no body yet must be drawn, never served as a note,
+ * and never counted as on the device. Sabotage-checked: committing metadata
+ * only at the end fails "the tree is committed before the first body is read";
+ * dropping the superseded guard fails "an older walk does not undo a newer one".
+ */
+describe("the tree is committed before the first body is read", () => {
+  test("every listed path is in the index, bodiless, when the first read goes out", async () => {
+    let atFirstRead: Awaited<ReturnType<typeof mirroredTree>> = null;
+    let listedBeforeRead = false;
+    const run = await syncContext(
+      deps({
+        onListed: () => {
+          listedBeforeRead = !calls.some((call) => call.startsWith("read:"));
+        },
+        readNotes: async (workspaceId, paths) => {
+          atFirstRead ??= await mirroredTree(store, "private", W1);
+          calls.push(`read:${workspaceId}:${paths.join(",")}`);
+          return paths.map((path): BatchRead => {
+            const found = buckets[workspaceId]!.find((note) => note.path === path)!;
+            return { path, outcome: "read", note: noteOf(found) };
+          });
+        },
+      }),
+      { workspaceId: W1, tier: "private" },
+    );
+    expect(run?.complete).toBe(true);
+    expect(listedBeforeRead).toBe(true);
+    const tree = atFirstRead!.value;
+    expect(tree.get("1-projects/deep")?.entries.map((entry) => entry.path)).toEqual([
+      "1-projects/deep/plan.md",
+    ]);
+    expect(tree.get("")?.entries.map((entry) => entry.path)).toEqual([
+      "1-projects",
+      "assets",
+      "index.md",
+    ]);
+  });
+
+  test("a note listed but not yet downloaded is drawn and never served or counted", async () => {
+    await refreshMetadata(deps(), { workspaceId: W1, tier: "private" });
+    expect(calls.filter((call) => call.startsWith("read:"))).toEqual([]);
+    const index = (await readIndex(store, "private", W1))!;
+    expect(index.entries.get("1-projects/pilot.md")?.body).toBe(false);
+    expect(index.listedComplete).toBe(true);
+    // Not downloaded: the tree has it, the reader does not.
+    expect(await mirroredNote(store, "private", W1, "1-projects/pilot.md")).toBeNull();
+    expect(listingOf(index, "1-projects")?.entries.map((entry) => entry.path)).toContain(
+      "1-projects/pilot.md",
+    );
+    // `complete` is about bodies, and none are here.
+    expect(index.complete).not.toBe(true);
+  });
+
+  test("the manifest's folders are drawn exactly, empty ones included, and a folder that went goes", async () => {
+    const withFolders = (folders: string[]) =>
+      deps({
+        manifest: async (workspaceId) => ({
+          entries: manifestOf(buckets[workspaceId] ?? []),
+          folders: [
+            { path: "", visibility: "private" },
+            ...folders.map((path) => ({ path, visibility: "team" as const })),
+          ],
+          cursor: null,
+          truncated: false,
+          manifestUsable: true,
+        }),
+      });
+    await refreshMetadata(withFolders(["1-projects", "1-projects/deep", "assets", "empty"]), {
+      workspaceId: W1,
+      tier: "private",
+    });
+    let tree = treeOf((await readIndex(store, "private", W1))!);
+    expect(tree.get("")?.entries.map((entry) => entry.path)).toEqual([
+      "1-projects",
+      "assets",
+      "empty",
+      "index.md",
+    ]);
+    expect(tree.get("empty")?.entries).toEqual([]);
+    // The server's word for a folder's default beats a guess from its notes.
+    expect(tree.get("1-projects")?.folderDefault).toBe("team");
+
+    // Somebody deletes the empty folder elsewhere; a complete walk no longer
+    // names it, so it leaves the tree.
+    await refreshMetadata(
+      deps({
+        now: () => 2_000,
+        manifest: withFolders(["1-projects", "1-projects/deep", "assets"]).manifest,
+      }),
+      { workspaceId: W1, tier: "private" },
+    );
+    tree = treeOf((await readIndex(store, "private", W1))!);
+    expect(tree.has("empty")).toBe(false);
+  });
+
+  test("an incomplete walk adds what it saw and removes nothing", async () => {
+    await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    buckets[W1] = [{ path: "new/idea.md", text: "idea\n", etag: "n1" }];
+    pageOverride = (workspaceId) => ({
+      entries: manifestOf(buckets[workspaceId] ?? []),
+      cursor: null,
+      truncated: true,
+      manifestUsable: true,
+    });
+    await refreshMetadata(deps({ now: () => 2_000 }), { workspaceId: W1, tier: "private" });
+    const index = (await readIndex(store, "private", W1))!;
+    expect(index.listedComplete).toBe(false);
+    expect(index.entries.has("new/idea.md")).toBe(true);
+    expect(index.entries.has("1-projects/pilot.md")).toBe(true);
+  });
+
+  test("an older walk does not undo a newer one", async () => {
+    // A long sync lists at t=1000, then — while its bodies download — the
+    // console's own refresh lists at t=2000 and sees a note created meanwhile.
+    let clock = 1_000;
+    const slow = deps({
+      now: () => clock,
+      readNotes: async (workspaceId, paths) => {
+        if (clock === 1_000) {
+          clock = 2_000;
+          buckets[W1]!.push({ path: "1-projects/fresh.md", text: "fresh\n", etag: "f1" });
+          await refreshMetadata(deps({ now: () => 2_000 }), { workspaceId: W1, tier: "private" });
+        }
+        return paths.map((path): BatchRead => {
+          const found = buckets[workspaceId]!.find((note) => note.path === path)!;
+          return { path, outcome: "read", note: noteOf(found) };
+        });
+      },
+    });
+    await syncContext(slow, { workspaceId: W1, tier: "private" });
+    const index = (await readIndex(store, "private", W1))!;
+    // The older, complete listing never named it — and must not prune it.
+    expect(index.entries.has("1-projects/fresh.md")).toBe(true);
+    expect(index.listedAt).toBe(2_000);
+  });
+});
+
+describe("treeOf is every listingOf at once", () => {
+  test("each folder's listing matches the one derived on its own", async () => {
+    buckets[W1]!.push(
+      { path: "a/b/c/d.md", text: "d\n", etag: "d1", visibility: "team" },
+      { path: "a/x.md", text: "x\n", etag: "x1" },
+    );
+    await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    const index = (await readIndex(store, "private", W1))!;
+    const tree = treeOf(index);
+    expect([...tree.keys()].sort()).toEqual(
+      ["", "1-projects", "1-projects/deep", "a", "a/b", "a/b/c", "assets"].sort(),
+    );
+    // A folder with no note of its own takes the badge of the first note beneath it.
+    expect(tree.get("a/b")?.folderDefault).toBe("team");
+    expect(tree.get("a")?.entries.map((entry) => `${entry.kind}:${entry.path}`)).toEqual([
+      "folder:a/b",
+      "file:a/x.md",
+    ]);
   });
 });

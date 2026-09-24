@@ -6,6 +6,7 @@ import {
   updateIndex,
   type IncompleteReason,
   type MirrorEntry,
+  type MirrorIndex,
   type Needed,
 } from "./mirror";
 import type { MirrorStore } from "./mirrorStoreCore";
@@ -66,8 +67,20 @@ export interface ManifestEntry {
   readOnly: boolean;
 }
 
+/** One `syncManifest` folder. Mirrors `ManifestFolder` in `lib/fileOps.ts`. */
+export interface ManifestFolder {
+  path: string;
+  visibility: Visibility;
+}
+
 export interface ManifestPage {
   entries: ManifestEntry[];
+  /**
+   * Every folder the tree would draw at this clearance, empty ones included.
+   * Absent from a server older than the field, and then the folders are
+   * whatever the paths imply.
+   */
+  folders?: ManifestFolder[];
   cursor: string | null;
   truncated: boolean;
   manifestUsable: boolean;
@@ -98,6 +111,12 @@ export interface MirrorSyncDeps {
   mine: () => boolean;
   now: () => number;
   onProgress?: (workspaceId: string, progress: MirrorProgress) => void;
+  /**
+   * A context's metadata — every path and folder, no bodies — has just been
+   * committed to its index. The console redraws its tree from this, long
+   * before the notes themselves have arrived.
+   */
+  onListed?: (workspaceId: string) => void;
   /** Tests only. */
   batchSize?: number;
   concurrency?: number;
@@ -130,11 +149,35 @@ export const MIRROR_CONCURRENCY = 2;
  */
 export const MAX_MANIFEST_PAGES = 100;
 
-/** Sync one context. `null` when there is nothing this run may do for it. */
-export async function syncContext(
+/**
+ * What one walk of a context's manifest found: the metadata, before a single
+ * body is read. The console's tree is drawn from this; the bodies follow.
+ */
+export interface ContextListing {
+  workspaceId: string;
+  scope: CacheScope;
+  listed: Map<string, ManifestEntry>;
+  /**
+   * The folders, exactly, when the server said them on every page; `null` for
+   * a server older than the field, where a folder is whatever paths imply.
+   */
+  folders: Map<string, Visibility> | null;
+  complete: boolean;
+  incomplete?: IncompleteReason;
+  manifestUsable: boolean;
+  /** When the walk started — what the listing is at least as new as. */
+  listedAt: number;
+}
+
+/**
+ * Walk a context's manifest. `null` when there is nothing this run may do for
+ * it, `"aborted"` when the session ended part-way, and an empty `listed` with
+ * `incomplete` when not one page arrived.
+ */
+async function listContext(
   deps: MirrorSyncDeps,
   target: { workspaceId: string; tier: VisibilityTier },
-): Promise<MirrorRun | null> {
+): Promise<(ContextListing & { pagesListed: number }) | "aborted" | null> {
   /*
     `unknown` downloads nothing and deletes nothing. It is the moment before a
     role has landed, or a role a newer control plane invented, and there is no
@@ -145,15 +188,11 @@ export async function syncContext(
   if (target.tier === "unknown") return null;
   const scope: CacheScope = target.tier;
   const { workspaceId } = target;
-  const { store, epoch } = deps;
   if (!deps.mine()) return null;
-
-  const run: MirrorRun = { workspaceId, scope, complete: false, fetched: 0, pruned: 0, remaining: 0 };
-  const aborted = (): MirrorRun => ({ ...run, aborted: true });
-
-  /* -------------------------------- 1. list ------------------------------- */
+  const listedAt = deps.now();
 
   const listed = new Map<string, ManifestEntry>();
+  let folders: Map<string, Visibility> | null = new Map();
   let complete = true;
   let incomplete: IncompleteReason | undefined;
   let manifestUsable = true;
@@ -177,12 +216,19 @@ export async function syncContext(
       incomplete = "interrupted";
       break;
     }
-    if (!deps.mine()) return aborted();
+    if (!deps.mine()) return "aborted";
     pagesListed += 1;
     manifestUsable = result.manifestUsable;
     for (const entry of result.entries) {
       if (entry.path.endsWith("/")) continue;
       listed.set(entry.path, entry);
+    }
+    // One page without the field and the set is not exact: a folder another
+    // page would have named is missing, and "missing" must not read as "gone".
+    if (Array.isArray(result.folders) && folders !== null) {
+      for (const folder of result.folders) folders.set(folder.path, folder.visibility);
+    } else {
+      folders = null;
     }
     if (result.truncated) {
       complete = false;
@@ -200,6 +246,141 @@ export async function syncContext(
     seenCursors.add(result.cursor);
     cursor = result.cursor;
   }
+  return {
+    workspaceId,
+    scope,
+    listed,
+    folders,
+    complete,
+    ...(incomplete === undefined ? {} : { incomplete }),
+    manifestUsable,
+    listedAt,
+    pagesListed,
+  };
+}
+
+/**
+ * Commit a listing's metadata to the index, before any body is fetched.
+ *
+ * A path new to the device becomes an entry with no body — drawn in the tree,
+ * never served as a note, and never counted as on the device. An existing
+ * entry takes the listing's visibility fields (they change without the
+ * version changing, when `privacy.md` does) but keeps the version its body is
+ * at, so the fetch that follows still sees what changed. A complete listing
+ * prunes what it did not name, exactly as the end of a sync always has; an
+ * incomplete one prunes nothing.
+ *
+ * A listing older than the one the index was last committed from is dropped:
+ * two walks can overlap — a sync's and the console's own refresh — and the
+ * older must not undo the newer.
+ */
+async function commitListing(
+  deps: MirrorSyncDeps,
+  listing: ContextListing,
+): Promise<{ pruned: number } | null> {
+  const { store, epoch } = deps;
+  const { scope, workspaceId, listed, complete } = listing;
+  const now = deps.now();
+  let pruned = 0;
+  const committed = await updateIndex(store, epoch, scope, workspaceId, async (index) => {
+    if (index.listedAt !== undefined && index.listedAt > listing.listedAt) return false;
+    for (const entry of listed.values()) {
+      const local = index.entries.get(entry.path);
+      if (local === undefined) {
+        index.entries.set(entry.path, {
+          ...fieldsOf(entry),
+          // A note's `etag` is its body's version, and it has none yet.
+          etag: isNotePath(entry.path) ? "" : (entry.etag ?? ""),
+          ...(entry.size !== undefined ? { size: entry.size } : {}),
+          body: false,
+          syncedAt: now,
+        });
+        continue;
+      }
+      index.entries.set(entry.path, {
+        ...local,
+        ...fieldsOf(entry),
+        ...(!local.body && entry.size !== undefined ? { size: entry.size } : {}),
+        ...(!isNotePath(entry.path) ? { etag: entry.etag ?? "" } : {}),
+      });
+    }
+    if (complete) {
+      for (const path of [...index.entries.keys()]) {
+        if (listed.has(path)) continue;
+        await store.removeBody(scope, workspaceId, "current", path);
+        await store.removeBody(scope, workspaceId, "base", path);
+        index.entries.delete(path);
+        pruned += 1;
+      }
+    }
+    if (listing.folders !== null && complete) {
+      index.folders = new Map(listing.folders);
+    } else if (listing.folders !== null) {
+      for (const [folder, visibility] of listing.folders) index.folders.set(folder, visibility);
+    } else if (complete) {
+      pruneUnoccupiedFolders(index);
+    }
+    index.listedComplete = complete;
+    index.listedAt = listing.listedAt;
+    index.manifestUsable = listing.manifestUsable;
+    return true;
+  });
+  return committed ? { pruned } : null;
+}
+
+/**
+ * Walk one context's manifest and commit its metadata — no bodies. What the
+ * console asks for when a person opens a context, so the tree is current
+ * before any download starts. `false` when nothing was committed.
+ */
+export async function refreshMetadata(
+  deps: MirrorSyncDeps,
+  target: { workspaceId: string; tier: VisibilityTier },
+): Promise<boolean> {
+  const listing = await listContext(deps, target);
+  if (listing === null || listing === "aborted" || listing.pagesListed === 0) return false;
+  const committed = await commitListing(deps, listing);
+  if (committed !== null && deps.mine()) deps.onListed?.(listing.workspaceId);
+  return committed !== null;
+}
+
+/** Sync one context. `null` when there is nothing this run may do for it. */
+export async function syncContext(
+  deps: MirrorSyncDeps,
+  target: { workspaceId: string; tier: VisibilityTier },
+): Promise<MirrorRun | null> {
+  const listing = await listContext(deps, target);
+  if (listing === null) return null;
+  if (listing === "aborted") return abortedRun(target);
+  return fetchContext(deps, listing, { committed: false });
+}
+
+function abortedRun(target: { workspaceId: string; tier: VisibilityTier }): MirrorRun {
+  return {
+    workspaceId: target.workspaceId,
+    scope: target.tier as CacheScope,
+    complete: false,
+    fetched: 0,
+    pruned: 0,
+    remaining: 0,
+    aborted: true,
+  };
+}
+
+/**
+ * Commit a listing's metadata (unless `syncAll` already has), then fetch the
+ * bodies it says changed, then reconcile.
+ */
+async function fetchContext(
+  deps: MirrorSyncDeps,
+  listing: ContextListing & { pagesListed: number },
+  options: { committed: { pruned: number } | null | false },
+): Promise<MirrorRun> {
+  const { store, epoch } = deps;
+  const { workspaceId, scope, listed, manifestUsable, pagesListed } = listing;
+  let { complete, incomplete } = listing;
+  const run: MirrorRun = { workspaceId, scope, complete: false, fetched: 0, pruned: 0, remaining: 0 };
+  const aborted = (): MirrorRun => ({ ...run, aborted: true });
 
   /*
     Nothing listed at all — offline after all, storage not connected, a
@@ -209,6 +390,19 @@ export async function syncContext(
     Whatever the device already held, and what it said about it, stands.
   */
   if (pagesListed === 0) return { ...run, incomplete: incomplete ?? "interrupted" };
+
+  /*
+    The tree first. Metadata is committed before the first body is asked for,
+    so a context of ten thousand notes is browsable as soon as its manifest
+    has been walked rather than after its last download.
+  */
+  const committed = options.committed === false ? await commitListing(deps, listing) : options.committed;
+  if (options.committed === false && committed !== null) {
+    if (!deps.mine()) return aborted();
+    deps.onListed?.(workspaceId);
+  }
+  run.pruned += committed?.pruned ?? 0;
+  if (!deps.mine()) return aborted();
 
   /* ------------------------------- 2. compare ----------------------------- */
 
@@ -346,6 +540,14 @@ export async function syncContext(
   const now = deps.now();
 
   const reconciled = await updateIndex(store, epoch, scope, workspaceId, async (index) => {
+    /*
+      A newer walk committed while this one was downloading — the console's
+      own refresh, typically. Its metadata stands: this run still records the
+      bodies it fetched and what is left, but prunes nothing and rewrites no
+      entry from the older listing, which could only put back what the newer
+      one had already corrected.
+    */
+    const superseded = index.listedAt !== undefined && index.listedAt > listing.listedAt;
     const drop = async (path: string) => {
       await store.removeBody(scope, workspaceId, "current", path);
       await store.removeBody(scope, workspaceId, "base", path);
@@ -357,30 +559,21 @@ export async function syncContext(
     // not the listing around it finished.
     for (const path of gone) if (index.entries.has(path)) await drop(path);
 
-    if (complete) {
+    if (complete && !superseded) {
       for (const path of [...index.entries.keys()]) {
         if (!listed.has(path)) await drop(path);
       }
-      // A folder name is only kept while something on the device is under it:
-      // the name of a folder this person lost is not theirs to keep either.
-      for (const folder of [...index.folders.keys()]) {
-        if (folder === "") continue;
-        const under = `${folder}/`;
-        let occupied = false;
-        for (const path of index.entries.keys()) {
-          if (path.startsWith(under)) {
-            occupied = true;
-            break;
-          }
-        }
-        if (!occupied) index.folders.delete(folder);
-      }
+      if (listing.folders === null) pruneUnoccupiedFolders(index);
     }
 
     let remaining = 0;
     for (const entry of listed.values()) {
       if (gone.has(entry.path)) continue;
       const local = index.entries.get(entry.path);
+      if (superseded) {
+        if (isNotePath(entry.path) && (local === undefined || !local.body)) remaining += 1;
+        continue;
+      }
       if (!isNotePath(entry.path)) {
         // Listed, never downloaded: named so the offline tree matches.
         index.entries.set(entry.path, {
@@ -437,6 +630,26 @@ export async function syncContext(
   return run;
 }
 
+/**
+ * A folder name is only kept while something on the device is under it: the
+ * name of a folder this person lost is not theirs to keep either. For a
+ * server that does not list folders; one that does replaces the set outright.
+ */
+function pruneUnoccupiedFolders(index: MirrorIndex): void {
+  for (const folder of [...index.folders.keys()]) {
+    if (folder === "") continue;
+    const under = `${folder}/`;
+    let occupied = false;
+    for (const path of index.entries.keys()) {
+      if (path.startsWith(under)) {
+        occupied = true;
+        break;
+      }
+    }
+    if (!occupied) index.folders.delete(folder);
+  }
+}
+
 function fieldsOf(
   entry: ManifestEntry,
 ): Pick<MirrorEntry, "path" | "visibility" | "inherited" | "exception" | "readOnly" | "updatedAt"> {
@@ -451,7 +664,14 @@ function fieldsOf(
 }
 
 /**
- * Sync every context in the list, one after another.
+ * Sync every context in the list: every context's metadata first, then every
+ * context's bodies, one context after another in each pass.
+ *
+ * Metadata first because it is what the tree is drawn from and it is cheap —
+ * one walk per context, no note read — while bodies can take minutes. Walking
+ * one context's bodies before the next context's manifest left the second
+ * context's tree waiting on the first context's downloads. The list's order
+ * is the priority: the caller puts the context somebody has open first.
  *
  * Stops at the first sign of an ended session rather than finishing the
  * others: each would be refused by the store anyway, and every call is a round
@@ -462,11 +682,29 @@ export async function syncAll(
   targets: readonly { workspaceId: string; tier: VisibilityTier }[],
   onRun?: (run: MirrorRun) => Promise<void> | void,
 ): Promise<MirrorRun[]> {
+  const listings: {
+    listing: ContextListing & { pagesListed: number };
+    committed: { pruned: number } | null;
+  }[] = [];
   const runs: MirrorRun[] = [];
   for (const target of targets) {
+    if (!deps.mine()) return runs;
+    const listing = await listContext(deps, target);
+    if (listing === null) continue;
+    if (listing === "aborted") {
+      runs.push(abortedRun(target));
+      return runs;
+    }
+    const committed = listing.pagesListed > 0 ? await commitListing(deps, listing) : null;
+    if (committed !== null) {
+      if (!deps.mine()) return runs;
+      deps.onListed?.(listing.workspaceId);
+    }
+    listings.push({ listing, committed });
+  }
+  for (const { listing, committed } of listings) {
     if (!deps.mine()) break;
-    const run = await syncContext(deps, target);
-    if (run === null) continue;
+    const run = await fetchContext(deps, listing, { committed });
     runs.push(run);
     if (run.aborted) break;
     await onRun?.(run);

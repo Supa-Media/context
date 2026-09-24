@@ -157,3 +157,49 @@ rows can be reused to keep the connections list bounded by recent instances.
 Legacy clients without an instance id retain their replacement behavior.
 Membership checks, scope clamping, expiry, revocation and the per-user mint
 limit still apply. An instance id is a cache identity, never authority.
+
+A consumer the gateway refused names the refused token when it asks again
+(`{ rejected }`), and the cache mints only if that token is still the one it
+holds. Minting for an instance revokes that instance's previous token, so a
+consumer that re-minted on news another consumer had already acted on would
+revoke the replacement everyone else was using. A mint that has not answered
+within fifteen seconds rejects every waiter and is never cached if it answers
+later; without that bound, one stalled mint was returned to every consumer for
+the life of the tab. Reversing either is caught by
+`apps/mobile/__tests__/consoleGrantCache.test.ts`.
+
+## A live connection recovers on its own, and only the control plane says no
+
+The presence socket is supervised as numbered attempts. Each attempt (mint,
+handshake and welcome together) has a 20-second deadline, and every callback
+from an abandoned attempt is ignored, so a late grant or a stale `onclose`
+cannot open a second socket or schedule a second retry. Backoff is capped at
+30 seconds, spread by jitter so a gateway deploy does not bring every console
+back on the same tick, and reset by a welcome.
+
+An OPEN socket is not assumed alive. The gateway answers every ping, so three
+on-time pings with nothing heard, plus a five-second grace, replace it. A
+heartbeat that ran late belonged to a throttled or suspended tab and is not
+counted; that tab's socket is probed instead when it returns (focus, becoming
+visible, or the network coming back). Hiding a tab is not a return.
+
+A browser reports a refused WebSocket upgrade as code 1006, the same as a
+network failure, so a socket close is never read as revocation. Two sockets in
+a row that never open earn one credential refresh per run of failures, and
+then it is backoff, never a mint per retry. The definitive answers are the
+control plane refusing to mint (`WORKSPACE_NOT_FOUND`, `NO_SCOPES_GRANTED`)
+and the gateway's `4003` close; both end the room quietly. A refreshed
+credential can never restore access, because minting re-checks membership.
+
+The durable HTTP path follows the same rule: a 401 is retried once with the
+refused token named, and a 401 against the replacement or any 403 is revoked.
+Its errors carry the HTTP status, not the gateway's body code; the body codes
+(`invalid_token`, `not_found`) matched none of the statuses the controller
+decides on, so real refusals and outages never reached them. Requests end
+after 30 seconds as network failures, keeping the queue, and concurrent
+repairs share one follow-up read.
+
+`apps/mobile/__tests__/presenceRecovery.test.ts`,
+`collaborationTransport.test.ts` and `durableCollaboration.test.ts` hold these
+contracts; the browser gate (`apps/mcp/test/browser/verifyEditor.mjs`) holds a
+silent handshake and a silently dead socket against the real gateway.
