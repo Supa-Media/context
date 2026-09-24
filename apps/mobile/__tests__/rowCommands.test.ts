@@ -157,7 +157,7 @@ describe("the chords the menu advertises", () => {
       `false` again — silently, and exactly the way it did before.
     */
     const source = readFileSync(
-      join(__dirname, "..", "app", "(app)", "console", "_layout.tsx"),
+      join(__dirname, "..", "features", "console", "layout", "Shortcuts.tsx"),
       "utf8",
     );
     for (const command of ROW_COMMANDS) {
