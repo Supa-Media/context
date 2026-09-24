@@ -85,6 +85,24 @@ export function stagingStorageIsFree(): boolean {
 }
 
 /**
+ * The switch that turns the free managed tier on for a deployment.
+ *
+ * **Off in production until the export and hand-off path lands.** A free tier
+ * puts every new signup's notes in a bucket they hold no key to, and the only
+ * way out of such a bucket that non-negotiable #1 accepts is a free export or
+ * hand-off, which is not built yet (`docs/decisions/billing.md`, "The free
+ * managed tier"). So the tier ships dark: on for staging, where storage is
+ * already free and disposable, and on elsewhere only when an operator sets
+ * this to exactly `enabled` — a deliberate act, never a truthy accident.
+ */
+export const FREE_MANAGED_STORAGE_ENV_VAR = "FREE_MANAGED_STORAGE";
+
+export function freeManagedStorageSwitchedOn(): boolean {
+  if (stagingStorageIsFree()) return true;
+  return process.env[FREE_MANAGED_STORAGE_ENV_VAR] === "enabled";
+}
+
+/**
  * The account that holds customer data — managed buckets today, and the
  * per-context search databases once those move — and deliberately **not** the
  * account this deployment's own infrastructure lives in. See the module

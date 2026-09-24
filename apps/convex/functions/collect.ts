@@ -171,7 +171,11 @@ export const collectContextWritable = internalQuery({
       .query("workspacePlans")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
-    return !cancellationMakesReadOnly(plan?.status ?? "none", managed);
+    return !cancellationMakesReadOnly(
+      plan?.status ?? "none",
+      managed,
+      plan?.freeManaged === true,
+    );
   },
 });
 

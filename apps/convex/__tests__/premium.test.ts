@@ -45,9 +45,12 @@ import {
   PREMIUM_INTERVAL,
   PREMIUM_PRICE_CENTS,
   STRIPE_PRICE_ID_ENV_VAR,
+  FREE_MANAGED_NOTE_CAP,
   activeEntitlements,
   cancellationMakesReadOnly,
   hasAnyEntitlement,
+  managedStorageEntitled,
+  noteCapFor,
   planIsPaying,
   planStatusFromStripe,
   stripePriceId,
@@ -147,6 +150,55 @@ describe("selected is not the same as active", () => {
   });
 });
 
+describe("the free managed tier", () => {
+  test("holds a thousand notes", () => {
+    expect(FREE_MANAGED_NOTE_CAP).toBe(1000);
+  });
+
+  test("a free context is entitled to managed storage without paying, but only while the tier is offered", () => {
+    const free = { managedStorage: true, status: "none" as const, freeManaged: true };
+    expect(managedStorageEntitled(free, { freeTierOffered: true })).toBe(true);
+    // Switched off (production, until the exit path lands): no new bucket is
+    // minted for a free context. An existing bucket is untouched — this only
+    // gates provisioning.
+    expect(managedStorageEntitled(free, { freeTierOffered: false })).toBe(false);
+  });
+
+  test("a paid context is entitled whether or not the free tier is offered", () => {
+    const paid = { managedStorage: true, status: "active" as const, freeManaged: false };
+    expect(managedStorageEntitled(paid, { freeTierOffered: false })).toBe(true);
+    expect(managedStorageEntitled(paid, { freeTierOffered: true })).toBe(true);
+  });
+
+  test("nobody is entitled to managed storage they did not choose", () => {
+    const unchosen = { managedStorage: false, status: "active" as const, freeManaged: true };
+    expect(managedStorageEntitled(unchosen, { freeTierOffered: true })).toBe(false);
+    expect(managedStorageEntitled(null, { freeTierOffered: true })).toBe(false);
+  });
+
+  test("a lapsed paid context is not entitled just because free is on offer", () => {
+    // Only a context actually on the free tier gets it free. A paid context
+    // whose card was declined has not become a free one.
+    const lapsed = { managedStorage: true, status: "past_due" as const, freeManaged: false };
+    expect(managedStorageEntitled(lapsed, { freeTierOffered: true })).toBe(false);
+  });
+
+  test("the cap applies to a free context on storage we run, and to nothing else", () => {
+    expect(noteCapFor({ status: "none", freeManaged: true }, true)).toBe(FREE_MANAGED_NOTE_CAP);
+    // Paying lifts it.
+    expect(noteCapFor({ status: "active", freeManaged: true }, true)).toBeNull();
+    // A bucket the customer owns is never capped by us.
+    expect(noteCapFor({ status: "none", freeManaged: true }, false)).toBeNull();
+    // A paid context that lapsed is not a free-tier context.
+    expect(noteCapFor({ status: "canceled", freeManaged: false }, true)).toBeNull();
+    expect(noteCapFor(null, true)).toBeNull();
+  });
+
+  test("a free context that upgraded and then cancelled is back on the cap", () => {
+    expect(noteCapFor({ status: "canceled", freeManaged: true }, true)).toBe(FREE_MANAGED_NOTE_CAP);
+  });
+});
+
 describe("what a lapse does, and what it may never do", () => {
   test("only a managed context goes read-only", () => {
     // A bucket the customer owns keeps working whatever we think of their
@@ -154,6 +206,15 @@ describe("what a lapse does, and what it may never do", () => {
     expect(cancellationMakesReadOnly("canceled", true)).toBe(true);
     expect(cancellationMakesReadOnly("canceled", false)).toBe(false);
     expect(cancellationMakesReadOnly("active", true)).toBe(false);
+  });
+
+  test("a free-tier context is capped, never read-only", () => {
+    // It never paid, so there is nothing to lapse. Treating "none" on a
+    // managed bucket as a cancellation would lock every free context the
+    // moment it was made.
+    expect(cancellationMakesReadOnly("none", true, true)).toBe(false);
+    expect(cancellationMakesReadOnly("canceled", true, true)).toBe(false);
+    expect(cancellationMakesReadOnly("canceled", true, false)).toBe(true);
   });
 
   test("nothing in this module answers whether somebody may export", () => {

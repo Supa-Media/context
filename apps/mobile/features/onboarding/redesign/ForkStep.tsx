@@ -4,6 +4,17 @@ import { Text } from "../../design/components/Text";
 import { fonts, leading, radii, space, tracking } from "../../design/tokens";
 import { pointerType as t } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { FormError } from "../../design/components/Input";
+
+/**
+ * What the first card offers, decided by the control plane — never assumed.
+ *
+ * `free` where this deployment offers the free managed tier and this owner
+ * may start it; `paid` where it can only sell managed storage; `null` where it
+ * can do neither (a self-hoster, or production before the exit path lands), in
+ * which case the only card is bringing a bucket.
+ */
+export type ForkOffer = { kind: "free"; cap: number } | { kind: "paid"; price: string } | null;
 
 /**
  * A-04 — the fork.
@@ -18,10 +29,18 @@ import { useThemedStyles, type Colors } from "../../design/theme";
  * should route them out rather than push them through the branches.
  */
 export function ForkStep({
+  offer,
+  starting = false,
+  failure,
   onPickManaged,
   onPickBYO,
   onOpenInvitations,
 }: {
+  offer: ForkOffer;
+  /** The free bucket has been asked for and the answer is on its way. */
+  starting?: boolean;
+  /** Our sentence for a start that did not go through. */
+  failure?: string;
   onPickManaged: () => void;
   onPickBYO: () => void;
   onOpenInvitations: () => void;
@@ -31,31 +50,54 @@ export function ForkStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        Where should your context live? Both paths keep the notes as plain
+        Where should your context live? Every path keeps the notes as plain
         Markdown files you can take with you at any time.
       </Text>
 
-      <Choice
-        eyebrow="Recommended"
-        title="Start on our free bucket"
-        body="A workspace we run for you. 1,000 notes and up to 500&nbsp;MB before we ask you to level up. No time limit, no card required, and you can hand it to storage of your own whenever you want."
-        cta="Start free"
-        onPress={onPickManaged}
-        variant="primary"
-      />
+      {offer?.kind === "free" ? (
+        <Choice
+          eyebrow="Recommended"
+          title="Start on a bucket we run"
+          body={`Free for your first ${offer.cap.toLocaleString("en-US")} notes. No card and no time limit. Past that you can keep reading, editing and exporting everything; adding more notes asks you to level up or bring a bucket of your own.`}
+          cta={starting ? "Starting…" : "Start free"}
+          onPress={onPickManaged}
+          variant="primary"
+          disabled={starting}
+          testID="welcome-fork-free"
+        />
+      ) : offer?.kind === "paid" ? (
+        <Choice
+          eyebrow="We run it"
+          title="Let us keep the bucket"
+          body={`A bucket we create and run for you, ${offer.price}. You see the price and what it covers before anything is charged.`}
+          cta="Choose managed storage"
+          onPress={onPickManaged}
+          variant="secondary"
+          testID="welcome-fork-managed"
+        />
+      ) : null}
+      {failure ? <FormError headline={failure} style={styles.failure} /> : null}
       <Choice
         eyebrow="Bring your own"
         title="Point at a bucket you already have"
-        body="Cloudflare R2, Amazon S3, or anything S3-compatible. We read the bucket, tell you what we found, and never write until you say go."
+        body="Cloudflare R2, Amazon S3, or anything S3-compatible. We check the bucket, tell you what we found, and write nothing of yours until you say go."
         cta="I have a bucket"
         onPress={onPickBYO}
-        variant="secondary"
+        variant={offer?.kind === "free" ? "secondary" : "primary"}
+        testID="welcome-fork-own"
       />
 
       <View style={styles.foot}>
         <Text variant="foot" style={styles.footLine}>
           Got an invitation?{" "}
-          <Text variant="foot" style={styles.link} onPress={onOpenInvitations}>
+          <Text
+            variant="foot"
+            style={styles.link}
+            onPress={onOpenInvitations}
+            accessibilityRole="link"
+            accessibilityLabel="Open an invitation"
+            testID="welcome-fork-invitation"
+          >
             Open it here →
           </Text>
         </Text>
@@ -71,6 +113,8 @@ function Choice({
   cta,
   onPress,
   variant,
+  disabled = false,
+  testID,
 }: {
   eyebrow: string;
   title: string;
@@ -78,6 +122,8 @@ function Choice({
   cta: string;
   onPress: () => void;
   variant: "primary" | "secondary";
+  disabled?: boolean;
+  testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -99,6 +145,8 @@ function Choice({
           label={cta}
           variant={variant === "primary" ? "white" : "ghost"}
           onPress={onPress}
+          disabled={disabled}
+          testID={testID}
         />
       </View>
     </View>
@@ -108,6 +156,7 @@ function Choice({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     lede: { marginBottom: space.x5, lineHeight: leading(12.5, 1.7) },
+    failure: { marginBottom: space.x3 },
     card: {
       borderWidth: 1,
       borderRadius: radii.card,

@@ -749,19 +749,17 @@ export async function storeForSession(session, env, controlPlane) {
   // as siblings; reading only the first, and then hunting for the second
   // inside it, is what left fast search dead in production. See
   // `getStorageBinding`.
-  let binding;
-  let searchIndex;
-  let encryptionKey;
-  let rotation;
+  let opened;
   try {
-    ({ binding, searchIndex, encryptionKey, rotation } = await controlPlane.getStorageBinding(
+    opened = await controlPlane.getStorageBinding(
       session.accessToken,
       session.workspaceId
-    ));
+    );
   } catch (error) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable("control plane");
     throw error;
   }
+  const { binding, searchIndex, encryptionKey, rotation, noteCap } = opened;
 
   if (binding === null) throw new StorageUnavailable("not bound");
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
@@ -791,7 +789,7 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env);
+  const store = storeForBinding(binding, env, { noteCap });
   // The backend's name, for the search trace and nothing else. Latency is a
   // property of which backend this is — a native R2 binding and an S3 endpoint
   // reached over HTTP are not the same round trip — so a timing that does not

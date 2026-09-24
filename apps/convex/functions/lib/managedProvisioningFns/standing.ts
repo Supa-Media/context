@@ -9,6 +9,8 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { managedBucketName } from "../managedStorage";
+import { managedStorageEntitled } from "../premium";
+import { deploymentOffersFreeManaged } from "../billing/plan";
 
 /**
  * What the action needs to know before it mints anything.
@@ -45,9 +47,12 @@ export async function provisioningStandingHandler(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .collect();
   return {
-    // Both halves: chosen *and* paying. `activeEntitlements` is the one place
-    // that computes it, and this asks the same question the same way.
-    entitled: plan?.managedStorage === true && plan.status === "active",
+    // Chosen *and* paying — or on the free tier while this deployment offers
+    // it. `managedStorageEntitled` is the one place that decides; turning the
+    // free tier off stops new free buckets and touches no existing one.
+    entitled: managedStorageEntitled(plan, {
+      freeTierOffered: deploymentOffersFreeManaged(),
+    }),
     bindingId: binding?._id ?? null,
     migrationStatus: migration?.status,
     bindingIsManaged: binding?.bucket === managedBucketName(args.workspaceId),

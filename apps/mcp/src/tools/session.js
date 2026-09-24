@@ -25,6 +25,33 @@ import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
+import { NoteCapReached, asRelocation } from "../store/noteCap.js";
+
+/**
+ * Tools that rearrange notes inside one context. A move adds nothing, so on a
+ * context at its free-tier note cap these run inside `asRelocation` and are
+ * never refused for it; a move *into* a context from another one is not here.
+ */
+const RELOCATING_TOOLS = new Set([
+  "move_note",
+  "move_notes",
+  "move_folder",
+  "archive_note",
+  "materialize_move",
+]);
+
+/**
+ * A create refused at the free tier's note cap, as the sentence that says what
+ * still works — never an unhandled throw. Anything else is rethrown.
+ */
+async function answeringNoteCap(run) {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof NoteCapReached) return toolError(error.message);
+    throw error;
+  }
+}
 
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */
 export async function callToolForSession(params, store, session) {
@@ -169,19 +196,26 @@ export async function callToolForSession(params, store, session) {
       );
     }
     if (sourceTarget.session.workspaceId === destinationTarget.session.workspaceId) {
-      const result = await (callTool)(params?.name, crossArgs, sourceTarget.store, sourceTarget.session.scope);
+      // One context on both sides: a relocation, never refused by the cap.
+      const result = await answeringNoteCap(() =>
+        asRelocation(sourceTarget.store, () =>
+          (callTool)(params?.name, crossArgs, sourceTarget.store, sourceTarget.session.scope)
+        )
+      );
       reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);
       return result;
     }
-    const result = await toolMoveNoteAcrossContexts(
-      sourceTarget.store,
-      sourceTarget.session,
-      destinationTarget.store,
-      destinationTarget.session,
-      crossArgs.source,
-      crossArgs.destination,
-      crossArgs.expected_source_etag,
-      crossArgs.confirm_team_publish === true
+    const result = await answeringNoteCap(() =>
+      toolMoveNoteAcrossContexts(
+        sourceTarget.store,
+        sourceTarget.session,
+        destinationTarget.store,
+        destinationTarget.session,
+        crossArgs.source,
+        crossArgs.destination,
+        crossArgs.expected_source_etag,
+        crossArgs.confirm_team_publish === true
+      )
     );
     reportToolUsage(store, params?.name, sourceTarget.session.workspaceId);
     reportToolUsage(store, params?.name, destinationTarget.session.workspaceId);
@@ -262,7 +296,12 @@ export async function callToolForSession(params, store, session) {
     if (off.has(params?.name)) return toolError(disabledToolRefusal(params?.name));
   }
 
-  const result = await callTool(params?.name, args, targetStore, target.scope);
+  // A move inside one context adds no note, so it runs in the cap's
+  // relocation window (`store/noteCap.js`); everything else is capped.
+  const dispatch = async () => await callTool(params?.name, args, targetStore, target.scope);
+  const result = await answeringNoteCap(() =>
+    RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
+  );
   noteAgentActivity(targetStore, params?.name, args, result);
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it

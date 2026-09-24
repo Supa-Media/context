@@ -421,10 +421,13 @@ export function createControlPlaneStub(options = {}) {
         }
         const rotation = rotations.get(served) ?? null;
 
-        const { searchIndex, encryptionKey, ...storage } = binding;
+        // `noteCap` is a fifth sibling — the free managed tier's cap — split
+        // here for the reason above: a fixture may nest it, the wire never does.
+        const { searchIndex, encryptionKey, noteCap, ...storage } = binding;
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
+          ...(noteCap ? { noteCap } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
           ...(rotation ? { rotation } : {}),
         });

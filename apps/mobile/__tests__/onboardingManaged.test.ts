@@ -95,6 +95,10 @@ function offer(over: Partial<ManagedOffer> = {}): ManagedOffer {
     toggle: () => {},
     proceed: () => {},
     retry: () => {},
+    free: null,
+    startedFree: false,
+    startFree: () => {},
+    startingFree: false,
     ...over,
   };
 }
@@ -138,7 +142,8 @@ describe("offering storage we keep", () => {
       expect(own).not.toBeNull();
       act(() => own.click());
       expect(container.querySelector('[data-testid="choose-bucket"]')).not.toBeNull();
-      expect(container.querySelector('[data-testid="choose-dropbox"]')).not.toBeNull();
+      // First run never offers a new Dropbox connection (owner, 2026-09-24).
+      expect(container.querySelector('[data-testid="choose-dropbox"]')).toBeNull();
     }
   });
 

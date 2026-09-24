@@ -370,6 +370,20 @@ export const openStorageBinding = internalAction({
       rotation = undefined;
     }
 
+    /*
+      THE NOTE CAP, FOR THE SAME WORKSPACE. A plain query, no decrypt. Absent
+      for every context not on the free managed tier, and absent on a failed
+      read too: a billing lookup must never cost somebody their notes, and the
+      worst an absent cap costs is a free context briefly holding more.
+    */
+    let noteCap: number | undefined;
+    try {
+      const cap = await ctx.runQuery(internal.functions.billing.noteCap, { workspaceId });
+      noteCap = cap === null ? undefined : cap;
+    } catch {
+      noteCap = undefined;
+    }
+
     // Built per provider, never spread. A workspace rebound from a bucket to
     // Dropbox can still have an `accessKeyId` sitting on its row; spread into
     // this payload it would reach the gateway as a credential for storage this
@@ -394,6 +408,7 @@ export const openStorageBinding = internalAction({
         searchIndex,
         encryptionKey,
         rotation,
+        noteCap,
       };
     }
 
@@ -417,6 +432,7 @@ export const openStorageBinding = internalAction({
       searchIndex,
       encryptionKey,
       rotation,
+      noteCap,
     };
   },
 });

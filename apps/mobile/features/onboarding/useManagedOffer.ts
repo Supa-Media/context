@@ -86,6 +86,18 @@ export interface ManagedOffer {
   proceed: () => void;
   /** Another go at making the bucket. Safe: the run adopts what it made before. */
   retry: () => void;
+  /**
+   * The free managed tier, where this deployment offers it and this owner may
+   * start it here. `null` otherwise — the fork then offers the paid bucket,
+   * or only a bucket of their own.
+   */
+  free: { cap: number } | null;
+  /** This attempt is on the free tier: the settling screen mentions no payment. */
+  startedFree: boolean;
+  /** Ask for the free bucket, then wait for it on the settling screen. */
+  startFree: () => void;
+  /** The free start has been asked for and has not answered yet. */
+  startingFree: boolean;
 }
 
 export function useManagedOffer(options: {
@@ -107,6 +119,7 @@ export function useManagedOffer(options: {
   const [failure, setFailure] = useState<string | undefined>(undefined);
   const [opening, setOpening] = useState(false);
   const [slow, setSlow] = useState(false);
+  const [startingFree, setStartingFree] = useState(false);
 
   /*
     `api.…` is reached for inside the memo and never in the dependency array:
@@ -223,6 +236,20 @@ export function useManagedOffer(options: {
       .catch(() => setFailure("That did not go through. Check your connection and try again."));
   }, [convex, workspaceId]);
 
+  const startFree = useCallback(() => {
+    if (workspaceId === null || startingFree) return;
+    setStartingFree(true);
+    setFailure(undefined);
+    void convex
+      .mutation(api.functions.billing.startFreeManaged, { workspaceId })
+      .then(() => setMode("settling"))
+      // Our sentence, for the reason `proceed` gives: a Convex error can carry
+      // a function path, and the refusals it could name are all ones the
+      // status query already kept this card from being offered for.
+      .catch(() => setFailure("That did not go through. Check your connection and try again."))
+      .finally(() => setStartingFree(false));
+  }, [convex, startingFree, workspaceId]);
+
   const sessionState: ManagedConfirmState =
     session?.status === "failed"
       ? "failed"
@@ -254,5 +281,12 @@ export function useManagedOffer(options: {
     toggle,
     proceed,
     retry,
+    free:
+      status?.freeManagedAvailable === true && status.freeManagedEligible === true
+        ? { cap: status.freeManagedNoteCap ?? 1000 }
+        : null,
+    startedFree: status?.freeManaged === true,
+    startFree,
+    startingFree,
   };
 }

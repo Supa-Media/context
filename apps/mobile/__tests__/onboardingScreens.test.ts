@@ -9,8 +9,9 @@ import { ConvexProvider } from "convex/react";
 import { NameStep } from "../features/onboarding/steps/NameStep";
 import { StructureStep } from "../features/onboarding/steps/StructureStep";
 import { VaultImportStep } from "../features/onboarding/steps/VaultImportStep";
-import { AgentsStep } from "../features/onboarding/steps/AgentsStep";
-import { defaultSeedPrompt, seedPromptFor } from "../features/onboarding/agents";
+import { ConnectionsStep } from "../features/onboarding/redesign/ConnectionsStep";
+import { ForkStep, type ForkOffer } from "../features/onboarding/redesign/ForkStep";
+import { PaymentStep } from "../features/onboarding/redesign/PaymentStep";
 import { DoneStep } from "../features/onboarding/steps/DoneStep";
 import { nameStatus } from "../features/onboarding/name";
 import { emptyCustomFolders, validateCustomFolders } from "../features/onboarding/structure";
@@ -88,6 +89,13 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     shape: { storage: "connected" },
     owned: 0,
     claimed: null,
+    forkOffer: null,
+    pickManaged: () => {},
+    pickOwn: () => {},
+    startingFree: false,
+    dryRun: null,
+    finishDryRun: () => {},
+    finishLive: () => {},
     // What the control plane answers today: no email receiver is deployed.
     // `captureHonesty.test.ts` owns the assertions about what that does to the
     // capture address on the last screen.
@@ -120,7 +128,6 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     canApply: true,
     applyStructure: async () => {},
     skipStructure: () => {},
-    seedPrompt: "",
     finishAgents: () => {},
     bootstrapPrompt: "",
     finishBootstrap: () => {},
@@ -290,50 +297,83 @@ describe("the Obsidian vault screen", () => {
 });
 
 describe("the tools screen", () => {
-  test("hands over a prompt naming the folders this context actually has", () => {
-    // The failure this catches is silent and lands in somebody else's product:
-    // a prompt telling their AI to file work under `1-projects/` when they
-    // named their own folders one screen ago and have no such folder.
-    const { text } = render(
-      createElement(AgentsStep, {
-        controller: controller({
-          step: "agents",
-          seedPrompt: seedPromptFor(["work", "reading"]),
-        }),
-        onContinue: () => {},
-      }),
-    );
-    expect(text).toContain("work/");
-    expect(text).toContain("reading/");
-    expect(text).not.toContain("1-projects/");
-  });
+  const rows = (status: "connected" | "not-connected") =>
+    [{ key: "claude-desktop" as const, name: "Claude", status, hasGuide: true }];
 
   test("does not imply a connected client sees everything", () => {
     // Every grant defaults to `team`, owners included. A first-run screen
     // promising otherwise describes a product we deliberately do not ship.
     const { text } = render(
-      createElement(AgentsStep, {
-        controller: controller({
-          step: "agents",
-          seedPrompt: defaultSeedPrompt(),
-        }),
-        onContinue: () => {},
-      }),
+      createElement(ConnectionsStep, { clients: rows("not-connected"), onOpenGuide: () => {}, onSkip: () => {} }),
     );
     expect(text).toMatch(/team is the default/i);
+    expect(text).toMatch(/same URL for everyone/i);
   });
 
-  test("does not call its forward button Done, because a step follows it", () => {
-    // The bootstrap step comes after this one on every run that has it. A
-    // button saying "Done" that opens another step reads as broken.
+  test("offers a skip until a tool is connected, then a Continue — never Done", () => {
+    // The bootstrap step follows this one. A button saying "Done" that opens
+    // another step reads as broken.
+    const waiting = render(
+      createElement(ConnectionsStep, { clients: rows("not-connected"), onOpenGuide: () => {}, onSkip: () => {} }),
+    );
+    expect(waiting.text).toContain("Skip for now");
+    const connected = render(
+      createElement(ConnectionsStep, { clients: rows("connected"), onOpenGuide: () => {}, onSkip: () => {} }),
+    );
+    expect(connected.text).toContain("Continue");
+    expect(connected.text).not.toMatch(/\bDone\b/);
+  });
+});
+
+describe("the fork", () => {
+  const fork = (offer: ForkOffer) =>
+    render(
+      createElement(ForkStep, { offer, onPickManaged: () => {}, onPickBYO: () => {}, onOpenInvitations: () => {} }),
+    );
+
+  test("the free card names the cap it enforces, and no figure nothing meters", () => {
+    // Bytes are not metered on the free tier, so a byte figure would be a
+    // limit nothing enforces — and `&nbsp;` in a React Native string renders
+    // as those six characters.
+    const { text } = fork({ kind: "free", cap: 1000 });
+    expect(text).toContain("1,000 notes");
+    expect(text).not.toMatch(/MB|GB|&nbsp;/);
+    expect(text).toMatch(/reading, editing and exporting/i);
+  });
+
+  test("where the deployment offers no free tier, the card is the paid one or none at all", () => {
+    expect(fork({ kind: "paid", price: "$5 a month" }).text).toContain("$5 a month");
+    const none = fork(null);
+    expect(none.text).not.toMatch(/Start free|managed storage/i);
+    expect(none.text).toContain("I have a bucket");
+  });
+
+  test("the invitation escape hatch is a link a screen reader can find", () => {
+    const { html } = fork(null);
+    expect(html).toMatch(/role="link"[^>]*>Open it here|Open it here[^<]*<\/[a-z]+>/);
+    expect(html).toMatch(/aria-label="Open an invitation"/);
+  });
+});
+
+describe("the payment nudge", () => {
+  test("promises nothing the product cannot do yet", () => {
+    // Moving a managed bucket's notes into one of the customer's own is the
+    // exit path still being finished — the reason the free tier ships dark in
+    // production. The nudge may not promise it; it points at what works now.
     const { text } = render(
-      createElement(AgentsStep, {
-        controller: controller({ step: "agents", seedPrompt: defaultSeedPrompt() }),
-        onContinue: () => {},
+      createElement(PaymentStep, {
+        used: 1000,
+        cap: 1000,
+        monthly: "$5 a month",
+        ceiling: "50 GB",
+        onLevelUp: () => {},
+        onBringOwn: () => {},
       }),
     );
-    expect(text).not.toMatch(/\bDone\b/);
-    expect(text).toContain("Continue");
+    expect(text).not.toMatch(/in one call|25\s*GB|&nbsp;/);
+    expect(text).toContain("50 GB");
+    expect(text).toMatch(/downloads as a \.zip/);
+    expect(text).toMatch(/editing, moving and downloading/i);
   });
 });
 

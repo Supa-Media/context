@@ -81,6 +81,7 @@ import {
   sessionForActionReturns,
 } from "./lib/billing/sessions";
 import { billingStatusReturns, readBillingStatus } from "./lib/billing/status";
+import { noteCapForWorkspace, startFreeManagedHandler } from "./lib/billing/freeManaged";
 
 /**
  * What the Premium section draws.
@@ -164,6 +165,35 @@ export const activateTestPremium = mutation({
     });
     return { active: true };
   },
+});
+
+/**
+ * Start this context on the free managed tier: a bucket we run, no card, a
+ * note cap (`lib/premium.ts`).
+ *
+ * Owner-only, like every other decision about where a context's notes live.
+ * Refused where the deployment does not offer the tier — it ships dark in
+ * production until the export and hand-off path lands (non-negotiable #1) —
+ * where the context already has storage, and past one free context per
+ * account. A second press answers `started` without scheduling a second run.
+ * `docs/decisions/billing.md`, "The free managed tier".
+ */
+export const startFreeManaged = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ started: v.literal(true) }),
+  handler: async (ctx, args) =>
+    await startFreeManagedHandler(ctx, await requireUserId(ctx), args.workspaceId),
+});
+
+/**
+ * The note cap in force on a workspace, or `null`. INTERNAL: read by
+ * `/gateway/binding`, the ingestion route and the console's file operations,
+ * so every path that creates a note is handed the same number.
+ */
+export const noteCap = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.number(), v.null()),
+  handler: async (ctx, args) => await noteCapForWorkspace(ctx, args.workspaceId),
 });
 
 /**

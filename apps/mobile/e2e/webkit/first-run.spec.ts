@@ -44,7 +44,8 @@ test("the first decision is control versus convenience", async ({ page }) => {
 
   await page.getByTestId("choose-own-storage").tap();
   await expect(page.getByTestId("choose-bucket")).toBeVisible();
-  await expect(page.getByTestId("choose-dropbox")).toBeVisible();
+  // New Dropbox connections are not offered (owner, 2026-09-24).
+  await expect(page.getByTestId("choose-dropbox")).toHaveCount(0);
 });
 
 test("the paid card does not draw over the rest of the step", async ({ page }) => {
@@ -107,9 +108,8 @@ test("a deployment that cannot provide it never mentions it", async ({ page }) =
   await page.getByTestId("choose-own-storage").waitFor();
   await expect(page.getByTestId("choose-managed")).toHaveCount(0);
   await page.getByTestId("choose-own-storage").tap();
-  // Absent, not disabled, and both self-managed providers still work.
+  // Absent, not disabled, and the self-managed bucket path still works.
   await expect(page.getByTestId("choose-bucket")).toBeVisible();
-  await expect(page.getByTestId("choose-dropbox")).toBeVisible();
   await expect(page.getByTestId("welcome-storage-skip")).toBeVisible();
 });
 
@@ -165,8 +165,6 @@ test.describe("at a pointer width", () => {
 
     await page.getByTestId("choose-own-storage").click();
     const bucket = (await page.getByTestId("choose-bucket").boundingBox())!;
-    const dropbox = (await page.getByTestId("choose-dropbox").boundingBox())!;
-    expect(Math.abs(bucket.y - dropbox.y)).toBeLessThan(2);
     expect(bucket.y).toBeGreaterThan(own.y + own.height - 2);
   });
 });
