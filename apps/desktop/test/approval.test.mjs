@@ -262,28 +262,34 @@ export async function runApprovalChecks(check) {
       /options\.approvalCallback\?\.\(\)/.test(windows),
   );
 
-  const index = readFileSync(
-    fileURLToPath(new URL("../src/main/index.ts", import.meta.url)),
+  // `main/index.ts`'s wiring, split by subject: the console window is opened
+  // in `windowIpc.ts` and the connect runs in `connectFlow.ts`.
+  const windowIpc = readFileSync(
+    fileURLToPath(new URL("../src/main/windowIpc.ts", import.meta.url)),
+    "utf8",
+  );
+  const connectFlow = readFileSync(
+    fileURLToPath(new URL("../src/main/connectFlow.ts", import.meta.url)),
     "utf8",
   );
   check(
     "the console window is created with the allowance wired to it",
-    /createConsoleWindow\(url, RENDERER_DIR, \{\s*approvalCallback: \(\) => approval\.callback\(\),/.test(
-      index,
+    /createConsoleWindow\(url, RENDERER_DIR, \{\s*approvalCallback: \(\) => ctx\.approval\.callback\(\),/.test(
+      windowIpc,
     ),
   );
   check(
     "THE WINDOW IS BACK ON THE CONSOLE BEFORE ANYTHING ELSE IS ASKED OF THE PERSON",
-    /endApproval\(\);\s*await askAboutTranscription\(\);/.test(index),
+    /endApproval\(\);\s*await askAboutTranscription\(\);/.test(connectFlow),
   );
   check(
     "THE APPROVAL IS ENDED IN `finally`, so a refused or failed connect closes it too",
-    /finally \{[\s\S]{0,240}endApproval\(\);[\s\S]{0,120}connecting = false;/.test(index),
+    /finally \{[\s\S]{0,240}endApproval\(\);[\s\S]{0,120}connecting = false;/.test(connectFlow),
   );
   check(
     "...and the connect hands the authorize URL to the window before the system browser",
     /if \(await approveInConsoleWindow\(href\)\) return;\s*await openInSystemBrowser\(href\);/.test(
-      index,
+      connectFlow,
     ),
   );
 
