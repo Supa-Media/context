@@ -397,7 +397,12 @@ into the page.
 save carrying an etag is an edit and announces nothing). The gateway announces
 agent writes from `recordChange` through `POST /gateway/tree`, computing the
 audiences with its own privacy engine so no path crosses the boundary — the
-body is a workspace id and labels. A hint that is lost — a crash between the
+body is a workspace id and labels. The reporter is bound per store, to the
+workspace that store reaches, so an agent connected to its own context and
+writing with `context: "@name"` announces to `@name`'s consoles — the first
+release bound it only on the connection's own store, and every such write
+(the common way an agent writes into a shared workspace) was announced to
+nobody. A hint that is lost — a crash between the
 write and the stamp, a writer that sends none (Obsidian writing to the bucket
 directly, the email worker's store, calendar and mail sync) — costs freshness
 and nothing else: the five-minute walk reconciles it.
@@ -413,6 +418,9 @@ What a simplification costs, and what fails:
   "an edit to an existing note sends nothing".
 - Throwing to a refused caller: "a non-member is told nothing, the same
   nothing as a context that never changed".
+- A store `openContext` builds without its own reporters: "a cross-context
+  create tells the context it landed in that its tree changed"
+  (`crossContext/changeReporting.test.mjs`).
 - Not asking for a walk on a new value: "a hint that the tree changed asks for
   a walk, and its first value does not" (`fileTreeMetadata.test.ts`).
 
