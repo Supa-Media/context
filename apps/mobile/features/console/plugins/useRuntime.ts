@@ -18,22 +18,24 @@ import type {
   PreviewRequest,
   SuggestRequest,
 } from "./runtime";
-import { PREVIEW_LINKS_MAX } from "@context/obsidian-runtime";
 import type { LinkPreview } from "./sandboxTypes";
 import type { PluginGrant } from "./grants";
-import {
-  COMMAND_TIMEOUT_MS,
-  PREVIEW_TIMEOUT_MS,
-  SUGGEST_TIMEOUT_MS,
-  appliedPluginNoteWrite,
-  currentWalk,
-  freshPreviews,
-  freshSuggestions,
-  maySeeContent,
-  shouldResumeRuntime,
-  vaultEventForOperation,
-} from "./runtime";
+import { shouldResumeRuntime } from "./runtime";
 import type { ActiveSandbox, PluginRegistration, RuntimeState, RuntimeView } from "./runtime";
+import { pruneDepartedFrames } from "./useRuntime/prune";
+import { handleSandboxEvent } from "./useRuntime/events";
+import {
+  applyOfferedSuggestion,
+  askFramesForPreviews,
+  askFramesForSuggestions,
+  pressCommand,
+} from "./useRuntime/requests";
+import {
+  askDialogSuggestions,
+  closeOpenSettingsPane,
+  closeTextDialog,
+  requestSettingsPane,
+} from "./useRuntime/dialogs";
 
 /**
  * What the sandbox host says each plugin is doing.
@@ -304,69 +306,19 @@ export function useRuntime(options: {
     removes one next.
   */
   useEffect(() => {
-    const live = new Set(sandboxes.map((one) => one.bundle.pluginId));
-    const prune = <T,>(was: Record<string, T>): Record<string, T> => {
-      const keys = Object.keys(was);
-      const keep = keys.filter((pluginId) => live.has(pluginId));
-      if (keep.length === keys.length) return was;
-      return Object.fromEntries(keep.map((pluginId) => [pluginId, was[pluginId]!]));
-    };
-    /*
-      A frame leaving is an answer that is never coming. Left alone, the editor
-      would hold a completion promise until its timer fired — briefly correct
-      and needlessly slow, on a surface measured in keystrokes.
-    */
-    if (sandboxes.length === 0) {
-      for (const [, pending] of waiting.current) { clearTimeout(pending.timer); pending.resolve([]); }
-      waiting.current.clear();
-      for (const [, pending] of applying.current) { clearTimeout(pending.timer); pending.resolve(null); }
-      applying.current.clear();
-      for (const [, pending] of previewing.current) { clearTimeout(pending.timer); pending.resolve([]); }
-      previewing.current.clear();
-      offeredBy.current = null;
-    }
-    setRegistrations(prune);
-    /*
-      And the status bar with them. A reading is worse than a name to leave
-      behind: "412 words" beside a plugin whose frame is gone is not out of
-      date, it is being produced by nothing.
-    */
-    setStatusItems(prune);
-    /*
-      An outcome outlives its frame no more than a registration does: "Ran"
-      beside a command belonging to a plugin that has since stopped is the same
-      false claim, one step further on.
-    */
-    setOutcomes(prune);
-    /*
-      And what a departed frame was still being waited on for. A plugin with no
-      frame cannot answer, so leaving it pending would be a spinner nothing is
-      behind — the same stale claim as the reading above, in its most misleading
-      form. The timer goes with it, or it would fire "nothing answered" over a
-      plugin nobody is running any more.
-    */
-    for (const [pluginId, timer] of [...commandTimers.current]) {
-      if (live.has(pluginId)) continue;
-      clearTimeout(timer);
-      commandTimers.current.delete(pluginId);
-    }
-    setPending(prune);
-    /*
-      And a settings pane follows its frame for the same reason a command does,
-      one step further on: every control in it is addressed by index to a guest
-      that is no longer there, so a pane left up after Stop is a panel of
-      settings whose changes reach nobody. `Settings…` goes with it — the
-      control offers to open a pane that cannot be drawn.
-    */
-    setSettingsTabs((was) => {
-      const keep = was.filter((pluginId) => live.has(pluginId));
-      return keep.length === was.length ? was : keep;
-    });
-    setSettingsPane((was) => {
-      if (was === null) return was;
-      if (sandboxes.some((one) => one.nonce === was.nonce)) return was;
-      settingsOwner.current = null;
-      return null;
+    pruneDepartedFrames(sandboxes, {
+      waiting,
+      applying,
+      previewing,
+      offeredBy,
+      settingsOwner,
+      commandTimers,
+      setRegistrations,
+      setStatusItems,
+      setOutcomes,
+      setPending,
+      setSettingsTabs,
+      setSettingsPane,
     });
   }, [sandboxes]);
   const resumed = useRef(new Set<string>());
@@ -477,142 +429,37 @@ export function useRuntime(options: {
     await stopPlugin({ workspaceId, pluginId, bundleFingerprint });
   }, [isOwner, stopPlugin, workspaceId]);
 
-  /*
-    Ask a running plugin to run one of its commands.
+  /** See `pressCommand`. */
+  const run = useCallback(
+    (pluginId: string, id: string) =>
+      pressCommand(
+        { isOwner, sandboxes, presses, commandTimers, setInvoke, setOutcomes, setPending },
+        pluginId,
+        id,
+      ),
+    [isOwner, sandboxes],
+  );
 
-    Synchronous and fire-and-forget: this only moves a slot, and the frame posts
-    the message from an effect. The answer comes back as `command-result` and
-    lands in `outcomes`, so a caller awaits nothing — there is no promise here
-    that could resolve, because the guest may simply never answer and a hung
-    command must not look like a pending one for ever.
-  */
-  const run = useCallback((pluginId: string, id: string) => {
-    if (!isOwner) return;
-    /*
-      Addressed to the frame that is running right now. A press for a plugin
-      with no live frame is dropped here rather than sitting in the slot waiting
-      for one to appear — see `invokeFor` for why a later frame must not inherit
-      it.
-    */
-    const frame = sandboxes.find((one) => one.bundle.pluginId === pluginId);
-    if (frame === undefined) return;
-    presses.current += 1;
-    const seq = presses.current;
-    setInvoke({ seq, pluginId, nonce: frame.nonce, id });
-    setOutcomes((was) => {
-      if (!(pluginId in was)) return was;
-      const next = { ...was };
-      delete next[pluginId];
-      return next;
-    });
-    setPending((was) => ({ ...was, [pluginId]: { id, seq } }));
-    /*
-      One timer per plugin, replacing any previous one: a second press
-      supersedes the first, and the first's clock must not fire a "nothing
-      answered" over the second's result.
-    */
-    const running = commandTimers.current.get(pluginId);
-    if (running !== undefined) clearTimeout(running);
-    commandTimers.current.set(
-      pluginId,
-      setTimeout(() => {
-        commandTimers.current.delete(pluginId);
-        setPending((was) => {
-          // Only if this press is still the one outstanding.
-          if (was[pluginId]?.seq !== seq) return was;
-          const next = { ...was };
-          delete next[pluginId];
-          return next;
-        });
-        setOutcomes((was) => ({
-          ...was,
-          // `error: null` on purpose — nothing reported anything, and the card
-          // must not say the plugin did. See `CommandOutcome.timedOut`.
-          [pluginId]: { id, ok: false, error: null, timedOut: true },
-        }));
-      }, COMMAND_TIMEOUT_MS),
-    );
-  }, [isOwner, sandboxes]);
+  /** See `askFramesForSuggestions`. */
+  const askSuggestions = useCallback(
+    (line: string, ch: number) =>
+      askFramesForSuggestions(
+        { isOwner, sandboxes, grants, walk, suggestSeq, lastAsked, waiting, setSuggest },
+        line,
+        ch,
+      ),
+    [grants, isOwner, sandboxes],
+  );
 
-  /**
-   * Ask the plugins whether any of them wants to complete this line.
-   *
-   * **First non-empty answer wins**, which is what the guest does too: its
-   * loop returns on the first suggester whose `onTrigger` matches, exactly as
-   * Obsidian's does. So the frames are asked in order and the first that
-   * offers anything owns the menu — and owns the pick, which is what makes
-   * `applySuggestion` unambiguous.
-   *
-   * Only frames that pass `maySeeContent` are asked at all. The line is note
-   * content, and that gate is `vault:read` alone.
-   */
-  const askSuggestions = useCallback(async (line: string, ch: number) => {
-    if (!isOwner) return [];
-    walk.current += 1;
-    const mine = walk.current;
-    for (const frame of sandboxes) {
-      if (!currentWalk(mine, walk.current)) return [];
-      if (!maySeeContent(frame.bundle, grants)) continue;
-      suggestSeq.current += 1;
-      const seq = suggestSeq.current;
-      lastAsked.current = seq;
-      const answer = new Promise<{ text: string }[]>((resolve) => {
-        const timer = setTimeout(() => {
-          waiting.current.delete(seq);
-          resolve([]);
-        }, SUGGEST_TIMEOUT_MS);
-        waiting.current.set(seq, { resolve, timer });
-      });
-      setSuggest({ seq, pluginId: frame.bundle.pluginId, nonce: frame.nonce, line, ch });
-      const items = await answer;
-      if (!currentWalk(mine, walk.current)) return [];
-      if (items.length > 0) return items;
-    }
-    return [];
-  }, [grants, isOwner, sandboxes]);
-
-  /**
-   * Ask the plugins to preview the open note's links.
-   *
-   * **Every frame is asked, and the answers are merged** — which is the one
-   * place this deliberately differs from `askSuggestions`. A completion menu
-   * has to belong to one plugin, because a pick has to be routed back to
-   * whoever computed it; a preview is a finished string per link, so two
-   * plugins previewing different links in the same note is a note where both
-   * work rather than a conflict.
-   *
-   * Where two do claim the same link the first frame wins, for the same reason
-   * the first suggester does: the order is the order they were started in, and
-   * silently showing the second plugin's words under the first plugin's link
-   * would be a worse answer than a stable one.
-   *
-   * Only frames that pass `maySeeContent` are asked. A link is note content —
-   * the address somebody wrote down and the words they wrote around it.
-   */
-  /*
-    Ask the open dialog what to show. One frame, not a walk: the dialog already
-    belongs to whoever opened it, so there is nobody else to ask.
-  */
-  const askModalSuggestions = useCallback(async (query: string) => {
-    if (!isOwner || modal === null) return [];
-    modalSeq.current += 1;
-    const seq = modalSeq.current;
-    lastModalAsked.current = seq;
-    const answer = new Promise<{ text: string }[]>((resolve) => {
-      const timer = setTimeout(() => {
-        modalWaiting.current.delete(seq);
-        resolve([]);
-      }, SUGGEST_TIMEOUT_MS);
-      modalWaiting.current.set(seq, {
-        resolve,
-        timer,
-        pluginId: modal.pluginId,
-        nonce: modal.nonce,
-      });
-    });
-    setModalQuery({ seq, pluginId: modal.pluginId, nonce: modal.nonce, query });
-    return await answer;
-  }, [isOwner, modal]);
+  /** See `askDialogSuggestions`. */
+  const askModalSuggestions = useCallback(
+    (query: string) =>
+      askDialogSuggestions(
+        { isOwner, modal, modalSeq, lastModalAsked, modalWaiting, setModalQuery },
+        query,
+      ),
+    [isOwner, modal],
+  );
 
   const pickModalSuggestion = useCallback((index: number) => {
     if (!isOwner || modal === null) return;
@@ -635,50 +482,19 @@ export function useRuntime(options: {
   /** The reader has read why their pick did nothing. Nothing crosses. */
   const dismissPickFailure = useCallback(() => setPickFailure(null), []);
 
-  /*
-    Same rule as `dismissModal`: the dialog goes now and the guest is told.
-    A reader closing a dialog must not be waiting on the plugin that opened it.
-  */
-  const dismissTextModal = useCallback(() => {
-    if (textModal === null) return;
-    modalSeq.current += 1;
-    setTextModalDismiss({
-      seq: modalSeq.current,
-      pluginId: textModal.pluginId,
-      nonce: textModal.nonce,
-    });
-    // Released here as well as in the handler: a reader closing the dialog ends
-    // the owner's claim on it, or the next plugin to open one would be refused
-    // by a frame that no longer has anything on screen.
-    textModalOwner.current = null;
-    setTextModal(null);
-  }, [textModal]);
+  /** See `closeTextDialog`. */
+  const dismissTextModal = useCallback(
+    () => closeTextDialog({ textModal, modalSeq, textModalOwner, setTextModalDismiss, setTextModal }),
+    [textModal],
+  );
 
-  /*
-    Ask one plugin to draw its pane.
-
-    Addressed to the frame running that plugin now, and the answer replaces
-    whatever pane was open: one pane at a time, like the dialogs, because it is
-    one surface in front of the reader. The pane arrives as an event rather than
-    a return value — `display()` may fetch, and it may redraw itself afterwards.
-  */
+  /** See `requestSettingsPane`. */
   const openSettingsPane = useCallback(
-    (pluginId: string) => {
-      const frame = sandboxes.find((one) => one.bundle.pluginId === pluginId);
-      if (frame === undefined) return;
-      modalSeq.current += 1;
-      setSettingsPane(null);
-      // Recorded before the request goes out: the answer can arrive in the same
-      // tick the frame is told, and a claim written after it would be a window
-      // in which the pane Context asked for is dropped as unasked-for.
-      settingsOwner.current = { pluginId, nonce: frame.nonce };
-      setSettingsRequest({
-        seq: modalSeq.current,
+    (pluginId: string) =>
+      requestSettingsPane(
+        { sandboxes, modalSeq, settingsOwner, setSettingsPane, setSettingsRequest },
         pluginId,
-        nonce: frame.nonce,
-        open: true,
-      });
-    },
+      ),
     [sandboxes],
   );
 
@@ -697,398 +513,64 @@ export function useRuntime(options: {
     [settingsPane],
   );
 
-  /*
-    Closed here first and told to the guest after, the rule both dialogs keep:
-    a reader leaving a pane must not be waiting on the plugin that drew it.
-  */
-  const closeSettingsPane = useCallback(() => {
-    if (settingsPane === null) return;
-    modalSeq.current += 1;
-    setSettingsRequest({
-      seq: modalSeq.current,
-      pluginId: settingsPane.pluginId,
-      nonce: settingsPane.nonce,
-      open: false,
-    });
-    /*
-      The claim is released here as well as the pane. The guest's own observer
-      fires as its pane comes down, so a console that still held the claim
-      would take that redraw for a pane to put back in front of somebody who
-      has just dismissed it.
-    */
-    settingsOwner.current = null;
-    setSettingsPane(null);
-  }, [settingsPane]);
+  /** See `closeOpenSettingsPane`. */
+  const closeSettingsPane = useCallback(
+    () =>
+      closeOpenSettingsPane({ settingsPane, modalSeq, settingsOwner, setSettingsPane, setSettingsRequest }),
+    [settingsPane],
+  );
 
-  const askPreviews = useCallback(async (links: LinkPreview[]) => {
-    if (!isOwner || links.length === 0) return [];
-    previewWalk.current += 1;
-    const mine = previewWalk.current;
-    const byHref = new Map<string, string>();
-    for (const frame of sandboxes) {
-      if (!currentWalk(mine, previewWalk.current)) return [];
-      if (!maySeeContent(frame.bundle, grants)) continue;
-      previewSeq.current += 1;
-      const seq = previewSeq.current;
-      lastPreviewAsked.current = seq;
-      const answer = new Promise<LinkPreview[]>((resolve) => {
-        const timer = setTimeout(() => {
-          previewing.current.delete(seq);
-          resolve([]);
-        }, PREVIEW_TIMEOUT_MS);
-        previewing.current.set(seq, { resolve, timer });
-      });
-      setPreview({
-        seq,
-        pluginId: frame.bundle.pluginId,
-        nonce: frame.nonce,
-        links: links.slice(0, PREVIEW_LINKS_MAX),
-      });
-      const previews = await answer;
-      if (!currentWalk(mine, previewWalk.current)) return [];
-      for (const one of previews) {
-        if (one.text === "" || byHref.has(one.href)) continue;
-        byHref.set(one.href, one.text);
-      }
-    }
-    return [...byHref].map(([href, text]) => ({ href, text }));
-  }, [grants, isOwner, sandboxes]);
+  /** See `askFramesForPreviews`. */
+  const askPreviews = useCallback(
+    (links: LinkPreview[]) =>
+      askFramesForPreviews(
+        { isOwner, sandboxes, grants, previewWalk, previewSeq, lastPreviewAsked, previewing, setPreview },
+        links,
+      ),
+    [grants, isOwner, sandboxes],
+  );
 
-  /**
-   * Take the suggestion somebody picked, and return the line it produced.
-   *
-   * Routed to the frame that offered the menu rather than to the plugin, for
-   * #533's reason: a restart registers the same things, and a pick aimed at a
-   * frame that has gone is not owed to its successor. Null when nothing
-   * answers, so the editor leaves the line alone rather than clearing it.
-   */
-  const applySuggestion = useCallback(async (index: number) => {
-    const offer = offeredBy.current;
-    if (offer === null) return null;
-    suggestSeq.current += 1;
-    const seq = suggestSeq.current;
-    const answer = new Promise<string | null>((resolve) => {
-      const timer = setTimeout(() => {
-        applying.current.delete(seq);
-        resolve(null);
-      }, SUGGEST_TIMEOUT_MS);
-      applying.current.set(seq, { resolve, timer });
-    });
-    setSuggestApply({ seq, pluginId: offer.pluginId, nonce: offer.nonce, index });
-    return answer;
-  }, []);
+  /** See `applyOfferedSuggestion`. */
+  const applySuggestion = useCallback(
+    (index: number) => applyOfferedSuggestion({ offeredBy, suggestSeq, applying, setSuggestApply }, index),
+    [],
+  );
 
   const onEvent = useCallback((sandbox: ActiveSandbox, event: SandboxEvent) => {
-    if (workspaceId === null) return;
-    const { pluginId, bundleFingerprint, runtimeToken } = sandbox.bundle;
-    if (event.type === "registration") {
-      /*
-        Appended rather than replaced, because a bundle registers each command
-        in its own message as it loads. Keyed by `id` so a plugin that
-        re-registers one does not list it twice.
-      */
-      setRegistrations((was) => {
-        const mine = was[pluginId] ?? [];
-        const without = mine.filter((one) => one.id !== event.id);
-        return {
-          ...was,
-          [pluginId]: [
-            ...without,
-            { kind: event.kind, id: event.id, name: event.name, needsEditor: event.needsEditor },
-          ],
-        };
-      });
-      return;
-    }
-    if (event.type === "status-bar") {
-      /*
-        Replaced, not merged, which is the whole reason the guest sends a list.
-        An empty one is a plugin that cleared its status bar and must clear the
-        card with it.
-      */
-      setStatusItems((was) => ({ ...was, [pluginId]: event.items }));
-      return;
-    }
-    if (event.type === "suggest-results") {
-      const pending = waiting.current.get(event.seq);
-      if (pending === undefined) return;
-      /*
-        Stale answers are dropped rather than shown. Typing outruns the round
-        trip, and a menu for a line the cursor has left offers completions for
-        text that is no longer there.
-      */
-      const items = freshSuggestions(event, lastAsked.current);
-      waiting.current.delete(event.seq);
-      clearTimeout(pending.timer);
-      if (items !== null && items.length > 0) {
-        offeredBy.current = { pluginId, nonce: sandbox.nonce };
-      }
-      pending.resolve(items ?? []);
-      return;
-    }
-    if (event.type === "suggest-modal") {
-      /*
-        The plugin asked for a dialog, or said it closed its own. Recorded
-        against the frame that said it, because every later query and pick is
-        routed back to exactly that frame — a dialog belongs to whoever opened
-        it, and a plugin restarted under a new nonce is not the same frame.
-      */
-      setModal(
-        event.open
-          ? {
-              pluginId,
-              nonce: sandbox.nonce,
-              placeholder: event.placeholder,
-              instructions: event.instructions,
-            }
-          : null,
-      );
-      // A new dialog answers the old complaint: whatever did not land last
-      // time, the reader has moved on and is being asked something else.
-      if (event.open) setPickFailure(null);
-      return;
-    }
-    if (event.type === "settings-tab") {
-      setSettingsTabs((current) =>
-        current.includes(pluginId) ? current : [...current, pluginId].sort(),
-      );
-      return;
-    }
-    if (event.type === "settings-pane") {
-      /*
-        Only from the frame this pane was asked of. Every other running plugin
-        can post the same message, and a pane carries its plugin's name over
-        somebody else's controls — the forgery #573 fixed for the suggestion
-        dialog, which this would have reintroduced in a worse place: these rows
-        are settings a reader is about to change.
-
-        Read off the ref, never off state: see `settingsOwner` for the render
-        that captured `settingsRequest` as `undefined` and dropped every pane
-        the console ever asked for.
-      */
-      const owner = settingsOwner.current;
-      if (owner === null) return;
-      if (owner.pluginId !== pluginId || owner.nonce !== sandbox.nonce) return;
-      if (!event.open) settingsOwner.current = null;
-      setSettingsPane(
-        event.open
-          ? { pluginId, nonce: sandbox.nonce, rows: event.rows, error: event.error }
-          : null,
-      );
-      return;
-    }
-    if (event.type === "text-modal") {
-      /*
-        Recorded against the frame that sent it, like the suggestion dialog and
-        for the same reason: a dismissal has to reach the plugin that opened it,
-        and a plugin restarted under a new nonce is not that plugin.
-
-        An update to a dialog already open replaces it in place — the guest
-        re-sends on every change to its own content, which is how an async
-        `onOpen` arrives at all.
-
-        WHICH IS WHY A DIALOG ALREADY OPEN ONLY TAKES MESSAGES FROM ITS OWNER.
-        Every running frame can send this unprompted, so without the check below
-        a second plugin could close somebody else's dialog — the reader's panel
-        vanishing while the plugin that opened it is never told, since
-        `dismissTextModal` addresses whoever owns the dialog *now* — or replace
-        what a reader is part-way through reading, and take their Close with it.
-        Neither is impersonation: `pluginId` comes from the sending frame, so
-        the panel always names whose words are in it. It is the surface that was
-        unowned. Same rule as `suggest-modal-results` below and the settings
-        pane above; this handler was the one that stated it and did not check
-        it.
-
-        Nothing is open ⇒ anyone may open one, which is the documented edge: a
-        plugin's own dialog is its to raise, and the panel says whose it is.
-      */
-      const owner = textModalOwner.current;
-      if (owner !== null && (owner.pluginId !== pluginId || owner.nonce !== sandbox.nonce)) return;
-      textModalOwner.current = event.open ? { pluginId, nonce: sandbox.nonce } : null;
-      setTextModal(
-        event.open
-          ? { pluginId, nonce: sandbox.nonce, title: event.title, text: event.text }
-          : null,
-      );
-      return;
-    }
-    if (event.type === "suggest-modal-results") {
-      const pending = modalWaiting.current.get(event.seq);
-      if (pending === undefined) return;
-      /*
-        ONLY THE FRAME THAT WAS ASKED MAY ANSWER.
-
-        `askModalSuggestions` says it above — "whoever sent `suggest-modal` is
-        the only frame that will ever be queried or picked from" — and
-        `PluginSandboxFarm` holds up its end, addressing the query to one frame
-        by plugin id AND nonce. This is the other end of that sentence, and it
-        was missing: the answer was matched on `seq` alone, so a frame that was
-        never asked could volunteer one.
-
-        What that bought: the dialog on screen NAMES the plugin that opened it,
-        so a second plugin's rows would appear under somebody else's name, and
-        the reader's pick then travels to the named plugin as an index into a
-        list it never produced. The completion menu can match on `seq` alone
-        because every frame really is asked there; here exactly one was.
-
-        Returned WITHOUT consuming the entry, deliberately. Deleting it would
-        let an unasked frame silence the real answer as well as forge one, which
-        turns a spoof into a denial — the reader would sit in front of a dialog
-        that never fills. The impostor is ignored; the owner is still awaited,
-        and the timeout still ends it if nobody answers.
-      */
-      if (pending.pluginId !== pluginId || pending.nonce !== sandbox.nonce) return;
-      modalWaiting.current.delete(event.seq);
-      clearTimeout(pending.timer);
-      /*
-        Stale answers are dropped rather than drawn, exactly as a completion's
-        are: typing outruns the round trip, and a list computed for a query the
-        reader has moved on from is a list of the wrong things.
-      */
-      pending.resolve(event.seq === lastModalAsked.current ? event.items : []);
-      return;
-    }
-    if (event.type === "suggest-modal-picked") {
-      // Closed unless the plugin opened another while handling the pick. A
-      // console that closed unconditionally would shut the dialog it was just
-      // asked for — see `reopened` in the protocol.
-      if (!event.reopened) setModal(null);
-      /*
-        AND WHAT THE READER GETS INSTEAD OF SILENCE.
-
-        A pick that could not be applied is the report this whole path was
-        repaired for: the row was pressed, the dialog closed, the note did not
-        change, and nothing anywhere said why. The guest names which of three
-        cases it was and the console says it — see `pluginWorkNote`.
-      */
-      if (event.reason !== null) setPickFailure({ pluginId, reason: event.reason });
-      return;
-    }
-    if (event.type === "preview-results") {
-      const pending = previewing.current.get(event.seq);
-      if (pending === undefined) return;
-      const previews = freshPreviews(event, lastPreviewAsked.current);
-      previewing.current.delete(event.seq);
-      clearTimeout(pending.timer);
-      pending.resolve(previews ?? []);
-      return;
-    }
-    if (event.type === "suggest-applied") {
-      const pending = applying.current.get(event.seq);
-      if (pending === undefined) return;
-      applying.current.delete(event.seq);
-      clearTimeout(pending.timer);
-      pending.resolve(event.line);
-      return;
-    }
-    if (event.type === "command-result") {
-      /*
-        The answer arrived, so the clock stops whatever it says. A late answer
-        that beat nothing — the timeout already fired — still replaces the
-        timed-out row, because what the plugin actually said is better than the
-        console's guess that it would not say anything.
-      */
-      const running = commandTimers.current.get(pluginId);
-      if (running !== undefined) {
-        clearTimeout(running);
-        commandTimers.current.delete(pluginId);
-      }
-      setPending((was) => {
-        if (!(pluginId in was)) return was;
-        const next = { ...was };
-        delete next[pluginId];
-        return next;
-      });
-      setOutcomes((was) => ({
-        ...was,
-        [pluginId]: { id: event.id, ok: event.ok, error: event.error, reason: event.reason },
-      }));
-      return;
-    }
-    if (event.type === "unloaded") {
-      /*
-        The frame is still mounted and has torn its plugin down, so the effect
-        above does not fire — this is the one clear that is not derived.
-      */
-      const forget = <T,>(was: Record<string, T>): Record<string, T> => {
-        if (!(pluginId in was)) return was;
-        const next = { ...was };
-        delete next[pluginId];
-        return next;
-      };
-      setRegistrations(forget);
-      setStatusItems(forget);
-      return;
-    }
-    if (event.type === "loaded") {
-      void reportStatus({
-        workspaceId, pluginId, bundleFingerprint,
-        status: "loaded", attempts: sandbox.attempts,
-      }).catch(() => undefined);
-      return;
-    }
-    if (event.type === "rpc") {
-      const requestId = typeof (event.request as { requestId?: unknown }).requestId === "string"
-        ? (event.request as { requestId: string }).requestId
-        : "invalid";
-      const operation = (event.request as {
-        operation?: {
-          kind?: unknown;
-          path?: unknown;
-          from?: unknown;
-          to?: unknown;
-          text?: unknown;
-          expectedEtag?: unknown;
-        };
-      }).operation;
-      void executeRequest({ runtimeToken, request: event.request }).then((response) => {
-        event.respond(response);
-        const noteWrite = appliedPluginNoteWrite(operation, response);
-        if (noteWrite !== null) onNoteWrite?.(noteWrite);
-        const change = vaultEventForOperation(operation, response);
-        if (change !== null) publish(change);
-      }).catch(() => {
-        event.respond({
-          version: 1,
-          requestId,
-          ok: false,
-          error: { code: "PLUGIN_SESSION_INVALID", message: "Start this plugin again" },
-        });
-      });
-      return;
-    }
-    /*
-      A FRAME THAT NAVIGATED AWAY IS STOPPED, NOT RETRIED.
-
-      `crashed` below reloads up to three times, which is right for a bundle
-      that threw and wrong for one that left: it would simply leave again on
-      each attempt. So this ends the plugin and records `blocked` — the status
-      whose own copy already says "Context turned this version off" — without
-      touching the owner's approval, exactly as Stop does.
-    */
-    if (event.type === "disowned") {
-      setSandboxes((was) => was.filter((one) => one.nonce !== sandbox.nonce));
-      void reportStatus({
-        workspaceId, pluginId, bundleFingerprint,
-        status: "blocked", attempts: sandbox.attempts,
-        errorCode: "SANDBOX_DISOWNED",
-        errorMessage: "This plugin's sandbox stopped being the one Context started, so Context stopped it.",
-      }).catch(() => undefined);
-      return;
-    }
-    if (event.type === "crashed") {
-      setSandboxes((was) => was.filter((one) => one.nonce !== sandbox.nonce));
-      if (sandbox.attempts < 3) {
-        void loadBundle({ workspaceId, pluginId, bundleFingerprint }).then((bundle) => {
-          setSandboxes((was) => [
-            ...was.filter((one) => one.bundle.pluginId !== pluginId),
-            { bundle, nonce: newSandboxNonce(), attempts: sandbox.attempts + 1 },
-          ]);
-        }).catch((error) => reportCrash(pluginId, bundleFingerprint, 3, error));
-      } else {
-        void reportCrash(pluginId, bundleFingerprint, sandbox.attempts, new Error(event.message));
-      }
-    }
+    handleSandboxEvent(
+      {
+        workspaceId,
+        executeRequest,
+        loadBundle,
+        onNoteWrite,
+        publish,
+        reportCrash,
+        reportStatus,
+        setRegistrations,
+        setStatusItems,
+        setModal,
+        setPickFailure,
+        setSettingsTabs,
+        setSettingsPane,
+        setTextModal,
+        setPending,
+        setOutcomes,
+        setSandboxes,
+        waiting,
+        applying,
+        previewing,
+        modalWaiting,
+        lastAsked,
+        lastModalAsked,
+        lastPreviewAsked,
+        offeredBy,
+        settingsOwner,
+        textModalOwner,
+        commandTimers,
+      },
+      sandbox,
+      event,
+    );
   }, [executeRequest, loadBundle, onNoteWrite, publish, reportCrash, reportStatus, workspaceId]);
 
   useEffect(() => {
