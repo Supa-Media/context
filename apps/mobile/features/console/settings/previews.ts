@@ -144,6 +144,7 @@ export function settingsPreview(
     */
     case "workspace":
     case "premium":
+    case "domain":
     case "model":
     case "meetings":
       return null;

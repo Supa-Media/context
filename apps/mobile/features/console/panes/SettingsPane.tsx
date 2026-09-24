@@ -27,6 +27,7 @@ import { ConnectedAppsCard } from "../settings/AccountSections";
 import { GroupsPanel } from "../settings/panels/GroupsPanel";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
+import { DomainSection } from "../settings/panels/DomainPanel";
 import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
 import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
 import { PluginsPanel } from "../settings/panels/PluginsPanel";
@@ -416,6 +417,12 @@ export function SettingsPane({
       */}
       <PrivacyPanel data={data} />
       </>
+      ) : null}
+
+      {show("domain") ? (
+      <DomainSection sectioned={section !== undefined} workspaceId={data.files.contextId ?? null}
+        handle={current?.slug.replace(/^@/, "") ?? ""} demo={data.demo}
+        onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")} />
       ) : null}
 
       {show("integrations") ? (
