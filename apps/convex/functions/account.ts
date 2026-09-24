@@ -47,6 +47,7 @@
  */
 
 import { v } from "convex/values";
+import { releaseWorkspaceDomains } from "./lib/customDomains/handlers";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
@@ -517,6 +518,14 @@ async function deleteWorkspaceCascade(
       );
     }
   }
+
+  /*
+    CUSTOM DOMAINS — RELEASED, like the search index above: a registration at
+    the provider outlives the row that names it, and a hostname left
+    registered in our zone after its workspace is gone is the dangling record
+    a takeover needs. Rows that never reached the provider go now.
+  */
+  await releaseWorkspaceDomains(ctx, workspaceId);
 
   /*
     ANY WORKSPACE-KEY ROTATION ROW, IN EITHER STATUS.

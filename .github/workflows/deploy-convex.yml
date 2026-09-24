@@ -152,6 +152,13 @@ jobs:
           # does not take answers from strangers. That is also what makes the
           # feature safe to ship before the key exists.
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          # Custom domains: the Cloudflare for SaaS zone customer hostnames are
+          # registered in, and the hostname customers point their CNAME at.
+          # Identifiers, not credentials — the registering token lives in
+          # `appSecrets` as CUSTOM_DOMAINS_API_TOKEN. Absent is a working
+          # state: the Domain section says the deployment does not offer them.
+          CUSTOM_DOMAINS_ZONE_ID: ${{ secrets.CUSTOM_DOMAINS_ZONE_ID }}
+          CUSTOM_DOMAINS_TARGET: ${{ secrets.CUSTOM_DOMAINS_TARGET }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -172,7 +179,8 @@ jobs:
                      PLUGIN_EGRESS_URL PLUGIN_EGRESS_SECRET \
                      MANAGED_R2_ACCOUNT_ID \
                      STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET \
-                     TURNSTILE_SECRET_KEY; do
+                     TURNSTILE_SECRET_KEY \
+                     CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.

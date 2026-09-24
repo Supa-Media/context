@@ -336,6 +336,21 @@ describe("no public function can reach a storage secret", () => {
         // Without it, deleting a context leaves the card being charged with no
         // route in the product to stop it.
         "functions.billingStripe.cancelSubscription",
+        // THE CUSTOM-HOSTNAME TOKEN, OURS AGAIN.
+        //
+        // All three open `CUSTOM_DOMAINS_API_TOKEN` — a token of ours,
+        // zone-scoped to the one zone customer domains are registered in — to
+        // register, read and delete a hostname there. internalActions, reached
+        // only by schedule edges from `customDomains.connect` / `.checkNow` /
+        // `.remove`, the sweep, and the workspace-deletion cascade, which is
+        // the shape the D1 and Stripe entries above have and rests on the same
+        // decision. Nothing they write back is Cloudflare's text or the token:
+        // a provider id, three booleans and one of our own problem codes, and
+        // `__tests__/customDomains/lifecycle.test.ts` asserts the token is in
+        // no row and no response.
+        "functions.customDomainsProvision.provision",
+        "functions.customDomainsProvision.check",
+        "functions.customDomainsProvision.deprovision",
         // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
         // product-specific and combined binders. See the `functions/googleConnect.ts`
         // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather
