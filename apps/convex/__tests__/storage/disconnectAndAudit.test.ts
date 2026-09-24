@@ -12,7 +12,7 @@ import {
 } from "../fixtures.helpers";
 import {
   boundWorkspace,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("recordVerification (internal)", () => {
   test("marks a binding connected and records probed capabilities", async () => {

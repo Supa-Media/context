@@ -12,7 +12,7 @@ import {
   postWebhook,
   checkoutCompleted,
   subscriptionEvent,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the webhook", () => {
   test("an unsigned delivery buys nothing", async () => {

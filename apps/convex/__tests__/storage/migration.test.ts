@@ -13,7 +13,7 @@ import {
 } from "../fixtures.helpers";
 import {
   boundWorkspace,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("where the storage-layout migration got to", () => {
   /*

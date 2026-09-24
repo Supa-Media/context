@@ -14,7 +14,7 @@ import {
   ACCESS_A,
   twoConnectedTenants,
   bodyOf,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* 3b. /gateway/binding — the search-index credential beside it               */
 /* -------------------------------------------------------------------------- */

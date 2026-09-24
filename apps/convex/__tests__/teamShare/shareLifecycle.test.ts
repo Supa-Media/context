@@ -13,7 +13,7 @@ import {
   NOTE,
   scenario,
   teamLink,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("making one", () => {
   test("an owner gets a token", async () => {

@@ -25,7 +25,7 @@ import {
   startAuthorization,
   startAndApprove,
   startAndApproveWith,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* 6. The authorization flow                                                  */
 /* -------------------------------------------------------------------------- */

@@ -12,7 +12,7 @@ import {
   gateway,
   manifest,
   block,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("a group is narrower than team, in both engines", () => {
   const text = manifest(

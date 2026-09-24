@@ -20,7 +20,7 @@ import {
   context,
   chooseBoth,
   FAKE_PRICE_ID,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("deleting a context stops the money", () => {
   /*

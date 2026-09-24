@@ -26,7 +26,7 @@ import {
   shareProjects,
   capture,
   names,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /**
  * Renaming a folder must not publish what the arriving one held back.

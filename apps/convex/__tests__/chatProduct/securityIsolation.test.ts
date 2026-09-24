@@ -19,7 +19,7 @@ import {
   personalScenario,
   chatBindingArgs,
   gmailArgs,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("isolation: one context's chat connections are invisible to another", () => {
   test("productsForConnection for a connection id from another workspace returns nothing", async () => {

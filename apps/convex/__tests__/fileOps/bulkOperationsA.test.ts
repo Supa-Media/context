@@ -21,7 +21,7 @@ import {
   capture,
   errorShape,
   names,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /**
  * `keysUnder` walks a folder for move, copy and delete, and filtered only
