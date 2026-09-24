@@ -702,8 +702,22 @@ describe("the premise this file rests on", () => {
       join(__dirname, "..", "..", "convex", "functions", "files.ts"),
       "utf8",
     );
-    const writeNoteBody = source.slice(source.indexOf("export const writeNote = action("));
-    const body = writeNoteBody.slice(0, writeNoteBody.indexOf("\n});"));
+    // The body is not in the registration any more: the Convex split left a
+    // one-line hand-over. So the handler is read out by name, as
+    // `storageCodePosition.test.ts` does for the barrier, and one this cannot
+    // find is thrown on — an empty body would satisfy every `toContain` below.
+    const declaration = source.slice(source.indexOf("export const writeNote = action("));
+    const handed = /=> await (\w+)\(ctx, args\),/.exec(
+      declaration.slice(0, declaration.indexOf("\n});")),
+    );
+    if (handed === null) throw new Error("writeNote hands over to no single named handler");
+    const handlerSource = readFileSync(
+      join(__dirname, "..", "..", "convex", "functions", "lib", "filesFns", "noteWrites.ts"),
+      "utf8",
+    );
+    const declared = handlerSource.indexOf(`export async function ${handed[1]}(`);
+    if (declared === -1) throw new Error(`${handed[1]} is not declared in lib/filesFns/noteWrites.ts`);
+    const body = handlerSource.slice(declared, handlerSource.indexOf("\n}\n", declared));
 
     expect(body).toContain("authorizeFileAccess");
     expect(body).toContain('minimum: "editor"');

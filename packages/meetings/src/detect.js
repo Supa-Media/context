@@ -16,6 +16,7 @@
 //    carries a conference URL and that exact URL is open in a window, which is
 //    the strongest signal available and is treated as such.
 
+import { isolateForDisplay } from "../../shared/src/displayText.cjs";
 import { DETECTOR_THRESHOLDS } from "./protocol.js";
 
 /** @typedef {import("./protocol.js").DetectionSignals} DetectionSignals */
@@ -305,6 +306,25 @@ export function matchRules(signals) {
 /* ------------------------------- calendar -------------------------------- */
 
 /**
+ * A calendar title, ready to sit inside a sentence this package wrote.
+ *
+ * Both calendar rules put `event.title` in the middle of our own words, and
+ * the desktop panel draws the whole line under "What it noticed". The title
+ * came from whoever sent the invite — anybody who knows the address — so one
+ * U+202E in it reverses the rendering of everything after it, our words
+ * included. `textContent` in `renderer/panel.ts` is the right defence against
+ * markup and none at all against this, because a format character is text.
+ *
+ * Isolated here, at the reading, and **not** in `suggestedTitle`, which is the
+ * same string on its way to being used: it becomes the session's title and the
+ * note's heading, and a bidi isolate belongs in neither. That split is
+ * `displayText.cjs`'s own rule, and `linkPrompt.ts` makes it for a URL.
+ */
+function titleInSentence(title) {
+  return isolateForDisplay(typeof title === "string" ? title : "");
+}
+
+/**
  * Events whose window `[start - lead, end + trail]` contains `now`.
  *
  * The lead exists because people join early; the trail because meetings run
@@ -387,7 +407,7 @@ export function detect(signals) {
       detected: true,
       confidence: CONFIRMED_CONFIDENCE,
       source,
-      reason: `the conference link from "${event.title}" is open right now`,
+      reason: `the conference link from "${titleInSentence(event.title)}" is open right now`,
       suggestedTitle: typeof event.title === "string" ? event.title : null,
       suggestedAttendees: attendeesOf(event),
     };
@@ -417,7 +437,7 @@ export function detect(signals) {
       detected: true,
       confidence: IN_PERSON_CONFIDENCE,
       source: { kind: "in-person", calendarEventId: String(event.id ?? "") },
-      reason: `"${event.title}" is on the calendar now with ${attendeesOf(event).length} people and no link to join`,
+      reason: `"${titleInSentence(event.title)}" is on the calendar now with ${attendeesOf(event).length} people and no link to join`,
       suggestedTitle: typeof event.title === "string" ? event.title : null,
       suggestedAttendees: attendeesOf(event),
     };

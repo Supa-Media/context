@@ -390,6 +390,57 @@ export function runDetectChecks(check) {
     poll(before, yes, at(0));
     return deepEqual(before, snapshot);
   })());
+
+  /* --------------------- the sentence a person reads -------------------- */
+
+  /*
+    A CALENDAR TITLE IS SOMEBODY ELSE'S STRING, AND IT LANDS INSIDE OUR OWN
+    SENTENCE.
+
+    Both calendar rules build `reason` by putting `event.title` in the middle
+    of words this package wrote, and the desktop panel draws that whole line
+    under "What it noticed". A title comes from whoever sent the invite, which
+    is anybody who knows the address — so one U+202E in it reverses the
+    rendering of our own words after it.
+
+    `textContent` in `renderer/panel.ts` is the right defence against markup
+    and no defence at all against this: a format character is text. So the
+    foreign span is isolated where it is read, and `suggestedTitle` stays raw
+    where it is used — the same split `linkPrompt.ts` makes for a URL.
+  */
+  const RLO = String.fromCharCode(0x202e);
+  const FSI = String.fromCharCode(0x2068);
+  const PDI = String.fromCharCode(0x2069);
+  const hostileTitle = `Budget ${RLO} review`;
+
+  const withLink = detect(
+    signals({
+      windows: [{ app: "Chrome", title: "Meet", url: "https://meet.google.com/abc-defg-hij" }],
+      calendarEvents: [
+        calendarEvent({ title: hostileTitle, conferenceUrl: "https://meet.google.com/abc-defg-hij" }),
+      ],
+    }),
+  );
+  check(
+    "a conference-link reason isolates the calendar title inside our sentence",
+    withLink.reason === `the conference link from "${FSI}${hostileTitle}${PDI}" is open right now`
+  );
+  check(
+    "and the title it suggests is still the raw one, because that gets used",
+    withLink.suggestedTitle === hostileTitle
+  );
+
+  const hostileInPerson = detect(signals({ calendarEvents: [calendarEvent({ title: hostileTitle })] }));
+  check(
+    "an in-person reason isolates it too",
+    hostileInPerson.reason === `"${FSI}${hostileTitle}${PDI}" is on the calendar now with 2 people and no link to join`
+  );
+  check(
+    "an ordinary title is not wrapped, so every other line reads as it did",
+    detect(signals({ calendarEvents: [calendarEvent()] })).reason ===
+      '"Weekly sync" is on the calendar now with 2 people and no link to join'
+  );
+
   check("a missing previous state is treated as the initial one", nextDetectorState(null, yes, at(0)).positives === 1);
   check("a missing result counts as a negative, not a crash", nextDetectorState(zero, null, at(0)).negatives === 1);
 }
