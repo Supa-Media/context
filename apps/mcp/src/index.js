@@ -57,6 +57,43 @@
  * apps/convex/functions/lib/fileOps.ts still purges what is there.
  */
 
+/*
+ * Module map. This file is being split by responsibility; what has left it
+ * lives here, and nothing below imports this file back:
+ *
+ *   tools/      schemas.js (every tool's schema), registry.js (tools/list,
+ *               masking, the `context` argument), results.js, links.js,
+ *               formSupport.js, proposals.js, sessionArchive.js,
+ *               communicationsSupport.js
+ *   mcp/        instructions.js (connect-time text), responses.js (legacy and
+ *               modern protocol shapes), usage.js (usage reports, deferredWork)
+ *   http/       responses.js (json, CORS), routing.js (well-known, per-request hooks)
+ *   notes/      paths, storage (bounded listing, legacy probes), format,
+ *               embeds, sealing (open/seal encrypted notes, generated notes)
+ *   moves/      limits, jobs (owns LOGICAL_MOVE_WORKSPACES), objects
+ *   search/     budget, pacing, maintenance, writeProjection
+ *   live/       collaborationHttp, presence, agentActivity
+ *   orient/     render, access          context/  identity
+ *   activity/   changes                 encryptionKeys/  rotation, exportRateLimit
+ *   ingestion/  inbox, granola, transcription   calendar/  ics   crypto/  bytes
+ *   plugins/listPluginsTool.js
+ *
+ * What stays here, and why it cannot move yet: the privacy engine
+ * (privacy.md parsing, canSee, effectiveVisibility, overrides, archive roots)
+ * is evaluated from THIS file's text by the control plane's contract tests
+ * (apps/convex/__tests__/gatewayFormat.helpers.ts), so it must be declared
+ * here — and so must everything that calls it: the tool handlers, the privacy
+ * mutations, the collaboration/presence authorization, recordChange, and the
+ * orient survey. The dispatch switch (`callTool`), `callToolForSession`,
+ * TOOL_NAME_ALIASES and UNLISTED_TOOLS are read off this file by
+ * toolArguments.test.mjs; IMAGE_MIME_TYPES and MAX_INLINE_IMAGE_BYTES are
+ * scraped by the email worker's and control plane's tests. `route` and the
+ * MCP handlers sit above `callToolForSession` and stay with it. Exports are
+ * `export const` aliases rather than `export {…} from`, which that text
+ * evaluation refuses. The only module-level mutable state left here is
+ * `advertisedSchemas`, written by `advertisedSchemaFor` beside it.
+ */
+
 import { createControlPlane } from "./controlPlane.js";
 import { ProviderError } from "./agent/providers.js";
 import {
