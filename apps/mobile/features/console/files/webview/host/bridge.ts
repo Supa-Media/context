@@ -1,8 +1,7 @@
 /**
  * The host end of the message bridge: `HostSink`, `HostBridge` and
- * `createHostBridge`. Split out of `../host.ts` — see that facade for the
- * file this used to be, including why `ready` resends the whole of the
- * desired state rather than flushing a queue.
+ * `createHostBridge`. Split out of `../host.ts` — see that facade for why
+ * `ready` resends the whole desired state rather than flushing a queue.
  */
 
 import {
