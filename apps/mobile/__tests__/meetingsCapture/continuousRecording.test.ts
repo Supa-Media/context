@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS } from "../../features/meetings/capture/segments";
+import type { FakeTranscriber } from "../../features/meetings/capture/transcriber";
 import {
   advance,
   captureState,

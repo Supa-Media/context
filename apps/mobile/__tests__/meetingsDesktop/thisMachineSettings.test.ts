@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
-import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
+import { fakeDesktopBridge, type FakeDesktopBridge } from "@context/desktop-bridge/fake";
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),

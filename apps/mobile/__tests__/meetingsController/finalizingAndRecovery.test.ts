@@ -1,7 +1,16 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { FINALIZE_TIMEOUT_MS } from "../../features/meetings/recovery";
 import { pendingSteps } from "../../features/meetings/record";
-import { DEVICE, MeetingsController, fakeGateway, fakeRecorder, harness, memoryStore, settle } from "./fixtures";
+import {
+  DEVICE,
+  MeetingsController,
+  fakeGateway,
+  fakeRecorder,
+  harness,
+  memoryStore,
+  settle,
+  type FakeGateway,
+} from "./fixtures";
 
 /**
  * A session stuck finalizing is not left stuck, and a meeting recovery gave

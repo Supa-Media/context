@@ -11,6 +11,7 @@ import {
   harness,
   memoryStore,
   settle,
+  type KeyValueStore,
 } from "./fixtures";
 
 /**
