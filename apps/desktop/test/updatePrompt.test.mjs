@@ -28,6 +28,9 @@ import { readFileSync } from "node:fs";
 import { INSTALL_REFUSED_PROMPT, updateCheckPrompt } from "../src/core/update/prompt.ts";
 
 const source = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
+// The dialogs themselves moved out of `index.ts`; the wiring that hands them
+// `installNow` did not.
+const dialogs = readFileSync(new URL("../src/main/dialogs.ts", import.meta.url), "utf8");
 
 export function runUpdatePromptChecks(check) {
   const ready = updateCheckPrompt({ type: "downloaded", version: "0.1.44", deferred: false });
@@ -106,7 +109,7 @@ export function runUpdatePromptChecks(check) {
 
   check(
     "THE DIALOG INSTALLS ONLY WHEN THE INSTALL BUTTON WAS THE ONE PRESSED",
-    /if \(installButton === null \|\| answer\.response !== installButton\) return;/.test(source),
+    /if \(installButton === null \|\| answer\.response !== installButton\) return;/.test(dialogs),
   );
   check(
     "...through `updater.install()`, which re-asks `mayInstall()` at the click",
@@ -115,12 +118,12 @@ export function runUpdatePromptChecks(check) {
   );
   check(
     "...and a refusal is said out loud rather than doing nothing",
-    /if \(!install\(\)\) sayInstallRefused\(\);/.test(source),
+    /if \(!install\(\)\) sayInstallRefused\(\);/.test(dialogs),
   );
   check(
     "A REFUSAL WITH NO WINDOW IS A NOTIFICATION, NEVER AN APPLICATION-MODAL ALERT MID-RECORDING",
     /function sayInstallRefused\(\): void \{[\s\S]*?if \(parent === null\) \{\s*showNativeNotification\(/.test(
-      source,
+      dialogs,
     ),
   );
 }
