@@ -378,13 +378,14 @@ describe("a folder gets a link too", () => {
    * hardcoded path is caught; a new computed one is not, and no regex over
    * source will change that.
    *
-   * It also reads `index.js` alone. Generated notes pass through
+   * It also reads one file alone, `calendar/sync.js`, where the cron's writer
+   * moved from `index.js`. Generated notes pass through
    * `writeGeneratedNote`, the collaboration-aware write seam, while the
    * remaining dot-prefixed writes are plumbing refused by `isPlumbing`.
    */
   test("and the calendar path the cron hardcodes", () => {
     const gateway = readFileSync(
-      new URL("../../../mcp/src/index.js", import.meta.url),
+      new URL("../../../mcp/src/calendar/sync.js", import.meta.url),
       "utf8",
     );
     expect(gateway).toMatch(
