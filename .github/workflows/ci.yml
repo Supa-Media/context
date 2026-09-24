@@ -660,9 +660,8 @@ jobs:
           EXPO_PUBLIC_CONVEX_URL: "https://native-bundle-check.invalid"
         run: pnpm exec expo export --platform ios --platform android --output-dir "$RUNNER_TEMP/native-bundle"
 
-  # The Convex deploy runs its own `tsc`, which reads the gateway's JSDoc types
-  # through fileOps.ts; the package `tsc` above does not. A split that stranded
-  # one `@param` block passed every PR check and failed every staging deploy.
+  # The Convex deploy's own `tsc` reads gateway JSDoc through fileOps.ts; the package
+  # `tsc` does not, so a stranded `@param` block once passed PR CI and broke staging.
   convex-deploy-typecheck:
     name: The Convex deploy typecheck passes
     runs-on: ubuntu-latest
