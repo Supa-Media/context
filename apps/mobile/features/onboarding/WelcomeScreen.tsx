@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { useLocalSearchParams, Redirect, useRouter } from "expo-router";
 import { checkoutOutcomeFrom } from "@context/shared";
@@ -21,6 +21,8 @@ import { ConnectionsContainer, ToolsLiveContainer } from "./steps/ToolsSteps";
 import { INVITE_ROUTE } from "../auth/redirect";
 import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { DoneStep } from "./steps/DoneStep";
+import { ResumeNotice } from "./ResumeNotice";
+import { markResumeAsked } from "./resume";
 
 /**
  * `/welcome` — the thirty seconds between "you're signed in" and "your context
@@ -54,10 +56,27 @@ export function WelcomeScreen() {
   */
   const rawCheckout = Array.isArray(params.checkout) ? params.checkout[0] : params.checkout;
   const checkout = checkoutOutcomeFrom(rawCheckout);
+  /*
+    `resume=storage` is the sign-in gate's (`resume.ts`): an owner whose
+    personal workspace never got storage. It re-enters at the fork — the step
+    that asks where notes live — rather than at a storage step whose route
+    they never chose.
+  */
+  const fromLogin = resumeParam === "storage" && checkout === null;
   const resume =
-    resumeParam === "structure" ? "structure" : checkout !== null ? "storage" : undefined;
+    resumeParam === "structure"
+      ? "structure"
+      : checkout !== null
+        ? "storage"
+        : fromLogin
+          ? "fork"
+          : undefined;
   const resuming = resume !== undefined;
   const controller = useOnboarding({ resume, checkout });
+  // Asked, now that it is on screen — see `resume.ts` and the `(app)` gate.
+  useEffect(() => {
+    if (fromLogin) markResumeAsked();
+  }, [fromLogin]);
 
   const decision = resolveWelcomeRoute({
     owned: controller.owned,
@@ -69,7 +88,18 @@ export function WelcomeScreen() {
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
 
   return (
-    <WelcomeChrome step={controller.step} shape={controller.shape}>
+    <WelcomeChrome
+      step={controller.step}
+      shape={controller.shape}
+      notice={
+        fromLogin && (controller.step === "fork" || controller.step === "storage") ? (
+          <ResumeNotice
+            slug={controller.claimed?.slug ?? null}
+            onLater={() => router.replace("/console")}
+          />
+        ) : null
+      }
+    >
       <StepBody
         controller={controller}
         onOpenConsole={() => {
@@ -94,10 +124,13 @@ export function WelcomeScreen() {
 export function WelcomeChrome({
   step,
   shape,
+  notice = null,
   children,
 }: {
   step: StepKey;
   shape: FlowShape;
+  /** Drawn above the title — the resume line, when there is one. */
+  notice?: ReactNode;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -136,6 +169,7 @@ export function WelcomeChrome({
       </View>
 
       <View style={styles.wrap}>
+        {notice}
         <Text role="heading" aria-level={1} style={styles.title}>
           {stepTitle(step, shape)}
         </Text>
