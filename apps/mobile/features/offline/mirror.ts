@@ -107,7 +107,7 @@ export interface MirrorIndex {
    * Folder path → its own default visibility, as the last listing that named
    * it said. Only for the badge on a folder row offline: the manifest lists
    * notes, not folders, and the privacy rules that decide a folder's default
-   * are not on this device. See `folderVisibility` for what happens without one.
+   * are not on this device. See `badge` in `treeOf` for what happens without one.
    */
   folders: Map<string, Visibility>;
   /** When a sync run last finished, complete or not. */
@@ -118,6 +118,15 @@ export interface MirrorIndex {
   remaining?: number;
   incomplete?: IncompleteReason;
   manifestUsable?: boolean;
+  /**
+   * The last manifest listed everything, so the entries and folders are the
+   * whole of what this clearance may see as of `listedAt` — whether or not
+   * every body has arrived yet. `complete` is about bodies; this is about the
+   * tree, which is drawn from metadata alone.
+   */
+  listedComplete?: boolean;
+  /** When the manifest behind the entries started walking the bucket. */
+  listedAt?: number;
 }
 
 export function emptyIndex(): MirrorIndex {
@@ -204,6 +213,10 @@ export function parseIndex(raw: string | null): MirrorIndex | null {
       ...(typeof parsed.manifestUsable === "boolean"
         ? { manifestUsable: parsed.manifestUsable }
         : {}),
+      ...(typeof parsed.listedComplete === "boolean"
+        ? { listedComplete: parsed.listedComplete }
+        : {}),
+      ...(typeof parsed.listedAt === "number" ? { listedAt: parsed.listedAt } : {}),
     };
   } catch {
     return null;
@@ -683,98 +696,163 @@ function baseName(path: string): string {
 }
 
 /**
- * A folder row's visibility with no listing to say it.
- *
- * The rule that decides it (`visibilityOf` — the longest matching folder rule
- * in `privacy.md`) is not on the device, and `privacy.md` itself reaches only
- * an owner. Three rungs, in order of how much they can be trusted:
- *
- *  1. what the last online listing said about this folder — exact, as of then;
- *  2. a note directly inside it: a note's `inherited` *is* its folder's rule,
- *     because a rule is a folder prefix and the longest prefix covering a
- *     direct child is the folder's own;
- *  3. any note beneath it — a deeper folder may have its own rule, so this is
- *     a guess — and then `private`, the default with no rule at all.
- *
- * It is a badge. Nothing is decided by it: every note carries its own fields,
- * and what the device holds was filtered by the server before it arrived.
- */
-function folderVisibility(index: MirrorIndex, folder: string): Visibility {
-  const known = index.folders.get(folder);
-  if (known !== undefined) return known;
-  const prefix = folder === "" ? "" : `${folder}/`;
-  let deeper: Visibility | null = null;
-  for (const entry of index.entries.values()) {
-    if (!entry.path.startsWith(prefix)) continue;
-    if (!entry.path.slice(prefix.length).includes("/")) return entry.inherited;
-    deeper ??= entry.inherited;
-  }
-  return deeper ?? "private";
-}
-
-/**
  * One folder's children as `listFiles` would draw them, from paths.
  *
- * `null` for a folder nothing on the device lives under — the same answer the
+ * `null` for a folder the device knows nothing about — the same answer the
  * offline tree gave for a folder that had never been expanded, and the one
  * that makes it disappear rather than render empty. The root is always an
- * answer once there is an index.
+ * answer once there is an index. A folder the index names on its own (an
+ * empty one the manifest listed) is an answer too: empty, not unknown.
  *
  * `truncated` is `false` because this is not a page of anything; whether the
  * mirror as a whole is complete is `mirrorStatus`'s to say, once, rather than
  * every folder's.
  */
 export function listingOf(index: MirrorIndex, folder: string): FolderListing | null {
-  const prefix = folder === "" ? "" : `${folder}/`;
-  const files: FileEntry[] = [];
-  const folders = new Set<string>();
-  let known = folder === "";
+  return treeOf(index).get(folder) ?? null;
+}
+
+/**
+ * Every folder's listing at once — the whole tree the index describes, built
+ * in one pass over it.
+ *
+ * This is what the console draws before, and instead of, asking the bucket
+ * for a folder: expanding one reads a map rather than scanning every path or
+ * waiting on a request. A folder is in it when a path lives under it or when
+ * the index names it on its own (`folders`, which a manifest that lists
+ * folders fills exactly, empty ones included). A note the index lists without
+ * a body is still a row: the tree is metadata, and whether a note is readable
+ * offline is the entry's `body`, never whether it is drawn.
+ *
+ * Folder badges follow the rungs `badge` below spells out, computed in the same pass.
+ */
+export function treeOf(index: MirrorIndex): Map<string, FolderListing> {
+  const files = new Map<string, FileEntry[]>();
+  const children = new Map<string, Set<string>>([["", new Set()]]);
+  const direct = new Map<string, Visibility>();
+  const deeper = new Map<string, Visibility>();
+
+  /**
+   * Make `folder` and every ancestor a row of its parent, carrying the first
+   * badge seen beneath each. Stops at the first ancestor that is already
+   * placed and already has a badge (or needs none): its own ancestors were
+   * placed, and badged, by the walk that placed it.
+   */
+  const place = (folder: string, inherited: Visibility | null) => {
+    let at = folder;
+    for (;;) {
+      const known = children.has(at);
+      const badged = deeper.has(at);
+      if (inherited !== null && !badged) deeper.set(at, inherited);
+      if (!known) children.set(at, new Set());
+      if (at === "" || (known && (inherited === null || badged))) return;
+      const parent = parentOf(at);
+      if (!children.has(parent)) children.set(parent, new Set());
+      children.get(parent)!.add(at);
+      at = parent;
+    }
+  };
 
   for (const entry of index.entries.values()) {
-    if (!entry.path.startsWith(prefix)) continue;
-    known = true;
-    const rest = entry.path.slice(prefix.length);
-    const slash = rest.indexOf("/");
-    if (slash === -1) {
-      files.push({
-        kind: "file",
-        path: entry.path,
-        name: baseName(entry.path),
-        visibility: entry.visibility,
-        inherited: entry.inherited,
-        exception: entry.exception,
-        readOnly: entry.readOnly,
-        ...(entry.size !== undefined ? { size: entry.size } : {}),
-        ...(entry.updatedAt !== undefined ? { updatedAt: entry.updatedAt } : {}),
-      });
-    } else {
-      folders.add(`${prefix}${rest.slice(0, slash)}`);
-    }
-  }
-  if (!known) return null;
-
-  const rows: FileEntry[] = [...folders].map((path) => {
-    const visibility = folderVisibility(index, path);
-    return {
-      kind: "folder",
-      path,
-      name: baseName(path),
-      visibility,
-      inherited: visibility,
-      exception: false,
-      readOnly: false,
+    const parent = parentOf(entry.path);
+    const row: FileEntry = {
+      kind: "file",
+      path: entry.path,
+      name: baseName(entry.path),
+      visibility: entry.visibility,
+      inherited: entry.inherited,
+      exception: entry.exception,
+      readOnly: entry.readOnly,
+      ...(entry.size !== undefined ? { size: entry.size } : {}),
+      ...(entry.updatedAt !== undefined ? { updatedAt: entry.updatedAt } : {}),
     };
-  });
-  // Folders first, then files, each by name — `compareEntries` in the server's
-  // `listFolder`, so a tree does not reorder itself when the signal drops.
+    const list = files.get(parent);
+    if (list === undefined) files.set(parent, [row]);
+    else list.push(row);
+    if (!direct.has(parent)) direct.set(parent, entry.inherited);
+    place(parent, entry.inherited);
+  }
+  for (const folder of index.folders.keys()) place(folder, null);
+
+  /*
+    A folder row's visibility with no listing to say it.
+
+    The rule that decides it (`visibilityOf` — the longest matching folder rule
+    in `privacy.md`) is not on the device, and `privacy.md` itself reaches only
+    an owner. Three rungs, in order of how much they can be trusted:
+
+     1. what the last online listing said about this folder — exact, as of then;
+     2. a note directly inside it: a note's `inherited` *is* its folder's rule,
+        because a rule is a folder prefix and the longest prefix covering a
+        direct child is the folder's own;
+     3. any note beneath it — a deeper folder may have its own rule, so this is
+        a guess — and then `private`, the default with no rule at all.
+
+    It is a badge. Nothing is decided by it: every note carries its own fields,
+    and what the device holds was filtered by the server before it arrived.
+  */
+  const badge = (folder: string): Visibility =>
+    index.folders.get(folder) ?? direct.get(folder) ?? deeper.get(folder) ?? "private";
   const byName = (a: FileEntry, b: FileEntry) => a.name.localeCompare(b.name);
+  const manifestUsable = index.manifestUsable ?? true;
+
+  const tree = new Map<string, FolderListing>();
+  for (const [folder, subfolders] of children) {
+    const rows: FileEntry[] = [...subfolders].map((path) => {
+      const visibility = badge(path);
+      return {
+        kind: "folder",
+        path,
+        name: baseName(path),
+        visibility,
+        inherited: visibility,
+        exception: false,
+        readOnly: false,
+      };
+    });
+    // Folders first, then files, each by name — `compareEntries` in the
+    // server's `listFolder`, so a tree does not reorder itself when the
+    // signal drops.
+    tree.set(folder, {
+      path: folder,
+      folderDefault: badge(folder),
+      entries: [...rows.sort(byName), ...(files.get(folder) ?? []).sort(byName)],
+      truncated: false,
+      manifestUsable,
+    });
+  }
+  return tree;
+}
+
+export interface MirroredTree extends Cached<Map<string, FolderListing>> {
+  /** The walk behind it named everything: a folder it lacks is gone. */
+  complete: boolean;
+  /** When that walk started — what the tree is at least as new as. */
+  listedAt: number;
+}
+
+/** The whole tree this clearance is served, or `null` when nothing is mirrored for it. */
+export async function mirroredTree(
+  store: MirrorStore,
+  scope: CacheScope,
+  workspaceId: string,
+): Promise<MirroredTree | null> {
+  const index = await readableIndex(store, scope, workspaceId);
+  if (index === null) return null;
+  const cachedAt = index.lastSyncedAt ?? newestSync(index);
   return {
-    path: folder,
-    folderDefault: folderVisibility(index, folder),
-    entries: [...rows.sort(byName), ...files.sort(byName)],
-    truncated: false,
-    manifestUsable: index.manifestUsable ?? true,
+    value: treeOf(index),
+    cachedAt,
+    // An index written before `listedComplete` existed says only whether its
+    // bodies were complete, which implies its listing was.
+    complete: index.listedComplete ?? index.complete ?? false,
+    listedAt: index.listedAt ?? cachedAt,
   };
+}
+
+function parentOf(path: string): string {
+  const at = path.lastIndexOf("/");
+  return at < 0 ? "" : path.slice(0, at);
 }
 
 /**
