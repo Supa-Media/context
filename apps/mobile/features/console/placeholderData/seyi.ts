@@ -4,7 +4,7 @@ import { renderFile } from "@context/shared/src/activity.cjs";
 // named `import { DEMO_* }`, and this module is reachable only from
 // `placeholderData.ts` (which is on that allowlist) — the same guarantee the
 // named form would give, in a shape the source-scanning guard can see through.
-import * as activityData from "./activity";
+import { DEMO_ACTIVITY } from "./activity";
 import { COMMS_LISTINGS, COMMS_NOTES } from "./communications";
 import { type DemoContextTree, exception, file, folder, listing, privacyNote, teamFile } from "./treeHelpers";
 
@@ -146,7 +146,7 @@ export const SEYI_TREE: DemoContextTree = {
       same reason. Two lists would be two chances for the page to show rows the
       file does not contain.
     */
-    "activity.md": renderFile(activityData.DEMO_ACTIVITY),
+    "activity.md": renderFile(DEMO_ACTIVITY),
     "1-projects/context-lc.md": [
       "---",
       "updated: 2026-08-26",
