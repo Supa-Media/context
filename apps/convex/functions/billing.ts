@@ -44,183 +44,43 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
-import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalMutation,
   internalQuery,
   mutation,
   query,
-  type MutationCtx,
-  type QueryCtx,
 } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
+import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
-  requireWorkspaceAccess,
-  requireWorkspaceRole,
-} from "./lib/workspaceAuth";
-import {
-  MANAGED_STORAGE_CEILING_BYTES,
-  PREMIUM_CURRENCY,
-  PREMIUM_INTERVAL,
-  PREMIUM_PRICE_CENTS,
-  activeEntitlements,
   hasAnyEntitlement,
   planIsPaying,
   planStatusFromStripe,
-  stripePriceId,
   type Entitlements,
   type PlanStatus,
 } from "./lib/premium";
-import { managedBucketName, managedAccountId, stagingStorageIsFree } from "./lib/managedStorage";
+import { stagingStorageIsFree } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
 import { isProductionTestAccount } from "./lib/testAccount";
-
-/** How long a minted checkout or portal URL stays usable from our side. */
-const SESSION_TTL_MS = 15 * 60 * 1000;
-
-async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) {
-    throw new ConvexError({
-      code: "NOT_AUTHENTICATED",
-      message: "Sign in first.",
-    });
-  }
-  return userId;
-}
-
-async function planFor(
-  ctx: QueryCtx,
-  workspaceId: Id<"workspaces">,
-): Promise<Doc<"workspacePlans"> | null> {
-  return await ctx.db
-    .query("workspacePlans")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-}
-
-/** No row is the ordinary state: free, nothing selected, nobody paying. */
-function selectionOf(plan: Doc<"workspacePlans"> | null): Entitlements {
-  return {
-    managedStorage: plan?.managedStorage ?? false,
-    fastSearch: plan?.fastSearch ?? false,
-  };
-}
-
-function statusOf(plan: Doc<"workspacePlans"> | null): PlanStatus {
-  return plan?.status ?? "none";
-}
-
-/**
- * Is this context's storage a bucket we run?
- *
- * Derived from the bucket's name rather than stored as a flag, because the
- * name is already derived from the workspace id and cannot be anything else:
- * `managedBucketName` is deterministic and total, so one comparison answers it
- * with nothing to keep in sync. A flag would be a second copy of a fact, and
- * the direction that copy drifts is a customer's own bucket being treated as
- * ours.
- *
- * `bindStorage` refuses an endpoint addressing the managed account, so a
- * customer cannot get a BYO binding that answers true here by naming their own
- * bucket after a workspace id: the name alone would collide only inside our own
- * account, which they cannot reach.
- */
-function bindingIsManaged(
-  binding: Doc<"storageBindings"> | null,
-  workspaceId: Id<"workspaces">,
-): boolean {
-  if (binding === null) return false;
-  return binding.bucket === managedBucketName(workspaceId);
-}
-
-/**
- * Does this deployment sell anything?
- *
- * `stripePriceId` **throws** on a value that is present and malformed, which is
- * the right answer where it is read — the minting action turns it into a
- * recorded `NOT_CONFIGURED` an operator can see. It is the wrong answer in a
- * public query: an operator typo in one environment variable would throw for
- * every member of every context on this deployment and take the whole Premium
- * section down with it, on a read that changes nothing.
- *
- * So the read degrades to "this deployment does not sell", which is what a
- * misconfigured deployment *is* from a customer's side, and the loudness stays
- * where it can be acted on — the deployment's own log, and the failed attempt
- * row the moment anybody presses Upgrade.
- */
-function deploymentSells(): boolean {
-  try {
-    return stripePriceId() !== null;
-  } catch {
-    console.error("billing.price_id_malformed");
-    return false;
-  }
-}
-
-/**
- * Can this deployment actually *give* somebody managed storage?
- *
- * Selling is not the same question. A deployment with a price id can take a
- * payment; one without a customer-data account has nowhere to put the bucket
- * that payment buys. Offering managed storage on such a deployment would be
- * taking $5 for something that cannot be delivered, which is the worst
- * failure this flow has — so the answer is a fact the console reads *before*
- * drawing the option, and a first run simply does not show it where this is
- * false.
- *
- * Malformed is false rather than a throw, for the reason the price id learned
- * the hard way: this is read by `status`, which every member of every context
- * calls, and an operator's typo must not take that query down for all of them.
- * The throw is still the right behaviour where provisioning itself reads it.
- */
-function deploymentProvidesManagedStorage(): boolean {
-  if (!stagingStorageIsFree() && !deploymentSells()) return false;
-  try {
-    return managedAccountId() !== null;
-  } catch {
-    console.error("billing.managed_account_malformed");
-    return false;
-  }
-}
-
-/**
- * Is there a checkout attempt out there that somebody may be paying on?
- *
- * A `pending` row is one the minting action has not answered; a `ready` one is
- * a hosted page a person may be looking at. Either way a subscription can
- * appear at any moment, so the context is not free to be emptied. `failed` and
- * expired rows are neither.
- */
-async function hasLiveCheckout(
-  ctx: QueryCtx,
-  workspaceId: Id<"workspaces">,
-): Promise<boolean> {
-  const now = Date.now();
-  const rows = await ctx.db
-    .query("billingSessions")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  return rows.some(
-    (row) =>
-      row.kind === "checkout" && row.status !== "failed" && row.expiresAt > now,
-  );
-}
-
-const statusValidator = v.union(
-  v.literal("none"),
-  v.literal("active"),
-  v.literal("past_due"),
-  v.literal("canceled"),
-  v.literal("unknown"),
-);
-
-const entitlementsValidator = v.object({
-  managedStorage: v.boolean(),
-  fastSearch: v.boolean(),
-});
+import {
+  bindingIsManaged,
+  entitlementsValidator,
+  planFor,
+  requireUserId,
+  selectionOf,
+  statusOf,
+} from "./lib/billing/plan";
+import {
+  billingSessionReturns,
+  hasLiveCheckout,
+  openSession,
+  readBillingSession,
+  readSessionForAction,
+  resolvePlan,
+  sessionForActionReturns,
+} from "./lib/billing/sessions";
+import { billingStatusReturns, readBillingStatus } from "./lib/billing/status";
 
 /**
  * What the Premium section draws.
@@ -241,134 +101,8 @@ const entitlementsValidator = v.object({
  */
 export const status = query({
   args: { workspaceId: v.id("workspaces") },
-  returns: v.object({
-    status: statusValidator,
-    selected: entitlementsValidator,
-    active: entitlementsValidator,
-    canManage: v.boolean(),
-    configured: v.boolean(),
-    priceCents: v.number(),
-    currency: v.string(),
-    interval: v.string(),
-    ceilingBytes: v.number(),
-    /** Owner only. */
-    currentPeriodEnd: v.optional(v.number()),
-    cancelAtPeriodEnd: v.optional(v.boolean()),
-    hasStripeCustomer: v.optional(v.boolean()),
-    /**
-     * Owner only, and it is a note count rather than a byte figure because a
-     * byte figure is not measured anywhere yet — see the panel's copy, which
-     * says so rather than implying a meter exists.
-     */
-    notes: v.optional(v.number()),
-    notesTruncated: v.optional(v.boolean()),
-    notesCountedAt: v.optional(v.number()),
-    /** Whether this context's storage is a bucket we run. */
-    storageIsManaged: v.boolean(),
-    /**
-     * Whether this deployment can provide managed storage at all — a price to
-     * charge *and* somewhere to put the bucket. The console does not offer
-     * what cannot be delivered.
-     */
-    managedStorageAvailable: v.boolean(),
-    /**
-     * Where making this context's managed bucket got to, when it was asked
-     * for. Absent for every context that never bought managed storage.
-     *
-     * The `failed` case is the one that has to reach the screen: without it a
-     * person who paid two minutes ago cannot tell a slow webhook from a bucket
-     * that is never going to appear.
-     */
-    managedProvisioning: v.optional(
-      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
-    ),
-    /** Ours, from a closed set — never Cloudflare's text. Owner only. */
-    managedProvisioningError: v.optional(v.string()),
-    /** Copy progress for an existing bucket moving into managed storage. */
-    managedMigrationObjectsCopied: v.optional(v.number()),
-    managedMigrationObjectsTotal: v.optional(v.number()),
-    managedMigrationObjectsProcessed: v.optional(v.number()),
-    managedMigrationPhase: v.optional(
-      v.union(
-        v.literal("count"),
-        v.literal("copy"),
-        v.literal("verify_source"),
-        v.literal("verify_target"),
-      ),
-    ),
-    /** Exact production CUJ account; owner only. */
-    isTestAccount: v.optional(v.boolean()),
-    stagingFreeStorage: v.optional(v.boolean()),
-  }),
-  handler: async (ctx, args) => {
-    const userId = await requireUserId(ctx);
-    const { membership } = await requireWorkspaceAccess(
-      ctx,
-      args.workspaceId,
-      userId,
-    );
-    const isOwner = membership.role === "owner";
-    const user = await ctx.db.get(userId);
-
-    const plan = await planFor(ctx, args.workspaceId);
-    const planStatus = statusOf(plan);
-    const selected = selectionOf(plan);
-
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const migration = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-
-    return {
-      status: planStatus,
-      selected,
-      active: activeEntitlements(selected, planStatus),
-      canManage: isOwner,
-      // Reading the env var, never the key: whether this deployment can sell
-      // is a configuration fact, and a public function may not reach the key
-      // that would make the answer complete. A deployment with a price id and
-      // no payment key fails at the checkout with our own sentence.
-      configured: stagingStorageIsFree() || deploymentSells(),
-      priceCents: stagingStorageIsFree() ? 0 : PREMIUM_PRICE_CENTS,
-      currency: PREMIUM_CURRENCY,
-      interval: PREMIUM_INTERVAL,
-      ceilingBytes: MANAGED_STORAGE_CEILING_BYTES,
-      currentPeriodEnd: isOwner ? plan?.currentPeriodEnd : undefined,
-      cancelAtPeriodEnd: isOwner ? plan?.cancelAtPeriodEnd : undefined,
-      // The id itself is never returned — only whether one exists, which is
-      // what decides whether "Manage billing" is drawn.
-      hasStripeCustomer: isOwner
-        ? plan?.stripeCustomerId !== undefined
-        : undefined,
-      notes: isOwner ? binding?.noteCount : undefined,
-      notesTruncated: isOwner ? binding?.noteCountTruncated : undefined,
-      notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
-      storageIsManaged: bindingIsManaged(binding, args.workspaceId),
-      managedStorageAvailable: deploymentProvidesManagedStorage(),
-      managedProvisioning: plan?.managedProvisioning,
-      // Owner only, with the rest of the money fields: a member cannot act on
-      // it and does not need to know which of our systems refused.
-      managedProvisioningError: isOwner
-        ? plan?.managedProvisioningError
-        : undefined,
-      managedMigrationObjectsCopied: isOwner
-        ? migration?.objectsCopied
-        : undefined,
-      managedMigrationObjectsTotal: isOwner
-        ? migration?.objectsTotal
-        : undefined,
-      managedMigrationObjectsProcessed: isOwner
-        ? migration?.objectsProcessedInPhase
-        : undefined,
-      managedMigrationPhase: isOwner ? migration?.phase : undefined,
-      stagingFreeStorage: stagingStorageIsFree(),
-      isTestAccount: isOwner ? isProductionTestAccount(user) : undefined,
-    };
-  },
+  returns: billingStatusReturns,
+  handler: async (ctx, args) => await readBillingStatus(ctx, args),
 });
 
 /**
@@ -679,32 +413,6 @@ export const startPortal = mutation({
   },
 });
 
-async function openSession(
-  ctx: MutationCtx,
-  input: {
-    workspaceId: Id<"workspaces">;
-    userId: Id<"users">;
-    kind: "checkout" | "portal";
-    /** The selection this attempt is buying. Absent for a portal attempt. */
-    selected?: Entitlements;
-    /** Where it started, which decides where Stripe returns to. */
-    origin?: "settings" | "onboarding";
-  },
-): Promise<Id<"billingSessions">> {
-  const now = Date.now();
-  return await ctx.db.insert("billingSessions", {
-    workspaceId: input.workspaceId,
-    startedBy: input.userId,
-    kind: input.kind,
-    status: "pending",
-    selectedAtCheckout: input.selected,
-    origin: input.origin,
-    expiresAt: now + SESSION_TTL_MS,
-    createdAt: now,
-    updatedAt: now,
-  });
-}
-
 /**
  * Watch one attempt.
  *
@@ -715,33 +423,8 @@ async function openSession(
  */
 export const billingSession = query({
   args: { sessionId: v.id("billingSessions") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      status: v.union(
-        v.literal("pending"),
-        v.literal("ready"),
-        v.literal("failed"),
-      ),
-      kind: v.union(v.literal("checkout"), v.literal("portal")),
-      url: v.optional(v.string()),
-      errorCode: v.optional(v.string()),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const userId = await requireUserId(ctx);
-    const row = await ctx.db.get(args.sessionId);
-    // One answer for "no such row" and "not yours": a caller cannot act on the
-    // difference and an attacker could.
-    if (row === null || row.startedBy !== userId) return null;
-    const expired = row.expiresAt <= Date.now();
-    return {
-      status: row.status,
-      kind: row.kind,
-      url: expired ? undefined : row.url,
-      errorCode: row.errorCode,
-    };
-  },
+  returns: billingSessionReturns,
+  handler: async (ctx, args) => await readBillingSession(ctx, args),
 });
 
 /* ------------------------------------------------------------------------ *
@@ -751,53 +434,8 @@ export const billingSession = query({
 /** The attempt an action is working on, plus what it needs to mint a URL. */
 export const sessionForAction = internalQuery({
   args: { sessionId: v.id("billingSessions") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      workspaceId: v.id("workspaces"),
-      kind: v.union(v.literal("checkout"), v.literal("portal")),
-      status: v.union(
-        v.literal("pending"),
-        v.literal("ready"),
-        v.literal("failed"),
-      ),
-      stripeCustomerId: v.optional(v.string()),
-      selected: entitlementsValidator,
-      /**
-       * What the return URL is built from: where the attempt started, and the
-       * name of the context it is for. The slug rather than the id, because a
-       * URL addresses a context by name and never by a raw workspace id.
-       */
-      origin: v.union(v.literal("settings"), v.literal("onboarding")),
-      slug: v.string(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.sessionId);
-    if (row === null) return null;
-    const workspace = await ctx.db.get(row.workspaceId);
-    /*
-      No workspace, no attempt. The return URL is built from its name, and a
-      context deleted between opening a checkout and minting the page would
-      otherwise produce `/console/@?settings=premium` — a URL that resolves to
-      nothing, handed to Stripe as the place to send somebody after they pay.
-      The action reads this `null` as "skipped", which is what it is: there is
-      nothing left to upgrade.
-    */
-    if (workspace === null) return null;
-    const plan = await planFor(ctx, row.workspaceId);
-    return {
-      workspaceId: row.workspaceId,
-      kind: row.kind,
-      status: row.status,
-      stripeCustomerId: plan?.stripeCustomerId,
-      selected: selectionOf(plan),
-      // A row written before `origin` existed is a settings attempt: it is
-      // where the only checkout this product had could be started from.
-      origin: row.origin ?? "settings",
-      slug: workspace.slug,
-    };
-  },
+  returns: sessionForActionReturns,
+  handler: async (ctx, args) => await readSessionForAction(ctx, args),
 });
 
 /** What the minting action learned: a URL, or our own reason it failed. */
@@ -1027,77 +665,6 @@ export const applyStripeEvent = internalMutation({
     return { applied: true, reason: status };
   },
 });
-
-/**
- * Which plan row this event is about, or `null`.
- *
- * Two ways in, in order of trust: our own checkout row, then a subscription id
- * we stored ourselves. There is deliberately no third — no lookup by customer
- * id, and none by anything in the event's `metadata`, because both would let a
- * field written outside this codebase choose a row.
- */
-async function resolvePlan(
-  ctx: MutationCtx,
-  facts: { checkoutRef?: string; subscriptionId?: string },
-): Promise<{
-  plan: Doc<"workspacePlans">;
-  /** The attempt this event came home through, where it came through one. */
-  session: Doc<"billingSessions"> | null;
-} | null> {
-  if (facts.checkoutRef !== undefined) {
-    const sessionId = ctx.db.normalizeId("billingSessions", facts.checkoutRef);
-    if (sessionId !== null) {
-      const session = await ctx.db.get(sessionId);
-      if (session !== null) {
-        const existing = await planFor(ctx, session.workspaceId);
-        if (existing !== null) return { plan: existing, session };
-        // A context that pressed Upgrade always has a row — `startCheckout`
-        // refuses an empty selection, and an empty selection is the only way
-        // to get here without one. Handled anyway rather than thrown: a
-        // webhook that raises on an unexpected shape is a webhook Stripe
-        // retries forever.
-        const now = Date.now();
-        const planId = await ctx.db.insert("workspacePlans", {
-          workspaceId: session.workspaceId,
-          managedStorage: false,
-          fastSearch: false,
-          status: "none",
-          createdAt: now,
-          updatedAt: now,
-        });
-        const created = await ctx.db.get(planId);
-        return created === null ? null : { plan: created, session };
-      }
-    }
-  }
-
-  if (facts.subscriptionId !== undefined) {
-    /*
-      `.first()` and not `.unique()`.
-
-      Two plans can only carry one subscription id through a bug of ours, and
-      `.unique()` turns that into a throw — which the route answers with a 500,
-      which Stripe retries on a schedule that runs for days. A permanent 500
-      loop on a webhook is a worse operational state than acting on the row we
-      found: it blocks every *other* event for that endpoint behind a failure
-      nobody can clear without a deploy. The duplicate is logged instead, which
-      is the signal, and the first row still gets its update.
-    */
-    const matches = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_subscription", (q) =>
-        q.eq("stripeSubscriptionId", facts.subscriptionId),
-      )
-      .take(2);
-    if (matches.length > 1) {
-      console.error("billing.duplicate_subscription_rows");
-    }
-    const found = matches[0];
-    return found === undefined ? null : { plan: found, session: null };
-  }
-
-  return null;
-}
 
 /** The shape `http.ts` hands to `applyStripeEvent`. Declared once, here. */
 export type StripeEventArgs = StripeEventFacts;

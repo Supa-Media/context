@@ -107,7 +107,8 @@ describe("what rotation covers", () => {
    * listed, which is the only moment anybody is thinking about it.
    */
   test("every encrypted field in the schema is one rotation knows about", () => {
-    const schema = readFileSync(new URL("../schema.ts", import.meta.url), "utf8");
+    // `storageBindings` is declared in its schema module; `schema.ts` spreads it in.
+    const schema = readFileSync(new URL("../functions/lib/schema/storage.ts", import.meta.url), "utf8");
     const bindings = schema.slice(
       schema.indexOf("storageBindings: defineTable({"),
       schema.indexOf("}).index(\"by_workspace\"", schema.indexOf("storageBindings: defineTable({")),

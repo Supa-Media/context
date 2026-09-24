@@ -52,10 +52,16 @@ import { stripComments } from "./check-gateway-imports.mjs";
  * The files that serve the exit.
  *
  * `controlPlane.ts` is both halves of it: `gatewaySession` and `gatewayBinding`
- * in `http.ts` are thin routes that hand straight to this file. `apps/mcp/src`
- * is every byte that leaves afterwards.
+ * in `http.ts` are thin routes that hand straight to this file. Its grant
+ * resolution, binding shapes and validators live in `lib/controlPlane/`, split
+ * out of it and scanned exactly as it is. `apps/mcp/src` is every byte that
+ * leaves afterwards.
  */
-export const EXIT_PATHS = ["apps/convex/functions/controlPlane.ts", "apps/mcp/src"];
+export const EXIT_PATHS = [
+  "apps/convex/functions/controlPlane.ts",
+  "apps/convex/functions/lib/controlPlane",
+  "apps/mcp/src",
+];
 
 /**
  * Billing vocabulary, as identifiers.

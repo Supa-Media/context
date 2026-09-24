@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
@@ -782,7 +782,13 @@ describe("rotating the encryption key", () => {
    * straight through it.
    */
   test("every encrypted column in the whole schema is one rotation moves", () => {
-    const schema = readFileSync(new URL("../../schema.ts", import.meta.url), "utf8");
+    // `schema.ts` plus the table modules it spreads in from `functions/lib/schema/`.
+    const tableModules = readdirSync(new URL("../../functions/lib/schema/", import.meta.url))
+      .sort()
+      .map((name) => `../../functions/lib/schema/${name}`);
+    const schema = ["../../schema.ts", ...tableModules]
+      .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+      .join("\n");
     const declared = [
       ...new Set(
         [...schema.matchAll(/^\s+(encrypted[A-Za-z0-9]*)\s*:\s*v\./gm)].map(

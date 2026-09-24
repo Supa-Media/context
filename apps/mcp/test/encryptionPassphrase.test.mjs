@@ -62,7 +62,8 @@
  * message, which is what they were always worth.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { gatewaySourceFiles } from "./gatewaySource.mjs";
@@ -97,10 +98,27 @@ const VECTOR = JSON.parse(
   ),
 );
 
-const MODULE_SOURCE = readFileSync(
-  fileURLToPath(new URL("../src/encryption.js", import.meta.url)),
-  "utf8",
+/*
+ * The envelope module is `src/encryption.js` and every file under
+ * `src/encryption/`, which it re-exports from. The source checks below read
+ * all of them, found by walking the folder rather than from a list, so a file
+ * added there later is covered without anybody remembering to add it here.
+ */
+const ENVELOPE_ENTRY = fileURLToPath(new URL("../src/encryption.js", import.meta.url));
+const ENVELOPE_DIR = fileURLToPath(new URL("../src/encryption/", import.meta.url));
+function envelopeFiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    return entry.isDirectory() ? envelopeFiles(full) : [full];
+  });
+}
+const MODULE_SOURCES = new Map(
+  [ENVELOPE_ENTRY, ...envelopeFiles(ENVELOPE_DIR).sort()].map((file) => [
+    file,
+    readFileSync(file, "utf8"),
+  ]),
 );
+const MODULE_SOURCE = [...MODULE_SOURCES.values()].join("\n");
 /*
  * The gateway is every module under `src/` but the envelope itself
  * (`encryption.js`, and anything under `encryption/`), not its entry file
@@ -233,9 +251,33 @@ export async function runEncryptionPassphraseChecks(check) {
       .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
       .every((line) => !/\b(deriveBits|deriveKey|PBKDF2|scrypt)\b|\bargon2id\s*\(/i.test(line)),
   );
+  /*
+    Split into `src/encryption/`, the module's files import one another — and
+    nothing else. The entry point still imports nothing at all (it only
+    re-exports), no file may use a dynamic `import()` or a `require`, and every
+    static `import`/`export … from` in every file must resolve to another file
+    of the envelope module itself. Every `import` keyword at the start of a line
+    has to be one of those statements, so a form this pattern does not parse is
+    a failure rather than a pass.
+  */
   check(
-    "...and could not reach one, because it imports nothing at all",
-    !/^\s*import\s/m.test(MODULE_SOURCE),
+    "...and could not reach one, because it imports nothing outside its own files",
+    !/^\s*import\s/m.test(MODULE_SOURCES.get(ENVELOPE_ENTRY)) &&
+      [...MODULE_SOURCES].every(([file, source]) => {
+        if (/\bimport\s*\(|\brequire\s*\(/.test(source)) return false;
+        const statements = [
+          ...source.matchAll(/^[ \t]*(import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']/gm),
+        ];
+        const importLines = source.match(/^[ \t]*import\b/gm) ?? [];
+        if (importLines.length !== statements.filter(([, keyword]) => keyword === "import").length) {
+          return false;
+        }
+        return statements.every(
+          ([, , specifier]) =>
+            (specifier.startsWith("./") || specifier.startsWith("../")) &&
+            MODULE_SOURCES.has(resolve(dirname(file), specifier)),
+        );
+      }),
   );
   check(
     "the gateway imports nothing that could open a passphrase note",
