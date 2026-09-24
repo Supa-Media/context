@@ -76,6 +76,7 @@
     "apps/convex/__tests__/structure/reachability.test.ts": "One guard: no public Convex function can reach the storage-secret decrypt path, checked over the shared analyzer's whole call graph.",
     "apps/desktop/test/consoleBridge/senderGuard.test.mjs": "One invariant (every IPC handler refuses a sender that is not the console window) checked across all handlers; the per-handler cases share one harness.",
     "apps/desktop/test/packaging/deployWorkflow.test.mjs": "Checks one workflow file; every check reads the same parsed steps, so splitting would duplicate the parse or scatter one contract.",
+    "apps/mcp/src/search/shards/sync.js": "syncShardedIndex is one orchestration function moved verbatim with its comments; its interior was not restructured in this move.",
     "apps/mcp/src/tools/schemas.js": "One function returning the gateway's tool definition array verbatim; splitting it means editing the literal, left for the follow-up that retargets the text-reading gateway tests.",
     "apps/mcp/test/controlPlaneStub/controlPlane.mjs": "createControlPlaneStub is one closure over in-memory Maps that every route shares; splitting it means threading that state across modules.",
     "apps/mcp/test/searchProjection/serve.test.mjs": "One harness-based scenario (serving search from the projection) whose checks build on each other in order.",
@@ -97,11 +98,7 @@
     "apps/convex/functions/workspaces.ts": 1228,
     "apps/convex/http.ts": 1803,
     "apps/desktop/src/main/index.ts": 2619,
-    "apps/mcp/src/communications/gmailSync.js": 1359,
-    "apps/mcp/src/controlPlane.js": 1073,
-    "apps/mcp/src/forms.js": 1114,
     "apps/mcp/src/index.js": 9227,
-    "apps/mcp/src/search/shards.js": 2508,
     "apps/mcp/test/activity.test.mjs": 1221,
     "apps/mcp/test/commsSearchIndex.test.mjs": 1838,
     "apps/mcp/test/crossContext.test.mjs": 1306,
@@ -138,6 +135,6 @@
     "infra/email-worker/src/mime.ts": 1215,
     "infra/router/src/preview.ts": 1071,
     "packages/hook/test/test.mjs": 1317,
-    "packages/obsidian-runtime/src/sandbox.js": 2760
+    "packages/obsidian-runtime/src/sandbox.js": 2247
   }
 }
