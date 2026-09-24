@@ -82,7 +82,6 @@ import {
   storeForOpenedBinding,
   storeForSession,
   readsPrivateAnywhere,
-  reachForRole,
   writesAnywhere,
   participatesInForms,
   accessForLiveGrant,
@@ -172,7 +171,6 @@ import {
   SEARCH_RESULT_LIMIT,
   SEARCH_SUBREQUEST_BUDGET,
   noteTitle,
-  INTERACTIVE_BACKFILL_OPS,
   searchIndexedNotes,
   snippetLinesFor,
   splitReducedRecallNotes,
@@ -181,36 +179,21 @@ import { splitMessageAnchor } from "./search/commsIndex.js";
 import {
   indexIsBehind,
   loadIndexManifest,
-  shedNotePathsOf,
-  syncShardedIndex,
 } from "./search/shards.js";
 import { createD1Client } from "./search/d1/client.js";
 import { projectNote, upsertStatements } from "./search/d1/project.js";
 import { answerFromProjection } from "./search/d1/serve.js";
-import {
-  D1_PASS_NOTE_CAP,
-  censusFromManifest,
-  countProjected,
-  loadCensus,
-  progressFrom,
-  projectPass,
-  worthReporting,
-} from "./search/d1/backfill.js";
+import { countProjected } from "./search/d1/backfill.js";
 import { createSearchTrace, logSearchTrace } from "./search/trace.js";
 import {
   NoteCryptoError,
-  encryptedNoteKeyId,
   isEncryptedNote,
   renderKeyExport,
-  rewrapWorkspaceRecipient,
 } from "./encryption.js";
-import { inventoryPlugins } from "./plugins/inventory.js";
-import { renderPluginReport } from "./plugins/report.js";
 import { pluginForTool } from "./plugins/catalog.js";
 import {
   disabledToolNames,
   disabledToolRefusal,
-  resolveContextPlugins,
 } from "./plugins/enablement.js";
 import {
   ERROR_HEADER_MISMATCH,
@@ -256,13 +239,11 @@ import {
   INSTRUCTIONS_HEAD,
   INSTRUCTIONS_INDEX_CHAR_CAP,
   INSTRUCTIONS_LAYOUT_CHAR_CAP,
-  INSTRUCTIONS_NAME_CHAR_CAP,
   INSTRUCTIONS_REACH_CHAR_CAP,
   ORIENT_OPERATING_CONTRACT,
   SERVER_INSTRUCTIONS,
 } from "./mcp/instructions.js";
 import { toolError, toolText, writePermissionError } from "./tools/results.js";
-import { encodeBase64, timingSafeEqual } from "./crypto/bytes.js";
 import { expandCalendarEvents, parseIcs } from "./calendar/ics.js";
 import {
   GRANOLA_COMPLETED_PREFIX,
@@ -373,6 +354,46 @@ import {
   toolListLinks,
   toolRevokeLink,
 } from "./tools/links.js";
+import { accessSentence, currentReach, readOnlyNotice } from "./orient/access.js";
+import {
+  actorFor,
+  contextNameFor,
+  contextsFor,
+  personalNameFor,
+} from "./context/identity.js";
+import { checkAndConsumeExportRateLimit, EXPORT_RATE_LIMIT } from "./encryptionKeys/exportRateLimit.js";
+import {
+  dedupeCapped,
+  loadRotationProgress,
+  rewrapOneNote,
+  ROTATION_BATCH_CAP,
+  ROTATION_PROGRESS_PATH,
+  ROTATION_RETRY_READ_CAP,
+  ROTATION_WROTE_CAP,
+  saveRotationProgress,
+  uploadedBefore,
+} from "./encryptionKeys/rotation.js";
+import { DEFERRED_SYNC_FLOOR, FALLBACK_SCAN_CAP, FAST_SEARCH_FLOOR } from "./search/pacing.js";
+import {
+  formatCapturedLine,
+  mostRecent,
+  namedWithRest,
+  NO_FRONT_PAGE,
+  ORIENT_FOLDER_PAGE_CAP,
+  ORIENT_INDEX_CHAR_CAP,
+  ORIENT_RECENT_LIMIT,
+  ORIENT_SIBLING_INDEX_CHAR_CAP,
+  ORIENT_SIBLING_LIMIT,
+  reducedRecallNotesFor,
+  relativeAge,
+  renderStructure,
+  SAVE_DESTINATION_LINE,
+  SAVE_PROCEDURE_CHAR_CAP,
+  SAVE_SECTION_HEADING,
+  summarizeCaptured,
+} from "./orient/render.js";
+import { listScannableNoteKeys, maintainIndexAfter } from "./search/maintenance.js";
+import { toolListPlugins } from "./plugins/listPluginsTool.js";
 export const toolDefinitions = registryToolDefinitions;
 export const EXISTENCE_MASKED_TOOLS = registryExistenceMaskedTools;
 
@@ -486,120 +507,6 @@ async function handleGatewayJobMessage(message, env) {
     await env.GATEWAY_JOBS.send(body);
   }
 }
-/**
- * Ops that must remain before the deferred pass is worth starting: the
- * manifest, a listing that will not finish in fewer, a shard, and a write.
- * Below it the pass would spend a request on a round trip that lands nothing.
- */
-const DEFERRED_SYNC_FLOOR = 14;
-/**
- * Store operations one note costs the D1 projection: the bucket read, plus one
- * request per statement (`upsertStatements` emits three deletes, the `notes`
- * row, and one insert per chunk — five for an ordinary note).
- *
- * Used only to size a reserve, so it is a working estimate and not a contract:
- * the pass peeks the budget before every statement group and stops rather than
- * overspending, so being wrong here costs a note, never a search.
- */
-const D1_OPS_PER_NOTE = 6;
-/**
- * What the deferred pass keeps back for the projection before the R2 sync
- * spends anything — and it is a *share*, never a fixed number.
- *
- * A fixed reserve is a trap in the one direction that matters. `reserve` in
- * `syncShardedIndex` is refused outright when the budget is smaller than it
- * (`ops.take(reserve)` at the top), so a constant 128 on a free-tier budget of
- * 40 would not slow the R2 index down, it would **stop it**: every pass would
- * return having listed nothing, and the search index would never be built at
- * all.
- *
- * A share, then — and a quarter rather than a third or a half, which was
- * measured rather than chosen. At **half** of what was left, a 26-note fixture
- * on the default budget could not build its R2 index either: every pass spent
- * its allowance on the listing and had nothing over the reserve left to fetch
- * a note with, so the manifest reported `docs: 0` forever. A reserve that
- * starves the index it is riding is worse than no reserve. At a quarter the
- * same fixture converges in three passes and the projection still gets a turn
- * on each of them.
- */
-const D1_PASS_RESERVE_CAP = 4 + D1_PASS_NOTE_CAP * D1_OPS_PER_NOTE;
-/**
- * Notes the projection may copy while somebody is waiting.
- *
- * Only reached on a host with no `waitUntil`, where maintenance runs inline
- * (see `maintainIndexAfter`). The deferred path has no such caller to keep
- * waiting and uses the ordinary cap.
- */
-const INTERACTIVE_PROJECT_NOTES = 3;
-/**
- * Ops that must remain before a projection pass with no sync in front of it is
- * worth starting: the manifest, the docmap, the cursor, a version probe, and
- * one note's worth of statements. Below it the pass spends round trips to land
- * nothing.
- */
-const D1_STANDALONE_FLOOR = 10;
-/**
- * Ops that must remain before a search asks the projection at all.
- *
- * The fast path spends at most two D1 queries (a private caller reads both
- * tiers) and one manifest read, and it must not leave the invocation unable to
- * fall through to the R2 index when it misses — that fallback is the whole
- * reason it is allowed to answer nothing. So the floor covers the fast path
- * *plus* the ordinary search that may still have to happen after it.
- */
-const FAST_SEARCH_FLOOR = DEFERRED_SYNC_FLOOR + 3;
-/**
- * Projection passes one invocation may chain.
- *
- * A ceiling on the chain rather than the thing that ends it — the budget and
- * "did this pass move anything" do that. It exists so a pathological census
- * cannot turn one deferred invocation into an unbounded loop, and it is small
- * because the budget is the real bound: at `D1_OPS_PER_NOTE` a paid-plan pass
- * runs out of ops long before it runs out of links.
- */
-const D1_PASSES_PER_INVOCATION = 8;
-/**
- * How stale the index's own listing may be before a search starts a pass
- * behind itself.
- *
- * A search no longer lists the bucket, so this is the clock on which a note
- * somebody wrote in Obsidian, in rclone or through another client becomes
- * searchable. Short enough that "I saved it a minute ago" holds; long enough
- * that a person typing through a palette does not start a full listing on every
- * keystroke's worth of query.
- *
- * It is not the only thing covering that gap, and it is deliberately not the
- * one that covers the case people notice: an answer that comes back **empty**
- * over an index that believes it is converged buys a listing of its own
- * immediately (`refreshOnMiss`). So this bounds how stale a *successful*
- * answer's corpus may be, where the cost of being a minute behind is a hit
- * somebody was not looking for going unlisted — and a miss, which is the answer
- * that would be acted on, never waits for it.
- */
-const INDEX_RECONCILE_INTERVAL_MS = 60_000;
-
-/**
- * The fallback scan's ceiling, for the calls where the index is unusable. Well
- * under the budget on purpose: this path exists because something already went
- * wrong, and it must degrade rather than become the original failure again.
- */
-const FALLBACK_SCAN_CAP = 30;
-/** Pages the fallback's own listing may spend per folder. */
-const FALLBACK_LIST_PAGE_CAP = 2;
-
-/**
- * `orient` is called at the top of a session, before the agent knows whether
- * this context is even relevant, so it is budgeted rather than exhaustive.
- * Five pages is 5000 notes in one folder; past that the survey reports a floor
- * ("48+ notes") instead of guessing, for the same reason the console's note
- * census does. A number that looks precise and is not is worse than a floor.
- */
-const ORIENT_FOLDER_PAGE_CAP = 5;
-const ORIENT_RECENT_LIMIT = 8;
-const ORIENT_CHILDREN_LIMIT = 12;
-const ORIENT_ROOT_NOTE_LIMIT = 20;
-/** The front page is the customer's own prose; long ones are cut, never dropped. */
-const ORIENT_INDEX_CHAR_CAP = 6_000;
 
 /**
  * The instructions a specific connection is given, with a live sketch of the
@@ -700,29 +607,6 @@ async function instructionsForSession(store, session) {
   } catch {
     return SERVER_INSTRUCTIONS;
   }
-}
-
-/**
- * As many names as fit in `charCap`, each capped, and a count of the rest.
- *
- * Every list in the connect-time sketch goes through this, so the sketch has a
- * length bound that does not depend on anybody's bucket or membership — see
- * `INSTRUCTIONS_SKETCH_BUDGET`.
- */
-function namedWithRest(names, charCap, restLabel) {
-  const shown = [];
-  let spent = 0;
-  for (const name of names) {
-    const capped =
-      name.length > INSTRUCTIONS_NAME_CHAR_CAP ? `${name.slice(0, INSTRUCTIONS_NAME_CHAR_CAP)}…` : name;
-    // `, ` between names is part of what the line spends.
-    const cost = capped.length + 2;
-    if (spent + cost > charCap) break;
-    shown.push(capped);
-    spent += cost;
-  }
-  const rest = names.length - shown.length;
-  return rest > 0 ? [...shown, `(+${rest} ${restLabel})`] : shown;
 }
 
 async function route(request, env, ctx) {
@@ -2662,120 +2546,6 @@ function visiblePrivateOverrides(rules) {
     .sort((a, b) => a.prefix.localeCompare(b.prefix));
 }
 
-/* --------------------------------- MCP ---------------------------------- */
-
-/**
- * Who a write in this context is recorded as.
- *
- * One function rather than two literals, because a cross-context call builds a
- * second store and the audit line on it must name the context it was written
- * in. Two copies of this object is how a note filed into somebody's workspace ends
- * up stamped with the workspace the client happened to connect to.
- */
-function actorFor(session) {
-  return {
-    workspaceId: session.workspaceId,
-    workspaceKind: session.workspaceKind,
-    userId: session.actorUserId,
-    clientId: session.actorClientId,
-    grantId: session.grantId,
-    // The two the form tools need, carried the same way and for the same
-    // reason: a form response records *who*, and a form's `submit` policy is
-    // compared against the caller's role in the context the call was routed
-    // to. Both are already on the session `actorFor` is built from, and both
-    // are ids and slugs — never a credential.
-    role: session.role,
-    name: personalNameFor(session),
-    /**
-     * The client's own name, for the one reader who is a person.
-     *
-     * `clientId` is an opaque registration id and says nothing to anybody; the
-     * activity file is a document somebody opens, and "@sayo's Claude added
-     * three notes" is the sentence the feature exists to produce. It is the
-     * name the client asserted at registration, so it is display text and
-     * never an identity — every authorization decision still reads
-     * `clientId`, which is the one the control plane issued.
-     */
-    client: typeof session.actorClientName === "string" ? session.actorClientName : null,
-  };
-}
-
-/**
- * The caller's username — their own workspace's slug, with the `@`.
- *
- * A response says who wrote it, and the only name that means anything across
- * contexts is the one in the global username namespace. It is read off the
- * connection's covered contexts rather than passed in, so a submission cannot
- * claim to be from somebody else: `submitted_by` is stamped here, never taken
- * from an argument.
- *
- * **All three clauses are load-bearing, and `role === "owner"` is the one that
- * is easy to leave out.** `session.workspaces` is every context this connection
- * may address, so a personal context in it is *not* evidence that it is this
- * person's: a personal workspace "may gain more members when that person shares
- * it" (`schema.ts`), and `contextsForGrant` puts the context the grant was
- * approved against at the head of the set. A guest who connected to
- * `/@alice/mcp` therefore has Alice's personal context first in their own
- * covered set, and a copy of this predicate missing the role clause named that
- * guest `@alice` — in Alice's note, to Alice. The role settles it because the
- * control plane writes `role: "owner"` in exactly one place, when a workspace
- * is created, for its creator, and an invitation can confer `editor` or
- * `member` and nothing else: one member of a personal context is its owner, and
- * that owner is the person its slug names.
- *
- * `kind === "personal"` is load-bearing for the same reason in the other
- * direction. Usernames and workspace slugs are one global namespace, so a
- * shared context's slug on a caret or a signature reads as a person who does
- * not exist.
- *
- * `null` for a connection whose person has no personal context — which is not
- * a state the product produces, but is one a self-hosted deployment or a stale
- * grant can, and the callers refuse or fall back rather than invent a name.
- * Never `@null`: an absent slug is a missing handle, not a handle spelled
- * "null", in a namespace where that is a word somebody could hold.
- */
-function personalNameFor(session) {
-  const own = (session?.workspaces || []).find(
-    (entry) => entry.kind === "personal" && entry.role === "owner" && entry.slug
-  );
-  return own ? `@${own.slug}` : null;
-}
-
-/**
- * The contexts this connection can address, as `orient` needs to name them.
- *
- * Request-scoped metadata on the store, like `store.actor`, because the tool
- * layer takes a store and a scope and nothing else — and a reach an agent is
- * never told about is a reach nobody uses.
- *
- * A covered context with no slug is dropped rather than listed: the name is how
- * a tool call addresses one, so an entry nothing can be passed as would be an
- * offer that refuses.
- */
-function contextsFor(session) {
-  return (session.workspaces || [])
-    .filter((entry) => typeof entry.slug === "string" && entry.slug !== "")
-    .map((entry) => {
-      /*
-        The role is what this connection's person holds there; the reach is what
-        *this connection* may do with it, which is the role intersected with the
-        grant's own scopes. Both travel, because orientation describes contexts
-        it does not open — the ones past the fan-out cap, and every one of them
-        when `orient` was itself addressed elsewhere — and a description drawn
-        from the role alone is wrong in both directions.
-      */
-      const reach = reachForRole(session, entry.role);
-      return {
-        name: `@${entry.slug}`,
-        role: entry.role,
-        current: entry.workspaceId === session.workspaceId,
-        canWrite: reach.canWrite,
-        grantWrites: reach.grantWrites,
-        tier: reach.tier,
-      };
-    });
-}
-
 /**
  * One agent turn over HTTP.
  *
@@ -3992,83 +3762,6 @@ async function surveyContext(store, scope, rules, overrides) {
   };
 }
 
-/**
- * At most one summary per automated-capture kind present in `notes`, each
- * carrying the total count of that kind this connection can see and its
- * single newest note.
- *
- * **Never one line per note.** A connected mailbox writes a channel-day note
- * every active day, forever; a run of daily meetings does the same. Without
- * this, `orient`'s recency list is nothing else within days of either being
- * turned on — the exact failure docs/decisions/communications.md, "A firehose
- * is not attention", names. So every note of a kind collapses to one line,
- * built from the same visibility-filtered list `recent` and the folder map
- * are, which is what keeps a team caller's count from ever including a
- * mailbox they cannot see (`canSee` already ran, in `surveyContext`, before
- * `notes` reaches here).
- *
- * Ordered `channel-day`, `calendar-day`, `meeting`, `session` — a fixed order
- * rather than by recency, so the section's shape does not reflow between
- * calls when two kinds are close in time.
- */
-function summarizeCaptured(notes) {
-  const groups = new Map();
-  for (const note of notes) {
-    const kind = classifyCaptureKind(note.key);
-    if (!kind) continue;
-    if (!groups.has(kind)) groups.set(kind, []);
-    groups.get(kind).push(note);
-  }
-  const order = ["channel-day", "calendar-day", "meeting", "session"];
-  const summaries = [];
-  for (const kind of order) {
-    const group = groups.get(kind);
-    if (!group || !group.length) continue;
-    summaries.push({
-      kind,
-      count: group.length,
-      label: capturedKindLabel(kind, group),
-      // The one pointer a "what came in?" question needs. `mostRecent` already
-      // handles "no note here has a usable timestamp" by returning nothing.
-      newest: mostRecent(group, 1)[0] || null,
-    });
-  }
-  return summaries;
-}
-
-/**
- * "30 mail days", "2 meetings", "1 saved session" — the label on a collapsed
- * line. Cosmetic only: the count and the pointer beside it are what an agent
- * acts on, and getting this wrong changes nothing else.
- *
- * `channel-day` is named after the channel when a group is entirely one
- * channel — the common case, one mailbox or one chat account — and falls back
- * to a generic name for a mixed group rather than picking one channel to
- * feature over another.
- */
-function capturedKindLabel(kind, notes) {
-  const count = notes.length;
-  const plural = count === 1 ? "" : "s";
-  if (kind === "meeting") return `${count} meeting${plural}`;
-  if (kind === "session") return `${count} saved session${plural}`;
-  if (kind === "calendar-day") return `${count} calendar day${plural}`;
-  const allEmail = notes.every((note) => note.key.startsWith("0-inbox/email/"));
-  if (allEmail) return `${count} mail day${plural}`;
-  const allChat = notes.every(
-    (note) => note.key.startsWith("0-inbox/google-chat/") || note.key.startsWith("0-inbox/imessage/")
-  );
-  if (allChat) return `${count} chat day${plural}`;
-  return `${count} channel-day note${plural}`;
-}
-
-/** The one rendered line for a collapsed capture kind. */
-function formatCapturedLine(summary, now) {
-  const pointer = summary.newest
-    ? `; newest \`${summary.newest.key}\` (${relativeAge(summary.newest.uploaded, now)})`
-    : "";
-  return `- ${summary.label} arrived${pointer}`;
-}
-
 function isVisibleNote(key, scope, rules, overrides) {
   return key.endsWith(".md") && !isPlumbing(key) && canSee(key, scope, rules, overrides);
 }
@@ -4098,34 +3791,6 @@ function mergeChildren(folder, scope, rules, overrides) {
   return [...new Set([...named, ...counts.keys()])]
     .map((childPrefix) => ({ prefix: childPrefix, count: counts.get(childPrefix) ?? null }))
     .sort((a, b) => a.prefix.localeCompare(b.prefix));
-}
-
-/**
- * Newest first, ties broken by key so the answer is stable across calls.
- * A store that reports no timestamps contributes nothing rather than an
- * arbitrary eight notes wearing the label "recently updated".
- */
-function mostRecent(notes, limit) {
-  return notes
-    .filter((note) => note.uploaded instanceof Date && !Number.isNaN(note.uploaded.getTime()))
-    .sort((a, b) => b.uploaded - a.uploaded || a.key.localeCompare(b.key))
-    .slice(0, limit);
-}
-
-/** "3h ago" reads as a reason to look; a raw ISO timestamp reads as metadata. */
-function relativeAge(date, now = Date.now()) {
-  const seconds = Math.max(0, Math.round((now - date.getTime()) / 1000));
-  if (seconds < 90) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 36) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 14) return `${days}d ago`;
-  const weeks = Math.round(days / 7);
-  if (weeks < 9) return `${weeks}w ago`;
-  const months = Math.round(days / 30);
-  return months < 24 ? `${months}mo ago` : `${Math.round(days / 365)}y ago`;
 }
 
 async function recordChange(store, action, actorScope, paths, details = {}) {
@@ -4482,33 +4147,6 @@ async function toolListChanges(store, scope, rules, overrides, limitArg) {
 }
 
 /**
- * What the Obsidian plugins in this bucket would do here.
- *
- * Deliberately takes nothing but the store. `.obsidian/` sits outside the
- * privacy manifest's reach — it is not notes, so `canSee` has nothing to say
- * about it — and the safe shape for a read there is one that cannot be aimed:
- * every key comes from a listing of a fixed prefix, never from an argument. A
- * variant of this tool that accepted a path would be a way to read around the
- * privacy engine wearing a helpful name.
- *
- * Read-only in the strong sense: nothing here writes, and `.obsidian/` is never
- * written by the gateway at all. It belongs to the client the customer actually
- * uses, and tidying somebody else's program's state is how a "compatible"
- * gateway breaks the thing it was compatible with.
- */
-async function toolListPlugins(store) {
-  // Both halves of one question. The Context plugins come from a catalogue and
-  // one small settings object; the vault's come from reading bundles. Asked
-  // together because "what plugins does this context have" is one question, and
-  // answering only the second half is what this tool used to do.
-  const [report, context] = await Promise.all([
-    inventoryPlugins(store),
-    resolveContextPlugins(store),
-  ]);
-  return toolText(renderPluginReport(report, context.plugins));
-}
-
-/**
  * The front page of a context, as its owner wrote it.
  *
  * `index.md` is an ordinary note at the bucket root — editable in Obsidian, in
@@ -4526,46 +4164,6 @@ async function readFrontPage(store, scope, rules, overrides, charCap) {
     ? `${text.slice(0, charCap)}\n\n[truncated — read the whole thing with read_note("index.md")]`
     : text;
 }
-
-/**
- * The user's own end-of-session procedure, read out of `index.md`.
- *
- * A shutdown routine is not something we can write for somebody. One person
- * wants a transcript filed; another wants three bullets of decisions appended
- * to the project note and the transcript thrown away; a third wants nothing
- * saved unless they say so. Hardcoding any of those makes `save_context` a tool
- * that does the wrong thing reliably.
- *
- * So the procedure is a section in the front page — a file they already own,
- * already edit, and that every agent already reads — and the gateway parses
- * exactly one machine-readable line out of it:
- *
- *     ## Save context
- *     destination: 2-areas/sessions
- *
- *     Summarise what we decided in three bullets and append them to the
- *     project note. Only keep the full transcript if I asked for it.
- *
- * Everything other than `destination:` is prose, passed to the agent untouched.
- * That asymmetry is the point: the one thing the *gateway* must act on is a
- * path, and a path is the one thing it can validate. Inventing a config
- * language for the rest would be asking somebody to learn a schema in order to
- * describe what they want in English to something that reads English.
- *
- * Absent, `save_context` still works and says what it assumed.
- *
- * Note whose file this is: on a context whose `index.md` is team-writable, a
- * member can change where everybody's sessions land. That is the same authority
- * they already have over every other note they can write, and the destination
- * still passes through the ordinary write surface — a redirect into a
- * private-default folder is refused for a team connection exactly as
- * `write_note` refuses it. An owner who wants the procedure to be theirs alone
- * makes `index.md` private, which is one `set_visibility` call.
- */
-const SAVE_SECTION_HEADING = /^(#{1,6})\s*(?:save[ -]context|shutdown|end[ -]of[ -]session)\b/i;
-const SAVE_DESTINATION_LINE = /^\s*(?:[-*]\s*)?destination\s*:\s*(\S.*?)\s*$/i;
-/** Prose handed to an agent, not a place to paste a document. */
-const SAVE_PROCEDURE_CHAR_CAP = 2_000;
 
 function extractSaveProcedure(indexText) {
   if (typeof indexText !== "string" || !indexText) return null;
@@ -4619,85 +4217,6 @@ async function readSaveProcedure(store, scope, rules, overrides) {
   if (!object) return null;
   return extractSaveProcedure(await object.text());
 }
-
-const NO_FRONT_PAGE =
-  "This context has no `index.md` yet. That file is its front page: what the " +
-  "user is working on, who matters, and where things belong. Once you have " +
-  "looked around, offer to write one with write_note at path `index.md` — " +
-  "every agent that connects reads it first.";
-
-function renderStructure(survey) {
-  const lines = [];
-  for (const note of survey.rootNotes.slice(0, ORIENT_ROOT_NOTE_LIMIT)) {
-    lines.push(`- ${note.key}`);
-  }
-  if (survey.rootNotes.length > ORIENT_ROOT_NOTE_LIMIT) {
-    lines.push(`- (+${survey.rootNotes.length - ORIENT_ROOT_NOTE_LIMIT} more notes at the root)`);
-  }
-  for (const folder of survey.folders) {
-    // The floor travels down as well as up: a child count drawn from a walk
-    // that stopped early is no more a total than its parent's is.
-    const floor = folder.truncated ? "+" : "";
-    const noun = folder.count === 1 && !folder.truncated ? "note" : "notes";
-    lines.push(
-      folder.count === 0
-        ? `- ${folder.prefix}`
-        : `- ${folder.prefix} — ${folder.count}${floor} ${noun}`
-    );
-    for (const child of folder.children.slice(0, ORIENT_CHILDREN_LIMIT)) {
-      // No count means the walk stopped before reaching this subfolder. It is
-      // named without a number rather than given a zero: "0 notes" about a
-      // folder nothing counted is the one reading that is certainly wrong.
-      lines.push(child.count === null ? `  - ${child.prefix}` : `  - ${child.prefix} — ${child.count}${floor}`);
-    }
-    if (folder.children.length > ORIENT_CHILDREN_LIMIT) {
-      lines.push(`  - (+${folder.children.length - ORIENT_CHILDREN_LIMIT} more folders)`);
-    }
-  }
-  // A folder the storage adapter refuses to list — a backslash or a "." segment
-  // in a name somebody chose in Obsidian — is named rather than dropped. It is
-  // the caller's own data, and silently omitting it would make this map claim
-  // completeness it does not have.
-  for (const prefix of survey.unwalkable) {
-    lines.push(`- ${prefix} — could not be listed (unsupported characters in the folder name)`);
-  }
-  return lines.length ? lines.join("\n") : "- (nothing visible to this connection yet)";
-}
-
-/**
- * The other contexts this connection reaches — and each one's front page.
- *
- * Naming them was not enough. An agent given a list of names has been told a
- * fact it cannot act on: it does not know whether `@lk` is a colleague's design
- * notes or a dormant workspace from last year, so it never looks, which is the
- * same failure as not being told at all. The front page is the one file that
- * answers "what is this place", it is the one the whole orientation contract is
- * built on, and it is small.
- *
- * Four properties, and each is a rule rather than a tuning:
- *
- *  - **Every page is read at that context's own clearance.** `openContext`
- *    hands back a session clamped to the caller's role there, and the privacy
- *    manifest is that context's own — so a `private` connection reading a
- *    context it is a `member` of gets `team`, and an `index.md` marked private
- *    there is absent here exactly as it is everywhere else.
- *  - **It is bounded, and a short list says so.** Each context costs a control
- *    plane round trip and two reads, against a Worker with a subrequest
- *    ceiling; an unbounded fan-out is how orientation starts failing outright
- *    for the people who have the most of it. Past the cap the rest are still
- *    *named*, because a name is free — and the sentence says the list is short
- *    rather than letting it read as complete.
- *  - **One context that will not open cannot take the others down.** A revoked
- *    binding, a bucket that is down, a `privacy.md` somebody broke in Obsidian:
- *    each is reported on its own line and the rest of the answer stands. This
- *    is the survey's own fail-soft rule, one level out.
- *  - **It reads nothing when there is no opener.** An `orient` already
- *    addressed into another context is handed a store that cannot route again,
- *    so it names the rest and reads none of them — one tool call opens one
- *    context beyond its own, and never a chain.
- */
-const ORIENT_SIBLING_LIMIT = 6;
-const ORIENT_SIBLING_INDEX_CHAR_CAP = 1_200;
 
 async function surveyOtherContexts(store) {
   const others = (store.contexts || []).filter((entry) => !entry.current);
@@ -4765,30 +4284,6 @@ async function surveyOtherContexts(store) {
     "Each line above already says what this connection may do in that context, so take it from " +
     "there rather than assuming a reach you have not been given — or holding back one you have."
   );
-}
-
-/**
- * The caller's own share of the search index's shed notes, for `orient`.
- *
- * One extra GET — the manifest `search_notes` already reads on every query —
- * so an agent that never searches still learns this rather than discovering
- * it as a silent miss later. Filtered through `isVisible` exactly as
- * `searchIndexedNotes` filters it, because these paths are gathered from
- * every doc in a shard, private ones included, and are safe to say out loud
- * only after that check runs (`docs/decisions/search.md`, sizing section).
- *
- * `[]` for every way this can fail to answer — no index yet, an unreadable
- * manifest, no budget — because to `orient` those all mean the same thing:
- * nothing to report, and `search_notes` is where a real miss gets explained.
- */
-async function reducedRecallNotesFor(store, isVisible) {
-  try {
-    const manifest = await loadIndexManifest(store, createSearchBudget(2), 0);
-    if (!manifest) return [];
-    return [...new Set(shedNotePathsOf(manifest).filter(isVisible))].sort();
-  } catch {
-    return [];
-  }
 }
 
 async function toolOrient(store, scope, rules, overrides) {
@@ -4900,85 +4395,6 @@ async function toolOrient(store, scope, rules, overrides) {
   parts.push(ORIENT_OPERATING_CONTRACT);
   parts.push(scopeInfoText(scope, rules, currentReach(store)));
   return toolText(parts.join("\n\n---\n\n"));
-}
-
-/**
- * What an agent may do in one of the other contexts, where it will read it.
- *
- * `member` and `editor` are this codebase's vocabulary; what an agent needs to
- * know before it tries to write somewhere is whether it can. So the row is
- * written from the connection's **reach** — `effectiveScopes(grantScopes,
- * role)`, the clamp the call itself will be held to — and not from the role,
- * which is only half of it and was wrong in both directions.
- *
- * Both halves are said out loud, and that is the point rather than verbosity:
- *
- *  - **Write is named when it is held.** The version that said only "yours, and
- *    you see private notes there" described an owned context in three facts
- *    about reading, and a model asked to file a note there — reading that row,
- *    then the closing "what you may do in another is decided by your role
- *    there" — concluded it had not established that it could write, and said so
- *    instead of writing. It had `context` on `write_note` throughout.
- *  - **Read-only is named when it is not.** An `editor` on a read-only grant
- *    was announced as writable, which spends an agent's turn on a refusal this
- *    sentence could have prevented — and names the connection as the reason,
- *    because that is the part the person can change.
- *
- * The tier comes from the same clamp for the same reason: an `owner` on a grant
- * carrying no `context:private` reads that context at `team`, and promising
- * private notes there describes a workspace this connection cannot see.
- *
- * An unknown role reaches this with no write in its clamp, so it is described
- * as read-only — the direction that costs a refused write rather than a
- * confident attempt that fails.
- */
-function accessSentence(entry) {
-  const owner = entry?.role === "owner";
-  const notes = owner && entry?.tier === "private" ? "private notes" : "team notes";
-  if (entry?.canWrite) {
-    return owner
-      ? `yours: you read ${notes} and can write there`
-      : `you can read and write ${notes} there`;
-  }
-  // Which half refused, in the two voices `callToolForSession` refuses in: a
-  // grant is a reconnection the person can make, a role is not.
-  const why = entry?.grantWrites
-    ? "your role there does not carry write"
-    : "this connection is read-only";
-  return owner
-    ? `yours: you read ${notes} there, but ${why}`
-    : `you can read ${notes} there, but ${why}`;
-}
-
-/**
- * The connection's reach in the context it is acting in, for the write surface.
- *
- * `store.contexts` is the request-scoped list `contextsFor` built, and exactly
- * one entry is `current`. A store that has none — a self-host shim, a test
- * harness, an `openContext` hop — yields `null`, and the write surface says
- * what it always said rather than guessing that a connection is read-only.
- */
-function currentReach(store) {
-  return (store?.contexts || []).find((entry) => entry.current) || null;
-}
-
-/**
- * The read-only line, or nothing.
- *
- * A grant its person deliberately connected read-only was still handed
- * "Writable: every non-reserved Markdown path" — the paragraph that decides
- * whether an agent tries at all. It is stated before the writable prefixes
- * rather than instead of them: the prefixes remain true of the context, and
- * which of them this connection may write is a different sentence.
- */
-function readOnlyNotice(reach) {
-  if (!reach || reach.canWrite) return "";
-  return reach.grantWrites
-    ? "**You cannot write here.** Your role in this context does not carry write; " +
-        "its owner can change that. Everything below describes the context, not this connection.\n\n"
-    : "**This connection is read-only.** It holds no write scope, so every write is refused " +
-        "whichever context it addresses — reconnect the client with write access from the Context " +
-        "dashboard. Everything below describes the context, not this connection.\n\n";
 }
 
 function scopeInfoText(scope, rules, reach = null) {
@@ -6657,70 +6073,6 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
   );
 }
 
-/* ------------------------------- key export -------------------------------- */
-
-/** Where a best-effort, per-context export rate limit is tracked. Plumbing: never listed, never a note. */
-const EXPORT_RATE_LIMIT_PATH = ".context/encryption-export-rate.json";
-
-/**
- * Exports allowed per context per rolling window. Matches the console's own
- * `authorizeEncryptionExport` in `apps/convex/functions/encryptionKeys.ts` —
- * not because the two limiters share state (they cannot: this one lives in
- * the customer's own bucket, and the console's lives in the control plane's
- * database, because the two surfaces have no other shared state to spend a
- * round trip reaching) but because an owner exporting from either surface
- * should meet the same policy.
- */
-const EXPORT_RATE_LIMIT = { limit: 5, windowMs: 24 * 60 * 60 * 1000 };
-
-/**
- * A best-effort, bucket-side fixed-window rate limit for `export_encryption_keys`.
- *
- * Zero-dependency and Workers-runtime only, like everything else in this file:
- * a small JSON counter at a plumbing path, read, checked, and written back —
- * the same shape `apps/convex/functions/lib/rateLimit.ts` uses, translated to
- * a store that has no database, only `get`/`put`. It is best-effort rather
- * than exact under a genuine race (two requests reading the same counter
- * before either writes back), which is an acceptable gap for a limit
- * defending an *owner's own* repeated access to their *own* key — the harm a
- * tighter limiter would prevent is a compromised session harvesting the key
- * by retrying, not a race with itself.
- *
- * A corrupt or unreadable counter fails **open toward a fresh window**, never
- * toward "block forever": the file this limiter writes is not canonical data,
- * and refusing an owner their own key because a JSON file got corrupted would
- * be a worse failure than under-counting once.
- *
- * @returns {Promise<boolean>} `true` if the caller is over the limit — and, in
- *   that case, nothing is written, so a rate-limited attempt does not itself
- *   consume budget from the window it is refused against.
- */
-async function checkAndConsumeExportRateLimit(store) {
-  const now = Date.now();
-  let state = { windowStartedAt: now, count: 0 };
-  const existing = await getWithLegacyFallback(store, EXPORT_RATE_LIMIT_PATH);
-  if (existing) {
-    try {
-      const parsed = JSON.parse(await existing.text());
-      if (
-        parsed &&
-        typeof parsed.windowStartedAt === "number" &&
-        typeof parsed.count === "number"
-      ) {
-        state = parsed;
-      }
-    } catch {
-      // Corrupt counter: treated as absent, which resets the window. See above.
-    }
-  }
-  if (now - state.windowStartedAt >= EXPORT_RATE_LIMIT.windowMs) {
-    state = { windowStartedAt: now, count: 0 };
-  }
-  if (state.count >= EXPORT_RATE_LIMIT.limit) return true;
-  await store.put(EXPORT_RATE_LIMIT_PATH, JSON.stringify({ ...state, count: state.count + 1 }));
-  return false;
-}
-
 /**
  * Export this context's workspace data key(s) in the clear.
  *
@@ -6793,314 +6145,6 @@ async function toolExportEncryptionKeys(store, scope) {
       "zero dependencies, plain Web Crypto). The full format is docs/decisions/encryption.md.\n\n" +
       JSON.stringify(doc, null, 2),
   );
-}
-
-/* ------------------------------ key rotation -------------------------------- */
-
-/**
- * How many notes one `rotate_encryption_keys` call re-wraps before reporting
- * back rather than continuing.
- *
- * Small next to `FOLDER_MOVE_CAP`'s 500 on purpose: a re-wrap is two
- * subrequests per note (`get`, then a conditional `put`) plus whatever the
- * listing itself costs, against the same 50-subrequest Worker budget
- * `docs/decisions/storage-and-credentials.md` already measures every bulk
- * operation in this file against. Call the tool again to continue — that is
- * the entire resumption protocol, and it is safe to call as many times as it
- * takes, because a note already on the target generation is skipped rather
- * than re-wrapped.
- *
- * Not exported: this file's only export is the default worker
- * (`scripts/check-gateway-imports.mjs`/`gatewayFormat.helpers.ts` in
- * `apps/convex/__tests__` both assume it), and `apps/mcp/test/encryptionRotation.test.mjs`
- * asserts this same number as a plain literal rather than importing it.
- */
-const ROTATION_BATCH_CAP = 200;
-
-/**
- * Where a rotation walk's own progress is tracked. Plumbing: never listed,
- * never a note, never containing key material — only generation ids and note
- * paths already visible in every affected note's own frontmatter.
- *
- * **This is bookkeeping about the walk, not a second copy of the truth.** A
- * note's own frontmatter is still the only thing that says which generation
- * it is on; this file only says where the walk last looked, so a lost,
- * corrupted, or concurrently-overwritten copy costs a wider re-scan next
- * call, never a wrong answer. See `loadRotationProgress`.
- *
- * Lives in the customer's own bucket rather than the control plane, matching
- * `EXPORT_RATE_LIMIT_PATH` elsewhere in this file: the control plane holds
- * the one fact that has to be authoritative across every Worker isolate —
- * whether a rotation may be *started* (`workspaceKeyRotations`) — and the
- * walk's own progress over the customer's content lives beside that content,
- * on the same "one source of truth" the bucket already is for "which notes
- * exist".
- */
-const ROTATION_PROGRESS_PATH = ".context/rotation-progress.json";
-
-/**
- * How many object reads ONE call may spend on the retry sweeps — the
- * known-stuck set, and the behind-the-cursor catch-up — before it carries the
- * rest to the next call.
- *
- * The forward sweep is the only one that advances the cursor, so it is the
- * only one that makes a large bucket finish. Without a separate, smaller
- * budget for the two retry sweeps, a call whose `stuckKeys` list had grown
- * past `ROTATION_BATCH_CAP` would spend its entire budget re-reading notes it
- * already knows about and never move the cursor at all — a starvation with
- * exactly the shape of the bug this whole file exists to remove.
- */
-const ROTATION_RETRY_READ_CAP = Math.floor(ROTATION_BATCH_CAP / 4);
-
-/**
- * How many "this walk wrote it" keys the progress file will carry. Four
- * batches, so a caller hammering the tool inside one second of a backend's
- * listing resolution still has its own recent output recognised, and the file
- * still cannot grow with the bucket.
- */
-const ROTATION_WROTE_CAP = ROTATION_BATCH_CAP * 4;
-
-/** First `limit` distinct entries, in order. */
-function dedupeCapped(values, limit) {
-  const out = [];
-  const seen = new Set();
-  for (const value of values) {
-    if (seen.has(value)) continue;
-    seen.add(value);
-    out.push(value);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-
-/**
- * Was this object definitely written before the boundary the last call
- * confirmed through? Compared at WHOLE-SECOND resolution, with a strict `<`,
- * because that is the resolution the timestamp actually carries.
- *
- * **S3's `ListObjectsV2` and Dropbox's `server_modified` report whole
- * seconds.** A note that lands behind the cursor at 12.900s is reported as
- * 12.000s, and a boundary of 12.750s compared exactly would call it older
- * than the last sweep and never look at it again. Measured on a
- * second-granularity store stub, exactly that lost a note moved behind the
- * cursor in four of eight runs — and the walk retired the generation anyway.
- * Rounding both sides down and demanding a strictly earlier second is the
- * comparison the data supports: it can only ever be over-inclusive, by at
- * most the writes that share one second with the boundary.
- *
- * What it does not cover, said rather than assumed: skew between the storage
- * backend's clock and this Worker's beyond a second. A backend running more
- * than a second behind can under-report an arrival into the swept range, and
- * that note stays on the outgoing generation — readable, under a generation
- * this codebase never deletes, and moved by the next rotation.
- */
-function uploadedBefore(uploadedMs, confirmedThrough) {
-  if (!Number.isFinite(uploadedMs)) return false; // no timestamp: always re-examine
-  return Math.floor(uploadedMs / 1000) < Math.floor(confirmedThrough / 1000);
-}
-
-/**
- * The label this file's authentication tag is derived under, so the tag can
- * never be replayed from, or onto, anything else signed with the same key.
- */
-const ROTATION_PROGRESS_MAC_LABEL = "context/rotation-progress/v1";
-
-/**
- * Authenticate the progress file under the generation the walk is moving
- * *to*, so a resume point is only ever trusted if this gateway wrote it.
- *
- * **Why a rotation's own bookkeeping needs a tag when the export rate-limit
- * counter next door does not.** This file is the only bucket object whose
- * contents can make `rotate_encryption_keys` report "complete" without having
- * looked at a note. A `cursor` that sorts after every key, in a file that
- * otherwise parses, is a two-line JSON document that makes the walk retire the
- * outgoing generation with every note still wrapped under it — silently, and
- * with the tool's own success message as the evidence. `docs/decisions/encryption.md`
- * then tells an operator to delete a retired generation's row once a re-run
- * says nothing names it, and that is the step at which those notes stop
- * opening for good. A leaked bucket credential is the threat that table calls
- * "the one that matters"; this change gave it a lever on the remediation
- * itself, and this closes it.
- *
- * The key is the new generation's material, which the gateway already holds
- * in-process for the length of this request and an attacker holding only the
- * bucket does not. It is used through one HMAC derivation step rather than
- * directly, so nothing here is the same key input as the AES-GCM wrap it also
- * performs. A tag that does not verify is treated exactly as a missing file:
- * the walk starts fresh and re-reads, which is slower and always correct.
- */
-async function rotationProgressMac(keyMaterial, body) {
-  const encoder = new TextEncoder();
-  const rootKey = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(String(keyMaterial)),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const subKeyBytes = await crypto.subtle.sign("HMAC", rootKey, encoder.encode(ROTATION_PROGRESS_MAC_LABEL));
-  const subKey = await crypto.subtle.importKey(
-    "raw",
-    subKeyBytes,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return encodeBase64(new Uint8Array(await crypto.subtle.sign("HMAC", subKey, encoder.encode(body))));
-}
-
-/** The exact bytes the tag covers. Order is fixed so a re-serialisation verifies. */
-function rotationProgressPayload({ fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys, wrote }) {
-  return JSON.stringify({ fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys, wrote });
-}
-
-/**
- * Read the walk's own resume point, or a fresh one if there is none, it does
- * not parse, its authentication tag does not verify, or it names a different
- * generation pair than the one being walked right now — which is exactly
- * right for a rotation that just started on top of a previous one's leftover
- * file, and costs nothing extra to check.
- *
- * @returns {Promise<{cursor: string, confirmedThrough: number, stuckKeys: string[], etag: string|undefined}>}
- *   `cursor` — every note key at or below this one, in the bucket's own sort
- *   order, has been examined at least once as of `confirmedThrough`.
- *   `confirmedThrough` — a moment in time captured BEFORE the listing the
- *   call that produced this file worked from, less `ROTATION_CLOCK_MARGIN_MS`.
- *   A note whose `uploaded` time is at or before this was in that listing and
- *   was therefore accounted for; anything later than it may have landed in
- *   the window between that listing and now, at any key, and gets looked at
- *   again whatever its position (see `toolRotateEncryptionKeys` for what a
- *   later boundary saves, and what it costs).
- *   `stuckKeys` — notes still on the outgoing generation that a previous call
- *   could not move (a conflicting write, or an envelope this pass cannot
- *   open), tracked separately from `cursor` so one bad note never blocks the
- *   walk from moving past it.
- */
-async function loadRotationProgress(store, fromGeneration, toGeneration, newKeyMaterial) {
-  const fresh = () => ({ cursor: "", confirmedThrough: 0, stuckKeys: [], wrote: new Set(), etag: undefined });
-  const existing = await getWithLegacyFallback(store, ROTATION_PROGRESS_PATH);
-  if (!existing) return fresh();
-  let parsed;
-  try {
-    parsed = JSON.parse(await existing.text());
-  } catch {
-    return fresh(); // corrupt file: treated as absent, never as a reason to refuse
-  }
-  if (
-    !parsed ||
-    parsed.fromGeneration !== fromGeneration ||
-    parsed.toGeneration !== toGeneration ||
-    typeof parsed.cursor !== "string" ||
-    typeof parsed.confirmedThrough !== "number" ||
-    !Array.isArray(parsed.stuckKeys) ||
-    !Array.isArray(parsed.wrote)
-  ) {
-    return fresh(); // a different rotation's leftover file, or one this build cannot read
-  }
-  const stuckKeys = parsed.stuckKeys.filter((k) => typeof k === "string");
-  const wrote = parsed.wrote.filter((k) => typeof k === "string");
-  // Authenticated, not merely shaped: an unsigned or wrongly-signed resume
-  // point is a resume point somebody other than this gateway chose, and the
-  // one thing a chosen cursor buys is a walk that reports "complete" without
-  // reading a note. See `rotationProgressMac`.
-  const expected = await rotationProgressMac(
-    newKeyMaterial,
-    rotationProgressPayload({
-      fromGeneration,
-      toGeneration,
-      cursor: parsed.cursor,
-      confirmedThrough: parsed.confirmedThrough,
-      stuckKeys,
-      wrote,
-    }),
-  );
-  if (typeof parsed.mac !== "string" || !timingSafeEqual(parsed.mac, expected)) return fresh();
-  return {
-    cursor: parsed.cursor,
-    confirmedThrough: parsed.confirmedThrough,
-    stuckKeys,
-    wrote: new Set(wrote),
-    etag: existing.etag,
-  };
-}
-
-/**
- * Persist the walk's resume point after a call that did not finish the
- * rotation. Best-effort, like `checkAndConsumeExportRateLimit`'s counter: this
- * file is never the source of truth for whether a note is on the outgoing
- * generation — a note's own frontmatter always is — only for where to resume
- * *looking*. A lost conditional-write race (two overlapping calls against the
- * same rotation) costs a wider re-scan on the next call, never a wrong
- * completion: every note this call actually rewrapped was written directly,
- * unconditionally on its own etag, whether or not this file's write lands.
- */
-async function saveRotationProgress(
-  store,
-  { fromGeneration, toGeneration, cursor, confirmedThrough, stuckKeys, wrote, etag, newKeyMaterial },
-) {
-  const payload = rotationProgressPayload({
-    fromGeneration,
-    toGeneration,
-    cursor,
-    confirmedThrough,
-    stuckKeys,
-    wrote,
-  });
-  const mac = await rotationProgressMac(newKeyMaterial, payload);
-  const body = JSON.stringify({ ...JSON.parse(payload), mac });
-  if (!etag) {
-    await store.put(ROTATION_PROGRESS_PATH, body);
-    return;
-  }
-  const written = await store.put(ROTATION_PROGRESS_PATH, body, { onlyIf: { etagMatches: etag } });
-  if (written) return;
-  /*
-    THE CONDITIONAL WRITE IS POLITENESS, NOT SAFETY, AND LOSING IT MUST NOT
-    STALL THE WALK.
-
-    `cursor` means "every key at or below this one has been examined", which
-    is true of whichever overlapping call wrote it — so overwriting the other
-    call's position with our own is always a true statement, at worst a
-    narrower one that costs a re-read. What is NOT survivable is giving up:
-    the read budget is spent on reads rather than re-wraps, so a call that
-    cannot persist its cursor re-reads the same first batch next time and a
-    bucket larger than the cap never finishes. Losing the race twice in a row
-    is left alone — the next call reads whatever did land, which is a valid
-    position either way.
-  */
-  await store.put(ROTATION_PROGRESS_PATH, body);
-}
-
-/**
- * Try to move one note off `fromGeneration`.
- *
- * @returns {Promise<"rewrapped"|"clean"|"stuck">} `"rewrapped"` — moved to the
- *   target generation this call. `"clean"` — nothing to do: deleted since it
- *   was listed, not encrypted, or already off `fromGeneration` (on the target
- *   generation, on some other still-retired one, or a passphrase-only note
- *   with no workspace recipient to move at all). `"stuck"` — still on
- *   `fromGeneration` and this call could not move it: a conflicting
- *   concurrent write, or an envelope this pass cannot open. Left exactly as
- *   it is either way — the one outcome worse than leaving a note behind is
- *   guessing at its content — for a later call to retry.
- */
-async function rewrapOneNote(store, key, { fromGeneration, toGeneration, keys, newKeyMaterial, workspaceId }) {
-  const object = await getWithLegacyFallback(store, key);
-  if (!object) return "clean";
-  const text = await object.text();
-  if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) return "clean";
-  let rewrappedText;
-  try {
-    rewrappedText = await rewrapWorkspaceRecipient(text, { workspaceId, keys, newGeneration: toGeneration, newKeyMaterial });
-  } catch (error) {
-    if (error instanceof NoteCryptoError) return "stuck";
-    throw error;
-  }
-  // Conditional on the etag this pass read: a note edited concurrently (its
-  // plaintext changed, or `set_encryption` turned it off) is left for the
-  // next call rather than overwritten.
-  const put = await store.put(key, rewrappedText, { onlyIf: { etagMatches: object.etag } });
-  return put ? "rewrapped" : "stuck";
 }
 
 /**
@@ -7927,43 +6971,6 @@ async function toolReviewProposal(store, scope, id, action, destinationArg, revi
 }
 
 /**
- * The fallback scan's key listing.
- *
- * `listAllNoteKeys` refuses to truncate, which is right for a move — a partial
- * answer there is a wrong answer — and wrong here. This path runs only because
- * the index was unusable, and an unbounded walk over a large bucket is the
- * failure the index exists to remove, arriving through the recovery route. So
- * it is bounded, and its truncation is carried into what the caller prints.
- */
-async function listScannableNoteKeys(store, prefix) {
-  if (prefix) {
-    try {
-      return await listBoundedKeys(store, prefix, FALLBACK_LIST_PAGE_CAP);
-    } catch (error) {
-      if (!error?.[BUDGET_EXHAUSTED]) throw error;
-      return { keys: [], truncated: true };
-    }
-  }
-  const keys = [];
-  let truncated = false;
-  try {
-    const root = await listImmediateLayout(store);
-    keys.push(...root.objects);
-    for (const childPrefix of root.prefixes) {
-      const walk = await listBoundedKeys(store, childPrefix, FALLBACK_LIST_PAGE_CAP);
-      if (walk.truncated) truncated = true;
-      keys.push(...walk.keys);
-    }
-  } catch (error) {
-    // Out of budget partway through the walk: keep what was listed and say the
-    // total is a floor, exactly as a truncated page does.
-    if (!error?.[BUDGET_EXHAUSTED]) throw error;
-    truncated = true;
-  }
-  return { keys, truncated };
-}
-
-/**
  * The literal substring scan, kept as the recovery path for a search whose
  * index is unusable — a corrupt object the pass could not replace, a storage
  * error mid-sync, a bucket nothing has indexed yet.
@@ -8429,348 +7436,6 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     totalCount: scan.totalCount,
     totalIsFloor: scan.totalIsFloor,
   };
-}
-
-/**
- * Bring the index a pass further — **after** the response has been sent.
- *
- * A search reads a ready index and does no maintenance of its own
- * (`searchIndexedNotes`), so this is where every listing, diff, note read and
- * shard write in the system now happens for a gateway caller. That is the
- * change: the person asking a question waits for a manifest, the shards their
- * terms could be in, and the notes being quoted, and for nothing else.
- *
- * Four properties are deliberate:
- *
- * - **It is the same sync, not a second maintenance path.** A background
- *   indexer with its own diff would be a second place for the index to be
- *   wrong, in exactly the way a second search path would be a second place for
- *   a visibility bug.
- * - **It never throws into the request.** A rejected `waitUntil` promise is a
- *   logged exception on an invocation whose response has already gone; a throw
- *   on the way *in* would be a failed search over a successful one.
- * - **A host that cannot defer still indexes**, and pays for it in latency
- *   rather than in coverage. `store.defer` is absent on a self-hosted shim that
- *   passes no `ctx`, and "no deferral" used to mean "the next search does the
- *   work interactively" — which it no longer does, so absent deferral would
- *   mean an index nothing ever builds. It runs inline instead, after the answer
- *   is assembled, capped at `INTERACTIVE_BACKFILL_OPS` note reads. Deferral is
- *   still an accelerator; what it accelerates is now the whole of the work.
- * - **A converged index is not re-listed on every search.** The manifest
- *   records when it was last listed, so a pass is worth starting only when the
- *   index says it is behind or when that record is older than
- *   `INDEX_RECONCILE_INTERVAL_MS` — a bucket also written by Obsidian and
- *   rclone has to be re-read on some clock, and a full listing per search
- *   against a request quota the customer is billed for is not it.
- *
- * - **It is also where the D1 projection happens**, for the contexts that
- *   opted into one. Same trigger, same budget, same side of the response — the
- *   copy is this sync's diff with a second destination rather than a second
- *   indexer. It has one reason of its own to run, and only one: while the
- *   control plane says the projection is still filling. See the comment in the
- *   body, which is where that gets argued.
- *
- * @param {object} found the answer's own report, or `null` where there was no
- *   index to answer from — which is always work worth doing.
- * @param {(path: string) => string} visibilityOf the privacy engine bound to
- *   this context, for the projection's tier split. Absent means no projection.
- * @returns {Promise<"deferred"|"inline"|"none">} for the trace, so an operator
- *   can tell "no work left" from "this host cannot defer".
- */
-async function maintainIndexAfter(store, budget, isIndexable, found, visibilityOf) {
-  /*
-   * A `found` THIS CALLER HAS NOT PAID FOR YET.
-   *
-   * The fast path answers without touching the R2 index at all, and the only
-   * thing it still needed from it was the manifest — for the reconcile clock
-   * below, not for the answer. Reading it in the request was one object GET
-   * on the critical path of every fast hit, which is a third of what the whole
-   * path costs, spent on a decision nobody is waiting for.
-   *
-   * So a caller may hand a *function* instead, and it is resolved inside the
-   * deferred work. The cost of that is stated rather than hidden: with nothing
-   * resolved yet this cannot know whether there is anything to do, so it
-   * always reports `deferred` and the "nothing to do" case becomes a
-   * `waitUntil` that reads a manifest and stops. That is one read behind the
-   * response in place of one read in front of it, which is the trade.
-   */
-  if (typeof found === "function") {
-    const resolveThenMaintain = async (options) =>
-      maintainNow(store, budget, isIndexable, await found(), visibilityOf, options);
-    if (typeof store.defer === "function") {
-      try {
-        store.defer(resolveThenMaintain({}));
-        return "deferred";
-      } catch {
-        // A host whose `waitUntil` refuses the work is a host that does not
-        // defer, exactly as below.
-      }
-    }
-    await resolveThenMaintain({
-      backfillOps: INTERACTIVE_BACKFILL_OPS,
-      projectNotes: INTERACTIVE_PROJECT_NOTES,
-    });
-    return "inline";
-  }
-
-  const projecting = Boolean(store.searchIndex) && typeof visibilityOf === "function";
-  /*
-   * **The projection has its own reason to run, and it has to.** Tying it
-   * purely to the R2 sync looked right — one trigger, one listing, one diff —
-   * and it silently starves every backfill that matters: a bucket whose index
-   * builds in a single pass then reports itself converged, and `syncingIndex`
-   * is false on every search for the next `INDEX_RECONCILE_INTERVAL_MS`. A
-   * context that has just opted in would copy one pass's worth of notes and
-   * then wait a minute for the next chance, and a pass that *failed* would not
-   * be retried at all. Measured on a six-note fixture: the R2 index converged
-   * on search one, the projection's only pass was the one that failed, and
-   * eleven further searches did nothing.
-   *
-   * So while the control plane says this projection is still filling, a pass
-   * runs on every search — and it buys its census from the index's own docmap
-   * (two object reads, `loadCensus`) rather than from a listing. Once the
-   * control plane calls it `ready`, the projection rides the R2 sync alone and
-   * a converged context pays nothing.
-   */
-  const syncingIndex = indexNeedsAPass(found) && budget.remaining >= DEFERRED_SYNC_FLOOR;
-  const backfilling = projecting && store.searchIndex.state !== "ready";
-  const projectingAlone = backfilling && !syncingIndex && budget.remaining >= D1_STANDALONE_FLOOR;
-  if (!syncingIndex && !projectingAlone) return "none";
-  // Where this context has opted into the projection, the sync keeps back a
-  // share of what is left for it — settled *before* the sync spends anything,
-  // for the reason `walkReserve` exists: a reserve taken out of what the
-  // previous stage happened to leave is not a reserve.
-  const run = async (options) => maintainNow(store, budget, isIndexable, found, visibilityOf, options);
-  if (typeof store.defer === "function") {
-    try {
-      store.defer(run({}));
-      return "deferred";
-    } catch {
-      // A host whose `waitUntil` refuses the work is a host that does not
-      // defer, and falls through to doing it in front of the caller.
-    }
-  }
-  // Awaited, which is the whole difference between this branch and the one
-  // above. A host with no `waitUntil` has nothing keeping the invocation alive
-  // past the response, so a promise left running there is a promise that may
-  // simply be discarded — and an index nothing ever finishes building. The cap
-  // is what keeps the resulting delay bounded.
-  await run({ backfillOps: INTERACTIVE_BACKFILL_OPS, projectNotes: INTERACTIVE_PROJECT_NOTES });
-  return "inline";
-}
-
-/**
- * The work itself, with the deferral decision already made.
- *
- * Held apart from `maintainIndexAfter` because there are now two ways in and
- * one of them resolves its `found` *after* deferring — so the "is there
- * anything to do" arithmetic has to be reachable from inside the deferred
- * promise as well as from in front of it. It reads `budget` and `store` and
- * returns nothing: every caller is behind the response, and neither branch may
- * throw into one.
- */
-async function maintainNow(store, budget, isIndexable, found, visibilityOf, options = {}) {
-  const projecting = Boolean(store.searchIndex) && typeof visibilityOf === "function";
-  const syncingIndex = indexNeedsAPass(found) && budget.remaining >= DEFERRED_SYNC_FLOOR;
-  const backfilling = projecting && store.searchIndex.state !== "ready";
-  const projectingAlone = backfilling && !syncingIndex && budget.remaining >= D1_STANDALONE_FLOOR;
-  if (!syncingIndex && !projectingAlone) return;
-  // Where this context has opted into the projection, the sync keeps back a
-  // share of what is left for it — settled *before* the sync spends anything,
-  // for the reason `walkReserve` exists: a reserve taken out of what the
-  // previous stage happened to leave is not a reserve.
-  const reserve =
-    projecting && syncingIndex
-      ? Math.min(D1_PASS_RESERVE_CAP, Math.floor(budget.remaining / 4))
-      : 0;
-  let synced = null;
-  try {
-    if (syncingIndex) {
-      synced = await syncShardedIndex(store, { budget, isIndexable, reserve, ...options });
-    }
-  } catch {
-    // A storage failure after the answer is already out changes nothing about
-    // the answer. The next search re-diffs from the manifest — and the
-    // projection still gets its turn below, because a failed listing is not a
-    // reason to stop copying the notes that were already indexed.
-  }
-  if (!projecting) return;
-  try {
-    await projectAfterSync(store, budget, synced, visibilityOf, options);
-  } catch {
-    // Same rule, one layer down. `projectPass` already turns every provider
-    // failure into a reported code; this is the belt to that pair of braces.
-  }
-}
-
-/**
- * Copy what the sync just found into this context's search database.
- *
- * **The same event with a second destination.** The sync has already listed the
- * bucket, diffed it, and worked out which notes moved and which are gone; this
- * takes that answer rather than deriving a second one, which is why turning
- * the projection on costs no extra listing and no second diff. See
- * `search/d1/backfill.js`.
- *
- * Three properties, and each is the reason a line is where it is:
- *
- * - **It runs after the sync, on what the sync's `reserve` kept back for it.**
- *   The R2 index is the one that answers searches, so it spends first and the
- *   projection gets the remainder — on a budget too small for both, the
- *   projection simply does not advance that pass.
- * - **It cannot fail a search.** Every provider failure is caught inside the
- *   pass and turned into a reported code; anything else is caught here. The
- *   call site is behind the response either way.
- * - **The census is the manifest's own diff surface**, so a note reaches the
- *   projection once the R2 index knows about it and not before. That ordering
- *   is deliberate: `notesPending` can then be honest about a bucket the R2
- *   index has not finished listing, rather than reporting a projection
- *   "complete" over a census that is itself a floor.
- */
-async function projectAfterSync(store, budget, synced, visibilityOf, options) {
-  // No sync this pass: the projection is still filling and buys its own census
-  // from the index's diff surface. Two reads, never a listing — see
-  // `loadCensus`.
-  let census = null;
-  let indexPending = 0;
-  if (synced && synced.manifest) {
-    census = censusFromManifest(synced.manifest);
-    indexPending = (synced.pending || 0) + (synced.listingTruncated ? 1 : 0);
-  } else {
-    const loaded = await loadCensus(store, budget);
-    if (!loaded) return null;
-    census = loaded.census;
-    const freshness = loaded.manifest.freshness;
-    indexPending = (freshness.pending || 0) + (freshness.truncated ? 1 : 0);
-  }
-  let client;
-  try {
-    client = createD1Client(store.searchIndex);
-  } catch {
-    // A descriptor this build cannot use is fast search off, which is a
-    // working state. `readSearchIndexBinding` has already refused the
-    // malformed shapes; this is the belt to that pair of braces.
-    return null;
-  }
-
-  /*
-   * **The backfill continues itself while it is making progress**, rather than
-   * copying one slice per search.
-   *
-   * The alternative is arithmetic nobody would sign off on: one slice per
-   * search, and a context that has just opted in copies twenty notes and then
-   * waits for somebody to search again. A workspace in the thousands is then days
-   * of ordinary use away from a working fast search, which is indistinguishable
-   * — to its owner, watching a counter — from the "nothing is happening" state
-   * this whole change exists to end.
-   *
-   * The same shape the control plane's scheduled `maintainIndex` already uses
-   * for the R2 index ("chains itself while it is making progress so a cold
-   * workspace converges without anybody searching eight times"), with the two
-   * bounds that make a chain terminate rather than wedge:
-   *
-   *  - **Every iteration spends at least one op** (it re-reads the cursor), and
-   *    the budget only decreases, so the loop cannot spin. `DEFERRED_SYNC_FLOOR`
-   *    has the cautionary tale: a recovery path that cannot afford to end
-   *    itself is not a recovery path.
-   *  - **It stops the moment a pass stops moving notes** — nothing projected,
-   *    nothing deleted — so a pass blocked on anything at all ends the chain
-   *    instead of retrying it.
-   *
-   * It stays inside one invocation on purpose. A Worker cannot schedule itself,
-   * and `waitUntil` is what keeps this one alive; the loop is bounded by the
-   * same subrequest budget the search was, so chaining spends what the pass
-   * would have spent anyway rather than opening a second allowance.
-   */
-  const passCap = options?.projectNotes !== undefined ? 1 : D1_PASSES_PER_INVOCATION;
-  let last = null;
-  for (let pass = 0; pass < passCap; pass += 1) {
-    const noteCap = Math.min(
-      Number.isFinite(options?.projectNotes) ? options.projectNotes : D1_PASS_NOTE_CAP,
-      Math.max(0, Math.floor(budget.remaining / D1_OPS_PER_NOTE))
-    );
-    const result = await projectPass(store, client, {
-      census,
-      // Only the first pass carries them: they are this sync's news, and a
-      // later pass re-projecting the same notes would spend the budget the
-      // backfill needs on work already done.
-      touched: pass === 0 ? synced?.touched || [] : [],
-      removed: pass === 0 ? synced?.removed || [] : [],
-      visibilityOf,
-      budget,
-      noteCap,
-      // A projection cannot honestly call itself complete over a census the R2
-      // index is still building.
-      indexPending,
-      // Reported once, after the chain ends, rather than once per link: the
-      // control plane wants to know where this got to, not the eight places it
-      // passed through, and each report is a subrequest off the same budget.
-      reportProgress: null,
-    });
-    if (result.projected > 0 || result.deleted > 0 || last === null) last = result;
-    if (result.failure !== null) break;
-    if (result.projected === 0 && result.deleted === 0) break;
-    if (result.sweepComplete) break;
-    if (budget.remaining < D1_STANDALONE_FLOOR) break;
-  }
-  const result = last;
-
-  if (
-    worthReporting(result, store.searchIndex?.state) &&
-    typeof store.reportSearchIndexProgress === "function"
-  ) {
-    try {
-      budget.take(0);
-      await store.reportSearchIndexProgress(progressFrom(result));
-    } catch {
-      // The counter is nobody's problem — `reportUsage`'s rule. A projection
-      // that advanced but was not counted is a good outcome.
-    }
-  }
-  /*
-   * Its own line rather than a field on the search trace, because the pass
-   * runs *after* that trace has been logged: on the deferred path
-   * `logSearchTrace` fires the moment `maintainIndexAfter` says "deferred",
-   * and a field set later would either be lost or would mutate a line an
-   * operator has already read. Same rules as the trace: identifiers and
-   * counts, never a path, never a query, never the token, and the failure is
-   * the code `d1/client.js` classified — never the provider's text, which can
-   * name an account or a database.
-   */
-  try {
-    console.log(
-      JSON.stringify({
-        event: "search-projection",
-        workspace: store.actor?.workspaceId,
-        projected: result.projected,
-        deleted: result.deleted,
-        notesIndexed: result.notesIndexed,
-        notesPending: result.notesPending,
-        sweepComplete: result.sweepComplete,
-        failure: result.failure ?? undefined,
-      })
-    );
-  } catch {
-    // Instrumentation that can take down the thing it measures is worse than
-    // none — `trace.js`'s rule, applied here too.
-  }
-  return result;
-}
-
-/**
- * Whether the index is behind enough to be worth a pass.
- *
- * `null` — no index at all — always is. Otherwise the answer's own freshness
- * report decides: anything incomplete, or a listing older than the reconcile
- * interval, because notes arrive in this bucket through Obsidian and rclone as
- * well as through us and nothing tells the gateway when they do.
- */
-function indexNeedsAPass(found) {
-  if (!found || !found.index) return true;
-  if (found.indexIncomplete) return true;
-  const listedAt = Date.parse(found.index.listedAt ?? "");
-  if (!Number.isFinite(listedAt)) return true;
-  return Date.now() - listedAt >= INDEX_RECONCILE_INTERVAL_MS;
 }
 
 async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
@@ -9362,10 +8027,6 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     `moved: ${source} → ${destination} (etag ${put.etag})\nvisibility: ${destinationVisibility}` +
       referencesLine(references)
   );
-}
-
-function contextNameFor(session) {
-  return `@${session?.workspaceSlug || session?.workspaceId || "context"}`;
 }
 
 async function toolMoveNoteAcrossContexts(
