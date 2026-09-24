@@ -83,10 +83,7 @@
     "infra/transcribe-worker/src/worker/credentialAndRouting.test.ts": "The request path in order (credential, rate limit, routing, body) against one mocked worker; cases build on shared state within the file."
   },
   "baseline": {
-    "apps/convex/functions/account.ts": 1019,
     "apps/convex/functions/admin.ts": 1051,
-    "apps/convex/functions/authorizations.ts": 1037,
-    "apps/convex/functions/billing.ts": 1103,
     "apps/convex/functions/cloudflare.ts": 1053,
     "apps/convex/functions/controlPlane.ts": 1664,
     "apps/convex/functions/fastSearch.ts": 1095,
@@ -101,7 +98,6 @@
     "apps/convex/functions/storage.ts": 2981,
     "apps/convex/functions/workspaces.ts": 1228,
     "apps/convex/http.ts": 1803,
-    "apps/convex/schema.ts": 3210,
     "apps/desktop/src/main/index.ts": 2619,
     "apps/mcp/src/communications/gmailSync.js": 1359,
     "apps/mcp/src/controlPlane.js": 1073,
