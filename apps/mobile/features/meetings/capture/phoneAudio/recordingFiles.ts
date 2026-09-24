@@ -47,3 +47,30 @@ export function discard(uri: string): void {
     // somebody in a meeting about.
   }
 }
+
+/**
+ * A window of a file, or `null` if it cannot be read right now.
+ *
+ * The handle is closed on every path. A recorder is writing into this file
+ * ten times a second, and a leaked descriptor per tick is a meeting that
+ * stops being able to open its own recording somewhere around the twentieth
+ * minute.
+ */
+export function readRange(file: File, at: number, length: number): Uint8Array | null {
+  let handle: { close(): void; readBytes(length: number): Uint8Array; offset: number | null } | null =
+    null;
+  try {
+    handle = file.open();
+    handle.offset = at;
+    const bytes = handle.readBytes(length);
+    return bytes.length === 0 ? null : bytes;
+  } catch {
+    return null;
+  } finally {
+    try {
+      handle?.close();
+    } catch {
+      // Nothing to do with it, and not worth a chip in somebody's meeting.
+    }
+  }
+}
