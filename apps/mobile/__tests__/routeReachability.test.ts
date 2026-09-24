@@ -482,6 +482,7 @@ describe("every route is reachable, or says why not", () => {
       "/[handle]/[slug]",
       "/admin",
       "/authorize",
+      "/connect/cli",
       "/connect/dropbox",
       "/connect/google",
       /*

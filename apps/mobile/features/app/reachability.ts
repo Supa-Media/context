@@ -382,6 +382,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the URL Google redirects back to",
   },
   {
+    route: "/connect/cli",
+    file: "app/connect/cli.tsx",
+    reachable: false,
+    reason:
+      "Where the CLI's loopback sign-in page sends the browser once a sign-in is " +
+      "approved or refused. Nothing in the app leads here; opening it directly " +
+      "shows a result for a sign-in that is not happening.",
+    marker: "sends the browser",
+  },
+  {
     route: "/console",
     file: "app/(app)/console/index.tsx",
     reachable: true,
