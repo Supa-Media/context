@@ -70,7 +70,8 @@
  *   tools/      dispatch.js (`callTool`, the switch), session.js
  *               (`callToolForSession`, the one path to it), advertised.js
  *               (tools/list, aliases, unlisted, argument validation),
- *               schemas.js, registry.js, and one module per tool family:
+ *               schemas.js (+ schemas/, one list per family), registry.js,
+ *               and one module per tool family:
  *               notes/, moves/, forms/, encryption/, visibility, search,
  *               readImage, saveContext, proposalActions, meetings,
  *               communications, links, …
