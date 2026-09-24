@@ -24,7 +24,7 @@ import {
   queuedSends,
   invitationRow,
   linkFrom,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the send is scheduled, and only for an address", () => {
   test("an email invitee queues exactly one send", async () => {

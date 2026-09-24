@@ -13,7 +13,7 @@ import {
   share,
   errorShape,
   danglingWorkspaceId,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("an owner can edit their context", () => {
   test("migrates only reserved system objects and leaves notes untouched", async () => {

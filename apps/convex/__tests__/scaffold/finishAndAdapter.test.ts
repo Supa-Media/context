@@ -17,7 +17,7 @@ import {
   FAKE_S3,
   seedLiveWorkspace,
   PARA_READMES,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 
 /**

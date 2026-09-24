@@ -24,7 +24,7 @@ import {
   SCOPES,
   outcome,
   normalise,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the port parses exactly what the gateway parses", () => {
   test("the extraction is real — the gateway's parser is strict about its own format", () => {

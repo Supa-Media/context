@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -7,75 +7,58 @@ import {
   internalQuery,
   mutation,
 } from "../_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
-import { recordAudit } from "./lib/audit";
+import { storeForBinding } from "../../mcp/src/store/factory.js";
+import {
+  reconcileMigrationPage,
+  type MigrationStore,
+} from "./lib/managedMigration";
+import { requireUserId } from "./lib/managedProvisioningFns/helpers";
 import {
   CloudflareApiError,
   createBucketScopedToken,
   createR2Bucket,
-  emptyAndDeleteR2Bucket,
   deriveS3SecretAccessKey,
+  emptyAndDeleteR2Bucket,
   r2Endpoint,
   R2_CREDENTIAL_SETTLE_MS,
   resolvePermissionGroupId,
-  scopedTokenName,
   revokeApiToken,
+  scopedTokenName,
 } from "./lib/cloudflare";
 import {
   MANAGED_R2_API_TOKEN_SECRET,
   managedAccountId,
   managedBucketName,
 } from "./lib/managedStorage";
-import { storeForBinding } from "../../mcp/src/store/factory.js";
-import { probeStore } from "../../mcp/src/store/index.js";
 import {
-  reconcileMigrationPage,
-  type MigrationStore,
-} from "./lib/managedMigration";
-
-/**
- * A page is the unit of a scheduled action, and the unit progress is saved at.
- *
- * Larger than it was, because it is no longer walked one object at a time: a
- * page now costs about `MIGRATION_PAGE_SIZE / MIGRATION_WAVE_WIDTH` round trips
- * rather than one per object, so the per-action scheduling overhead is what a
- * small page was really buying. Still bounded, because a page that fails is a
- * page that is retried from its cursor, and nothing is saved mid-page.
- */
-const MIGRATION_PAGE_SIZE = 100;
-const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
-
-/**
- * How many objects of a page are reconciled at once, and how many bytes of them
- * may be in flight together.
- *
- * The gateway's own wave width is 6, sized to the Workers limit on simultaneous
- * open connections. That reasoning does not reach here: this runs in a Convex
- * action, not a Worker, and the bound that matters instead is memory — one
- * object in flight holds its source bytes and its target bytes at once, and the
- * byte cap admits 25MB objects. So the width is the wider one an action can
- * actually use, and the byte budget is what keeps a page of attachments from
- * turning that width into a heap the action dies on.
- */
-const MIGRATION_WAVE_WIDTH = 16;
-const MIGRATION_WAVE_BYTE_BUDGET = 32 * 1024 * 1024;
-
-const MANAGED_STORAGE_SETTLE_POLL_MS = 5 * 1000;
-
-/**
- * Failures that mean the same thing however many times they are tried.
- *
- * Everything else — a refused signature, a 404 for a bucket that exists, a
- * reset socket — is treated as a bucket that has not settled yet, because on
- * this path that is overwhelmingly what it is.
- */
-const TERMINAL_MIGRATION_ERRORS = new Set([
-  "SOURCE_UNAVAILABLE",
-  "OBJECT_TOO_LARGE",
-]);
+  provisioningStandingHandler,
+  recordManagedProvisioningHandler,
+} from "./lib/managedProvisioningFns/standing";
+import {
+  beginManagedStorageMigrationHandler,
+  resumeManagedStorageMigrationHandler,
+} from "./lib/managedProvisioningFns/migrationBegin";
+import { failManagedStorageMigrationHandler } from "./lib/managedProvisioningFns/migrationFail";
+import { migrationForCopyHandler } from "./lib/managedProvisioningFns/migrationRead";
+import { recordMigrationPageHandler } from "./lib/managedProvisioningFns/migrationPage";
+import { finishManagedStorageMigrationHandler } from "./lib/managedProvisioningFns/migrationFinish";
+import {
+  finishAwaitManagedTargetReady,
+  probeManagedTarget,
+} from "./lib/managedProvisioningFns/targetReady";
+import { completeManagedProvisioningHandler } from "./lib/managedProvisioningFns/complete";
+import { retryManagedProvisioningHandler } from "./lib/managedProvisioningFns/retry";
+import {
+  MANAGED_STORAGE_SETTLE_POLL_MS,
+  MIGRATION_OBJECT_BYTE_CAP,
+  MIGRATION_PAGE_SIZE,
+  MIGRATION_WAVE_BYTE_BUDGET,
+  MIGRATION_WAVE_WIDTH,
+  R2_BUCKET_WRITE_PERMISSION_GROUP,
+  TERMINAL_MIGRATION_ERRORS,
+  type ManagedProvisionError,
+} from "./lib/managedProvisioningFns/constants";
 
 /**
  * Tear down resources belonging to the dedicated CUJ account only.
@@ -169,43 +152,22 @@ export const deleteManagedTestResources = internalAction({
  * cannot do the second), that adoption returns the bucket rather than an
  * error, and that the stored key opens the bucket through the ordinary S3
  * path.
- */
-
-/** Ours, from a closed set. Never Cloudflare's text, which can name an account. */
-export type ManagedProvisionError =
-  | "NOT_CONFIGURED"
-  | "NOT_ENTITLED"
-  | "ALREADY_BOUND"
-  | "CLOUDFLARE_REFUSED"
-  | "PROVISION_FAILED";
-
-/**
- * The R2 permission group a bucket-scoped token needs, by name.
- *
- * Resolved at runtime rather than hardcoded, exactly as the BYO path does it:
- * only the read group's id is published, and a hardcoded id would be a guess
- * about what a token is allowed to do.
- */
-const R2_BUCKET_WRITE_PERMISSION_GROUP = "Workers R2 Storage Bucket Item Write";
-
-async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) {
-    throw new ConvexError({
-      code: "NOT_AUTHENTICATED",
-      message: "Sign in first.",
-    });
-  }
-  return userId;
-}
-
-/**
- * Make the bucket, or record why not.
  *
  * Internal, and reached only by a schedule edge — from the webhook that turns a
  * plan active, and from the owner's retry. "Scheduling is not calling" is what
  * keeps the public mutation that starts it from being a path to the operator
  * token it opens.
+ *
+ * ## Layout of this module
+ *
+ * Every export below is a thin Convex registration whose handler delegates to
+ * `lib/managedProvisioningFns/`, where the logic (and its comments) actually
+ * live — **except the `decryptSecret` calls in `awaitManagedTargetReady` and
+ * `runManagedStorageMigration`**, which stay here:
+ * `__tests__/structure.test.ts` enumerates exactly which modules may import
+ * `decryptSecret` at all, and this file is one of them. Everything each of
+ * those functions does with the opened secret is a lib helper that takes it
+ * as a plain argument and never imports the decrypt itself.
  */
 export const provisionManagedStorage = internalAction({
   args: { workspaceId: v.id("workspaces") },
@@ -415,35 +377,7 @@ export const provisioningStanding = internalQuery({
       ownerId: v.union(v.null(), v.id("users")),
     }),
   ),
-  handler: async (ctx, args) => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null) return null;
-    const plan = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const migration = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const owner = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-    return {
-      // Both halves: chosen *and* paying. `activeEntitlements` is the one place
-      // that computes it, and this asks the same question the same way.
-      entitled: plan?.managedStorage === true && plan.status === "active",
-      bindingId: binding?._id ?? null,
-      migrationStatus: migration?.status,
-      bindingIsManaged: binding?.bucket === managedBucketName(args.workspaceId),
-      ownerId: owner.find((member) => member.role === "owner")?.userId ?? null,
-    };
-  },
+  handler: async (ctx, args) => provisioningStandingHandler(ctx, args),
 });
 
 /** Where an attempt got to. Written by the action, read by the console. */
@@ -458,20 +392,7 @@ export const recordManagedProvisioning = internalMutation({
     errorCode: v.optional(v.string()),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    const plan = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (plan === null) return null;
-    await ctx.db.patch(plan._id, {
-      managedProvisioning: args.state,
-      managedProvisioningError: args.errorCode,
-      managedProvisioningAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
+  handler: async (ctx, args) => recordManagedProvisioningHandler(ctx, args),
 });
 
 /** Park the managed destination without changing which storage is live. */
@@ -486,77 +407,7 @@ export const beginManagedStorageMigration = internalMutation({
     encryptedSecretAccessKey: v.string(),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    await requireWorkspaceRole(
-      ctx,
-      args.workspaceId,
-      args.actorUserId,
-      "owner",
-    );
-    const current = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (current?._id !== args.sourceBindingId) return null;
-
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const fields = {
-      workspaceId: args.workspaceId,
-      sourceBindingId: args.sourceBindingId,
-      targetEndpoint: args.endpoint,
-      targetBucket: args.bucket,
-      targetAccessKeyId: args.accessKeyId,
-      encryptedTargetSecretAccessKey: args.encryptedSecretAccessKey,
-      status: "copying" as const,
-      phase: "count" as const,
-      cursor: undefined,
-      objectsCopied: 0,
-      objectsTotal: undefined,
-      objectsProcessedInPhase: 0,
-      changesInPass: 0,
-      readyToCutover: false,
-      errorCode: undefined,
-      startedBy: args.actorUserId,
-      updatedAt: now,
-    };
-    if (existing === null) {
-      await ctx.db.insert("managedStorageMigrations", {
-        ...fields,
-        createdAt: now,
-      });
-    } else if (existing.sourceBindingId === args.sourceBindingId) {
-      // A retry resumes the destination it already created. Do not reset the
-      // cursor or replace the credential with a second minted token.
-      await ctx.db.patch(existing._id, {
-        status: "copying",
-        errorCode: undefined,
-        readyToCutover: false,
-        updatedAt: now,
-      });
-    }
-    /*
-      The copy is not started here, and that is the fix this indirection
-      exists for. The bucket and the key it needs were minted seconds ago and
-      are not usable at R2's S3 endpoint the instant Cloudflare's API returns
-      — so the first thing that happens is a wait for the target to answer,
-      exactly as `completeManagedProvisioning` waits for the BYO path's
-      scheduled verification. Starting the walk in this tick is what made an
-      upgrade report a failed copy that a retry then completed untouched.
-    */
-    await ctx.scheduler.runAfter(
-      0,
-      internal.functions.managedProvisioning.awaitManagedTargetReady,
-      {
-        workspaceId: args.workspaceId,
-        retryUntil: now + R2_CREDENTIAL_SETTLE_MS,
-      },
-    );
-    return null;
-  },
+  handler: async (ctx, args) => beginManagedStorageMigrationHandler(ctx, args),
 });
 
 /**
@@ -576,10 +427,8 @@ export const beginManagedStorageMigration = internalMutation({
  * target that never answers inside the window fails with a code of ours rather
  * than hanging.
  *
- * `probeStore` is the same probe `verifyStorageBinding` runs against a pasted
- * credential — one listing, one write, one read, cleaned up after itself, under
- * `.context/`, never note surface. Running the same readiness question on both
- * paths is the point; a managed bucket is not a special kind of bucket.
+ * See `lib/managedProvisioningFns/targetReady.ts` for the probe itself and
+ * what happens once it has answered.
  */
 export const awaitManagedTargetReady = internalAction({
   args: {
@@ -606,22 +455,7 @@ export const awaitManagedTargetReady = internalAction({
         requireKeyset(),
         { workspaceId: args.workspaceId },
       );
-      const target = storeForBinding({
-        provider: "r2",
-        endpoint: migration.targetEndpoint,
-        region: "auto",
-        bucket: migration.targetBucket,
-        accessKeyId: migration.targetAccessKeyId,
-        secretAccessKey,
-        capabilities: { conditionalWrite: true },
-        status: "connected",
-      }, undefined, { probeCapabilities: true });
-      const probe = await probeStore(target);
-      // Not `probe.ok`: that folds in conditional-write verification, which is
-      // a question about the binding and is asked at cutover by the ordinary
-      // verification `applyBinding` schedules. What the copy needs to start is
-      // narrower and is exactly these two.
-      ready = probe.reachable === true && probe.writable === true;
+      ready = await probeManagedTarget(migration, secretAccessKey);
     } catch {
       // An envelope that will not open, or a store that cannot be built. Both
       // resolve the same way as an unready bucket: try again until the
@@ -629,38 +463,7 @@ export const awaitManagedTargetReady = internalAction({
       ready = false;
     }
 
-    if (ready) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.functions.managedProvisioning.runManagedStorageMigration,
-        { workspaceId: args.workspaceId },
-      );
-      return { ready: true };
-    }
-
-    const remaining = args.retryUntil - Date.now();
-    if (remaining > 0) {
-      // Hoisted rather than inlined into the call: `structure.test.ts` reads
-      // scheduled targets positionally, and a nested call in the delay slot
-      // hides from it what was queued.
-      const delay = Math.min(MANAGED_STORAGE_SETTLE_POLL_MS, remaining);
-      await ctx.scheduler.runAfter(
-        delay,
-        internal.functions.managedProvisioning.awaitManagedTargetReady,
-        args,
-      );
-      return { ready: false };
-    }
-
-    console.error("managed_storage.target_not_ready", {
-      workspaceId: args.workspaceId,
-      bucket: migration.targetBucket,
-    });
-    await ctx.runMutation(
-      internal.functions.managedProvisioning.failManagedStorageMigration,
-      { workspaceId: args.workspaceId, errorCode: "TARGET_NOT_READY" },
-    );
-    return { ready: false };
+    return await finishAwaitManagedTargetReady(ctx, args, migration, ready);
   },
 });
 
@@ -671,97 +474,21 @@ export const resumeManagedStorageMigration = internalMutation({
     actorUserId: v.id("users"),
   },
   returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (row === null) return false;
-    const current = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (current === null) return false;
-    const sourceChanged = current._id !== row.sourceBindingId;
-    await ctx.db.patch(row._id, {
-      sourceBindingId: current._id,
-      startedBy: args.actorUserId,
-      status: "copying",
-      errorCode: undefined,
-      readyToCutover: false,
-      ...(sourceChanged
-        ? {
-            phase: "count" as const,
-            cursor: undefined,
-            objectsCopied: 0,
-            objectsTotal: undefined,
-            objectsProcessedInPhase: 0,
-            changesInPass: 0,
-          }
-        : {}),
-      updatedAt: Date.now(),
-    });
-    return true;
-  },
+  handler: async (ctx, args) => resumeManagedStorageMigrationHandler(ctx, args),
 });
-
-/**
- * Stop a migration in both places a stopped migration has to be recorded.
- *
- * The row is what the copy resumes from; the plan is what the console reads.
- * Writing one without the other is how a migration ends up invisible — either
- * a screen reporting progress on a walk that stopped, or a failure the owner is
- * shown with a copy still running behind it.
- */
-async function failMigrationRowAndPlan(
-  ctx: MutationCtx,
-  row: Doc<"managedStorageMigrations"> | null,
-  workspaceId: Id<"workspaces">,
-  errorCode: string,
-): Promise<void> {
-  if (row !== null && row.status === "copying") {
-    await ctx.db.patch(row._id, {
-      status: "failed",
-      errorCode,
-      updatedAt: Date.now(),
-    });
-  }
-  const plan = await ctx.db
-    .query("workspacePlans")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-  if (plan !== null) {
-    await ctx.db.patch(plan._id, {
-      managedProvisioning: "failed",
-      managedProvisioningError: errorCode,
-      managedProvisioningAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-  }
-}
 
 /** Record a closed error code while keeping the source binding live. */
 export const failManagedStorageMigration = internalMutation({
   args: { workspaceId: v.id("workspaces"), errorCode: v.string() },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    await failMigrationRowAndPlan(ctx, row, args.workspaceId, args.errorCode);
-    return null;
-  },
+  handler: async (ctx, args) => failManagedStorageMigrationHandler(ctx, args),
 });
 
 /** The encrypted destination and progress, visible only to the copy action. */
 export const migrationForCopy = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args): Promise<Doc<"managedStorageMigrations"> | null> =>
-    await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique(),
+    migrationForCopyHandler(ctx, args),
 });
 
 /** Advance exactly the page the action read; stale duplicate pages are no-ops. */
@@ -775,194 +502,14 @@ export const recordMigrationPage = internalMutation({
     processed: v.number(),
   },
   returns: v.object({ applied: v.boolean(), cutover: v.boolean() }),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (
-      row === null ||
-      row.status !== "copying" ||
-      row.readyToCutover === true ||
-      row.cursor !== args.expectedCursor ||
-      !Number.isInteger(args.copied) ||
-      args.copied < 0 ||
-      !Number.isInteger(args.changes) ||
-      args.changes < 0 ||
-      !Number.isInteger(args.processed) ||
-      args.processed < 0
-    ) {
-      return { applied: false, cutover: false };
-    }
-    if (
-      args.nextCursor !== undefined &&
-      args.nextCursor === args.expectedCursor
-    ) {
-      // The plan is failed alongside the row, because the console reads the
-      // plan. Failing only the row left an owner watching a copy that had
-      // already stopped, with no retry offered and nothing to wait for.
-      await failMigrationRowAndPlan(
-        ctx,
-        row,
-        args.workspaceId,
-        "CURSOR_STALLED",
-      );
-      return { applied: false, cutover: false };
-    }
-    const objectsProcessedInPhase =
-      (row.objectsProcessedInPhase ?? 0) + args.processed;
-    if (row.phase === "count") {
-      if (args.copied !== 0 || args.changes !== 0) {
-        return { applied: false, cutover: false };
-      }
-      if (args.nextCursor !== undefined) {
-        await ctx.db.patch(row._id, {
-          cursor: args.nextCursor,
-          objectsProcessedInPhase,
-          updatedAt: Date.now(),
-        });
-        return { applied: true, cutover: false };
-      }
-      await ctx.db.patch(row._id, {
-        phase: "copy",
-        cursor: undefined,
-        objectsTotal: objectsProcessedInPhase,
-        objectsProcessedInPhase: 0,
-        changesInPass: 0,
-        updatedAt: Date.now(),
-      });
-      return { applied: true, cutover: false };
-    }
-    const changesInPass = row.changesInPass + args.changes;
-    if (args.nextCursor === undefined) {
-      if (row.phase === "copy") {
-        await ctx.db.patch(row._id, {
-          phase: "verify_source",
-          cursor: undefined,
-          objectsCopied: row.objectsCopied + args.copied,
-          // The source is allowed to change while the migration runs. The
-          // completed walk is a fresher denominator than the census that
-          // preceded it, whether files were added or removed.
-          // An in-flight migration created by the previous release has no
-          // census. Its processed count starts at the page after its saved
-          // cursor, so treating that partial remainder as a total would be a
-          // lie; keep the denominator absent and use the legacy checked count.
-          objectsTotal:
-            row.objectsTotal === undefined
-              ? undefined
-              : objectsProcessedInPhase,
-          objectsProcessedInPhase: 0,
-          changesInPass: 0,
-          updatedAt: Date.now(),
-        });
-        return { applied: true, cutover: false };
-      }
-      if (row.phase === "verify_source") {
-        await ctx.db.patch(row._id, {
-          phase: "verify_target",
-          cursor: undefined,
-          objectsCopied: row.objectsCopied + args.copied,
-          objectsTotal:
-            row.objectsTotal === undefined
-              ? undefined
-              : objectsProcessedInPhase,
-          objectsProcessedInPhase: 0,
-          changesInPass,
-          updatedAt: Date.now(),
-        });
-        return { applied: true, cutover: false };
-      }
-      if (changesInPass > 0) {
-        await ctx.db.patch(row._id, {
-          phase: "verify_source",
-          cursor: undefined,
-          objectsCopied: row.objectsCopied + args.copied,
-          objectsProcessedInPhase: 0,
-          changesInPass: 0,
-          readyToCutover: false,
-          updatedAt: Date.now(),
-        });
-        return { applied: true, cutover: false };
-      }
-      await ctx.db.patch(row._id, {
-        readyToCutover: true,
-        objectsProcessedInPhase,
-        updatedAt: Date.now(),
-      });
-      return { applied: true, cutover: true };
-    }
-    await ctx.db.patch(row._id, {
-      cursor: args.nextCursor,
-      objectsCopied: row.objectsCopied + args.copied,
-      objectsProcessedInPhase,
-      changesInPass,
-      updatedAt: Date.now(),
-    });
-    return { applied: true, cutover: false };
-  },
+  handler: async (ctx, args) => recordMigrationPageHandler(ctx, args),
 });
 
 /** Atomically replace only the exact source binding the copy began from. */
 export const finishManagedStorageMigration = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ cutover: v.boolean() }),
-  handler: async (ctx, args) => {
-    const migration = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    const current = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (
-      migration === null ||
-      migration.status !== "copying" ||
-      migration.phase !== "verify_target" ||
-      migration.readyToCutover !== true ||
-      current?._id !== migration.sourceBindingId
-    ) {
-      if (migration !== null) {
-        await ctx.db.patch(migration._id, {
-          status: "failed",
-          errorCode: "SOURCE_CHANGED",
-          updatedAt: Date.now(),
-        });
-      }
-      return { cutover: false };
-    }
-
-    await ctx.runMutation(internal.functions.storage.applyBinding, {
-      workspaceId: args.workspaceId,
-      actorUserId: migration.startedBy,
-      provider: "r2",
-      endpoint: migration.targetEndpoint,
-      region: "auto",
-      bucket: migration.targetBucket,
-      accessKeyId: migration.targetAccessKeyId,
-      encryptedSecretAccessKey: migration.encryptedTargetSecretAccessKey,
-    });
-    await ctx.db.delete(migration._id);
-    const plan = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (plan !== null) {
-      await ctx.db.patch(plan._id, {
-        managedProvisioning: "ready",
-        managedProvisioningError: undefined,
-        managedProvisioningAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-    }
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: migration.startedBy,
-      action: "storage.managed_migrated",
-      details: { objectsCopied: migration.objectsCopied },
-    });
-    return { cutover: true };
-  },
+  handler: async (ctx, args) => finishManagedStorageMigrationHandler(ctx, args),
 });
 
 /** Count or reconcile one resumable page, then schedule the next one. */
@@ -1149,40 +696,7 @@ export const completeManagedProvisioning = internalMutation({
     encryptedSecretAccessKey: v.string(),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    /*
-      Never over a binding that arrived while Cloudflare was answering. The
-      customer may have connected their own bucket in the meantime, and their
-      notes would be behind it.
-    */
-    if (existing === null) {
-      await ctx.runMutation(internal.functions.storage.applyBinding, {
-        workspaceId: args.workspaceId,
-        actorUserId: args.actorUserId,
-        provider: "r2",
-        endpoint: args.endpoint,
-        region: "auto",
-        bucket: args.bucket,
-        accessKeyId: args.accessKeyId,
-        encryptedSecretAccessKey: args.encryptedSecretAccessKey,
-        verificationRetryUntil: Date.now() + R2_CREDENTIAL_SETTLE_MS,
-      });
-      await recordAudit(ctx, {
-        workspaceId: args.workspaceId,
-        actorUserId: args.actorUserId,
-        action: "storage.managed_provisioned",
-        // The bucket name is the workspace id — not a secret, and the one fact
-        // support needs to find it in the dashboard. No credential, no
-        // endpoint, and nothing about what is in it.
-        details: { bucket: args.bucket },
-      });
-    }
-    return null;
-  },
+  handler: async (ctx, args) => completeManagedProvisioningHandler(ctx, args),
 });
 
 /**
@@ -1197,28 +711,7 @@ export const retryManagedProvisioning = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
-    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
-    const plan = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (plan === null || plan.managedStorage !== true) {
-      throw new ConvexError({
-        code: "NOT_ENTITLED",
-        message: "This context is not set up for storage we keep.",
-      });
-    }
-    await ctx.db.patch(plan._id, {
-      managedProvisioning: "running",
-      managedProvisioningError: undefined,
-      updatedAt: Date.now(),
-    });
-    await ctx.scheduler.runAfter(
-      0,
-      internal.functions.managedProvisioning.provisionManagedStorage,
-      { workspaceId: args.workspaceId },
-    );
-    return null;
+    return await retryManagedProvisioningHandler(ctx, userId, args.workspaceId);
   },
 });
 
