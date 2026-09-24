@@ -28,6 +28,7 @@ import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import {
   FileOpError,
   type FileStore,
+  listFolder,
   READ_BATCH_BYTES,
   READ_BATCH_PATHS,
   type SyncManifest,
@@ -315,6 +316,99 @@ describe("the sync manifest", () => {
       );
       expect(refused.code).toBe("PATH_INVALID");
     });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                         the folders in the manifest                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every folder row and folder default the tree would draw, by walking
+ * `listFolder` down from the root — the answer the manifest's `folders` must
+ * give without a listing per folder.
+ */
+async function foldersByListing(
+  store: FileStore,
+  clearance: ReturnType<typeof clearanceOf>,
+): Promise<Map<string, Visibility>> {
+  const found = new Map<string, Visibility>();
+  const queue = [""];
+  while (queue.length > 0) {
+    const folder = queue.shift()!;
+    const listing = await listFolder(store, { path: folder, clearance });
+    found.set(folder, listing.folderDefault);
+    for (const entry of listing.entries) {
+      if (entry.kind !== "folder") continue;
+      // The row's badge and the folder's own default are one word.
+      expect(entry.visibility).toBe(
+        (await listFolder(store, { path: entry.path, clearance })).folderDefault,
+      );
+      queue.push(entry.path);
+    }
+  }
+  return found;
+}
+
+function foldersOf(pages: readonly SyncManifest[]): Map<string, Visibility> {
+  const found = new Map<string, Visibility>();
+  for (const page of pages) for (const folder of page.folders) found.set(folder.path, folder.visibility);
+  return found;
+}
+
+describe("the manifest names the folders, so the tree needs no listing per folder", () => {
+  const readers = {
+    owner: OWNER,
+    team: TEAM,
+    "a group member": clearanceOf("team", ["@supa-leads"]),
+  };
+
+  for (const [who, clearance] of Object.entries(readers)) {
+    test(`for ${who}, exactly the folders and defaults walking listFolder would draw`, async () => {
+      const store = await bucket();
+      // A folder shared only with a group, under a private parent: a team
+      // reader must not see it, a group member must, and the private parent
+      // must appear for the member only because something under it reaches
+      // them.
+      store.seed("2-areas/leads/brief.md", "# Brief\n");
+      await setFolderVisibility(store, {
+        path: "2-areas/leads",
+        visibility: "@supa-leads" as Visibility,
+        clearance: OWNER,
+      });
+      // An empty folder a tool made with a marker key.
+      store.seed("1-projects/empty/", "");
+      // A shared folder whose only note is held back: listFolder still draws
+      // the folder, so the manifest has to, although no entry lives in it.
+      store.seed("1-projects/held/secret.md", "# Secret\n");
+      await setVisibility(store, { path: "1-projects/held/secret.md", visibility: "private", clearance: OWNER });
+
+      const expected = await foldersByListing(store, clearance);
+      expect(foldersOf([await syncManifest(store, { clearance })])).toEqual(expected);
+
+      // And across pages, however small.
+      smallPages(store, 2);
+      expect(foldersOf(await everyPage(store, clearance, 2))).toEqual(expected);
+    });
+  }
+
+  test("a team reader is named no private folder, not even through a page boundary", async () => {
+    const store = await bucket();
+    smallPages(store, 1);
+    const pages = await everyPage(store, TEAM, 1);
+    const rendered = JSON.stringify(pages.map((page) => page.folders));
+    expect(rendered).not.toContain("2-areas");
+    // Non-vacuity: the owner is.
+    expect(JSON.stringify((await syncManifest(store, { clearance: OWNER })).folders)).toContain(
+      "2-areas",
+    );
+  });
+
+  test("an empty folder made with a marker key is named, although no note lives in it", async () => {
+    const store = await bucket();
+    store.seed("1-projects/empty/", "");
+    const folders = (await syncManifest(store, { clearance: TEAM })).folders.map((folder) => folder.path);
+    expect(folders).toContain("1-projects/empty");
   });
 });
 

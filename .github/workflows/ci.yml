@@ -29,6 +29,12 @@ jobs:
       # to **true** upstream, so even once the job runs, a lint failure would be
       # reported as a pass. It must block.
       lint-continue-on-error: false
+      # `ci / Architecture check`: no handwritten file over 1,000 lines, and
+      # the legacy allowance in `architecture.config.json` only shrinks. On a
+      # pull request it compares against the base branch, so a PR cannot pass
+      # by raising its own allowance, renaming a big file, or adding an
+      # exclusion. `pnpm architecture` runs the same check locally.
+      architecture-check: true
     secrets: inherit
 
   # ── THE THREE PLACES A SECRET IS NAMED MUST AGREE ────────────────────────
