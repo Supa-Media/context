@@ -54,11 +54,11 @@ import { requireWorkspaceAccess } from "./lib/workspaceAuth";
  * the same notes through `files.ts` *and* can change storage bindings, delete
  * the account and read the audit trail. The token is the smaller of the two
  * powers, and it is bounded further below — an hour, no refresh token, one live
- * grant per person per context, and a row in the list they can revoke.
+ * grant per console instance, person and context, and a revocable row.
  *
  * ## What is unchanged, and it is the whole of non-negotiable #4
  *
- * One grant per person per context, carrying an explicit scope set clamped by
+ * Each console instance has its own grant, with an explicit scope set clamped by
  * the role read in the same transaction, revocable on its own, with an audit
  * entry naming the person. A `member` of somebody else's context gets a
  * read-scoped token and no write, because `clampScopes` says so — not because
@@ -127,7 +127,7 @@ const CONSOLE_MINT_WINDOW_MS = 60 * 60 * 1000;
  * own comment calls load-bearing: a dump of that table is inert.
  */
 export const mintConsoleGrant = action({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: v.id("workspaces"), consoleInstanceId: v.optional(v.string()) },
   returns: v.object({
     accessToken: v.string(),
     expiresAt: v.number(),
@@ -142,6 +142,9 @@ export const mintConsoleGrant = action({
       throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
     }
 
+    if (args.consoleInstanceId !== undefined && !/^[a-zA-Z0-9-]{1,64}$/.test(args.consoleInstanceId)) {
+      throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Invalid console instance." });
+    }
     const accessToken = `cat_${randomOpaqueToken(32)}`;
     const expiresAt = Date.now() + CONSOLE_GRANT_TTL_MS;
 
@@ -149,6 +152,7 @@ export const mintConsoleGrant = action({
       internal.functions.agentGrant.applyConsoleGrant,
       {
         actorUserId: userId as Id<"users">,
+        consoleInstanceId: args.consoleInstanceId,
         workspaceId: args.workspaceId,
         hashedAccessToken: await hashToken(accessToken),
         /*
@@ -183,6 +187,7 @@ export const mintConsoleGrant = action({
 export const applyConsoleGrant = internalMutation({
   args: {
     actorUserId: v.id("users"),
+    consoleInstanceId: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
     hashedAccessToken: v.string(),
     hashedRefreshToken: v.string(),
@@ -217,8 +222,10 @@ export const applyConsoleGrant = internalMutation({
     await ensureConsoleClient(ctx);
 
     /*
-      ONE LIVE GRANT PER PERSON PER CONTEXT.
+      ONE LIVE GRANT PER CONSOLE INSTANCE, PERSON AND CONTEXT.
 
+      Independent browser instances must not revoke each other. Older clients
+      without an instance id retain the legacy replacement behavior.
       The console mints on load and on expiry, so appending would leave a
       person's connections list growing a row an hour — and, worse, would leave
       every token they had ever been issued live until it timed out. The
@@ -235,7 +242,12 @@ export const applyConsoleGrant = internalMutation({
       )
       .collect();
     const reusable = existing.find(
-      (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active",
+      (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active" &&
+        grant.consoleInstanceId === args.consoleInstanceId,
+    ) ?? existing.find(
+      (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active" &&
+        grant.consoleInstanceId !== undefined &&
+        (grant.accessTokenExpiresAt ?? 0) <= Date.now(),
     );
 
     if (reusable === undefined) {
@@ -243,6 +255,7 @@ export const applyConsoleGrant = internalMutation({
         workspaceId: args.workspaceId,
         userId: args.actorUserId,
         clientId: CONSOLE_CLIENT_ID,
+        consoleInstanceId: args.consoleInstanceId,
         scopes: granted,
         hashedRefreshToken: args.hashedRefreshToken,
         hashedAccessToken: args.hashedAccessToken,
@@ -252,6 +265,7 @@ export const applyConsoleGrant = internalMutation({
       });
     } else {
       await ctx.db.patch(reusable._id, {
+        consoleInstanceId: args.consoleInstanceId,
         // Re-clamped every time, so a role that narrowed since the last mint
         // narrows the grant rather than leaving yesterday's scopes in place.
         scopes: granted,

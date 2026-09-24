@@ -133,3 +133,11 @@ non-allowlisted addresses, concurrent outstanding codes and cross-address misuse
 
 The operator seed claims the reserved `@alpha` name for its staging persona.
 Ordinary registration and production reservation rules stay in effect.
+
+### Fixture logos
+
+All five seeded workspaces have generated, distinct image logos. Sources and
+prompts live in `scripts/fixtures/staging-logos/`. The seed workflow applies
+missing logos after its account checks; reset restores them. To apply only the
+logos without changing notes or memberships, run `scripts/staging-logos.mjs`
+with the same staging environment variables (no deploy key required).

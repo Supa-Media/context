@@ -51,12 +51,17 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globa
 const mockMintCalls: unknown[] = [];
 let mockMintAnswer: () => { accessToken: string; expiresAt: number; scopes: string[] };
 
+const mockConvexClient = {};
 jest.mock("convex/react", () => ({
+  useConvex: () => mockConvexClient,
   useAction: () => async (args: unknown) => {
-    mockMintCalls.push(args);
+    const { consoleInstanceId: _instance, ...original } = args as Record<string, unknown>;
+    mockMintCalls.push(original);
     return mockMintAnswer();
   },
 }));
+let mockAuthSession = "session";
+jest.mock("@convex-dev/auth/react", () => ({ useAuthToken: () => mockAuthSession }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -84,6 +89,7 @@ let responder: (n: number) => { status: number; body: unknown };
 const roots: (() => void)[] = [];
 
 beforeEach(() => {
+  mockAuthSession += "-next";
   mockMintCalls.length = 0;
   requests = [];
   let minted = 0;
@@ -272,16 +278,14 @@ describe("spending the grant", () => {
     switchTo("ws_alfa");
     await ask(held, "third");
 
-    // Three mints, each naming the context its turn was about. Caching per
-    // workspace would be a credential kept alive for a context nobody is in,
-    // which is the thing the header says this hook does not do.
+    // Returning to a workspace reuses its grant without borrowing another
+    // workspace's token or consuming another mint from the hourly allowance.
     expect(mockMintCalls).toEqual([
       { workspaceId: "ws_alfa" },
       { workspaceId: "ws_bravo" },
-      { workspaceId: "ws_alfa" },
     ]);
     expect((requests[2]!.init.headers as Record<string, string>).Authorization).toBe(
-      "Bearer cat_minted_3",
+      "Bearer cat_minted_1",
     );
   });
 });

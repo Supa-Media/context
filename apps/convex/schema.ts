@@ -2585,6 +2585,8 @@ const schema = defineSchema({
     .index("by_expiresAt", ["expiresAt"]),
 
   oauthGrants: defineTable({
+    /** Ephemeral first-party browser instance; never an authorization credential. */
+    consoleInstanceId: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
     clientId: v.string(),

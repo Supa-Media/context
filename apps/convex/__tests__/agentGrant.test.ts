@@ -173,6 +173,26 @@ describe("what the role decides", () => {
 });
 
 describe("one live grant, and it is revocable", () => {
+  test("independent browser instances remain usable while renewal replaces only its own token", async () => {
+    const t = setupTest();
+    const ownerId = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, ownerId, "seyi");
+    const client = asUser(t, ownerId);
+    const first = await client.action(api.functions.agentGrant.mintConsoleGrant, { workspaceId, consoleInstanceId: "browser-a" });
+    const second = await client.action(api.functions.agentGrant.mintConsoleGrant, { workspaceId, consoleInstanceId: "browser-b" });
+    expect(await resolves(t, first.accessToken)).toBe(true);
+    expect(await resolves(t, second.accessToken)).toBe(true);
+    const renewed = await client.action(api.functions.agentGrant.mintConsoleGrant, { workspaceId, consoleInstanceId: "browser-a" });
+    expect(await resolves(t, first.accessToken)).toBe(false);
+    expect(await resolves(t, second.accessToken)).toBe(true);
+    expect(await resolves(t, renewed.accessToken)).toBe(true);
+    const grants = await client.query(api.functions.grants.listGrants, { workspaceId });
+    expect(grants.filter(g => g.clientId === CONSOLE_CLIENT_ID)).toHaveLength(2);
+    for (const grant of grants) await client.mutation(api.functions.grants.revokeGrant, { grantId: grant.grantId });
+    expect(await resolves(t, second.accessToken)).toBe(false);
+    expect(await resolves(t, renewed.accessToken)).toBe(false);
+  });
+
   test("minting twice replaces the token rather than stacking live ones", async () => {
     const t = setupTest();
     const ownerId = await createUser(t, "owner@example.invalid");

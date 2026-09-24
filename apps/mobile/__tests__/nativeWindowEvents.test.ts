@@ -26,8 +26,8 @@ const mockMint = jest.fn(async () => ({
   expiresAt: Date.now() + 60 * 60 * 1000,
 }));
 
-jest.mock("convex/react", () => ({
-  useAction: () => mockMint,
+jest.mock("../features/agent/useConsoleGrant", () => ({
+  useConsoleGrant: () => mockMint,
 }));
 
 import { onReturnToApp } from "../features/app/returnToApp";

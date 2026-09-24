@@ -26,8 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useAction } from "convex/react";
-import { api } from "@context/convex/_generated/api";
+import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import { onReturnToApp } from "../../app/returnToApp";
 import {
@@ -306,7 +305,7 @@ export function usePresence(options: {
     peers: { id: string; name: string; color: string | null; x: number; y: number; selected: string[] }[],
   ) => void;
 }): Presence {
-  const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
+  const mint = useConsoleGrant();
   const [state, dispatch] = useReducer(presenceReducer, initialPresenceState);
 
   const socket = useRef<WebSocket | null>(null);
@@ -536,7 +535,6 @@ export function usePresence(options: {
     */
     settled.current = false;
     pointers.current = new Map();
-    let cachedGrant: { accessToken: string; expiresAt: number } | null = null;
     let connecting = false;
 
     const connect = async (attempt: number) => {
@@ -544,13 +542,8 @@ export function usePresence(options: {
       connecting = true;
       let token: string;
       try {
-        if (cachedGrant !== null && cachedGrant.expiresAt - Date.now() > 60_000) {
-          token = cachedGrant.accessToken;
-        } else {
-          const granted = await mint({ workspaceId: workspaceId as never });
-          cachedGrant = granted;
-          token = granted.accessToken;
-        }
+        const granted = await mint({ workspaceId: workspaceId as never });
+        token = granted.accessToken;
       } catch {
         connecting = false;
         // Minting can fail while the app is waking or the gateway is rolling
