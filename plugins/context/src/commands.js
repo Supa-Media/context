@@ -35,7 +35,7 @@ import { captureBody, transcriptToMarkdown } from "./transcript.js";
 import { PROJECT_FILE, normalizeWorkspace, resolveSettings, workspaceUrl, writeSetting } from "./settings.js";
 import { callTool, listTools, listWorkspaces } from "./mcp.js";
 import { homedir } from "node:os";
-import { dirname, join, resolve as resolvePath, sep } from "node:path";
+import { dirname, isAbsolute as isAbsolutePath, join, relative as relativePath, resolve as resolvePath, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, stat, unlink as unlinkFile, writeFile } from "node:fs/promises";
@@ -124,7 +124,7 @@ export async function authorize({
     clientId = registration.clientId;
   }
 
-  const listener = await listenForCode();
+  const listener = await listenForCode({ appOrigin: discovery.appOrigin });
   const pkce = createPkce();
   const state = randomBytes(24).toString("base64url");
   const href = authorizeUrl(discovery, {
@@ -135,7 +135,7 @@ export async function authorize({
     scope,
   });
 
-  log("Opening your browser to approve this hook…");
+  log("Opening your browser to sign in to Context…");
   log(`If it does not open, go to:\n  ${href}\n`);
   try {
     await (openBrowser ? openBrowser(href) : defaultOpenBrowser(href));
@@ -663,13 +663,19 @@ export async function install({
 
   scope = scope ?? (prompt ? await prompt.chooseScope() : "user");
   let chosen = normalizeWorkspace(workspace);
+  let workspacesUnavailable = false;
   if (scope !== "user" && !chosen) {
     const token = await accessTokenFor({ endpoint: base, configPath, fetchImpl });
-    const list = (await listWorkspaces({ url: base, token, fetchImpl })) || [];
+    const listed = await listWorkspaces({ url: base, token, fetchImpl });
+    // An older server cannot list them: the project is left unbound and uses
+    // the sign-in's default, and the summary says so.
+    workspacesUnavailable = listed === null;
+    const list = listed || [];
     const fallback = settings.workspace || list.find((entry) => entry.kind === "personal")?.slug || list[0]?.slug || null;
-    chosen = prompt
-      ? await prompt.chooseWorkspace([...list].sort((a, b) => (a.slug === fallback ? -1 : b.slug === fallback ? 1 : 0)))
-      : fallback;
+    chosen =
+      prompt && list.length > 1
+        ? await prompt.chooseWorkspace([...list].sort((a, b) => (a.slug === fallback ? -1 : b.slug === fallback ? 1 : 0)))
+        : fallback;
   }
 
   const detected = await installer.detectAgents({ run, addMcp, cwd });
@@ -691,7 +697,7 @@ export async function install({
   }
 
   const capture = prompt ? await prompt.chooseCapture(settings.capture) : settings.capture;
-  if (prompt && !(await prompt.confirmPlan({ scope, workspace: chosen, agents: selected.map((agent) => agent.name), capture }))) {
+  if (prompt && !(await prompt.confirmPlan({ scope, workspace: chosen, workspacesUnavailable, agents: selected.map((agent) => agent.name), capture }))) {
     log("Nothing was changed.");
     return { records: [], cancelled: true };
   }
@@ -718,10 +724,26 @@ export async function install({
     (old) => !records.some((fresh) => fresh.ok && fresh.agent === old.agent && fresh.scope === old.scope && fresh.cwd === old.cwd)
   );
   await installer.saveInstalls([...kept, ...records.filter((record) => record.ok)], path);
+  if (scope === "local") {
+    // "Just for me": whatever this wrote inside the project stays out of git
+    // too, not only .context.json.
+    const inside = new Set();
+    for (const record of records.filter((entry) => entry.ok)) {
+      for (const written of [record.configPath, record.skillsPath]) {
+        const relative = written ? relativePath(cwd, written) : "";
+        if (relative && !relative.startsWith("..") && !isAbsolutePath(relative)) inside.add(`/${relative.split(sep)[0]}/`);
+      }
+    }
+    for (const entry of inside) await excludeFromGit(cwd, entry);
+  }
 
   log("");
-  log(`When a session ends, its messages are saved to your Context inbox${capture === "off" ? " (capture is off right now)" : ""}.`);
-  log("Turn that off with: npx @supa-media/context config set capture off");
+  if (capture === "off") {
+    log("Sessions are not saved. Turn that on with: npx @supa-media/context config set capture on");
+  } else {
+    log("When a session ends, its messages are saved to your Context inbox.");
+    log("Turn that off with: npx @supa-media/context config set capture off");
+  }
   if (scope !== "user" && selected.some((agent) => ["claude-code", "codex", "gemini-cli"].includes(agent.id))) {
     log("Claude Code, Codex and Gemini ignore a project's settings until you trust the folder: open it in each and accept.");
   }

@@ -70,6 +70,7 @@ import {
   stateMatches,
   discover,
   registerClient,
+  listenForCode,
   HOOK_SCOPE,
   ORIENT_SCOPE,
   LOGIN_SCOPE,
@@ -176,6 +177,7 @@ async function startStubServer() {
         token_endpoint: `${origin}/oauth/token`,
         registration_endpoint: `${origin}/oauth/register`,
         code_challenge_methods_supported: ["S256"],
+        ...(state.appOrigin ? { context_app_origin: state.appOrigin } : {}),
       });
     }
     if (url.pathname === "/oauth/register") {
@@ -1675,6 +1677,41 @@ check("`tools` lists what this sign-in can run", said.join("\n").includes("searc
 said.length = 0;
 await commands.logout({ endpoint: server.endpoint, configPath, log });
 check("logout forgets the stored sign-in", (await readFile(configPath, "utf8")).includes("refresh_") === false);
+
+// -- the page the browser lands on after approving
+
+/*
+  The CLI serves the OAuth callback on a loopback port, so that page cannot use
+  the app's components. When the server names the app, the page sends the
+  browser on to the app's own /connect/cli screen instead, carrying only the
+  outcome: the code stays on the loopback URL, and the redirect leaves no
+  referrer behind.
+*/
+const landing = async (options, query) => {
+  const listener = await listenForCode(options);
+  const response = await fetch(`${listener.redirectUri}?${query}`, { redirect: "manual" });
+  await listener.waitForCode().catch(() => {});
+  listener.close();
+  return { status: response.status, location: response.headers.get("location"), referrer: response.headers.get("referrer-policy"), body: await response.text() };
+};
+let page = await landing({}, "code=c1&state=s1");
+check("with no app named, the callback page says the sign-in worked", page.status === 200 && /signed in to Context/i.test(page.body));
+check("...and no longer talks about a hook", !/hook/i.test(page.body));
+page = await landing({ appOrigin: "https://app.example.test" }, "code=c1&state=s1");
+check(
+  "with the app named, the browser is sent to the app's connected page",
+  page.status === 302 && page.location === "https://app.example.test/connect/cli?result=connected"
+);
+check("...carrying the outcome and never the code", !page.location.includes("c1") && page.referrer === "no-referrer");
+page = await landing({ appOrigin: "https://app.example.test" }, "error=access_denied&state=s1");
+check("a refusal is sent to the same page, as refused", page.location === "https://app.example.test/connect/cli?result=refused");
+
+server.state.appOrigin = "https://app.example.test/";
+check("discovery reads the app's origin from the metadata", (await discover(server.endpoint)).appOrigin === "https://app.example.test");
+server.state.appOrigin = "http://app.example.test";
+check("...and ignores one that is not https", (await discover(server.endpoint)).appOrigin === null);
+server.state.appOrigin = null;
+check("...and a server that names none gives none", (await discover(server.endpoint)).appOrigin === null);
 
 server.close();
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

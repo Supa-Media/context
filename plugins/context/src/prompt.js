@@ -26,9 +26,9 @@ export async function chooseScope() {
       message: "Where should Context be installed?",
       initialValue: "user",
       options: [
-        { value: "user", label: "Everywhere", hint: "every folder on this computer" },
-        { value: "project", label: "This project, for the team", hint: ".context.json is committed" },
-        { value: "local", label: "This project, just for me", hint: ".context.json stays out of git" },
+        { value: "user", label: "Everywhere", hint: "all folders" },
+        { value: "project", label: "This project, for the team", hint: "committed" },
+        { value: "local", label: "This project, just for me", hint: "kept out of git" },
       ],
     })
   );
@@ -50,13 +50,13 @@ export async function chooseAgents(detected) {
   if (!detected.length) return [];
   const ids = answered(
     await clack.multiselect({
-      message: "Install into which coding agents? (space to toggle)",
+      message: "Which coding agents?",
       initialValues: detected.map((agent) => agent.id),
       required: false,
       options: detected.map((agent) => ({
         value: agent.id,
         label: agent.name,
-        hint: agent.method === "mcp" ? "MCP server and skills" : "plugin: MCP server, skills, session hooks",
+        hint: agent.method === "mcp" ? "MCP + skills" : "plugin, with hooks",
       })),
     })
   );
@@ -66,19 +66,23 @@ export async function chooseAgents(detected) {
 export async function chooseCapture(current) {
   const on = answered(
     await clack.confirm({
-      message: "Save each coding session to your Context inbox when it ends?",
+      message: "Save sessions to your Context inbox?",
       initialValue: current !== "off",
     })
   );
   return on ? "on" : "off";
 }
 
-export async function confirmPlan({ scope, workspace, agents, capture }) {
+export async function confirmPlan({ scope, workspace, workspacesUnavailable, agents, capture }) {
   const where = { user: "every folder", project: "this project, for the team", local: "this project, just for me" }[scope];
   clack.note(
     [
       `Where:      ${where}`,
-      ...(workspace ? [`Workspace:  @${workspace}`] : []),
+      ...(workspace
+        ? [`Workspace:  @${workspace}`]
+        : scope !== "user"
+          ? [`Workspace:  your default`]
+          : []),
       `Agents:     ${agents.join(", ")}`,
       `Capture:    ${capture === "on" ? "sessions saved to your inbox" : "off"}`,
     ].join("\n"),

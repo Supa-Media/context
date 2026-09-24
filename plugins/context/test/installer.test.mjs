@@ -148,7 +148,9 @@ const mine = join(home, "work", "private-repo");
 await mkdir(mine, { recursive: true });
 spawnSync("git", ["init", "-q"], { cwd: mine });
 await install({ scope: "local", yes: true, workspace: "me", agents: ["cursor"], endpoint, home, cwd: mine, run, addMcp, log });
-check("a local install keeps .context.json out of git", (await readFile(join(mine, ".git", "info", "exclude"), "utf8")).includes(".context.json"));
+const excluded = (await readFile(join(mine, ".git", "info", "exclude"), "utf8")).split("\n");
+check("a local install keeps .context.json out of git", excluded.includes(".context.json"));
+check("...and the skills folder it wrote into the project, too", excluded.includes("/.agents/"));
 
 // -- refusals
 
@@ -240,6 +242,10 @@ check(
     upserts.some((entry) => entry.agent === "cursor" && entry.options.cwd === wizardRepo)
 );
 check("the capture answer is saved", JSON.parse(await readFile(process.env.CONTEXT_CONFIG, "utf8")).capture === "off");
+check(
+  "...and the closing message says capture is off and how to turn it on, not off",
+  said.join("\n").includes("config set capture on") && !said.slice(-4).join("\n").includes("config set capture off")
+);
 
 const declinedRepo = join(home, "work", "declined-repo");
 await mkdir(declinedRepo, { recursive: true });
@@ -260,6 +266,30 @@ check(
 script = scripted({ capture: "on", confirm: true });
 await install({ scope: "user", agents: ["cursor"], endpoint, home, cwd: home, run, addMcp, log, prompts: script.prompts });
 check("a flag answers its question, so only the rest are asked", script.asked.join(",") === "capture,confirm");
+
+// A server that cannot list workspaces: the project question is skipped, and
+// the summary has to say which workspace that leaves rather than nothing.
+const listless = createServer(async (request, response) => {
+  for await (const _ of request);
+  response.writeHead(200, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { isError: true, content: [{ type: "text", text: "unknown argument" }] } }));
+});
+await new Promise((resolve) => listless.listen(0, "127.0.0.1", resolve));
+const listlessEndpoint = `http://127.0.0.1:${listless.address().port}/mcp`;
+const credentialsNow = JSON.parse(await readFile(process.env.CONTEXT_HOOK_CONFIG, "utf8"));
+credentialsNow.endpoints[listlessEndpoint] = credentialsNow.endpoints[endpoint];
+await writeFile(process.env.CONTEXT_HOOK_CONFIG, JSON.stringify(credentialsNow));
+const listlessRepo = join(home, "work", "listless-repo");
+await mkdir(listlessRepo, { recursive: true });
+spawnSync("git", ["init", "-q"], { cwd: listlessRepo });
+let listlessPlan = null;
+script = scripted({ scope: "local", agents: (detected) => detected.filter((agent) => agent.id === "cursor"), capture: "off", confirm: (summary) => ((listlessPlan = summary), false) });
+await install({ endpoint: listlessEndpoint, home, cwd: listlessRepo, run, addMcp, log, prompts: script.prompts });
+check(
+  "when the server cannot list workspaces, the summary says the default is used",
+  !script.asked.includes("workspace") && listlessPlan?.workspace === null && listlessPlan?.workspacesUnavailable === true
+);
+listless.close();
 
 script = scripted({});
 await install({ yes: true, agents: ["cursor"], endpoint, home, cwd: home, run, addMcp, log, prompts: script.prompts });

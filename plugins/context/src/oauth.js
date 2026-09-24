@@ -235,8 +235,19 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
     }
     endpoints.set(key, value);
   }
+  // The app's own origin, where the browser goes after approving (see
+  // `listenForCode`). https only: this one is a place to send a browser, and
+  // is never given a credential.
+  let appOrigin = null;
+  try {
+    const app = new URL(metadata.context_app_origin);
+    if (app.protocol === "https:") appOrigin = app.origin;
+  } catch {
+    appOrigin = null;
+  }
   return {
     issuer,
+    appOrigin,
     resource: resource || endpoint,
     authorizationEndpoint: endpoints.get("authorization_endpoint"),
     tokenEndpoint: endpoints.get("token_endpoint"),
@@ -332,7 +343,7 @@ export const LOOPBACK_REDIRECT = `http://127.0.0.1${LOOPBACK_PATH}`;
  * answer, and gives up after five minutes rather than sitting on an open port
  * for the rest of the session.
  */
-export async function listenForCode({ timeoutMs = LOGIN_TIMEOUT_MS } = {}) {
+export async function listenForCode({ timeoutMs = LOGIN_TIMEOUT_MS, appOrigin = null } = {}) {
   const server = createServer();
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -344,6 +355,10 @@ export async function listenForCode({ timeoutMs = LOGIN_TIMEOUT_MS } = {}) {
   const result = new Promise((resolve, reject) => {
     settle = { resolve, reject };
   });
+  // The browser can come back (refused, or the timeout fire) before anybody is
+  // awaiting `waitForCode`. Marked handled here so that is not an unhandled
+  // rejection that kills the process; `waitForCode` still rejects.
+  result.catch(() => {});
 
   const timer = setTimeout(() => {
     settle.reject(new Error("timed out waiting for the browser to come back"));
@@ -360,19 +375,25 @@ export async function listenForCode({ timeoutMs = LOGIN_TIMEOUT_MS } = {}) {
     const error = url.searchParams.get("error");
     // A referrer policy because this page's URL carries the authorization code,
     // and a page that later links anywhere would send it along.
-    response.writeHead(200, {
-      "Content-Type": "text/html; charset=utf-8",
-      "Referrer-Policy": "no-referrer",
-      "Cache-Control": "no-store",
-    });
-    response.end(
-      `<!doctype html><meta charset="utf-8"><title>Context</title>` +
-        `<body style="font:15px system-ui;padding:3rem;max-width:32rem">` +
-        (error
-          ? `<h1>Not connected</h1><p>The authorization was refused (${escapeHtml(error)}).</p>`
-          : `<h1>Connected</h1><p>You can close this tab — the hook is set up.</p>`) +
-        `</body>`
-    );
+    const headers = { "Referrer-Policy": "no-referrer", "Cache-Control": "no-store" };
+    if (appOrigin) {
+      // The app renders the result with its own components. Only the outcome
+      // travels; the code stays on this loopback URL.
+      const next = new URL("/connect/cli", appOrigin);
+      next.searchParams.set("result", error ? "refused" : "connected");
+      response.writeHead(302, { ...headers, Location: next.href });
+      response.end();
+    } else {
+      response.writeHead(200, { ...headers, "Content-Type": "text/html; charset=utf-8" });
+      response.end(
+        `<!doctype html><meta charset="utf-8"><title>Context</title>` +
+          `<body style="font:15px system-ui;padding:3rem;max-width:32rem">` +
+          (error
+            ? `<h1>Not signed in</h1><p>The sign-in was refused (${escapeHtml(error)}). You can close this tab.</p>`
+            : `<h1>Signed in to Context</h1><p>You can close this tab and return to your terminal.</p>`) +
+          `</body>`
+      );
+    }
 
     clearTimeout(timer);
     server.close();
