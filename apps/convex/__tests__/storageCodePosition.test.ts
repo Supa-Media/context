@@ -34,7 +34,9 @@
  * control-plane module:
  *
  *  1. every occurrence of the literal is inside `runFileOperation`'s handler
- *     body, and
+ *     body — `runFileOperationHandler` in
+ *     `functions/lib/filesFns/fileOperationBarrier.ts`, which is the function
+ *     the registration in `functions/files.ts` is checked to hand over — and
  *  2. every one of them is before the single `executeOperation(` call in it,
  *     which is the only call to that function in the control plane.
  *
@@ -148,39 +150,91 @@ function overridableCodes(): string[] {
   );
 }
 
-/** Where in `files.ts` the barrier's handler body starts and ends. */
+/**
+ * Where the barrier is.
+ *
+ * `runFileOperation` is *registered* in `functions/files.ts` — its name, its
+ * args, the return validator Convex enforces — and its handler hands over to
+ * one function, `runFileOperationHandler`, whose body is in
+ * `functions/lib/filesFns/fileOperationBarrier.ts`. The region this test
+ * reasons about is that body. Which function it is, is read out of the
+ * registration rather than assumed, so a registration pointed at some other
+ * handler moves the region with it — and the codes, still raised in the old
+ * body, land outside it and fail.
+ */
+const BARRIER_REGISTRATION = "export const runFileOperation = internalAction({";
+const BARRIER_HANDLER = "runFileOperationHandler";
+const BARRIER_MODULE = "../functions/lib/filesFns/fileOperationBarrier.ts";
+
+/** Where in its module the barrier's handler body starts and ends. */
 interface Region {
-  /** Index of the first character of `export const runFileOperation`. */
+  /** Index of the first character of `export async function <handler>(`. */
   start: number;
-  /** Index just past the `});` that closes it. */
+  /** Index just past the `}` that closes it. */
   end: number;
   /** Index of the `executeOperation(` call inside it. */
   call: number;
 }
 
 /**
- * Locate `runFileOperation`'s body and the one call it makes into the
+ * The handler `runFileOperation`'s registration hands over, by name.
+ *
+ * The registration runs from `export const runFileOperation = internalAction({`
+ * to the first `});` at column zero. It must hold exactly one `handler:` line,
+ * and that line must do nothing but await one named function with
+ * `(ctx, args)`. An inline body, a wrapper, a second call — each is reported
+ * rather than followed, because a handler this cannot name is a region it
+ * cannot find, and an empty region silently passes every check that follows.
+ */
+function registeredHandler(source: string): { name: string } | { problem: string } {
+  const start = source.indexOf(BARRIER_REGISTRATION);
+  if (start === -1) {
+    return { problem: "runFileOperation is not registered here as an internalAction" };
+  }
+  const closer = /^\}\);$/m.exec(source.slice(start));
+  if (closer === null) {
+    return { problem: "runFileOperation's registration is never closed at column zero" };
+  }
+  const registration = source.slice(start, start + closer.index);
+  const handlers = [...registration.matchAll(/^ {2}handler:.*$/gm)];
+  if (handlers.length !== 1) {
+    return {
+      problem: `runFileOperation's registration has ${handlers.length} handler lines, expected exactly 1`,
+    };
+  }
+  const handed = /^ {2}handler: async \(ctx, args\)(?:: [^=]+)? => await (\w+)\(ctx, args\),$/.exec(
+    handlers[0]![0],
+  );
+  if (handed === null) {
+    return {
+      problem: "runFileOperation's handler does more than `await <handler>(ctx, args)`",
+    };
+  }
+  return { name: handed[1]! };
+}
+
+/**
+ * Locate the barrier's handler body and the one call it makes into the
  * per-note code.
  *
- * The end is the first `});` at column zero after the start — the close of the
- * `internalAction({…})`. Deliberately brittle to a reformat: a region this
- * cannot find is reported as a failure rather than assumed empty, because an
- * empty region silently passes every check that follows it.
+ * The end is the first `}` alone at column zero after the declaration — the
+ * close of the function. Deliberately brittle to a reformat: a region this
+ * cannot find is reported as a failure rather than assumed empty.
  */
-function locateRegion(source: string): Region | { problem: string } {
-  const start = source.indexOf("export const runFileOperation");
-  if (start === -1) return { problem: "runFileOperation is not declared here" };
+function locateRegion(source: string, handler: string): Region | { problem: string } {
+  const start = source.indexOf(`export async function ${handler}(`);
+  if (start === -1) return { problem: `${handler} is not declared here` };
 
-  const closer = /^\}\);$/m.exec(source.slice(start));
-  if (closer === undefined || closer === null) {
-    return { problem: "runFileOperation's declaration is never closed at column zero" };
+  const closer = /^\}$/m.exec(source.slice(start));
+  if (closer === null) {
+    return { problem: `${handler} is never closed at column zero` };
   }
   const end = start + closer.index + closer[0].length;
 
   const calls = occurrences(source.slice(start, end), "executeOperation(");
   if (calls.length !== 1) {
     return {
-      problem: `runFileOperation makes ${calls.length} calls to executeOperation, expected exactly 1`,
+      problem: `${handler} makes ${calls.length} calls to executeOperation, expected exactly 1`,
     };
   }
   return { start, end, call: start + calls[0]! };
@@ -198,14 +252,26 @@ function violations(
   codes: readonly string[],
 ): string[] {
   const problems: string[] = [];
-  const barrierPath = Object.keys(sources).find((key) =>
-    blankComments(sources[key]!).includes("export const runFileOperation"),
+  const registrations = Object.keys(sources).filter((key) =>
+    blankComments(sources[key]!).includes(BARRIER_REGISTRATION),
   );
-  if (barrierPath === undefined) {
-    return ["nothing in these sources declares runFileOperation"];
+  if (registrations.length !== 1) {
+    return [`runFileOperation is registered in ${registrations.length} modules, expected exactly 1`];
   }
+  const handed = registeredHandler(blankComments(sources[registrations[0]!]!));
+  if ("problem" in handed) return [`${shortPath(registrations[0]!)}: ${handed.problem}`];
+
+  const declaring = Object.keys(sources).filter((key) =>
+    blankComments(sources[key]!).includes(`export async function ${handed.name}(`),
+  );
+  if (declaring.length !== 1) {
+    return [
+      `${declaring.length} modules declare ${handed.name}, the handler runFileOperation hands over; expected exactly 1`,
+    ];
+  }
+  const barrierPath = declaring[0]!;
   const barrierSource = blankComments(sources[barrierPath]!);
-  const region = locateRegion(barrierSource);
+  const region = locateRegion(barrierSource, handed.name);
   if ("problem" in region) return [`${shortPath(barrierPath)}: ${region.problem}`];
 
   for (const code of codes) {
@@ -250,6 +316,35 @@ function realSources(): Record<string, string> {
   return RAW_SOURCES;
 }
 
+/** The registration as `files.ts` writes it, for the self-tests. */
+const REGISTRATION_FIXTURE = `
+export const runFileOperation = internalAction({
+  args: {},
+  returns: operationResultValidator,
+  handler: async (ctx, args): Promise<OperationResult> => await runFileOperationHandler(ctx, args),
+});
+`;
+
+/**
+ * A two-module control plane for the self-tests: the real registration shape
+ * in `files.ts`, and a barrier handler with `body` in its own module.
+ */
+function barrierSources(
+  body: string,
+  others: Record<string, string> = {},
+  after = "",
+): Record<string, string> {
+  return {
+    "../functions/files.ts": REGISTRATION_FIXTURE,
+    [BARRIER_MODULE]: `
+export async function runFileOperationHandler(ctx, args) {
+${body}
+}
+${after}`,
+    ...others,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 
 describe("the codes the console may override are raised before any note is reached", () => {
@@ -275,12 +370,33 @@ describe("the codes the console may override are raised before any note is reach
     );
   });
 
+  test("files.ts registers the barrier and hands it exactly runFileOperationHandler", () => {
+    // The registration is what Convex runs; the body is only the barrier if
+    // the registration hands over to it and to nothing else. Pinned by name
+    // and by module, so a registration re-pointed at a look-alike — or a
+    // second declaration of the name somewhere else — fails here by name
+    // rather than only through the position checks below.
+    const files = blankComments(RAW_SOURCES["../functions/files.ts"]!);
+    expect(registeredHandler(files)).toEqual({ name: BARRIER_HANDLER });
+    expect(files).toMatch(
+      /import \{[^}]*\brunFileOperationHandler\b[^}]*\} from "\.\/lib\/filesFns\/fileOperationBarrier";/,
+    );
+    const registering = Object.keys(RAW_SOURCES).filter((key) =>
+      blankComments(RAW_SOURCES[key]!).includes(BARRIER_REGISTRATION),
+    );
+    expect(registering).toEqual(["../functions/files.ts"]);
+    const declaring = Object.keys(RAW_SOURCES).filter((key) =>
+      blankComments(RAW_SOURCES[key]!).includes(`export async function ${BARRIER_HANDLER}(`),
+    );
+    expect(declaring).toEqual([BARRIER_MODULE]);
+  });
+
   test("the barrier is where this test thinks it is", () => {
     // The region has to be found before anything can be said about positions
-    // inside it. Asserted separately so a reformat of `files.ts` reads as
-    // "this test needs updating" rather than as a security failure.
-    const source = blankComments(RAW_SOURCES["../functions/files.ts"]!);
-    const region = locateRegion(source);
+    // inside it. Asserted separately so a reformat of the barrier's module
+    // reads as "this test needs updating" rather than as a security failure.
+    const source = blankComments(RAW_SOURCES[BARRIER_MODULE]!);
+    const region = locateRegion(source, BARRIER_HANDLER);
     expect(region).not.toHaveProperty("problem");
     const found = region as Region;
     const body = source.slice(found.start, found.end);
@@ -296,22 +412,14 @@ describe("the codes the console may override are raised before any note is reach
 
   test("catches a throw added to the barrier after executeOperation runs", () => {
     const found = violations(
-      {
-        "../functions/files.ts": `
-export const runFileOperation = internalAction({
-  handler: async (ctx, args) => {
-    if (credential === null) {
-      throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
-    }
-    const result = await executeOperation(store, args.scope, args.operation);
-    if (result === undefined) {
-      throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
-    }
-    return result;
-  },
-});
-`,
-      },
+      barrierSources(`  if (credential === null) {
+    throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
+  }
+  const result = await executeOperation(store, args.scope, args.operation);
+  if (result === undefined) {
+    throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
+  }
+  return result;`),
       ["STORAGE_NOT_CONNECTED"],
     );
     expect(found).toHaveLength(1);
@@ -323,25 +431,88 @@ export const runFileOperation = internalAction({
     // `executeOperation`, so a `FileOpError("STORAGE_NOT_CONNECTED")` there is
     // an answer about a note wearing the code that means "we never looked".
     const found = violations(
-      {
-        "../functions/files.ts": `
-export const runFileOperation = internalAction({
-  handler: async (ctx, args) => {
-    throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
-    return await executeOperation(store, args.scope, args.operation);
-  },
-});
-`,
-        "../functions/lib/fileOps.ts": `
+      barrierSources(
+        `  throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
+  return await executeOperation(store, args.scope, args.operation);`,
+        {
+          "../functions/lib/fileOps.ts": `
 export async function readFile(store, args) {
   if (store === null) throw new FileOpError("STORAGE_NOT_CONNECTED", "no bucket");
 }
 `,
-      },
+        },
+      ),
       ["STORAGE_NOT_CONNECTED"],
     );
     expect(found).toHaveLength(1);
     expect(found[0]).toContain("lib/fileOps.ts");
+  });
+
+  test("catches STORAGE_UNUSABLE raised in a module beside the barrier's", () => {
+    // The body now has neighbours in `lib/filesFns/`, and a sibling handler is
+    // exactly where a convenient copy of the throw would be pasted. Beside the
+    // barrier is still outside it.
+    const found = violations(
+      barrierSources(
+        `  throw new ConvexError({ code: "STORAGE_UNUSABLE", message: "unusable" });
+  return await executeOperation(store, args.scope, args.operation);`,
+        {
+          "../functions/lib/filesFns/noteReads.ts": `
+export async function readNoteHandler(ctx, args) {
+  throw new ConvexError({ code: "STORAGE_UNUSABLE", message: "unusable" });
+}
+`,
+        },
+      ),
+      ["STORAGE_UNUSABLE"],
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("lib/filesFns/noteReads.ts");
+  });
+
+  test("catches the registration handing over a different handler", () => {
+    // Re-pointing the registration moves the barrier: the region follows the
+    // name the registration hands over, so the codes still raised in the old
+    // body are outside it. Without the registration check this would pass —
+    // the old body is untouched — while Convex ran something else entirely.
+    const sources = barrierSources(
+      `  throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
+  return await executeOperation(store, args.scope, args.operation);`,
+      {
+        "../functions/lib/filesFns/lookAlike.ts": `
+export async function runFileOperationDirect(ctx, args) {
+  return await executeOperation(store, args.scope, args.operation);
+}
+`,
+      },
+    );
+    sources["../functions/files.ts"] = REGISTRATION_FIXTURE.replace(
+      "await runFileOperationHandler(ctx, args)",
+      "await runFileOperationDirect(ctx, args)",
+    );
+    expect(sources["../functions/files.ts"]).toContain("runFileOperationDirect");
+    const found = violations(sources, ["STORAGE_NOT_CONNECTED"]);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("fileOperationBarrier.ts uses STORAGE_NOT_CONNECTED");
+    expect(registeredHandler(sources["../functions/files.ts"]!)).toEqual({
+      name: "runFileOperationDirect",
+    });
+  });
+
+  test("catches a registration whose handler is more than a hand-over", () => {
+    // An inline body in the registration is a second place the barrier's
+    // logic could live, and one this test cannot see into. Refused by shape.
+    const sources = barrierSources(
+      `  throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
+  return await executeOperation(store, args.scope, args.operation);`,
+    );
+    sources["../functions/files.ts"] = REGISTRATION_FIXTURE.replace(
+      "=> await runFileOperationHandler(ctx, args),",
+      "=> { await audit(ctx); return await runFileOperationHandler(ctx, args); },",
+    );
+    const found = violations(sources, ["STORAGE_NOT_CONNECTED"]);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("does more than");
   });
 
   test("catches a code on the allow-list that the server no longer raises", () => {
@@ -350,16 +521,8 @@ export async function readFile(store, args) {
     // to be a failure, or this whole test passes best when it is checking
     // least.
     const found = violations(
-      {
-        "../functions/files.ts": `
-export const runFileOperation = internalAction({
-  handler: async (ctx, args) => {
-    throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
-    return await executeOperation(store, args.scope, args.operation);
-  },
-});
-`,
-      },
+      barrierSources(`  throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
+  return await executeOperation(store, args.scope, args.operation);`),
       ["STORAGE_NOT_CONNECTED", "STORAGE_RENAMED_AWAY"],
     );
     expect(found).toHaveLength(1);
@@ -371,19 +534,15 @@ export const runFileOperation = internalAction({
     // on `runFileOperation` should be free to as well. A checker that counted
     // those would be deleted by the first person it inconvenienced.
     const found = violations(
-      {
-        "../functions/files.ts": `
-export const runFileOperation = internalAction({
-  handler: async (ctx, args) => {
-    throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
-    // Never STORAGE_NOT_CONNECTED past this line.
-    return await executeOperation(store, args.scope, args.operation);
-  },
-});
-/** Raising STORAGE_NOT_CONNECTED from in here would be a disclosure. */
+      barrierSources(
+        `  throw new ConvexError({ code: "STORAGE_NOT_CONNECTED", message: "no bucket" });
+  // Never STORAGE_NOT_CONNECTED past this line.
+  return await executeOperation(store, args.scope, args.operation);`,
+        {},
+        `/** Raising STORAGE_NOT_CONNECTED from in here would be a disclosure. */
 export async function executeOperation() {}
 `,
-      },
+      ),
       ["STORAGE_NOT_CONNECTED"],
     );
     expect(found).toEqual([]);
