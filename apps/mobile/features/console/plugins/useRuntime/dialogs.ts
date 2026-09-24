@@ -4,8 +4,8 @@ import {
   type OpenModal,
   type OpenSettingsPane,
   type OpenTextModal,
-} from "./runtime";
-import type { FrameOwner, ModalWaiting, Ref, Setter } from "./runtimeCells";
+} from "../runtime";
+import type { FrameOwner, ModalWaiting, Ref, Setter } from "./cells";
 
 /*
   The dialogs and the settings pane `useRuntime` puts in front of a reader on

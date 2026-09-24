@@ -22,20 +22,20 @@ import type { LinkPreview } from "./sandboxTypes";
 import type { PluginGrant } from "./grants";
 import { shouldResumeRuntime } from "./runtime";
 import type { ActiveSandbox, PluginRegistration, RuntimeState, RuntimeView } from "./runtime";
-import { pruneDepartedFrames } from "./runtimePrune";
-import { handleSandboxEvent } from "./runtimeEvents";
+import { pruneDepartedFrames } from "./useRuntime/prune";
+import { handleSandboxEvent } from "./useRuntime/events";
 import {
   applyOfferedSuggestion,
   askFramesForPreviews,
   askFramesForSuggestions,
   pressCommand,
-} from "./runtimeRequests";
+} from "./useRuntime/requests";
 import {
   askDialogSuggestions,
   closeOpenSettingsPane,
   closeTextDialog,
   requestSettingsPane,
-} from "./runtimeDialogs";
+} from "./useRuntime/dialogs";
 
 /**
  * What the sandbox host says each plugin is doing.

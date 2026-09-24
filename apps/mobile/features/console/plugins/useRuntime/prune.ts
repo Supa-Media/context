@@ -1,11 +1,11 @@
-import type { StatusItem } from "./sandboxTypes";
+import type { StatusItem } from "../sandboxTypes";
 import type {
   ActiveSandbox,
   CommandOutcome,
   OpenSettingsPane,
   PendingCommand,
   PluginRegistration,
-} from "./runtime";
+} from "../runtime";
 import type {
   ApplyWaiting,
   CommandTimers,
@@ -14,7 +14,7 @@ import type {
   Ref,
   Setter,
   SuggestWaiting,
-} from "./runtimeCells";
+} from "./cells";
 
 /** What the prune below clears, all of it owned by `useRuntime`. */
 export interface FramePruneContext {

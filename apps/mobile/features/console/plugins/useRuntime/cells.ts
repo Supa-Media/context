@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { LinkPreview } from "./sandboxTypes";
+import type { LinkPreview } from "../sandboxTypes";
 
 /*
   The shapes of the state and refs `useRuntime` owns, named so the plain

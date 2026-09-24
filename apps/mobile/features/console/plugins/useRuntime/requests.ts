@@ -1,6 +1,6 @@
 import { PREVIEW_LINKS_MAX } from "@context/obsidian-runtime";
-import type { LinkPreview } from "./sandboxTypes";
-import type { PluginGrant } from "./grants";
+import type { LinkPreview } from "../sandboxTypes";
+import type { PluginGrant } from "../grants";
 import {
   COMMAND_TIMEOUT_MS,
   PREVIEW_TIMEOUT_MS,
@@ -13,7 +13,7 @@ import {
   type PendingCommand,
   type PreviewRequest,
   type SuggestRequest,
-} from "./runtime";
+} from "../runtime";
 import type {
   ApplyWaiting,
   CommandTimers,
@@ -22,7 +22,7 @@ import type {
   Ref,
   Setter,
   SuggestWaiting,
-} from "./runtimeCells";
+} from "./cells";
 
 /*
   The requests `useRuntime` sends to running frames: a command, a completion

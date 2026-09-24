@@ -1,8 +1,8 @@
 import type { ReactAction, ReactMutation } from "convex/react";
 import type { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { newSandboxNonce } from "./sandboxNonce";
-import type { SandboxEvent, StatusItem, VaultEventMessage } from "./sandboxTypes";
+import { newSandboxNonce } from "../sandboxNonce";
+import type { SandboxEvent, StatusItem, VaultEventMessage } from "../sandboxTypes";
 import {
   appliedPluginNoteWrite,
   freshPreviews,
@@ -17,7 +17,7 @@ import {
   type PendingCommand,
   type PluginRegistration,
   type PluginWorkReason,
-} from "./runtime";
+} from "../runtime";
 import type {
   ApplyWaiting,
   CommandTimers,
@@ -27,7 +27,7 @@ import type {
   Ref,
   Setter,
   SuggestWaiting,
-} from "./runtimeCells";
+} from "./cells";
 
 /** Everything `useRuntime`'s `onEvent` reads, from the render that built it. */
 export interface SandboxEventContext {
