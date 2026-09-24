@@ -69,7 +69,6 @@ import {
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
-  capabilitiesValidator,
   initialCapabilities,
   type BindingResult,
   type DataKeyRekeyCandidates,
@@ -472,37 +471,8 @@ export const getBindingRow = internalQuery({
  */
 export const getBindingForGateway = internalAction({
   args: { workspaceId: v.id("workspaces") },
-  // Two shapes, not one shape with holes. The gateway's factory refuses a
-  // binding carrying a credential its provider does not use, so a union here
-  // is what makes that refusal unreachable by accident: there is no way to
-  // return a Dropbox binding with an `accessKeyId` on it.
-  returns: v.union(
-    v.null(),
-    v.object({
-      provider: v.union(
-        v.literal("r2"),
-        v.literal("s3"),
-        v.literal("b2"),
-        v.literal("s3-compatible"),
-      ),
-      endpoint: v.string(),
-      region: v.string(),
-      bucket: v.string(),
-      rootPrefix: v.optional(v.string()),
-      accessKeyId: v.string(),
-      secretAccessKey: v.string(),
-      forcePathStyle: v.optional(v.boolean()),
-      capabilities: capabilitiesValidator,
-      status: v.string(),
-    }),
-    v.object({
-      provider: v.literal("dropbox"),
-      accessToken: v.string(),
-      rootPrefix: v.optional(v.string()),
-      capabilities: capabilitiesValidator,
-      status: v.string(),
-    }),
-  ),
+  // Two shapes, not one shape with holes: see `getBindingForGatewayReturns`.
+  returns: validators.getBindingForGatewayReturns,
   // Same inference cycle as `bindStorage`: annotated, not inferred.
   handler: async (ctx, args): Promise<GatewayCredential | null> => {
     const binding: SealedBinding | null = await ctx.runQuery(
