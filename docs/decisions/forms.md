@@ -689,17 +689,8 @@ Two faults, both fixed together:
   `ConvexError` still throws, because an outage reported as "publish your note
   first" would send an owner to fix a manifest that was fine.
 
-The gateway's control-plane stub minted over any path, which is why
-`linkTools.test.mjs` stayed green through this. It now takes a `linkRefusal`
-hook, and the link tests answer it from the bucket's live manifest.
-
-### What a "simplification" would cost
-
-- **Dropping the implied publish** brings the incident back: the suite's
-  `write_note` share checks and the "a form in a private folder publishes with
-  one call" checks go red (sabotaged: 10 failures).
-- **Letting `refused` reach an uncleared caller** turns link creation into an
-  existence oracle over somebody else's context.
-- **Removing the stub hook** lets the gateway tests pass against a control
-  plane that is more permissive than the real one again.
-  `__tests__/controlPlane/linksCreate.test.ts` covers the real route.
+The gateway's control-plane stub minted over any path, which is why the suite
+stayed green; it now takes a `linkRefusal` hook answered from the live manifest.
+Dropping the implied publish reddens 10 `linkTools` checks; the real route is
+covered by `__tests__/controlPlane/linksCreate.test.ts`, and letting `refused`
+reach an uncleared caller would make link creation an existence oracle.
