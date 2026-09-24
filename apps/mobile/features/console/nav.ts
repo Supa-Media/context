@@ -439,10 +439,12 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
   */
   account: "profile",
   /*
-    The four that became Sharing & Access. Each was a section people linked to
-    — a shared link's own screen most of all — and each is a block on one
-    screen now.
+    The four that became Sharing & Access, each a section people linked to.
   */
+  people: "sharing",
+  groups: "sharing",
+  shares: "sharing",
+  privacy: "sharing",
   /*
     `search` is a block on Storage now — an index is a derivative of the files
     it is built from, so it lives under them.
@@ -455,15 +457,7 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
   */
   overview: "workspace",
   advanced: "workspace",
-  people: "sharing",
-  groups: "sharing",
-  shares: "sharing",
-  privacy: "sharing",
-  /*
-    Domain became Website when the page took on the workspace's public website;
-    the domain is now one card on it. Links to `?settings=domain` predate that.
-  */
-  domain: "website",
+  domain: "website", // renamed 2026-09-24 when the page took on the website folder
 };
 
 export function settingsFromQuery(
