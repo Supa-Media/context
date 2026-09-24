@@ -219,7 +219,7 @@ export function useOnboarding(
      * person left — so `claimed` is recovered from `listMyWorkspaces` rather
      * than from a create that happened on a page that no longer exists.
      */
-    resume?: "structure" | "storage";
+    resume?: "structure" | "storage" | "fork";
     /**
      * What a return from Stripe said, from `/welcome?checkout=…`.
      *
