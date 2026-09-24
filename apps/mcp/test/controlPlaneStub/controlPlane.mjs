@@ -755,6 +755,12 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/tree": {
+        // Answered `{ok: true}` on every path, like `/gateway/activity`.
+        // `calls` carries the body, which is what a test asserts on.
+        return ok({ ok: true });
+      }
+
       case "/gateway/forms/notify": {
         // The real route answers `{ok: true}` on every path, for the reason
         // `/gateway/activity` does: the difference between "no such context",

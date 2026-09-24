@@ -16,7 +16,7 @@ function response(documentId: string, text: string): CollaborationResponse {
   return { documentId, update: snapshot(text), text, etag: `${documentId}-etag` };
 }
 
-function options(transport: { mint: () => Promise<string>; request: (token: string, body: { path: string; documentId?: string; update?: string; replacement?: { expectedEtag: string; text: string } }) => Promise<CollaborationResponse> }, store: KeyValueStore = memoryStore()) {
+function options(transport: { mint: (rejected?: string) => Promise<string>; request: (token: string, body: { path: string; documentId?: string; update?: string; replacement?: { expectedEtag: string; text: string } }) => Promise<CollaborationResponse> }, store: KeyValueStore = memoryStore()) {
   return {
     workspaceId: "workspace",
     path: "notes/a.md",
@@ -376,10 +376,17 @@ describe("durable collaboration", () => {
   });
 
   test("definitive auth failure revokes the controller and blocks repair", async () => {
+    // A 401 is retried once with the refused token named, because another
+    // consumer rotating the shared grant produces one too. A 401 against the
+    // replacement is the gateway's real answer.
     let calls = 0;
+    const mints: (string | undefined)[] = [];
     const controller = new DurableCollaborationController(
       options({
-        mint: async () => "grant",
+        mint: async (rejected?: string) => {
+          mints.push(rejected);
+          return rejected === undefined ? "grant" : "replacement";
+        },
         request: async () => {
           calls += 1;
           throw new Error("401");
@@ -388,9 +395,82 @@ describe("durable collaboration", () => {
     );
     await controller.start();
     expect(controller.state.status).toBe("revoked");
+    expect(mints).toEqual([undefined, "grant"]);
     controller.repairForHook();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toBe(2);
+    controller.stop();
+  });
+
+  test("repairs asked for while a read is in flight share one follow-up read", async () => {
+    // Focus, a reconnect and the periodic repair can all ask in the same
+    // second; each used to start its own overlapping read.
+    let reads = 0;
+    let release: (() => void) | null = null;
+    const base = response("doc-1", "hello");
+    const controller = new DurableCollaborationController(options({
+      mint: async () => "grant",
+      request: async () => {
+        reads += 1;
+        if (reads === 2) await new Promise<void>((resolve) => { release = resolve; });
+        return base;
+      },
+    }));
+    try {
+      await controller.start();
+      expect(reads).toBe(1);
+      controller.repairForHook();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      for (let ask = 0; ask < 5; ask += 1) controller.repairForHook();
+      expect(reads).toBe(2);
+      (release as (() => void) | null)?.();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(reads).toBe(3);
+    } finally {
+      (release as (() => void) | null)?.();
+      controller.stop();
+    }
+  });
+
+  test("a 403 is final at once: no credential refresh is attempted", async () => {
+    let calls = 0;
+    const mints: (string | undefined)[] = [];
+    const controller = new DurableCollaborationController(
+      options({
+        mint: async (rejected?: string) => {
+          mints.push(rejected);
+          return "grant";
+        },
+        request: async () => {
+          calls += 1;
+          throw new Error("403");
+        },
+      }),
+    );
+    await controller.start();
+    expect(controller.state.status).toBe("revoked");
     expect(calls).toBe(1);
+    expect(mints).toEqual([undefined]);
+    controller.stop();
+  });
+
+  test("a token another consumer rotated is replaced once and the save still lands", async () => {
+    // Presence or the agent refreshing the shared grant revokes the token this
+    // controller already holds. That used to strand the note on "revoked".
+    const seen: string[] = [];
+    const controller = new DurableCollaborationController(
+      options({
+        mint: async (rejected?: string) => (rejected === "stale" ? "fresh" : "stale"),
+        request: async (token) => {
+          seen.push(token);
+          if (token === "stale") throw new Error("401");
+          return response("doc-1", "hello");
+        },
+      }),
+    );
+    await controller.start();
+    expect(seen).toEqual(["stale", "fresh"]);
+    expect(controller.state.status).toBe("saved");
     controller.stop();
   });
 
