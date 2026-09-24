@@ -48,11 +48,18 @@ messages said it had been checked. The check has to run after the tree settles.
 
 It restores four files to the last commit where the write-path apparatus was
 complete, so it also reverts what those files gained afterwards — most notably
-the two exact-delete checks in `apps/mcp/test/test.mjs`, which pin
+the two exact-delete checks in `apps/mcp/test/attachmentsCore.test.mjs`, which pin
 `persistExactVisibility` and `clearExactVisibility` and which exist *because*
 the apparatus is absent. Re-add them; with the refusals back in front of them
 they become defence-in-depth again rather than the load-bearing guards they are
 today, and that transition is the thing to get right.
+
+The gateway's share was written against `apps/mcp/src/index.js` and has since
+been carried, hunk for hunk, into the modules that file was split into:
+`privacy/state.js` holds and exports `foldedTwinBlocks` and
+`FOLDED_TWIN_REFUSAL`, and the six tool modules that refuse import them.
+Applied to the split tree, the gateway suite reads exactly as the original
+patch did applied to the tree before the split.
 
 Apply it as a starting point, not as a finished change, and give it its own
 review budget.

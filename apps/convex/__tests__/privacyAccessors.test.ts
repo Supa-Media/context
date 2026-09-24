@@ -24,17 +24,45 @@
  * this catches, which is somebody reverting a call site to what it used to say.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const ROOT = join(__dirname, "..", "..", "..");
 
+// `lib/fileOps.ts` is a facade over `lib/fileOps/<subject>.ts`, which is where
+// every override read now lives — so each of those modules is read too, and a
+// new one is covered the moment it is added.
+const FILE_OPS_MODULES = readdirSync(join(ROOT, "apps/convex/functions/lib/fileOps"))
+  .filter((name) => name.endsWith(".ts"))
+  .sort()
+  .map((name) => `apps/convex/functions/lib/fileOps/${name}`);
+
+/**
+ * A file, or — for the gateway — a directory read module by module. The
+ * gateway's engine began in one file, `apps/mcp/src/index.js`; it is now split
+ * into modules, and a guard that read the entry file alone would lose sight of
+ * every call site that moved out of it. So every `.js` module under its `src/`
+ * is read, each on its own (the helper exemption below is per file).
+ */
 const FILES = [
   "apps/convex/functions/lib/privacy.ts",
   "apps/convex/functions/lib/fileOps.ts",
-  "apps/mcp/src/index.js",
+  ...FILE_OPS_MODULES,
+  "apps/mcp/src",
 ];
+
+function sourcesAt(relative: string): string[] {
+  const full = join(ROOT, relative);
+  if (!statSync(full).isDirectory()) return [full];
+  return readdirSync(full)
+    .sort()
+    .flatMap((entry) => {
+      const child = join(relative, entry);
+      if (statSync(join(ROOT, child)).isDirectory()) return sourcesAt(child);
+      return entry.endsWith(".js") ? [join(ROOT, child)] : [];
+    });
+}
 
 /**
  * Strip comments before matching, because prose about `overrides.get(...)` is
@@ -63,22 +91,27 @@ const RAW_ACCESS = /\boverrides\s*\??\s*\.\s*(get|has)\s*\(/i;
 describe("every override read goes through the folding helpers", () => {
   for (const relative of FILES) {
     test(`${relative} reads overrides only through overrideFor/hasOverride`, () => {
-      const lines = codeOnly(readFileSync(join(ROOT, relative), "utf8"));
+      const files = sourcesAt(relative);
+      // A directory that reads as empty would pass by finding nothing.
+      expect(files.length, `nothing to read at ${relative}`).toBeGreaterThan(0);
       const offenders: string[] = [];
-      let insideHelper = false;
-      let depth = 0;
+      for (const file of files) {
+        const lines = codeOnly(readFileSync(file, "utf8"));
+        let insideHelper = false;
+        let depth = 0;
 
-      for (const line of lines) {
-        if (!insideHelper && /function (overrideFor|hasOverride)\b/.test(line)) {
-          insideHelper = true;
-          depth = 0;
+        for (const line of lines) {
+          if (!insideHelper && /function (overrideFor|hasOverride)\b/.test(line)) {
+            insideHelper = true;
+            depth = 0;
+          }
+          if (insideHelper) {
+            depth += (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
+            if (depth <= 0 && /\}/.test(line)) insideHelper = false;
+            continue;
+          }
+          if (RAW_ACCESS.test(line)) offenders.push(line.trim());
         }
-        if (insideHelper) {
-          depth += (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
-          if (depth <= 0 && /\}/.test(line)) insideHelper = false;
-          continue;
-        }
-        if (RAW_ACCESS.test(line)) offenders.push(line.trim());
       }
 
       expect(offenders, `raw override access in ${relative}`).toEqual([]);

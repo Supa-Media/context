@@ -2,8 +2,9 @@
  * THE PRIVACY ENGINE, DIFFERENTIALLY TESTED AGAINST THE GATEWAY'S.
  *
  * `functions/lib/privacy.ts` is a port. The gateway's engine lives in
- * `apps/mcp/src/index.js` as module-private declarations with no exported
- * binding, so it cannot be imported into a Convex action — see that file's
+ * `apps/mcp/src/privacy/engine.js` (moved there verbatim from
+ * `apps/mcp/src/index.js`), a Worker module outside this package's
+ * dependencies, so it is not imported into a Convex action — see that file's
  * header for the full reasoning and for the instruction to delete the port the
  * day it becomes importable.
  *

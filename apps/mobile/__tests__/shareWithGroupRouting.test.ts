@@ -63,7 +63,7 @@ describe("the share dialog's group callback carries what it is sharing", () => {
   });
 
   test("the hook routes a folder to the folder action and a note to the note one", () => {
-    const source = stripComments(read("files", "useFileBrowser.ts"));
+    const source = stripComments(read("files", "fileBrowser", "useShareScope.ts"));
     const start = source.indexOf("const shareWithGroup = useCallback(");
     expect(start).toBeGreaterThan(-1);
     const body = source.slice(start, source.indexOf("}, [", start));
@@ -87,8 +87,9 @@ describe("the share dialog's group callback carries what it is sharing", () => {
       default would have compiled and shipped the same bug on two surfaces.
     */
     const sites: readonly (readonly [string, readonly string[]])[] = [
-      ["BrowsePane.tsx", ["panes", "BrowsePane.tsx"]],
-      ["console/_layout.tsx", ["..", "..", "app", "(app)", "console", "_layout.tsx"]],
+      // Moved out of `BrowsePane.tsx` with the rest of its share-dialog wiring.
+      ["browsePane/BrowseShareDialog.tsx", ["panes", "browsePane", "BrowseShareDialog.tsx"]],
+      ["console/layout/barDialogs.tsx", ["layout", "barDialogs.tsx"]],
     ];
     for (const [file, parts] of sites) {
       const source = stripComments(read(...parts));
