@@ -44,7 +44,7 @@ function stripComments(source: string): string {
 
 describe("the share dialog's group callback carries what it is sharing", () => {
   test("the browser contract takes a kind", () => {
-    const source = stripComments(read("files", "browser.ts"));
+    const source = stripComments(read("files", "browser", "contract.ts"));
     expect(source).toMatch(
       /shareWithGroup:\s*\(\s*path:\s*string,\s*kind:\s*"file"\s*\|\s*"folder",\s*group:\s*string\s*\)/,
     );

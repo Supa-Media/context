@@ -42,7 +42,7 @@ function latestSentAt(events) {
  * @param {{mailboxSlug: string, address: string, date: string,
  *          events: object[], nonce: string, now?: string, root?: string,
  *          folder?: string}} options
- * @returns {import("../../../../packages/communications/src/protocol.js").ChannelDayPart[]}
+ * @returns {import("../../../../../packages/communications/src/protocol.js").ChannelDayPart[]}
  */
 export function renderDay(options) {
   if (!options.events.length) return [];
@@ -76,8 +76,8 @@ export function renderDay(options) {
  * clobbering it. `maxAttempts` bounds that retry rather than looping forever
  * against a store that never settles.
  *
- * @param {import("../store/index.js").ContextStore} store
- * @param {import("../../../../packages/communications/src/protocol.js").ChannelDayPart} part
+ * @param {import("../../store/index.js").ContextStore} store
+ * @param {import("../../../../../packages/communications/src/protocol.js").ChannelDayPart} part
  * @returns {Promise<{path: string, bytes: number, wrote: boolean}>}
  */
 export async function writeDayPart(store, part, maxAttempts = 3) {
@@ -169,7 +169,7 @@ export async function writeContactDraft(store, draft, options = {}, maxAttempts 
  * exactly the old metadata-only behaviour, because `resolveDayAttachments`
  * is never invoked at all.
  *
- * @param {{store: import("../store/index.js").ContextStore, mailboxSlug: string,
+ * @param {{store: import("../../store/index.js").ContextStore, mailboxSlug: string,
  *          address: string, date: string, events: object[], nonce: string,
  *          now?: string, root?: string, folder?: string, remainingQuotaBytes: number,
  *          fetchImpl?: FetchLike, accessToken?: string,
