@@ -433,3 +433,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - This repository is public and MIT licensed
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
+- No handwritten file over 1,000 lines, and the allowance only shrinks
