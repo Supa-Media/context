@@ -152,6 +152,8 @@ export function runAppShellChecks(check) {
   const noticesSource = withoutComments(readMainSource("notices.ts"));
   const dialogsSource = withoutComments(readMainSource("dialogs.ts"));
   const menuSource = withoutComments(readMainSource("appMenu.ts"));
+  const smokeSource = withoutComments(readMainSource("smokeReport.ts"));
+  const windowIpcSource = withoutComments(readMainSource("windowIpc.ts"));
   const wiring = withoutComments(readMainWiring());
   const consoleRaw = readFileSync(new URL("../src/core/shell/console.ts", import.meta.url), "utf8");
   const consoleSource = withoutComments(consoleRaw);
@@ -289,7 +291,7 @@ export function runAppShellChecks(check) {
 
   check(
     "THE CONSOLE ADDRESS IS CHOSEN BY `app.isPackaged`",
-    /consoleUrl\(process\.env, app\.isPackaged\)/.test(source),
+    /consoleUrl\(process\.env, app\.isPackaged\)/.test(windowIpcSource),
   );
   check(
     "...and by nothing named NODE_ENV, which nothing in this repository sets",
@@ -313,7 +315,7 @@ export function runAppShellChecks(check) {
     comments argue about `localhost:8081` and about menu roles at length.
   */
   {
-    const smoke = source.match(/if \(SMOKE\) \{[\s\S]*?\n  \}\n\}/)?.[0] ?? "";
+    const smoke = smokeSource.match(/if \(SMOKE\) \{[\s\S]*?\n  \}\n\}/)?.[0] ?? "";
     check(
       "`--smoke` EXITS NON-ZERO ON AN ADDRESS THAT DISAGREES WITH `app.isPackaged`",
       /unexpectedConsoleAddress\(process\.env, app\.isPackaged, ctx\.consoleAddress\)/.test(smoke) &&
@@ -413,7 +415,7 @@ export function runAppShellChecks(check) {
     );
     check(
       "...and that function is imported from the one place the rule is stated",
-      /import \{ smokeLoadFailure, wasMirrorServed \} from "\.\.\/core\/shell\/mirror\.ts";/.test(source),
+      /import \{ smokeLoadFailure, wasMirrorServed \} from "\.\.\/core\/shell\/mirror\.ts";/.test(smokeSource),
     );
   }
 
@@ -694,15 +696,25 @@ export function runAppShellChecks(check) {
   const beforePushCanRun =
     mainStart === -1 || lastPushDependency === -1 || lastPushDependency < mainStart
       ? null
-      : source.slice(mainStart, lastPushDependency);
+      : [
+          source.slice(mainStart, lastPushDependency),
+          /*
+            `main()` builds its services by calling into these two modules, both
+            above `const tray`, so every statement in them runs before `push()`
+            can. They are read whole, at the same indentation rule, so moving a
+            drive out of `index.ts` into one of them is not a way past this.
+          */
+          withoutComments(readMainSource("startup.ts")),
+          withoutComments(readMainSource("services.ts")),
+        ].join("\n");
   const drivenTooEarly =
     beforePushCanRun === null
       ? []
       : [
           ...(beforePushCanRun.match(
-            /^ {2}(?:void |await )?(?:imessage|controller|updater|loop|tray)\.[A-Za-z]/gm,
+            /^ {2}(?:void |await )?(?:ctx\.)?(?:imessage|controller|updater|loop|tray)\.[A-Za-z]/gm,
           ) ?? []),
-          ...(beforePushCanRun.match(/^ {2}(?:void |await )?(?:push|update)\(/gm) ?? []),
+          ...(beforePushCanRun.match(/^ {2}(?:void |await )?(?:ctx\.)?(?:push|update)\(/gm) ?? []),
         ];
   check(
     "NOTHING DRIVES A PUSH-REACHING SERVICE ABOVE `tray` — the same launch crash, one name over",

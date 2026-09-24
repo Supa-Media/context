@@ -13,7 +13,29 @@
  */
 
 import type { BrowserWindow } from "electron";
-import type { DetectionUpdate } from "../core/detection/loop.ts";
+import type {
+  CaptureStarted,
+  CaptureStateUpdate,
+  CaptureSummary,
+  DesktopCapabilities,
+  MachineApprovalResult,
+  MeetingWrite,
+  MeetingWriteAck,
+  OutboxStatus,
+  StartCaptureRequest,
+  TrayCommand,
+} from "@context/desktop-bridge";
+import type { DetectionLoop, DetectionUpdate } from "../core/detection/loop.ts";
+import type { BeginResult, MeetingController, SessionView } from "../core/recording/controller.ts";
+import type { TokenStore } from "../core/sync/tokenStore.ts";
+import type { GatewayConnection } from "../core/sync/connection.ts";
+import type { DesktopCaptureRecorder } from "./capture.ts";
+import type { DesktopStore } from "./store.ts";
+import type { LocalAgentRunner } from "./localAgent.ts";
+import type { ImessageSyncService } from "./imessage.ts";
+import type { AppTray } from "./tray.ts";
+import type { DesktopUpdater } from "./updater.ts";
+import type { UiState } from "./ipc.ts";
 import { IDLE_CONSENT } from "../core/consent/gate.ts";
 import type { ConsentState } from "../core/consent/gate.ts";
 import { emptyOutbox } from "../core/sync/outbox.ts";
@@ -103,13 +125,105 @@ export interface MainState {
    */
   readonly handover: ApprovalHandover;
   connectError: string | null;
+  /**
+   * Where each finished meeting's note landed, as the queue learns it.
+   *
+   * The console is what needs this: its page hands the shell a finalize and
+   * must not draw the meeting as saved until the note is in the bucket, so
+   * "the gateway answered with this path" is the one fact it is waiting for.
+   * The tray path has no use for it and does not read it.
+   *
+   * Kept in memory only. It is a receipt for a call this process made, not a
+   * record of anything — the note itself is in the customer's bucket, and a
+   * relaunch that had forgotten a path re-finalizes and is answered with the
+   * same one.
+   */
+  readonly notePaths: Map<string, string>;
 }
 
-export type MainContext = MainState;
+/**
+ * What `main()` builds once and never replaces: the store, the credential, the
+ * recorder and the rest. Attached to the context after the tray exists, which
+ * is the last of them — see `main()` for the order and why it matters.
+ */
+export interface MainServices {
+  store: DesktopStore;
+  tokens: TokenStore;
+  connection: GatewayConnection;
+  localAgent: LocalAgentRunner;
+  imessage: ImessageSyncService;
+  /** `null` in console mode — see `UI_MODE`. */
+  panel: BrowserWindow | null;
+  notepad: BrowserWindow | null;
+  /** `null` under `--fake-signals`, where there is no real recorder. */
+  capture: DesktopCaptureRecorder | null;
+  controller: MeetingController;
+  updater: DesktopUpdater;
+  loop: DetectionLoop;
+  tray: AppTray;
+}
 
-/** The state a launch starts in: the values the module-level `let`s held. */
+/**
+ * The functions that used to call each other by name inside `main()`.
+ *
+ * They live in subject modules now, and a module calls another's through this
+ * table — read from `ctx` at call time, never copied at creation, because the
+ * modules reference each other in a cycle (a meeting pushes, a push reads the
+ * capture state, the console starts a meeting) and none of them can be built
+ * after all the others.
+ */
+export interface MainActions {
+  // shellView.ts
+  pressed(command: TrayCommand, run: () => Promise<unknown>): Promise<unknown>;
+  uiState(): UiState;
+  push(): void;
+  update(patch: Partial<DesktopSettings>): Promise<void>;
+  // surfaces.ts
+  showPanel(): void;
+  showConsoleWindow(): boolean;
+  openConsoleWindow(): boolean;
+  explain(sentence: string): void;
+  liveConsoleWindow(): BrowserWindow | null;
+  // meetings.ts
+  onDetection(current: DetectionUpdate): Promise<void>;
+  beginMeeting(episode: string, manual?: boolean, id?: string, queueWrites?: boolean): Promise<BeginResult | null>;
+  recordNow(): Promise<void>;
+  endMeeting(): Promise<SessionView | null>;
+  // outboxDrain.ts
+  drain(): Promise<void>;
+  // consoleCapture.ts
+  shellCapabilities(): DesktopCapabilities;
+  captureStateUpdate(): CaptureStateUpdate;
+  outboxStatus(): OutboxStatus;
+  startFromConsole(request: StartCaptureRequest): Promise<CaptureStarted>;
+  writeMeetingFromConsole(write: MeetingWrite): Promise<MeetingWriteAck>;
+  stopFromConsole(): Promise<CaptureSummary>;
+  // windowIpc.ts
+  openConsoleWindowIfAsked(): void;
+  // connectFlow.ts
+  answerFromConsole(result: MachineApprovalResult): void;
+  connectThisMachine(): Promise<void>;
+  disconnectThisMachine(): Promise<void>;
+}
+
+/**
+ * One launch's shared state, services and functions, as one object.
+ *
+ * `createMainContext()` fills in the state; `main()` attaches the services and
+ * then the functions, in that order, before anything can call through it.
+ */
+export type MainContext = MainState & MainServices & MainActions;
+
+/**
+ * The state a launch starts in: the values the module-level `let`s held.
+ *
+ * Typed as the whole context because that is what every module is handed;
+ * the services and the functions are attached by `main()` before the first
+ * thing that can reach them runs, which is the same guarantee the hoisted
+ * declarations inside `main()` used to give.
+ */
 export function createMainContext(): MainContext {
-  return {
+  const state: MainState = {
     settings: DEFAULT_SETTINGS,
     outbox: emptyOutbox(),
     consent: IDLE_CONSENT,
@@ -125,5 +239,7 @@ export function createMainContext(): MainContext {
     approval: createApprovalRoute(),
     handover: createApprovalHandover(),
     connectError: null,
+    notePaths: new Map<string, string>(),
   };
+  return state as MainContext;
 }

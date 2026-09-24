@@ -21,6 +21,17 @@ export const MAIN_WIRING_FILES = Object.freeze([
   "notices.ts",
   "dialogs.ts",
   "appMenu.ts",
+  "context.ts",
+  "startup.ts",
+  "services.ts",
+  "shellView.ts",
+  "surfaces.ts",
+  "meetings.ts",
+  "outboxDrain.ts",
+  "consoleCapture.ts",
+  "windowIpc.ts",
+  "connectFlow.ts",
+  "smokeReport.ts",
 ]);
 
 /** One module under `src/main/`, raw. */

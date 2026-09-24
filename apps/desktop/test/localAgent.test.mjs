@@ -238,7 +238,8 @@ export async function runLocalAgentChecks(check) {
       around: a guard that a sentence in a docblock can satisfy is a guard a
       deletion leaves green, and the sentence above this one names the function.
     */
-    const source = await readFile(new URL("../src/main/index.ts", import.meta.url), "utf8");
+    // The startup path is `main/startup.ts` now, called first thing in `main()`.
+    const source = await readFile(new URL("../src/main/startup.ts", import.meta.url), "utf8");
     const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     check(
       "the startup path calls the sweep, not merely imports it",
