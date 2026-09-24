@@ -22,7 +22,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/imageBlock.ts": "e6b9802147cb75e003a813372549ab7bb306d757c4c9a1e5fbcd64da1121569c",
   "apps/mobile/features/console/files/imageLine.ts": "4f6aaa69da888f52709f58159cbea6096df3171725eac4e3fae3f2c094914c8d",
   "apps/mobile/features/console/files/linkComplete.ts": "90b09a612d887564735e29a3102e6f31c8952ea4cd4de3e4004d27f4873ecff0",
-  "apps/mobile/features/console/files/livePreview.ts": "4781ab75af12de5af438227896de62c7149a1c8c6ca854572924b4ebe2465233",
+  "apps/mobile/features/console/files/livePreview.ts": "3aa0c39dbb1d9d6027b2930d36ac2be05f24109754f8bd8f25b2cbfd85875d92",
   "apps/mobile/features/console/files/livePreview/callouts.ts": "1b196996ca983ebb7ee20727ddd2aa5ee851ef3c63d4c0a3c13df602331f189e",
   "apps/mobile/features/console/files/livePreview/cellEditing.ts": "9121d73868cd227439fd78e2cfeeb6129a4fd59d14c9292df92022292440e864",
   "apps/mobile/features/console/files/livePreview/cellText.ts": "ac7662bbad9ad86e4416de6ba0b74d806199a455ff98f137257adaa7a633b453",

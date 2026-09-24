@@ -69,7 +69,8 @@
     styles/*.ts      consecutive slices of livePreviewStyles, joined below
 
   Each StateField, StateEffect, WeakMap and extension value is created once, in
-  the module named above; moving it here changed no identity or order.
+  the module named above; moving each into its module changed no identity and
+  no order. `__tests__/livePreviewModules.test.ts` holds all of this.
 */
 
 export { markdownLanguage, fenceHighlightStyle, codeHighlighting } from "./livePreview/language";
