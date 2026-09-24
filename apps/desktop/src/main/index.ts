@@ -32,7 +32,6 @@ import {
   episodeKey,
   forgetEpisode,
 } from "../core/consent/gate.ts";
-import type { ConsentState } from "../core/consent/gate.ts";
 import { isBlockedSource } from "../core/consent/blocklist.ts";
 import { MeetingController } from "../core/recording/controller.ts";
 import type { BeginResult, SessionView } from "../core/recording/controller.ts";
@@ -46,13 +45,11 @@ import { electronPermissionBroker } from "./permissions.ts";
 import { DesktopStore } from "./store.ts";
 import {
   dropMisaddressed,
-  emptyOutbox,
   misaddressedSegments,
   queueWrite,
   reconcileDrain,
   recoverStaleFinalize,
 } from "../core/sync/outbox.ts";
-import type { Outbox } from "../core/sync/outbox.ts";
 import { DRAIN_INTERVAL_MS, drainOnce, drainUrgency } from "../core/sync/drain.ts";
 import { memoryTokenStore } from "../core/sync/tokenStore.ts";
 import {
@@ -91,19 +88,15 @@ import { smokeLoadFailure, wasMirrorServed } from "../core/shell/mirror.ts";
 import { darwinMajorFrom, systemAudioCapability } from "../core/shell/capabilities.ts";
 import {
   approvalTargetFor,
-  createApprovalRoute,
   returnAfterApproval,
 } from "../core/shell/approval.ts";
 import type { ApprovalTarget } from "../core/shell/approval.ts";
 import {
-  createApprovalHandover,
   isParkingRedirect,
   parkedRequestFrom,
 } from "../core/shell/autoGrant.ts";
 import { createConsoleBridge } from "./consoleBridge.ts";
-import type { ConsoleBridge } from "./consoleBridge.ts";
 import { createConsoleMirror, registerMirrorScheme } from "./consoleMirror.ts";
-import type { ConsoleMirror } from "./consoleMirror.ts";
 import type {
   CaptureStarted,
   CaptureStateUpdate,
@@ -132,87 +125,8 @@ import { CONSOLE_NOTICES, logCaptureFailure, permissionNotice } from "./notices.
 import { askSomething, showNativeNotification, showUpdateCheckMessage } from "./dialogs.ts";
 import { installApplicationMenu, setCheckForUpdatesFromMenu } from "./appMenu.ts";
 import type { UiState } from "./ipc.ts";
-import { DEFAULT_SETTINGS } from "../core/settings.ts";
+import { createMainContext } from "./context.ts";
 import type { DesktopSettings } from "../core/settings.ts";
-
-let settings: DesktopSettings = DEFAULT_SETTINGS;
-let outbox: Outbox = emptyOutbox();
-let consent: ConsentState = IDLE_CONSENT;
-let lastUpdate: DetectionUpdate | null = null;
-let missingPermissions: string[] = [];
-/**
- * What the last capture found out about system audio, for the next meeting.
- *
- * `null` until something has tried: there is no API that answers "would macOS
- * give this build the loopback tap" without asking for it, so the probe is the
- * attempt and this is its answer. It is deliberately **not** persisted — a
- * signed build installed over an unsigned one would inherit the old answer and
- * never ask again.
- */
-let systemAudioAvailable: boolean | null = null;
-let connecting = false;
-/**
- * The console window and the bridge behind it, when this launch opened one.
- *
- * Both are `null` on a `CONTEXT_DESKTOP_UI=renderer` launch, which is still the
- * default, and every use of them is optional-chained for that reason rather
- * than guarded by the flag a second time.
- */
-let consoleWindow: BrowserWindow | null = null;
-let consoleBridge: ConsoleBridge | null = null;
-/**
- * The address this launch resolved the console to, once it has.
- *
- * Recorded rather than re-derived, because the bug it exists to expose was in
- * the *wiring* and not in `consoleUrl` itself: a signed build resolved
- * `http://localhost:8081` and showed a blank window, and a check that asks
- * `consoleUrl(process.env, app.isPackaged)` a second time would have agreed
- * with itself and reported nothing. This is what the window was actually
- * pointed at.
- */
-let consoleAddress: string | null = null;
-/**
- * The offline mirror, and the authority on which origin is pinned.
- *
- * `null` until a console window is opened, and the bridge reads
- * `pinnedOrigin()` through a getter for it — a shell serving the mirror trusts
- * `app://console` *instead of* the live origin, never as well as it.
- */
-let consoleMirror: ConsoleMirror | null = null;
-/**
- * Resolves once the console window's first navigation has settled — `true` for
- * `did-finish-load`, `false` for a main-frame `did-fail-load` (the mirror or
- * the failure page takes over from there, and this promise does not follow it
- * — that is `consoleMirror.awaitFallback()`'s job, awaited separately by
- * `--smoke-load` once this one resolves `false`).
- *
- * `null` on a launch that never opened a console window at all —
- * `CONTEXT_DESKTOP_UI=renderer`, or a `CONTEXT_DESKTOP_UI_URL` this app
- * refused — which `--smoke-load` reads as "there was nothing to wait for".
- */
-let consoleLoadSettled: Promise<boolean> | null = null;
-
-/**
- * The one navigation this window makes that is neither the console nor the
- * mirror: the loopback address a connect in flight is listening on.
- *
- * Module-level and single, because there is one console window and
- * `connectThisMachine` already refuses to run twice over. It is `null` except
- * between pressing Connect and the grant coming back — `core/shell/approval.ts`
- * is the argument, and `test/approval.test.mjs` is the check.
- */
-const approval = createApprovalRoute();
-
-/**
- * The parked request this machine has handed to the page, while it holds one.
- *
- * Module-level and single for `approval`'s reason — one console window, one
- * connect at a time. `core/shell/autoGrant.ts` is the argument and
- * `test/autoGrant.test.mjs` is the check.
- */
-const handover = createApprovalHandover();
-
-let connectError: string | null = null;
 
 
 async function main(): Promise<void> {
@@ -241,10 +155,13 @@ async function main(): Promise<void> {
   */
   if (RENDERER_UI) app.dock?.hide();
   else installApplicationMenu();
+  // The state every function below shares, created once for this launch.
+  // See `main/context.ts`.
+  const ctx = createMainContext();
 
   const store = new DesktopStore(app.getPath("userData"));
-  settings = await store.readSettings();
-  outbox = await store.readOutbox();
+  ctx.settings = await store.readSettings();
+  ctx.outbox = await store.readOutbox();
   /*
     A `finalize` that was already stuck when this launch's queue was written to
     disk is handled the moment it is read back, not thirty seconds from now on
@@ -254,7 +171,7 @@ async function main(): Promise<void> {
     pass, so this is belt-and-braces for the one case that matters most —
     nobody watching the tray between a crash and the next launch.
   */
-  outbox = recoverStaleFinalize(outbox, Date.now());
+  ctx.outbox = recoverStaleFinalize(ctx.outbox, Date.now());
   /*
     And any words this queue is holding for the wrong meeting go here, once,
     on the way in. `queueWrite` refuses them on every enqueue from now on, but
@@ -264,13 +181,13 @@ async function main(): Promise<void> {
     rows is not the same act as dropping a transcript.
   */
   {
-    const purged = dropMisaddressed(outbox);
+    const purged = dropMisaddressed(ctx.outbox);
     if (purged.dropped > 0) {
       console.warn(`meeting_segments_misaddressed_dropped rows=${purged.dropped}`);
     }
-    outbox = purged.outbox;
+    ctx.outbox = purged.outbox;
   }
-  void store.writeOutbox(outbox);
+  void store.writeOutbox(ctx.outbox);
 
   /*
     The credential, and the one place it lives.
@@ -330,15 +247,15 @@ async function main(): Promise<void> {
   const localAgent = createLocalAgent({
     scratchRoot: app.getPath("userData"),
     claudePath: () => claudeBinary,
-    endpoint: () => settings.gatewayEndpoint,
+    endpoint: () => ctx.settings.gatewayEndpoint,
     token: () => tokens.read(),
   });
   const imessage = new ImessageSyncService({
     store,
     connection,
-    settings: () => settings,
+    settings: () => ctx.settings,
     onChange: (status) => {
-      consoleBridge?.emitImessage(status);
+      ctx.consoleBridge?.emitImessage(status);
       push();
     },
   });
@@ -364,7 +281,7 @@ async function main(): Promise<void> {
   */
   const capture = FAKE
     ? null
-    : new DesktopCaptureRecorder(RENDERER_DIR, (level) => consoleBridge?.emitLevel(level));
+    : new DesktopCaptureRecorder(RENDERER_DIR, (level) => ctx.consoleBridge?.emitLevel(level));
   const recorder: AudioRecorder = capture ?? fakeRecorder();
   const controller = new MeetingController({
     recorder,
@@ -406,9 +323,9 @@ async function main(): Promise<void> {
         }),
     permissions: electronPermissionBroker(),
     device: { platform: "macos", name: app.getName(), appVersion: app.getVersion() },
-    outbox: () => outbox,
+    outbox: () => ctx.outbox,
     setOutbox: (next) => {
-      outbox = next;
+      ctx.outbox = next;
       void store.writeOutbox(next);
     },
     /*
@@ -434,7 +351,7 @@ async function main(): Promise<void> {
       controller already knows. `capture/desktop.ts` on the other side takes
       these straight into the app's own recorder interface.
     */
-    onSegment: (segment) => consoleBridge?.emitSegment(segment),
+    onSegment: (segment) => ctx.consoleBridge?.emitSegment(segment),
   });
 
   /*
@@ -456,10 +373,10 @@ async function main(): Promise<void> {
   const loop = createDetectionLoop({
     collectors: FAKE ? fixedCollectors({ processes: ["zoom.us"], microphoneInUse: true }) : macosCollectors(),
     detector,
-    blocklist: () => settings.blocklist,
-    enabled: () => settings.detectionEnabled,
+    blocklist: () => ctx.settings.blocklist,
+    enabled: () => ctx.settings.detectionEnabled,
     onUpdate: (update) => {
-      lastUpdate = update;
+      ctx.lastUpdate = update;
       // Counts only, never a calendar name or an event title, and only when
       // there is something to diagnose — a poll where nothing refused says
       // nothing here rather than filling the log with a line every five
@@ -505,9 +422,9 @@ async function main(): Promise<void> {
    * rather than doing nothing at all.
    */
   function showConsoleWindow(): boolean {
-    if (consoleWindow === null || consoleWindow.isDestroyed()) return false;
-    consoleWindow.show();
-    consoleWindow.focus();
+    if (ctx.consoleWindow === null || ctx.consoleWindow.isDestroyed()) return false;
+    ctx.consoleWindow.show();
+    ctx.consoleWindow.focus();
     return true;
   }
 
@@ -520,7 +437,7 @@ async function main(): Promise<void> {
    * request for the window and has nowhere else to go.
    */
   function openConsoleWindow(): boolean {
-    if (consoleWindow === null || consoleWindow.isDestroyed()) openConsoleWindowIfAsked();
+    if (ctx.consoleWindow === null || ctx.consoleWindow.isDestroyed()) openConsoleWindowIfAsked();
     return showConsoleWindow();
   }
 
@@ -622,8 +539,8 @@ async function main(): Promise<void> {
     end: () => void pressed("end", () => endMeeting()),
     connect: () => void connectThisMachine(),
     disconnect: () => void disconnectThisMachine(),
-    toggleDetection: () => void update({ detectionEnabled: !settings.detectionEnabled }),
-    toggleImessage: () => void update({ imessageEnabled: !settings.imessageEnabled }),
+    toggleDetection: () => void update({ detectionEnabled: !ctx.settings.detectionEnabled }),
+    toggleImessage: () => void update({ imessageEnabled: !ctx.settings.imessageEnabled }),
     installUpdate: () => {
       // A stray click cannot install mid-meeting: `install()` re-checks
       // `controller.recording` itself, regardless of what this menu currently
@@ -647,7 +564,7 @@ async function main(): Promise<void> {
    * would show the old state for as long as the network took.
    */
   function pressed(command: TrayCommand, run: () => Promise<unknown>): Promise<unknown> {
-    consoleBridge?.emitTrayCommand(command);
+    ctx.consoleBridge?.emitTrayCommand(command);
     return run();
   }
 
@@ -656,8 +573,8 @@ async function main(): Promise<void> {
     if (view?.state === "failed") return "failed";
     if (view?.state === "finalizing") return "finalizing";
     if (view?.state === "recording" || view?.state === "paused") return "recording";
-    if (lastUpdate?.state.active) return "detected";
-    return settings.detectionEnabled ? "armed" : "idle";
+    if (ctx.lastUpdate?.state.active) return "detected";
+    return ctx.settings.detectionEnabled ? "armed" : "idle";
   }
 
   function uiState(): UiState {
@@ -665,9 +582,9 @@ async function main(): Promise<void> {
     const presentation = trayPresentation({
       state: trayState(),
       elapsedMs: controller.elapsedMs(),
-      title: view?.title ?? lastUpdate?.result.suggestedTitle ?? null,
-      pending: new Set(outbox.entries.map((entry) => entry.sessionId)).size,
-      degraded: lastUpdate?.degraded ?? [],
+      title: view?.title ?? ctx.lastUpdate?.result.suggestedTitle ?? null,
+      pending: new Set(ctx.outbox.entries.map((entry) => entry.sessionId)).size,
+      degraded: ctx.lastUpdate?.degraded ?? [],
     });
     return {
       tray: {
@@ -677,16 +594,16 @@ async function main(): Promise<void> {
         indicator: presentation.indicator,
       },
       detection:
-        lastUpdate && lastUpdate.state.active
+        ctx.lastUpdate && ctx.lastUpdate.state.active
           ? {
               active: true,
-              episode: episodeKey(lastUpdate.state),
-              suggestedTitle: lastUpdate.result.suggestedTitle,
-              sourceLabel: lastUpdate.state.source?.app ?? lastUpdate.state.source?.kind ?? "a meeting",
-              summary: lastUpdate.summary,
-              evidence: lastUpdate.evidence,
-              degradedNotice: lastUpdate.degradedNotice,
-              attendees: lastUpdate.result.suggestedAttendees.length,
+              episode: episodeKey(ctx.lastUpdate.state),
+              suggestedTitle: ctx.lastUpdate.result.suggestedTitle,
+              sourceLabel: ctx.lastUpdate.state.source?.app ?? ctx.lastUpdate.state.source?.kind ?? "a meeting",
+              summary: ctx.lastUpdate.summary,
+              evidence: ctx.lastUpdate.evidence,
+              degradedNotice: ctx.lastUpdate.degradedNotice,
+              attendees: ctx.lastUpdate.result.suggestedAttendees.length,
             }
           : null,
       session: view
@@ -711,10 +628,10 @@ async function main(): Promise<void> {
           }
         : null,
       settings: {
-        askBeforeEveryMeeting: settings.askBeforeEveryMeeting,
-        blocklist: settings.blocklist,
-        captureEnabled: settings.captureEnabled,
-        detectionEnabled: settings.detectionEnabled,
+        askBeforeEveryMeeting: ctx.settings.askBeforeEveryMeeting,
+        blocklist: ctx.settings.blocklist,
+        captureEnabled: ctx.settings.captureEnabled,
+        detectionEnabled: ctx.settings.detectionEnabled,
       },
       connection: {
         state: connection.state(),
@@ -723,7 +640,7 @@ async function main(): Promise<void> {
         // holds its credential for this launch only, and a person who sees the
         // app ask to be connected after every restart is owed the reason.
         encrypted: tokens.encrypted,
-        connecting,
+        connecting: ctx.connecting,
         /*
           The last attempt's failure, or the standing one: a machine connected
           at the narrower tier is a machine holding its meetings, and the reason
@@ -735,13 +652,13 @@ async function main(): Promise<void> {
           when there is one: it is newer and more specific.
         */
         error:
-          connectError ??
+          ctx.connectError ??
           (connection.state() === "connected" && !grantCoversMeetings(connection.scope())
             ? MEETING_TIER_REFUSAL
             : null),
       },
-      pending: new Set(outbox.entries.map((entry) => entry.sessionId)).size,
-      missingPermissions,
+      pending: new Set(ctx.outbox.entries.map((entry) => entry.sessionId)).size,
+      missingPermissions: ctx.missingPermissions,
     };
   }
 
@@ -749,8 +666,8 @@ async function main(): Promise<void> {
     const state = uiState();
     tray.setMenuState({
       recording: controller.recording,
-      detectionEnabled: settings.detectionEnabled,
-      imessageEnabled: settings.imessageEnabled,
+      detectionEnabled: ctx.settings.detectionEnabled,
+      imessageEnabled: ctx.settings.imessageEnabled,
       connected: state.connection.state === "connected",
       updateReady: updater.state === "ready",
     });
@@ -760,7 +677,7 @@ async function main(): Promise<void> {
         elapsedMs: controller.elapsedMs(),
         title: state.session?.title ?? state.detection?.suggestedTitle ?? null,
         pending: state.pending,
-        degraded: lastUpdate?.degraded ?? [],
+        degraded: ctx.lastUpdate?.degraded ?? [],
       }),
     );
     for (const window of [panel, notepad]) {
@@ -776,7 +693,7 @@ async function main(): Promise<void> {
       points at, which is precisely the accident the bridge exists to make
       impossible.
     */
-    consoleBridge?.push({
+    ctx.consoleBridge?.push({
       captureState: captureStateUpdate(),
       connection: { ...state.connection },
       outbox: outboxStatus(),
@@ -785,15 +702,15 @@ async function main(): Promise<void> {
   }
 
   async function update(patch: Partial<DesktopSettings>): Promise<void> {
-    settings = { ...settings, ...patch };
-    await store.writeSettings(settings);
+    ctx.settings = { ...ctx.settings, ...patch };
+    await store.writeSettings(ctx.settings);
     if ("imessageEnabled" in patch) imessage.reconfigure();
     push();
   }
 
   async function onDetection(current: DetectionUpdate): Promise<void> {
     if (current.transition === "cleared") {
-      consent = forgetEpisode(consent, consent.episode);
+      ctx.consent = forgetEpisode(ctx.consent, ctx.consent.episode);
       if (panel !== null && !panel.isDestroyed()) panel.hide();
       push();
       return;
@@ -801,13 +718,13 @@ async function main(): Promise<void> {
 
     const action = decideConsent({
       detector: current.state,
-      consent,
-      settings,
+      consent: ctx.consent,
+      settings: ctx.settings,
       recording: controller.recording,
     });
 
     if (action.kind === "ask") {
-      consent = asked(action.episode);
+      ctx.consent = asked(action.episode);
       showPanel();
     } else if (action.kind === "start") {
       await beginMeeting(action.episode);
@@ -829,14 +746,14 @@ async function main(): Promise<void> {
     id?: string,
     queueWrites = true,
   ): Promise<BeginResult | null> {
-    const detected = manual ? null : lastUpdate;
+    const detected = manual ? null : ctx.lastUpdate;
     if (!manual && !detected) return null;
     // What this machine can actually do right now, in one place. `plan.notice`
     // is the sentence the panel shows when it is less than everything.
     const plan = capturePlan({
-      settings,
+      settings: ctx.settings,
       connected: connection.state() === "connected",
-      systemAudio: systemAudioAvailable,
+      systemAudio: ctx.systemAudioAvailable,
     });
 
     const result = await controller.begin({
@@ -851,7 +768,7 @@ async function main(): Promise<void> {
     });
 
     if (result.ok) {
-      missingPermissions = [];
+      ctx.missingPermissions = [];
       /*
         The probe's answer, recorded for the next meeting.
 
@@ -861,11 +778,11 @@ async function main(): Promise<void> {
         the microphone alone and does not raise Screen Recording again.
       */
       if (capture && plan.channels.includes("system")) {
-        systemAudioAvailable = !capture.degradedChannels().includes("system");
-        if (!systemAudioAvailable) {
+        ctx.systemAudioAvailable = !capture.degradedChannels().includes("system");
+        if (!ctx.systemAudioAvailable) {
           // Re-planned rather than re-worded, so the sentence a person sees is
           // the one `plan.ts` owns and the suite checks.
-          controller.notice(capturePlan({ settings, connected: true, systemAudio: false }).notice);
+          controller.notice(capturePlan({ settings: ctx.settings, connected: true, systemAudio: false }).notice);
         }
       }
       if (panel !== null && !panel.isDestroyed()) panel.hide();
@@ -875,8 +792,8 @@ async function main(): Promise<void> {
     } else if (result.why === "permissions") {
       // Something explains, rather than the app silently doing nothing: the
       // panel where there is one, a message box where there is not.
-      missingPermissions = [...(result.missing ?? [])];
-      logCaptureFailure(`permissions: ${missingPermissions.join(", ") || "none named"}`, null);
+      ctx.missingPermissions = [...(result.missing ?? [])];
+      logCaptureFailure(`permissions: ${ctx.missingPermissions.join(", ") || "none named"}`, null);
       /*
         Branched rather than assembled, so both call sites stay literal reads of
         the closed set — `trayOnly.test.mjs` matches on the shape of the call
@@ -887,7 +804,7 @@ async function main(): Promise<void> {
         question `permissionNotice` asks for the console's throw, written out
         here because the answer has to reach `explain` as a literal.
       */
-      if (missingPermissions.includes("screen")) {
+      if (ctx.missingPermissions.includes("screen")) {
         explain(CONSOLE_NOTICES.screenRecordingPermission);
       } else {
         explain(CONSOLE_NOTICES.microphonePermission);
@@ -896,7 +813,7 @@ async function main(): Promise<void> {
       // Granted, per macOS — the input just would not open in this already-
       // running process. Sending this person to System Settings again would
       // point at a toggle that is already on.
-      missingPermissions = [];
+      ctx.missingPermissions = [];
       logCaptureFailure("stale-permission", result.message ?? null);
       explain(CONSOLE_NOTICES.staleMicrophoneGrant);
     } else if (result.why === "transcriber") {
@@ -906,7 +823,7 @@ async function main(): Promise<void> {
         was answered with "open System Settings and enable the microphone".
         The real text goes to the log; the sentence stays the closed set's.
       */
-      missingPermissions = [];
+      ctx.missingPermissions = [];
       logCaptureFailure("transcriber", result.message ?? null);
       explain(CONSOLE_NOTICES.captureFailed);
     }
@@ -947,17 +864,17 @@ async function main(): Promise<void> {
       says this machine records their meetings; until then the panel says so
       rather than the press doing nothing.
     */
-    if (!settings.captureEnabled) {
+    if (!ctx.settings.captureEnabled) {
       explain(CONSOLE_NOTICES.captureDisabled);
       return;
     }
-    const source = lastUpdate?.state.source ?? null;
-    if (source && isBlockedSource(source, settings.blocklist)) {
+    const source = ctx.lastUpdate?.state.source ?? null;
+    if (source && isBlockedSource(source, ctx.settings.blocklist)) {
       explain(CONSOLE_NOTICES.blocked);
       return;
     }
     const episode = `manual:${Date.now()}`;
-    consent = answered(episode, "granted");
+    ctx.consent = answered(episode, "granted");
     await beginMeeting(episode, true);
   }
 
@@ -981,8 +898,8 @@ async function main(): Promise<void> {
       decided about this meeting, and the decision holds until `since` changes,
       which is a genuinely different meeting.
     */
-    const episode = lastUpdate ? episodeKey(lastUpdate.state) : null;
-    consent = episode === null ? IDLE_CONSENT : answered(episode, "declined");
+    const episode = ctx.lastUpdate ? episodeKey(ctx.lastUpdate.state) : null;
+    ctx.consent = episode === null ? IDLE_CONSENT : answered(episode, "declined");
     push();
     return finished;
   }
@@ -1041,7 +958,7 @@ async function main(): Promise<void> {
       dropped write has already been answered as accepted. So the outcome is
       re-applied to the queue as it is *now*. See `reconcileDrain`.
     */
-    const before = outbox;
+    const before = ctx.outbox;
     const report = await drainOnce(
       before,
       {
@@ -1054,7 +971,7 @@ async function main(): Promise<void> {
       },
       () => Date.now(),
     );
-    outbox = reconcileDrain(before, report.outbox, outbox);
+    ctx.outbox = reconcileDrain(before, report.outbox, ctx.outbox);
     /*
       WHAT THE GATEWAY REFUSED, IN THE LOG, WITH THE REASON IT GAVE.
 
@@ -1079,7 +996,7 @@ async function main(): Promise<void> {
       );
     }
     for (const landed of report.written) notePaths.set(landed.sessionId, landed.notePath);
-    await store.writeOutbox(outbox);
+    await store.writeOutbox(ctx.outbox);
     push();
   }
 
@@ -1112,7 +1029,7 @@ async function main(): Promise<void> {
           // and a locally packaged unsigned build is neither.
           signed: __CONTEXT_DESKTOP_SIGNED__,
           darwinMajor: darwinMajorFrom(release()),
-          probed: systemAudioAvailable,
+          probed: ctx.systemAudioAvailable,
         }),
       mic: canCapture,
       detection: true,
@@ -1156,8 +1073,8 @@ async function main(): Promise<void> {
 
   /** Counts, never contents. What the queue is holding right now. */
   function outboxStatus(): OutboxStatus {
-    const pending = outbox.entries.filter((entry) => entry.state === "pending");
-    const parked = outbox.entries.filter((entry) => entry.state === "parked");
+    const pending = ctx.outbox.entries.filter((entry) => entry.state === "pending");
+    const parked = ctx.outbox.entries.filter((entry) => entry.state === "parked");
     return {
       pending: pending.length,
       parked: parked.length,
@@ -1184,10 +1101,10 @@ async function main(): Promise<void> {
    */
   async function startFromConsole(request: StartCaptureRequest): Promise<CaptureStarted> {
     if (controller.recording) throw new Error(CONSOLE_NOTICES.alreadyRecording);
-    if (!settings.captureEnabled) throw new Error(PLAN_NOTICES.notConnected);
+    if (!ctx.settings.captureEnabled) throw new Error(PLAN_NOTICES.notConnected);
 
-    const source = lastUpdate?.state.source ?? null;
-    if (source && isBlockedSource(source, settings.blocklist)) {
+    const source = ctx.lastUpdate?.state.source ?? null;
+    if (source && isBlockedSource(source, ctx.settings.blocklist)) {
       throw new Error(CONSOLE_NOTICES.blocked);
     }
 
@@ -1203,9 +1120,9 @@ async function main(): Promise<void> {
       on as a typed one, which is what it already does in a browser.
     */
     const plan = capturePlan({
-      settings,
+      settings: ctx.settings,
       connected: connection.state() === "connected",
-      systemAudio: systemAudioAvailable,
+      systemAudio: ctx.systemAudioAvailable,
     });
     const wanted = plan.channels.filter((channel) =>
       channel === "mic" ? request.mic : request.systemAudio,
@@ -1213,7 +1130,7 @@ async function main(): Promise<void> {
     if (wanted.length === 0) throw new Error(plan.notice ?? CONSOLE_NOTICES.nothingToOpen);
 
     const episode = `console:${Date.now()}`;
-    consent = answered(episode, "granted");
+    ctx.consent = answered(episode, "granted");
     const result = await beginMeeting(episode, true, request.sessionId, false);
     if (result === null || !result.ok) {
       /*
@@ -1301,14 +1218,14 @@ async function main(): Promise<void> {
         `meeting_segment_misaddressed to=${write.sessionId} from=${foreign.join(",")} kind=${write.kind}`,
       );
     }
-    outbox = queueWrite(outbox, {
+    ctx.outbox = queueWrite(ctx.outbox, {
       sessionId: write.sessionId,
       kind: write.kind,
       body: write.body,
       context: write.context,
       now: Date.now(),
     });
-    await store.writeOutbox(outbox);
+    await store.writeOutbox(ctx.outbox);
     push();
 
     /*
@@ -1335,7 +1252,7 @@ async function main(): Promise<void> {
     if (urgency === "await") await drain();
     else if (urgency === "now") void drain();
 
-    const parked = outbox.entries.find(
+    const parked = ctx.outbox.entries.find(
       (entry) => entry.sessionId === write.sessionId && entry.state === "parked",
     );
     if (parked) {
@@ -1353,7 +1270,7 @@ async function main(): Promise<void> {
     const notePath = notePaths.get(write.sessionId) ?? null;
     return {
       sessionId: write.sessionId,
-      queued: outbox.entries.some((entry) => entry.sessionId === write.sessionId),
+      queued: ctx.outbox.entries.some((entry) => entry.sessionId === write.sessionId),
       notePath,
       rejected: null,
     };
@@ -1391,7 +1308,7 @@ async function main(): Promise<void> {
       // What the queue is *still* holding for this meeting after the drain
       // `endMeeting` already ran. The page reads it to say "queued" rather than
       // "saved", which is the rule `docs/decisions/app-and-console.md` states.
-      pending: outbox.entries.filter((entry) => entry.sessionId === finished.id).length,
+      pending: ctx.outbox.entries.filter((entry) => entry.sessionId === finished.id).length,
     };
     return { ...lastCaptureSummary };
   }
@@ -1423,10 +1340,10 @@ async function main(): Promise<void> {
       console.error(`CONTEXT_DESKTOP_UI=console, but ${(error as Error).message}`);
       return;
     }
-    consoleAddress = url;
+    ctx.consoleAddress = url;
 
     const origin = consoleOrigin(url);
-    consoleMirror = createConsoleMirror({
+    ctx.consoleMirror = createConsoleMirror({
       liveUrl: url,
       liveOrigin: origin,
       userDataDir: app.getPath("userData"),
@@ -1436,7 +1353,7 @@ async function main(): Promise<void> {
       session: session.fromPartition("persist:console"),
     });
 
-    consoleBridge = createConsoleBridge({
+    ctx.consoleBridge = createConsoleBridge({
       ipc: ipcMain,
       /*
         Read on every channel rather than captured once: the pin moves to
@@ -1444,8 +1361,8 @@ async function main(): Promise<void> {
         bridge holding the origin it was built with would answer the wrong one
         in both directions.
       */
-      pinned: () => consoleMirror?.pinnedOrigin() ?? origin,
-      window: () => consoleWindow,
+      pinned: () => ctx.consoleMirror?.pinnedOrigin() ?? origin,
+      window: () => ctx.consoleWindow,
       shell: () => ({ app: app.getName(), version: app.getVersion(), platform: "macos" }),
       capabilities: shellCapabilities,
       startCapture: startFromConsole,
@@ -1476,7 +1393,7 @@ async function main(): Promise<void> {
       connect: () => void connectThisMachine(),
       disconnect: () => void disconnectThisMachine(),
       pendingApproval: () => {
-        const pending = handover.pending();
+        const pending = ctx.handover.pending();
         return pending === null ? null : { requestId: pending.requestId };
       },
       resolveApproval: (result) => answerFromConsole(result),
@@ -1486,7 +1403,7 @@ async function main(): Promise<void> {
       imessage: () => imessage.status(),
       setImessageEnabled: (enabled) => void update({ imessageEnabled: enabled }),
       requestImessageFullDiskAccess: async () => {
-        const parent = consoleWindow === null || consoleWindow.isDestroyed() ? null : consoleWindow;
+        const parent = ctx.consoleWindow === null || ctx.consoleWindow.isDestroyed() ? null : ctx.consoleWindow;
         const answer = await askSomething(parent, {
           type: "info",
           title: "Allow iMessage import",
@@ -1503,12 +1420,12 @@ async function main(): Promise<void> {
       askLocalAgent: (request) => localAgent.ask(request),
     });
 
-    consoleWindow = createConsoleWindow(url, RENDERER_DIR, {
-      approvalCallback: () => approval.callback(),
+    ctx.consoleWindow = createConsoleWindow(url, RENDERER_DIR, {
+      approvalCallback: () => ctx.approval.callback(),
     });
     // Before the load can finish or fail: the mirror owns `did-fail-load`, and
     // a fallback wired after the first load is a fallback that misses it.
-    consoleMirror.attach(consoleWindow);
+    ctx.consoleMirror.attach(ctx.consoleWindow);
     /*
       Registered here, at creation, rather than wherever `--smoke-load` reads
       it: the window's `loadURL` is already under way inside
@@ -1518,8 +1435,8 @@ async function main(): Promise<void> {
       the mirror or the failure page is the fallback taking over and is
       deliberately not what this promise reports.
     */
-    const settlingWindow = consoleWindow;
-    consoleLoadSettled = new Promise<boolean>((resolveSettled) => {
+    const settlingWindow = ctx.consoleWindow;
+    ctx.consoleLoadSettled = new Promise<boolean>((resolveSettled) => {
       let settled = false;
       const finish = (loaded: boolean): void => {
         if (settled) return;
@@ -1535,8 +1452,8 @@ async function main(): Promise<void> {
       );
       settlingWindow.once("closed", () => finish(false));
     });
-    consoleWindow.once("ready-to-show", () => consoleWindow?.show());
-    consoleWindow.on("closed", () => {
+    ctx.consoleWindow.once("ready-to-show", () => ctx.consoleWindow?.show());
+    ctx.consoleWindow.on("closed", () => {
       /*
         The window is gone, so the channels go with it.
 
@@ -1545,10 +1462,10 @@ async function main(): Promise<void> {
         everything is a surface that looks answered and is not. The bridge is
         rebuilt with the window if one is ever opened again.
       */
-      consoleWindow = null;
-      consoleBridge?.dispose();
-      consoleBridge = null;
-      consoleMirror = null;
+      ctx.consoleWindow = null;
+      ctx.consoleBridge?.dispose();
+      ctx.consoleBridge = null;
+      ctx.consoleMirror = null;
     });
   }
 
@@ -1557,13 +1474,13 @@ async function main(): Promise<void> {
   ipcMain.on(COMMANDS.accept, (_event, episode: string) => {
     // See the header: an answer to a meeting that is over is not consent for
     // the one that is happening now.
-    const current = lastUpdate ? episodeKey(lastUpdate.state) : null;
+    const current = ctx.lastUpdate ? episodeKey(ctx.lastUpdate.state) : null;
     if (current === null || current !== episode) return;
-    consent = answered(episode, "granted");
+    ctx.consent = answered(episode, "granted");
     void pressed("accept", () => beginMeeting(episode));
   });
   ipcMain.on(COMMANDS.decline, (_event, episode: string) => {
-    consent = answered(episode, "declined");
+    ctx.consent = answered(episode, "declined");
     panel?.hide();
     push();
   });
@@ -1587,8 +1504,8 @@ async function main(): Promise<void> {
   /** The console window, when this launch has a live one. `null` otherwise. */
   function liveConsoleWindow(): BrowserWindow | null {
     try {
-      if (consoleWindow === null || consoleWindow.isDestroyed()) return null;
-      return consoleWindow;
+      if (ctx.consoleWindow === null || ctx.consoleWindow.isDestroyed()) return null;
+      return ctx.consoleWindow;
     } catch {
       // A window torn down between the two reads. No window is the honest
       // answer, and it puts the approval back in the system browser.
@@ -1613,7 +1530,7 @@ async function main(): Promise<void> {
    */
   async function approveInConsoleWindow(href: string): Promise<boolean> {
     const win = liveConsoleWindow();
-    if (win === null || consoleAddress === null) return false;
+    if (win === null || ctx.consoleAddress === null) return false;
     const target = approvalTargetFor(href);
     if (target === null) return false;
 
@@ -1623,9 +1540,9 @@ async function main(): Promise<void> {
     } catch {
       from = "";
     }
-    const authorize = approval.begin(
+    const authorize = ctx.approval.begin(
       target,
-      returnAfterApproval(from, consoleAddress, consoleOrigin(consoleAddress)),
+      returnAfterApproval(from, ctx.consoleAddress, consoleOrigin(ctx.consoleAddress)),
     );
     try {
       await win.loadURL(authorize);
@@ -1673,7 +1590,7 @@ async function main(): Promise<void> {
    */
   async function askConsoleToApprove(href: string, target: ApprovalTarget): Promise<boolean> {
     const win = liveConsoleWindow();
-    if (win === null || consoleAddress === null || consoleBridge === null) return false;
+    if (win === null || ctx.consoleAddress === null || ctx.consoleBridge === null) return false;
 
     let parked: string | null = null;
     try {
@@ -1681,7 +1598,7 @@ async function main(): Promise<void> {
       if (isParkingRedirect(response.status)) {
         parked = parkedRequestFrom(
           response.headers.get("location") ?? "",
-          consoleOrigin(consoleAddress),
+          consoleOrigin(ctx.consoleAddress),
         );
       }
     } catch {
@@ -1709,14 +1626,14 @@ async function main(): Promise<void> {
       navigation this feature makes, and it is bounded by exactly the rule
       #312's approve screen was.
     */
-    approval.begin(target, returnAfterApproval(from, consoleAddress, consoleOrigin(consoleAddress)));
-    handover.begin({ requestId: parked, authorize: target.authorize });
-    consoleBridge.emitPendingApproval({ requestId: parked });
+    ctx.approval.begin(target, returnAfterApproval(from, ctx.consoleAddress, consoleOrigin(ctx.consoleAddress)));
+    ctx.handover.begin({ requestId: parked, authorize: target.authorize });
+    ctx.consoleBridge.emitPendingApproval({ requestId: parked });
     // The window is not navigated and not raised: the person is already looking
     // at the console, and this is meant to be a thing that happened rather than
     // a thing they were interrupted by.
     setTimeout(() => {
-      const stale = handover.take(parked);
+      const stale = ctx.handover.take(parked);
       if (stale === null) return;
       // Nobody answered. That is a page that could not, so the person gets the
       // screen — the same one they would have got before any of this existed.
@@ -1738,9 +1655,9 @@ async function main(): Promise<void> {
    * screen rather than a dead end.
    */
   function answerFromConsole(result: MachineApprovalResult): void {
-    const pending = handover.take(result.requestId);
+    const pending = ctx.handover.take(result.requestId);
     if (pending === null) return;
-    consoleBridge?.emitPendingApproval(null);
+    ctx.consoleBridge?.emitPendingApproval(null);
     if (result.approved) return;
     void fallBackToApproveScreen(pending.authorize);
   }
@@ -1756,7 +1673,7 @@ async function main(): Promise<void> {
    * survives a request nobody answers.
    */
   async function fallBackToApproveScreen(href: string): Promise<void> {
-    consoleBridge?.emitPendingApproval(null);
+    ctx.consoleBridge?.emitPendingApproval(null);
     if (await approveInConsoleWindow(href)) return;
     await openInSystemBrowser(href).catch(() => {
       // A machine whose browser will not open is a real case. The URL was
@@ -1780,9 +1697,9 @@ async function main(): Promise<void> {
       button whose only outcome is a refusal. Both are idempotent, so every
       path out of `connectThisMachine` can call this.
     */
-    handover.end();
-    consoleBridge?.emitPendingApproval(null);
-    const back = approval.end();
+    ctx.handover.end();
+    ctx.consoleBridge?.emitPendingApproval(null);
+    const back = ctx.approval.end();
     if (back === null) return;
     const win = liveConsoleWindow();
     if (win === null) return;
@@ -1811,12 +1728,12 @@ async function main(): Promise<void> {
    * both the dialog and the browser.
    */
   async function connectThisMachine(): Promise<void> {
-    if (connecting) return;
-    connecting = true;
-    connectError = null;
+    if (ctx.connecting) return;
+    ctx.connecting = true;
+    ctx.connectError = null;
     push();
     try {
-      if (liveConsoleWindow() === null || consoleAddress === null) {
+      if (liveConsoleWindow() === null || ctx.consoleAddress === null) {
         // A sheet on the window when there is one — see `explain()` for why a
         // parentless `showMessageBox` stops the whole main process. Reached
         // with a live window whenever `consoleAddress` is the half that is
@@ -1824,7 +1741,7 @@ async function main(): Promise<void> {
         const answer = await askSomething(liveConsoleWindow(), {
           type: "question",
           title: "Connect this machine",
-          message: `Connect this machine to ${settings.gatewayEndpoint}`,
+          message: `Connect this machine to ${ctx.settings.gatewayEndpoint}`,
           detail:
             "Your browser will open so you can approve this machine. It is registered as its own connection, so you can revoke this laptop on its own — and it asks only for what a meeting needs: to write notes, at your own privacy tier.",
           buttons: ["Open my browser", "Cancel"],
@@ -1835,7 +1752,7 @@ async function main(): Promise<void> {
       }
 
       const record = await connectMachine({
-        endpoint: settings.gatewayEndpoint,
+        endpoint: ctx.settings.gatewayEndpoint,
         log: (message) => console.log(message),
         openBrowser: async (href) => {
           /*
@@ -1891,12 +1808,12 @@ async function main(): Promise<void> {
       // Whatever the queue is holding has been waiting for exactly this.
       await drain();
     } catch (error) {
-      connectError = error instanceof Error ? error.message : "the connection could not be completed";
+      ctx.connectError = error instanceof Error ? error.message : "the connection could not be completed";
     } finally {
       // Before `push()`, so the console the window is being returned to draws
       // the state this connect ended in rather than the one it started from.
       endApproval();
-      connecting = false;
+      ctx.connecting = false;
       push();
     }
   }
@@ -1915,7 +1832,7 @@ async function main(): Promise<void> {
    * land in the bucket.
    */
   async function askAboutTranscription(): Promise<void> {
-    if (settings.transcription === "cloud") return;
+    if (ctx.settings.transcription === "cloud") return;
     // A sheet on the console window when there is one. This runs at the end of
     // a connect, so the queue behind it may already be holding meetings — and
     // an application-modal alert would stop the drain that is about to send
@@ -1942,7 +1859,7 @@ async function main(): Promise<void> {
    */
   async function disconnectThisMachine(): Promise<void> {
     await connection.disconnect();
-    connectError = null;
+    ctx.connectError = null;
     await update({ gatewayBaseUrl: null });
   }
 
@@ -2028,16 +1945,16 @@ async function main(): Promise<void> {
       that actually waits, up to `SMOKE_LOAD_DEADLINE_MS`, for the first
       navigation to settle one way or the other.
     */
-    let loaded = consoleWindow !== null && !consoleWindow.webContents.isLoading();
-    if (SMOKE_LOAD && consoleLoadSettled !== null) {
+    let loaded = ctx.consoleWindow !== null && !ctx.consoleWindow.webContents.isLoading();
+    if (SMOKE_LOAD && ctx.consoleLoadSettled !== null) {
       loaded = await Promise.race([
-        consoleLoadSettled,
+        ctx.consoleLoadSettled,
         new Promise<boolean>((resolveTimedOut) => setTimeout(() => resolveTimedOut(false), SMOKE_LOAD_DEADLINE_MS)),
       ]);
       // A load that succeeded triggers `consoleMirror`'s own snapshot inside its
       // `did-finish-load` handler; give that its own `await`s before asking what
       // it wrote, or this would be asking the question before the write ran.
-      if (loaded) await consoleMirror?.awaitSnapshot();
+      if (loaded) await ctx.consoleMirror?.awaitSnapshot();
       /*
         A load that *failed* triggers the mirror's own fallback navigation
         inside its `did-fail-load` handler, and that navigation is still
@@ -2046,7 +1963,7 @@ async function main(): Promise<void> {
         below trustworthy: without it, an offline launch would ask "did the
         window end up on `app://console`" before it had.
       */
-      if (!loaded) await consoleMirror?.awaitFallback();
+      if (!loaded) await ctx.consoleMirror?.awaitFallback();
     }
 
     /*
@@ -2057,7 +1974,7 @@ async function main(): Promise<void> {
       holding right now, which on an offline `--smoke-load` may be a mirror a
       *previous* run wrote rather than one this launch just made.
     */
-    const mirroredManifest = consoleMirror?.currentManifest() ?? null;
+    const mirroredManifest = ctx.consoleMirror?.currentManifest() ?? null;
     const snapshotIndexType = mirroredManifest?.entries[mirroredManifest.index]?.contentType ?? null;
     const snapshotIsHtmlDocument =
       snapshotIndexType === null ? null : snapshotIndexType.toLowerCase().startsWith("text/html");
@@ -2068,7 +1985,7 @@ async function main(): Promise<void> {
       settled, so this is the URL the window actually committed to rather than
       the one it was mid-navigation toward.
     */
-    const mirrorServed = wasMirrorServed(consoleWindow?.webContents.getURL() ?? "", snapshotIsHtmlDocument);
+    const mirrorServed = wasMirrorServed(ctx.consoleWindow?.webContents.getURL() ?? "", snapshotIsHtmlDocument);
 
     console.log(
       `[smoke] ${JSON.stringify({
@@ -2080,7 +1997,7 @@ async function main(): Promise<void> {
         trayBounds: tray.bounds(),
         dock: app.dock?.isVisible() ? "visible" : "hidden",
         menuRoles,
-        consoleUrl: consoleAddress,
+        consoleUrl: ctx.consoleAddress,
         /*
           The `__dirname` change that came with building this entry as CommonJS,
           checked rather than assumed: an empty `RENDERER_DIR` is a window that
@@ -2127,7 +2044,7 @@ async function main(): Promise<void> {
       The harness asserts it where there is a real desktop to ask.
     */
     if (CONSOLE_UI) {
-      const wrongAddress = unexpectedConsoleAddress(process.env, app.isPackaged, consoleAddress);
+      const wrongAddress = unexpectedConsoleAddress(process.env, app.isPackaged, ctx.consoleAddress);
       if (wrongAddress !== null) return endSmoke(1, wrongAddress);
 
       /*

@@ -316,7 +316,7 @@ export function runAppShellChecks(check) {
     const smoke = source.match(/if \(SMOKE\) \{[\s\S]*?\n  \}\n\}/)?.[0] ?? "";
     check(
       "`--smoke` EXITS NON-ZERO ON AN ADDRESS THAT DISAGREES WITH `app.isPackaged`",
-      /unexpectedConsoleAddress\(process\.env, app\.isPackaged, consoleAddress\)/.test(smoke) &&
+      /unexpectedConsoleAddress\(process\.env, app\.isPackaged, ctx\.consoleAddress\)/.test(smoke) &&
         /endSmoke\(1, wrongAddress\)/.test(smoke),
     );
     check(
@@ -355,20 +355,20 @@ export function runAppShellChecks(check) {
     check(
       "THE `[smoke]` REPORT SAYS WHETHER THE CONSOLE LOADED, NOT ONLY WHETHER A WINDOW EXISTS",
       /loaded,/.test(smoke) &&
-        /let loaded = consoleWindow !== null && !consoleWindow\.webContents\.isLoading\(\);/.test(smoke),
+        /let loaded = ctx\.consoleWindow !== null && !ctx\.consoleWindow\.webContents\.isLoading\(\);/.test(smoke),
     );
     check(
       "`--smoke-load` WAITS FOR THE CONSOLE'S FIRST NAVIGATION TO SETTLE, RATHER THAN GUESSING",
-      /if \(SMOKE_LOAD && consoleLoadSettled !== null\) \{/.test(smoke) &&
-        /Promise\.race\(\[\s*consoleLoadSettled,/.test(smoke),
+      /if \(SMOKE_LOAD && ctx\.consoleLoadSettled !== null\) \{/.test(smoke) &&
+        /Promise\.race\(\[\s*ctx\.consoleLoadSettled,/.test(smoke),
     );
     check(
       "...and only then asks the mirror what it wrote — after `awaitSnapshot`, not before it",
-      /if \(loaded\) await consoleMirror\?\.awaitSnapshot\(\);/.test(smoke),
+      /if \(loaded\) await ctx\.consoleMirror\?\.awaitSnapshot\(\);/.test(smoke),
     );
     check(
       "...and, on a failed load, waits for the fallback navigation too, before reading the window's own URL",
-      /if \(!loaded\) await consoleMirror\?\.awaitFallback\(\);/.test(smoke),
+      /if \(!loaded\) await ctx\.consoleMirror\?\.awaitFallback\(\);/.test(smoke),
     );
     check(
       "THE REPORT NAMES THE FACT THIS FIX IS ABOUT: WHETHER THE MIRROR'S OWN INDEX IS text/html",
@@ -387,7 +387,7 @@ export function runAppShellChecks(check) {
     */
     check(
       "THE REPORT ALSO NAMES WHETHER THE WINDOW ENDED ON A USABLE MIRROR",
-      /const mirrorServed = wasMirrorServed\(\s*consoleWindow\?\.webContents\.getURL\(\) \?\? "",\s*snapshotIsHtmlDocument,?\s*\);/.test(
+      /const mirrorServed = wasMirrorServed\(\s*ctx\.consoleWindow\?\.webContents\.getURL\(\) \?\? "",\s*snapshotIsHtmlDocument,?\s*\);/.test(
         smoke,
       ) && /mirrorServed,/.test(smoke),
     );

@@ -268,7 +268,7 @@ export async function runApprovalChecks(check) {
   );
   check(
     "the console window is created with the allowance wired to it",
-    /createConsoleWindow\(url, RENDERER_DIR, \{\s*approvalCallback: \(\) => approval\.callback\(\),/.test(
+    /createConsoleWindow\(url, RENDERER_DIR, \{\s*approvalCallback: \(\) => ctx\.approval\.callback\(\),/.test(
       index,
     ),
   );

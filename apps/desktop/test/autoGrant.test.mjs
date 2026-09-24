@@ -265,21 +265,21 @@ export async function runAutoGrantChecks(check) {
   );
   check(
     "...and the page is told the approval is over at the same moment",
-    /handover\.end\(\);\s*consoleBridge\?\.emitPendingApproval\(null\);/.test(index),
+    /handover\.end\(\);\s*ctx\.consoleBridge\?\.emitPendingApproval\(null\);/.test(index),
   );
   check(
     "the page's answer is only ever about the request this machine parked",
-    /const pending = handover\.take\(result\.requestId\);\s*if \(pending === null\) return;/.test(index),
+    /const pending = ctx\.handover\.take\(result\.requestId\);\s*if \(pending === null\) return;/.test(index),
   );
   check(
     "A PAGE THAT NEVER ANSWERS FALLS BACK RATHER THAN WAITING OUT THE LISTENER",
-    /setTimeout\(\(\) => \{\s*const stale = handover\.take\(parked\);[\s\S]{0,320}fallBackToApproveScreen\(stale\.authorize\);/.test(
+    /setTimeout\(\(\) => \{\s*const stale = ctx\.handover\.take\(parked\);[\s\S]{0,320}fallBackToApproveScreen\(stale\.authorize\);/.test(
       index,
     ),
   );
   check(
     "the parked request is read only from the origin this window is pinned to",
-    /parkedRequestFrom\(\s*response\.headers\.get\("location"\) \?\? "",\s*consoleOrigin\(consoleAddress\),\s*\)/.test(
+    /parkedRequestFrom\(\s*response\.headers\.get\("location"\) \?\? "",\s*consoleOrigin\(ctx\.consoleAddress\),\s*\)/.test(
       index,
     ),
   );
