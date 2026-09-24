@@ -18,9 +18,7 @@
  */
 
 import { BrowserWindow, Menu, Notification, app, dialog, ipcMain, session, shell } from "electron";
-import type { MessageBoxOptions, MessageBoxReturnValue } from "electron";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { release } from "node:os";
 import { createDetectionLoop, loadDetector } from "../core/detection/loop.ts";
 import type { DetectionUpdate } from "../core/detection/loop.ts";
@@ -41,7 +39,6 @@ import type { BeginResult, SessionView } from "../core/recording/controller.ts";
 import { fakeTranscriber } from "../core/capture/transcriber.ts";
 import { gatewayTranscriber, speechEvidenceLine } from "../core/capture/gatewayTranscriber.ts";
 import { PLAN_NOTICES, capturePlan } from "../core/capture/plan.ts";
-import type { PermissionKind } from "../core/capture/permissions.ts";
 import { fakeRecorder } from "../core/capture/recorder.ts";
 import type { AudioRecorder } from "../core/capture/recorder.ts";
 import { DesktopCaptureRecorder } from "./capture.ts";
@@ -77,8 +74,6 @@ import { trayPresentation } from "../core/tray/presentation.ts";
 import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
 import { DesktopUpdater } from "./updater.ts";
-import type { ManualUpdateCheckOutcome } from "./updater.ts";
-import { INSTALL_REFUSED_PROMPT, updateCheckPrompt } from "../core/update/prompt.ts";
 import {
   createConsoleWindow,
   createNotepad,
@@ -90,7 +85,6 @@ import {
 import {
   consoleOrigin,
   consoleUrl,
-  desktopUiMode,
   unexpectedConsoleAddress,
 } from "../core/shell/console.ts";
 import { smokeLoadFailure, wasMirrorServed } from "../core/shell/mirror.ts";
@@ -123,178 +117,23 @@ import type {
   TrayCommand,
 } from "@context/desktop-bridge";
 import { CHANNELS, COMMANDS } from "./ipc.ts";
+import {
+  CONSOLE_UI,
+  EFFECTIVE_SMOKE_DEADLINE_MS,
+  FAKE,
+  RENDERER_DIR,
+  RENDERER_UI,
+  SMOKE,
+  SMOKE_LOAD,
+  SMOKE_LOAD_DEADLINE_MS,
+  endSmoke,
+} from "./launchFlags.ts";
+import { CONSOLE_NOTICES, logCaptureFailure, permissionNotice } from "./notices.ts";
+import { askSomething, showNativeNotification, showUpdateCheckMessage } from "./dialogs.ts";
+import { installApplicationMenu, setCheckForUpdatesFromMenu } from "./appMenu.ts";
 import type { UiState } from "./ipc.ts";
 import { DEFAULT_SETTINGS } from "../core/settings.ts";
 import type { DesktopSettings } from "../core/settings.ts";
-
-/** `--fake-signals` runs the whole app against the deterministic collectors. */
-const FAKE = process.argv.includes("--fake-signals");
-/**
- * `--smoke` starts the app, says what it found, and exits with a verdict.
- *
- * The only test scaffolding in this process, and it is here because the
- * alternative shipped: a build that threw `Dynamic require of "events"` from
- * the first line of the bundle went out signed, notarised and stapled through
- * 922 passing checks, because nothing in this repository had ever *started* it.
- *
- * **The contract the release workflow depends on is the exit code**, so it is
- * stated here rather than left to a harness:
- *
- *  - **0** — the app initialised, a window was created, one `[smoke]` line was
- *    printed, **and every defect this flag exists for was checked**: the
- *    renderer directory resolved, the console window was pointed at the address
- *    this launch should resolve, and the application menu carries the clipboard
- *    and undo roles. Nothing else exits 0.
- *  - **non-zero** — no window was created, the renderer directory is missing,
- *    the console address disagrees with `app.isPackaged`, the application menu
- *    is missing a role, an uncaught exception or rejection reached the top, or
- *    `main()` did not finish inside {@link SMOKE_DEADLINE_MS}.
- *  - **it always ends.** The deadline is armed before `whenReady`, so a hung
- *    launch fails rather than holding a release job open.
- *
- * It needs **no network**. The assertion is that the console window was
- * *created*, not that the page loaded: on a runner nothing answers the console
- * address, the mirror serves its failure page, and a check that waited for a
- * load would be a check that fails on every machine that is not a laptop.
- * Checked rather than assumed, because the rejection handler below would
- * otherwise turn a runner's own dead network into a failed smoke run: pointed
- * at an unresolvable host, `createConsoleWindow`'s `void win.loadURL(url)`
- * produces an Electron *warning* — `Failed to load URL … ERR_NAME_NOT_RESOLVED`
- * — and no unhandled rejection.
- *
- * The one thing it cannot cover is stated rather than papered over: the crash
- * this exists for threw while the module graph was still evaluating, before any
- * line of this file ran, so no handler installed here could have caught it.
- * What Electron does then is print `App threw an error during load`, raise a
- * modal dialog, and wait forever. So the caller must impose its own limit —
- * `test/launch.smoke.mjs` kills the process, and the release step wraps the run
- * in `timeout`. The deadline below covers everything *after* load.
- *
- * A flag on `process.argv` rather than an environment variable, for the same
- * reason `--fake-signals` above is one: it cannot be inherited by accident from
- * whatever launched this, and a packaged `.app` double-clicked from the Dock
- * carries no arguments at all.
- */
-const SMOKE = process.argv.includes("--smoke") || process.argv.includes("--smoke-load");
-/**
- * `--smoke-load` is `--smoke` that also waits for the console to really load.
- *
- * Plain `--smoke` deliberately proves *the window was created*, not that the
- * page loaded — that is the whole point of its own docblock, and it is why
- * the release gate can run with no network at all. But that same honesty
- * meant `--smoke`'s report always said `loaded: false`, which is not a lie —
- * it never waited to find out — and it is also not the check that would have
- * caught the console being refused by its own `Cache-Control: private`, which
- * the release gate's offline runner could never have seen either way.
- *
- * So this is a second, opt-in flag for a machine with real network: it waits
- * for the console window's first navigation to settle — loaded or failed,
- * {@link SMOKE_LOAD_DEADLINE_MS} either way — then, if it failed, waits for the
- * mirror's own fallback navigation to settle too, and reports `loaded`,
- * `mirrorServed` and `snapshotIsHtmlDocument`.
- *
- * **The exit code is `loaded || mirrorServed`, not `loaded` alone.** A launch
- * with no network that lands on a good `app://console` mirror is the offline
- * story working as designed, not a degraded pass — and the earlier rule, which
- * failed on `!loaded` before it ever asked about the mirror, could not tell
- * "no network" from "broken app": the exact false positive a mirror exists to
- * answer. `smokeLoadFailure` in `core/shell/mirror.ts` is the one place that
- * rule is stated.
- *
- * **The release gate keeps using plain `--smoke`**: a runner's network is not
- * part of what that gate promises, and a `--smoke-load` run failing because a
- * CI runner has no route to `context.lc` would be exactly the false alarm
- * `SMOKE_DEADLINE_MS`'s own docblock already argues against. This flag is for
- * a person, on a real machine, online and then offline — the two runs
- * `docs/decisions/desktop.md` asks for after a signed build.
- */
-const SMOKE_LOAD = process.argv.includes("--smoke-load");
-/** How long `--smoke-load` waits for the console's first navigation to settle. */
-const SMOKE_LOAD_DEADLINE_MS = 30_000;
-
-/**
- * The whole of a `--smoke` run, from module evaluation to the exit code.
- *
- * **Thirty seconds and not ten**, and the widening is the review's, not the
- * author's. The only measurement anyone has is `EXIT=0 ELAPSED_MS=12217` for a
- * packaged launch on an M2 Pro — wall clock from `spawn` to exit, which is
- * Gatekeeper's first-launch assessment plus Electron's own startup plus this
- * app's, with no way to read off how much of it was inside this timer. A budget
- * that a good launch on the fastest hardware in the story finished somewhere
- * inside is a budget a cold CI runner loses, and what that failure looks like
- * is a **red release on a working build** — the one outcome a gate must not
- * produce, because the response to it is to stop trusting the gate.
- *
- * Nothing is weakened by the larger number: the promise is *that a smoke run
- * ends*, which holds at any finite value, and the layer above keeps its own
- * harder kill for the crash this one cannot see — the release step and
- * `test/launch.smoke.mjs` both stop the process themselves at sixty seconds.
- */
-const SMOKE_DEADLINE_MS = 30_000;
-/**
- * The deadline actually armed below.
- *
- * A `--smoke-load` run has its own wait — up to {@link SMOKE_LOAD_DEADLINE_MS}
- * for the console to settle, plus whatever `awaitSnapshot()` takes — layered
- * *inside* the ordinary smoke path rather than replacing it. Arming the
- * ordinary {@link SMOKE_DEADLINE_MS} underneath that would end the run with
- * "nothing finished within 30000ms" while `--smoke-load` was still waiting on
- * purpose, which is a false alarm about the same shape `SMOKE_DEADLINE_MS`'s
- * own widening already argues against. So `--smoke-load` gets both budgets,
- * back to back, as one outer limit.
- */
-const EFFECTIVE_SMOKE_DEADLINE_MS = SMOKE_LOAD ? SMOKE_DEADLINE_MS + SMOKE_LOAD_DEADLINE_MS : SMOKE_DEADLINE_MS;
-
-/**
- * Say why, and stop — never `app.quit()`.
- *
- * `quit()` runs `before-quit`, which this app legitimately cancels while a
- * meeting is recording, and a smoke run that can be refused is a smoke run that
- * hangs. `exit()` is unconditional and carries the code, which is the contract.
- *
- * It returns, and every caller must `return` with it. `app.exit()` tears the
- * process down but does **not** stop the frame that called it, and the first
- * version of this function ended in `throw new Error("unreachable")` on that
- * assumption: the throw ran, the handlers below caught it, called back in here,
- * and a passing smoke run exited **7**. The launch check found that within a
- * minute of existing, which is the argument for it in one line.
- */
-function endSmoke(code: number, why: string): void {
-  console.log(`[smoke] ${why}`);
-  app.exit(code);
-}
-/**
- * Which UI this shell hosts, and **the default is now the console**.
- *
- * `docs/decisions/desktop.md`'s step 4: the window hosts `apps/mobile`'s web
- * build, so a screen ships with the web deploy and reaches a browser, a phone
- * and this Mac at once. `CONTEXT_DESKTOP_UI=renderer` puts the panel and the
- * notepad back, which is what makes this step revertible by one environment
- * variable — step 5 deletes them, and it waits on a Mac.
- *
- * In console mode the panel and the notepad are **not created at all** rather
- * than created and hidden. Two UIs answering the same meeting is worse than
- * either: a popover asking "take notes?" over a console that is already showing
- * the detection is two consents for one meeting, and whichever is pressed the
- * other is stale. What replaces them is stated where it happens — the tray
- * raises the console window, and the detection reaches the page through the
- * bridge's `onDetection` rather than through a popover.
- */
-const UI_MODE = desktopUiMode(process.env);
-const CONSOLE_UI = UI_MODE === "console";
-const RENDERER_UI = UI_MODE === "renderer";
-/**
- * Where the preloads and the renderer's HTML are, relative to the bundle.
- *
- * `__dirname` and not `import.meta.dirname`, because `scripts/build.mjs` builds
- * this entry as **CommonJS** — see the long comment there for why an ESM main
- * process shipped an app that could not start. In a CJS build esbuild warns
- * about `import.meta` and then empties it, which would make every preload path
- * relative to the process's working directory: a window that loads, looks
- * right, and has no bridge on it. `--smoke` reports whether this directory
- * exists so that failure is loud rather than silent.
- */
-const RENDERER_DIR = join(__dirname, "..", "renderer");
 
 let settings: DesktopSettings = DEFAULT_SETTINGS;
 let outbox: Outbox = emptyOutbox();
@@ -375,247 +214,6 @@ const handover = createApprovalHandover();
 
 let connectError: string | null = null;
 
-/**
- * Everything this file may put in front of a person that `plan.ts` does not
- * already own, and the whole of it.
- *
- * Read by the bridge's answers *and* — since the panel stopped existing on a
- * default launch — by `explain()`, which is the tray's way of saying why a
- * press did nothing.
- *
- * The same closed-set rule as `PLAN_NOTICES` and the phone's
- * `CAPTURE_MESSAGES`: a sentence assembled from an upstream error is how a
- * channel name or a fragment of a payload ends up on somebody's screen.
- */
-const CONSOLE_NOTICES = Object.freeze({
-  alreadyRecording: "This machine is already recording a meeting.",
-  notTaken: "Your context would not take this meeting from this machine.",
-  blocked:
-    "You asked this app never to record the app you are in, so it did not start. Change that in the menu bar if you meant to.",
-  /*
-    ONE SENTENCE PER PERMISSION, AND THE ONE THAT IS SAID NAMES ITSELF.
-
-    There used to be a single `permissions` sentence, and it named the
-    microphone — because the microphone is the usual answer, not because
-    anything had been read. `outcome.missing` has always known which permission
-    macOS actually refused, and the only renderer that ever printed the other
-    name was the panel (`renderer/panel.ts`, "Screen Recording"), which is
-    `null` on a default launch. So the console blamed the microphone whatever
-    happened, including for a permission the person had never been asked about.
-
-    `permissionNotice` picks from these by name. Both keys stay even though
-    `CAPTURE_NEEDS` no longer asks for Screen Recording: `PermissionKind` still
-    has two members, `missing` is still typed as a list of them, and a sentence
-    that exists is what makes putting the permission back a one-line change.
-  */
-  microphonePermission:
-    "macOS has not granted this app the microphone yet, so nothing was recorded. Open System Settings → Privacy & Security → Microphone, enable Context, and record again.",
-  screenRecordingPermission:
-    "macOS has not granted this app Screen Recording yet, so nothing was recorded. Open System Settings → Privacy & Security → Screen Recording, enable Context, and record again.",
-  /*
-    Distinct from the two above on purpose: those mean macOS refused the
-    request; this one means macOS already granted it and the input still would
-    not open. Found on real hardware — the microphone was granted mid-run, but
-    the already-running process kept behaving on the answer it saw the first
-    time it asked. Telling that person to open System Settings again sends
-    them to a toggle that is already on, so the recovery here is the one that
-    actually works: quit and relaunch.
-  */
-  staleMicrophoneGrant:
-    "Quit and reopen Context to pick up the microphone permission.",
-  captureFailed:
-    "The Context app on this machine could not open an input, so this meeting is typed. Your notes still land in your bucket.",
-  nothingToOpen:
-    "There is nothing for this machine to record, so this meeting is typed. Your notes still land in your bucket.",
-  captureDisabled:
-    "This machine is not recording meetings yet. Connect it from the menu bar — that dialog is where you say this machine may record, and it is what turns recording on.",
-  noConsole:
-    "This machine could not open its window, so the menu bar is the whole app for now. Recording still works from here, and anything it records is queued until it can be sent.",
-});
-
-/**
- * The sentence for a permission macOS actually refused, chosen by its name.
- *
- * Reads `outcome.missing` rather than assuming, which is the whole point: the
- * app may say "permissions" only where a permission really was read as denied,
- * and when it says it, it has to be able to say which. An empty list is not a
- * permission problem at all and gets the generic sentence, because claiming one
- * with nothing to name is the failure this function exists to stop.
- */
-function permissionNotice(missing: readonly PermissionKind[]): string {
-  if (missing.includes("screen")) return CONSOLE_NOTICES.screenRecordingPermission;
-  if (missing.includes("microphone")) return CONSOLE_NOTICES.microphonePermission;
-  return CONSOLE_NOTICES.captureFailed;
-}
-
-/**
- * What actually went wrong, on a line somebody can read.
- *
- * Nothing in `apps/desktop/src` logged a capture failure at all: the shell
- * caught a `BeginResult` that was not ok, substituted a sentence from the
- * closed set, and dropped the real text on the floor. That is why "system audio
- * has never worked on this machine" was invisible for as long as it was — the
- * only trace of it anywhere was two `UnhandledPromiseRejectionWarning` lines
- * from Electron's internals, which name Chromium's problem rather than ours.
- *
- * The person still sees a closed-set sentence; this is the other half of the
- * split, and it is the half that was missing. Same `[subsystem] …` shape as
- * `main/consoleMirror.ts` and the updater.
- */
-function logCaptureFailure(why: string, message: string | null): void {
-  console.error(`[capture] a meeting could not start (${why})${message === null ? "" : `: ${message}`}`);
-}
-
-/**
- * Ask a question in a **window sheet**, and only fall back to an alert.
- *
- * `dialog.showMessageBox(options)` without a `browserWindow` is
- * application-modal on macOS: `-[NSAlert runModal]` spins its own run loop and
- * the main process stops — measured on the live app, 1374 of 1374 samples on
- * `-[NSApplication runModalForWindow:]`. Nothing drains, nothing finalizes, no
- * IPC is answered, for as long as the box is up. Passing the parent makes it
- * document-modal instead: it hangs off the window's title bar and the process
- * keeps running behind it.
- *
- * A question needs an answer, so unlike `explain()` this cannot degrade to a
- * notification — a tray-only launch with no window still gets the alert. That
- * is the one remaining blocking box in this file, it is on the connect path
- * rather than the capture path, and it is waiting on a person either way.
- */
-function askSomething(
-  parent: BrowserWindow | null,
-  options: MessageBoxOptions,
-): Promise<MessageBoxReturnValue> {
-  return parent === null ? dialog.showMessageBox(options) : dialog.showMessageBox(parent, options);
-}
-
-/**
- * The application menu, because this is an application.
- *
- * There was none: `Menu.setApplicationMenu` was never called, and a menu-bar-only
- * build did not need one — an accessory app shows no menu bar, so there was
- * nothing to put in it. That stopped being true twice over. The console hosts a
- * *text editor*, and a window with no Edit menu has no Cmd-C, Cmd-V, Cmd-X,
- * Cmd-Z or Cmd-A, because on macOS those are menu key equivalents and nothing
- * else. And a window that Cmd-W cannot close, or that Cmd-Q cannot quit, is not
- * a Mac app.
- *
- * Every item is a `role`, which is deliberate: a role is macOS's own behaviour
- * with macOS's own accelerator and macOS's own localisation, and each one this
- * file spelled out by hand would be a keystroke somebody has to keep working.
- * The *View* menu carries reload and nothing else — a window pinned to one
- * origin has one page to reload, and `toggleDevTools` in a shipped build is a
- * console on somebody's private notes.
- *
- * `close` and not `quit` on Cmd-W is the whole of "closing the window must not
- * end a meeting": `window-all-closed` below refuses to quit, the tray stays,
- * and a recording in progress runs on in this process with no window at all.
- */
-let checkForUpdatesFromMenu = () => {
-  console.log("[update] manual check requested before updater startup finished.");
-  void showUpdateCheckMessage({ type: "not-started" });
-};
-
-function showNativeNotification(body: string): void {
-  if (Notification.isSupported()) new Notification({ title: "Context", body }).show();
-}
-
-/**
- * Show the outcome of a manual check, and let the person act on it.
- *
- * The dialog used to be one *OK* button whatever it said — including on
- * *"Update ready. Version 0.1.44 is ready to install."*, which named an action
- * and then offered no way to take it; the only route was a *Restart to update*
- * item in the menu bar the dialog never mentioned. `updateCheckPrompt()` now
- * decides the buttons, and `installButton` is the one index this function will
- * turn into an install.
- *
- * `install` is `DesktopUpdater.install()`, which asks `mayInstall()` and
- * re-reads `controller.recording` at the moment of the click — so a meeting
- * that started while this box was open refuses the press rather than tearing
- * itself down, and says so.
- */
-async function showUpdateCheckMessage(
-  outcome: ManualUpdateCheckOutcome,
-  install: () => boolean = () => false,
-): Promise<void> {
-  const prompt = updateCheckPrompt(outcome);
-  const { installButton, ...options } = prompt;
-  const parent = liveFocusedWindow();
-  const answer = await askSomething(parent, { ...options, title: "Check for Updates" });
-  if (installButton === null || answer.response !== installButton) return;
-  if (!install()) sayInstallRefused();
-}
-
-/**
- * *Restart Now* pressed into a refusal, because a meeting started while the box
- * was open.
- *
- * A **notification** and not a second alert when there is no window to hang a
- * sheet off: `askSomething`'s header measured what a parentless
- * `showMessageBox` does — `-[NSAlert runModal]` spins its own run loop and this
- * process stops, draining nothing — and the one moment that must never happen
- * is the one this branch is reached in, with a recording running.
- */
-function sayInstallRefused(): void {
-  const { message, detail } = INSTALL_REFUSED_PROMPT;
-  const parent = liveFocusedWindow();
-  if (parent === null) {
-    showNativeNotification(`${message} ${detail}`);
-    return;
-  }
-  void askSomething(parent, {
-    type: INSTALL_REFUSED_PROMPT.type,
-    title: "Check for Updates",
-    message,
-    detail,
-    buttons: INSTALL_REFUSED_PROMPT.buttons,
-  });
-}
-
-function liveFocusedWindow(): BrowserWindow | null {
-  const parent = BrowserWindow.getFocusedWindow();
-  return parent === null || parent.isDestroyed() ? null : parent;
-}
-
-function installApplicationMenu(): void {
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      {
-        label: app.getName(),
-        submenu: [
-          { role: "about" },
-          { label: "Check for Updates...", click: () => checkForUpdatesFromMenu() },
-          { type: "separator" },
-          { role: "hide" },
-          { role: "hideOthers" },
-          { role: "unhide" },
-          { type: "separator" },
-          { role: "quit" },
-        ],
-      },
-      {
-        label: "Edit",
-        submenu: [
-          { role: "undo" },
-          { role: "redo" },
-          { type: "separator" },
-          { role: "cut" },
-          { role: "copy" },
-          { role: "paste" },
-          { role: "pasteAndMatchStyle" },
-          { role: "delete" },
-          { role: "selectAll" },
-        ],
-      },
-      { label: "View", submenu: [{ role: "reload" }, { type: "separator" }, { role: "togglefullscreen" }] },
-      {
-        label: "Window",
-        submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "close" }],
-      },
-    ]),
-  );
-}
 
 async function main(): Promise<void> {
   /*
@@ -974,7 +572,7 @@ async function main(): Promise<void> {
     if (Notification.isSupported()) new Notification({ title: "Context", body: sentence }).show();
   }
 
-  checkForUpdatesFromMenu = () => {
+  const checkForUpdatesFromMenu = () => {
     const result = updater.checkNow();
     push();
     // `install()` is handed to the dialog rather than called for it: the
@@ -992,6 +590,7 @@ async function main(): Promise<void> {
     showNativeNotification("Checking for updates...");
     void result.outcome.then((outcome) => showUpdateCheckMessage(outcome, installNow));
   };
+  setCheckForUpdatesFromMenu(checkForUpdatesFromMenu);
 
   const tray = new AppTray({
     togglePanel: (bounds) => {

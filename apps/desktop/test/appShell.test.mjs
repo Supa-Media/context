@@ -110,6 +110,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { readMainSource, readMainWiring } from "./mainWiring.mjs";
 
 /**
  * Source with its comments removed, so a rule is matched against code.
@@ -144,6 +145,14 @@ export function withoutYamlComments(source) {
 export function runAppShellChecks(check) {
   const raw = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
   const source = withoutComments(raw);
+  // What `index.ts` used to hold, each subject in the module that holds it now,
+  // and `wiring` — all of them — for the checks that sweep the whole surface.
+  // See `mainWiring.mjs`.
+  const flagsSource = withoutComments(readMainSource("launchFlags.ts"));
+  const noticesSource = withoutComments(readMainSource("notices.ts"));
+  const dialogsSource = withoutComments(readMainSource("dialogs.ts"));
+  const menuSource = withoutComments(readMainSource("appMenu.ts"));
+  const wiring = withoutComments(readMainWiring());
   const consoleRaw = readFileSync(new URL("../src/core/shell/console.ts", import.meta.url), "utf8");
   const consoleSource = withoutComments(consoleRaw);
   const updaterRaw = readFileSync(new URL("../src/main/updater.ts", import.meta.url), "utf8");
@@ -189,7 +198,7 @@ export function runAppShellChecks(check) {
   );
   check(
     "AN APPLICATION MENU IS INSTALLED IN CONSOLE MODE",
-    /Menu\.setApplicationMenu\(/.test(source) && /else installApplicationMenu\(\);/.test(source),
+    /Menu\.setApplicationMenu\(/.test(menuSource) && /else installApplicationMenu\(\);/.test(source),
   );
   {
     /*
@@ -197,7 +206,7 @@ export function runAppShellChecks(check) {
       Cmd-A are menu key equivalents and nothing else — with no Edit menu they
       are dead keys, in a window somebody is typing a meeting note into.
     */
-    const menu = source.match(/function installApplicationMenu\(\)[\s\S]*?\n\}/)?.[0] ?? "";
+    const menu = menuSource.match(/function installApplicationMenu\(\)[\s\S]*?\n\}/)?.[0] ?? "";
     const roles = [...menu.matchAll(/role: "([a-zA-Z]+)"/g)].map((match) => match[1]);
     check(
       "THE EDIT MENU CARRIES THE CLIPBOARD AND UNDO ROLES",
@@ -219,7 +228,7 @@ export function runAppShellChecks(check) {
   check(
     "THE CHECK-FOR-UPDATES MENU COMMAND CALLS THE UPDATER AND SHOWS A NATIVE RESULT",
     /let checkForUpdatesFromMenu = \(\) => \{[\s\S]*?showUpdateCheckMessage\(\{ type: "not-started" \}\)[\s\S]*?\};/.test(
-      source,
+      menuSource,
     ) &&
       /checkForUpdatesFromMenu = \(\) => \{[\s\S]*?const result = updater\.checkNow\(\);[\s\S]*?push\(\);[\s\S]*?showUpdateCheckMessage\(result\.outcome, installNow\)[\s\S]*?showNativeNotification\("Checking for updates\.\.\."\)[\s\S]*?result\.outcome\.then\(\(outcome\) => showUpdateCheckMessage\(outcome, installNow\)\)/.test(
         source,
@@ -284,7 +293,7 @@ export function runAppShellChecks(check) {
   );
   check(
     "...and by nothing named NODE_ENV, which nothing in this repository sets",
-    source.includes("NODE_ENV") === false && consoleSource.includes("NODE_ENV") === false,
+    wiring.includes("NODE_ENV") === false && consoleSource.includes("NODE_ENV") === false,
   );
 
   /* --- the gate itself: `--smoke`'s exit code has to carry the verdict ----- */
@@ -322,13 +331,13 @@ export function runAppShellChecks(check) {
     );
     check(
       "A HUNG LAUNCH ENDS ITSELF, SO A RELEASE JOB IS NEVER HELD OPEN",
-      /const SMOKE_DEADLINE_MS = \d[\d_]*;/.test(source) &&
+      /const SMOKE_DEADLINE_MS = \d[\d_]*;/.test(flagsSource) &&
         /setTimeout\(\s*\(\) => endSmoke\(1, [^)]*\),\s*EFFECTIVE_SMOKE_DEADLINE_MS,?\s*\);/.test(source),
     );
     check(
       "...and `--smoke-load` gets its own wait layered on top, not instead of it",
       /const EFFECTIVE_SMOKE_DEADLINE_MS = SMOKE_LOAD \? SMOKE_DEADLINE_MS \+ SMOKE_LOAD_DEADLINE_MS : SMOKE_DEADLINE_MS;/.test(
-        source,
+        flagsSource,
       ),
     );
 
@@ -427,7 +436,7 @@ export function runAppShellChecks(check) {
     second list.
   */
   {
-    const notices = source.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
+    const notices = noticesSource.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
     check("THE CLOSED SET OF CONSOLE NOTICES IS FOUND AT ALL", notices !== "");
 
     // Every key that talks about a permission macOS gates behind TCC —
@@ -471,7 +480,7 @@ export function runAppShellChecks(check) {
     person back to a System Settings toggle that is already on.
   */
   {
-    const notices = source.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
+    const notices = noticesSource.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
     const stale = notices.match(/(\w+):\s*\n?\s*"((?:[^"\\]|\\.)*Quit and reopen(?:[^"\\]|\\.)*)"/);
     check("THE STALE-GRANT SENTENCE EXISTS IN THE CLOSED SET", stale !== null);
     check(
@@ -486,7 +495,7 @@ export function runAppShellChecks(check) {
     check(
       "THE CONSOLE ROUTES A STALE GRANT TO ITS OWN SENTENCE rather than the generic 'not granted' one",
       typeof staleKey === "string" &&
-        (source.match(new RegExp(`CONSOLE_NOTICES\\.${staleKey}\\b`, "g")) ?? []).length >= 2,
+        (wiring.match(new RegExp(`CONSOLE_NOTICES\\.${staleKey}\\b`, "g")) ?? []).length >= 2,
     );
   }
 
@@ -501,13 +510,13 @@ export function runAppShellChecks(check) {
     default launch. So the console blamed the microphone whatever happened.
   */
   {
-    const notices = source.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
+    const notices = noticesSource.match(/const CONSOLE_NOTICES = Object\.freeze\(\{[\s\S]*?\n\}\);/)?.[0] ?? "";
     check(
       "THE CLOSED SET HAS A SENTENCE PER PERMISSION, one of which names Screen Recording",
       /microphonePermission:\s*\n?\s*"(?:[^"\\]|\\.)*Microphone(?:[^"\\]|\\.)*"/.test(notices) &&
         /screenRecordingPermission:\s*\n?\s*"(?:[^"\\]|\\.)*Screen Recording(?:[^"\\]|\\.)*"/.test(notices),
     );
-    const refusal = source.match(/} else if \(result\.why === "permissions"\) \{[\s\S]*?\n {4}\} else if/)?.[0] ?? "";
+    const refusal = wiring.match(/} else if \(result\.why === "permissions"\) \{[\s\S]*?\n {4}\} else if/)?.[0] ?? "";
     check(
       "THE SENTENCE IS CHOSEN FROM `missing`, NOT DEFAULTED TO THE MICROPHONE",
       /missingPermissions\.includes\("screen"\)/.test(refusal) &&
@@ -516,8 +525,8 @@ export function runAppShellChecks(check) {
     );
     check(
       "...and the console's own refusal asks the same question rather than inventing a second",
-      /permissionNotice\(result\.missing \?\? \[\]\)/.test(source) &&
-        /function permissionNotice\(missing: readonly PermissionKind\[\]\): string \{/.test(source),
+      /permissionNotice\(result\.missing \?\? \[\]\)/.test(wiring) &&
+        /function permissionNotice\(missing: readonly PermissionKind\[\]\): string \{/.test(noticesSource),
     );
   }
 
@@ -537,10 +546,10 @@ export function runAppShellChecks(check) {
     check(
       "A CAPTURE FAILURE IS WRITTEN DOWN WITH ITS REAL TEXT",
       /function logCaptureFailure\(why: string, message: string \| null\): void \{\s*console\.error\(/.test(
-        source,
-      ) && (source.match(/logCaptureFailure\(/g) ?? []).length >= 5,
+        noticesSource,
+      ) && (wiring.match(/logCaptureFailure\(/g) ?? []).length >= 5,
     );
-    const engine = source.match(/} else if \(result\.why === "transcriber"\) \{[\s\S]*?\n {4}\}/)?.[0] ?? "";
+    const engine = wiring.match(/} else if \(result\.why === "transcriber"\) \{[\s\S]*?\n {4}\}/)?.[0] ?? "";
     check(
       "AN ENGINE THAT FAILED IS EXPLAINED AS AN ENGINE, not as a permission",
       engine !== "" &&
@@ -566,7 +575,7 @@ export function runAppShellChecks(check) {
     all: `explain` degrades to a `Notification`, which never blocks.
   */
   {
-    const explainBody = source.match(/function explain\(sentence: string\): void \{[\s\S]*?\n {2}\}/)?.[0] ?? "";
+    const explainBody = wiring.match(/function explain\(sentence: string\): void \{[\s\S]*?\n {2}\}/)?.[0] ?? "";
     check("THE `explain` BODY IS FOUND AT ALL", explainBody !== "");
     check(
       "A SENTENCE IS SHOWN AS A WINDOW SHEET, never as an application-modal alert",
@@ -579,7 +588,7 @@ export function runAppShellChecks(check) {
         /console\.error\(`\[shell\] \$\{sentence\}`\)/.test(explainBody),
     );
 
-    const asker = source.match(/function askSomething\([\s\S]*?\n\}/)?.[0] ?? "";
+    const asker = dialogsSource.match(/function askSomething\([\s\S]*?\n\}/)?.[0] ?? "";
     check(
       "A QUESTION IS ASKED THROUGH ONE PLACE, which passes the parent when there is one",
       /return parent === null \? dialog\.showMessageBox\(options\) : dialog\.showMessageBox\(parent, options\);/.test(
@@ -588,7 +597,7 @@ export function runAppShellChecks(check) {
     );
     check(
       "...and both remaining questions go through it",
-      (source.match(/await askSomething\(liveConsoleWindow\(\), \{/g) ?? []).length === 2,
+      (wiring.match(/await askSomething\(liveConsoleWindow\(\), \{/g) ?? []).length === 2,
     );
     /*
       The whole-file sweep, because the defect is an *omitted argument* and a
@@ -596,7 +605,7 @@ export function runAppShellChecks(check) {
       Three calls remain in the file: `explain`'s sheet and `askSomething`'s two
       arms, so everything outside those two bodies must have none.
     */
-    const elsewhere = source.replace(explainBody, "").replace(asker, "");
+    const elsewhere = wiring.replace(explainBody, "").replace(asker, "");
     check(
       "NO OTHER CALL SITE OPENS A MESSAGE BOX, so a fourth cannot omit its window quietly",
       explainBody !== "" && asker !== "" && /dialog\.showMessageBox/.test(elsewhere) === false,
