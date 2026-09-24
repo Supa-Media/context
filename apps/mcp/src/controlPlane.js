@@ -955,6 +955,24 @@ export function createControlPlane(env, options = {}) {
     },
 
     /**
+     * Say that this context's file tree changed, and which audiences —
+     * `private`, `team`, `@name` — could see the change. Labels and an id and
+     * nothing else: no path, no count, no content (non-negotiable #1). The
+     * control plane takes the timestamp itself. See `announceTreeChange`.
+     *
+     * @param {string} workspaceId
+     * @param {string[]} audiences
+     */
+    async reportTreeChange(workspaceId, audiences) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      const labels = Array.isArray(audiences)
+        ? audiences.filter((audience) => typeof audience === "string").slice(0, 64)
+        : [];
+      if (labels.length === 0) return null;
+      return await post("/gateway/tree", { workspaceId, audiences: labels });
+    },
+
+    /**
      * That a form took an answer, and who the block says to tell.
      *
      * **Identifiers only.** No field values, no submitter, no timestamp — the

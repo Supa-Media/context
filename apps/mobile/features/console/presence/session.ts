@@ -200,11 +200,44 @@ function applyFrame(state: PresenceState, frame: ServerFrame): PresenceState {
  * ordinary cause is the five-minute reauthorization close, where the right
  * answer is "reconnect now".
  */
-export function reconnectDelayMs(attempts: number): number {
-  if (attempts <= 1) return 250;
-  const backoff = 250 * 2 ** (attempts - 1);
-  return backoff > 30_000 ? 30_000 : backoff;
+export function reconnectDelayMs(attempts: number, jitter = 1): number {
+  const base = attempts <= 1 ? 250 : Math.min(250 * 2 ** (attempts - 1), 30_000);
+  /*
+    Between half the step and the whole of it. A gateway deploy or a network
+    blip drops every open console at the same instant, and without the spread
+    they all come back on the same tick, every tick of the curve.
+  */
+  const spread = Math.min(Math.max(jitter, 0), 1);
+  return Math.round(base * (0.5 + 0.5 * spread));
 }
+
+/**
+ * How long one attempt — mint, handshake and welcome together — may take
+ * before it is abandoned and retried. Long enough for a slow phone network,
+ * well inside the minute somebody will stare at "Reconnecting" before
+ * reloading.
+ */
+export const CONNECT_DEADLINE_MS = 20_000;
+
+/** How often an open socket pings the gateway, which answers every ping. */
+export const HEARTBEAT_MS = 15_000;
+
+/**
+ * Pings, sent on time, that may go unanswered. The last is a probe: it gets
+ * `PROBE_GRACE_MS` to be answered before the OPEN socket is treated as dead.
+ */
+export const MISSED_HEARTBEATS = 3;
+
+/** How long a probed socket — the last heartbeat, or one checked on return to
+ * the app — has to say anything at all. */
+export const PROBE_GRACE_MS = 5_000;
+
+/**
+ * Sockets that close before opening, in a row, before the credential is
+ * replaced once. One is ordinary network noise; two with no welcome between
+ * them is worth one mint, and never more than one per run of failures.
+ */
+export const REFRESH_AFTER_UNOPENED = 2;
 
 /** What the header says. Empty when there is nothing worth saying. */
 export function presenceSummary(state: PresenceState): string {
