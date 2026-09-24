@@ -241,6 +241,10 @@ checked is not a guard.**
 - **Sabotage-test rather than trusting a green run**: break the invariant
   deliberately and confirm the right tests fail.
 - **Small, tested increments.** Atomic commits; describe *why*.
+- **No handwritten file over 1,000 lines.** Check a file's size before adding
+  to it, extract a cohesive responsibility first, and run `pnpm architecture`
+  before calling work done. See
+  [repository-and-review](./docs/decisions/repository-and-review.md).
 - **No secrets** in source, Markdown, logs, URLs, or customer buckets.
 - **Structured logs** carry request, workspace and grant identifiers, never
   secrets and never note content.
