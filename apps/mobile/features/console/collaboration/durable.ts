@@ -48,7 +48,11 @@ export interface CollaborationResponse {
 }
 
 export interface CollaborationTransport {
-  mint: () => Promise<string>;
+  /**
+   * A bearer for the gateway. `rejected` names a token the gateway just
+   * refused, so the shared cache replaces it once rather than on every call.
+   */
+  mint: (rejected?: string) => Promise<string>;
   request: (token: string, body: { path: string; documentId?: string; update?: string; replacement?: { expectedEtag: string; text: string } }) => Promise<CollaborationResponse>;
 }
 
@@ -223,6 +227,8 @@ export class DurableCollaborationController {
   private stopped = false;
   private flushing = false;
   private persistFailed = false;
+  private reading: Promise<void> | null = null;
+  private readAgain = false;
   private readonly liveListeners = new Set<(frame: LiveUpdate) => void>();
 
   constructor(options: DurableControllerOptions) {
@@ -451,7 +457,7 @@ export class DurableCollaborationController {
     }
     const expectedBaseEtag = recovery.baseEtag;
     try {
-      const response = await this.options.transport.request(await this.options.transport.mint(), {
+      const response = await this.send({
         path: this.options.path,
         replacement: { expectedEtag: expectedBaseEtag, text: recovery.desired },
       });
@@ -552,7 +558,31 @@ export class DurableCollaborationController {
     }, delay);
   }
 
+  /**
+   * One read at a time. Focus, a reconnect and the periodic repair can all ask
+   * within the same second; the answer to all of them is the next read that
+   * starts after they asked, so one follow-up read covers every caller that
+   * arrived while one was already in flight.
+   */
   private async readRemote(): Promise<void> {
+    if (this.reading !== null) {
+      this.readAgain = true;
+      return this.reading;
+    }
+    this.reading = (async () => {
+      try {
+        do {
+          this.readAgain = false;
+          await this.readRemoteOnce();
+        } while (this.readAgain && !this.stopped);
+      } finally {
+        this.reading = null;
+      }
+    })();
+    return this.reading;
+  }
+
+  private async readRemoteOnce(): Promise<void> {
     if (this.stopped || this.statusState === "revoked") return;
     if (this.record.recovery !== undefined) {
       await this.replaceRecovery();
@@ -563,7 +593,7 @@ export class DurableCollaborationController {
       return;
     }
     try {
-      const response = await this.options.transport.request(await this.options.transport.mint(), {
+      const response = await this.send({
         path: this.options.path,
       });
       if (this.stopped || this.isRevokedState()) return;
@@ -597,7 +627,7 @@ export class DurableCollaborationController {
     } catch (error) {
       if (this.isRevoked(error)) this.emit("revoked");
       else if (this.isUnavailable(error)) this.emit("unavailable");
-      else this.emit(this.record.pending.length > 0 ? "offline" : "error");
+      else this.emit(this.record.pending.length > 0 || this.isRetryable(error) ? "offline" : "error");
     }
   }
 
@@ -616,7 +646,7 @@ export class DurableCollaborationController {
       let last: unknown;
       for (let attempt = 0; attempt < RETRIES.length + 1; attempt += 1) {
         try {
-          response = await this.options.transport.request(await this.options.transport.mint(), {
+          response = await this.send({
             path: this.options.path,
             ...(this.record.documentId === null ? {} : { documentId: this.record.documentId }),
             update,
@@ -668,8 +698,33 @@ export class DurableCollaborationController {
     }
   }
 
+  /**
+   * One authorized request, with at most one credential refresh.
+   *
+   * The console's grant is shared by the editor, presence and the agent, and
+   * minting for this instance revokes the token minted before it. So a 401 is
+   * usually a token another consumer rotated — or one that expired on the
+   * server first — not a revocation. Treating it as terminal is what stranded
+   * a note on "access revoked" when presence refreshed its credential. A 401
+   * with the replacement, or a 403, is the gateway's real answer.
+   */
+  private async send(body: Parameters<CollaborationTransport["request"]>[1]): Promise<CollaborationResponse> {
+    const token = await this.options.transport.mint();
+    try {
+      return await this.options.transport.request(token, body);
+    } catch (error) {
+      if (!(error instanceof Error && error.message === "401") || this.stopped) throw error;
+      return await this.options.transport.request(await this.options.transport.mint(token), body);
+    }
+  }
+
   private isRetryable(error: unknown): boolean {
-    return error instanceof TypeError || (error instanceof Error && (/^5\d\d$/.test(error.message) || error.message === "404"));
+    return error instanceof TypeError || (error instanceof Error && (
+      /^5\d\d$/.test(error.message) || error.message === "404" ||
+      // A mint that never answered was bounded by the grant cache; nothing
+      // refused this note, so the queued edits wait for the next attempt.
+      error.name === "GrantTimeoutError"
+    ));
   }
 
   private isRevokedState(): boolean {
