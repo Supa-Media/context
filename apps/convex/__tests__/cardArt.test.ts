@@ -102,7 +102,7 @@ describe("the embedded font is the font", () => {
  */
 describe("the card wears the app's palette", () => {
   const tokens = readFileSync(
-    repoFile("apps/mobile/features/design/tokens.ts"),
+    repoFile("apps/mobile/features/design/tokens/colors.ts"),
     "utf8",
   );
   const darkBlock = tokens.slice(
