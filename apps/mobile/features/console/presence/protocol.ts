@@ -447,6 +447,15 @@ export function clampToDocument(value: number, length: number): number {
 }
 
 /**
+ * The close code the gateway sends when this member may not be in the room.
+ *
+ * Mirrors `CLOSE_REFUSED` in `apps/mcp/src/presenceRoom.js`. Final: retrying
+ * cannot change the answer, and a refreshed credential must never be used to
+ * try, because refreshing is not how access is regained.
+ */
+export const CLOSE_REFUSED = 4003;
+
+/**
  * The presence socket's URL for one note.
  *
  * The token goes in the path, as `/t/<token>/presence`, because a browser

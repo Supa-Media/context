@@ -467,7 +467,7 @@ export function timestampSlug(now: number): string {
 /*                              the privacy state                             */
 /* -------------------------------------------------------------------------- */
 
-interface PrivacyState {
+export interface PrivacyState {
   rules: PrivacyRule[];
   overrides: Map<string, Visibility>;
   /** The manifest's full text, when there is a parseable one to rewrite. */
@@ -844,9 +844,30 @@ export interface ManifestEntry {
   readOnly: boolean;
 }
 
+/**
+ * One folder the caller may see, with its own default — the row `listFolder`
+ * would draw for it, and the `folderDefault` a listing of it would carry.
+ */
+export interface ManifestFolder {
+  path: string;
+  visibility: Visibility;
+}
+
 export interface SyncManifest {
   /** In the store's key order. */
   entries: ManifestEntry[];
+  /**
+   * Every folder this page's keys live under that `listFolder` would draw for
+   * this caller, the root (`""`) first, so a client can draw the whole tree
+   * from the manifest and open a folder without asking for it.
+   *
+   * Derived from **every** key the page walked, hidden ones included, and kept
+   * by exactly `listFolder`'s test (`folderVisibleAtScope`) — so it names a
+   * folder whose visible notes are all further down, and an empty folder a
+   * tool made with a marker key, and it names no folder a listing would not.
+   * A folder can appear on more than one page; the client unions them.
+   */
+  folders: ManifestFolder[];
   /**
    * Call again with this to get what follows; `null` when nothing does.
    *
@@ -917,7 +938,13 @@ export async function syncManifest(
   const pageEntries = options.pageEntries ?? MANIFEST_PAGE_ENTRIES;
   const state = await loadPrivacyState(store);
   const manifestUsable = state.text !== null && !state.invalid;
-  const short = (): SyncManifest => ({ entries: [], cursor: null, truncated: true, manifestUsable });
+  const short = (): SyncManifest => ({
+    entries: [],
+    folders: [],
+    cursor: null,
+    truncated: true,
+    manifestUsable,
+  });
 
   const entries: ManifestEntry[] = [];
   const seenKeys = new Set<string>();
@@ -926,12 +953,37 @@ export async function syncManifest(
   let previous: string | undefined;
   let token: string | undefined;
 
+  /*
+    The folders, by `listFolder`'s own test and nothing else. A folder is
+    asked about once however many keys live under it, and the walk up stops at
+    the first ancestor already asked about, because that one's ancestors were
+    asked about with it. The root is always drawn, so it is always here.
+  */
+  const folders: ManifestFolder[] = [{ path: "", visibility: visibilityOf("", state.rules) }];
+  const askedFolders = new Set<string>([""]);
+  const noteFolders = (key: string) => {
+    let at = key.endsWith("/") ? key.replace(/\/+$/, "") : parentOf(key);
+    while (at !== "" && !askedFolders.has(at)) {
+      askedFolders.add(at);
+      if (folderVisibleAtScope(at, options.clearance, state.rules, state.overrides)) {
+        folders.push({ path: at, visibility: visibilityOf(at, state.rules) });
+      }
+      at = parentOf(at);
+    }
+  };
+
   /** Stop here, with a cursor only where one can be honoured and moves on. */
   const stop = (): SyncManifest => {
     if (!ordered || entries.length === 0) {
-      return { ...short(), entries };
+      return { ...short(), entries, folders };
     }
-    return { entries, cursor: entries[entries.length - 1]!.path, truncated: false, manifestUsable };
+    return {
+      entries,
+      folders,
+      cursor: entries[entries.length - 1]!.path,
+      truncated: false,
+      manifestUsable,
+    };
   };
 
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
@@ -950,6 +1002,7 @@ export async function syncManifest(
       previous = key;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
+      noteFolders(key);
       if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
 
       const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string };
@@ -968,12 +1021,12 @@ export async function syncManifest(
     }
 
     if (!listing.truncated) {
-      return { entries, cursor: null, truncated: false, manifestUsable };
+      return { entries, folders, cursor: null, truncated: false, manifestUsable };
     }
     // Truncated with nowhere to go, or a cursor seen before: the store cannot
     // finish this walk. See `listFolder` and `keysUnder` for the shapes.
     if (!listing.cursor || seenCursors.has(listing.cursor)) {
-      return { ...short(), entries };
+      return { ...short(), entries, folders };
     }
     seenCursors.add(listing.cursor);
     token = listing.cursor;

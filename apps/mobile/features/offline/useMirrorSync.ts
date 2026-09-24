@@ -10,7 +10,15 @@ import {
   statusFromIndex,
 } from "./mirrorStatus";
 import { openMirrorStore } from "./mirrorStore";
-import { syncAll, type BatchRead, type ManifestPage, type MirrorRun } from "./mirrorSync";
+import { onMirrorRefreshRequest, publishMirrorListed } from "./mirrorEvents";
+import {
+  refreshMetadata,
+  syncAll,
+  type BatchRead,
+  type ManifestPage,
+  type MirrorRun,
+  type MirrorSyncDeps,
+} from "./mirrorSync";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
 import { visibilityTierForRole, type VisibilityTier } from "../console/visibility";
@@ -112,6 +120,58 @@ export function useMirrorSync(options: {
 
   const running = useRef(false);
   const again = useRef(false);
+  /**
+   * The context somebody last opened. Listed first, and downloaded first, on
+   * every pass: the list's order is `syncAll`'s priority.
+   */
+  const focused = useRef<string | null>(null);
+
+  /** The engine's dependencies for one session, shared by a pass and a refresh. */
+  const engine = useCallback(
+    (store: NonNullable<Awaited<ReturnType<typeof openMirrorStore>>>): MirrorSyncDeps => {
+      const epoch = epochRef.current;
+      const mine = () => epoch === currentEpoch();
+      const kv = kvRef.current!;
+      return {
+        store,
+        epoch,
+        mine,
+        now: () => Date.now(),
+        needed: (workspaceId) => neededEtags(kv, workspaceId),
+        manifest: (workspaceId, cursor) =>
+          withTimeout(
+            actionsRef.current.syncManifest({
+              workspaceId,
+              ...(cursor === undefined ? {} : { cursor }),
+            }),
+            MANIFEST_TIMEOUT_MS,
+          ),
+        readNotes: async (workspaceId, paths) =>
+          (
+            await withTimeout(
+              actionsRef.current.readNotes({ workspaceId, paths }),
+              READ_TIMEOUT_MS,
+            )
+          ).results,
+        onListed: (workspaceId) => {
+          if (mine()) publishMirrorListed(workspaceId);
+        },
+        onProgress: (workspaceId, progress) => {
+          if (!mine()) return;
+          const before = mirrorStatuses().get(workspaceId);
+          publishMirrorStatus(workspaceId, {
+            bytes: before?.bytes ?? 0,
+            lastSyncedAt: before?.lastSyncedAt ?? null,
+            state: "syncing",
+            notes: progress.done,
+            remaining: progress.total - progress.done,
+            total: progress.total,
+          });
+        },
+      };
+    },
+    [],
+  );
 
   /** Say what is already on the device, before and without any sync. */
   useEffect(() => {
@@ -150,45 +210,15 @@ export function useMirrorSync(options: {
     void (async () => {
       const store = await openMirrorStore();
       if (store === null) return;
-      const epoch = epochRef.current;
-      const mine = () => epoch === currentEpoch();
-      const kv = kvRef.current!;
+      const deps = engine(store);
+      const { mine } = deps;
+      const first = focused.current;
+      const ordered = [...targetsRef.current].sort(
+        (a, b) => Number(b.workspaceId === first) - Number(a.workspaceId === first),
+      );
       const runs = await syncAll(
-        {
-          store,
-          epoch,
-          mine,
-          now: () => Date.now(),
-          needed: (workspaceId) => neededEtags(kv, workspaceId),
-          manifest: (workspaceId, cursor) =>
-            withTimeout(
-              actionsRef.current.syncManifest({
-                workspaceId,
-                ...(cursor === undefined ? {} : { cursor }),
-              }),
-              MANIFEST_TIMEOUT_MS,
-            ),
-          readNotes: async (workspaceId, paths) =>
-            (
-              await withTimeout(
-                actionsRef.current.readNotes({ workspaceId, paths }),
-                READ_TIMEOUT_MS,
-              )
-            ).results,
-          onProgress: (workspaceId, progress) => {
-            if (!mine()) return;
-            const before = mirrorStatuses().get(workspaceId);
-            publishMirrorStatus(workspaceId, {
-              bytes: before?.bytes ?? 0,
-              lastSyncedAt: before?.lastSyncedAt ?? null,
-              state: "syncing",
-              notes: progress.done,
-              remaining: progress.total - progress.done,
-              total: progress.total,
-            });
-          },
-        },
-        targetsRef.current,
+        deps,
+        ordered,
         // Each context's line settles as soon as its own run does, rather than
         // reading "Downloading…" until every other context has finished too.
         async (run) => {
@@ -212,7 +242,44 @@ export function useMirrorSync(options: {
           sync();
         }
       });
-  }, []);
+  }, [engine]);
+
+  /*
+    A context somebody opened, re-listed now: one metadata walk, outside the
+    pass's single flight, so it never waits behind another context's
+    downloads. Concurrent with a pass is safe — the index is written under a
+    lock, and an older walk never undoes a newer one (`commitListing`) — and
+    one refresh per context at a time is all it runs; a request that lands
+    during one runs once more after it.
+  */
+  const refreshing = useRef(new Map<string, boolean>());
+  useEffect(
+    () =>
+      onMirrorRefreshRequest((workspaceId) => {
+        focused.current = workspaceId;
+        if (reachabilityRef.current !== "online") return;
+        if (epochRef.current !== currentEpoch()) return;
+        const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
+        if (target === undefined) return;
+        const inFlight = refreshing.current;
+        if (inFlight.has(workspaceId)) {
+          inFlight.set(workspaceId, true);
+          return;
+        }
+        inFlight.set(workspaceId, false);
+        void (async () => {
+          const store = await openMirrorStore();
+          if (store === null) return;
+          do {
+            inFlight.set(workspaceId, false);
+            await refreshMetadata(engine(store), target);
+          } while (inFlight.get(workspaceId) === true && epochRef.current === currentEpoch());
+        })()
+          .catch(() => {})
+          .finally(() => inFlight.delete(workspaceId));
+      }),
+    [engine],
+  );
 
   // Mount, reconnection, and a change in which contexts there are.
   useEffect(() => {

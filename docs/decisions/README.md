@@ -44,6 +44,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One Yjs merge implementation for people, agents, and offline devices
 - Live delivery is independent of saving
 - Permissions, stable identity, and verification are release gates
+- A live connection recovers on its own, and only the control plane says no
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -201,6 +202,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A reconnection empties every queue, not the one on screen
 - The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
 - Every note on the device: the mirror
+- The file tree is drawn from the mirror's metadata, so a folder opens without a request
+- Somebody else's change reaches an open tree as a hint per audience, never as the change
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
@@ -430,3 +433,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 
 - This repository is public and MIT licensed
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
+- No handwritten file over 1,000 lines, and the allowance only shrinks

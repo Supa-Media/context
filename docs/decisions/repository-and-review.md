@@ -175,3 +175,36 @@ and proves failed, pending and mismatched staging runs cannot pass promotion.
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys
 the whole backend when explicitly promoted, so it has no path filter to drift.
+
+## No handwritten file over 1,000 lines, and the allowance only shrinks
+
+Decided 2026-09-24. The gateway entry reached 14,515 lines and 140 tracked
+files passed 1,000, because nothing stopped a file from growing. The policy is
+now a check, not a convention: `pnpm architecture` (Supa Framework's
+`supa-architecture-check`, configured by `architecture.config.json`) runs
+locally and as `ci / Architecture check` on every pull request.
+
+- Over 500 lines is reported; over 700 needs a `reviewed` reason; over 1,000
+  fails unless the file is in `baseline`, the legacy allowance recorded when
+  the check was adopted. A baseline number may only go down, and an entry must
+  be removed once its file is under the limit.
+- On a pull request the check compares against the base branch: a new
+  baseline entry (including a big file renamed to a new path), a raised
+  number or threshold, a new `exclude` pattern, or a new `generated` entry
+  fails. Adding a generated exception is a deliberate separate change run
+  with `--allow-generated-change`, never in CI.
+- `generated` lists machine-written files with the command that writes them:
+  the lockfile, the editor bundle, the reserved-name list and the design
+  snapshot HTML under `docs/design/`. Those are regenerated, so splitting them
+  by hand would be undone by the next run.
+- Meeting the limit by minifying, collapsing statements, putting code in
+  strings, or cutting a file into numbered fragments defeats the point. Split
+  by responsibility, keep the old path as a small facade where callers depend
+  on it, and move comments with their code.
+
+**What a simplification costs.** Dropping `--base` lets a pull request raise
+its own allowance. Letting the baseline grow turns the ratchet into a list of
+permanent exemptions. The check's own tests, in the framework's
+`packages/scripts/__tests__/architecture-check.test.js`, fail if a 1,001-line
+file, legacy growth, a rename, an inflated baseline, a raised threshold or a
+new exclusion passes.

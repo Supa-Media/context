@@ -3,7 +3,7 @@ import { useAction, useConvex } from "convex/react";
 import { useAuthToken } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { ConsoleGrantCache } from "./consoleGrantCache";
+import { ConsoleGrantCache, type GrantRefresh } from "./consoleGrantCache";
 
 const sessions = new WeakMap<object, { session: string | null; cache: ConsoleGrantCache }>();
 
@@ -28,8 +28,8 @@ export function useConsoleGrant() {
     sessions.set(client, entry);
   }
   const cache = entry.cache;
-  return useCallback(({ workspaceId }: { workspaceId: Id<"workspaces"> }, force = false) => {
+  return useCallback(({ workspaceId }: { workspaceId: Id<"workspaces"> }, refresh: GrantRefresh = false) => {
     if (!session || sessions.get(client)?.cache !== cache) return Promise.reject(new Error("Not authenticated"));
-    return cache.get(workspaceId, () => mint({ workspaceId, consoleInstanceId: cache.instanceId }), force);
+    return cache.get(workspaceId, () => mint({ workspaceId, consoleInstanceId: cache.instanceId }), refresh);
   }, [cache, client, mint, session]);
 }
