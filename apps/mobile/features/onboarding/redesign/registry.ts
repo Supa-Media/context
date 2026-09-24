@@ -24,6 +24,7 @@ import { ForkStep } from "./ForkStep";
 import { ClaudeGuideStep } from "./ClaudeGuideStep";
 import { ChatGPTGuideStep } from "./ChatGPTGuideStep";
 import { BootstrapStep } from "./BootstrapStep";
+import { BOOTSTRAP_PROMPT } from "../agents";
 import { ToolsLiveStep, type LiveEvent } from "./ToolsLiveStep";
 import { PaymentStep } from "./PaymentStep";
 import { DryRunStep, type DryRunFinding } from "./DryRunStep";
@@ -106,7 +107,7 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     key: "bootstrap",
     title: "A-09 · Bootstrap from AI",
     Component: BootstrapStep as ComponentType<Record<string, unknown>>,
-    props: { onDone: noop, onSkip: noop },
+    props: { prompt: BOOTSTRAP_PROMPT, onDone: noop, onSkip: noop },
   },
   {
     key: "tools-live-waiting",

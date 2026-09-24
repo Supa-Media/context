@@ -103,7 +103,7 @@ export function AgentsStep({
 
       <View style={styles.actions}>
         <Button
-          label="Done"
+          label="Continue"
           variant="white"
           onPress={onContinue}
           testID="welcome-agents-continue"

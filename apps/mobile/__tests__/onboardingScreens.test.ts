@@ -122,6 +122,8 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     skipStructure: () => {},
     seedPrompt: "",
     finishAgents: () => {},
+    bootstrapPrompt: "",
+    finishBootstrap: () => {},
     ...overrides,
   };
 }
@@ -319,6 +321,19 @@ describe("the tools screen", () => {
       }),
     );
     expect(text).toMatch(/team is the default/i);
+  });
+
+  test("does not call its forward button Done, because a step follows it", () => {
+    // The bootstrap step comes after this one on every run that has it. A
+    // button saying "Done" that opens another step reads as broken.
+    const { text } = render(
+      createElement(AgentsStep, {
+        controller: controller({ step: "agents", seedPrompt: defaultSeedPrompt() }),
+        onContinue: () => {},
+      }),
+    );
+    expect(text).not.toMatch(/\bDone\b/);
+    expect(text).toContain("Continue");
   });
 });
 

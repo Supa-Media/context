@@ -2,6 +2,8 @@ import { describe, expect, test } from "@jest/globals";
 import { ConvexError } from "convex/values";
 import {
   STEP_LABELS,
+  afterAgents,
+  afterBootstrap,
   afterStorage,
   afterStructure,
   stepProgress,
@@ -16,13 +18,14 @@ import {
 } from "../features/onboarding/errors";
 
 describe("the shape of the run", () => {
-  test("connecting storage offers a vault import before layout and tools", () => {
+  test("connecting storage offers a vault import before layout, tools, and bootstrap", () => {
     expect(stepsFor({ storage: "connected" })).toEqual([
       "name",
       "storage",
       "vault",
       "structure",
       "agents",
+      "bootstrap",
       "done",
     ]);
   });
@@ -31,14 +34,17 @@ describe("the shape of the run", () => {
     expect(stepsFor({ storage: "skipped" })).toEqual(["name", "storage", "done"]);
   });
 
-  test("and drops the tools step with it, because the prompt would fail on contact", () => {
+  test("and drops the tools and bootstrap steps with it, because the prompts would fail on contact", () => {
     // The tools step hands over an instruction telling an AI client to write
-    // notes. Giving that to somebody whose bucket we could not reach moves the
-    // failure into their client, where we cannot explain it — the same
-    // dishonesty as a capture address that was copyable before anything could
-    // receive mail.
+    // notes; the bootstrap step hands over a second one asking the same
+    // client to seed the context. Giving either to somebody whose bucket we
+    // could not reach moves the failure into their client, where we cannot
+    // explain it — the same dishonesty as a capture address that was
+    // copyable before anything could receive mail. So both drop together.
     for (const storage of ["skipped", "unverified"] as const) {
-      expect(stepsFor({ storage })).not.toContain("agents");
+      const run = stepsFor({ storage });
+      expect(run).not.toContain("agents");
+      expect(run).not.toContain("bootstrap");
     }
   });
 
@@ -48,6 +54,24 @@ describe("the shape of the run", () => {
     expect(afterStructure()).toBe("agents");
     const run = stepsFor({ storage: "connected" });
     expect(run[run.indexOf("structure") + 1]).toBe("agents");
+  });
+
+  test("the tools step always hands off to the bootstrap step", () => {
+    // Same shape as the layout → tools pairing above and for the same
+    // reason: bootstrap only exists on a run whose bucket is connected —
+    // which is what the tools step needed too — and asserting the pairing
+    // in one place keeps the two branches from drifting.
+    expect(afterAgents()).toBe("bootstrap");
+    const run = stepsFor({ storage: "connected" });
+    expect(run[run.indexOf("agents") + 1]).toBe("bootstrap");
+  });
+
+  test("the bootstrap step hands off to the last screen", () => {
+    // Continuing is skipping; the prompt lands in the client the person
+    // pasted it into, not here, so there is nothing to commit before Done.
+    expect(afterBootstrap()).toBe("done");
+    const run = stepsFor({ storage: "connected" });
+    expect(run[run.indexOf("bootstrap") + 1]).toBe("done");
   });
 
   test("the storage step hands off differently depending on what happened", () => {
@@ -85,7 +109,15 @@ describe("what the last screen says about the bucket", () => {
   });
 
   test("every step has a label and a title", () => {
-    const keys: StepKey[] = ["name", "storage", "vault", "structure", "agents", "done"];
+    const keys: StepKey[] = [
+      "name",
+      "storage",
+      "vault",
+      "structure",
+      "agents",
+      "bootstrap",
+      "done",
+    ];
     for (const key of keys) {
       expect(STEP_LABELS[key].length).toBeGreaterThan(0);
       expect(stepTitle(key).length).toBeGreaterThan(0);
@@ -95,8 +127,8 @@ describe("what the last screen says about the bucket", () => {
 
 describe("the progress indicator", () => {
   test("counts the run you are actually in", () => {
-    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 6 });
-    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 6, total: 6 });
+    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 7 });
+    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 7, total: 7 });
   });
 
   test("a completed vault import replaces the layout question", () => {
@@ -105,6 +137,7 @@ describe("the progress indicator", () => {
       "storage",
       "vault",
       "agents",
+      "bootstrap",
       "done",
     ]);
   });
@@ -117,6 +150,10 @@ describe("the progress indicator", () => {
   test("a step this run does not contain has no number", () => {
     expect(stepProgress("structure", { storage: "skipped" })).toBeNull();
     expect(stepProgress("agents", { storage: "skipped" })).toBeNull();
+    // Same rule for the second half of "point your AI at it": if the tools
+    // step never happens, neither does the bootstrap step that lives on it.
+    expect(stepProgress("bootstrap", { storage: "skipped" })).toBeNull();
+    expect(stepProgress("bootstrap", { storage: "unverified" })).toBeNull();
   });
 });
 
