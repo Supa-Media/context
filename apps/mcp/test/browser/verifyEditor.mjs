@@ -714,7 +714,9 @@ async function main() {
     });
     await pair("1-projects/stalled-handshake.md",async(a,b)=>{
       const started=Date.now();
-      check("a handshake that never answers was injected",b.stalls()===1);
+      // `open` does not wait for a socket on this note, so the injector may
+      // not have routed Bo's first one yet.
+      check("a handshake that never answers was injected",await until(()=>b.stalls()===1,{timeout:20000,every:50}));
       const recovered=await rosterReady(b,ANA_NAME,45000);
       check("presence recovers from a silent handshake without a reload",recovered&&b.links()>=1,JSON.stringify({elapsedMs:Date.now()-started,state:await state(b.page)}).slice(0,800));
       results.push({label:"stalled handshake recovery time",detail:{elapsedMs:Date.now()-started,measurement:"local Chromium against a local gateway; includes the 20s attempt deadline"},diagnostic:true});
