@@ -61,6 +61,11 @@ import {
   type Place,
 } from "../../../features/console/files/history";
 import { entryAt, targetFolder } from "../../../features/console/files/tree";
+import {
+  NO_PICK,
+  topmost,
+  type TreePick,
+} from "../../../features/console/files/selection";
 import { canCreateAnything } from "../../../features/console/files/createSheet";
 import {
   applyRowIntent,
@@ -109,8 +114,10 @@ import { AsidePanel } from "../../../features/console/aside/AsidePanel";
 import { AgentPanel } from "../../../features/agent/AgentPanel";
 import { agentPage } from "../../../features/agent/page";
 import { useOpenNote } from "../../../features/agent/openNote";
-import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
+import { useMeetingsSnapshot, useTick } from "../../../features/meetings/useMeetings";
 import { useCarriesMeeting } from "../../../features/meetings/carried";
+import { RESUME_RECENT_WINDOW_MS, resumeRowFor } from "../../../features/meetings/resume";
+import { useResumeMeeting } from "../../../features/meetings/useResumeMeeting";
 import { CreateButton } from "../../../features/console/CreateButton";
 import { ConsoleLiveMeeting } from "../../../features/console/ConsoleLiveMeeting";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
@@ -240,6 +247,12 @@ export default function ConsoleLayout() {
     either owning it".
   */
   const [barDialog, setBarDialog] = useState<Dialog>(null);
+  /*
+    The tree's ⌘/shift-click pick. Held here rather than in `Explorer` for the
+    reason `barDialog` is: `Shortcuts` is a sibling of the tree, and ⌘⇧⌫ has to
+    act on the rows the tree draws selected — see `picked` in `rowCommand.ts`.
+  */
+  const [treePick, setTreePick] = useState<TreePick>(NO_PICK);
   useEffect(() => {
     if (
       quickParams.quickAction !== "note" ||
@@ -650,7 +663,7 @@ export default function ConsoleLayout() {
     because a folded panel still carries it — in the title bar. See
     `features/meetings/carried.ts`.
   */
-  useCarriesMeeting(hasAside);
+  useCarriesMeeting(hasAside, showMeetings);
 
   const places = useContextPlaces();
   const contextHrefFrom = useContextHref(data.contexts);
@@ -763,7 +776,8 @@ export default function ConsoleLayout() {
     and a second caller filling one field from a different source is how two
     surfaces end up describing different rooms.
   */
-  const liveMeeting = useMeetingsSnapshot().live;
+  const meetingsSnapshot = useMeetingsSnapshot();
+  const liveMeeting = meetingsSnapshot.live;
   const openNote = useOpenNote();
   /**
    * WHERE THE PERSON IS, FOR THE AGENT — BUILT ONCE.
@@ -815,6 +829,61 @@ export default function ConsoleLayout() {
     workspaceId: data.selectedContextId,
     endpoint: data.endpoint,
   });
+
+  const resumeMeeting = useResumeMeeting();
+  /*
+    The `+`'s Resume meeting row — the open note's meeting first, then the one
+    that just stopped (`resumeRowFor`). Built here because this is where the
+    recorder and the context meet: nothing below this layout knows whether this
+    device can continue a meeting, whether one is recording, or which context a
+    part started from the open note would be addressed to.
+
+    The note is read from `baseline`, the saved text, so the row is about the
+    meeting in the bucket and is not re-derived on every keystroke. No row on
+    the demo console, to somebody who cannot write the note the part would be
+    added to, or before the recorder has read what this device holds — a part
+    in flight it has not loaded yet is exactly what `mayResume` refuses over.
+
+    The clock ticks once a minute, and only while the newest meeting is inside
+    the window, so "ended 4 min ago" stays true without re-rendering this layout
+    for a meeting from last week.
+  */
+  const newestEnd = meetingsSnapshot.records[0]?.session.endedAt ?? null;
+  const newestEndMs = newestEnd === null ? Number.NaN : Date.parse(newestEnd);
+  const resumeClock = useTick(
+    Number.isFinite(newestEndMs) && Date.now() - newestEndMs < RESUME_RECENT_WINDOW_MS,
+    60_000,
+  );
+  const editorPath = data.files.editor.path;
+  const editorBaseline = data.files.editor.baseline;
+  const editorLocked = data.files.editor.readOnly || data.files.editor.encrypted;
+  const resumeRow = useMemo(() => {
+    if (data.demo || !data.files.canEdit || !insideContext || current === null) return null;
+    if (meetingsSnapshot.status !== "ready") return null;
+    const row = resumeRowFor({
+      records: meetingsSnapshot.records,
+      live: meetingsSnapshot.live,
+      canContinue: meetingsSnapshot.canContinue,
+      now: resumeClock === 0 ? Date.now() : resumeClock,
+      openNote:
+        editorPath === null || editorLocked
+          ? null
+          : { contextSlug: current.slug, path: editorPath, markdown: editorBaseline },
+    });
+    if (row === null) return null;
+    return { detail: row.detail, onResume: () => void resumeMeeting(row.input) };
+  }, [
+    data.demo,
+    data.files.canEdit,
+    insideContext,
+    current,
+    meetingsSnapshot,
+    resumeClock,
+    editorPath,
+    editorBaseline,
+    editorLocked,
+    resumeMeeting,
+  ]);
 
   const voiceHost = useMemo<VoiceHost>(
     () => ({
@@ -1232,12 +1301,16 @@ export default function ConsoleLayout() {
             <Explorer
               files={data.files}
               contextLabel={contextLabel}
+              pick={treePick}
+              onPickChange={setTreePick}
               /*
                 The foot line and the tree's dots. Absent on the demo console,
                 which has no control plane — the column then ends at the counts
                 line, exactly as it did before this existed.
               */
               activity={data.activity}
+              // The tree's agent squares and the foot's "N agents active".
+              agents={data.agents}
               /*
                 **No `vault` and no `vaultDetail` any more, and the line they
                 composed has not been deleted — it has moved.**
@@ -1314,6 +1387,8 @@ export default function ConsoleLayout() {
           nav={nav}
           onCloseTab={closeTab}
           onDialog={setBarDialog}
+          picked={treePick}
+          onPickSpent={() => setTreePick(NO_PICK)}
           onSearch={() => setPaletteOpen(true)}
           paletteOpen={
             paletteOpen || treeOverlay || recentOpen || syncOpen || openSettingsSection !== null
@@ -1585,7 +1660,7 @@ export default function ConsoleLayout() {
             handlers the corner's menu gets, so the two `+`s offer the same
             things — see `CreatePrompt`.
           */
-          create={{ onNewMeeting: startMeeting, onNewChat: startNewChat }}
+          create={{ onNewMeeting: startMeeting, onNewChat: startNewChat, resume: resumeRow }}
           /*
             The share dialog raised from the toolbar is the one a phone
             reaches, and it was drawing without the people or the groups —
@@ -1686,6 +1761,7 @@ export default function ConsoleLayout() {
         <CreateButton
           compact={phone}
           onNewMeeting={startMeetingFlow}
+          resume={resumeRow}
           /*
             The same `targetFolder` rule the tree's own `+` and the phone's
             bottom row both use: a selected folder is the destination, anything
@@ -1937,6 +2013,8 @@ function Shortcuts({
   nav,
   onCloseTab,
   onDialog,
+  picked,
+  onPickSpent,
   onSearch,
   paletteOpen,
 }: {
@@ -1948,6 +2026,10 @@ function Shortcuts({
   onCloseTab: (path: string) => void;
   /** Raise one of the tree's dialogs — the same set the toolbar's `+` uses. */
   onDialog: (dialog: Dialog) => void;
+  /** The tree's multi-selection, which a row chord acts on when there is one. */
+  picked: TreePick;
+  /** Put the pick down once a chord has acted on it. */
+  onPickSpent: () => void;
   onSearch: () => void;
   paletteOpen: boolean;
 }) {
@@ -2073,9 +2155,12 @@ function Shortcuts({
               selectedPath: files.selectedPath,
               listings: files.listings,
               clipboard: files.clipboard,
+              picked: topmost(picked.paths, []),
             });
             if (intent === null) return false;
-            return applyRowIntent(intent, files, onDialog);
+            const applied = applyRowIntent(intent, files, onDialog);
+            if ("paths" in intent) onPickSpent();
+            return applied;
           }
 
           default: {
@@ -2095,7 +2180,7 @@ function Shortcuts({
         that changes on every navigation — and a stale copy would answer ⌘[
         with the `canBack` of wherever somebody was two notes ago.
       */
-      [files, tabs, nav, onCloseTab, onDialog, frame, onSearch],
+      [files, tabs, nav, onCloseTab, onDialog, frame, onSearch, picked, onPickSpent],
     ),
   });
 

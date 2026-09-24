@@ -14,6 +14,7 @@ import { useEffect } from "react";
 import { usePresence, type Presence } from "./usePresence";
 import { useCollaboration } from "../collaboration/useCollaboration";
 import type { CacheScope } from "../../offline/keys";
+import { onReturnToApp } from "../../app/returnToApp";
 import { isDrawingPath } from "@context/drawings";
 import {
   useDrawingChannel,
@@ -109,15 +110,9 @@ export function useNoteRoom(options: {
     onDrawingCompact: channel.deliverCompactRequest,
   });
   useEffect(() => {
-    if (presence.phase !== "live" || collaboration === undefined || typeof window === "undefined") return;
+    if (presence.phase !== "live" || collaboration === undefined) return;
     collaboration.repair();
-    const repair = () => collaboration.repair();
-    window.addEventListener("focus", repair);
-    window.addEventListener("visibilitychange", repair);
-    return () => {
-      window.removeEventListener("focus", repair);
-      window.removeEventListener("visibilitychange", repair);
-    };
+    return onReturnToApp(() => collaboration.repair(), ["focus", "visibilitychange"]);
   }, [presence.phase]);
 
   /*

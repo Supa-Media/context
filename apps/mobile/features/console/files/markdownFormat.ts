@@ -30,11 +30,11 @@
  * `editorSetup.ts`'s own header exists to prevent.
  */
 
-import { EditorSelection, type SelectionRange } from "@codemirror/state";
+import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
 import { focusGridCell, toggleMarkerInCell } from "./livePreview";
-import { planToggle, wordAround, type RangePlan } from "./markerToggle";
+import { planToggle } from "./markerToggle";
 
 /*
   The marker pairs and their name type live in `markerToggle.ts`, beside the
@@ -80,7 +80,7 @@ export function toggleWrap(view: EditorView, before: string, after: string): voi
   const plans = removing
     ? proposed
     : view.state.selection.ranges.map((range, index) =>
-        proposed[index].removed ? planWrapOnly(doc, range, before, after) : proposed[index],
+        proposed[index].removed ? planToggle(doc, range, before, after, "add") : proposed[index],
       );
 
   /*
@@ -100,24 +100,6 @@ export function toggleWrap(view: EditorView, before: string, after: string): voi
       { scrollIntoView: true, userEvent: "input" },
     ),
   );
-}
-
-/** The wrap half of `planToggle`, for a range overruled by the ones beside it. */
-function planWrapOnly(
-  doc: string,
-  original: SelectionRange,
-  before: string,
-  after: string,
-): RangePlan {
-  const range = wordAround(doc, original);
-  return {
-    changes: [
-      { from: range.from, insert: before },
-      { from: range.to, insert: after },
-    ],
-    range: EditorSelection.range(range.from + before.length, range.to + before.length),
-    removed: false,
-  };
 }
 
 /**

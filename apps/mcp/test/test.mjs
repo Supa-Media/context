@@ -37,6 +37,7 @@ import { runLinkChecks } from "./links.test.mjs";
 import { runActivityChecks } from "./activity.test.mjs";
 import { runForwardingChecks } from "./forwarding.test.mjs";
 import { runPresenceChecks } from "./presence.test.mjs";
+import { runAgentActivityChecks } from "./agentActivity.test.mjs";
 import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
@@ -4788,6 +4789,7 @@ await suite("runChatContributionStoreChecks", () => runChatContributionStoreChec
 // runs here rather than inside a block that owns that global.
 await suite("runPresenceChecks", () => runPresenceChecks(check));
 await suite("runCollaborationChecks", () => runCollaborationChecks(check));
+await suite("runAgentActivityChecks", () => runAgentActivityChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

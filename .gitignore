@@ -62,6 +62,7 @@ docs/shots/*.html
 # `apps/mobile/e2e/webkit` serves — a build artifact, not source, like every
 # other `dist/` in this list.
 apps/mobile/web-build/
+apps/mobile/resume-shots/
 apps/mobile/e2e/webkit/playwright-report/
 apps/mobile/e2e/webkit/test-results/
 

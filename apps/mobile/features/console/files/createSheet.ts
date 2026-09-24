@@ -24,7 +24,13 @@
  */
 
 /** One row of the phone's `+`. */
-export type CreateRow = "new-meeting" | "new-note" | "new-drawing" | "new-folder" | "new-chat";
+export type CreateRow =
+  | "resume-meeting"
+  | "new-meeting"
+  | "new-note"
+  | "new-drawing"
+  | "new-folder"
+  | "new-chat";
 
 export interface CreateOffer {
   /**
@@ -47,10 +53,18 @@ export interface CreateOffer {
   chat: boolean;
   /** A meetings controller behind the microphone. */
   meeting: boolean;
+  /**
+   * A meeting that can be carried on (`resumeRowFor`). Drawn first, directly
+   * above New meeting, because that is the press it saves from making a second
+   * note. Never on its own: there is no recorder to resume with where there is
+   * none to start one.
+   */
+  resume?: boolean;
 }
 
 export function createRows(offer: CreateOffer): CreateRow[] {
   const rows: CreateRow[] = [];
+  if (offer.meeting && offer.resume === true) rows.push("resume-meeting");
   if (offer.meeting) rows.push("new-meeting");
   if (offer.canEdit) rows.push("new-note", "new-drawing", "new-folder");
   if (offer.chat) rows.push("new-chat");

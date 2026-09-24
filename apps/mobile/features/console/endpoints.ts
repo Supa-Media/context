@@ -54,6 +54,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "presence",
   // The durable collaboration transport, `/collaboration` on the gateway.
   "collaboration",
+  // What agents read and wrote lately, `/agent-activity` on the gateway.
+  "agent-activity",
 ]);
 
 /**

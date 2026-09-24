@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../meetings/gateway";
+import { onReturnToApp } from "../../app/returnToApp";
 import type { CacheScope } from "../../offline/keys";
 import {
   DurableCollaborationController,
@@ -177,22 +178,14 @@ export function useCollaboration(options: UseCollaborationOptions): DurableColla
     controller.current = next;
     options.onOwned?.(path, true);
     void next.start();
-    const onOnline = () => next.repairForHook();
-    if (typeof window !== "undefined") {
-      window.addEventListener("online", onOnline);
-      // A rollout can briefly return 404 while the gateway route is being
-      // promoted. Retry when the app becomes usable again even though the
-      // presence socket is intentionally closed in `unavailable` state.
-      window.addEventListener("focus", onOnline);
-      window.addEventListener("visibilitychange", onOnline);
-    }
+    // Online again, and also focus: a rollout can briefly return 404 while
+    // the gateway route is being promoted. Retry when the app becomes usable
+    // again even though the presence socket is intentionally closed in
+    // `unavailable` state.
+    const stopRepairing = onReturnToApp(() => next.repairForHook());
     return () => {
       stopped = true;
-      if (typeof window !== "undefined") {
-        window.removeEventListener("online", onOnline);
-        window.removeEventListener("focus", onOnline);
-        window.removeEventListener("visibilitychange", onOnline);
-      }
+      stopRepairing();
       options.onOwned?.(path, false);
       next.stop();
       if (controller.current === next) controller.current = null;

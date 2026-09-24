@@ -90,7 +90,12 @@ export type RowIntent =
   | { kind: "copy"; path: string }
   | { kind: "cut"; path: string }
   | { kind: "paste"; folder: string }
-  | { kind: "restore"; path: string; to: string };
+  | { kind: "restore"; path: string; to: string }
+  /** The same four, on the tree's multi-selection — see `picked` below. */
+  | { kind: "moveMany"; paths: readonly string[] }
+  | { kind: "archiveMany"; paths: readonly string[] }
+  | { kind: "restoreMany"; paths: readonly string[] }
+  | { kind: "trashMany"; paths: readonly string[] };
 
 export interface RowContext {
   canEdit: boolean;
@@ -107,6 +112,18 @@ export interface RowContext {
    * keystroke to raise a notice.
    */
   clipboard: Clipboard | null;
+  /**
+   * The rows picked with ⌘/ctrl-click and shift-click, outermost only — see
+   * `selection.ts`. Absent or one row is no pick.
+   *
+   * With two or more, **they** are what the tree draws selected, and so what a
+   * keystroke acts on. The open note is still `selectedPath` underneath, and
+   * a ⌘⇧⌫ that trashed it while three other rows sat highlighted would be
+   * deleting a row nobody was looking at. So the commands with a plural act
+   * on the pick, and the ones without one — rename, duplicate, copy, cut —
+   * do nothing, as they are absent from the menu.
+   */
+  picked?: readonly string[];
 }
 
 export function intentForRowCommand(
@@ -130,6 +147,9 @@ export function intentForRowCommand(
     if (clipboard === null || !canPasteInto(clipboard, folder)) return null;
     return { kind: "paste", folder };
   }
+
+  const picked = context.picked ?? [];
+  if (picked.length > 1) return intentForPick(command, picked, listings);
 
   if (selectedPath === null) return null;
 
@@ -171,6 +191,33 @@ export function intentForRowCommand(
 }
 
 /**
+ * A keystroke on a multi-selection: the plural of the same commands the menu
+ * offers a selection, and nothing for the rest. One read-only row refuses the
+ * lot, as it takes the mutating items off the menu.
+ */
+function intentForPick(
+  command: RowCommand,
+  paths: readonly string[],
+  listings: RowContext["listings"],
+): RowIntent | null {
+  if (paths.some((path) => findEntry(listings, path)?.readOnly === true)) return null;
+  switch (command) {
+    case "moveTo":
+      return { kind: "moveMany", paths };
+    case "archive":
+      // Restore only when every one of them knows where it came from — the
+      // rule the menu's "Restore 3 items" follows, through the same function.
+      return paths.every((path) => restoreTargetFor(path) !== null)
+        ? { kind: "restoreMany", paths }
+        : { kind: "archiveMany", paths };
+    case "deleteForever":
+      return { kind: "trashMany", paths };
+    default:
+      return null;
+  }
+}
+
+/**
  * Carry an intent out.
  *
  * Here rather than in the console's keyboard handler so that "every chord the
@@ -187,7 +234,15 @@ export function applyRowIntent(
   intent: RowIntent,
   files: Pick<
     FileBrowser,
-    "duplicate" | "copy" | "cut" | "paste" | "move" | "destroy" | "createUntitled"
+    | "duplicate"
+    | "copy"
+    | "cut"
+    | "paste"
+    | "move"
+    | "destroy"
+    | "createUntitled"
+    | "destroyMany"
+    | "restoreMany"
   >,
   onDialog: (dialog: Extract<RowIntent, { kind: DialogKind }>) => void,
 ): boolean {
@@ -219,6 +274,12 @@ export function applyRowIntent(
     case "trash":
       files.destroy(intent.path);
       return true;
+    case "trashMany":
+      files.destroyMany(intent.paths);
+      return true;
+    case "restoreMany":
+      files.restoreMany(intent.paths);
+      return true;
     default:
       onDialog(intent);
       return true;
@@ -228,11 +289,11 @@ export function applyRowIntent(
 /**
  * The intents that are a dialog rather than a call.
  *
- * Named so `applyRowIntent`'s `onDialog` is typed as the four it can actually
+ * Named so `applyRowIntent`'s `onDialog` is typed as the ones it can actually
  * receive: a callback taking every `RowIntent` would accept `copy`, and the
  * caller would have to handle a case that cannot reach it.
  *
  * `newNote` left this list when new notes stopped being named up front — it is
  * a call now, not a question.
  */
-type DialogKind = "newFolder" | "rename" | "move" | "archive";
+type DialogKind = "newFolder" | "rename" | "move" | "archive" | "moveMany" | "archiveMany";

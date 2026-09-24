@@ -129,6 +129,31 @@ Three properties of the survey are load-bearing:
   merely less curious. Note that a thrown handler is answered with a JSON-RPC
   error over HTTP 200, so "the handshake returned 200" does not test this.
 
+**The sketch goes second, never last, and it has a length bound.** Clients cut
+the instructions payload from the end: on 2026-09-23 a Claude Code session
+connected to this gateway delivered 4,083 characters of it and marked the rest
+truncated. The static argument alone is over 5,000 characters, and the sketch
+used to be appended after all of it, so on such a client a fresh conversation
+got the case for reading a context and none of the context. The order is now a
+short call to action (`INSTRUCTIONS_HEAD`, under 600 characters, `orient`
+named inside the first 500), then the sketch, then the stakes and the rules
+(`INSTRUCTIONS_BODY`). The body is the part that can afford to be cut: the
+rules that change behaviour mid-session are repeated by `orient` and by the
+tool descriptions at the moment they apply. Every piece of the sketch is capped
+(front page 1,200 characters, top-level names 600, other workspaces 400, any one
+name 64), so the whole sketch ends inside `INSTRUCTIONS_SKETCH_BUDGET` (3,500)
+for any bucket and any membership; the worst case measures about 3,240.
+Putting the sketch back at the end, or lifting any one cap, fails `the whole
+sketch ends inside the budget, under the cut a client was seen making` or one of
+its neighbours in `test/orientation.test.mjs`.
+
+What reaches a model at connect differs by client and changes often, so this
+bound is written against a cut we observed rather than one a vendor documents.
+Reports as of 2026-09 (not verified here) say ChatGPT reads instructions and
+weighs roughly the first 512 characters, and that claude.ai does not pass them
+to the model at all, which leaves tool descriptions as the only connect-time
+surface there. Recheck before building on either.
+
 ### Recency ranks attention, and automated capture is collapsed, not excluded
 
 "Recently updated" exists to answer one question — where has this person's
@@ -735,6 +760,61 @@ same drawing, while merging the same text twice is the text twice.
 deliberately not covered.** There is no event to hang a notice on, and inventing
 one would mean polling the bucket. Those land the way they always have: the next
 read shows them, and a conflicting save raises a conflict.
+
+### Agent activity is announced from finished tool calls, never streamed
+
+Decided 2026-09-23. A person looking at a workspace should be able to see that
+agents are working in it, and where. The gateway is stateless toward MCP
+clients: an agent holds no socket and has no session to start or end. So what
+the console can show is limited to what a *finished* tool call tells the
+gateway:
+
+- **read**: `read_note` or `fetch` returned a note;
+- **write**: `write_note` stored one;
+- **active**: either of those within the last five minutes.
+
+It does not show "writing now" or "about to edit this section". The model
+finishes the text before it calls the tool, so nothing reaches us until the
+whole write does. A live stream of an agent's typing would need a different
+kind of tool (chunked writes, or an optional `begin_edit(path, section,
+intent)`) that agents could skip. The UI could never rely on it, so it is not
+built.
+
+**Where it is drawn, and why so little of it.** A file tree row carries one
+small square: outlined for "an agent read this", filled for "an agent wrote
+this". It never shows an avatar, so a workspace with a hundred agents has the
+same sidebar as one with two. A closed folder carries the mark of what is under
+it, by the rule the "new" dot already uses. The foot of the tree adds one line,
+"N agents active", only while there are any, and that line opens the list of
+who. In a durable note, the agent's committed write is tinted and signed with
+its caret for as long as it is in the roster.
+
+**The log is in memory, per workspace, and filtered per caller.**
+`agentActivity.js` keeps one workspace's events in one `PresenceRoom`
+instance keyed `activity:<workspaceId>`. That key cannot be a note room's,
+because `roomKey` percent-encodes the workspace id. The log is never written
+to Durable Object storage. It is pruned to the window on every access and
+lost on eviction, which costs a few dots that were about to fade. It holds
+paths, and paths are the customer's data, so they get the same bound as a
+presence attachment: live, bounded, and gone when unused. `GET
+/agent-activity` authorizes like `/presence` (same token, clamp and
+`privacy.md`, no groups). It filters every event through `canSee` for the
+caller **before** counting, so a team member sees neither a private path nor
+an agent whose only work was private. The console's own client
+(`context_console`) is never recorded, or a person opening a note would
+appear in their own tree as a robot.
+
+**A durable room names the agent; each client finds the span.** A v2 room
+hands nobody the text, so the v1 design, where one client merges and reports
+the caret, does not apply. `write_note` passes the actor on the committed
+notice. The room adds `agent: { id, name, color }` unless a client already
+seated in the room made the write. Each client then takes the span from the
+Yjs event its own authorized HTTP read produced. No position crosses the wire,
+so no peer can report a caret on an agent's behalf.
+
+What would break it: storing the log, filtering after aggregation, keying the
+log by anything but the session's workspace, or recording the console. Each
+is sabotage-tested in `apps/mcp/test/agentActivity.test.mjs`.
 
 ### A drawing merges by element, and by Excalidraw's own rules
 

@@ -6,8 +6,11 @@ import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import type { SyncMark } from "./pendingMarks";
+import type { PickGesture } from "./selection";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
+import { AgentMark, withAgentMark } from "../agents/AgentMark";
+import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
@@ -84,10 +87,12 @@ export function FileTree({
   onToggle,
   onCycleVisibility,
   onMenu,
+  onPick,
   drag,
   dropTarget = null,
   pendingStateFor,
   markedPaths,
+  agentMarks,
 }: {
   rows: readonly TreeRow[];
   /**
@@ -102,6 +107,12 @@ export function FileTree({
   onCycleVisibility: (row: TreeRow) => void;
   /** Raise the row's menu. Absent where there is nothing to offer. */
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
+  /**
+   * A ⌘/ctrl-click or shift-click on a row — see `selection.ts`. Absent where
+   * there is no multi-selection, and a modified click then opens the row like
+   * any other.
+   */
+  onPick?: (path: string, gesture: PickGesture) => void;
   /** Drag wiring. Absent in the read-only demo, which must not offer one. */
   drag?: TreeDragHandlers;
   /** The row under a drag, washed to say the drop would land there. */
@@ -121,6 +132,12 @@ export function FileTree({
    * marks nothing.
    */
   markedPaths?: ReadonlySet<string>;
+  /**
+   * Rows an agent read or wrote in the last few minutes, from
+   * `agentMarkRows`. The same nearest-open-row rule as `markedPaths`.
+   * Absent on a console with no gateway, which marks nothing.
+   */
+  agentMarks?: ReadonlyMap<string, AgentMarkKind>;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -146,10 +163,12 @@ export function FileTree({
             onToggle={onToggle}
             onCycleVisibility={onCycleVisibility}
             onMenu={onMenu}
+            onPick={onPick}
             drag={drag}
             isDropTarget={dropTarget === row.path}
             sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
             marked={markedPaths?.has(row.path) ?? false}
+            agent={agentMarks?.get(row.path) ?? null}
           />
         );
       })}
@@ -182,10 +201,12 @@ function FileRow({
   onToggle,
   onCycleVisibility,
   onMenu,
+  onPick,
   drag,
   isDropTarget,
   sync,
   marked,
+  agent,
 }: {
   row: TreeRow;
   /**
@@ -199,12 +220,15 @@ function FileRow({
   onToggle: (path: string) => void;
   onCycleVisibility: (row: TreeRow) => void;
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
+  onPick?: (path: string, gesture: PickGesture) => void;
   drag?: TreeDragHandlers;
   isDropTarget: boolean;
   /** This note's edit is not in the bucket yet. `null` for one that is. */
   sync: SyncMark | null;
   /** Something under this row changed since this person last caught up. */
   marked: boolean;
+  /** An agent read or wrote this row (or something under it) just now. */
+  agent: AgentMarkKind | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -215,6 +239,7 @@ function FileRow({
     // what stops a right-click being swallowed by a row that has nothing to
     // put in the browser menu's place.
     onMenu: onMenu === undefined ? undefined : (anchor) => onMenu(row, anchor),
+    onPick: onPick === undefined ? undefined : (gesture) => onPick(row.path, gesture),
     canDrag: drag !== undefined && drag.canDrag(row),
     canDrop: drag !== undefined && drag.canDrop(row),
     onDragStart: drag?.onDragStart ?? noopPath,
@@ -247,11 +272,12 @@ function FileRow({
       */}
       {row.selected ? <View style={styles.selectedBar} aria-hidden /> : null}
       <PressRow
-        accessibilityLabel={
+        accessibilityLabel={withAgentMark(
           marked
             ? `${withSyncMark(describeRow(row), sync)}, new`
-            : withSyncMark(describeRow(row), sync)
-        }
+            : withSyncMark(describeRow(row), sync),
+          agent,
+        )}
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
         radius={radii.sm}
@@ -308,6 +334,13 @@ function FileRow({
           "somebody else changed this" is about them and earlier.
         */}
         {marked ? <View style={styles.newDot} aria-hidden /> : null}
+        {/*
+          The agent mark, last: it is about somebody else's tool and the
+          last few minutes, the least urgent of the three. Its words are in
+          the row's own name above, because a button's name replaces its
+          children's. See `AgentMark` for the shape.
+        */}
+        {agent === null ? null : <AgentMark kind={agent} />}
       </PressRow>
 
       <VisibilityControl

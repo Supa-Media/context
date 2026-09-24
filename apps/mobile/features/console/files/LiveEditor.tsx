@@ -60,9 +60,19 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Platform, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import {
+  Alert,
+  Keyboard,
+  Linking,
+  Platform,
+  StyleSheet,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
+import { linkPromptMessage } from "./linkPrompt";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -294,6 +304,14 @@ export function LiveEditor({
             editor mounted.
           */
           onOpenNote: (path, mode) => handlers.current.onOpenNote?.(path, mode),
+          /*
+            A web link leaves the app, so it is asked about first, with the
+            address shown. The host has already allow-listed the scheme; the
+            question is what stops a script in the web view that should not
+            exist from posting a note to an address nobody saw. See the
+            `open-url` case in `host.ts`.
+          */
+          onOpenUrl: confirmOpenUrl,
           /*
             Also off the ref, and here the staleness would be worse than a
             mis-aimed navigation: the host resolves a submission against the
@@ -727,3 +745,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingBottom: space.x8,
   },
 });
+
+/**
+ * Ask, naming the address, then hand it to the system.
+ *
+ * The question draws the *contained* address and the answer opens the raw one:
+ * this dialog is the only thing between a note's link and the browser, and it
+ * works by being read. See `linkPrompt.ts`.
+ */
+function confirmOpenUrl(url: string): void {
+  Alert.alert("Open this link?", linkPromptMessage(url), [
+    { text: "Cancel", style: "cancel" },
+    { text: "Open", onPress: () => void Linking.openURL(url).catch(() => {}) },
+  ]);
+}

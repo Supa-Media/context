@@ -256,6 +256,7 @@ export function allowInitialLoadOnly(request: { url: string }): boolean {
  * panel's import graph.
  */
 import { bytesFromBase64 } from "../imageBytes";
+import { webUrl } from "../webUrl";
 
 export { bytesFromBase64 };
 
@@ -290,6 +291,11 @@ export interface HostSink {
    * the note opens in a tab behind the one they are reading.
    */
   onOpenNote?: (path: string, mode: "foreground" | "background") => void;
+  /**
+   * A web link was tapped, and the host has already checked it is `https:`,
+   * `http:` or `mailto:`. See the `open-url` case.
+   */
+  onOpenUrl?: (url: string) => void;
   /**
    * A form block on the note was filled in and submitted.
    *
@@ -682,6 +688,25 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
         */
         case "open-link":
           sink.onOpenNote?.(message.path, message.mode);
+          return;
+        /*
+          A web link, and the one message here that leaves the app.
+
+          **This is exactly the channel `NAVIGATION_ORIGINS` exists to keep
+          shut**, reopened on purpose for one gesture, so it is narrowed twice.
+          The scheme is allow-listed again on this side — `webUrl` is the same
+          function the guest ran, and a string that does not come back from it
+          unchanged is refused — because the guest is the side that would be
+          compromised. And the sink does not open it silently: `LiveEditor.tsx`
+          asks the person first, naming the address, so a script that should
+          not exist cannot post a note's contents to a URL without someone
+          reading that URL and agreeing to it.
+
+          Not gated on `editable`, for the reason `open-link` is not.
+        */
+        case "open-url":
+          if (typeof message.url !== "string" || webUrl(message.url) !== message.url) return;
+          sink.onOpenUrl?.(message.url);
           return;
         /*
           Also not gated on `editable`, and for a stronger reason than the two

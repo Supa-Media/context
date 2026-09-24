@@ -100,6 +100,7 @@ import {
 } from "./forms.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { roomKey } from "./presence.js";
+import { activityForCaller, agentActivityKey } from "./agentActivity.js";
 import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import {
   commitUpdate as commitCollaborationUpdate,
@@ -556,6 +557,34 @@ const ORIENT_INDEX_CHAR_CAP = 6_000;
  * the reason somebody's context window filled up.
  */
 const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
+/**
+ * How far into the connect-time instructions the person's own context must
+ * finish, whatever their bucket looks like.
+ *
+ * **Clients cut this payload, and they cut the end.** Observed 2026-09-23 in a
+ * Claude Code session connected to this gateway: the instructions reached the
+ * model cut off after 4,083 characters, mid-rule, with a `[truncated]` marker.
+ * The static argument alone is over 5,000, and the sketch — the front page,
+ * the top level, the other workspaces — used to be appended after all of it.
+ * So the one part of this payload that answers a question about the person was
+ * the part no truncating client ever delivered, and a fresh conversation there
+ * started with a sales pitch for a context and none of the context.
+ *
+ * The order is therefore the feature: a short call to action, then the
+ * sketch, then the stakes and the rules, which every tool description and
+ * `orient` repeat at the moment they apply and which can afford to be the part
+ * that is cut. The budget sits under the observed cut with room for a client
+ * that is stricter, and every piece of the sketch is capped so the budget
+ * holds for a front page of any length, a root of any width and a person in
+ * any number of workspaces.
+ */
+const INSTRUCTIONS_SKETCH_BUDGET = 3_500;
+/** Characters of top-level names in the sketch; the rest are counted. */
+const INSTRUCTIONS_LAYOUT_CHAR_CAP = 600;
+/** Characters of other workspaces' names; the rest are counted, and `orient` lists them. */
+const INSTRUCTIONS_REACH_CHAR_CAP = 400;
+/** A name is somebody's own text; one absurd one may not spend a line's budget alone. */
+const INSTRUCTIONS_NAME_CHAR_CAP = 64;
 
 /**
  * What every client is told at connect time — legacy in `initialize`, modern in
@@ -599,7 +628,7 @@ const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
  * here. They are one customer's house rules, they live in that customer's
  * `index.md`, and `orient` hands them over. Ours is the product's rules only.
  */
-const SERVER_INSTRUCTIONS = `# READ THIS BEFORE YOU ANSWER ANYTHING ELSE
+const INSTRUCTIONS_HEAD = `# READ THIS BEFORE YOU ANSWER ANYTHING ELSE
 
 This user has connected their own context to you: the notes they keep about
 their work, their projects, the people around them, their decisions and their
@@ -610,9 +639,14 @@ call away.**
 ## CALL \`orient\` FIRST. EVERY SESSION. BEFORE YOUR FIRST REAL ANSWER.
 
 One call. It returns their front page, what they touched most recently, and a
-map of everything this connection can see.
+map of everything this connection can see.`;
 
-**Skipping it is not a neutral choice, it is a worse answer.** Without it you
+/**
+ * The rest of the connect-time argument: the stakes, writing back, and the
+ * rules. It comes *after* the sketch of the person's own context, never before
+ * it — see `INSTRUCTIONS_SKETCH_BUDGET` for why the order is the feature.
+ */
+const INSTRUCTIONS_BODY = `**Skipping it is not a neutral choice, it is a worse answer.** Without it you
 are answering from this conversation alone, about somebody who has already
 written down the thing you are about to guess at. You will be generic where
 they are specific. You will re-ask what they already answered. You will
@@ -684,6 +718,9 @@ stop paying.
    all, and who may read the answers is the answers note's own visibility, so say
    where it will land before you make it.`;
 
+/** The static instructions, whole: what a connection gets when no sketch can be built. */
+const SERVER_INSTRUCTIONS = `${INSTRUCTIONS_HEAD}\n\n${INSTRUCTIONS_BODY}`;
+
 /**
  * The working half of `orient` — short on purpose.
  *
@@ -723,7 +760,7 @@ const ORIENT_OPERATING_CONTRACT = `## Working here
 
 /**
  * The instructions a specific connection is given, with a live sketch of the
- * context appended.
+ * context between the call to action and the rest of the argument.
  *
  * The static text above can tell an agent that this server is worth calling.
  * Only the customer's own front page can tell it *what is in here*, and that is
@@ -765,7 +802,11 @@ async function instructionsForSession(store, session) {
       .filter(({ key }) => isVisibleNote(key, scope, rules, overrides))
       .map(({ key }) => key)
       .sort();
-    const layout = [...folders, ...rootNotes];
+    const layout = namedWithRest(
+      [...folders, ...rootNotes],
+      INSTRUCTIONS_LAYOUT_CHAR_CAP,
+      "more"
+    );
     /*
       The other contexts this connection reaches, named at connect time.
 
@@ -778,18 +819,30 @@ async function instructionsForSession(store, session) {
     */
     const others = (store.contexts || []).filter((entry) => !entry.current);
     const reach = others.length
-      ? "\n\nThis person can also reach " +
-        others.map((entry) => entry.name).join(", ") +
+      ? "This person can also reach " +
+        namedWithRest(
+          others.map((entry) => entry.name),
+          INSTRUCTIONS_REACH_CHAR_CAP,
+          "more, which orient lists"
+        ).join(", ") +
         ". Every tool takes an optional `context` argument naming one of those; " +
         "what you may do there is decided by their role there, not by this connection."
       : "";
-    if (!layout.length && !frontPage) return SERVER_INSTRUCTIONS + reach;
+    if (!layout.length && !frontPage) {
+      return reach
+        ? `${INSTRUCTIONS_HEAD}\n\n${reach}\n\n${INSTRUCTIONS_BODY}`
+        : SERVER_INSTRUCTIONS;
+    }
 
     const sketch = [
       "\n\nWHAT IS IN HERE (a snapshot taken when this connection opened; call " +
         "`orient` for the live version, with note counts and recent activity)",
     ];
     if (layout.length) sketch.push(`Top level: ${layout.join(", ")}`);
+    // Ahead of the front page, because it is one short line and the front page
+    // is the piece a cap cuts: a person whose own page is a signpost to another
+    // workspace needs the name of that workspace more than the signpost's end.
+    if (reach) sketch.push(reach);
     if (frontPage) {
       sketch.push(`Their front page, \`index.md\`:\n\n${frontPage}`);
     } else {
@@ -798,10 +851,35 @@ async function instructionsForSession(store, session) {
           "writing one with them is a good early contribution."
       );
     }
-    return SERVER_INSTRUCTIONS + sketch.join("\n\n") + reach;
+    // The sketch sits between the call to action and the argument — see
+    // `INSTRUCTIONS_SKETCH_BUDGET` for why it may not go last.
+    return `${INSTRUCTIONS_HEAD}${sketch.join("\n\n")}\n\n${INSTRUCTIONS_BODY}`;
   } catch {
     return SERVER_INSTRUCTIONS;
   }
+}
+
+/**
+ * As many names as fit in `charCap`, each capped, and a count of the rest.
+ *
+ * Every list in the connect-time sketch goes through this, so the sketch has a
+ * length bound that does not depend on anybody's bucket or membership — see
+ * `INSTRUCTIONS_SKETCH_BUDGET`.
+ */
+function namedWithRest(names, charCap, restLabel) {
+  const shown = [];
+  let spent = 0;
+  for (const name of names) {
+    const capped =
+      name.length > INSTRUCTIONS_NAME_CHAR_CAP ? `${name.slice(0, INSTRUCTIONS_NAME_CHAR_CAP)}…` : name;
+    // `, ` between names is part of what the line spends.
+    const cost = capped.length + 2;
+    if (spent + cost > charCap) break;
+    shown.push(capped);
+    spent += cost;
+  }
+  const rest = names.length - shown.length;
+  return rest > 0 ? [...shown, `(+${rest} ${restLabel})`] : shown;
 }
 
 /**
@@ -928,6 +1006,13 @@ async function route(request, env, ctx) {
     // budget — it never reads a note and never writes one.
     if (path === "/presence") {
       return await handlePresence(request, env, { slug, pathToken, origin });
+    }
+
+    // Which notes agents touched lately, for the console's file tree. Its own
+    // branch for the reasons `/presence` has one: a GET that reads no note,
+    // writes nothing, and needs no queue, usage counter or search budget.
+    if (path === "/agent-activity") {
+      return await handleAgentActivity(request, env, { slug, pathToken, origin });
     }
 
     // A meeting route resolves a session exactly as `/mcp` does — same token,
@@ -1232,6 +1317,10 @@ async function route(request, env, ctx) {
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane);
         targetStore.defer = store.defer;
+        // The same binding, keyed later by the *target's* workspace id: a
+        // write routed into another context is announced in that context's
+        // note room and recorded in its activity, never in the caller's.
+        targetStore.presenceRooms = store.presenceRooms;
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
         // Against the context that was routed to, never the connection's own.
@@ -1666,8 +1755,14 @@ async function readBoundedRequestBytes(request, limit) {
   return bytes;
 }
 
-/** Broadcast one committed snapshot to v2 presence sockets, best-effort. */
-async function announceCommittedToPresence(store, path, result) {
+/**
+ * Broadcast one committed snapshot to v2 presence sockets, best-effort.
+ *
+ * `actor` is set only by `write_note`, so the room can name the agent whose
+ * write this was. The console's own `/collaboration` saves pass none: they
+ * are somebody typing, and the room already has them as a member.
+ */
+async function announceCommittedToPresence(store, path, result, actor = null) {
   const rooms = store.presenceRooms;
   const workspaceId = store.actor?.workspaceId;
   if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
@@ -1681,6 +1776,7 @@ async function announceCommittedToPresence(store, path, result) {
         body: JSON.stringify({
           documentId: result.documentId,
           etag: result.etag,
+          ...(actor && typeof actor.id === "string" ? { actor } : {}),
         }),
       });
     } catch {
@@ -1910,6 +2006,80 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
     ? "https://presence.invalid/presence?collaboration=2"
     : "https://presence.invalid/presence";
   return await room.fetch(new Request(roomUrl, { method: "GET", headers }));
+}
+
+/**
+ * `GET /agent-activity` — which notes agents read or wrote in the last few
+ * minutes, for the console's file tree and its "N agents active" line.
+ *
+ * Authorized like `/presence`: same token, same grant, same clamp, same
+ * `privacy.md`. The log comes back from the workspace's activity object whole
+ * and is filtered here, through `canSee` for this caller, before anything is
+ * counted. See `agentActivity.js` for why that order matters.
+ *
+ * Groups are not passed to `canSee`, as on `/presence`: a note scoped to a
+ * group reads as private here. This is a live signal about who is working on
+ * what, and its first version should under-share.
+ *
+ * A manifest that does not parse answers with nothing rather than with a
+ * guess. That is the same fail-closed rule `callTool` applies.
+ */
+async function handleAgentActivity(request, env, { slug, pathToken, origin }) {
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  if (!env.PRESENCE_ROOM) return json({ error: "presence_unavailable" }, 501);
+
+  const controlPlane = createControlPlane(env);
+  let session;
+  try {
+    session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+  } catch (error) {
+    if (!(error instanceof SessionRefusal)) throw error;
+    return error.status === 403
+      ? forbiddenResponse(origin, null, error)
+      : unauthorizedResponse(origin, slug, error);
+  }
+  if (!hasScope(session, SCOPE_READ)) {
+    return forbiddenResponse(origin, null, {
+      description: `This connection does not hold the ${SCOPE_READ} scope.`,
+      scope: [SCOPE_READ],
+    });
+  }
+
+  let store;
+  try {
+    store = await storeForSession(session, env, controlPlane);
+  } catch (error) {
+    if (!(error instanceof StorageUnavailable)) throw error;
+    return json({ error: "storage_unavailable" }, 503);
+  }
+  const privacy = await loadPrivacyState(store);
+  const now = Date.now();
+  if (privacy.error) return json(activityForCaller([], now, () => false));
+
+  let events = [];
+  try {
+    const room = env.PRESENCE_ROOM.get(
+      env.PRESENCE_ROOM.idFromName(agentActivityKey(session.workspaceId)),
+    );
+    const response = await room.fetch("https://presence.invalid/activity", { method: "GET" });
+    const body = await response.json();
+    if (Array.isArray(body?.events)) events = body.events;
+  } catch {
+    // No log is an empty answer. The tree simply draws no marks.
+  }
+  const wellFormed = events.filter(
+    (event) =>
+      event && typeof event.path === "string" && typeof event.id === "string" &&
+      typeof event.name === "string" && (event.kind === "read" || event.kind === "write") &&
+      Number.isFinite(event.at),
+  );
+  return json(
+    activityForCaller(
+      wellFormed,
+      now,
+      (path) => !isPlumbing(path) && canSee(path, session.scope, privacy.rules, privacy.overrides),
+    ),
+  );
 }
 
 /**
@@ -3585,6 +3755,7 @@ async function callToolForSession(params, store, session) {
   }
 
   const result = await callTool(params?.name, args, targetStore, target.scope);
+  noteAgentActivity(targetStore, params?.name, args, result);
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it
   // reached, and attributing it to the connection's default context would
@@ -7623,7 +7794,12 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
   // And anybody who has this note open right now, so an agent's write appears
   // in their editor as it lands rather than as a conflict later.
   if (collaborationResult) {
-    await announceCommittedToPresence(store, path, collaborationResult);
+    await announceCommittedToPresence(
+      store,
+      path,
+      collaborationResult,
+      isConsoleActor(store.actor) ? null : await presenceActor(store.actor),
+    );
   } else {
     await announceWriteToPresence(store, {
       path,
@@ -8709,6 +8885,85 @@ async function presenceActor(actor) {
   */
   const name = actor?.client || (actor?.name ? `${actor.name}'s agent` : "An agent");
   return { id: await presenceClientKey(actor?.clientId), name };
+}
+
+/**
+ * The console's own client id, as the control plane issues it
+ * (`CONSOLE_CLIENT_ID` in `apps/convex/functions/agentGrant.ts`).
+ *
+ * The console reads and writes through the same tools any agent does, so
+ * without this every note a person opened in the app would show up in their
+ * file tree as an agent reading it.
+ */
+const CONSOLE_CLIENT_ID = "context_console";
+
+function isConsoleActor(actor) {
+  return actor?.clientId === CONSOLE_CLIENT_ID;
+}
+
+/** Which tool calls count as an agent reading or writing a note. */
+const AGENT_ACTIVITY_TOOLS = new Map([
+  ["read_note", "read"],
+  ["fetch", "read"],
+  ["write_note", "write"],
+]);
+
+/**
+ * Record that an agent read or wrote a note, after the call succeeded.
+ *
+ * Reads the path the handler *reported* where it reports one: `read_note`
+ * follows a forwarding entry for a moved note, and the mark belongs on the
+ * row the note is on now rather than the address the agent was holding. A
+ * refusal records nothing, so "not found" costs the same with or without
+ * this.
+ */
+function noteAgentActivity(store, name, args, result) {
+  const kind = AGENT_ACTIVITY_TOOLS.get(name);
+  if (!kind || !result || result.isError) return;
+  const text = typeof result.content?.[0]?.text === "string" ? result.content[0].text : "";
+  // The header only: a note whose own text has a `path:` line must not move
+  // its mark to a path it merely mentions.
+  const header = text.split("\n\n", 1)[0];
+  const reported = kind === "read" ? header.match(/^path: (.+)$/m)?.[1] : undefined;
+  const raw = reported ?? (name === "fetch" ? args?.id : args?.path);
+  const path = splitMessageAnchor(normalizePath(raw) ?? "").path;
+  if (!path || isPlumbing(path)) return;
+  recordAgentActivity(store, kind, path);
+}
+
+/**
+ * Tell this workspace's activity log about one read or write.
+ *
+ * Behind the response and never in front of it, and not at all on a host
+ * that cannot defer: a dot in somebody's sidebar is not worth a subrequest
+ * nothing keeps alive, the trade `reportUsage` makes for the same reason.
+ * Keyed by the workspace this store reaches, so a cross-context call marks
+ * the context it was routed to.
+ */
+function recordAgentActivity(store, kind, path) {
+  const rooms = store.presenceRooms;
+  const workspaceId = store.actor?.workspaceId;
+  if (!rooms || typeof workspaceId !== "string" || !workspaceId) return;
+  if (isConsoleActor(store.actor) || typeof store.defer !== "function") return;
+  const run = async () => {
+    try {
+      const actor = await presenceActor(store.actor);
+      if (!actor.id) return;
+      const room = rooms.get(rooms.idFromName(agentActivityKey(workspaceId)));
+      await room.fetch("https://presence.invalid/activity", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path, kind, actor }),
+      });
+    } catch {
+      // A missed mark is a quieter sidebar. The call already succeeded.
+    }
+  };
+  try {
+    store.defer(run());
+  } catch {
+    // A host whose `waitUntil` refuses the work simply does not record.
+  }
 }
 
 async function announceWriteToPresence(store, { path, content, etag, actor }) {

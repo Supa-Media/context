@@ -30,6 +30,8 @@ import { canCreateAnything, createRows } from "../features/console/files/createS
  *   `canCreateAnything` written as `offer.canEdit`                       1
  *   `canCreateAnything` written as `true`                                1
  *   the chat row gated on `meeting` (a plausible copy-paste)             4
+ *   Resume pushed after New meeting rather than before                   1
+ *   Resume offered without a meetings controller behind it               1
  */
 
 const NOTHING = { canEdit: false, chat: false, meeting: false };
@@ -103,6 +105,18 @@ describe("which rows the + draws", () => {
     // two surfaces that have one and not the other.
     expect(createRows({ ...NOTHING, chat: true })).toEqual(["new-chat"]);
     expect(createRows({ ...NOTHING, meeting: true })).toEqual(["new-meeting"]);
+  });
+});
+
+describe("Resume meeting, when there is one to carry on", () => {
+  test("sits directly above New meeting, the press it saves from a second note", () => {
+    const rows = createRows({ canEdit: true, chat: true, meeting: true, resume: true });
+    expect(rows.slice(0, 2)).toEqual(["resume-meeting", "new-meeting"]);
+  });
+
+  test("is absent when there is nothing to carry on, and never without a recorder", () => {
+    expect(createRows({ canEdit: true, chat: true, meeting: true })).not.toContain("resume-meeting");
+    expect(createRows({ ...NOTHING, canEdit: true, resume: true })).not.toContain("resume-meeting");
   });
 });
 

@@ -32,6 +32,7 @@ import { INBOX_FOLDER } from "../meetings/destination";
 import { memoryStore } from "../offline/memory";
 import { densityFor } from "../app/frame";
 import type { ConsoleRoute } from "../console/nav";
+import type { ConsoleData } from "../console/types";
 
 /**
  * The frame with its slots **filled**, for looking at rather than measuring.
@@ -93,9 +94,36 @@ const TABS: TabsState = {
   closed: [],
 };
 
-export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
-  const data = useE2EFixtureConsoleData();
-  useFakeMeeting(panel);
+export function AppFrameVisualFixture({
+  panel = false,
+  fakeMeeting = panel,
+  onOpenNote = null,
+  shape,
+  resume = null,
+}: {
+  panel?: boolean;
+  /**
+   * Start the running "Leads call" below. Follows `panel` unless a caller
+   * seeds the controller itself — `ResumeFixture` does, with a meeting that
+   * has already stopped, and a second meeting started over it would be the one
+   * state its boards are not of.
+   */
+  fakeMeeting?: boolean;
+  /** The panel's door into a filed meeting's note. `null`, as on the demo console, by default. */
+  onOpenNote?: ((href: string) => void) | null;
+  /**
+   * The fixture data and tabs, reshaped for a board of one state — the open
+   * note swapped for a meeting's, for `ResumeFixture`. Absent leaves the board
+   * exactly as the artboards draw it.
+   */
+  shape?: { data?: (data: ConsoleData) => ConsoleData; tabs?: TabsState };
+  /** The `+`'s Resume meeting row, as `console/_layout` builds it. `null` draws none. */
+  resume?: { detail: string; onResume: () => void } | null;
+}) {
+  const fixtureData = useE2EFixtureConsoleData();
+  const data = shape?.data === undefined ? fixtureData : shape.data(fixtureData);
+  const tabs = shape?.tabs ?? TABS;
+  useFakeMeeting(fakeMeeting);
   /*
     A context, not the landing route.
 
@@ -346,7 +374,7 @@ export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
         */
         tabs={
           <TabStrip
-            state={TABS}
+            state={tabs}
             onActivate={() => {}}
             onClose={() => {}}
             onCloseOthers={() => {}}
@@ -372,13 +400,13 @@ export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
                 context: null,
                 editor: { reference: null },
                 route: "/console/@seyi",
-                meetingLive: true,
+                meetingLive: fakeMeeting,
                 query: null,
               })}
               asked={null}
               started={1}
               newChat={null}
-              onOpenNote={null}
+              onOpenNote={onOpenNote}
             />
           ) : undefined
         }
@@ -397,6 +425,7 @@ export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
         */}
         <CreateButton
           compact={phone}
+          resume={resume}
           onNewMeeting={() => {}}
           onNewNote={() => {}}
           onNewDrawing={() => {}}

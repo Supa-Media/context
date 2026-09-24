@@ -306,6 +306,22 @@ const ROUTES: Record<string, Coverage> = {
     kind: "screen",
     mount: () => createElement(requireRoute("note/[...address].tsx")),
   },
+  /*
+    The redesigned-onboarding review surface. Two dev-only routes rendering
+    presentational step components with mock props — see the reachability
+    entries in `features/app/reachability.ts` for the same reason. Mounted
+    through `requireRoute` because their default exports are plain screens
+    that read only theme context, no Convex, no auth, no router state beyond
+    the [step] slug the second route already narrows.
+  */
+  "preview/onboarding/index.tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("preview/onboarding/index.tsx")),
+  },
+  "preview/onboarding/[step].tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("preview/onboarding/[step].tsx")),
+  },
 
   "(auth)/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/_layout.tsx")) },
   /*

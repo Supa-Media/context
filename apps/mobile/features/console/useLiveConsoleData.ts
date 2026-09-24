@@ -20,6 +20,7 @@ import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { useActivity } from "./activity/useActivity";
+import { useAgentActivity } from "./agents/useAgentActivity";
 import { hasNewActivity } from "./activity/activity";
 import { useFastSearch } from "./search/useFastSearch";
 import { useGroups } from "./groups/useGroups";
@@ -814,6 +815,13 @@ export function useLiveConsoleData(): ConsoleData {
     ownName,
   );
 
+  /*
+    Which notes agents are reading and writing, for the tree's squares and the
+    foot's "N agents active". The same per-context id as the rest, so a
+    context switch never draws one workspace's marks on another's tree.
+  */
+  const agents = useAgentActivity(membershipContextId ?? null, MCP_ENDPOINT);
+
   // Read for every member — how a context's search is served is not privileged
   // — and the switch attached only where the server said `canChange`. That is
   // the hook's own rule rather than this file's, so `isOwner` is deliberately
@@ -1150,6 +1158,7 @@ export function useLiveConsoleData(): ConsoleData {
     selectedContextId,
     selectContext,
     activity,
+    agents,
     searchableContexts,
     graph,
     // Walking out of somebody else's context is the member's own move — the

@@ -59,6 +59,7 @@ import {
   roster,
   touch,
 } from "./presence.js";
+import { agentMemberId, pruneActivity, recordActivity } from "./agentActivity.js";
 
 /**
  * How long one authorized socket may stay open.
@@ -97,6 +98,9 @@ export class PresenceRoom {
     // is serialized into a socket attachment or Durable Object storage.
     this.liveRelayQueues = new WeakMap();
     this.closedLiveSockets = new WeakSet();
+    // Only on the one instance per workspace keyed by `agentActivityKey`, and
+    // only in memory. See `agentActivity.js` for why it is never stored.
+    this.activity = [];
   }
 
   /**
@@ -120,6 +124,34 @@ export class PresenceRoom {
     */
     if (requestUrl.pathname === "/committed") {
       return await this.handleCommitted(request);
+    }
+
+    /*
+      **Which notes agents touched in this workspace, for the file tree.**
+
+      Internal only, like `/committed`: the gateway records an event after a
+      tool call it has already authorized and completed, and reads the log
+      back for a route that has already resolved a session. The log goes back
+      whole; the route filters it through `canSee` for the caller, because this
+      object has no `privacy.md` and must not try to decide visibility.
+    */
+    if (requestUrl.pathname === "/activity") {
+      const now = Date.now();
+      if (request.method === "POST") {
+        let event;
+        try {
+          event = await request.json();
+        } catch {
+          return new Response(null, { status: 400 });
+        }
+        return json({ recorded: recordActivity(this.activity, event, now) });
+      }
+      if (request.method === "GET") {
+        // Every event, unaggregated: the one filter is on the side that knows
+        // the manifest, and it has to run before anything is counted.
+        return json({ events: pruneActivity(this.activity, now) });
+      }
+      return new Response(null, { status: 405 });
     }
 
     /*
@@ -689,7 +721,7 @@ export class PresenceRoom {
     // A committed frame is only a change hint. Clients must re-authorize over
     // HTTP before fetching the snapshot; sending update bytes over a socket
     // whose lease may outlive a revoked grant would leak new note content.
-    const payload = JSON.stringify({ t: "committed", documentId, etag });
+    const payload = JSON.stringify({ t: "committed", documentId, etag, ...this.committedAgent(notice?.actor) });
     let delivered = 0;
     for (const ws of this.openSockets()) {
       const attachment = ws.deserializeAttachment();
@@ -703,6 +735,30 @@ export class PresenceRoom {
       }
     }
     return json({ delivered });
+  }
+
+  /**
+   * Who made a committed write, when it was a tool and not somebody here.
+   *
+   * The v1 room announced a tool as a member and asked one client to report
+   * where its caret landed (`/external`). A v2 room cannot do that: nobody is
+   * handed the text, and every client re-reads the snapshot over HTTP on its
+   * own. So the room names the agent and each client works out the changed
+   * span from the update it just fetched. That is an authorized read, so no
+   * client reports a caret on anybody else's behalf.
+   *
+   * The same rule as `/external` for a save: a write from a client already
+   * seated here is somebody saving, and naming it as a tool would put a
+   * robot wearing their own name beside their own caret.
+   */
+  committedAgent(actor) {
+    if (!actor || typeof actor !== "object") return {};
+    if (typeof actor.id !== "string" || !/^[0-9a-f]{16}$/.test(actor.id)) return {};
+    for (const ws of this.openSockets()) {
+      if (ws.deserializeAttachment()?.clientKey === actor.id) return {};
+    }
+    const id = agentMemberId(actor.id);
+    return { agent: { id, name: normalizeDisplayName(actor.name), color: colorFor(id) } };
   }
 
   async enqueueLiveRelay(ws, message) {

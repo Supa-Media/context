@@ -291,6 +291,9 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // "in the control plane's RESERVED_NAMES beside it" one commit before it
   // was, which is the shape of drift this list exists to refuse.
   "presence",
+  // What agents are reading and writing in a workspace, for the console's file
+  // tree, at `/agent-activity`. Reserved on the same terms as `presence`.
+  "agent-activity",
   "oauth",
   "static",
   "status",

@@ -24,4 +24,15 @@
  * is the same note.
  */
 
-export { renderMeetingNote } from "@context/meetings/note";
+/*
+ * The continuation half — adding a resumed part to a note that already exists,
+ * and reading back what a note says about its meeting — crosses here for the
+ * same reason: `convexGateway.ts` is the writer that splices, and a second
+ * splice written in this app would be a second answer to what the file is.
+ */
+export {
+  continueMeetingNote,
+  continuesMeetingNote,
+  meetingNoteFacts,
+  renderMeetingNote,
+} from "@context/meetings/note";

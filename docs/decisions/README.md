@@ -134,6 +134,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
 - Presence is a read that happens to be a socket
 - Phase 2: the room carries the document, and what that spends
+- Agent activity is announced from finished tool calls, never streamed
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
 
@@ -219,6 +220,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
 - A reference follows the note it points at, and a link is something you follow
+- A web link opens on a click, and only a web scheme opens
 - The console autosaves, and the prompt that is left is about a decision
 - The breadcrumb is the whole path, and its head is a real way up
 - The communications console reads through `FileBrowser`, not a new tool
@@ -247,6 +249,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A phone can ask its context a question, and could not before
 - The feed is a file, and the console is a viewing layer over it
 - The room binds to a document it agrees with, and a different note unbinds first
+- Several rows are one operation, and a pick is what the keyboard acts on
+- No UI ships without a design audit first
 
 ## [Meetings](./meetings.md)
 
@@ -291,6 +295,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
   not a place a person can read
 - A build is what shipped, not what merged — two "the fix did not work" reports
   were one build
+- A resumed meeting is a new part spliced into the note it already has
 
 ## [Communications](./communications.md)
 

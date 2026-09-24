@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 import { Button } from "../../design/components/Button";
@@ -11,7 +11,7 @@ import { LiveWaveform } from "../../meetings/components/LiveWaveform";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
 import { writeClipboard } from "../../design/clipboard";
-import { meetings, recordElapsedMs } from "../../meetings/controller";
+import { meetingElapsedMs, meetings } from "../../meetings/controller";
 import { describeDestination } from "../../meetings/destination";
 import { clock, meetingSubtitle } from "../../meetings/format";
 import { meetingLanding } from "../../meetings/landing";
@@ -20,6 +20,12 @@ import { noteEditorHref } from "../../meetings/noteLink";
 import type { MeetingRecord } from "../../meetings/record";
 import { UNTITLED_MEETING } from "../../meetings/session";
 import { appendTypedNote } from "../../meetings/typedNote";
+import {
+  continuationFromRecord,
+  mayResume,
+  meetingIdOf,
+  oneRowPerMeeting,
+} from "../../meetings/resume";
 import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
 import { NO_MEETING } from "./tabs";
 
@@ -90,6 +96,19 @@ export function MeetingsTab({
     [snapshot.records, openId],
   );
 
+  /*
+    Stop & save leaves the panel on the meeting that just ended, not on the
+    list — the rule `RecordingBar.end` follows on the phone, where a note that
+    vanished the moment it was saved read as a note that was lost. It is also
+    what puts Resume one row below where Stop was pressed.
+  */
+  const lastLive = useRef<string | null>(null);
+  const liveId = live?.session.id ?? null;
+  useEffect(() => {
+    if (liveId === null && lastLive.current !== null) setOpenId(lastLive.current);
+    lastLive.current = liveId;
+  }, [liveId]);
+
   if (live !== null) return <LiveMeeting record={live} />;
 
   if (opened !== null) {
@@ -112,23 +131,25 @@ export function MeetingsTab({
           <Text variant="railHead" style={styles.recentHead}>
             Recent
           </Text>
-          {snapshot.records.slice(0, RECENT).map((record) => (
-            <Pressable
-              key={record.session.id}
-              onPress={() => setOpenId(record.session.id)}
-              role="button"
-              accessibilityLabel={`${record.session.title}, ${meetingSubtitle(record.session)}`}
-              style={styles.row}
-              testID={`aside-meeting-row-${record.session.id}`}
-            >
-              <Text variant="rowTitle" style={styles.rowTitle} numberOfLines={1}>
-                {record.session.title}
-              </Text>
-              <Text variant="foot" style={styles.rowSub} numberOfLines={1}>
-                {meetingSubtitle(record.session)}
-              </Text>
-            </Pressable>
-          ))}
+          {oneRowPerMeeting(snapshot.records)
+            .slice(0, RECENT)
+            .map((record) => (
+              <Pressable
+                key={record.session.id}
+                onPress={() => setOpenId(record.session.id)}
+                role="button"
+                accessibilityLabel={`${record.session.title}, ${meetingSubtitle(record.session)}`}
+                style={styles.row}
+                testID={`aside-meeting-row-${record.session.id}`}
+              >
+                <Text variant="rowTitle" style={styles.rowTitle} numberOfLines={1}>
+                  {record.session.title}
+                </Text>
+                <Text variant="foot" style={styles.rowSub} numberOfLines={1}>
+                  {meetingSubtitle(record.session)}
+                </Text>
+              </Pressable>
+            ))}
         </View>
       )}
     </ScrollView>
@@ -152,7 +173,7 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
   const paused = record.session.state === "paused";
   const ending = snapshot.ending === id;
   const now = useTick(true);
-  const elapsed = clock(recordElapsedMs(record, now === 0 ? Date.now() : now));
+  const elapsed = clock(meetingElapsedMs(record, now === 0 ? Date.now() : now));
 
   const [typed, setTyped] = useState("");
   const [arming, setArming] = useState(false);
@@ -166,7 +187,11 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
   const onChangeTitle = useCallback((text: string) => meetings.setTitle(id, text), [id]);
 
   const addNote = useCallback(() => {
-    const at = recordElapsedMs(record, Date.now());
+    /*
+      The meeting's clock, not this part's: a note typed 4s into a resumed
+      meeting belongs at 31:08, beside the transcript it was typed under.
+    */
+    const at = meetingElapsedMs(record, Date.now());
     const next = appendTypedNote(record.session.notes, typed, at);
     if (next === record.session.notes) return;
     meetings.setNotes(id, next);
@@ -176,13 +201,23 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
   return (
     <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
       <View style={styles.liveCard} testID="aside-live-meeting">
-        <MeetingTitleField
-          key={id}
-          initialValue={record.session.title}
-          onChangeText={onChangeTitle}
-          placeholder={UNTITLED_MEETING}
-          testID="aside-meeting-title"
-        />
+        {/*
+          Not renameable when this is a later part of a meeting: it is added to
+          a note whose heading it keeps. `LiveMeetingScreen` has the argument.
+        */}
+        {record.continues === undefined ? (
+          <MeetingTitleField
+            key={id}
+            initialValue={record.session.title}
+            onChangeText={onChangeTitle}
+            placeholder={UNTITLED_MEETING}
+            testID="aside-meeting-title"
+          />
+        ) : (
+          <Text variant="paneTitle" numberOfLines={2} testID="aside-meeting-title-static">
+            {record.session.title}
+          </Text>
+        )}
 
         <View style={styles.liveHead}>
           <Dot tone={paused ? "warn" : "crit"} />
@@ -199,9 +234,11 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
         </View>
 
         <Text variant="foot" style={styles.dest} testID="aside-live-destination">
-          {record.destination === null
-            ? "Filed into your inbox when you stop."
-            : `→ ${describeDestination(record.destination)}`}
+          {record.continues !== undefined
+            ? `→ ${record.continues.path}`
+            : record.destination === null
+              ? "Filed into your inbox when you stop."
+              : `→ ${describeDestination(record.destination)}`}
         </Text>
 
         {ending ? (
@@ -329,6 +366,29 @@ function PastMeeting({
 }) {
   const styles = useThemedStyles(makeStyles);
   const href = noteEditorHref(record);
+  const snapshot = useMeetingsSnapshot();
+  /*
+    Resume, beside Open the note, on the rules `resume.ts` holds. Only where
+    the note opens too: `onOpenNote` is `null` on the demo console and the
+    fixtures, which have no recorder behind them either.
+
+    The controller directly rather than `useResumeMeeting`: the part is shown
+    by this tab, which draws the live meeting the moment there is one, so there
+    is nowhere to navigate to — and that hook's router is a dependency this
+    panel's render tests do not carry. A second press finds the first part
+    live and is refused by `continueMeeting` itself.
+  */
+  const continues =
+    onOpenNote !== null &&
+    record.session.state === "complete" &&
+    mayResume({
+      records: snapshot.records,
+      live: snapshot.live,
+      canContinue: snapshot.canContinue,
+      meetingId: meetingIdOf(record),
+    })
+      ? continuationFromRecord(snapshot.records, record)
+      : null;
 
   return (
     <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
@@ -390,12 +450,33 @@ function PastMeeting({
         <Stranded record={record} />
       ) : (
         <View style={styles.pastActions}>
+          {/*
+            The live card's pair, so the row reads as the same transport one
+            state later: Stop & save was here, and Resume is its quiet half,
+            marked with the record dot rather than a colour of its own.
+          */}
           <Button
             label="Open the note"
-            variant="white"
+            variant="dialogPrimary"
             onPress={() => onOpenNote(href)}
             testID="aside-meeting-open-note"
           />
+          {continues === null ? null : (
+            <Button
+              label="Resume"
+              variant="dialog"
+              leading={<Dot tone="crit" />}
+              accessibilityLabel="Resume recording this meeting"
+              onPress={() =>
+                void meetings.continueMeeting({
+                  continues,
+                  title: record.session.title,
+                  destination: record.destination,
+                })
+              }
+              testID="aside-meeting-resume"
+            />
+          )}
         </View>
       )}
     </ScrollView>
@@ -568,7 +649,12 @@ const makeStyles = (colors: Colors) =>
     back: { paddingHorizontal: space.x4, paddingTop: space.x3 },
     backLabel: { color: colors.accentText },
     pastHead: { paddingHorizontal: space.x4, paddingTop: space.x2, gap: 2 },
-    pastActions: { paddingHorizontal: space.x4, paddingTop: space.x3 },
+    pastActions: {
+      paddingHorizontal: space.x4,
+      paddingTop: space.x3,
+      flexDirection: "row",
+      gap: space.x2,
+    },
     landing: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x1 },
     landingTitle: { color: colors.text },
     landingActions: {

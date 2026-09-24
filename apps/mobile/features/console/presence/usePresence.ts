@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useConsoleGrant } from "../../agent/useConsoleGrant";
 import { gatewayOriginFrom } from "../../meetings/gateway";
+import { onReturnToApp } from "../../app/returnToApp";
 import {
   agentCursorFrame,
   agentPointerFrame,
@@ -70,6 +71,8 @@ import {
   type PresencePhase,
 } from "./session";
 import type { DurableCollaboration, LiveUpdate } from "../collaboration/durable";
+import { AGENT_SPAN_WAIT_MS, changedSpan, type TextDeltaOp } from "./agentSpan";
+import type * as Y from "yjs";
 
 /** How often a caret move is sent, at most. */
 const CURSOR_THROTTLE_MS = 120;
@@ -367,6 +370,8 @@ export function usePresence(options: {
   const lastPointer = useRef(0);
   /** When each agent's caret should be taken down, by member id. */
   const agentTimers = useRef(new Map<string, number>());
+  /** Stops waiting for the read that brings a named agent's write in. */
+  const agentWatch = useRef<(() => void) | null>(null);
   if (seed.current === null && typeof window !== "undefined") seed.current = tabSeed();
 
   const { workspaceId, endpoint, notePath, enabled } = options;
@@ -425,6 +430,76 @@ export function usePresence(options: {
       round to running it, not what this room put there.
     */
     const toolCarets = agentTimers.current;
+
+    /*
+      **A tool is present while it is writing, and then it is not.**
+
+      It holds no socket, so nothing will ever send a `leave` for it — the room
+      cannot know when an agent has stopped, because there was never a
+      connection to close. A caret that stayed would be claiming somebody is in
+      the note who left minutes ago, which is exactly the lie presence exists
+      to remove. So this client drops it, on the same clock the room uses to
+      expire a member who stopped speaking.
+
+      Re-armed on every write: an agent making a series of edits stays present
+      throughout rather than flickering.
+    */
+    const holdAgent = (id: string) => {
+      const held = agentTimers.current.get(id);
+      if (held !== undefined) window.clearTimeout(held);
+      agentTimers.current.set(
+        id,
+        window.setTimeout(() => {
+          agentTimers.current.delete(id);
+          // Its pointer too, and by hand: a peer's goes down in the `leave`
+          // branch below, and this leave never comes off the wire.
+          pointers.current.delete(id);
+          onPeerPointers.current?.(peersFrom(roster.current, pointers.current));
+          dispatch({ type: "frame", notePath: path, frame: { t: "leave", id } });
+        }, MEMBER_IDLE_MS),
+      );
+    };
+
+    /*
+      Wait for the authorized read that brings a named agent's write in, and
+      sign the text it changed with the agent's caret.
+
+      Only a transaction from `applyRemote` counts: a peer's live keystroke
+      arriving in the meantime is theirs, and must not be drawn as the agent's.
+      One read, then stop; and stop anyway after `AGENT_SPAN_WAIT_MS`, because
+      a later remote update is not evidence of anything.
+    */
+    const watchAgentWrite = (id: string) => {
+      agentWatch.current?.();
+      const shared = externalShared.current;
+      if (!shared?.appliedRemotely) return;
+      const text = shared.text;
+      let timer: number | undefined;
+      const stop = () => {
+        text.unobserve(observer);
+        if (timer !== undefined) window.clearTimeout(timer);
+        if (agentWatch.current === stop) agentWatch.current = null;
+      };
+      function observer(event: Y.YTextEvent, transaction: Y.Transaction) {
+        if (!shared?.appliedRemotely?.(transaction.origin)) return;
+        const span = changedSpan(event.delta as TextDeltaOp[]);
+        if (span === null) return;
+        stop();
+        dispatch({
+          type: "frame",
+          notePath: path,
+          frame: {
+            t: "cursor",
+            id,
+            anchor: cursorPosition(text, span.from),
+            head: cursorPosition(text, span.to),
+          },
+        });
+      }
+      text.observe(observer);
+      timer = window.setTimeout(stop, AGENT_SPAN_WAIT_MS);
+      agentWatch.current = stop;
+    };
 
     /*
       One document per note, created with the room and destroyed with it.
@@ -675,6 +750,30 @@ export function usePresence(options: {
         }
 
         if (frame.t === "committed") {
+          /*
+            **A durable note changed, and the room says an agent changed it.**
+
+            The agent joins the roster exactly as a v1 tool does, so the chip
+            names it and it goes away on the same clock. Where its caret goes
+            is this client's own finding: the next update applied from an
+            authorized HTTP read is the write it was told about, and its span
+            becomes the agent's selection. See `agentSpan.ts`.
+
+            Armed before the repair is asked for, so the read cannot land
+            before anybody is listening for it.
+          */
+          if (frame.agent && options.durable) {
+            const member: PresenceMember = {
+              ...frame.agent,
+              anchor: null,
+              head: null,
+              canWrite: false,
+              isAgent: true,
+            };
+            holdAgent(member.id);
+            dispatch({ type: "frame", notePath: path, frame: { t: "join", member } });
+            watchAgentWrite(member.id);
+          }
           onCommitted.current?.(frame);
           return;
         }
@@ -817,36 +916,7 @@ export function usePresence(options: {
             void connect(0);
           }, due);
         }
-        if (frame.t === "join" && frame.member.isAgent) {
-          /*
-            **A tool is present while it is writing, and then it is not.**
-
-            It holds no socket, so nothing will ever send a `leave` for it —
-            the room cannot know when an agent has stopped, because there was
-            never a connection to close. A caret that stayed would be claiming
-            somebody is in the note who left minutes ago, which is exactly the
-            lie presence exists to remove. So this client drops it, on the same
-            clock the room uses to expire a member who stopped speaking.
-
-            Re-armed on every write: an agent making a series of edits stays
-            present throughout rather than flickering.
-          */
-          const id = frame.member.id;
-          const held = agentTimers.current.get(id);
-          if (held !== undefined) window.clearTimeout(held);
-          agentTimers.current.set(
-            id,
-            window.setTimeout(() => {
-              agentTimers.current.delete(id);
-              // Its pointer too, and by hand: a peer's goes down in the
-              // `leave` branch below, and this leave never comes off the wire.
-              pointers.current.delete(id);
-              onPeerPointers.current?.(peersFrom(roster.current, pointers.current));
-              dispatch({ type: "frame", notePath: path, frame: { t: "leave", id } });
-            }, MEMBER_IDLE_MS),
-          );
-        }
-
+        if (frame.t === "join" && frame.member.isAgent) holdAgent(frame.member.id);
         if (frame.t === "leave") {
           // A peer that left takes its pointer with it, or Excalidraw goes on
           // drawing a cursor for somebody who has closed the tab.
@@ -881,18 +951,15 @@ export function usePresence(options: {
       void connect(0);
     };
     void connect(0);
-    window.addEventListener("online", retryNow);
-    window.addEventListener("focus", retryNow);
-    window.addEventListener("visibilitychange", retryNow);
+    const stopRetrying = onReturnToApp(retryNow);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("online", retryNow);
-      window.removeEventListener("focus", retryNow);
-      window.removeEventListener("visibilitychange", retryNow);
+      stopRetrying();
       closeSocket(true);
       for (const timer of toolCarets.values()) window.clearTimeout(timer);
       toolCarets.clear();
+      agentWatch.current?.();
       shared.current = null;
       document?.destroy();
     };

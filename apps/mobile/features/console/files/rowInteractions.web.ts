@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AUTO_EXPAND_MS, type DragModifier } from "./dnd";
+import { isApplePlatform } from "../../design/applePlatform";
 import { anchorUnder, isMenuKey } from "./menuKey";
 import type { RowInteractionOptions, RowInteractions } from "./rowInteractionContract";
+import type { PickGesture } from "./selection";
 
 export type { RowInteractionOptions, RowInteractions } from "./rowInteractionContract";
 export { LONG_PRESS_MS } from "./rowInteractionContract";
@@ -56,6 +58,24 @@ export { LONG_PRESS_MS } from "./rowInteractionContract";
  * modifier for drags, so treating those as a request for the browser's menu
  * would make the console's own menu unreachable for somebody holding a key out
  * of habit.
+ *
+ * ## A modified click is caught on its way down, before the row sees it
+ *
+ * ⌘-click (ctrl-click off a Mac) and shift-click pick rows instead of opening
+ * them — see `selection.ts`. react-native-web's `Pressable` fires `onPress`
+ * from the `click` event and hands it no modifiers, so the row cannot tell a
+ * plain press from a modified one. This listens for `click` in the *capture*
+ * phase on the row's outer node, which runs before the event reaches the
+ * pressable inside it: a modified click is answered here and stopped, so the
+ * note does not also open; a plain one is left alone and opens exactly as
+ * before.
+ *
+ * Which key toggles follows the platform, and has to: on a Mac ctrl-click *is*
+ * a right-click, and it is already this row's menu.
+ *
+ * Shift is also stopped at `mousedown`, where the browser would otherwise
+ * start a text selection from the last click to this one — a blue wash across
+ * every name in between, drawn over the very range being picked.
  *
  * ## The `dragover` rules are counter-intuitive and both matter
  *
@@ -199,6 +219,20 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         event.stopPropagation();
       };
 
+      const onClick = (event: MouseEvent) => {
+        const onPick = latest.current.onPick;
+        if (onPick === undefined) return;
+        const gesture = pickGestureOf(event);
+        if (gesture === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onPick(gesture);
+      };
+
+      const onMouseDown = (event: MouseEvent) => {
+        if (latest.current.onPick !== undefined && event.shiftKey) event.preventDefault();
+      };
+
       const onDragStart = (event: DragEvent) => {
         const current = latest.current;
         if (!current.canDrag) {
@@ -267,10 +301,12 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
 
       /**
        * One table, walked twice. Attaching and detaching from the same list is
-       * what makes "seven added, seven removed" checkable by reading it, rather
+       * what makes "everything added is removed" checkable by reading it, rather
        * than a pair of blocks that have to be diffed against each other.
        */
-      const listeners: [string, EventListener][] = [
+      const listeners: [string, EventListener, boolean?][] = [
+        ["click", onClick as EventListener, true],
+        ["mousedown", onMouseDown as EventListener],
         ["contextmenu", onContextMenu as EventListener],
         ["keydown", onKeyDown as EventListener],
         ["dragstart", onDragStart as EventListener],
@@ -282,7 +318,9 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
       ];
 
       element.setAttribute("draggable", latest.current.canDrag ? "true" : "false");
-      for (const [type, handler] of listeners) element.addEventListener(type, handler);
+      for (const [type, handler, capture] of listeners) {
+        element.addEventListener(type, handler, capture === true);
+      }
       attached.current = element;
 
       const detach = () => {
@@ -291,7 +329,9 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         // *newer* attachment that has since taken this one's place.
         if (release.current !== detach) return;
         release.current = null;
-        for (const [type, handler] of listeners) element.removeEventListener(type, handler);
+        for (const [type, handler, capture] of listeners) {
+          element.removeEventListener(type, handler, capture === true);
+        }
         if (attached.current === element) attached.current = null;
         // A row torn down mid-drag would otherwise leave both behind: a depth
         // count that never returns to zero, and a timer that fires against a
@@ -307,6 +347,20 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
   );
 
   return { pressableProps: {}, ref };
+}
+
+/**
+ * Which pick a click is, or `null` for a plain one.
+ *
+ * Shift wins over ⌘ when both are held, the way it does in Finder: the range
+ * is the bigger gesture and the one a person reaching for both most likely
+ * meant.
+ */
+function pickGestureOf(event: MouseEvent): PickGesture | null {
+  if (event.button !== 0) return null;
+  if (event.shiftKey) return "range";
+  if (isApplePlatform() ? event.metaKey : event.ctrlKey) return "toggle";
+  return null;
 }
 
 /**
