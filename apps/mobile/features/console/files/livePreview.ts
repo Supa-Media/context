@@ -46,7 +46,6 @@ import {
   EditorState,
   Range,
   RangeSet,
-  StateEffect,
   StateField,
   Text,
   type TransactionSpec,
@@ -164,6 +163,14 @@ export {
   callouts,
   type Callout,
 } from "./livePreview/callouts";
+import {
+  showTableSource,
+  stopWritingTable,
+  writingTable,
+} from "./livePreview/writingTable";
+export { showTableSource, stopWritingTable, writingTable } from "./livePreview/writingTable";
+import { editorEngaged, revealSelection, setEditorEngaged } from "./livePreview/engagement";
+export { editorEngaged, engageEditor } from "./livePreview/engagement";
 
 const hideMark = Decoration.replace({});
 
@@ -2167,236 +2174,6 @@ function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
  * position, which is why styles and hides are collected separately and
  * concatenated rather than pushed as they are found.
  */
-/**
- * Is somebody working in this document?
- *
- * Not "does it have the keyboard", which is what this was first written as and
- * is the wrong question by a hair that costs a feature. Focus is a fact about
- * the DOM and it moves for reasons that have nothing to do with editing: a
- * right-click menu is a React popover, and opening one blurs the editor.
- *
- * Measured in Chromium: right-click → Bold inserted the `**` correctly, and the
- * note redrew with every mark hidden, so Bold looked like it had done nothing.
- * `runMenuAction` calls `view.focus()` immediately after the command and
- * `document.activeElement` really was `.cm-content` — a blur transaction simply
- * arrived last. Chasing that ordering is a losing game; every popover, toolbar
- * and side panel this product grows would be another round of it.
- *
- * So the field is engagement, and it is one-way within a document:
- *
- *  - `false` when a note is **put on screen** — `replaceDocument` says so
- *    explicitly, which is the whole state this exists to draw.
- *  - `true` the moment somebody clicks into the text or changes it
- *    (`select.pointer`, `input`, `delete`) or focuses the editor at all.
- *  - and it does not go back on blur. Reaching for a menu is not leaving.
- *
- * A `StateEffect` and a field rather than reading `view.hasFocus`, because
- * `decorationsFor` is a pure function of `EditorState` and that is what makes
- * it testable at all.
- */
-/**
- * THE TABLE SOMEBODY IS TYPING, WHICH IS THE ONE THAT IS NOT DRAWN.
- *
- * Found in a browser and by nothing else: a table becomes a table the moment
- * `| - | - |` parses, which is in the *middle* of typing the delimiter row.
- * The grid was drawn over the two lines, the caret was left at the end of a
- * line that is no longer on screen, and the rest of what the person typed went
- * in somewhere they could not see. Measured: `| --- | --- |` finished as
- * `-- |` on its own line with a two-column grid above it.
- *
- * So one table gives way, and it is identified rather than inferred from where
- * the caret is. Position alone cannot answer this: a caret at the end of the
- * delimiter row and a caret parked there by Escape are the same number, and
- * they want opposite answers.
- *
- * - A **document change** with the caret in a table says that table is being
- *   written. That is the keystroke case and nothing else produces it, because
- *   `atomicRanges` means the caret cannot walk into a drawn one.
- * - A **selection that leaves it** puts it back. Clicking away, arrowing out,
- *   anything deliberate.
- * - An **effect** puts it back explicitly, for the two gestures that hand the
- *   table over rather than leave it: Escape out of a cell, and a cell taking
- *   focus.
- *
- * Arrowing *within* the source keeps it revealed, which is the same courtesy
- * every other construct in this file extends to the thing you are editing.
- */
-const setWritingTable = StateEffect.define<number | null>();
-
-/** Stop revealing the source of whatever table was being written. */
-export function stopWritingTable() {
-  return setWritingTable.of(null);
-}
-
-/**
- * Show one table as its own pipes, because somebody asked to edit it as text.
- *
- * The same state a table being typed is in, reached deliberately from the
- * table's own menu. It is the escape hatch for everything the controls have
- * no verb for, and without it a drawn table is a block a person cannot get
- * inside: `atomicRanges` keeps the caret out, so there would be no way to
- * repair a table the grid draws but nobody meant.
- */
-export function showTableSource(from: number) {
-  return setWritingTable.of(from);
-}
-
-/**
- * Whether the caret is *in* a table rather than beside it.
- *
- * Asymmetric, and both halves were found by a test rather than reasoned out.
- * The first character is where arriving from above leaves you and where
- * `openingCaret` parks, so a caret there is before the table. The last is
- * where the keystroke that made these lines a table leaves you, so a caret
- * there is in it.
- */
-function inTable(head: number, table: { from: number; to: number }): boolean {
-  return head > table.from && head <= table.to;
-}
-
-/** The `Table` node covering `pos`, ends included. */
-function tableAround(state: EditorState, pos: number): { from: number; to: number } | null {
-  for (const side of [-1, 1] as const) {
-    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, side);
-    for (; node !== null; node = node.parent) {
-      if (node.name === "Table") return { from: node.from, to: node.to };
-    }
-  }
-  return null;
-}
-
-export const writingTable = StateField.define<number | null>({
-  create: () => null,
-  update(value, transaction) {
-    for (const effect of transaction.effects) {
-      if (effect.is(setWritingTable)) return effect.value;
-    }
-    if (transaction.state.readOnly) return null;
-
-    if (transaction.docChanged) {
-      /*
-        The caret after the change, not before it: the character just typed is
-        what may have made these lines a table, and the node is read from the
-        state that has it.
-
-        Two conditions beyond "a table is there", and each answers a case that
-        got this wrong. The change has to **touch the table**, or an edit
-        somewhere else in the note would reveal a table the caret happens to
-        sit at the start of — `openingCaret` parks at the first line, which on
-        plenty of notes is a table's own first character. And the caret has to
-        be **past** that first character: arriving at a table from above is
-        being beside it, while the end of its last line is where the keystroke
-        that made it one leaves you.
-      */
-      const head = transaction.state.selection.main.head;
-      const table = tableAround(transaction.state, head);
-      if (
-        table !== null &&
-        inTable(head, table) &&
-        transaction.changes.touchesRange(table.from, table.to) !== false
-      ) {
-        return table.from;
-      }
-    }
-
-    const at = value === null ? null : transaction.changes.mapPos(value, -1);
-    if (at === null) return null;
-    if (!transaction.selection && !transaction.docChanged) return at;
-
-    const table = tableAround(transaction.state, at);
-    if (table === null) return null;
-    return inTable(transaction.state.selection.main.head, table) ? table.from : null;
-  },
-});
-
-const setEditorEngaged = StateEffect.define<boolean>();
-
-/**
- * Engage or disengage the document. Exported for its two callers:
- * `replaceDocument`, which closes the gate on every note it opens, and
- * `livePreview.test.ts`, which has no view to click in.
- */
-export function engageEditor(engaged: boolean) {
-  return setEditorEngaged.of(engaged);
-}
-
-/** Starts closed: a document that has just been put on screen is untouched. */
-export const editorEngaged = StateField.define<boolean>({
-  create: () => false,
-  update(value, transaction) {
-    for (const effect of transaction.effects) {
-      if (effect.is(setEditorEngaged)) return effect.value;
-    }
-    /*
-      A pointer selection is a click inside the text; `input` and `delete` are
-      edits, including the ones a menu command dispatches. None of them is
-      `replaceDocument` opening a note, which carries no user event and closes
-      the gate explicitly anyway.
-    */
-    if (
-      transaction.isUserEvent("select.pointer") ||
-      transaction.isUserEvent("input") ||
-      transaction.isUserEvent("delete")
-    ) {
-      return true;
-    }
-    return value;
-  },
-});
-
-/**
- * The selection the reveal rule may act on.
- *
- * NOTHING REVEALS IN A DOCUMENT NOBODY CAN TYPE INTO. Markup comes back when
- * the caret enters it, because you cannot edit syntax you cannot see. A
- * read-only document has no caret to enter anything with — `editability` drops
- * `contenteditable` — but `state.selection` is still a range at 0, so the
- * note's first construct would draw its own asterisks at a reader who cannot
- * act on them, and an HTML preview at the top of a note would sit there as its
- * own source.
- *
- * So read-only is an empty selection, which is the same sentence the reveal
- * rule already makes: reveal for editing, and there is no editing. One
- * condition covers reading mode, `privacy.md` and an encrypted envelope, and it
- * is `state.readOnly` rather than a flag of this extension's own so there is
- * nothing for the two to disagree about.
- *
- * Both callers take it from here rather than each mapping the ranges, because
- * the two are one rule: `htmlPreviews` withdrawing a preview while
- * `decorationsFor` keeps the markup hidden is a half-revealed note.
- *
- * ## AND NOTHING REVEALS IN A DOCUMENT NOBODY HAS TOUCHED
- *
- * The same sentence, one step weaker, and it is the half that was missing. A
- * caret exists the moment the document does — at 0, or wherever
- * `replaceDocument` put it — whether or not anybody has gone near the editor.
- * So a note *opened* rather than edited drew the markup of whichever construct
- * the caret happened to land in, at a reader who had not touched anything.
- *
- * That is not hypothetical and it is how this was found: `openingCaret` puts
- * the caret past the frontmatter, which is the first line of the writing — and
- * on a note that opens with `# Title`, which is most of them, the page's title
- * rendered as `# Title` with the hash showing. The canvas draws it clean, and
- * so does every editor with a live preview: markup comes back **where you are
- * working**, and a person who has not touched the note is not working
- * anywhere.
- *
- * `editorEngaged` is what that reads, and its own comment argues why it is
- * engagement rather than DOM focus — the short version being that a right-click
- * menu blurs the editor and Bold would have appeared to do nothing.
- *
- * A state with no such field — every direct `decorationsFor` call in the unit
- * suite, and any configuration that does not install `livePreview` — reveals
- * as it always did. The gate is something the extension opts into, so a test
- * that builds a bare `EditorState` to ask what a construct looks like still
- * gets an answer about the construct.
- */
-function revealSelection(state: EditorState): Array<{ from: number; to: number }> {
-  if (state.readOnly) return [];
-  if ((state.field(editorEngaged, false) ?? true) === false) return [];
-  return state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
-}
-
 /**
  * The tables a caret steps over, as a range set.
  *
