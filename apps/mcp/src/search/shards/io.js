@@ -21,7 +21,7 @@ import { shardKey } from "./placement.js";
  * same thing: there is nothing here to answer from, say so and let the surface
  * decide what to do about it.
  *
- * @param {import("../store/index.js").ContextStore} store
+ * @param {import("../../store/index.js").ContextStore} store
  * @param {ReturnType<typeof createSearchBudget>} budget
  * @param {number} reserve store ops kept back for the caller's later work
  * @param {number} [byteCap]
@@ -59,7 +59,7 @@ export async function loadIndexManifest(store, budget, reserve, byteCap = MANIFE
  * to a listing: a derivative that is behind is exactly the failure mode this
  * function exists to report rather than paper over.
  *
- * @param {import("../store/index.js").ContextStore} store
+ * @param {import("../../store/index.js").ContextStore} store
  * @param {ReturnType<typeof createSearchBudget>} budget
  * @param {number} reserve store ops kept back for the caller's later work
  * @returns {Promise<{ paths: string[], freshness: ReturnType<typeof emptyManifest>["freshness"] } | null>}
@@ -95,7 +95,7 @@ export async function loadDocmapPaths(store, budget, reserve) {
  * loop below does exactly that, because "empty" and "could not look" must not
  * be confused where the next step is a write.
  *
- * @param {import("../store/index.js").ContextStore} store
+ * @param {import("../../store/index.js").ContextStore} store
  * @param {ReturnType<typeof createSearchBudget>} budget
  * @param {number} reserve store ops kept back for the caller's later work
  * @param {number} id shard id
