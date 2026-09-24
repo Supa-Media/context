@@ -23,10 +23,10 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, rmdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeConfig } from "./config.js";
 import { workspaceUrl } from "./settings.js";
@@ -126,10 +126,17 @@ export async function installInto(
       } else {
         const library = addMcp || (await loadAddMcp());
         const url = workspaceUrl(endpoint, project ? workspace : null);
+        // What does not exist yet is what uninstall may remove again, once empty.
+        const known = library.agents?.[agent.id];
+        const expected = known ? (project ? join(cwd, known.localConfigPath) : known.configPath) : null;
+        const createdConfig = expected ? missingPaths(expected) : [];
         const result = library.upsertServer(agent.id, "context", { type: "http", url }, { local: project, cwd });
         if (!result.success) throw new Error(result.error || `could not write ${agent.name}'s MCP config`);
         record.configPath = result.path;
-        record.skillsPath = await copySkills(project ? join(cwd, ".agents", "skills") : join(home, ".agents", "skills"));
+        if (createdConfig[0] === result.path) record.createdConfig = createdConfig;
+        const skillsTarget = project ? join(cwd, ".agents", "skills") : join(home, ".agents", "skills");
+        record.createdSkills = missingPaths(skillsTarget);
+        record.skillsPath = await copySkills(skillsTarget);
       }
       record.ok = true;
       log(`  ✓ ${agent.name}${record.finishInAgent ? ` (${record.finishInAgent})` : ""}`);
@@ -158,9 +165,17 @@ export async function uninstallRecords(records, { run = defaultRun, addMcp, log 
         log("  Codex: run /plugins in Codex and uninstall context.");
       } else if (record.method === "mcp") {
         const library = addMcp || (await loadAddMcp());
-        library.removeServer(record.agent, "context", { local: record.scope !== "user", cwd });
+        const local = record.scope !== "user";
+        library.removeServer(record.agent, "context", { local, cwd });
+        if (record.createdConfig?.length && library.listInstalledServers) {
+          // The file install created goes only when it holds no server at all.
+          const listed = await library.listInstalledServers({ agents: [record.agent], global: !local, cwd }).catch(() => null);
+          const servers = listed?.find((entry) => entry.configPath === record.configPath)?.servers;
+          if (Array.isArray(servers) && servers.length === 0) await removeCreated(record.createdConfig, true);
+        }
         if (record.skillsPath) {
           for (const name of SKILLS) await rm(join(record.skillsPath, name), { recursive: true, force: true });
+          await removeCreated(record.createdSkills || [], false);
         }
       }
       log(`  ✓ removed from ${record.agent}${record.scope !== "user" ? ` (${record.cwd})` : ""}`);
@@ -174,6 +189,34 @@ export async function uninstallRecords(records, { run = defaultRun, addMcp, log 
 
 export async function saveInstalls(installs, path = installsPath()) {
   await writeConfig({ installs }, path);
+}
+
+/**
+ * `path` and each missing parent above it, deepest first, stopping at the
+ * first that exists: exactly what writing `path` will create.
+ */
+function missingPaths(path) {
+  const missing = [];
+  let current = path;
+  while (!existsSync(current)) {
+    missing.push(current);
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return missing;
+}
+
+/**
+ * Remove what install created, deepest first. The first entry is a file when
+ * `firstIsFile`; every folder goes only if empty, so anything added to it since
+ * install stays.
+ */
+async function removeCreated(paths, firstIsFile) {
+  for (const [index, path] of paths.entries()) {
+    if (index === 0 && firstIsFile) await rm(path, { force: true });
+    else if (!(await rmdir(path).then(() => true, () => false))) return;
+  }
 }
 
 async function copySkills(target) {
