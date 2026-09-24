@@ -3,7 +3,8 @@
  * The gateway's own `privacy.md` parser, borrowed for the control plane's tests.
  *
  * `privacy.md` is on-bucket format. The control plane writes it once, at
- * connect time; `apps/mcp/src/index.js` reads it on every single request and
+ * connect time; the gateway (`apps/mcp/src/privacy/engine.js`) reads it on
+ * every single request and
  * decides from it what a connected AI client is allowed to see. If the two
  * disagree about the format, the failure is not a stack trace — it is a
  * gateway that cannot parse the manifest and falls back to the legacy
@@ -17,36 +18,59 @@
  *
  * ## Why it is extracted rather than imported
  *
- * `parsePrivacyManifest` is module-private in the worker — the only export is
- * the `fetch`/`scheduled` handler object. Exporting it would mean editing
- * `apps/mcp`. Instead the worker's **actual source** is loaded as text, its
- * `import` lines and the `export default` are stripped, and it is evaluated as
- * a function body so its module-private declarations become locals we can
- * return. What runs is the gateway's own code, character for character, not a
- * transcription of it.
+ * The engine is a Worker module, not a package this one depends on. Instead
+ * of importing it, its **actual source** is loaded as text, its `import` lines
+ * and `export` keywords are stripped, and it is evaluated as a function body
+ * so its declarations become locals we can return. What runs is the gateway's
+ * own code, character for character, not a transcription of it.
  *
- * If the worker ever grows a top-level statement that cannot survive this
- * (a side effect, another export), the sanity check below fails loudly rather
+ * This used to read the whole worker, `apps/mcp/src/index.js`, while the
+ * engine lived there. The engine moved, verbatim, into
+ * `apps/mcp/src/privacy/engine.js`, a module that imports nothing; this reads
+ * that module, and checks below that no other gateway module declares any of
+ * these functions — so a copy growing back in the entry file fails here
+ * instead of leaving this testing the one nothing calls.
+ *
+ * If the engine ever grows a top-level statement that cannot survive this
+ * (a side effect, a re-export), the sanity checks below fail loudly rather
  * than silently testing nothing.
  */
 
 /**
- * Globbed rather than imported as `"…/index.js?raw"` so the typing dependency
+ * Globbed rather than imported as `"…/engine.js?raw"` so the typing dependency
  * is exactly the one `structure.test.ts` and `test.setup.ts` already carry
- * (`ImportMeta.glob` from `vite/client`), instead of adding a second one.
+ * (`ImportMeta.glob` from `vite/client`), instead of adding a second one. The
+ * whole gateway is read so the one-copy check below can see every module.
  */
-const GATEWAY_SOURCES = import.meta.glob("../../mcp/src/index.js", {
+const ENGINE_PATH = "../../mcp/src/privacy/engine.js";
+const GATEWAY_SOURCES = import.meta.glob("../../mcp/src/**/*.js", {
   query: "?raw",
   import: "default",
   eager: true,
 }) as Record<string, string>;
 
-const gatewaySource = Object.values(GATEWAY_SOURCES)[0];
+const gatewaySource = GATEWAY_SOURCES[ENGINE_PATH];
 if (typeof gatewaySource !== "string") {
   throw new Error(
-    "apps/mcp/src/index.js could not be loaded; the privacy-format contract is untested",
+    "apps/mcp/src/privacy/engine.js could not be loaded; the privacy-format contract is untested",
   );
 }
+
+/** What the extraction returns, and what no other gateway module may declare. */
+const ENGINE_FUNCTIONS = [
+  "parsePrivacyManifest",
+  "visibilityOf",
+  "effectiveVisibility",
+  "isPlumbing",
+  "canSee",
+  "narrowerVisibility",
+  "overrideFor",
+  "renderPrivacyRulesBlock",
+  "replacePrivacyRulesBlock",
+  "archiveRoot",
+  "archiveRoots",
+  "defaultSessionFolder",
+] as const;
 
 import type { Visibility } from "../functions/lib/privacy";
 
@@ -124,12 +148,14 @@ export function gatewayInternals(): GatewayInternals {
   if (cached) return cached;
 
   /*
-    The names `index.js` imports, declared as undefined before the body runs.
+    The names the engine imports, declared as undefined before the body runs.
+    It imports nothing today; this is kept from when the whole of `index.js`
+    was evaluated, because the failure it prevents does not care which file.
 
     Stripping the imports and evaluating the rest works only while nothing the
-    gateway imports is *used at module top level*. The moment one is — and one
-    now is, `D1_PASS_RESERVE_CAP` computes a budget from `D1_PASS_NOTE_CAP` at
-    load — evaluation dies with a bare `ReferenceError` naming a constant that
+    module imports is *used at module top level*. The moment one was — in
+    `index.js`, `D1_PASS_RESERVE_CAP` computed a budget from `D1_PASS_NOTE_CAP`
+    at load — evaluation died with a bare `ReferenceError` naming a constant that
     has nothing to do with privacy, in 24 scaffolding tests at once. That is a
     long way from the cause, so this collects the binding names off the import
     statements it is already stripping and declares them, rather than listing
@@ -151,18 +177,7 @@ export function gatewayInternals(): GatewayInternals {
       if (name[1] !== "as") imported.add(name[1]);
     }
   }
-  // Defining the gateway's authorized room subclass needs a constructible base
-  // even though these tests only extract privacy functions. Fail loudly if a
-  // tested helper ever tries to use this unrelated network dependency.
-  const declared =
-    (imported.size > 0 ? `var ${[...imported].join(", ")};\n` : "") +
-    (imported.has("PresenceRoomDurableObject")
-      ? `PresenceRoomDurableObject = class GatewayFormatPresenceRoomBase {\n` +
-        `  constructor() {\n` +
-        `    throw new Error("the privacy extraction must not instantiate the presence room");\n` +
-        `  }\n` +
-        `};\n`
-      : "");
+  const declared = imported.size > 0 ? `var ${[...imported].join(", ")};\n` : "";
 
   const body =
     declared +
@@ -187,28 +202,44 @@ export function gatewayInternals(): GatewayInternals {
 
   if (/^export\s/m.test(body)) {
     throw new Error(
-      "apps/mcp/src/index.js has an export this extraction does not handle; " +
+      "apps/mcp/src/privacy/engine.js has an export this extraction does not handle; " +
         "update gatewayFormat.helpers.ts rather than weakening the assertion",
     );
   }
 
-  const factory = new Function(
-    `${body}\nreturn {
-      parsePrivacyManifest,
-      visibilityOf,
-      effectiveVisibility,
-      isPlumbing,
-      canSee,
-      narrowerVisibility,
-      overrideFor,
-      renderPrivacyRulesBlock,
-      replacePrivacyRulesBlock,
-      archiveRoot,
-      archiveRoots,
-      defaultSessionFolder,
-    };`,
-  );
+  /*
+    One copy. The contract is only worth anything if the functions evaluated
+    here are the ones the gateway calls: a second declaration of any of them
+    in another module — the engine pasted back into `index.js`, say — would
+    leave this testing a copy nothing uses.
+  */
+  const elsewhere: string[] = [];
+  for (const [path, text] of Object.entries(GATEWAY_SOURCES)) {
+    if (path === ENGINE_PATH) continue;
+    for (const name of ENGINE_FUNCTIONS) {
+      if (new RegExp(`^(?:export\\s+)?function\\s+${name}\\s*\\(`, "m").test(text)) {
+        elsewhere.push(`${name} in ${path}`);
+      }
+    }
+  }
+  if (Object.keys(GATEWAY_SOURCES).length < 40 || elsewhere.length > 0) {
+    throw new Error(
+      "the privacy engine must be declared once, in apps/mcp/src/privacy/engine.js " +
+        `(read ${Object.keys(GATEWAY_SOURCES).length} gateway modules; also declared: ` +
+        `${elsewhere.join(", ") || "none"})`,
+    );
+  }
+
+  const factory = new Function(`${body}\nreturn { ${ENGINE_FUNCTIONS.join(", ")} };`);
   cached = factory() as GatewayInternals;
+
+  // Every name found, and every one a function: a `return { x }` over an
+  // undeclared `x` throws, but one bound to a stubbed import would not.
+  for (const name of ENGINE_FUNCTIONS) {
+    if (typeof cached[name] !== "function") {
+      throw new Error(`the extracted privacy engine has no function ${name}`);
+    }
+  }
 
   // Non-vacuity: prove we got the real parser and that it is strict, so a
   // later "it parsed!" assertion means something.

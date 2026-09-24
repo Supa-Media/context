@@ -77,10 +77,10 @@ index 6d6ca2e3..498136e8 100644
      const store = bucket();
      await shareProjects(store);
 diff --git a/apps/convex/functions/lib/fileOps.ts b/apps/convex/functions/lib/fileOps.ts
-index 8ee6191..ae977d8 100644
+index 38974959..0b6421ee 100644
 --- a/apps/convex/functions/lib/fileOps.ts
 +++ b/apps/convex/functions/lib/fileOps.ts
-@@ -2642,7 +2642,7 @@ export interface PrivacyResetResult {
+@@ -4438,7 +4438,7 @@ export interface PrivacyResetResult {
    /**
     * Where the unreadable file was kept, or `null` when there was nothing to
     * keep. A person whose manifest merely had a typo has not lost the other
@@ -89,7 +89,7 @@ index 8ee6191..ae977d8 100644
     */
    backedUpTo: string | null;
    /**
-@@ -2917,6 +2917,11 @@ export interface VisibilityResult {
+@@ -4715,6 +4715,11 @@ export interface VisibilityResult {
    exception: boolean;
  }
  
@@ -101,7 +101,7 @@ index 8ee6191..ae977d8 100644
  /**
   * Set one note's visibility, through the manifest.
   *
-@@ -2965,14 +2970,22 @@ export async function setVisibility(
+@@ -4788,14 +4793,22 @@ export async function setVisibility(
    const state = await mutateManifest(store, (current) => {
      if (!canSee(path, options.clearance.scope, current.rules, current.overrides, options.clearance.names)) throw notFound();
      const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
@@ -127,11 +127,19 @@ index 8ee6191..ae977d8 100644
    const visibility = effectiveVisibility(path, state.rules, state.overrides);
    return {
      path,
-diff --git a/apps/mcp/src/index.js b/apps/mcp/src/index.js
-index 705445c..e69f966 100644
---- a/apps/mcp/src/index.js
-+++ b/apps/mcp/src/index.js
-@@ -1388,6 +1388,30 @@ function writesOneRule(path, visibility = "private") {
+diff --git a/apps/mcp/src/privacy/state.js b/apps/mcp/src/privacy/state.js
+index a79d6586..a37acff7 100644
+--- a/apps/mcp/src/privacy/state.js
++++ b/apps/mcp/src/privacy/state.js
+@@ -8,6 +8,7 @@
+ 
+ import { deleteWithLegacyFallback, getWithLegacyFallback } from "../storageLayout.js";
+ import {
++  effectiveVisibility,
+   LEGACY_SCOPES_KEY,
+   overrideFor,
+   parsePrivacyManifest,
+@@ -118,6 +119,30 @@ export function writesOneRule(path, visibility = "private") {
    return overrideFor(parsed.overrides, path) === visibility;
  }
  
@@ -147,22 +155,22 @@ index 705445c..e69f966 100644
 + * A plain `Map`, so `overrideFor` scans it: the accelerator is never the
 + * authority.
 + */
-+function foldedTwinBlocks(path, visibility, rules, overrides) {
++export function foldedTwinBlocks(path, visibility, rules, overrides) {
 +  const probe = new Map(overrides);
 +  if (visibility === visibilityOf(path, rules)) probe.delete(path);
 +  else probe.set(path, visibility);
 +  return effectiveVisibility(path, rules, probe) !== visibility;
 +}
 +
-+const FOLDED_TWIN_REFUSAL =
++export const FOLDED_TWIN_REFUSAL =
 +  "another note in this context differs from this path only by case and is private, " +
 +  "and visibility is recorded per exact path: rename one of them, or change that note's " +
 +  "visibility instead.";
 +
- async function persistExactVisibility(store, path, visibility, rules) {
+ export async function persistExactVisibility(store, path, visibility, rules) {
    for (let attempt = 0; attempt < 5; attempt++) {
      const state = await loadPrivacyState(store);
-@@ -1416,6 +1440,15 @@ async function persistExactVisibility(store, path, visibility, rules) {
+@@ -146,6 +171,15 @@ export async function persistExactVisibility(store, path, visibility, rules) {
      }
      if (visibility === inherited) state.overrides.delete(path);
      else state.overrides.set(path, visibility);
@@ -178,41 +186,25 @@ index 705445c..e69f966 100644
      const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
      const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
      if (put) return;
-@@ -5508,6 +5541,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
-   // write and asked for no confirmation, while `set_visibility` gated the same
-   // transition unconditionally — two tools disagreeing about one publication,
-   // with the ungated one the default an agent reaches.
-+  // Refused here rather than left to the backstop in `persistExactVisibility`,
-+  // which throws — and a throw reaches the client as a protocol error instead
-+  // of a refusal it can read. Unreachable at team scope: a private fold was
-+  // already refused above, with no path disclosed.
-+  if (foldedTwinBlocks(path, desiredVisibility, rules, overrides)) {
-+    return toolError(FOLDED_TWIN_REFUSAL);
-+  }
-   const isPublishing =
-     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
-   if (isPublishing && args.confirm_team_publish !== true) {
-@@ -7041,3 +7081,8 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
-   }
-   const current = effectiveVisibility(path, rules, overrides);
-+  // Reachable only at owner scope: a team caller writing over a private fold is
-+  // already refused by `toolWriteNote`, with no path disclosed.
-+  if (foldedTwinBlocks(path, visibility, rules, overrides)) {
-+    return toolError(FOLDED_TWIN_REFUSAL);
-+  }
-   if (current === visibility) {
-@@ -7125,6 +7170,10 @@ async function toolSetFolderVisibility(store, scope, args) {
-     // may be widening. Compacting one away is the same failure the paragraph
-     // above describes, with a group in place of `private`.
-     if (visibility !== "team") continue;
-+    // narrowing protects is what `foldedTwinBlocks` does by simulating the
-+    // write; a second, weaker copy of that reasoning is worth less than a
-+    // redundant line of manifest.
-+    if (visibility === "private") continue;
-     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
-       nextOverrides.delete(notePath);
-       compacted.push(notePath);
-@@ -8587,6 +8636,24 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
+diff --git a/apps/mcp/src/tools/moves/archive.js b/apps/mcp/src/tools/moves/archive.js
+index 9d9b3748..7460b8e5 100644
+--- a/apps/mcp/src/tools/moves/archive.js
++++ b/apps/mcp/src/tools/moves/archive.js
+@@ -6,7 +6,12 @@ import {
+   canSee,
+   visibilityOf,
+ } from "../../privacy/engine.js";
+-import { clearExactVisibility, persistExactVisibility } from "../../privacy/state.js";
++import {
++  clearExactVisibility,
++  FOLDED_TWIN_REFUSAL,
++  foldedTwinBlocks,
++  persistExactVisibility,
++} from "../../privacy/state.js";
+ import {
+   clearExactVisibilityIfAbsent,
+   deleteCreatedDestination,
+@@ -106,6 +111,24 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
      return writePermissionError("archive destination");
    }
    if (await getWithLegacyFallback(store, dest)) return toolError("conflict: archive destination already exists");
@@ -234,38 +226,29 @@ index 705445c..e69f966 100644
 +      ? toolError(FOLDED_TWIN_REFUSAL)
 +      : writePermissionError("archive destination");
 +  }
-
+ 
    if (collaborationBase) {
      if (store.capabilities?.conditionalDelete !== true) {
-@@ -8780,6 +8847,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
-   // on every move. Neither branch firing at all was the first version of this
-   // and left the note on its new folder's default, which is exactly the
-   // publication the narrowing was computed to prevent.
-+  // Before anything is written. `persistExactVisibility`'s backstop would catch
-+  // this too, but only after the body had already been copied to the
-+  // destination — a torn move (fail-closed, since the fold makes the
-+  // destination read private, but torn) instead of a refusal.
-+  if (foldedTwinBlocks(destination, destinationVisibility, rules, overrides)) {
-+    return toolError(FOLDED_TWIN_REFUSAL);
-+  }
-   if (destinationVisibility !== "team") {
-     try {
-       await persistExactVisibility(store, destination, destinationVisibility, rules);
-@@ -9028,6 +9102,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
-       sourceVisibility,
-       destinationFolderVisibility
-     );
-+    // Refused in the preflight, which runs before a single write. The backstop
-+    // in `persistExactVisibility` would catch it, but only from inside the
-+    // apply loop — and a throw there is an abort that has already copied this
-+    // destination. See "A privacy decision is folded" in CLAUDE.md.
-+    if (foldedTwinBlocks(move.destination, destinationVisibility, rules, overrides)) {
-+      return toolError(FOLDED_TWIN_REFUSAL);
-+    }
-     // Both ends inside the *same* archive. Two different archive roots is a
-     // move between folders that may have different visibility, which is exactly
-     // what the slow path is for.
-@@ -9235,6 +9316,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
+diff --git a/apps/mcp/src/tools/moves/folder.js b/apps/mcp/src/tools/moves/folder.js
+index 45227163..27b714db 100644
+--- a/apps/mcp/src/tools/moves/folder.js
++++ b/apps/mcp/src/tools/moves/folder.js
+@@ -14,7 +14,13 @@ import {
+   replacePrivacyRulesBlock,
+   visibilityOf,
+ } from "../../privacy/engine.js";
+-import { clearExactVisibility, loadPrivacyState, persistExactVisibility } from "../../privacy/state.js";
++import {
++  clearExactVisibility,
++  FOLDED_TWIN_REFUSAL,
++  foldedTwinBlocks,
++  loadPrivacyState,
++  persistExactVisibility,
++} from "../../privacy/state.js";
+ import {
+   clearExactVisibilityIfAbsent,
+   deleteCreatedDestination,
+@@ -272,6 +278,19 @@ export async function toolMoveFolder(store, scope, rules, overrides, sourceArg,
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
    }
@@ -285,11 +268,144 @@ index 705445c..e69f966 100644
    if (!dryRun) {
      const unsafeMove = moveSafetyRefusal(store);
      if (unsafeMove) return toolError(unsafeMove);
+diff --git a/apps/mcp/src/tools/moves/note.js b/apps/mcp/src/tools/moves/note.js
+index 01f726dd..a680237d 100644
+--- a/apps/mcp/src/tools/moves/note.js
++++ b/apps/mcp/src/tools/moves/note.js
+@@ -8,7 +8,12 @@ import {
+   narrowerVisibility,
+   visibilityOf,
+ } from "../../privacy/engine.js";
+-import { clearExactVisibility, persistExactVisibility } from "../../privacy/state.js";
++import {
++  clearExactVisibility,
++  FOLDED_TWIN_REFUSAL,
++  foldedTwinBlocks,
++  persistExactVisibility,
++} from "../../privacy/state.js";
+ import {
+   clearExactVisibilityIfAbsent,
+   deleteCreatedDestination,
+@@ -149,6 +154,13 @@ export async function toolMoveNote(store, scope, rules, overrides, sourceArg, de
+   // on every move. Neither branch firing at all was the first version of this
+   // and left the note on its new folder's default, which is exactly the
+   // publication the narrowing was computed to prevent.
++  // Before anything is written. `persistExactVisibility`'s backstop would catch
++  // this too, but only after the body had already been copied to the
++  // destination — a torn move (fail-closed, since the fold makes the
++  // destination read private, but torn) instead of a refusal.
++  if (foldedTwinBlocks(destination, destinationVisibility, rules, overrides)) {
++    return toolError(FOLDED_TWIN_REFUSAL);
++  }
+   if (destinationVisibility !== "team") {
+     try {
+       await persistExactVisibility(store, destination, destinationVisibility, rules);
+diff --git a/apps/mcp/src/tools/moves/notes.js b/apps/mcp/src/tools/moves/notes.js
+index 1be68e8a..328465b8 100644
+--- a/apps/mcp/src/tools/moves/notes.js
++++ b/apps/mcp/src/tools/moves/notes.js
+@@ -10,7 +10,12 @@ import {
+   visibilityOf,
+ } from "../../privacy/engine.js";
+ import { BATCH_MOVE_CAP } from "../../moves/limits.js";
+-import { clearExactVisibility, persistExactVisibility } from "../../privacy/state.js";
++import {
++  clearExactVisibility,
++  FOLDED_TWIN_REFUSAL,
++  foldedTwinBlocks,
++  persistExactVisibility,
++} from "../../privacy/state.js";
+ import {
+   clearExactVisibilityIfAbsent,
+   deleteCreatedDestination,
+@@ -127,6 +132,13 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
+       sourceVisibility,
+       destinationFolderVisibility
+     );
++    // Refused in the preflight, which runs before a single write. The backstop
++    // in `persistExactVisibility` would catch it, but only from inside the
++    // apply loop — and a throw there is an abort that has already copied this
++    // destination. See "A privacy decision is folded" in CLAUDE.md.
++    if (foldedTwinBlocks(move.destination, destinationVisibility, rules, overrides)) {
++      return toolError(FOLDED_TWIN_REFUSAL);
++    }
+     // Both ends inside the *same* archive. Two different archive roots is a
+     // move between folders that may have different visibility, which is exactly
+     // what the slow path is for.
+diff --git a/apps/mcp/src/tools/notes/write.js b/apps/mcp/src/tools/notes/write.js
+index d0719bbe..f798c2bd 100644
+--- a/apps/mcp/src/tools/notes/write.js
++++ b/apps/mcp/src/tools/notes/write.js
+@@ -32,7 +32,13 @@ import { isEncryptedNote } from "../../encryption.js";
+ import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
+ import { parseFormBlocks } from "../../forms.js";
+ import { pathUnderActiveMovedSource } from "../../moves/jobs.js";
+-import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
++import {
++  FOLDED_TWIN_REFUSAL,
++  foldedTwinBlocks,
++  persistExactVisibility,
++  UNWRITABLE_PATH_REFUSAL,
++  writesOneRule,
++} from "../../privacy/state.js";
+ import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
+ import { recordChange } from "../../activity/record.js";
+ import { shareWrittenNote } from "../links.js";
+@@ -192,6 +198,13 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
+   // write and asked for no confirmation, while `set_visibility` gated the same
+   // transition unconditionally — two tools disagreeing about one publication,
+   // with the ungated one the default an agent reaches.
++  // Refused here rather than left to the backstop in `persistExactVisibility`,
++  // which throws — and a throw reaches the client as a protocol error instead
++  // of a refusal it can read. Unreachable at team scope: a private fold was
++  // already refused above, with no path disclosed.
++  if (foldedTwinBlocks(path, desiredVisibility, rules, overrides)) {
++    return toolError(FOLDED_TWIN_REFUSAL);
++  }
+   const isPublishing =
+     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility !== "team");
+   if (isPublishing && args.confirm_team_publish !== true) {
+diff --git a/apps/mcp/src/tools/visibility.js b/apps/mcp/src/tools/visibility.js
+index 4d9f79d3..22ae855e 100644
+--- a/apps/mcp/src/tools/visibility.js
++++ b/apps/mcp/src/tools/visibility.js
+@@ -12,6 +12,8 @@ import { getWithLegacyFallback } from "../storageLayout.js";
+ import { isEncryptedNote } from "../encryption.js";
+ import { listAllKeys } from "../notes/storage.js";
+ import {
++  FOLDED_TWIN_REFUSAL,
++  foldedTwinBlocks,
+   loadPrivacyState,
+   persistExactVisibility,
+   UNWRITABLE_PATH_REFUSAL,
+@@ -54,6 +56,11 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
+     );
+   }
+   const current = effectiveVisibility(path, rules, overrides);
++  // Reachable only at owner scope: a team caller writing over a private fold is
++  // already refused by `toolWriteNote`, with no path disclosed.
++  if (foldedTwinBlocks(path, visibility, rules, overrides)) {
++    return toolError(FOLDED_TWIN_REFUSAL);
++  }
+   if (current === visibility) {
+     return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${currentEtag}`);
+   }
+@@ -138,6 +145,10 @@ export async function toolSetFolderVisibility(store, scope, args) {
+     // may be widening. Compacting one away is the same failure the paragraph
+     // above describes, with a group in place of `private`.
+     if (visibility !== "team") continue;
++    // narrowing protects is what `foldedTwinBlocks` does by simulating the
++    // write; a second, weaker copy of that reasoning is worth less than a
++    // redundant line of manifest.
++    if (visibility === "private") continue;
+     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
+       nextOverrides.delete(notePath);
+       compacted.push(notePath);
 diff --git a/apps/mcp/test/test.mjs b/apps/mcp/test/test.mjs
-index 9b233fb..d1048ac 100644
+index 0272802a..0b687964 100644
 --- a/apps/mcp/test/test.mjs
 +++ b/apps/mcp/test/test.mjs
-@@ -3702,18 +3702,208 @@ check(
+@@ -3939,18 +3939,208 @@ check(
      (recasedOverrideRead.content?.[0]?.text ?? "") === "not found"
  );
  
@@ -503,7 +619,7 @@ index 9b233fb..d1048ac 100644
   *
   * Its compaction loop drops an override that has become redundant *for its own
   * exact path* — correct before the fold, and wrong after it, because the same
-@@ -3787,9 +3977,9 @@ const narrowed = await setFolder(foldFolderA, "private");
+@@ -4024,9 +4214,9 @@ const narrowed = await setFolder(foldFolderA, "private");
   * So no `private` override is compacted away, full stop. This loop cannot see
   * who is relying on one, and a redundant line costs a line of manifest. The
   * rule-shaped version of this was written, shipped, and found wrong within the
@@ -516,7 +632,7 @@ index 9b233fb..d1048ac 100644
   */
  const quietA = "1-projects/quiet/x.md";
  const quietTwin = "1-projects/Quiet/x.md";
-@@ -3830,79 +4020,44 @@ check(
+@@ -4067,79 +4257,44 @@ check(
      (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
  );
  /**
@@ -626,7 +742,7 @@ index 9b233fb..d1048ac 100644
  
  /**
   * **The fold's direction, checked in the gateway's own suite.**
-@@ -3911,12 +4066,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
+@@ -4148,12 +4303,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
   * hole this whole change had in its first version, and it was caught only by
   * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
   * the widening in place. CLAUDE.md calls this suite the fast, offline one a
@@ -641,7 +757,7 @@ index 9b233fb..d1048ac 100644
   *
   * `2-areas/private` is a private folder. Publishing one note by exact override
   * must not publish its case-variant, which on R2 and S3 is a different file the
-@@ -3946,7 +4097,6 @@ check(
+@@ -4183,7 +4334,6 @@ check(
  await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
  await contextStore.delete(widenFoldPath);
  await contextStore.delete(widenFoldTwin);
@@ -649,7 +765,7 @@ index 9b233fb..d1048ac 100644
  // Put the manifest back too, not just the objects. The first version of this
  // block deleted the two notes and left `fold-folder: private`,
  // `Fold-Folder: team` and the note override standing in the shared bucket for
-@@ -3968,6 +4118,17 @@ await setFolder(foldFolderA, "inherit");
+@@ -4205,6 +4355,17 @@ await setFolder(foldFolderA, "inherit");
  for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
    await contextStore.delete(key);
  }
