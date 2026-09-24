@@ -52,11 +52,19 @@ test("no gateway module reads a static env token", () => {
   assert.deepEqual(offenders, []);
 });
 
-test("nothing outside encryption.js imports or calls what could open a passphrase note", () => {
+// The envelope module is `encryption.js` and the files it re-exports from under
+// `encryption/`; `encryptionPassphrase.test.mjs` confines those files to
+// importing only one another. Everything else is checked here, including an
+// import that reaches past the entry file into `encryption/` directly.
+const ENVELOPE_MODULE = (path) => path === "encryption.js" || path.startsWith("encryption/");
+
+test("nothing outside the envelope module imports or calls what could open a passphrase note", () => {
   const offenders = [];
   for (const file of FILES) {
-    if (file.path === "encryption.js") continue;
-    for (const imported of file.text.matchAll(/import\s*{([^}]*)}\s*from\s*"[^"]*\/encryption\.js"/g)) {
+    if (ENVELOPE_MODULE(file.path)) continue;
+    for (const imported of file.text.matchAll(
+      /import\s*{([^}]*)}\s*from\s*"[^"]*\/encryption(?:\.js|\/[^"]*)"/g,
+    )) {
       if (imported[1].split(",").some((name) => /passphrase/i.test(name))) offenders.push(`${file.path} imports`);
     }
     if (
