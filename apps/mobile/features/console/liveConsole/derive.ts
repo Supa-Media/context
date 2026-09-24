@@ -5,7 +5,8 @@ import { storageLayoutAnswerIsCurrent } from "@context/convex/functions/lib/stor
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { hasNewActivity } from "../activity/activity";
 import { toBindStorageArgs, type Provider } from "../storage/connect";
-import { atName, contextToneFor, describeScopes, grantTone, lastUsedLabel } from "../format";
+import { atName, contextToneFor, describeScopes, formatCount, grantTone, lastUsedLabel } from "../format";
+import { formatNotesTotal, notesTotalLabel, type totalNotes } from "../noteTotals";
 import {
   buildConstellation,
   contextKindFor,
@@ -15,6 +16,7 @@ import {
 import type {
   ConsoleClient,
   ConsoleContext,
+  ConsoleStat,
   ConsoleStorage,
   StorageActions,
 } from "../types";
@@ -286,4 +288,53 @@ export function storageActionsFor(
           observeLayout: () => observeStorageLayout({ workspaceId: selectedContextId }),
         };
   return storageActions;
+}
+
+// Three tiles, not the mockup's four. "in your own bucket" is still gone:
+// nothing measures a bucket's size, so there is no honest value to put in
+// it, and #20's fix — delete the tile rather than print a constant or a
+// permanent em dash — still stands for everything unmeasured.
+//
+// "notes across all" is back because it is measured now. It is app level
+// like the other two, summing every context this person can reach, which
+// costs nothing: the hook already subscribes to every workspace's binding
+// for the rail's status pips. The tile is absent, not zero, until something
+// has walked at least one bucket, and carries a `+` when the total is a
+// floor — see `noteTotals.ts`.
+//
+// And the same rule for the other two, which is the one this file already
+// states and this list did not follow: `contexts` and `activeGrants` are
+// empty while the first round trip is outstanding, so a cold launch drew
+// "0 in your context" and "0 AI clients connected" — counts of lists that
+// had not been fetched, on the console of somebody who has both. Filmed on
+// a native cold launch, beside a Map captioned "0 connected".
+export function consoleStats(
+  workspaces: readonly WorkspaceSummary[] | undefined,
+  notes: ReturnType<typeof totalNotes>,
+  contexts: ConsoleContext[],
+  activeGrants: GrantSummary[],
+): ConsoleStat[] {
+  return workspaces === undefined
+    ? []
+    : [
+        ...(notes === null
+          ? []
+          : [
+              {
+                value: formatNotesTotal(notes),
+                /*
+                  Dated by its stalest walk, because the number is a
+                  measurement rather than a live reading: `noteCount` is
+                  written only by verification, so a context filled in
+                  afterwards through the gateway contributes what it held
+                  then, for ever. The caption is where that goes — see
+                  `noteTotals.ts` — and an undated total keeps the wording it
+                  has always had.
+                */
+                label: notesTotalLabel(notes, Date.now()),
+              },
+            ]),
+        { value: formatCount(contexts.length), label: "in your context" },
+        { value: formatCount(activeGrants.length), label: "AI clients connected" },
+      ];
 }

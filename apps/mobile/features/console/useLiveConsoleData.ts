@@ -12,9 +12,7 @@ import { MCP_ENDPOINT, placeholderIngestionAddress } from "./placeholderData";
 import { describeQueryFailure } from "./failure";
 import { prefetchWorkspacePhotos } from "./useWorkspaceIcons";
 import { capabilitiesForRole } from "./capabilities";
-import { formatCount } from "./format";
-import { formatNotesTotal, notesTotalLabel, totalNotes } from "./noteTotals";
-import { forgetContextCopies, forgetLocalCopies } from "../offline/forget";
+import { totalNotes } from "./noteTotals";
 import { useRememberedContexts } from "../offline/useRememberedContexts";
 import { defaultContext } from "./nav";
 import {
@@ -25,10 +23,7 @@ import {
   type StorageActions,
 } from "./types";
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
-import {
-  resetObservabilityUser,
-  setObservabilityUser,
-} from "../observability/client";
+import { setObservabilityUser } from "../observability/client";
 import {
   memberOf,
   usable,
@@ -39,6 +34,7 @@ import {
 import {
   consoleClientsFrom,
   consoleContextsFrom,
+  consoleStats,
   consoleStorageFrom,
   constellationFrom,
   googleConnectionsFrom,
@@ -47,6 +43,7 @@ import {
 } from "./liveConsole/derive";
 import { useContextSurfaces } from "./liveConsole/useContextSurfaces";
 import { useOfflineUpkeep } from "./liveConsole/useOfflineUpkeep";
+import { accountActionsFor } from "./liveConsole/accountActions";
 
 /**
  * The live console.
@@ -407,85 +404,8 @@ export function useLiveConsoleData(): ConsoleData {
     agents,
     searchableContexts,
     graph,
-    // Walking out of somebody else's context is the member's own move — the
-    // server refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only
-    // offers it on a row whose role is not `owner`. The subscription drops it from
-    // `contexts` on its own once the membership row is gone.
-    // What is cached for a context you have left is a copy of somewhere you can
-    // no longer reach — notes somebody shared with you, held on your machine
-    // after the membership that justified holding them is gone. It is cleared
-    // **on the server's answer, never on the request**: `leaveWorkspace`
-    // returns `{ left: false }` for a membership row it did not find — already
-    // left in another tab, or removed by the owner while this console was open
-    // — and clearing on the press would throw away the offline copy of a
-    // context the person still has.
-    //
-    // An owner is a *third* case: `leaveWorkspace` throws `OWNER_CANNOT_LEAVE`
-    // rather than answering `{ left: false }`, so nothing below the `await`
-    // runs at all. Same outcome, different path — and the rejection reaches the
-    // rail's `void data.leaveContext?.(id)`, which has nowhere to put it. That
-    // is pre-existing and is not what this line is about.
-    leaveContext: async (id: string) => {
-      const result = await leaveWorkspace({ workspaceId: id as Id<"workspaces"> });
-      if (result.left) await forgetContextCopies(id);
-      return result;
-    },
-    // Everything on the control plane goes; the person's own storage is not
-    // ours to touch. The local sign-out afterwards clears the tokens for a
-    // session whose server rows the mutation just deleted — its own signOut
-    // call failing server-side is expected and swallowed by the auth client.
-    deleteAccount: async () => {
-      await deleteAccountMutation({});
-      // After the deletion, and before the sign-out. After, because a deletion
-      // that failed must not cost somebody the queue it never sent; before,
-      // because the browser must not still be holding readable note text once
-      // the session it belonged to is over. `forget.ts` owns the failure
-      // stance — it can report, and it can never block this.
-      await forgetLocalCopies();
-      await authActions?.signOut();
-      resetObservabilityUser();
-    },
-    // Three tiles, not the mockup's four. "in your own bucket" is still gone:
-    // nothing measures a bucket's size, so there is no honest value to put in
-    // it, and #20's fix — delete the tile rather than print a constant or a
-    // permanent em dash — still stands for everything unmeasured.
-    //
-    // "notes across all" is back because it is measured now. It is app level
-    // like the other two, summing every context this person can reach, which
-    // costs nothing: the hook already subscribes to every workspace's binding
-    // for the rail's status pips. The tile is absent, not zero, until something
-    // has walked at least one bucket, and carries a `+` when the total is a
-    // floor — see `noteTotals.ts`.
-    //
-    // And the same rule for the other two, which is the one this file already
-    // states and this list did not follow: `contexts` and `activeGrants` are
-    // empty while the first round trip is outstanding, so a cold launch drew
-    // "0 in your context" and "0 AI clients connected" — counts of lists that
-    // had not been fetched, on the console of somebody who has both. Filmed on
-    // a native cold launch, beside a Map captioned "0 connected".
-    stats: workspaces === undefined
-      ? []
-      : [
-          ...(notes === null
-            ? []
-            : [
-                {
-                  value: formatNotesTotal(notes),
-                  /*
-                    Dated by its stalest walk, because the number is a
-                    measurement rather than a live reading: `noteCount` is
-                    written only by verification, so a context filled in
-                    afterwards through the gateway contributes what it held
-                    then, for ever. The caption is where that goes — see
-                    `noteTotals.ts` — and an undated total keeps the wording it
-                    has always had.
-                  */
-                  label: notesTotalLabel(notes, Date.now()),
-                },
-              ]),
-          { value: formatCount(contexts.length), label: "in your context" },
-          { value: formatCount(activeGrants.length), label: "AI clients connected" },
-        ],
+    ...accountActionsFor({ leaveWorkspace, deleteAccountMutation, authActions }),
+    stats: consoleStats(workspaces, notes, contexts, activeGrants),
     clients,
     storage,
     storageActions,
