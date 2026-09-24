@@ -28,7 +28,7 @@ import {
   type ListSource,
 } from "./model";
 import { ListPanel } from "./panel";
-import { captionFor, formatValue, rowTitle } from "./words";
+import { captionFor, formatValue, listProblem, rowTitle } from "./words";
 
 const LIST_ICON =
   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>';
@@ -147,7 +147,7 @@ export class ListView {
       this.closePanel(false);
       this.rows.replaceChildren();
       this.foot.textContent = "This list can’t be shown because the formatting is off.";
-      this.foot.append(el("div", "cm-lp-list-why", this.fence.error ?? "the block could not be read"));
+      this.foot.append(el("div", "cm-lp-list-why", listProblem(this.fence.error)));
       return;
     }
     this.panel?.refresh(config);

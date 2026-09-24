@@ -14,6 +14,7 @@
 
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import type { ListCondition, ListConfig, ListNote } from "./model";
+import { listProblem } from "./words";
 
 export interface ListPanelHost {
   /** The notes the list last drew from, for suggesting property names. */
@@ -191,7 +192,7 @@ export class ListPanel {
     const text = JSON.stringify(config);
     if (text !== this.written) {
       const problem = this.host.write(config);
-      this.problem.textContent = problem === null ? "" : `This can’t be listed: ${problem}.`;
+      this.problem.textContent = problem === null ? "" : `This can’t be listed: ${listProblem(problem)}.`;
       if (problem === null) this.written = text;
     }
     if (repaint) this.paint();
