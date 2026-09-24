@@ -1,5 +1,5 @@
 /**
- * The Domain section's words and states, as pure functions.
+ * The Website section's words and states, as pure functions.
  *
  * Every string the panel shows about a domain's state comes from here, so a
  * test can hold the copy without mounting anything. The rules it follows are

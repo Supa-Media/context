@@ -459,6 +459,11 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
   groups: "sharing",
   shares: "sharing",
   privacy: "sharing",
+  /*
+    Domain became Website when the page took on the workspace's public website;
+    the domain is now one card on it. Links to `?settings=domain` predate that.
+  */
+  domain: "website",
 };
 
 export function settingsFromQuery(

@@ -40,7 +40,7 @@ function titleFor(share: ShareRow): string {
 }
 
 /**
- * The Domain section's data: the settings query, and — for an owner only —
+ * The Website section's data: the settings query, and — for an owner only —
  * the short links that could be the homepage.
  *
  * Subscribed, so the panel follows the checker on its own: a record found, a
