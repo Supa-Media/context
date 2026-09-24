@@ -21,7 +21,7 @@ import {
   calendarAndBucket,
   endToEnd,
   runPass,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("one pass, end to end, through the credential barrier", () => {
   beforeEach(() => enableMailSync());

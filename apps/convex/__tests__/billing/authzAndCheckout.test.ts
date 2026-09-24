@@ -15,7 +15,7 @@ import {
   context,
   chooseBoth,
   FAKE_PRICE_ID,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("choosing what a context pays for", () => {
   test("a context nobody chose anything for has no row at all", async () => {

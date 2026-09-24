@@ -15,7 +15,7 @@ import {
   paidContext,
   configured,
   binding,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("provisioning a managed bucket", () => {
   test("creates the bucket, mints a key, and binds it", async () => {

@@ -7,7 +7,7 @@ import {
 } from "../fixtures.helpers";
 import {
   onboardedAccount,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("a freed name inherits nothing", () => {
   /**

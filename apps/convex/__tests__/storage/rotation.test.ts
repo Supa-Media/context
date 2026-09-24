@@ -22,7 +22,7 @@ import {
 import {
   asS3,
   boundWorkspace,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("rotating the encryption key", () => {
   const SECOND_KEY = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=";

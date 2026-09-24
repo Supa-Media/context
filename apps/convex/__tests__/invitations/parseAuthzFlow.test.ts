@@ -14,7 +14,7 @@ import {
 import {
   errorShape,
   shared,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("parsing an invitee", () => {
   test("a handle is accepted with or without the sigil, and normalized", () => {

@@ -23,7 +23,7 @@ import {
   patchConnection,
   readConnection,
   sweep,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the sweep starts a pass only for a connection that is due", () => {
   beforeEach(() => enableMailSync());

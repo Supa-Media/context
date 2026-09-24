@@ -21,7 +21,7 @@ import {
   parkedAttempt,
   chatBindingArgs,
   gmailArgs,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the flag", () => {
   test("a deployment with MAIL_CONNECT_ENABLED unset refuses to start", async () => {
