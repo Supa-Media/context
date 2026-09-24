@@ -97,9 +97,6 @@
     "apps/mcp/test/test.mjs": 4798,
     "apps/mobile/app/(app)/console/_layout.tsx": 2402,
     "apps/mobile/features/app/AppFrame.tsx": 2735,
-    "apps/mobile/features/console/files/LiveEditor.web.tsx": 1570,
-    "apps/mobile/features/console/files/NoteEditor.tsx": 1897,
-    "apps/mobile/features/console/files/useFileBrowser.ts": 4853,
-    "apps/mobile/features/meetings/capture/audio.ts": 1843
+    "apps/mobile/features/console/files/useFileBrowser.ts": 4853
   }
 }
