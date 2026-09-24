@@ -15,6 +15,7 @@ import {
   notYetNote,
   pendingSentence,
   problemCopy,
+  providerName,
   providerSentence,
   recordsSummary,
   transientNote,
@@ -76,6 +77,9 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
 
   const sentence =
     oneClick === null ? pendingSentence(domain) : away ? awaySentence(oneClick.provider) : providerSentence(oneClick.provider);
+  // The button labels speak the same name outside those sentences, so they
+  // take it through the same container rather than off the row.
+  const provider = oneClick === null ? "" : providerName(oneClick.provider);
   const showRecords = domain.stage !== "https";
   const folded = oneClick !== null && !recordsOpen && !needsAttention(domain);
 
@@ -97,7 +101,7 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
         away ? (
           <Button
             variant="mini"
-            label={`Open ${oneClick.provider} again`}
+            label={`Open ${provider} again`}
             onPress={() => void openProvider(oneClick.url)}
             style={styles.action}
             testID="domain-one-click-again"
@@ -105,7 +109,7 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
         ) : (
           <Button
             variant="accent"
-            label={`Set up with ${oneClick.provider}`}
+            label={`Set up with ${provider}`}
             onPress={() => void openProvider(oneClick.url)}
             style={wide ? styles.actionHug : styles.action}
             testID="domain-one-click"
