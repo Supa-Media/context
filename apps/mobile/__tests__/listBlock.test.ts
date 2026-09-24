@@ -8,7 +8,7 @@
  * this is the half a person sees.
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { beforeAll, describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
@@ -20,7 +20,9 @@ import {
 import { ListWidget } from "../features/console/files/listBlock/widget";
 import { captionFor, rowTitle, shortWhen } from "../features/console/files/listBlock/words";
 import { insertFolderList } from "../features/console/files/listBlock/insert";
-import { decorationsFor, livePreviewStyles, markdownLanguage } from "../features/console/files/livePreview";
+import { decorationsFor, livePreview, livePreviewStyles, markdownLanguage } from "../features/console/files/livePreview";
+import { planListRewrite } from "../features/console/files/listBlock/edit";
+import { draftConfig, propertyNames, propertyValues } from "../features/console/files/listBlock/panel";
 import { layout } from "../features/design/tokens";
 import { editorMenuItems } from "../features/console/files/editorMenu";
 
@@ -146,7 +148,7 @@ describe("what a drawn list shows", () => {
     notify();
     await flush();
     expect(dom.querySelectorAll(".cm-lp-list-row")).toHaveLength(1);
-    widget.destroy();
+    widget.destroy(dom);
     notify();
     expect(loads).toBe(2);
   });
@@ -248,5 +250,198 @@ describe("inserting one", () => {
       editorMenuItems({ canEdit: true, hasSelection: false, apple: true, canList }).map((item) => item.id);
     expect(ids(true)).toContain("folderList");
     expect(ids(false)).not.toContain("folderList");
+  });
+});
+
+describe("changing a list from its caption", () => {
+  // jsdom lays nothing out; the editor measures text on a later frame.
+  const emptyRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
+  const zeroRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+  beforeAll(() => {
+    Range.prototype.getClientRects = emptyRects;
+    Range.prototype.getBoundingClientRect = zeroRect;
+  });
+  function mount(doc = NOTE, options: { readOnly?: boolean } = {}): EditorView {
+    const host = hostWith();
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    return new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        selection: { anchor: 0 },
+        extensions: [
+          markdownLanguage(),
+          livePreview(),
+          listHost.of({ current: host }),
+          EditorState.readOnly.of(options.readOnly === true),
+        ],
+      }),
+    });
+  }
+  const panelOf = (view: EditorView) => view.dom.querySelector<HTMLElement>(".cm-lp-list-panel");
+  const field = <T extends HTMLElement>(view: EditorView, name: string) =>
+    view.dom.querySelector<T>(`[data-field="${name}"]`)!;
+  const body = (view: EditorView) => {
+    const text = view.state.doc.toString();
+    const start = text.indexOf("```list\n") + 8;
+    return text.slice(start, text.indexOf("\n```", start));
+  };
+  function open(view: EditorView): void {
+    view.dom.querySelector<HTMLElement>(".cm-lp-list-cap")!.click();
+  }
+  function change(element: HTMLInputElement | HTMLSelectElement, value: string | boolean): void {
+    if (typeof value === "boolean") (element as HTMLInputElement).checked = value;
+    else element.value = value;
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  test("the caption opens the filters, with the block's own values", async () => {
+    const view = mount();
+    await flush();
+    open(view);
+    expect(panelOf(view)).not.toBeNull();
+    expect(field<HTMLInputElement>(view, "from").value).toBe("1-projects");
+    expect(field<HTMLInputElement>(view, "where-0-property").value).toBe("status");
+    expect(field<HTMLSelectElement>(view, "where-0-op").value).toBe("is");
+    expect(field<HTMLInputElement>(view, "where-0-value").value).toBe("active");
+    expect(field<HTMLElement>(view, "show-owner").getAttribute("aria-pressed")).toBe("true");
+    view.destroy();
+  });
+
+  test("a choice rewrites the block, and the popover stays open over the new rows", async () => {
+    const view = mount();
+    await flush();
+    open(view);
+    change(field<HTMLSelectElement>(view, "sort-key"), "title");
+    expect(body(view)).toBe("from: 1-projects\nwhere: status is active\nsort: title\nshow: owner");
+    expect(panelOf(view)).not.toBeNull();
+    field<HTMLElement>(view, "sort-order").click();
+    expect(field<HTMLElement>(view, "sort-order").textContent).toBe("Z to A");
+    expect(body(view)).toContain("sort: title, z to a");
+    await flush();
+    const titles = [...view.dom.querySelectorAll(".cm-lp-list-title")].map((t) => t.textContent);
+    expect(titles).toEqual(["Website folder", "mobile"]);
+    expect(panelOf(view)).not.toBeNull();
+    view.destroy();
+  });
+
+  test("a column, a subfolder switch and a removed condition all land in the block", async () => {
+    const view = mount();
+    await flush();
+    open(view);
+    field<HTMLElement>(view, "show-updated").click();
+    change(field<HTMLInputElement>(view, "subfolders"), true);
+    field<HTMLElement>(view, "where-0-remove").click();
+    expect(body(view)).toBe("from: 1-projects\nshow: owner, updated\nsubfolders: yes");
+    view.destroy();
+  });
+
+  test("a half-written condition stays out of the note until it is whole", async () => {
+    const view = mount();
+    await flush();
+    open(view);
+    field<HTMLElement>(view, "where-add").click();
+    change(field<HTMLInputElement>(view, "where-1-property"), "owner");
+    expect(body(view)).not.toContain("owner is");
+    expect(field<HTMLInputElement>(view, "where-1-property")).toBeTruthy();
+    change(field<HTMLInputElement>(view, "where-1-value"), "Ada");
+    expect(body(view)).toContain("where: status is active and owner is Ada");
+    change(field<HTMLSelectElement>(view, "where-1-op"), "is not set");
+    expect(body(view)).toContain("and owner is not set");
+    view.destroy();
+  });
+
+  test("a folder that cannot be listed is refused in words, and the note is left alone", async () => {
+    const view = mount();
+    await flush();
+    open(view);
+    const before = view.state.doc.toString();
+    change(field<HTMLInputElement>(view, "from"), "../secrets");
+    expect(view.state.doc.toString()).toBe(before);
+    expect(view.dom.querySelector(".cm-lp-list-panel-problem")?.textContent).toMatch(/can’t be listed/);
+    view.destroy();
+  });
+
+  test("Escape and a press outside close it; Edit as text gives the source back", async () => {
+    const view = mount();
+    await flush();
+    open(view);
+    panelOf(view)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(panelOf(view)).toBeNull();
+    open(view);
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    expect(panelOf(view)).toBeNull();
+    open(view);
+    view.dom.querySelector<HTMLElement>(".cm-lp-list-panel-text")!.click();
+    expect(view.state.selection.main.head).toBe(NOTE.indexOf("from:"));
+    view.destroy();
+  });
+
+  test("a note that cannot be edited has no popover", async () => {
+    const view = mount(NOTE, { readOnly: true });
+    await flush();
+    open(view);
+    expect(panelOf(view)).toBeNull();
+    view.destroy();
+  });
+});
+
+describe("writing the block back", () => {
+  const config = { from: "blog", where: [], sort: { key: "updated", order: "desc" as const }, show: [], limit: 50, subfolders: false };
+
+  test("keeps the fence lines as written, and only the body changes", () => {
+    const doc = "Top\n````list\nfrom: x\n````\nEnd";
+    const state = EditorState.create({ doc });
+    const plan = planListRewrite(state, 4, config);
+    expect("spec" in plan).toBe(true);
+    const next = state.update((plan as { spec: object }).spec).state.doc.toString();
+    expect(next).toBe("Top\n````list\nfrom: blog\n````\nEnd");
+  });
+
+  test("a shorter fence inside is not the close", () => {
+    const doc = "````list\nfrom: x\n```\n````\n";
+    const state = EditorState.create({ doc });
+    const next = state.update((planListRewrite(state, 0, config) as { spec: object }).spec).state.doc.toString();
+    expect(next).toBe("````list\nfrom: blog\n````\n");
+  });
+
+  test("an unchanged block is no change at all", () => {
+    const state = EditorState.create({ doc: "```list\nfrom: blog\n```" });
+    expect(planListRewrite(state, 0, config)).toEqual({ spec: {} });
+  });
+
+  test("a position that is not a fence is refused", () => {
+    const state = EditorState.create({ doc: "Hello\n```list\nfrom: blog\n```" });
+    expect(planListRewrite(state, 0, config)).toEqual({ error: "the list moved; try again" });
+  });
+});
+
+describe("the popover's suggestions", () => {
+  test("property names come from the notes, most used first, never title", () => {
+    expect(propertyNames(NOTES)).toEqual(["owner", "status"]);
+  });
+
+  test("values are the ones a property takes, list items included", () => {
+    const notes: ListNote[] = [...NOTES, { path: "1-projects/x.md", properties: { owner: ["Bo", "Ada"] } }];
+    expect(propertyValues(notes, "owner")).toEqual(["Ada", "Bo", "Seyi"]);
+  });
+
+  test("a draft becomes a config without its unfinished conditions", () => {
+    const config = draftConfig({
+      from: "blog/",
+      subfolders: false,
+      where: [
+        { property: "", op: "is", value: "x" },
+        { property: "tag", op: "is", value: " " },
+        { property: " owner ", op: "is set", value: "stale" },
+      ],
+      sortKey: "updated",
+      order: "desc",
+      show: [],
+      limit: 50,
+    });
+    expect(config.from).toBe("blog");
+    expect(config.where).toEqual([{ property: "owner", op: "is set" }]);
   });
 });
