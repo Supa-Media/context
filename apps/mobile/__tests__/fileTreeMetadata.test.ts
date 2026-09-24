@@ -30,6 +30,9 @@ import type { MirrorStore } from "../features/offline/mirrorStoreCore";
  *  - **a newer live listing wins** — replacing a folder regardless of when its
  *    own listing started fails "a walk older than a live listing does not
  *    undo it".
+ *  - **a hint asks for a walk** — dropping the tree signal's effect fails
+ *    "a hint that the tree changed asks for a walk, and its first value does
+ *    not".
  *  - **a refusal takes the tree down** — keeping device rows after the root
  *    is refused fails "a refused context shows none of the device's tree".
  */
@@ -40,6 +43,15 @@ jest.mock("../features/offline/mirrorStore", () => ({
 }));
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
+/** What the tree hint query answers, and who is watching it. */
+const mockSignal = {
+  value: undefined as number | null | undefined,
+  listeners: new Set<() => void>(),
+  set(value: number | null) {
+    this.value = value;
+    for (const listener of this.listeners) listener();
+  },
+};
 const bound: Record<string, (args: never) => Promise<unknown>> = {};
 
 jest.mock("convex/react", () => {
@@ -50,7 +62,19 @@ jest.mock("convex/react", () => {
       bound[name] ??= (args: never) => actions[name]!(args);
       return bound[name];
     },
-    useQuery: () => undefined,
+    useQuery: (ref: never, args: unknown) => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { useSyncExternalStore } = require("react") as typeof import("react");
+      const name = getFunctionName(ref);
+      const value = useSyncExternalStore(
+        (listener: () => void) => {
+          mockSignal.listeners.add(listener);
+          return () => mockSignal.listeners.delete(listener);
+        },
+        () => mockSignal.value,
+      );
+      return name === "functions/treeSignals:treeSignal" && args !== "skip" ? value : undefined;
+    },
     useMutation: () => async () => undefined,
   };
 });
@@ -180,6 +204,7 @@ let unmount: (() => void) | null = null;
 
 beforeEach(() => {
   window.localStorage.clear();
+  mockSignal.value = undefined;
   mockMirror = memoryMirrorStore();
   paths = ["index.md", "1-projects/pilot.md", "1-projects/deep/nested/plan.md"];
   emptyFolders = [];
@@ -205,6 +230,24 @@ describe("the tree is drawn from metadata the device holds", () => {
     unmount = mount();
     await settle();
     expect(refreshRequests).toEqual([W]);
+  });
+
+  test("a hint that the tree changed asks for a walk, and its first value does not", async () => {
+    unmount = mount();
+    await settle();
+    expect(refreshRequests).toEqual([W]);
+
+    act(() => mockSignal.set(1_000));
+    await settle();
+    expect(refreshRequests).toEqual([W]);
+
+    act(() => mockSignal.set(2_000));
+    await settle();
+    expect(refreshRequests).toEqual([W, W]);
+
+    act(() => mockSignal.set(2_000));
+    await settle();
+    expect(refreshRequests).toEqual([W, W]);
   });
 
   test("a reload draws the tree before the bucket answers", async () => {

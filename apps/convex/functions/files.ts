@@ -89,6 +89,7 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { type Clearance, clearanceOf, privateClearance } from "./lib/clearance";
 import { grantedNamesFor } from "./lib/grantedNames";
+import { treeAudiences } from "./lib/treeAudiences";
 import { resolveAddressedUser } from "./lib/identities";
 import { forwardPath, readForwarding } from "../../mcp/src/forwarding.js";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
@@ -189,6 +190,8 @@ import {
   DELETE_CONFIRMATION,
   FileOpError,
   type FileStore,
+  type PrivacyState,
+  loadPrivacyState,
   clearVaultBatch,
   archivePath,
   clearMovedSourceRules,
@@ -1924,63 +1927,193 @@ export const authorizeFileAccess = internalQuery({
      */
     actorName: v.union(v.string(), v.null()),
   }),
-  handler: async (ctx, args) => {
-    if (args.minimum === "member") {
-      // Tried before the membership read rather than after a caught failure:
-      // `requireWorkspaceAccess` throws the same error for "not a member" and
-      // "no such workspace", so catching it would mean guessing which one this
-      // was. Asking the narrower question first needs no guess.
-      if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
-        /*
-          A PINNED CONTEXT REACHES NO NAMED RULE, AND THAT IS DELIBERATE.
-
-          The pin is *reach* rather than membership — its own decision says so
-          — and `grantedNamesFor` answers from `workspaceMembers`, which a
-          pinned reader has no row in. So they read at `team` and a folder
-          named to a group is absent, which is the same answer they get for a
-          private one. Widening this would mean deciding that a pin confers
-          group membership, which nobody has decided and which no audit row
-          would record.
-        */
-        return {
-          role: PINNED_CONTEXT_ROLE,
-          scope: scopeForRole(PINNED_CONTEXT_ROLE),
-          grantedNames: [],
-          // A pinned reader is read-only, so there is nothing for a name to
-          // appear beside. See `personalNameFor`.
-          actorName: null,
-        };
-      }
-    }
-    const access =
-      args.minimum === "member"
-        ? await requireWorkspaceAccess(ctx, args.workspaceId, args.actorUserId)
-        : await requireWorkspaceRole(
-            ctx,
-            args.workspaceId,
-            args.actorUserId,
-            args.minimum,
-          );
-    return {
-      role: access.membership.role,
-      scope: scopeForRole(access.membership.role),
-      grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
-      /*
-        Resolved only for a caller who can change something.
-
-        This query is on the path of every file read, and a name is used by
-        exactly one thing: the line `activity.md` writes about a change. The
-        five operations that record one all ask for `editor` or `owner`
-        (`writeNote`, `moveEntry`, `archiveEntry`, and the two visibility
-        actions), and every read asks for `member` — so the tier is already
-        the question "could this call write", and a second flag saying the
-        same thing would be a second thing to keep in step.
-      */
-      actorName:
-        args.minimum === "member" ? null : await personalNameFor(ctx, args.actorUserId),
-    };
-  },
+  handler: (ctx, args) => resolveFileAccess(ctx, args),
 });
+
+/**
+ * What a file operation does to the tree: the paths it creates, moves or
+ * removes, and whether it can take something away from a reader who could see
+ * it (a move, a delete, a visibility change) — for which the audiences are
+ * read before the operation as well as after. `every` is an operation that
+ * can change anything (clearing or resetting the whole context). `null` for
+ * everything that leaves the tree as it was: reads, and a save to a note that
+ * already exists, which changes its words and not the tree.
+ */
+interface TreeChange {
+  paths: string[];
+  narrows: boolean;
+  every?: boolean;
+}
+
+function treeChangeOf(operation: FileOperation): TreeChange | null {
+  switch (operation.kind) {
+    case "write":
+      // An edit carries the version it replaces; a create does not.
+      return operation.expectedEtag === undefined
+        ? { paths: [operation.path], narrows: false }
+        : null;
+    case "createFolder":
+      return { paths: [operation.path], narrows: false };
+    case "copy":
+      return { paths: [operation.to], narrows: false };
+    case "duplicate":
+      return { paths: [operation.path], narrows: false };
+    case "importVault":
+      return { paths: operation.files.map((file) => file.path), narrows: false };
+    case "contextMoveImport":
+      return {
+        paths:
+          operation.root !== undefined
+            ? [operation.root]
+            : operation.objects.map((object) => object.destination),
+        narrows: false,
+      };
+    case "move":
+    case "restoreTrash":
+      return { paths: [operation.from, operation.to], narrows: true };
+    case "archive":
+    case "trash":
+    case "delete":
+    case "setVisibility":
+    case "setNoteGroup":
+    case "setFolderGroup":
+    case "setFolderVisibility":
+      return { paths: [operation.path], narrows: true };
+    case "contextMoveDelete":
+      return { paths: operation.sources.map((source) => source.path), narrows: true };
+    case "contextMoveFinish":
+      return { paths: [operation.from], narrows: true };
+    case "clearVault":
+      return operation.countOnly ? null : { paths: [], narrows: true, every: true };
+    case "resetPrivacy":
+    case "ensurePrivacy":
+      return { paths: [], narrows: true, every: true };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Tell the audiences that can see this change that their tree is stale.
+ *
+ * After the operation and never inside it, like the activity stamp: the
+ * change is in the customer's bucket by now, a hint is a derivative of it,
+ * and a failure to send one must never look like a failed save — so every
+ * step is inside the catch, and a lost hint is caught by the client's
+ * periodic walk. An operation that threw never reaches here, so a failed
+ * change is never announced.
+ */
+async function announceTreeChange(
+  ctx: ActionCtx,
+  store: FileStore,
+  workspaceId: Id<"workspaces">,
+  change: TreeChange,
+  result: OperationResult,
+  before: PrivacyState | null,
+): Promise<void> {
+  try {
+    const paths = [...change.paths];
+    // Where a note actually landed — an archive's dated folder, a duplicate's
+    // new name — is only in the answer.
+    if (result.kind === "moved") {
+      const moved = result as { from?: unknown; to?: unknown };
+      if (typeof moved.from === "string") paths.push(moved.from);
+      if (typeof moved.to === "string") paths.push(moved.to);
+    }
+    const after = await loadPrivacyState(store);
+    const audiences = new Set<string>();
+    for (const state of before === null ? [after] : [before, after]) {
+      const reach = change.every
+        ? ["", ...state.rules.map((rule) => rule.prefix), ...state.overrides.keys()]
+        : paths;
+      for (const audience of treeAudiences(reach, state.rules, state.overrides)) {
+        audiences.add(audience);
+      }
+      if (change.every) audiences.add("private");
+    }
+    if (audiences.size === 0) return;
+    await ctx.runMutation(internal.functions.treeSignals.markTreeChanged, {
+      workspaceId,
+      audiences: [...audiences],
+    });
+  } catch {
+    // See above: a hint is never a failed change.
+  }
+}
+
+/**
+ * `authorizeFileAccess`'s answer, for a query that has to ask it itself — a
+ * reactive one cannot `runQuery`. One body, so the two can never disagree
+ * about who reaches what.
+ */
+export async function resolveFileAccess(
+  ctx: QueryCtx,
+  args: {
+    actorUserId: Id<"users">;
+    workspaceId: Id<"workspaces">;
+    minimum: "member" | "editor" | "owner";
+  },
+): Promise<{
+  role: WorkspaceRole;
+  scope: Scope;
+  grantedNames: string[];
+  actorName: string | null;
+}> {
+  if (args.minimum === "member") {
+    // Tried before the membership read rather than after a caught failure:
+    // `requireWorkspaceAccess` throws the same error for "not a member" and
+    // "no such workspace", so catching it would mean guessing which one this
+    // was. Asking the narrower question first needs no guess.
+    if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+      /*
+        A PINNED CONTEXT REACHES NO NAMED RULE, AND THAT IS DELIBERATE.
+
+        The pin is *reach* rather than membership — its own decision says so
+        — and `grantedNamesFor` answers from `workspaceMembers`, which a
+        pinned reader has no row in. So they read at `team` and a folder
+        named to a group is absent, which is the same answer they get for a
+        private one. Widening this would mean deciding that a pin confers
+        group membership, which nobody has decided and which no audit row
+        would record.
+      */
+      return {
+        role: PINNED_CONTEXT_ROLE,
+        scope: scopeForRole(PINNED_CONTEXT_ROLE),
+        grantedNames: [],
+        // A pinned reader is read-only, so there is nothing for a name to
+        // appear beside. See `personalNameFor`.
+        actorName: null,
+      };
+    }
+  }
+  const access =
+    args.minimum === "member"
+      ? await requireWorkspaceAccess(ctx, args.workspaceId, args.actorUserId)
+      : await requireWorkspaceRole(
+          ctx,
+          args.workspaceId,
+          args.actorUserId,
+          args.minimum,
+        );
+  return {
+    role: access.membership.role,
+    scope: scopeForRole(access.membership.role),
+    grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
+    /*
+      Resolved only for a caller who can change something.
+
+      This query is on the path of every file read, and a name is used by
+      exactly one thing: the line `activity.md` writes about a change. The
+      five operations that record one all ask for `editor` or `owner`
+      (`writeNote`, `moveEntry`, `archiveEntry`, and the two visibility
+      actions), and every read asks for `member` — so the tier is already
+      the question "could this call write", and a second flag saying the
+      same thing would be a second thing to keep in step.
+    */
+    actorName:
+      args.minimum === "member" ? null : await personalNameFor(ctx, args.actorUserId),
+  };
+}
 
 /**
  * A person's name across every context: their personal workspace's slug.
@@ -2325,6 +2458,15 @@ export const runFileOperation = internalAction({
 
     let wroteActivity: { teamVisible: boolean } | null = null;
     let dueNotification: (FormNotifyMaterial & { responseId: string }) | null = null;
+    /*
+      What this operation does to the file tree, if anything, and — for one
+      that can take something away from somebody — who could see it before.
+      Read before the operation because afterwards the answer is gone: a note
+      made private is, by then, private. See `announceTreeChange`.
+    */
+    const treeChange = treeChangeOf(args.operation as FileOperation);
+    const privacyBefore =
+      treeChange?.narrows === true ? await loadPrivacyState(store).catch(() => null) : null;
     const result = await executeOperation(
       store,
       clearanceOf(args.scope, args.grantedNames ?? []),
@@ -2371,6 +2513,10 @@ export const runFileOperation = internalAction({
           ...(dueNotification as FormNotifyMaterial & { responseId: string }),
         })
         .catch(() => {});
+    }
+
+    if (treeChange !== null) {
+      await announceTreeChange(ctx, store, args.workspaceId, treeChange, result, privacyBefore);
     }
 
     /*
