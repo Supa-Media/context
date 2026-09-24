@@ -71,7 +71,6 @@
     "apps/convex/__tests__/googleConnect/rowShape.test.ts": "The Google connection row's shape (products plus the nested gmail object) and the default destination folder, both about the same row.",
     "apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts": "One integration scenario: a full pass through the real credential barrier against fixture Gmail, Chat and Calendar backends and an in-memory S3.",
     "apps/convex/__tests__/storage/rotation.test.ts": "One encryption-key rotation scenario covering every envelope column in ROTATED_ENVELOPE_COLUMNS; splitting it separates the rotation from the column list it is proven against.",
-    "apps/convex/__tests__/structure/fixtures.helpers.ts": "The shared source analyzer (classify, exportBlocks, analyze) every structure test runs on.",
     "apps/convex/__tests__/structure/httpRoutes.test.ts": "The gateway's HTTP routes, plus the route-factory constants and helpers only these checks use.",
     "apps/convex/__tests__/structure/reachability.test.ts": "One guard: no public Convex function can reach the storage-secret decrypt path, checked over the shared analyzer's whole call graph.",
     "apps/convex/functions/managedProvisioning.ts": "provisionManagedStorage and deleteManagedTestResources keep full bodies inline, and two others keep their decryptSecret calls inline, because the credential-reachability analyzer only reads a registered function's own block.",
