@@ -47,6 +47,7 @@
  */
 
 import { v } from "convex/values";
+import { releaseWorkspaceDomains } from "./lib/customDomains/handlers";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
@@ -518,6 +519,7 @@ async function deleteWorkspaceCascade(
     }
   }
 
+  await releaseWorkspaceDomains(ctx, workspaceId); // no dangling hostname left for a takeover
   /*
     ANY WORKSPACE-KEY ROTATION ROW, IN EITHER STATUS.
 

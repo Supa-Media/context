@@ -55,7 +55,7 @@ export function shortLinkFrom(url: URL): { handle: string; slug: string } | null
 }
 
 /** The control plane's `SHORT_LINK_SLUG_RE`, restated. See `shortLinkFrom`. */
-const SHORT_LINK_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
+export const SHORT_LINK_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
 
 /**
  * The shape a name claim can have, restated for the same reason the slug is.

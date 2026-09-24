@@ -97,3 +97,7 @@ Moved to [A collect link is a write path, and the only one with no account behin
 ### The switch that hands out a write sits under the link, and says so
 
 Moved to [The switch that hands out a write sits under the link, and says so](./privacy-and-sharing/short-links-and-collect.md#the-switch-that-hands-out-a-write-sits-under-the-link-and-says-so).
+
+### Custom domains
+
+Moved to [Custom domains](./privacy-and-sharing/custom-domains.md): a domain is a third locator and never a wider tier; ownership is a TXT record minted for each claim; the host alone decides which workspace is served; and a lapse deletes nothing.

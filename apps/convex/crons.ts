@@ -235,4 +235,17 @@ crons.interval(
   {},
 );
 
+/**
+ * Custom domains: restart a check run whose next check went missing, re-read
+ * live domains hourly, suspend and resume with payment, retry removals, and
+ * release claims nobody ever verified. It chooses jobs and decides nothing
+ * else; each job re-reads its row when it runs.
+ */
+crons.interval(
+  "sweep custom domains",
+  { minutes: 15 },
+  internal.functions.customDomains.sweep,
+  {},
+);
+
 export default crons;

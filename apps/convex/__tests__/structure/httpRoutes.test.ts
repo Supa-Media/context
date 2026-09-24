@@ -99,6 +99,7 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "shareNotePreview",
   "shareShortLinkPreview",
   "shareShortLinkCard",
+  "domainResolve",
 ]);
 
 /**
@@ -320,6 +321,14 @@ describe("the gateway's HTTP routes", () => {
       // Addressing the picture by the name the crawler already typed requires
       // publishing nothing.
       "shareShortLinkCard",
+      // **The sixth**, and the only one that is not about a share. Its
+      // argument is a hostname — guessable, and it has to be: the router asks
+      // it for every request that arrives at a customer's domain. It answers
+      // with what that domain already publishes by serving: the handle its
+      // links resolve under and which link its root opens. Every other case —
+      // unknown, unverified, suspended, removed, unpaid — is one null shape,
+      // so it is a directory of live sites and nothing else.
+      "domainResolve",
     ]);
 
     const source = httpModule().source;

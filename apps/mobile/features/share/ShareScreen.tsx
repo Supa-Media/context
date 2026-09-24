@@ -27,7 +27,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useAction, useConvexAuth } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -39,6 +39,7 @@ import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { noteHref } from "../console/nav";
+import { PLATFORM_ORIGIN } from "../site/host";
 import { NoteBody } from "./NoteBody";
 import { ShareForm, collectAddress, type CollectAddress } from "./ShareForm";
 import { fenceAsForm } from "./collectForm";
@@ -66,7 +67,26 @@ import {
  * of this screen reachable by a guessable address is precisely the copy that
  * would drift in the wrong direction.
  */
-export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}) {
+/**
+ * Served at a customer's domain (`features/site/SiteRoot.tsx`) rather than at
+ * one of ours. The page is the same page; what differs is where it keeps its
+ * address — the site's own location, not the router's — and that it never
+ * sends anybody to a sign-in on the customer's origin.
+ */
+export interface SiteContext {
+  /** `?path=` inside a folder link, read from the site's own location. */
+  path: string | null;
+  /** The address this link is served at on the domain: `/` or `/intake`. */
+  entry: string;
+  navigate: (href: string) => void;
+  /** Continue on context.lc, where a session can exist. */
+  signIn: (path?: string) => void;
+}
+
+export function ShareScreen({
+  shortLink,
+  site,
+}: { shortLink?: ShortLinkAddress; site?: SiteContext } = {}) {
   const styles = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{ token?: string | string[]; path?: string | string[] }>();
   // The URL segment as the reader has it — `Chapter-transition-<64 hex>`, or a
@@ -75,7 +95,7 @@ export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}
   // link inside the share; the token is what the server is asked with.
   const segment = firstParam(params.token);
   const token = segment === null ? null : shareTokenFromSegment(segment);
-  const requestedPath = firstParam(params.path);
+  const requestedPath = site !== undefined ? site.path : firstParam(params.path);
   const auth = useConvexAuth();
   const router = useRouter();
 
@@ -86,10 +106,13 @@ export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}
   /** The URL to come back to, at whichever address this page was opened. */
   const hrefFor = useCallback(
     (path?: string) => {
+      if (site !== undefined) {
+        return path === undefined ? site.entry : `${site.entry}?path=${encodeURIComponent(path)}`;
+      }
       if (shortLink !== undefined) return shortLinkHref(shortLink, path);
       return segment === null ? null : shareHref(segment, path);
     },
-    [segment, shortLink],
+    [segment, shortLink, site],
   );
 
   useEffect(() => {
@@ -157,16 +180,18 @@ export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}
     (path: string) => {
       const href = hrefFor(path);
       if (href === null) return;
-      router.push(href);
+      if (site !== undefined) site.navigate(href);
+      else router.push(href);
     },
-    [hrefFor, router],
+    [hrefFor, router, site],
   );
 
   const backToEntry = useCallback(() => {
     const href = hrefFor();
     if (href === null) return;
-    router.push(href);
-  }, [hrefFor, router]);
+    if (site !== undefined) site.navigate(href);
+    else router.push(href);
+  }, [hrefFor, router, site]);
 
   /**
    * Leave the share page for the console, where the note is editable.
@@ -186,7 +211,11 @@ export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}
   );
 
   if (view.kind === "wait") return <View style={styles.ground} />;
-  if (view.kind === "signIn") return <Redirect href={view.href} />;
+  if (view.kind === "signIn") {
+    // Never a sign-in on a customer's origin: continue on ours instead.
+    if (site !== undefined) return <SiteSignIn onContinue={() => site.signIn(requestedPath ?? undefined)} />;
+    return <Redirect href={view.href} />;
+  }
 
   return (
     <View style={styles.ground} testID="share-page">
@@ -211,8 +240,50 @@ export function ShareScreen({ shortLink }: { shortLink?: ShortLinkAddress } = {}
             address={collectAddress(token, shortLink)}
           />
         )}
+        {site !== undefined ? <PublishedWith /> : null}
       </CenteredScroll>
     </View>
+  );
+}
+
+/** A members-only link reached at a customer's domain. */
+function SiteSignIn({ onContinue }: { onContinue: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.ground} testID="share-site-sign-in">
+      <StageBackdrop />
+      <CenteredScroll>
+        <Card>
+          <View style={styles.unavailable}>
+            <Text variant="paneTitle" role="heading" aria-level={1}>
+              Members only
+            </Text>
+            <Text variant="paneSub">
+              This page is shared with the members of a Context workspace. Sign in on Context to read it.
+            </Text>
+            <Button label="Continue on Context" variant="white" onPress={onContinue} />
+          </View>
+        </Card>
+      </CenteredScroll>
+    </View>
+  );
+}
+
+/**
+ * One quiet line under a page served at a customer's domain, so a reader can
+ * tell who is serving it. No logo, and not a setting.
+ */
+function PublishedWith() {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <Pressable
+      accessibilityRole="link"
+      onPress={() => void Linking.openURL(PLATFORM_ORIGIN)}
+      style={styles.publishedWith}
+      testID="share-published-with"
+    >
+      <Text variant="foot">Published with Context</Text>
+    </Pressable>
   );
 }
 
@@ -491,4 +562,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   links: { gap: 10 },
   linkList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   card: { borderRadius: radii.xl },
+  publishedWith: { alignSelf: "center", paddingVertical: 18 },
 });

@@ -1,6 +1,7 @@
 import { CollaborationFixture } from "./collaboration/Fixture";
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
+import { DomainFixture } from "./DomainFixture";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
 import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
@@ -55,6 +56,7 @@ function first(value: string | string[] | undefined): string | undefined {
 export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
+  if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} />;
 
   /*
     The application frame, which is otherwise on no browser-reachable screen
