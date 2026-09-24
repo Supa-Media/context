@@ -54,6 +54,10 @@ PUBLIC_ORIGIN = "https://mcp.context.lc"
 # Matching is exact — scheme, host and port, no wildcards. On the product
 # deployment the console is the apex, so:
 ALLOWED_ORIGINS = "https://context.lc"
+# The app, named in the OAuth metadata as `context_app_origin` so the CLI can
+# send the browser to the app's "connected" page after signing in. Optional:
+# unset, the CLI shows its own plain page.
+APP_ORIGIN = "https://context.lc"
 # Self-hosting: put your own console origin here, not that one.
 
 # Store operations one search may spend (index sync + conditional write +
@@ -189,6 +193,7 @@ workers_dev = true
 [env.staging.vars]
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc"
+APP_ORIGIN = "https://staging.context.lc"
 SEARCH_SUBREQUEST_BUDGET = "600"
 
 [[env.staging.durable_objects.bindings]]
