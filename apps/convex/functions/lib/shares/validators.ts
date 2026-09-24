@@ -1,8 +1,9 @@
 /**
- * The argument and return validators of the share functions whose bodies stay
- * in `functions/shares.ts` — the ones that call another function in the
- * deployment, and so must stay beside their registration for
- * `__tests__/structure.test.ts` to see the call.
+ * The argument and return validators of the share functions that call another
+ * function in the deployment. Their bodies stayed in `functions/shares.ts`
+ * when these moved, because the credential graph could not yet follow a call
+ * into a helper; most have since moved to `./readPath.ts` and
+ * `./gatewayOwner.ts`, which the graph in `__tests__/structure/` now follows.
  *
  * Moved verbatim; the registrations in `functions/shares.ts` pass them to
  * Convex unchanged. This module registers nothing.

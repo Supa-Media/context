@@ -11,7 +11,7 @@
 import { ConvexError } from "convex/values";
 import type { ObjectType } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { internal } from "../../../_generated/api";
+import { api, internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { normalizePath } from "../fileOps";
@@ -19,7 +19,7 @@ import { linkedNotePaths } from "../noteLinks";
 import { isEncryptedNote } from "../noteEncryption";
 import { withinSharedFolder } from "./paths";
 import { anonymousSafe, notAuthenticated, shareUnavailable } from "./errors";
-import type { readSharedNoteArgs } from "./validators";
+import type { readShortLinkArgs, readSharedNoteArgs } from "./validators";
 
 /**
  * Read a note through a share.
@@ -413,4 +413,42 @@ async function readThroughShare(
     // caller. See `anonymousSafe`.
     throw error;
   }
+}
+
+/**
+ * Read what a short link points at: `readSharedNote`, addressed by name.
+ *
+ * It resolves the slug and then calls that action, rather than reimplementing
+ * it. Every rule about what a share reaches, who may read it, how a folder
+ * lists and how a link out of the entry note is bounded lives there, and a
+ * second copy reachable by a *guessable* address is precisely the copy that
+ * would drift in the wrong direction.
+ *
+ * A slug that resolves to nothing refuses exactly as an unknown token does, so
+ * "never claimed", "released" and "revoked" are one answer.
+ */
+export async function readShortLinkHandler(
+  ctx: ActionCtx,
+  args: ObjectType<typeof readShortLinkArgs>,
+): Promise<{
+  path: string;
+  text: string | null;
+  kind: "note" | "folder";
+  entries: { path: string; name: string; kind: "file" | "folder" }[];
+  entryPath: string;
+  links: string[];
+  openToAnyone: boolean;
+  collecting: boolean;
+  editableInContext: string | null;
+}> {
+  const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
+    handle: args.handle,
+    slug: args.slug,
+  });
+  if (token === null) throw shareUnavailable();
+
+  return await ctx.runAction(api.functions.shares.readSharedNote, {
+    token,
+    ...(args.path === undefined ? {} : { path: args.path }),
+  });
 }

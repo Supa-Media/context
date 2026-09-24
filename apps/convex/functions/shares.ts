@@ -5,19 +5,18 @@
  * module comment of `./lib/shares/mint.ts`, beside `createShare`.
  *
  * Every share function is still registered here, under the same name, kind
- * and validators, because a function's API path derives from this file. Bodies
- * that call no other function in the deployment live in `./lib/shares/`,
- * carrying the comment that sat on their registration. Every body that does
- * (`ctx.runQuery`, `ctx.runAction`, `ctx.runMutation`) stays here in full:
- * `__tests__/structure.test.ts` builds its credential-reachability graph from
- * the text of each registered function, and a call moved out of it is a call
- * that graph no longer sees.
+ * and validators, because a function's API path derives from this file. Their
+ * bodies live in `./lib/shares/`, carrying the comment that sat on their
+ * registration — including the ones that call another function in the
+ * deployment (`ctx.runQuery`, `ctx.runAction`, `ctx.runMutation`), because the
+ * credential-reachability graph in `__tests__/structure/` follows a
+ * registered function through its imports into `functions/lib`. The link mint
+ * (`mintUnlistedLink`, `mintFolderLink`) is the part still written here.
  */
 
-import { ConvexError, v } from "convex/values";
+import { ConvexError } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { api, internal } from "../_generated/api";
-import { DEFAULT_COLLECT_CAP } from "./lib/collectLimits";
+import { internal } from "../_generated/api";
 import {
   action,
   internalAction,
@@ -28,9 +27,7 @@ import {
 } from "../_generated/server";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { recordAudit } from "./lib/audit";
 import { isEncryptedNote } from "./lib/noteEncryption";
-import { MAX_SHARES_RETURNED, isLive } from "./lib/shares/standing";
 import {
   checkFolderSharePath,
   checkSharePath,
@@ -41,16 +38,8 @@ import {
   notLinkableEncrypted,
   notTeamVisible,
   notTeamVisibleFolder,
-  shareUnavailable,
 } from "./lib/shares/errors";
 import { mintTeamShare } from "./lib/shares/mint";
-import { describeAudience } from "./lib/shares/manage";
-import {
-  gatewayLinkSummary,
-  workspaceHandle,
-  shareUrlsFor,
-  type GatewayLink,
-} from "./lib/shares/gatewayLinks";
 import * as mint from "./lib/shares/mint";
 import * as linkRow from "./lib/shares/linkRow";
 import * as manage from "./lib/shares/manage";
@@ -59,6 +48,7 @@ import * as gatewayLinks from "./lib/shares/gatewayLinks";
 import * as recipients from "./lib/shares/recipients";
 import * as previews from "./lib/shares/previews";
 import * as readPath from "./lib/shares/readPath";
+import * as gatewayOwner from "./lib/shares/gatewayOwner";
 import * as validators from "./lib/shares/validators";
 
 export { MAX_ACTIVE_SHARES } from "./lib/shares/standing";
@@ -375,46 +365,11 @@ export const shortLinkToken = internalQuery({
   handler: shortLinks.shortLinkTokenHandler,
 });
 
-/**
- * Read what a short link points at: `readSharedNote`, addressed by name.
- *
- * It resolves the slug and then calls that action, rather than reimplementing
- * it. Every rule about what a share reaches, who may read it, how a folder
- * lists and how a link out of the entry note is bounded lives there, and a
- * second copy reachable by a *guessable* address is precisely the copy that
- * would drift in the wrong direction.
- *
- * A slug that resolves to nothing refuses exactly as an unknown token does, so
- * "never claimed", "released" and "revoked" are one answer.
- */
+/** Read what a short link points at: `readSharedNote`, addressed by name. */
 export const readShortLink = action({
   args: validators.readShortLinkArgs,
   returns: validators.readShortLinkReturns,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    path: string;
-    text: string | null;
-    kind: "note" | "folder";
-    entries: { path: string; name: string; kind: "file" | "folder" }[];
-    entryPath: string;
-    links: string[];
-    openToAnyone: boolean;
-    collecting: boolean;
-    editableInContext: string | null;
-  }> => {
-    const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
-      handle: args.handle,
-      slug: args.slug,
-    });
-    if (token === null) throw shareUnavailable();
-
-    return await ctx.runAction(api.functions.shares.readSharedNote, {
-      token,
-      ...(args.path === undefined ? {} : { path: args.path }),
-    });
-  },
+  handler: readPath.readShortLinkHandler,
 });
 
 export const previewForShortLink = query({
@@ -427,71 +382,11 @@ export const previewForShortLink = query({
 /* The gateway's half: an agent asking for a link, and getting the URL        */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Mint a link for an agent, and hand back the URL. INTERNAL.
- *
- * Everything about *what a share is* happens in `mintTeamShare` and
- * `mintUnlistedLink`, which the console's own buttons call. This adds three
- * things and no fourth:
- *
- *  - the gateway's owner clearance, which is where the access token is spent;
- *  - the optional short name, claimed through the same `setShareSlug` rules
- *    the console claims one through — including the refusal on a name this
- *    product writes;
- *  - the URL, built from `@context/shared` so nothing downstream guesses.
- *
- * **The short name is claimed after the row exists, and a refusal does not
- * un-mint it.** The link is real and usable at its token either way, so the
- * honest answer is the link plus the reason the name was refused — rather than
- * throwing away a working share because a word was taken.
- */
+/** Mint a link for an agent, and hand back the URL. INTERNAL. */
 export const gatewayCreateLink = internalAction({
   args: validators.gatewayCreateLinkArgs,
   returns: validators.gatewayCreateLinkReturns,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ link: GatewayLink; shortRefused: string | null } | null> => {
-    const cleared = await ctx.runQuery(
-      internal.functions.controlPlane.ownerClearanceForGateway,
-      {
-        hashedAccessToken: args.hashedAccessToken,
-        expectedWorkspaceId: args.expectedWorkspaceId,
-      },
-    );
-    if (cleared === null) return null;
-
-    if (args.audience === "anyone") {
-      await ctx.runAction(internal.functions.shares.gatewayMintUnlisted, {
-        workspaceId: cleared.workspaceId,
-        actorUserId: cleared.actorUserId,
-        path: args.path,
-        ...(args.kind === undefined ? {} : { kind: args.kind }),
-        ...(args.titleInPreview === undefined
-          ? {}
-          : { titleInPreview: args.titleInPreview }),
-        ...(args.mode === undefined ? {} : { mode: args.mode }),
-        ...(args.collectCap === undefined ? {} : { collectCap: args.collectCap }),
-      });
-    } else {
-      await ctx.runMutation(internal.functions.shares.gatewayMintTeam, {
-        workspaceId: cleared.workspaceId,
-        actorUserId: cleared.actorUserId,
-        path: args.path,
-        ...(args.titleInPreview === undefined
-          ? {}
-          : { titleInPreview: args.titleInPreview }),
-      });
-    }
-
-    return await ctx.runMutation(internal.functions.shares.gatewayNameAndDescribe, {
-      workspaceId: cleared.workspaceId,
-      actorUserId: cleared.actorUserId,
-      path: args.path,
-      audience: args.audience,
-      ...(args.short === undefined ? {} : { short: args.short }),
-    });
-  },
+  handler: gatewayOwner.gatewayCreateLinkHandler,
 });
 
 /** `mintUnlistedLink` for a cleared gateway caller. INTERNAL. */
@@ -517,96 +412,16 @@ export const gatewayNameAndDescribe = internalMutation({
 
 /** Every live link in this context, for an agent that asked. INTERNAL. */
 export const gatewayListLinks = internalQuery({
-  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
-  returns: v.union(v.null(), v.array(gatewayLinkSummary)),
-  handler: async (ctx, args): Promise<GatewayLink[] | null> => {
-    const cleared = await ctx.runQuery(
-      internal.functions.controlPlane.ownerClearanceForGateway,
-      {
-        hashedAccessToken: args.hashedAccessToken,
-        expectedWorkspaceId: args.expectedWorkspaceId,
-      },
-    );
-    if (cleared === null) return null;
-
-    const now = Date.now();
-    const rows = await ctx.db
-      .query("noteShares")
-      .withIndex("by_workspace_status", (q) =>
-        q.eq("workspaceId", cleared.workspaceId).eq("status", "active"),
-      )
-      .take(MAX_SHARES_RETURNED);
-    const handle = await workspaceHandle(ctx, cleared.workspaceId);
-
-    return rows
-      .filter((row) => isLive(row, now))
-      .map((row) => {
-        const urls = shareUrlsFor(row, handle);
-        return {
-          shareId: row._id,
-          url: urls.url,
-          shortUrl: urls.shortUrl,
-          path: urls.path,
-          audience: row.recipientKind,
-          entryPath: row.entryPath,
-          slug: row.slug ?? null,
-          collecting: row.mode === "collect",
-          collected: row.mode === "collect" ? (row.collectCount ?? 0) : null,
-          collectCap:
-            row.mode === "collect" ? (row.collectCap ?? DEFAULT_COLLECT_CAP) : null,
-          createdAt: row.createdAt,
-        };
-      });
-  },
+  args: gatewayOwner.gatewayListLinksArgs,
+  returns: gatewayOwner.gatewayListLinksReturns,
+  handler: gatewayOwner.gatewayListLinksHandler,
 });
 
-/**
- * Take a link back on an agent's say-so. INTERNAL.
- *
- * Addressed by `shareId`, which is what `gatewayListLinks` hands out — never
- * by token, because an agent holding a token it was given by a person is not
- * the same as an agent whose own grant covers the context, and only the second
- * gets to revoke. The row's workspace is compared against the cleared one, so
- * an id from another context is one refusal and not an oracle.
- */
+/** Take a link back on an agent's say-so. INTERNAL. */
 export const gatewayRevokeLink = internalMutation({
-  args: {
-    hashedAccessToken: v.string(),
-    expectedWorkspaceId: v.string(),
-    shareId: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args): Promise<boolean> => {
-    const cleared = await ctx.runQuery(
-      internal.functions.controlPlane.ownerClearanceForGateway,
-      {
-        hashedAccessToken: args.hashedAccessToken,
-        expectedWorkspaceId: args.expectedWorkspaceId,
-      },
-    );
-    if (cleared === null) return false;
-
-    const shareId = ctx.db.normalizeId("noteShares", args.shareId);
-    if (shareId === null) return false;
-    const row = await ctx.db.get(shareId);
-    if (row === null || row.status !== "active") return false;
-    // The cleared workspace, never the row's: an id from another context must
-    // answer exactly as an invented one does.
-    if (row.workspaceId !== cleared.workspaceId) return false;
-
-    await ctx.db.patch(row._id, { status: "revoked", revokedAt: Date.now() });
-    await recordAudit(ctx, {
-      workspaceId: cleared.workspaceId,
-      actorUserId: cleared.actorUserId,
-      action: "share.revoked",
-      paths: [row.entryPath],
-      details: {
-        recipient: describeAudience(row.recipientKind, row.recipient),
-        via: "gateway",
-      },
-    });
-    return true;
-  },
+  args: gatewayOwner.gatewayRevokeLinkArgs,
+  returns: gatewayOwner.gatewayRevokeLinkReturns,
+  handler: gatewayOwner.gatewayRevokeLinkHandler,
 });
 
 export const resolveShare = query({
