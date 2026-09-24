@@ -113,8 +113,6 @@
     "apps/mobile/features/console/presence/usePresence.ts": 1353,
     "apps/mobile/features/console/useLiveConsoleData.ts": 1282,
     "apps/mobile/features/meetings/capture/audio.ts": 1843,
-    "apps/mobile/features/meetings/capture/audio.web.ts": 1132,
-    "apps/mobile/features/meetings/controller.ts": 1768,
     "apps/mobile/features/offline/useOfflineNotes.ts": 1193,
     "packages/hook/test/test.mjs": 1317,
     "packages/obsidian-runtime/src/sandbox.js": 2247
