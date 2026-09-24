@@ -452,7 +452,10 @@ export async function runIpcCensusChecks(check) {
       // Neither is a registration; the census does not distinguish, by design.
       "apps/desktop/src/main/capture.ts": "13 mentions, 0 ipc calls",
       "apps/desktop/src/main/consoleBridge.ts": "3 mentions, 5 ipc calls",
-      "apps/desktop/src/main/index.ts": "14 mentions, 0 ipc calls",
+      // 14, all of them moved here from `main/index.ts` when `main()` was split
+      // by subject: the import, the bridge hand-off and the renderer's twelve
+      // `on` registrations. The total and the per-kind counts did not move.
+      "apps/desktop/src/main/windowIpc.ts": "14 mentions, 0 ipc calls",
       "packages/desktop-bridge/src/contract.ts": "1 mention, 0 ipc calls",
     };
     let mentions = 0;
