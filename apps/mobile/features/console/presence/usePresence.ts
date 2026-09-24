@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { gatewayOriginFrom } from "../../meetings/gateway";
+import { onReturnToApp } from "../../app/returnToApp";
 import {
   agentCursorFrame,
   agentPointerFrame,
@@ -957,15 +958,11 @@ export function usePresence(options: {
       void connect(0);
     };
     void connect(0);
-    window.addEventListener("online", retryNow);
-    window.addEventListener("focus", retryNow);
-    window.addEventListener("visibilitychange", retryNow);
+    const stopRetrying = onReturnToApp(retryNow);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("online", retryNow);
-      window.removeEventListener("focus", retryNow);
-      window.removeEventListener("visibilitychange", retryNow);
+      stopRetrying();
       closeSocket(true);
       for (const timer of toolCarets.values()) window.clearTimeout(timer);
       toolCarets.clear();
