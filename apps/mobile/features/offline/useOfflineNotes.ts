@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cachedNoteCopies,
-  getNote,
   getOutbox,
-  putNote,
   putOutbox,
   retireCopies,
   sweep,
@@ -11,34 +9,21 @@ import {
 } from "./cache";
 import { openStore } from "./store";
 import { currentEpoch } from "./epoch";
-import {
-  adoptCachedNotes,
-  forgetMirroredNote,
-  mirroredNote,
-  moveMirroredBody,
-  putMirroredNotes,
-} from "./mirror";
-import { holdAncestors, neededEtags, releaseAncestors } from "./mirrorHolds";
+import { adoptCachedNotes } from "./mirror";
+import { holdAncestors, releaseAncestors } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 import type { KeyValueStore } from "./memory";
-import {
-  emptyOutbox,
-  isEmpty,
-  localPathOf,
-  opsOf,
-  type Outbox,
-  type PendingOp,
-  type PendingWrite,
-} from "./outbox";
-import { drainOutbox, type DrainReport, type OpOutcome, type OpSent, type WriteOutcome } from "./sync";
+import { emptyOutbox, opsOf, type Outbox, type PendingOp, type PendingWrite } from "./outbox";
+import type { DrainReport, OpOutcome, OpSent, WriteOutcome } from "./sync";
 import { collaborationOwnedPaths } from "./collaborationOwnership";
 import { useReachability } from "./reachability";
 import type { CacheScope } from "./keys";
 import type { VisibilityTier } from "../console/visibility";
 import type { OpenNote, Visibility } from "../console/files/types";
 import { PERSIST_DEBOUNCE_MS, type OfflineNotes } from "./offlineNotes/contract";
-import { newOpId, reconcile } from "./offlineNotes/reconcile";
 import { buildOfflineNotesApi } from "./offlineNotes/api";
+import { rememberCreatedCopy, rememberOpDoneCopy, rememberSentCopy } from "./offlineNotes/deviceCopies";
+import { drainLiveQueue } from "./offlineNotes/drain";
 
 /**
  * The offline layer, as one object the file browser can hold.
@@ -336,105 +321,22 @@ export function useOfflineNotes(options: {
     [],
   );
 
-  /**
-   * Move this device's copy of a note onto text and an etag that are now in the
-   * bucket. The mirror where there is one — at every clearance holding the
-   * note, keeping any ancestor still needed — and the bounded cache where there
-   * is not. Neither invents an entry for a note it does not hold: a save result
-   * carries none of the visibility fields.
-   */
+  /** See `rememberSentCopy`. */
   const rememberSent = useCallback(
-    (body: { path: string; text: string; etag: string }) => {
-      if (workspaceId === null || scope === null || !mine()) return;
-      const epoch = epochRef.current;
-      void (async () => {
-        const mirror = await openMirrorStore();
-        if (mirror !== null) {
-          const needed = await neededEtags(store, workspaceId);
-          if (!mine()) return;
-          await moveMirroredBody(mirror, epoch, workspaceId, body, needed, Date.now());
-          return;
-        }
-        const cached = await getNote(store, scope, workspaceId, body.path);
-        /*
-          Checked again here, and this is the one writer where the entry gate
-          is not enough: every other one writes synchronously after it, or
-          re-checks when its timer fires. This one awaits a read first, so the
-          session can end in the gap.
-
-          Web hid it — `store.web.ts` reads `localStorage` synchronously inside
-          an async function, so the whole chain drains in microtasks before a
-          press can be handled. Native does not: `AsyncStorage.getItem` is a
-          queued bridge call, so a read issued before sign-out resolves after
-          the clear has walked past that key, and the write behind it lands on
-          a device whose session is over. Measured that way round, from
-          `useFileBrowser`'s two call sites — a save, then sign out.
-        */
-        if (cached === null || !mine()) return;
-        await putNote(
-          store,
-          scope,
-          workspaceId,
-          { ...cached.value, text: body.text, etag: body.etag },
-          Date.now(),
-        );
-      })().catch(() => {});
-    },
+    (body: { path: string; text: string; etag: string }) =>
+      rememberSentCopy({ workspaceId, scope, store, mine, epochRef }, body),
     [mine, scope, store, workspaceId],
   );
 
-  /**
-   * Move this device's copy of a note onto where an op just put it in the
-   * bucket: a renamed note's body to its new name (at the version the move
-   * returned, where it said), and a deleted or archived one off the device —
-   * the next sync brings the archived copy back where the archive put it.
-   * Without this the tree drawn from the mirror shows the note under its old
-   * name, beside the new one, until the next sync prunes it.
-   */
-  /** A note this device created, now in the bucket: into the mirror. See the drain. */
+  /** See `rememberCreatedCopy`. */
   const rememberCreated = useCallback(
-    (note: OpenNote) => {
-      if (workspaceId === null || scope === null || !mine()) return;
-      const epoch = epochRef.current;
-      void (async () => {
-        const mirror = await openMirrorStore();
-        if (mirror === null) return;
-        const needed = await neededEtags(store, workspaceId);
-        if (!mine()) return;
-        await putMirroredNotes(mirror, epoch, scope, workspaceId, [note], needed, Date.now());
-      })().catch(() => {});
-    },
+    (note: OpenNote) => rememberCreatedCopy({ workspaceId, scope, store, mine, epochRef }, note),
     [mine, scope, store, workspaceId],
   );
 
+  /** See `rememberOpDoneCopy`. */
   const rememberOpDone = useCallback(
-    (done: OpSent) => {
-      if (workspaceId === null || scope === null || !mine()) return;
-      if (done.kind === "folder") return;
-      const epoch = epochRef.current;
-      void (async () => {
-        const mirror = await openMirrorStore();
-        if (mirror === null) return;
-        if (done.kind === "move" && done.to !== undefined) {
-          const copy = await mirroredNote(mirror, scope, workspaceId, done.path);
-          if (copy !== null && mine()) {
-            const needed = await neededEtags(store, workspaceId);
-            if (!mine()) return;
-            await putMirroredNotes(
-              mirror,
-              epoch,
-              scope,
-              workspaceId,
-              [{ ...copy.value, path: done.to, etag: done.etag ?? copy.value.etag }],
-              needed,
-              Date.now(),
-            );
-          }
-        }
-        if (!mine()) return;
-        await forgetMirroredNote(mirror, epoch, workspaceId, done.path);
-      })().catch(() => {});
-    },
+    (done: OpSent) => rememberOpDoneCopy({ workspaceId, scope, store, mine, epochRef }, done),
     [mine, scope, store, workspaceId],
   );
 
@@ -457,101 +359,29 @@ export function useOfflineNotes(options: {
     [commit],
   );
 
-  const drain = useCallback(() => {
-    /*
-      Not a device write, and gated anyway. The console stays mounted through
-      `await signOut()`, and this fires from an effect the moment a queue and a
-      connection exist — so a reconnection inside that window would send the
-      queue the person was just told had been discarded, to the bucket, under a
-      session that is ending.
-
-      It is still not a cancellation: a drain already in flight finishes, and
-      what the epoch stops is anything it would write back to this device.
-    */
-    if (draining.current || workspaceId === null || !mine()) return;
-    const current = outboxRef.current;
-    if (isEmpty(current)) return;
-    draining.current = true;
-
-    const send = opRef.current;
-    void drainOutbox(current, {
-      write: (write) => writeRef.current(write),
-      shouldWrite: (write) => !collaborationOwnedRef.current.has(write.path) && (shouldWriteRef.current?.(write) ?? true),
-      ...(send === undefined ? {} : { op: (op: PendingOp) => send(op) }),
-      now: () => Date.now(),
-      onOpDone: (done) => {
-        rememberOpDone(done);
-      },
-    })
-      .then(({ outbox: next, report }) => {
-        /*
-          Anything queued *while* the drain was running is in `outboxRef` and
-          not in `next`, which was derived from the snapshot the drain started
-          with. Re-applying the drain's result over the newer state — rather
-          than replacing it — is what stops a save made mid-drain from being
-          silently dropped.
-        */
-        // Keep aliases before completed moves leave the queue. The editor may
-        // already show the destination while this write used the source name.
-        const shownPaths = new Map(report.sent.map((sent) => [
-          sent.path, localPathOf(outboxRef.current, sent.path),
-        ]));
-        commit(
-          reconcile(outboxRef.current, next, report, { id: newOpId, now: Date.now() }),
-          true,
-        );
-        // Reconcile first. The editor needs to know whether a newer write was
-        // queued while this request was in flight before it marks a create
-        // settled or upgrades it to a canonical collaboration generation.
-        for (const sent of report.sent) {
-          onWrittenRef.current?.({ path: sent.path, etag: sent.etag, shownAt: shownPaths.get(sent.path) });
-        }
-        // Writes land before moves. Deliver their acknowledgements in that
-        // order so a move can advance the version the write just established.
-        for (const done of report.ops.done) onOpDoneRef.current?.(done);
-        setLastDrain(report);
-        /*
-          What was sent is in the bucket now, at the etag the write returned,
-          so the device's copy moves onto it — the same thing a Save that lands
-          does (`rememberBody`). Without it, an edit made offline and drained
-          reads back offline as the version it replaced until the next sync.
-        */
-        for (const sent of report.sent) {
-          const entry = current.writes.find((write) => write.path === sent.path);
-          if (entry === undefined) continue;
-          if (sent.sentBaseEtag === null) {
-            /*
-              A note created offline is in the bucket now, and in nothing on
-              the device: the queue has let it go and the mirror never held it,
-              so the tree drawn offline would lose it until the next sync
-              fetched it. It goes into the mirror as what was written, drawn
-              with its folder's default for a badge — the next complete sync
-              replaces that with the server's own answer.
-            */
-            const visibility = folderDefaultRef.current?.(sent.path) ?? "private";
-            rememberCreated({
-              path: sent.path,
-              text: entry.text,
-              etag: sent.etag,
-              visibility,
-              inherited: visibility,
-              exception: false,
-              readOnly: false,
-            });
-            continue;
-          }
-          rememberSent({ path: sent.path, text: entry.text, etag: sent.etag });
-        }
-      })
-      .catch(() => {
-        // `drainOutbox` does not throw; an injected `write` that rejects rather
-        // than resolving an outcome would land here. The queue is untouched, so
-        // the next reconnection tries again.
-      })
-      .finally(() => {
-        draining.current = false;
-      });
-  }, [commit, mine, rememberCreated, rememberOpDone, rememberSent, workspaceId]);
+  /** See `drainLiveQueue`. */
+  const drain = useCallback(
+    () =>
+      drainLiveQueue({
+        workspaceId,
+        mine,
+        commit,
+        rememberCreated,
+        rememberOpDone,
+        rememberSent,
+        setLastDrain,
+        draining,
+        outboxRef,
+        writeRef,
+        shouldWriteRef,
+        opRef,
+        onWrittenRef,
+        onOpDoneRef,
+        folderDefaultRef,
+        collaborationOwnedRef,
+      }),
+    [commit, mine, rememberCreated, rememberOpDone, rememberSent, workspaceId],
+  );
 
   /** Empty the queue whenever we believe we can reach the bucket. */
   useEffect(() => {
