@@ -288,6 +288,9 @@ describe("invented values are structurally out of reach of the live console", ()
   const CONSOLE = join(__dirname, "..", "features", "console");
   const DEMO_PATH = [
     "placeholderData.ts",
+    // placeholderData.ts's own subject modules, split out of it; reachable
+    // only through it.
+    "placeholderData/seyi.ts",
     "useDemoConsoleData.ts",
     "files/useDemoFileBrowser.ts",
     // The one note `apps/mobile/e2e/webkit` writes to for real — see its own
