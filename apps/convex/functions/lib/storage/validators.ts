@@ -1,15 +1,14 @@
 /**
- * The larger argument and return validators of the storage functions whose
- * bodies stay in `functions/storage.ts` — the ones that call, schedule or
- * decrypt, and so must stay beside their registration for
- * `__tests__/structure.test.ts` to see it.
+ * The larger argument and return validators of the storage functions that
+ * call, schedule or decrypt. Most of those bodies stay in `functions/storage.ts`
+ * beside their registration; `reverifyStorage`'s is in `./bindingActions.ts`.
  *
  * Moved verbatim; the registrations pass them to Convex unchanged. This
  * module registers nothing.
  */
 
 import { v } from "convex/values";
-import { providerValidator } from "./shapes";
+import { capabilitiesValidator, providerValidator } from "./shapes";
 
 export const bindStorageArgs = {
   workspaceId: v.id("workspaces"),
@@ -81,3 +80,35 @@ export const reverifyStorageReturns = v.object({
    */
   status: v.string(),
 });
+
+// Two shapes, not one shape with holes. The gateway's factory refuses a
+// binding carrying a credential its provider does not use, so a union here
+// is what makes that refusal unreachable by accident: there is no way to
+// return a Dropbox binding with an `accessKeyId` on it.
+export const getBindingForGatewayReturns = v.union(
+  v.null(),
+  v.object({
+    provider: v.union(
+      v.literal("r2"),
+      v.literal("s3"),
+      v.literal("b2"),
+      v.literal("s3-compatible"),
+    ),
+    endpoint: v.string(),
+    region: v.string(),
+    bucket: v.string(),
+    rootPrefix: v.optional(v.string()),
+    accessKeyId: v.string(),
+    secretAccessKey: v.string(),
+    forcePathStyle: v.optional(v.boolean()),
+    capabilities: capabilitiesValidator,
+    status: v.string(),
+  }),
+  v.object({
+    provider: v.literal("dropbox"),
+    accessToken: v.string(),
+    rootPrefix: v.optional(v.string()),
+    capabilities: capabilitiesValidator,
+    status: v.string(),
+  }),
+);
