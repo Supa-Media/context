@@ -3,23 +3,27 @@
  * when a concurrent write beats a retry to the claim.
  *
  * Split out of meetings.test.mjs; see fixtures.mjs for the shared harness and
- * constants. Section 12 of the original file.
+ * constants. Section 12 of the original file. Runs against the same
+ * `harness` the earlier meeting sections left its notes and audit trail in —
+ * see meetings.test.mjs for why the sections share one harness in order.
  */
 
 import {
-  TOKEN_OWNER,
-  TOKEN_NEIGHBOUR,
+  MEETING_PREFIX,
   SESSION_CONFLICT,
+  SESSION_NEVER_ISSUED,
   SESSION_STORAGE_FAILURE,
+  SESSION_TYPED_ONLY,
+  TOKEN_NEIGHBOUR,
+  TOKEN_OWNER,
+  keysIn,
   meetingRequest,
   segment,
-  keysIn,
-  MEETING_PREFIX,
 } from "./fixtures.mjs";
 
 /** @param {(label: string, ok: boolean) => void} check */
 export async function runMeetingStorageFailureChecks(check, harness) {
-  const { env, recorder, neighbour } = harness;
+  const { env, recorder, neighbour, opened, rawRecord, finalized, notePath, receipt, written } = harness;
   /* --------------------- 12. storage failure and conflict ------------------ */
 
   await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
