@@ -35,6 +35,7 @@ import { runBulkFolderMoveVisibilityChecks } from "./bulkFolderMoveVisibility.te
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runActivityChecks } from "./activity.test.mjs";
+import { runTreeHintChecks } from "./treeHints.test.mjs";
 import { runForwardingChecks } from "./forwarding.test.mjs";
 import { runPresenceChecks } from "./presence.test.mjs";
 import { runAgentActivityChecks } from "./agentActivity.test.mjs";
@@ -4657,6 +4658,7 @@ await suite("runForwardingChecks", () => runForwardingChecks(check));
 // substance rules first, then a worker of its own — it writes to the root of
 // the bucket on every call, so it cannot share this fixture either.
 await suite("runActivityChecks", () => runActivityChecks(check));
+await suite("runTreeHintChecks", () => runTreeHintChecks(check));
 await suite("runDrawingChecks", () => runDrawingChecks(check));
 
 /*

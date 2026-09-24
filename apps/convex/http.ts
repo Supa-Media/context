@@ -623,6 +623,41 @@ export const gatewayActivity = gatewayRoute(async (ctx, body) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 2b-tree. POST /gateway/tree — a context's file tree changed               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * That an MCP write created, moved, removed or re-scoped something in a
+ * context, and which audiences could see it — so the consoles showing that
+ * context re-list it now. See `functions/treeSignals.ts`.
+ *
+ * A workspace id and audience labels (`private`, `team`, `@name`), and nothing
+ * else: no path, no count, no content. The gateway computes the audiences
+ * with its own privacy engine, because only it has the bucket's `privacy.md`
+ * in hand; the mutation discards anything that is not an audience label, and
+ * the timestamp is taken there, not accepted from the caller.
+ *
+ * Answered identically whatever happens, like its neighbours.
+ */
+export const gatewayTree = gatewayRoute(async (ctx, body) => {
+  const answered = () => json({ ok: true });
+  const workspaceId = stringField(body, "workspaceId");
+  const audiences = Array.isArray(body.audiences)
+    ? body.audiences.filter((value): value is string => typeof value === "string")
+    : [];
+  if (workspaceId === null || audiences.length === 0) return answered();
+  try {
+    await ctx.runMutation(internal.functions.treeSignals.markTreeChanged, {
+      workspaceId: workspaceId as Id<"workspaces">,
+      audiences: audiences.slice(0, 64),
+    });
+  } catch {
+    // A malformed id and a context that is not there answer the same.
+  }
+  return answered();
+});
+
+/* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/forms/notify — a form took an answer                */
 /* -------------------------------------------------------------------------- */
 
@@ -1604,6 +1639,7 @@ http.route({
   handler: gatewaySearchIndexProgress,
 });
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
+http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
 http.route({
   path: "/gateway/jobs/create",

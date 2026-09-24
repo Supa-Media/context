@@ -2691,6 +2691,21 @@ const schema = defineSchema({
     chunk: v.bytes(),
   }),
 
+  /**
+   * When each audience of a workspace last saw its file tree change. See
+   * `lib/treeAudiences.ts` for why it is per audience, and `treeSignals.ts`.
+   *
+   * No path, no count, no content: one timestamp per (workspace, audience),
+   * where an audience is `private`, `team` or an `@name`. It is a hint that a
+   * client's tree is stale — the client then asks the bucket, through the same
+   * filters as every read — never a record of what changed.
+   */
+  treeSignals: defineTable({
+    workspaceId: v.id("workspaces"),
+    audience: v.string(),
+    at: v.number(),
+  }).index("by_workspace_audience", ["workspaceId", "audience"]),
+
   auditEvents: defineTable({
     workspaceId: v.id("workspaces"),
     actorUserId: v.optional(v.id("users")),
