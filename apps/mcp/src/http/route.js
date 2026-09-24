@@ -351,7 +351,8 @@ export async function route(request, env, ctx) {
 
       /**
        * That something landed in this context's `activity.md`, and at which
-       * tier.
+       * tier; and that its file tree changed, for which audiences. See
+       * `attachChangeReporters`, which `openContext` below calls too.
        *
        * Bound to the workspace this store reaches, like the progress reporter
        * above and for the same reason: a cross-context write lights the dot on
@@ -364,26 +365,7 @@ export async function route(request, env, ctx) {
        * is a subrequest spent on nothing. The line is in the customer's bucket
        * either way, which is where it matters.
        */
-      /**
-       * That this context's file tree changed, and which audiences could see
-       * it — so every console showing it re-lists now. Labels only (see
-       * `announceTreeChange`), bound to this store's own workspace like the
-       * reporters around it. Called inside work that is already deferred.
-       */
-      store.reportTreeChange = (audiences) =>
-        controlPlane.reportTreeChange(session.workspaceId, audiences).catch(() => {});
-
-      store.reportActivity = (teamVisible) => {
-        const send = controlPlane
-          .reportActivity(session.workspaceId, teamVisible === true)
-          .catch(() => {});
-        if (typeof store.defer !== "function") return;
-        try {
-          store.defer(send);
-        } catch {
-          // A host whose `waitUntil` refuses the work simply does not report.
-        }
-      };
+      attachChangeReporters(store, session.workspaceId, controlPlane);
 
       /**
        * That a form on this context just took an answer.
@@ -482,6 +464,9 @@ export async function route(request, env, ctx) {
         // write routed into another context is announced in that context's
         // note room and recorded in its activity, never in the caller's.
         targetStore.presenceRooms = store.presenceRooms;
+        // Its tree hint and activity dot go to the context written into: the
+        // people watching `@theirs` are the ones whose console must move.
+        attachChangeReporters(targetStore, target.workspaceId, controlPlane);
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
         // Against the context that was routed to, never the connection's own.
@@ -525,4 +510,31 @@ export async function route(request, env, ctx) {
     }
 
     return json({ error: "not_found" }, 404);
+}
+
+/**
+ * The two reporters every write's `recordChange` reaches for, bound to the
+ * workspace `store` reaches — the connection's own for the session store, the
+ * addressed one for a store `openContext` built. Bound per store rather than
+ * per connection because a cross-context write lights the dot on, and re-lists
+ * the tree of, the context it was written into; a store with neither is a
+ * write nobody watching that context hears about until the next walk.
+ *
+ * `reportTreeChange` is called inside work that is already deferred (see
+ * `announceTreeChange`); `reportActivity` defers its own send, and is dropped
+ * on a host that cannot keep it alive — the line is in the customer's bucket
+ * either way.
+ */
+function attachChangeReporters(store, workspaceId, controlPlane) {
+  store.reportTreeChange = (audiences) =>
+    controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
+  store.reportActivity = (teamVisible) => {
+    const send = controlPlane.reportActivity(workspaceId, teamVisible === true).catch(() => {});
+    if (typeof store.defer !== "function") return;
+    try {
+      store.defer(send);
+    } catch {
+      // A host whose `waitUntil` refuses the work simply does not report.
+    }
+  };
 }

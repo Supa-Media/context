@@ -9,27 +9,35 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 /**
  * A-09 — Bootstrap from an AI you already talk to.
  *
- * Paste this prompt into the connected client and let it seed the context with
- * what it already knows about the person. Written so somebody who has never
- * used Context can hand it over and get a first pass back without having to
- * type any of their life themselves.
+ * Paste this prompt into the connected client and let it seed the context
+ * with what it already knows about the person. Written so somebody who has
+ * never used Context can hand it over and get a first pass back without
+ * having to type any of their life themselves.
  *
- * The prompt is locked here rather than a locale string because the folder
- * conventions and the guardrails ("check with me before you write") are
- * product claims, not phrasing.
+ * The prompt itself lives in `agents.ts` (as `BOOTSTRAP_PROMPT`) with the
+ * other product claims about client behaviour — the folder conventions and
+ * the guardrails ("call orient, announce, wait, do not touch index.md") are
+ * product claims, not this screen's copy, and were previously duplicated
+ * across two files.
  */
-export const BOOTSTRAP_PROMPT =
-  "Using everything you know about me, write notes and structure folders in the Context MCP so that the projects, areas, resources etc persist across all of my AI apps. Be sure to follow the conventions of Context — call `orient` first, tell me which folder each note is going in, wait for my go before writing, keep notes short and factual, and never touch index.md or privacy.md.";
-
 export function BootstrapStep({
+  prompt,
   onDone,
   onSkip,
 }: {
+  /**
+   * The exact string handed to the person. Passed in rather than imported
+   * here so the same screen can render a preview with mock text and the
+   * live flow can render the pinned prompt from `agents.ts`. It also means
+   * a future variant — say, a shorter prompt for a lightweight client —
+   * can be tried without editing this file.
+   */
+  prompt: string;
   onDone: () => void;
   onSkip: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const { label, copy } = useCopy(BOOTSTRAP_PROMPT);
+  const { label, copy } = useCopy(prompt);
 
   return (
     <View>
@@ -44,7 +52,7 @@ export function BootstrapStep({
       </Text>
       <View style={styles.block}>
         <Text variant="code" style={styles.body} selectable>
-          {BOOTSTRAP_PROMPT}
+          {prompt}
         </Text>
       </View>
       <View style={styles.actions}>

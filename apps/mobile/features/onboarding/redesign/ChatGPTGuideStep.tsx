@@ -6,7 +6,8 @@ import { fonts, leading, space, tracking } from "../../design/tokens";
 import { pointerType as t } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
-import { CLAUDE_CUSTOM_INSTRUCTION, InstructionBlock } from "./ClaudeGuideStep";
+import { CLAUDE_CUSTOM_INSTRUCTION } from "../agents";
+import { InstructionBlock } from "./ClaudeGuideStep";
 
 /**
  * A-10 — ChatGPT setup walkthrough.

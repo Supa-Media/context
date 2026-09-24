@@ -42,8 +42,18 @@ import { receivesMail } from "../console/ingestion/settings";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../console/storage/connect";
 import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
-import { afterStorage, afterStructure, afterVault, type FlowShape, type StepKey, type StorageOutcome, type VaultOutcome } from "./flow";
-import { seedPromptFor } from "./agents";
+import {
+  afterAgents,
+  afterBootstrap,
+  afterStorage,
+  afterStructure,
+  afterVault,
+  type FlowShape,
+  type StepKey,
+  type StorageOutcome,
+  type VaultOutcome,
+} from "./flow";
+import { BOOTSTRAP_PROMPT, seedPromptFor } from "./agents";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
 import type { CheckoutOutcome } from "@context/shared";
 import { ownedContexts } from "./route";
@@ -176,8 +186,19 @@ export interface OnboardingController {
    * round trip for something already known locally.
    */
   seedPrompt: string;
-  /** Leaves the last step. Continuing is skipping; there is nothing to commit. */
+  /** Advances past the tools step to the bootstrap step, where the same clients are asked to seed the context. */
   finishAgents: () => void;
+
+  // ── Step 5 ────────────────────────────────────────────────────────────────
+  /**
+   * The prompt handed to a *connected* client, asking it to seed the context
+   * with what it already knows about the person. Kept in `agents.ts` for the
+   * reason `seedPrompt` is derived rather than stored — its guardrails are
+   * product claims, not phrasing.
+   */
+  bootstrapPrompt: string;
+  /** Leaves the last step. Continuing is skipping; there is nothing to commit — the seeding happens in the client the person pasted the prompt into, not here. */
+  finishBootstrap: () => void;
 }
 
 export function useOnboarding(
@@ -461,7 +482,8 @@ export function useOnboarding(
     [folders, template, vault],
   );
 
-  const finishAgents = useCallback(() => setStep("done"), []);
+  const finishAgents = useCallback(() => setStep(afterAgents()), []);
+  const finishBootstrap = useCallback(() => setStep(afterBootstrap()), []);
 
   // The first run never edits the ingestion policy. It reads it for one bit:
   // whether `DoneStep` may promise that mail sent to the capture address
@@ -519,5 +541,7 @@ export function useOnboarding(
     skipStructure,
     seedPrompt,
     finishAgents,
+    bootstrapPrompt: BOOTSTRAP_PROMPT,
+    finishBootstrap,
   };
 }
