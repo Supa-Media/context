@@ -54,5 +54,12 @@ the apparatus is absent. Re-add them; with the refusals back in front of them
 they become defence-in-depth again rather than the load-bearing guards they are
 today, and that transition is the thing to get right.
 
+The gateway's share was written against `apps/mcp/src/index.js` and has since
+been carried, hunk for hunk, into the modules that file was split into:
+`privacy/state.js` holds and exports `foldedTwinBlocks` and
+`FOLDED_TWIN_REFUSAL`, and the six tool modules that refuse import them.
+Applied to the split tree, the gateway suite reads exactly as the original
+patch did applied to the tree before the split.
+
 Apply it as a starting point, not as a finished change, and give it its own
 review budget.

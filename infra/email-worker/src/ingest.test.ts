@@ -742,7 +742,7 @@ describe("stored attachments", () => {
     // dependency-free on purpose — so nothing but this stops them drifting into
     // a state where mail writes images no client can ever fetch.
     const gateway = readFileSync(
-      resolvePath(__dirname, "../../../apps/mcp/src/index.js"),
+      resolvePath(__dirname, "../../../apps/mcp/src/tools/readImage.js"),
       "utf8",
     );
     const block = gateway.match(/const IMAGE_MIME_TYPES = new Map\(\[([\s\S]*?)\]\);/);
