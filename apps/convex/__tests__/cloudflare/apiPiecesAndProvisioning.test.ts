@@ -38,7 +38,7 @@ import {
   startProvisioning,
   bindingRow,
   provisioningRow,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the pieces of the Cloudflare API this flow needs", () => {
   /**

@@ -34,6 +34,71 @@ import {
   auditCandidates,
 } from "./maintenance.js";
 
+/**
+ * Bring `.context/search/v2/` as close to the bucket as one budget allows, and hand back
+ * what was built — CONTRACT.md § "The sharded index … Maintenance".
+ *
+ * GET the manifest, list the notes, diff the listing against `docsByShard`,
+ * group what changed by shard, and then per shard in id order: read it, fetch
+ * its stale notes in waves, re-index them, write it. The manifest is written
+ * last and conditionally, because it is the concurrency point — the shards
+ * under it are written unconditionally, and a shard written by a pass whose
+ * manifest write then lost the race is simply re-derived by the pass that won.
+ *
+ * Then, on whatever budget the real work left, one more shard the diff asked
+ * nothing of — `AUDIT_SHARDS_PER_SYNC`, rotating. The diff is over the manifest
+ * alone, so a shard whose stored object is unreadable while none of its notes
+ * changed is in no worklist at all: it heals only when somebody edits one of
+ * its notes, and until then the manifest vouches for docs no query can reach.
+ * An audited shard that arrives unreadable needs nothing new to repair it — it
+ * is an empty shard on the loop's own terms, and the work list below is derived
+ * from the shard that arrived rather than from the manifest for exactly that
+ * reason.
+ *
+ * Three ways a pass can be incomplete, and each is reported rather than
+ * papered over:
+ *
+ * - `shed` / `oversizedShards` — the corpus not fitting the index rather
+ *   than the pass running out of room in it. A bundled note whose documents a
+ *   shard could not hold whole is shed down to what fits and named here; a
+ *   shard with nothing to shed is not written and counted here. Separate from
+ *   `pending` because they ask for opposite things: `pending` says run again,
+ *   and these say another pass will find exactly the same wall.
+ * - `pending` — stale notes this pass did not land. That includes the notes of
+ *   a shard whose serialized form crossed `SHARD_PARSE_BYTE_CAP`, which is a
+ *   deliberate difference from v1's `pending` (v1 reports what the *answer*
+ *   holds, and a refused write can still be `pending: 0`). In v2 the query side
+ *   streams shards **from the bucket**, so a shard that was not persisted is
+ *   not in the next answer, and calling that zero would be the floor language
+ *   going quiet on exactly the shard that plateaued.
+ * - `listingTruncated` — the walk did not finish, so no doc may be removed for
+ *   being absent from it.
+ * - `manifestOverflow` — the manifest itself crossed its cap and was not
+ *   written. The shards were, so nothing is lost; the diff simply cannot record
+ *   what it did until the manifest fits.
+ *
+ * @param {import("../../store/index.js").ContextStore} store
+ * @param {{
+ *   budget: number | ReturnType<typeof createSearchBudget>,
+ *   reserve?: number,
+ *   isIndexable?: (key: string) => boolean,
+ *   shardByteCap?: number,
+ *   manifestByteCap?: number,
+ *   now?: Date | number,
+ * }} options `reserve` is store ops the caller keeps for its own later work.
+ * @returns {Promise<{
+ *   manifest: ReturnType<typeof emptyManifest>,
+ *   shards: Map<number, ReturnType<typeof emptyShard>>,
+ *   pending: number,
+ *   listingTruncated: boolean,
+ *   manifestOverflow: boolean,
+ *   changed: boolean,
+ *   committed: boolean,
+ *   shed: string[],
+ *   oversizedShards: number,
+ *   spent: number,
+ * }>} `shards` holds only what this pass loaded or built.
+ */
 export async function syncShardedIndex(
   store,
   {

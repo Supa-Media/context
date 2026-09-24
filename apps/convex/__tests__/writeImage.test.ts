@@ -248,7 +248,7 @@ describe("what a leaf may be", () => {
    */
   test("the accepted extensions are the gateway's, read from its source", () => {
     const gateway = readFileSync(
-      resolvePath(__dirname, "../../mcp/src/index.js"),
+      resolvePath(__dirname, "../../mcp/src/tools/readImage.js"),
       "utf8",
     );
     const block = gateway.match(/const IMAGE_MIME_TYPES = new Map\(\[([\s\S]*?)\]\);/);

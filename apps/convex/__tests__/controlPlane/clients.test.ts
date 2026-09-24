@@ -22,7 +22,7 @@ import {
   twoConnectedTenants,
   bodyOf,
   startAndApprove,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* 4. A database dump is inert                                                */
 /* -------------------------------------------------------------------------- */

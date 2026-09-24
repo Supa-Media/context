@@ -21,7 +21,7 @@ import {
   workerReturning,
   configureWorker,
   transcribe,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("who the worker is told is asking", () => {
   /**

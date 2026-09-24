@@ -32,7 +32,7 @@ import {
   capture,
   errorShape,
   names,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("changing visibility goes through the manifest", () => {
   const gateway = gatewayInternals();

@@ -12,7 +12,7 @@ import {
   Fixture,
   fixture,
   share,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                              no bucket connected                           */

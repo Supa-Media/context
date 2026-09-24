@@ -16,7 +16,7 @@ import {
   chatBindingArgs,
   COMPLETION,
   parkedAttempt,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("a space key is a bounded field name, not a caller's string", () => {
   async function connected() {

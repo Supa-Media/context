@@ -35,7 +35,7 @@ import {
   capture,
   errorShape,
   names,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                          creating, copying, moving                         */

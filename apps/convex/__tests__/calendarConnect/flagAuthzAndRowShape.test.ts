@@ -19,7 +19,7 @@ import {
   bindGmail,
   connectionRow,
   bindCalendar,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the flag — its own, not Gmail's", () => {
   test("unset refuses to start", async () => {

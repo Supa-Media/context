@@ -44,7 +44,7 @@ function stripComments(source: string): string {
 
 describe("the share dialog's group callback carries what it is sharing", () => {
   test("the browser contract takes a kind", () => {
-    const source = stripComments(read("files", "browser.ts"));
+    const source = stripComments(read("files", "browser", "contract.ts"));
     expect(source).toMatch(
       /shareWithGroup:\s*\(\s*path:\s*string,\s*kind:\s*"file"\s*\|\s*"folder",\s*group:\s*string\s*\)/,
     );
@@ -87,7 +87,8 @@ describe("the share dialog's group callback carries what it is sharing", () => {
       default would have compiled and shipped the same bug on two surfaces.
     */
     const sites: readonly (readonly [string, readonly string[]])[] = [
-      ["BrowsePane.tsx", ["panes", "BrowsePane.tsx"]],
+      // Moved out of `BrowsePane.tsx` with the rest of its share-dialog wiring.
+      ["browsePane/BrowseShareDialog.tsx", ["panes", "browsePane", "BrowseShareDialog.tsx"]],
       ["console/_layout.tsx", ["..", "..", "app", "(app)", "console", "_layout.tsx"]],
     ];
     for (const [file, parts] of sites) {

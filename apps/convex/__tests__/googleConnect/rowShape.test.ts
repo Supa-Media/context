@@ -18,7 +18,7 @@ import {
   sharedScenario,
   seedConnectedStorage,
   gmailBindingArgs,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the row shape: products and the nested gmail object", () => {
   test("a first connect writes products: ['gmail'] and a full gmail settings object", async () => {

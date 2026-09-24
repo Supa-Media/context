@@ -14,7 +14,7 @@ import {
 import {
   context,
   bindingRow,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("opting out while provisioning is in flight", () => {
   test("a result for an opted-out row does not start it serving", async () => {

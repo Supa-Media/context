@@ -14,7 +14,7 @@ import {
   bodyOf,
   startAndApprove,
   startAndApproveWith,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* 10. The whole flow, end to end                                             */
 /* -------------------------------------------------------------------------- */

@@ -11,7 +11,7 @@ import {
   fixture,
   share,
   errorShape,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                                   roles                                    */

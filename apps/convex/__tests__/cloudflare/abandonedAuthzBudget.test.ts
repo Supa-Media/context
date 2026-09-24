@@ -28,7 +28,7 @@ import {
   provisioningRow,
   everyStoredDocument,
   cloudflareStub,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("a token minted and then not stored is taken back", () => {
   test("a failure after the mint deletes the token and says the bucket is there", async () => {

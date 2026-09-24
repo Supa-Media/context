@@ -25,6 +25,44 @@
 
 import { describe, expect, test } from "@jest/globals";
 
+/**
+ * Every source file under the roots a phone actually runs that matches `pattern`.
+ *
+ * **The roots are `features` and `app`, not `features` alone.** The two
+ * structural checks below used to grep `features` only, while
+ * `nativeWindowEvents.test.ts` — the other structural guard in this folder,
+ * written for the same reason — greps `features` *and* `app`, because `app/`
+ * is Expo Router and those files are screens a phone renders. Several of them
+ * take a caller-controlled address straight off the URL.
+ *
+ * A guard that looks in one directory is the blocklist shape one level up from
+ * the one this file is already about: the idiom key was widened after the
+ * fourteenth site wrote its own leaf-taker, and the *scope* was still a list of
+ * one. Nothing outside `features` uses either idiom today, which is exactly
+ * when widening is free.
+ *
+ * `grep -rl` exits 1 with no output when nothing matches, which is a pass and
+ * not an error; anything above 1 is a real failure and is re-thrown, so this
+ * cannot go quiet the day the last allowed file is removed.
+ */
+function sourceFilesMatching(pattern: string): string[] {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+  /* eslint-enable @typescript-eslint/no-require-imports */
+  let output: string;
+  try {
+    output = execFileSync(
+      "grep",
+      ["-rl", "--include=*.ts", "--include=*.tsx", pattern, "features", "app"],
+      { cwd: `${__dirname}/..`, encoding: "utf8" },
+    );
+  } catch (error) {
+    if ((error as { status?: number }).status === 1) return [];
+    throw error;
+  }
+  return output.split("\n").filter((line) => line !== "");
+}
+
 import { crumbsFor } from "../features/console/files/crumbs";
 import { noteHeading } from "../features/console/files/frontmatter";
 import { displayName, displayPath, folderLabel } from "../features/console/files/paths";
@@ -223,9 +261,6 @@ describe("the console contains a name it did not choose", () => {
     than in the next sweep.
   */
   test("no component trims a name for display itself", () => {
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    /* eslint-enable @typescript-eslint/no-require-imports */
     const allowed = new Set([
       // The trim itself, and the two labels built on it.
       "features/console/files/paths.ts",
@@ -234,14 +269,7 @@ describe("the console contains a name it did not choose", () => {
       "features/console/files/frontmatter.ts",
       "features/console/files/tabs.ts",
     ]);
-    const found = execFileSync(
-      "grep",
-      ["-rl", "--include=*.ts", "--include=*.tsx", "withoutSortPrefix(", "features"],
-      { cwd: `${__dirname}/..`, encoding: "utf8" },
-    )
-      .split("\n")
-      .filter((line) => line !== "")
-      .filter((file) => !allowed.has(file));
+    const found = sourceFilesMatching("withoutSortPrefix(").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);
   });
 
@@ -262,9 +290,6 @@ describe("the console contains a name it did not choose", () => {
     A file on this list is a decision somebody made once, not a pass.
   */
   test("no component takes a note's base name for display itself", () => {
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    /* eslint-enable @typescript-eslint/no-require-imports */
     const allowed = new Set([
       // Contains at its own exit, and is checked for it above.
       "features/console/agents/agentActivity.ts",
@@ -274,14 +299,7 @@ describe("the console contains a name it did not choose", () => {
       // A key for the offline mirror, compared rather than drawn.
       "features/offline/mirrorSearch.ts",
     ]);
-    const found = execFileSync(
-      "grep",
-      ["-rl", "--include=*.ts", "--include=*.tsx", "\\.split(\"/\")\\.pop()", "features"],
-      { cwd: `${__dirname}/..`, encoding: "utf8" },
-    )
-      .split("\n")
-      .filter((line) => line !== "")
-      .filter((file) => !allowed.has(file));
+    const found = sourceFilesMatching("\\.split(\"/\")\\.pop()").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);
   });
 });

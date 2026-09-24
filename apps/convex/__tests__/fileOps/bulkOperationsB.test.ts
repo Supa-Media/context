@@ -21,7 +21,7 @@ import {
   shareProjects,
   capture,
   errorShape,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe('a bulk operation acts only on what the caller can see', () => {
   /**
