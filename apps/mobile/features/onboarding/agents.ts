@@ -197,3 +197,49 @@ export const TIER_NOTE =
  */
 export const ENDPOINT_NOTE =
   "The same URL for everyone. Your client signs in and gets its own grant — nothing in the address identifies you, so it is safe to paste anywhere you configure a tool.";
+
+/**
+ * The bootstrap prompt — for the second half of "point your AI at it".
+ *
+ * `seedPromptFor` writes the *first* prompt the person copies: it tells a
+ * connected client the folder shape and the house rules ("call `orient`, tell
+ * me which folder each note is going in, wait for me"), then asks it to write
+ * three specific notes. That is the plumbing check.
+ *
+ * This is the follow-up: the same client, now that it can write, is asked to
+ * carry across everything it already knows about the person from its own past
+ * conversations. The one-liner rather than the folder-by-folder script,
+ * because the client's own memory decides what belongs where. The
+ * house-rule sentence at the tail — orient, announce, wait, keep short, do
+ * not touch `index.md` or `privacy.md` — is the SAME set of guardrails
+ * `seedPromptFor` states, restated here for exactly the same reason: this
+ * prompt reaches a client we do not control, so what we care about must
+ * arrive with the prompt itself.
+ *
+ * Kept here rather than in the screen file for the same reason
+ * `seedPromptFor` is here: the folder rules and the "do not touch these two
+ * files" rule are product claims, and drifting them across a JSX literal is
+ * how the last prompt started asking a client to write to `index.md`.
+ */
+export const BOOTSTRAP_PROMPT =
+  "Using everything you know about me, write notes and structure folders in the Context MCP so that the projects, areas, resources etc persist across all of my AI apps. Be sure to follow the conventions of Context — call `orient` first, tell me which folder each note is going in, wait for my go before writing, keep notes short and factual, and never touch index.md or privacy.md.";
+
+/**
+ * The standing instruction — the sentence that makes an AI client use
+ * Context every conversation, not just the one it was set up in.
+ *
+ * A live-fire product claim rather than copy, and the reason a first-run
+ * screen for a specific client exists at all. Pasting an MCP URL turns
+ * `orient` and `save_context` into tools that can be called; pasting this
+ * into the client's own custom instruction is what makes the client *use*
+ * them without being asked. Without it, the endpoint is a lookup facility
+ * that has to be invoked; with it, the endpoint is a memory the client
+ * consults on its own.
+ *
+ * Every guide screen (Claude, ChatGPT, anything future) hands over the same
+ * string. Kept here for the reason `TIER_NOTE` and `ENDPOINT_NOTE` are: a
+ * paraphrase in a second screen would state the same commitment in different
+ * words and drift.
+ */
+export const CLAUDE_CUSTOM_INSTRUCTION =
+  "Always orient using the Context MCP (call orient) before answering anything about me or my work, and save what you learn with save_context before you finish. Always leave the context in a better state than you found it, updating the information there — this is the memory that will persist.";

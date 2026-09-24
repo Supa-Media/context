@@ -15,7 +15,14 @@
  * worth returning to.
  */
 
-export type StepKey = "name" | "storage" | "vault" | "structure" | "agents" | "done";
+export type StepKey =
+  | "name"
+  | "storage"
+  | "vault"
+  | "structure"
+  | "agents"
+  | "bootstrap"
+  | "done";
 
 export type VaultOutcome = "pending" | "skipped" | "imported" | "existing";
 
@@ -62,8 +69,8 @@ export interface FlowShape {
 export function stepsFor(shape: FlowShape): StepKey[] {
   if (shape.storage === "connected") {
     return shape.vault === "imported" || shape.vault === "existing"
-      ? ["name", "storage", "vault", "agents", "done"]
-      : ["name", "storage", "vault", "structure", "agents", "done"];
+      ? ["name", "storage", "vault", "agents", "bootstrap", "done"]
+      : ["name", "storage", "vault", "structure", "agents", "bootstrap", "done"];
   }
   return ["name", "storage", "done"];
 }
@@ -89,6 +96,34 @@ export function afterVault(outcome: Exclude<VaultOutcome, "pending">): StepKey {
  */
 export function afterStructure(): StepKey {
   return "agents";
+}
+
+/**
+ * Where "point your tools at it" hands off to.
+ *
+ * The tools step gave the client a URL to call and a prompt to write with; the
+ * bootstrap step is where the person, having pasted that prompt into a client
+ * that already knows them, watches it seed the empty context out of what it
+ * already knew. Two steps because the two moves are different — one is
+ * plumbing, the other is content — and the person who wants only the plumbing
+ * has a Skip on the second, not a hidden switch on the first.
+ *
+ * Only runs on the branch the agents step itself runs on: a connected bucket
+ * (see `stepsFor`). Written as a function rather than a literal so the pairing
+ * is asserted in one place.
+ */
+export function afterAgents(): StepKey {
+  return "bootstrap";
+}
+
+/**
+ * Where the bootstrap step hands off to.
+ *
+ * Always the last screen. Continuing is skipping; a Skip beside a Continue is
+ * courtesy, not another destination.
+ */
+export function afterBootstrap(): StepKey {
+  return "done";
 }
 
 /**
@@ -122,6 +157,7 @@ export const STEP_LABELS: Record<StepKey, string> = {
   vault: "Your vault",
   structure: "Your layout",
   agents: "Your tools",
+  bootstrap: "Bootstrap",
   done: "You're set",
 };
 
@@ -161,6 +197,14 @@ export function stepTitle(key: StepKey): string {
       return "Pick a starting layout";
     case "agents":
       return "Point your AI tools at it";
+    case "bootstrap":
+      /*
+        Not "Bootstrap your context" — the noun is inside baseball and the
+        verb "bootstrap" alone leaves a first-time reader wondering *what*
+        gets bootstrapped. This says it in one line: your context begins with
+        the person the client already knows, not with an empty text box.
+      */
+      return "Let one of your AIs seed it";
     case "done":
       return "You're set";
   }

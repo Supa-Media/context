@@ -16,6 +16,7 @@ import { StorageStep } from "./steps/StorageStep";
 import { VaultImportStep } from "./steps/VaultImportStep";
 import { StructureStep } from "./steps/StructureStep";
 import { AgentsStep } from "./steps/AgentsStep";
+import { BootstrapStep } from "./redesign/BootstrapStep";
 import { DoneStep } from "./steps/DoneStep";
 
 /**
@@ -173,6 +174,22 @@ function StepBody({
       return <StructureStep controller={controller} />;
     case "agents":
       return <AgentsStep controller={controller} onContinue={controller.finishAgents} />;
+    case "bootstrap":
+      /*
+        The second half of "point your AI at it". `AgentsStep` handed over the
+        endpoint and the seeding prompt; this hands over the standing prompt
+        that asks the same client to carry across everything it already knows
+        about the person. `prompt` comes from the controller (`BOOTSTRAP_PROMPT`
+        in `agents.ts`) rather than from this file, so the pinned wording sits
+        with the other product claims about client behaviour.
+      */
+      return (
+        <BootstrapStep
+          prompt={controller.bootstrapPrompt}
+          onDone={controller.finishBootstrap}
+          onSkip={controller.finishBootstrap}
+        />
+      );
     case "done":
       return <DoneStep controller={controller} onOpenConsole={onOpenConsole} />;
   }
