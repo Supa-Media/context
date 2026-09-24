@@ -714,7 +714,7 @@ describe("the premise this file rests on", () => {
     // it. If `writeFile` stops asking `canSee`, this fails here as well as in
     // the control plane's own tests.
     const ops = readFileSync(
-      join(__dirname, "..", "..", "convex", "functions", "lib", "fileOps.ts"),
+      join(__dirname, "..", "..", "convex", "functions", "lib", "fileOps", "writing.ts"),
       "utf8",
     );
     const writeFile = ops.slice(ops.indexOf("export async function writeFile("));

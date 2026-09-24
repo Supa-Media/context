@@ -76,11 +76,10 @@ index 6d6ca2e3..498136e8 100644
    test("a no-op set reports the manifest's answer, not the request", async () => {
      const store = bucket();
      await shareProjects(store);
-diff --git a/apps/convex/functions/lib/fileOps.ts b/apps/convex/functions/lib/fileOps.ts
-index 38974959..0b6421ee 100644
---- a/apps/convex/functions/lib/fileOps.ts
-+++ b/apps/convex/functions/lib/fileOps.ts
-@@ -4438,7 +4438,7 @@ export interface PrivacyResetResult {
+diff --git a/apps/convex/functions/lib/fileOps/privacyReset.ts b/apps/convex/functions/lib/fileOps/privacyReset.ts
+--- a/apps/convex/functions/lib/fileOps/privacyReset.ts
++++ b/apps/convex/functions/lib/fileOps/privacyReset.ts
+@@ -31,7 +31,7 @@
    /**
     * Where the unreadable file was kept, or `null` when there was nothing to
     * keep. A person whose manifest merely had a typo has not lost the other
@@ -89,7 +88,10 @@ index 38974959..0b6421ee 100644
     */
    backedUpTo: string | null;
    /**
-@@ -4715,6 +4715,11 @@ export interface VisibilityResult {
+diff --git a/apps/convex/functions/lib/fileOps/visibility.ts b/apps/convex/functions/lib/fileOps/visibility.ts
+--- a/apps/convex/functions/lib/fileOps/visibility.ts
++++ b/apps/convex/functions/lib/fileOps/visibility.ts
+@@ -34,6 +34,11 @@
    exception: boolean;
  }
  
@@ -101,7 +103,7 @@ index 38974959..0b6421ee 100644
  /**
   * Set one note's visibility, through the manifest.
   *
-@@ -4788,14 +4793,22 @@ export async function setVisibility(
+@@ -107,14 +112,22 @@
    const state = await mutateManifest(store, (current) => {
      if (!canSee(path, options.clearance.scope, current.rules, current.overrides, options.clearance.names)) throw notFound();
      const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
@@ -127,6 +129,23 @@ index 38974959..0b6421ee 100644
    const visibility = effectiveVisibility(path, state.rules, state.overrides);
    return {
      path,
+diff --git a/apps/convex/functions/lib/fileOps.ts b/apps/convex/functions/lib/fileOps.ts
+--- a/apps/convex/functions/lib/fileOps.ts
++++ b/apps/convex/functions/lib/fileOps.ts
+@@ -105,7 +105,12 @@
+ export type { DeleteResult } from "./fileOps/deleting";
+ export { resetPrivacyManifest } from "./fileOps/privacyReset";
+ export type { PrivacyResetResult } from "./fileOps/privacyReset";
+-export { setExactVisibility, setVisibility, setFolderVisibility } from "./fileOps/visibility";
++export {
++  FOLDED_TWIN_REFUSAL,
++  setExactVisibility,
++  setVisibility,
++  setFolderVisibility,
++} from "./fileOps/visibility";
+ export type { VisibilityResult } from "./fileOps/visibility";
+ export {
+   MAX_STORED_IMAGE_BYTES,
 diff --git a/apps/mcp/src/privacy/state.js b/apps/mcp/src/privacy/state.js
 index a79d6586..a37acff7 100644
 --- a/apps/mcp/src/privacy/state.js
