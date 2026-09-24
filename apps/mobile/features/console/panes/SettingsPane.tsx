@@ -183,7 +183,7 @@ export function SettingsPane({
             <Text variant="rowTitle">No storage connected</Text>
             <Text variant="rowSub" style={styles.rowSub}>
               {data.demo
-                ? "Context stores nothing of its own. Point it at a folder in your Dropbox, or at an S3-compatible bucket you own, and every note stays there."
+                ? "Context stores nothing of its own. Point it at an S3-compatible bucket you own, and every note stays there."
                 : "Only an owner of this context can connect storage to it."}
             </Text>
           </Card>
@@ -198,6 +198,7 @@ export function SettingsPane({
         // instead, which is exactly the pair `StorageChoice` draws.
         storage.provider === "dropbox" ? (
           <SettingsStorageChoice
+            allowDropbox
             workspaceId={actions.workspaceId}
             contextName={current == null ? "this context" : `@${current.slug}`}
             connect={async (values) => {
@@ -499,16 +500,26 @@ function SettingsStorageChoice({
   connect,
   onCancel,
   onOpenPremium,
+  allowDropbox = false,
 }: {
   workspaceId: string;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
   onOpenPremium?: () => void;
+  /** Only when this context's current binding is already Dropbox. */
+  allowDropbox?: boolean;
 }) {
   const client = useConvex();
   if (client === undefined) {
-    return <StorageChoice workspaceId={workspaceId} connect={connect} onCancel={onCancel} />;
+    return (
+      <StorageChoice
+        workspaceId={workspaceId}
+        connect={connect}
+        onCancel={onCancel}
+        allowDropbox={allowDropbox}
+      />
+    );
   }
   return (
     <SettingsStorageChoiceLive
@@ -517,6 +528,7 @@ function SettingsStorageChoice({
       connect={connect}
       onCancel={onCancel}
       onOpenPremium={onOpenPremium}
+      allowDropbox={allowDropbox}
     />
   );
 }
@@ -527,12 +539,14 @@ function SettingsStorageChoiceLive({
   connect,
   onCancel,
   onOpenPremium,
+  allowDropbox,
 }: {
   workspaceId: Id<"workspaces">;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
   onOpenPremium?: () => void;
+  allowDropbox: boolean;
 }) {
   const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
 
@@ -555,6 +569,7 @@ function SettingsStorageChoiceLive({
       workspaceId={workspaceId}
       connect={connect}
       onCancel={onCancel}
+      allowDropbox={allowDropbox}
       managed={!managed.available ? undefined : {
         price: managed.price,
         onChoose: () => {

@@ -77,7 +77,7 @@ export const PRICING_TITLE = "Free on your own storage. Five dollars on ours.";
 export const FREE_LABEL = "Free";
 export const FREE_TITLE = "Your bucket";
 export const FREE_BODY =
-  "Connect Dropbox, R2, S3 or anything compatible. You pay your storage " +
+  "Connect R2, S3 or anything compatible. You pay your storage " +
   "provider; you pay us nothing.";
 export const FREE_POINT_ONE = "The full gateway, every tool, every client";
 /*

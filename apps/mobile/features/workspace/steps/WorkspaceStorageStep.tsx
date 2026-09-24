@@ -31,17 +31,13 @@ import type { CreateWorkspaceController } from "../useCreateWorkspace";
  * is the design rather than an oversight — the whole point is that revoking a
  * workspace's credential leaves the creator's own untouched, and vice versa.
  *
- * ## Dropbox leaves the flow, and says so
+ * ## No Dropbox here
  *
- * The Dropbox route is a redirect: it takes the browser to Dropbox and returns
- * it to `/connect/dropbox`, not here, so the layout and invitation steps do not
- * happen. `dropboxResumeTo` is deliberately **not** passed — that parameter
- * resumes *onboarding*, and resuming a workspace flow at somebody's personal
- * layout step would be worse than not resuming at all. The note below says
- * where the two skipped steps live instead, before it is pressed rather than
- * after.
+ * New Dropbox connections are not offered (owner, 2026-09-24); `StorageChoice`
+ * only draws that card for a context already on Dropbox, and a workspace being
+ * created has no binding yet.
  *
- * ## Storage we run leaves the flow for the same reason
+ * ## Storage we run leaves the flow
  *
  * The managed card is drawn here exactly as it is in first run — a workspace
  * is the billable unit, so there was never a reason for this step to be the
@@ -136,7 +132,6 @@ export function WorkspaceStorageStepBody({
         <StorageChoice
           workspaceId={workspaceId}
           connect={connect}
-          dropboxNote="Connecting Dropbox leaves this page: you finish on Dropbox and come back to your console, so the layout and invitation steps here are skipped. Both live in the workspace's own settings afterwards. Connecting a bucket keeps you here."
           managed={
             managed === null || !managed.available
               ? undefined

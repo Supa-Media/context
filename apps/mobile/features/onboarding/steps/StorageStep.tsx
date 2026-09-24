@@ -137,7 +137,6 @@ export function StorageStepBody({
         <StorageChoice
           workspaceId={workspaceId}
           connect={connect}
-          dropboxResumeTo="onboarding"
           managed={
             managed === null || !managed.available
               ? undefined
