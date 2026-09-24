@@ -200,7 +200,6 @@ import {
   ERROR_METHOD_NOT_FOUND,
   ERROR_UNSUPPORTED_PROTOCOL_VERSION,
   LEGACY_PROTOCOLS,
-  META_SERVER_INFO,
   MODERN_PROTOCOLS,
   declaredProtocolVersion,
   isModernRequest,
@@ -394,6 +393,17 @@ import {
 } from "./orient/render.js";
 import { listScannableNoteKeys, maintainIndexAfter } from "./search/maintenance.js";
 import { toolListPlugins } from "./plugins/listPluginsTool.js";
+import { attachGatewayJobQueue, attachLinkCalls, matchWellKnown } from "./http/routing.js";
+import {
+  CACHEABLE,
+  jsonRpcError,
+  jsonRpcErrorObj,
+  modernErrorResponse,
+  modernResultResponse,
+  rpcResult,
+  SERVER_INFO,
+} from "./mcp/responses.js";
+import { corsResponse, json } from "./http/responses.js";
 export const toolDefinitions = registryToolDefinitions;
 export const EXISTENCE_MASKED_TOOLS = registryExistenceMaskedTools;
 
@@ -414,48 +424,6 @@ const MAX_COLLABORATION_UPDATE_CHARS = 2_900_000;
 // checks the raw note before initialization and the engine checks the merged
 // text before commit, so a successful commit can never become a late 413.
 const MAX_COLLABORATION_NOTE_BYTES = 4 * 1024 * 1024;
-
-/**
- * The three link calls, attached to the store the way queued work is.
- *
- * They need the session's access token and the workspace it resolved to, and a
- * tool handler is given a store rather than a session — the same shape
- * `enqueueGatewayJob` already uses, and the reason it uses it: what a handler
- * may do is decided where the session is, not by a handler reaching for one.
- *
- * Absent where there is no control plane, which is the single-tenant
- * deployment and the test stub. `toolCreateLink` and its siblings refuse with
- * a sentence rather than throwing on `undefined`.
- */
-function attachLinkCalls(store, session, controlPlane) {
-  if (!controlPlane) return;
-  Object.defineProperty(store, "links", {
-    value: {
-      create: (request) =>
-        controlPlane.createLink(session.accessToken, session.workspaceId, request),
-      list: () => controlPlane.listLinks(session.accessToken, session.workspaceId),
-      revoke: (shareId) =>
-        controlPlane.revokeLink(session.accessToken, session.workspaceId, shareId),
-    },
-    enumerable: false,
-    writable: false,
-    configurable: true,
-  });
-}
-
-function attachGatewayJobQueue(store, session, controlPlane, env) {
-  const queue = env?.GATEWAY_JOBS;
-  if (!queue || typeof queue.send !== "function") return;
-  Object.defineProperty(store, "enqueueGatewayJob", {
-    value: async (job) => {
-      const ticket = await controlPlane.createGatewayJob(session.accessToken, session.workspaceId, job);
-      await queue.send({ ticket, kind: job.kind, moveId: job.moveId });
-    },
-    enumerable: false,
-    writable: false,
-    configurable: true,
-  });
-}
 
 async function handleGatewayJobMessage(message, env) {
   const body = message?.body;
@@ -1912,35 +1880,6 @@ function presenceDisplayName(session) {
   return personalNameFor(session) || session.actorClientName || "Someone";
 }
 
-/* ----------------------------- auth & scoping ----------------------------- */
-
-/**
- * Match the two discovery documents, with or without a resource path suffix.
- *
- * RFC 9728 §3 inserts the well-known segment between the host and the resource
- * path, so a resource at `/@seyi/mcp` publishes metadata at
- * `/.well-known/oauth-protected-resource/@seyi/mcp`. Clients probe the
- * path-suffixed form first and the bare form second, so both are served — and
- * the suffix is read for a slug rather than ignored.
- */
-function matchWellKnown(path) {
-  const protectedResource = path.match(/^\/\.well-known\/oauth-protected-resource(\/.*)?$/);
-  if (protectedResource) {
-    // The suffix is the resource *path*, so it ends in "/mcp" — which is itself
-    // a valid-looking slug. Trimming that first is what stops
-    // `/.well-known/oauth-protected-resource/mcp` — the exact URL this worker's
-    // own 401 challenge points at — from being read as a workspace called "mcp"
-    // and answering with metadata for a resource nobody asked about.
-    const suffix = (protectedResource[1] || "").replace(/\/mcp\/?$/, "");
-    const named = suffix.match(/^\/@?([a-z0-9-]{2,32})$/);
-    return { kind: "protected-resource", slug: named ? named[1] : null };
-  }
-  if (/^\/\.well-known\/oauth-authorization-server(\/.*)?$/.test(path)) {
-    return { kind: "authorization-server", slug: null };
-  }
-  return null;
-}
-
 function parseLegacyScopeRules(text) {
   const rules = [];
   for (const raw of text.split("\n")) {
@@ -2824,51 +2763,6 @@ async function handleModernMcp(request, msg, store, session) {
   } catch (err) {
     return modernErrorResponse(id, -32603, `internal error: ${err.message}`, 200);
   }
-}
-
-/**
- * Freshness hints required on every cacheable result in this revision.
- *
- * `cacheScope` is `private` and not negotiable: `tools/list` is filtered by the
- * calling grant's scopes, so a shared intermediary that cached one caller's
- * answer and served it to another would hand a read-only client the write
- * tools. `public` would be a cross-grant leak dressed as a performance hint.
- *
- * One minute of `ttlMs` bounds how long a downgraded grant can keep seeing the
- * wider tool list. A revoked grant is not a concern here — it fails
- * authentication long before any cached list is consulted.
- */
-const CACHEABLE = { ttlMs: 60_000, cacheScope: "private" };
-
-/** The server's own identity, reported in `_meta` on every modern result. */
-const SERVER_INFO = {
-  name: "context",
-  version: "1.0.0",
-  description: "A scoped MCP server over a customer-owned bucket of markdown notes.",
-};
-
-function modernResultResponse(id, result, status = 200) {
-  return json(
-    {
-      jsonrpc: "2.0",
-      id,
-      result: {
-        // Required on every result. `input_required` is the other value, for
-        // the multi-round-trip pattern; this server never needs input from a
-        // client, so every result it produces is complete.
-        resultType: "complete",
-        ...result,
-        _meta: { ...(result?._meta || {}), [META_SERVER_INFO]: SERVER_INFO },
-      },
-    },
-    status
-  );
-}
-
-function modernErrorResponse(id, code, message, status, data) {
-  const error = { code, message };
-  if (data !== undefined) error.data = data;
-  return json({ jsonrpc: "2.0", id: id ?? null, error }, status);
 }
 
 /**
@@ -9787,42 +9681,4 @@ async function syncCalendar(env, store) {
   await recordChange(store, "calendar_sync", "system", ["2-areas/calendar/next-14-days.md"], {
     count: upcoming.length,
   });
-}
-
-/* -------------------------------- helpers --------------------------------- */
-
-function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    },
-  });
-}
-
-function corsResponse() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      // GET is here for the two discovery documents, which a browser-based
-      // client fetches cross-origin before it holds any credential at all.
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
-      "Access-Control-Max-Age": "86400",
-    },
-  });
-}
-
-function rpcResult(id, result) {
-  return { jsonrpc: "2.0", id, result };
-}
-
-function jsonRpcErrorObj(id, code, message) {
-  return { jsonrpc: "2.0", id, error: { code, message } };
-}
-
-function jsonRpcError(id, code, message, status = 200) {
-  return json(jsonRpcErrorObj(id, code, message), status);
 }
