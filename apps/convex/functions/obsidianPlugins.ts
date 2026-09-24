@@ -5,109 +5,69 @@
  * and bind to the exact objects reviewed. A plugin update therefore goes cold
  * until its new fingerprint is explicitly reviewed. Runtime operations must
  * still check the per-operation capability and current fingerprint.
+ *
+ * Every plugin function is still registered here, under the same name, kind
+ * and validators. The actions that read the customer's bucket or call another
+ * function in the deployment stay here in full, because
+ * `__tests__/structure.test.ts` reads each registered function's own text to
+ * decide what it can reach. Everything else is in `./lib/obsidianPlugins/`.
  */
 
-import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   authorizePluginRpcRequest,
   parsePluginRpcRequest,
 } from "@context/obsidian-runtime";
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
 import {
-  type MutationCtx,
-  type QueryCtx,
   action,
   internalMutation,
   internalQuery,
   mutation,
   query,
 } from "../_generated/server";
-import { recordAudit } from "./lib/audit";
-import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
-import { extractFields } from "../../mcp/src/search/indexer.js";
+import {
+  capabilityValidator,
+  communityPluginValidator,
+  grantSummaryValidator,
+  pluginRpcResponseValidator,
+  type BundleResult,
+  type CommunityPlugin,
+  type GrantSummary,
+  type InventoryResult,
+  type PluginRpcResponse,
+  type RpcOperation,
+  type RuntimeStorageResult,
+} from "./lib/obsidianPlugins/shapes";
+import { RUNTIME_SESSION_MS } from "./lib/obsidianPlugins/limits";
+import {
+  callerId,
+  newRuntimeToken,
+  pluginEgressConfiguration,
+  pluginError,
+  tokenHash,
+} from "./lib/obsidianPlugins/access";
+import {
+  communityRegistry,
+  fetchText,
+  normalizeCapabilities,
+  normalizeHosts,
+  parseReleaseManifest,
+  safePluginId,
+  safePluginVersion,
+  safeRepository,
+} from "./lib/obsidianPlugins/registry";
+import {
+  brokerNetworkRequest,
+  metadataResponse,
+  rpcFailure,
+  rpcSuccess,
+  toStorageOperation,
+} from "./lib/obsidianPlugins/runtimeBroker";
+import * as grants from "./lib/obsidianPlugins/grants";
+import * as runtimeSessions from "./lib/obsidianPlugins/runtimeSessions";
+import * as lifecycle from "./lib/obsidianPlugins/lifecycle";
 
-const capabilityValidator = v.union(
-  v.literal("vault:read"),
-  v.literal("metadata:read"),
-  v.literal("vault:write"),
-  v.literal("vault:rename"),
-  v.literal("vault:delete"),
-  v.literal("settings:read"),
-  v.literal("settings:write"),
-  v.literal("network:request"),
-);
-
-type PluginCapability =
-  | "vault:read"
-  | "metadata:read"
-  | "vault:write"
-  | "vault:rename"
-  | "vault:delete"
-  | "settings:read"
-  | "settings:write"
-  | "network:request";
-
-const grantSummaryValidator = v.object({
-  pluginId: v.string(),
-  bundleFingerprint: v.string(),
-  capabilities: v.array(capabilityValidator),
-  networkHosts: v.array(v.string()),
-  status: v.union(v.literal("active"), v.literal("revoked")),
-  grantedBy: v.id("users"),
-  grantedAt: v.number(),
-  updatedAt: v.number(),
-  revokedAt: v.optional(v.number()),
-});
-
-const runtimeStatusValidator = v.object({
-  pluginId: v.string(),
-  bundleFingerprint: v.string(),
-  status: v.union(v.literal("loaded"), v.literal("crash-looped"), v.literal("blocked")),
-  attempts: v.number(),
-  errorCode: v.optional(v.string()),
-  errorMessage: v.optional(v.string()),
-  rollbackFingerprint: v.optional(v.string()),
-  updatedAt: v.number(),
-});
-
-const pluginRpcResponseValidator = v.union(
-  v.object({
-    version: v.literal(1),
-    requestId: v.string(),
-    ok: v.literal(true),
-    result: v.any(),
-  }),
-  v.object({
-    version: v.literal(1),
-    requestId: v.string(),
-    ok: v.literal(false),
-    error: v.object({ code: v.string(), message: v.string() }),
-  }),
-);
-
-type GrantSummary = {
-  pluginId: string;
-  bundleFingerprint: string;
-  capabilities: PluginCapability[];
-  networkHosts: string[];
-  status: "active" | "revoked";
-  grantedBy: Id<"users">;
-  grantedAt: number;
-  updatedAt: number;
-  revokedAt?: number;
-};
-
-const MAX_GRANTS_RETURNED = 200;
-const MAX_CAPABILITIES = 8;
-const MAX_NETWORK_HOSTS = 12;
-const MAX_NETWORK_RESPONSE_BYTES = 2 * 1024 * 1024;
-const MAX_NETWORK_REDIRECTS = 3;
-const NETWORK_REQUEST_TIMEOUT_MS = 20_000;
-const COMMUNITY_REGISTRY_URL =
-  "https://raw.githubusercontent.com/obsidianmd/obsidian-releases/HEAD/community-plugins.json";
-const MAX_REGISTRY_BYTES = 4 * 1024 * 1024;
 /*
   The most one plugin release may weigh, coming down from GitHub.
 
@@ -120,264 +80,6 @@ const MAX_REGISTRY_BYTES = 4 * 1024 * 1024;
   what this action pulls into memory on their behalf.
 */
 const MAX_PLUGIN_ASSET_BYTES = 16 * 1024 * 1024;
-const RUNTIME_SESSION_MS = 15 * 60 * 1_000;
-const PLUGIN_EGRESS_URL_ENV = "PLUGIN_EGRESS_URL";
-const PLUGIN_EGRESS_SECRET_ENV = "PLUGIN_EGRESS_SECRET";
-
-const communityPluginValidator = v.object({
-  id: v.string(),
-  name: v.string(),
-  author: v.string(),
-  description: v.string(),
-  repository: v.string(),
-});
-
-type CommunityPlugin = {
-  id: string;
-  name: string;
-  author: string;
-  description: string;
-  repository: string;
-};
-
-type InventoryEntry = {
-  source: "obsidian" | "context";
-  id: string;
-  version: string;
-  bundleFingerprint: string | null;
-  verdict: "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
-  hosts: string[];
-};
-
-type InventoryResult = { kind: "pluginInventory"; plugins: InventoryEntry[] };
-type BundleResult = {
-  kind: "pluginBundle";
-  pluginId: string;
-  version: string;
-  bundleFingerprint: string;
-  manifestJson: string;
-  mainJs: string;
-  stylesCss: string | null;
-};
-
-function pluginError(code: string, message: string): ConvexError<{ code: string; message: string }> {
-  return new ConvexError({ code, message });
-}
-
-async function callerId(ctx: Parameters<typeof getAuthUserId>[0]): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) throw pluginError("NOT_AUTHENTICATED", "Sign in to continue");
-  return userId as Id<"users">;
-}
-
-type PluginEgressConfiguration = { endpoint: string; secret: string };
-
-function pluginEgressConfiguration(
-  env: Record<string, string | undefined> = process.env,
-): PluginEgressConfiguration | null {
-  const rawUrl = env[PLUGIN_EGRESS_URL_ENV]?.trim() ?? "";
-  const secret = env[PLUGIN_EGRESS_SECRET_ENV]?.trim() ?? "";
-  if (!rawUrl || !secret) return null;
-  try {
-    const url = new URL(rawUrl);
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return null;
-    return {
-      endpoint: new URL("request", url.href.endsWith("/") ? url.href : `${url.href}/`).href,
-      secret,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function requireOwner(
-  ctx: QueryCtx | MutationCtx,
-  workspaceId: Id<"workspaces">,
-  userId: Id<"users">,
-): Promise<void> {
-  const membership = await getMembership(ctx, workspaceId, userId);
-  if (membership === null) throw workspaceNotFound();
-  if (membership.role !== "owner") {
-    throw pluginError("INSUFFICIENT_ROLE", "Only a context owner can manage plugins");
-  }
-}
-
-async function deleteRuntimeSessions(
-  ctx: MutationCtx,
-  sessions: Array<{ _id: Id<"obsidianPluginRuntimeSessions">; tokenHash: string }>,
-): Promise<void> {
-  for (const session of sessions) {
-    const requests = await ctx.db
-      .query("obsidianPluginRuntimeRequests")
-      .withIndex("by_session_request", (q) => q.eq("tokenHash", session.tokenHash))
-      .collect();
-    for (const request of requests) await ctx.db.delete(request._id);
-    await ctx.db.delete(session._id);
-  }
-}
-
-function normalizeCapabilities(values: PluginCapability[]): PluginCapability[] {
-  if (values.length === 0 || values.length > MAX_CAPABILITIES) {
-    throw pluginError("INVALID_CAPABILITIES", "Choose at least one valid capability");
-  }
-  return [...new Set(values)].sort();
-}
-
-function normalizeHosts(values: string[]): string[] {
-  if (values.length > MAX_NETWORK_HOSTS) {
-    throw pluginError("INVALID_NETWORK_HOST", "Too many network hosts");
-  }
-  const hosts = values.map((value) => value.trim().toLowerCase());
-  for (const host of hosts) {
-    if (
-      host.length === 0 ||
-      host.length > 253 ||
-      host.endsWith(".") ||
-      host === "localhost" ||
-      host.endsWith(".localhost") ||
-      host.endsWith(".local") ||
-      host.endsWith(".internal") ||
-      !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host)
-    ) {
-      throw pluginError("INVALID_NETWORK_HOST", "Network grants require exact DNS hostnames");
-    }
-  }
-  return [...new Set(hosts)].sort();
-}
-
-function summary(row: {
-  pluginId: string;
-  bundleFingerprint: string;
-  capabilities: PluginCapability[];
-  networkHosts: string[];
-  status: "active" | "revoked";
-  grantedBy: Id<"users">;
-  grantedAt: number;
-  updatedAt: number;
-  revokedAt?: number;
-}): GrantSummary {
-  return {
-    pluginId: row.pluginId,
-    bundleFingerprint: row.bundleFingerprint,
-    capabilities: row.capabilities,
-    networkHosts: row.networkHosts,
-    status: row.status,
-    grantedBy: row.grantedBy,
-    grantedAt: row.grantedAt,
-    updatedAt: row.updatedAt,
-    revokedAt: row.revokedAt,
-  };
-}
-
-function safeRuntimeText(value: string | undefined, maximum: number): string | undefined {
-  if (value === undefined) return undefined;
-  return value.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, maximum) || undefined;
-}
-
-function safePluginId(value: string): string {
-  if (!/^[a-z0-9][a-z0-9_-]{0,99}$/i.test(value)) {
-    throw pluginError("INVALID_PLUGIN_ID", "That plugin id is not valid");
-  }
-  return value;
-}
-
-function safeRepository(value: string): string {
-  if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(value)) {
-    throw pluginError("INVALID_PLUGIN_REPOSITORY", "That plugin repository is not valid");
-  }
-  return value;
-}
-
-function safePluginVersion(value: string): string {
-  if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,99}$/.test(value)) {
-    throw pluginError("INVALID_PLUGIN_VERSION", "That plugin version is not valid");
-  }
-  return value;
-}
-
-async function fetchText(url: string, maximum: number, optional = false): Promise<string | null> {
-  const response = await fetch(url, {
-    headers: { accept: "application/json,text/plain,*/*" },
-    signal: AbortSignal.timeout(NETWORK_REQUEST_TIMEOUT_MS),
-  });
-  if (optional && response.status === 404) return null;
-  if (!response.ok) throw pluginError("PLUGIN_DOWNLOAD_FAILED", "The plugin could not be downloaded");
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maximum) {
-    throw pluginError("PLUGIN_DOWNLOAD_TOO_LARGE", "The plugin download is too large");
-  }
-  const bytes = new Uint8Array(await boundedDownload(response, maximum));
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-}
-
-async function boundedDownload(response: Response, maximum: number): Promise<ArrayBuffer> {
-  if (!response.body) return new ArrayBuffer(0);
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maximum) {
-      await reader.cancel();
-      throw pluginError("PLUGIN_DOWNLOAD_TOO_LARGE", "The plugin download is too large");
-    }
-    chunks.push(value);
-  }
-  const joined = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return joined.buffer;
-}
-
-async function communityRegistry(): Promise<CommunityPlugin[]> {
-  const text = await fetchText(COMMUNITY_REGISTRY_URL, MAX_REGISTRY_BYTES);
-  let value: unknown;
-  try {
-    value = JSON.parse(text!);
-  } catch {
-    throw pluginError("PLUGIN_REGISTRY_INVALID", "The community plugin registry is invalid");
-  }
-  if (!Array.isArray(value)) {
-    throw pluginError("PLUGIN_REGISTRY_INVALID", "The community plugin registry is invalid");
-  }
-  const plugins: CommunityPlugin[] = [];
-  for (const row of value) {
-    if (!row || typeof row !== "object") continue;
-    const item = row as Record<string, unknown>;
-    if (
-      typeof item.id !== "string" || typeof item.name !== "string" ||
-      typeof item.author !== "string" || typeof item.description !== "string" ||
-      typeof item.repo !== "string"
-    ) continue;
-    try {
-      plugins.push({
-        id: safePluginId(item.id),
-        name: item.name.slice(0, 200),
-        author: item.author.slice(0, 200),
-        description: item.description.slice(0, 1_000),
-        repository: safeRepository(item.repo),
-      });
-    } catch {
-      continue;
-    }
-  }
-  return plugins;
-}
-
-async function tokenHash(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function newRuntimeToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 /** Owner-facing discovery against Obsidian's official community registry. */
 export const searchCommunityPlugins = action({
@@ -662,48 +364,16 @@ export const loadPluginBundle = action({
   },
 });
 
-function parseReleaseManifest(text: string, expectedId: string): { id: string; version: string } {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw pluginError("PLUGIN_RELEASE_INVALID", "The plugin manifest is invalid");
-  }
-  if (!value || typeof value !== "object") {
-    throw pluginError("PLUGIN_RELEASE_INVALID", "The plugin manifest is invalid");
-  }
-  const row = value as Record<string, unknown>;
-  if (row.id !== expectedId || typeof row.version !== "string") {
-    throw pluginError("PLUGIN_RELEASE_INVALID", "The plugin manifest id or version does not match");
-  }
-  return { id: expectedId, version: row.version };
-}
-
-/** Deployment capability, not a grant: absent configuration keeps self-hosters fail-closed. */
 export const pluginRuntimeCapabilities = query({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.object({ egress: v.boolean() }),
-  handler: async (ctx, args) => {
-    const userId = await callerId(ctx);
-    await requireOwner(ctx, args.workspaceId, userId);
-    return { egress: pluginEgressConfiguration() !== null };
-  },
+  args: grants.pluginRuntimeCapabilitiesArgs,
+  returns: grants.pluginRuntimeCapabilitiesReturns,
+  handler: grants.pluginRuntimeCapabilitiesHandler,
 });
 
-/** Owner-only because installed software is private workspace metadata. */
 export const listPluginGrants = query({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.array(grantSummaryValidator),
-  handler: async (ctx, args): Promise<GrantSummary[]> => {
-    const userId = await callerId(ctx);
-    await requireOwner(ctx, args.workspaceId, userId);
-    const rows = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(MAX_GRANTS_RETURNED);
-    return rows.map(summary);
-  },
+  args: grants.listPluginGrantsArgs,
+  returns: grants.listPluginGrantsReturns,
+  handler: grants.listPluginGrantsHandler,
 });
 
 /**
@@ -779,690 +449,88 @@ export const approvePlugin = action({
 });
 
 export const persistGrant = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorUserId: v.id("users"),
-    pluginId: v.string(),
-    bundleFingerprint: v.string(),
-    capabilities: v.array(capabilityValidator),
-    networkHosts: v.array(v.string()),
-    expectedLifecycleGeneration: v.number(),
-  },
-  returns: grantSummaryValidator,
-  handler: async (ctx, args): Promise<GrantSummary> => {
-    await requireOwner(ctx, args.workspaceId, args.actorUserId);
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (
-      (lifecycle?.generation ?? 0) !== args.expectedLifecycleGeneration ||
-      lifecycle?.busy === true
-    ) {
-      throw pluginError("PLUGIN_LIFECYCLE_CHANGED", "Plugin files changed during review; review again");
-    }
-    const existing = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    const now = Date.now();
-    const fields = {
-      bundleFingerprint: args.bundleFingerprint,
-      capabilities: normalizeCapabilities(args.capabilities),
-      networkHosts: normalizeHosts(args.networkHosts),
-      status: "active" as const,
-      grantedBy: args.actorUserId,
-      updatedAt: now,
-      revokedAt: undefined,
-    };
-    let row;
-    if (existing) {
-      await ctx.db.patch(existing._id, fields);
-      row = { ...existing, ...fields };
-    } else {
-      const id = await ctx.db.insert("obsidianPluginGrants", {
-        workspaceId: args.workspaceId,
-        pluginId: args.pluginId,
-        ...fields,
-        grantedAt: now,
-      });
-      row = (await ctx.db.get(id))!;
-    }
-    const runtime = await ctx.db
-      .query("obsidianPluginRuntimeStates")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (runtime) await ctx.db.delete(runtime._id);
-    const sessions = await ctx.db
-      .query("obsidianPluginRuntimeSessions")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .collect();
-    await deleteRuntimeSessions(ctx, sessions);
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: "plugin.granted",
-      details: {
-        pluginId: args.pluginId,
-        bundleFingerprint: args.bundleFingerprint,
-        capabilities: fields.capabilities.join(","),
-        networkHosts: fields.networkHosts.join(","),
-      },
-    });
-    return summary(row);
-  },
+  args: grants.persistGrantArgs,
+  returns: grants.persistGrantReturns,
+  handler: grants.persistGrantHandler,
 });
 
 export const persistRuntimeSession = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorUserId: v.id("users"),
-    pluginId: v.string(),
-    bundleFingerprint: v.string(),
-    tokenHash: v.string(),
-    expiresAt: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await requireOwner(ctx, args.workspaceId, args.actorUserId);
-    const grant = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    const now = Date.now();
-    if (
-      !grant || grant.status !== "active" ||
-      grant.bundleFingerprint !== args.bundleFingerprint ||
-      lifecycle?.busy === true ||
-      args.expiresAt <= now || args.expiresAt > now + RUNTIME_SESSION_MS + 5_000
-    ) {
-      throw pluginError("PLUGIN_NOT_GRANTED", "Review and enable this plugin first");
-    }
-    const sessions = await ctx.db
-      .query("obsidianPluginRuntimeSessions")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .collect();
-    await deleteRuntimeSessions(ctx, sessions);
-    await ctx.db.insert("obsidianPluginRuntimeSessions", {
-      workspaceId: args.workspaceId,
-      pluginId: args.pluginId,
-      bundleFingerprint: args.bundleFingerprint,
-      tokenHash: args.tokenHash,
-      createdBy: args.actorUserId,
-      createdAt: now,
-      expiresAt: args.expiresAt,
-    });
-    return null;
-  },
+  args: runtimeSessions.persistRuntimeSessionArgs,
+  returns: runtimeSessions.persistRuntimeSessionReturns,
+  handler: runtimeSessions.persistRuntimeSessionHandler,
 });
 
 export const resolveRuntimeSession = internalQuery({
-  args: { tokenHash: v.string() },
-  returns: v.union(v.object({
-    workspaceId: v.id("workspaces"),
-    pluginId: v.string(),
-    bundleFingerprint: v.string(),
-    capabilities: v.array(capabilityValidator),
-    networkHosts: v.array(v.string()),
-    createdBy: v.id("users"),
-  }), v.null()),
-  handler: async (ctx, args) => {
-    const session = await ctx.db
-      .query("obsidianPluginRuntimeSessions")
-      .withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash))
-      .unique();
-    if (!session || session.expiresAt <= Date.now()) return null;
-    const grant = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
-      )
-      .unique();
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
-      )
-      .unique();
-    if (
-      !grant || grant.status !== "active" ||
-      grant.bundleFingerprint !== session.bundleFingerprint ||
-      lifecycle?.busy === true
-    ) return null;
-    const membership = await getMembership(ctx, session.workspaceId, session.createdBy);
-    if (membership?.role !== "owner") return null;
-    return {
-      workspaceId: session.workspaceId,
-      pluginId: session.pluginId,
-      bundleFingerprint: session.bundleFingerprint,
-      capabilities: grant.capabilities,
-      networkHosts: grant.networkHosts,
-      createdBy: session.createdBy,
-    };
-  },
+  args: runtimeSessions.resolveRuntimeSessionArgs,
+  returns: runtimeSessions.resolveRuntimeSessionReturns,
+  handler: runtimeSessions.resolveRuntimeSessionHandler,
 });
 
 export const claimRuntimeRequest = internalMutation({
-  args: { tokenHash: v.string(), requestId: v.string(), operation: v.string() },
-  returns: v.union(
-    v.literal("claimed"), v.literal("replayed"), v.literal("limited"), v.literal("invalid"),
-  ),
-  handler: async (ctx, args) => {
-    const session = await ctx.db
-      .query("obsidianPluginRuntimeSessions")
-      .withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash))
-      .unique();
-    if (!session || session.expiresAt <= Date.now()) return "invalid" as const;
-    const grant = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
-      )
-      .unique();
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
-      )
-      .unique();
-    if (
-      !grant || grant.status !== "active" ||
-      grant.bundleFingerprint !== session.bundleFingerprint ||
-      lifecycle?.busy === true ||
-      (await getMembership(ctx, session.workspaceId, session.createdBy))?.role !== "owner"
-    ) return "invalid" as const;
-    const existing = await ctx.db
-      .query("obsidianPluginRuntimeRequests")
-      .withIndex("by_session_request", (q) =>
-        q.eq("tokenHash", args.tokenHash).eq("requestId", args.requestId)
-      )
-      .unique();
-    if (existing) return "replayed" as const;
-    const requests = await ctx.db
-      .query("obsidianPluginRuntimeRequests")
-      .withIndex("by_session_request", (q) => q.eq("tokenHash", args.tokenHash))
-      .take(1_000);
-    if (requests.length >= 1_000) return "limited" as const;
-    await ctx.db.insert("obsidianPluginRuntimeRequests", {
-      tokenHash: args.tokenHash,
-      requestId: args.requestId,
-      operation: args.operation.slice(0, 80),
-      claimedAt: Date.now(),
-    });
-    return "claimed" as const;
-  },
+  args: runtimeSessions.claimRuntimeRequestArgs,
+  returns: runtimeSessions.claimRuntimeRequestReturns,
+  handler: runtimeSessions.claimRuntimeRequestHandler,
 });
 
-/** Snapshot review authority before reading bundle bytes. */
 export const snapshotLifecycle = internalQuery({
-  args: { workspaceId: v.id("workspaces"), pluginId: v.string() },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (lifecycle?.busy === true) {
-      throw pluginError("PLUGIN_LIFECYCLE_BUSY", "Plugin files are changing; try again when it finishes");
-    }
-    return lifecycle?.generation ?? 0;
-  },
+  args: lifecycle.snapshotLifecycleArgs,
+  returns: lifecycle.snapshotLifecycleReturns,
+  handler: lifecycle.snapshotLifecycleHandler,
 });
 
-/** Install/update/uninstall takes a lease and clears prior bundle authority atomically. */
 export const recordLifecycle = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorUserId: v.id("users"),
-    pluginId: v.string(),
-    version: v.string(),
-    action: v.union(v.literal("installing"), v.literal("uninstalling")),
-  },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    await requireOwner(ctx, args.workspaceId, args.actorUserId);
-    const now = Date.now();
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (lifecycle?.busy === true) {
-      throw pluginError("PLUGIN_LIFECYCLE_BUSY", "Plugin files are already changing");
-    }
-    const generation = (lifecycle?.generation ?? 0) + 1;
-    const lifecycleFields = {
-      generation,
-      busy: true,
-      operation: args.action,
-      updatedAt: now,
-    };
-    if (lifecycle) await ctx.db.patch(lifecycle._id, lifecycleFields);
-    else {
-      await ctx.db.insert("obsidianPluginLifecycles", {
-        workspaceId: args.workspaceId,
-        pluginId: args.pluginId,
-        ...lifecycleFields,
-      });
-    }
-    const grant = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (grant && grant.status === "active") {
-      await ctx.db.patch(grant._id, { status: "revoked", revokedAt: now, updatedAt: now });
-    }
-    const runtime = await ctx.db
-      .query("obsidianPluginRuntimeStates")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (runtime) {
-      await ctx.db.patch(runtime._id, {
-        status: "blocked",
-        errorCode: "BUNDLE_CHANGED",
-        errorMessage: "Plugin files changed and require review",
-        updatedAt: now,
-      });
-    }
-    const sessions = await ctx.db
-      .query("obsidianPluginRuntimeSessions")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .collect();
-    await deleteRuntimeSessions(ctx, sessions);
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: `plugin.${args.action}`,
-      details: { pluginId: args.pluginId, version: args.version },
-    });
-    return generation;
-  },
+  args: lifecycle.recordLifecycleArgs,
+  returns: lifecycle.recordLifecycleReturns,
+  handler: lifecycle.recordLifecycleHandler,
 });
 
 export const startLifecycleRecovery = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorUserId: v.id("users"),
-    pluginId: v.string(),
-  },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    await requireOwner(ctx, args.workspaceId, args.actorUserId);
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (!lifecycle?.busy) {
-      throw pluginError("PLUGIN_RECOVERY_NOT_NEEDED", "This plugin has no interrupted operation");
-    }
-    if (lifecycle.operation === "recovering") return lifecycle.generation;
-    const generation = lifecycle.generation + 1;
-    await ctx.db.patch(lifecycle._id, {
-      generation,
-      operation: "recovering",
-      updatedAt: Date.now(),
-    });
-    return generation;
-  },
+  args: lifecycle.startLifecycleRecoveryArgs,
+  returns: lifecycle.startLifecycleRecoveryReturns,
+  handler: lifecycle.startLifecycleRecoveryHandler,
 });
 
 export const recordLifecycleEnd = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    pluginId: v.string(),
-    generation: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const lifecycle = await ctx.db
-      .query("obsidianPluginLifecycles")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (!lifecycle || lifecycle.generation !== args.generation) return null;
-    await ctx.db.patch(lifecycle._id, {
-      busy: false,
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
+  args: lifecycle.recordLifecycleEndArgs,
+  returns: lifecycle.recordLifecycleEndReturns,
+  handler: lifecycle.recordLifecycleEndHandler,
 });
 
 export const recordLifecycleOutcome = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorUserId: v.id("users"),
-    pluginId: v.string(),
-    version: v.string(),
-    outcome: v.union(
-      v.literal("installed"),
-      v.literal("uninstalled"),
-      v.literal("install-failed"),
-      v.literal("uninstall-failed"),
-      v.literal("recovered"),
-    ),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await requireOwner(ctx, args.workspaceId, args.actorUserId);
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: `plugin.${args.outcome}`,
-      details: { pluginId: args.pluginId, version: args.version },
-    });
-    return null;
-  },
+  args: lifecycle.recordLifecycleOutcomeArgs,
+  returns: lifecycle.recordLifecycleOutcomeReturns,
+  handler: lifecycle.recordLifecycleOutcomeHandler,
 });
 
-/** Revoke one plugin without changing or deleting its files in `.obsidian/`. */
 export const revokePlugin = mutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    pluginId: v.string(),
-  },
-  returns: v.object({ revoked: v.boolean() }),
-  handler: async (ctx, args): Promise<{ revoked: boolean }> => {
-    const actorUserId = await callerId(ctx);
-    await requireOwner(ctx, args.workspaceId, actorUserId);
-    const row = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (!row || row.status === "revoked") return { revoked: false };
-    const now = Date.now();
-    await ctx.db.patch(row._id, { status: "revoked", revokedAt: now, updatedAt: now });
-    const runtime = await ctx.db
-      .query("obsidianPluginRuntimeStates")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (runtime) {
-      await ctx.db.patch(runtime._id, {
-        status: "blocked",
-        errorCode: "GRANT_REVOKED",
-        errorMessage: "Plugin access was revoked",
-        updatedAt: now,
-      });
-    }
-    const sessions = await ctx.db
-      .query("obsidianPluginRuntimeSessions")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .collect();
-    await deleteRuntimeSessions(ctx, sessions);
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "plugin.revoked",
-      details: { pluginId: row.pluginId, bundleFingerprint: row.bundleFingerprint },
-    });
-    return { revoked: true };
-  },
+  args: grants.revokePluginArgs,
+  returns: grants.revokePluginReturns,
+  handler: grants.revokePluginHandler,
 });
 
-/**
- * Stop one running bundle without revoking the authority its owner reviewed.
- *
- * The runtime session is the bearer capability, so stopping deletes it before
- * reporting the owner-facing state. A frame that races one last request after
- * this mutation therefore meets `PLUGIN_SESSION_INVALID`, not a still-live
- * grant. Re-enable is a fresh `loadPluginBundle` call and a fresh token.
- */
 export const stopPlugin = mutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    pluginId: v.string(),
-    bundleFingerprint: v.string(),
-  },
-  returns: runtimeStatusValidator,
-  handler: async (ctx, args) => {
-    const actorUserId = await callerId(ctx);
-    await requireOwner(ctx, args.workspaceId, actorUserId);
-    const grant = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (!grant || grant.status !== "active" || grant.bundleFingerprint !== args.bundleFingerprint) {
-      throw pluginError("PLUGIN_NOT_GRANTED", "Stop must match an active reviewed bundle");
-    }
-    const sessions = await ctx.db
-      .query("obsidianPluginRuntimeSessions")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .collect();
-    await deleteRuntimeSessions(ctx, sessions);
-    const existing = await ctx.db
-      .query("obsidianPluginRuntimeStates")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    const now = Date.now();
-    const fields = {
-      workspaceId: args.workspaceId,
-      pluginId: args.pluginId,
-      bundleFingerprint: args.bundleFingerprint,
-      status: "blocked" as const,
-      attempts: existing?.attempts ?? 0,
-      errorCode: "OWNER_DISABLED",
-      errorMessage: "You stopped this plugin",
-      reportedBy: actorUserId,
-      updatedAt: now,
-    };
-    if (existing) await ctx.db.patch(existing._id, fields);
-    else await ctx.db.insert("obsidianPluginRuntimeStates", fields);
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "plugin.stopped",
-      details: { pluginId: args.pluginId, bundleFingerprint: args.bundleFingerprint },
-    });
-    return {
-      pluginId: fields.pluginId,
-      bundleFingerprint: fields.bundleFingerprint,
-      status: fields.status,
-      attempts: fields.attempts,
-      errorCode: fields.errorCode,
-      errorMessage: fields.errorMessage,
-      updatedAt: fields.updatedAt,
-    };
-  },
+  args: grants.stopPluginArgs,
+  returns: grants.stopPluginReturns,
+  handler: grants.stopPluginHandler,
 });
 
-/** Runtime lookup: no exact fingerprint match means no authority. */
 export const resolveActiveGrant = internalQuery({
-  args: {
-    workspaceId: v.id("workspaces"),
-    pluginId: v.string(),
-    bundleFingerprint: v.string(),
-  },
-  returns: v.union(grantSummaryValidator, v.null()),
-  handler: async (ctx, args): Promise<GrantSummary | null> => {
-    const row = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (!row || row.status !== "active" || row.bundleFingerprint !== args.bundleFingerprint) {
-      return null;
-    }
-    const membership = await getMembership(ctx, args.workspaceId, row.grantedBy);
-    if (membership?.role !== "owner") return null;
-    return summary(row);
-  },
+  args: grants.resolveActiveGrantArgs,
+  returns: grants.resolveActiveGrantReturns,
+  handler: grants.resolveActiveGrantHandler,
 });
 
-/** Latest runtime health for owner-facing status and crash recovery UI. */
 export const listRuntimeStates = query({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.array(runtimeStatusValidator),
-  handler: async (ctx, args) => {
-    const userId = await callerId(ctx);
-    await requireOwner(ctx, args.workspaceId, userId);
-    const rows = await ctx.db
-      .query("obsidianPluginRuntimeStates")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(MAX_GRANTS_RETURNED);
-    return rows.map((row) => ({
-      pluginId: row.pluginId,
-      bundleFingerprint: row.bundleFingerprint,
-      status: row.status,
-      attempts: row.attempts,
-      errorCode: row.errorCode,
-      errorMessage: row.errorMessage,
-      rollbackFingerprint: row.rollbackFingerprint,
-      updatedAt: row.updatedAt,
-    }));
-  },
+  args: runtimeSessions.listRuntimeStatesArgs,
+  returns: runtimeSessions.listRuntimeStatesReturns,
+  handler: runtimeSessions.listRuntimeStatesHandler,
 });
 
-/** Called by the trusted sandbox host after load or a bounded crash retry. */
 export const reportRuntimeStatus = mutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    pluginId: v.string(),
-    bundleFingerprint: v.string(),
-    status: v.union(v.literal("loaded"), v.literal("crash-looped"), v.literal("blocked")),
-    attempts: v.number(),
-    errorCode: v.optional(v.string()),
-    errorMessage: v.optional(v.string()),
-    rollbackFingerprint: v.optional(v.string()),
-  },
-  returns: runtimeStatusValidator,
-  handler: async (ctx, args) => {
-    const actorUserId = await callerId(ctx);
-    await requireOwner(ctx, args.workspaceId, actorUserId);
-    if (!Number.isInteger(args.attempts) || args.attempts < 0 || args.attempts > 10) {
-      throw pluginError("INVALID_RUNTIME_STATUS", "Runtime attempts must be between 0 and 10");
-    }
-    const grant = await ctx.db
-      .query("obsidianPluginGrants")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    if (!grant || grant.status !== "active" || grant.bundleFingerprint !== args.bundleFingerprint) {
-      throw pluginError("PLUGIN_NOT_GRANTED", "Runtime status must match an active reviewed bundle");
-    }
-    const existing = await ctx.db
-      .query("obsidianPluginRuntimeStates")
-      .withIndex("by_workspace_plugin", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
-      )
-      .unique();
-    const now = Date.now();
-    const fields = {
-      workspaceId: args.workspaceId,
-      pluginId: args.pluginId,
-      bundleFingerprint: args.bundleFingerprint,
-      status: args.status,
-      attempts: args.attempts,
-      errorCode: safeRuntimeText(args.errorCode, 80),
-      errorMessage: safeRuntimeText(args.errorMessage, 500),
-      rollbackFingerprint: safeRuntimeText(args.rollbackFingerprint, 800),
-      reportedBy: actorUserId,
-      updatedAt: now,
-    };
-    if (existing) await ctx.db.patch(existing._id, fields);
-    else await ctx.db.insert("obsidianPluginRuntimeStates", fields);
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "plugin.runtime-status",
-      details: { pluginId: args.pluginId, status: args.status, attempts: args.attempts },
-    });
-    return {
-      pluginId: fields.pluginId,
-      bundleFingerprint: fields.bundleFingerprint,
-      status: fields.status,
-      attempts: fields.attempts,
-      errorCode: fields.errorCode,
-      errorMessage: fields.errorMessage,
-      rollbackFingerprint: fields.rollbackFingerprint,
-      updatedAt: fields.updatedAt,
-    };
-  },
+  args: runtimeSessions.reportRuntimeStatusArgs,
+  returns: runtimeSessions.reportRuntimeStatusReturns,
+  handler: runtimeSessions.reportRuntimeStatusHandler,
 });
-
-type RpcOperation = {
-  kind: string;
-  path?: string;
-  prefix?: string;
-  text?: string;
-  expectedEtag?: string | null;
-  from?: string;
-  to?: string;
-  json?: string;
-  url?: string;
-  method?: string;
-  headers?: Array<{ name: string; value: string }>;
-  body?: string;
-};
-
-type PluginRpcResponse =
-  | { version: 1; requestId: string; ok: true; result: unknown }
-  | { version: 1; requestId: string; ok: false; error: { code: string; message: string } };
-
-type RuntimeStorageResult = {
-  kind: string;
-  path?: string;
-  text?: string;
-  etag?: string;
-  [key: string]: unknown;
-};
-
-function rpcSuccess(requestId: string, result: unknown): PluginRpcResponse {
-  return { version: 1, requestId, ok: true, result };
-}
-
-function rpcFailure(requestId: string, code: string, message: string): PluginRpcResponse {
-  return {
-    version: 1,
-    requestId,
-    ok: false as const,
-    error: { code, message },
-  };
-}
 
 /**
  * The sole RPC door from a sandbox into Context capabilities.
@@ -1579,279 +647,8 @@ export const executePluginRequest = action({
   },
 });
 
-/**
- * The answer to `metadata.get`, and nothing else.
- *
- * **`metadata:read` is offered to a person as the lesser of two rows**, beside
- * `vault:read`, and the words on the approval screen are the contract: "Read
- * links and tags — frontmatter, headings, tags and the links between notes"
- * against "Read your notes — open the Markdown of any note in this context
- * that you can see". Somebody who grants the first while declining the second
- * has said this plugin may not read their notes.
- *
- * This used to spread `extractFields` whole. That function exists for the
- * search indexer, where every field including `body` goes into a shard inside
- * the customer's own bucket, and `body` there is the entire note minus its
- * frontmatter and heading lines. Spread into an RPC response it handed the
- * Markdown to the one grant that had been explicitly refused it — the
- * operation resolves to a full `read`, so the text was always fetched; what
- * was missing was the narrowing on the way out.
- *
- * So the fields are **listed** rather than spread. A shared helper's return
- * shape is not a promise to its callers, and a field added to it for the
- * indexer's sake must not become a field this route discloses; naming them
- * makes that a decision somebody takes here rather than one that arrives.
- * `files.test.ts` pins the exact key set for the same reason.
- */
-function metadataResponse(path: string, etag: string | undefined, text: string) {
-  const fields = extractFields(path, text);
-  return {
-    path,
-    etag,
-    title: fields.title,
-    headings: fields.headings,
-    tags: fields.tags,
-    links: fields.links,
-  };
-}
-
-type RuntimeStorageOperation =
-  | { kind: "list"; path: string }
-  | { kind: "read"; path: string }
-  | { kind: "write"; path: string; text: string; expectedEtag?: string }
-  | { kind: "pluginRename"; from: string; to: string; expectedEtag: string }
-  | { kind: "pluginDelete"; path: string; expectedEtag: string }
-  | { kind: "pluginSettingsRead"; pluginId: string }
-  | { kind: "pluginSettingsWrite"; pluginId: string; json: string; expectedEtag: string | null };
-
-function toStorageOperation(pluginId: string, operation: RpcOperation): RuntimeStorageOperation {
-  switch (operation.kind) {
-    case "vault.list":
-      return { kind: "list", path: operation.prefix! };
-    case "vault.read":
-    case "metadata.get":
-      return { kind: "read", path: operation.path! };
-    case "vault.create":
-      return { kind: "write", path: operation.path!, text: operation.text! };
-    case "vault.modify":
-      return {
-        kind: "write",
-        path: operation.path!,
-        text: operation.text!,
-        expectedEtag: operation.expectedEtag!,
-      };
-    case "vault.rename":
-      return {
-        kind: "pluginRename",
-        from: operation.from!,
-        to: operation.to!,
-        expectedEtag: operation.expectedEtag!,
-      };
-    case "vault.delete":
-      return {
-        kind: "pluginDelete",
-        path: operation.path!,
-        expectedEtag: operation.expectedEtag!,
-      };
-    case "settings.load":
-      return { kind: "pluginSettingsRead", pluginId };
-    case "settings.save":
-      return {
-        kind: "pluginSettingsWrite",
-        pluginId,
-        json: operation.json!,
-        expectedEtag: operation.expectedEtag!,
-      };
-    default:
-      throw pluginError("INVALID_OPERATION", "Unsupported plugin operation");
-  }
-}
-
-async function brokerNetworkRequest(operation: RpcOperation, allowedHosts: string[]) {
-  let url = operation.url!;
-  for (let redirects = 0; redirects <= MAX_NETWORK_REDIRECTS; redirects += 1) {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    if (!allowedHosts.includes(host) || parsed.protocol !== "https:" || (parsed.port && parsed.port !== "443")) {
-      throw pluginError("NETWORK_HOST_DENIED", "Plugin was not granted this exact HTTPS host");
-    }
-    const response = await fetchThroughPluginEgress({
-      url,
-      method: operation.method!,
-      headers: operation.headers ?? [],
-      body: operation.body,
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      if (!location || redirects === MAX_NETWORK_REDIRECTS) {
-        throw pluginError("NETWORK_REDIRECT_DENIED", "Network redirect could not be followed safely");
-      }
-      if (operation.method !== "GET" && operation.method !== "HEAD") {
-        throw pluginError("NETWORK_REDIRECT_DENIED", "Redirects are not allowed for mutating requests");
-      }
-      url = new URL(location, url).toString();
-      continue;
-    }
-    const body = await boundedResponseBody(response);
-    const headers: Array<{ name: string; value: string }> = [];
-    response.headers.forEach((value, name) => {
-      if (name.toLowerCase() !== "set-cookie" && headers.length < 64) headers.push({ name, value });
-    });
-    return { status: response.status, headers, bodyBase64: encodeBase64(body) };
-  }
-  throw pluginError("NETWORK_REDIRECT_DENIED", "Too many network redirects");
-}
-
-type EgressWireResponse = {
-  ok?: unknown;
-  status?: unknown;
-  headers?: unknown;
-  bodyBase64?: unknown;
-  error?: { code?: unknown; message?: unknown };
-};
-
-function decodeBase64(value: string): ArrayBuffer {
-  let decoded: string;
-  try {
-    decoded = atob(value);
-  } catch {
-    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
-  }
-  if (decoded.length > MAX_NETWORK_RESPONSE_BYTES) {
-    throw pluginError("NETWORK_RESPONSE_TOO_LARGE", "Network response exceeds 2 MB");
-  }
-  const bytes = new Uint8Array(decoded.length);
-  for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index);
-  return bytes.buffer;
-}
-
-function encodeBase64(value: ArrayBuffer): string {
-  const bytes = new Uint8Array(value);
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
-  }
-  return btoa(binary);
-}
-
-async function fetchThroughPluginEgress(input: {
-  url: string;
-  method: string;
-  headers: Array<{ name: string; value: string }>;
-  body?: string;
-}): Promise<Response> {
-  const config = pluginEgressConfiguration();
-  if (config === null) {
-    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The public-only egress service is not configured");
-  }
-  let response: Response;
-  try {
-    response = await fetch(config.endpoint, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${config.secret}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(input),
-      redirect: "error",
-      signal: AbortSignal.timeout(NETWORK_REQUEST_TIMEOUT_MS),
-    });
-  } catch {
-    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The public-only egress service is unavailable");
-  }
-
-  let wire: EgressWireResponse;
-  try {
-    wire = await response.json() as EgressWireResponse;
-  } catch {
-    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
-  }
-  if (!response.ok || wire.ok !== true) {
-    const code = wire.error?.code;
-    if (code === "NETWORK_PRIVATE_ADDRESS_DENIED") {
-      throw pluginError(code, "The approved host resolved to a non-public address");
-    }
-    if (code === "NETWORK_RESPONSE_TOO_LARGE") {
-      throw pluginError(code, "Network response exceeds 2 MB");
-    }
-    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The public-only egress service is unavailable");
-  }
-  if (!Number.isInteger(wire.status) || (wire.status as number) < 100 || (wire.status as number) > 599 ||
-    !Array.isArray(wire.headers) || typeof wire.bodyBase64 !== "string") {
-    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
-  }
-  const headers = new Headers();
-  try {
-    for (const row of wire.headers.slice(0, 64)) {
-      if (!row || typeof row !== "object") continue;
-      const { name, value } = row as { name?: unknown; value?: unknown };
-      if (typeof name === "string" && typeof value === "string") headers.append(name, value);
-    }
-  } catch {
-    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
-  }
-  const body = decodeBase64(wire.bodyBase64);
-  return new Response([204, 205, 304].includes(wire.status as number) ? null : body, {
-    status: wire.status as number,
-    headers,
-  });
-}
-
-async function boundedResponseBody(response: Response): Promise<ArrayBuffer> {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_NETWORK_RESPONSE_BYTES) {
-    throw pluginError("NETWORK_RESPONSE_TOO_LARGE", "Network response exceeds 2 MB");
-  }
-  if (!response.body) return new ArrayBuffer(0);
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_NETWORK_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw pluginError("NETWORK_RESPONSE_TOO_LARGE", "Network response exceeds 2 MB");
-    }
-    chunks.push(value);
-  }
-  const joined = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return joined.buffer;
-}
-
 export const recordRuntimeAudit = internalMutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorUserId: v.id("users"),
-    pluginId: v.string(),
-    action: v.string(),
-    path: v.union(v.string(), v.null()),
-    host: v.union(v.string(), v.null()),
-    method: v.union(v.string(), v.null()),
-    status: v.union(v.number(), v.null()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    await requireOwner(ctx, args.workspaceId, args.actorUserId);
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: args.action,
-      paths: args.path ? [args.path] : [],
-      details: {
-        pluginId: args.pluginId,
-        host: args.host,
-        method: args.method,
-        status: args.status,
-      },
-    });
-    return null;
-  },
+  args: runtimeSessions.recordRuntimeAuditArgs,
+  returns: runtimeSessions.recordRuntimeAuditReturns,
+  handler: runtimeSessions.recordRuntimeAuditHandler,
 });

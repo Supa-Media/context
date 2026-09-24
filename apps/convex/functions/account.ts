@@ -46,47 +46,21 @@
  * sessions) deletes as cleanly as a fully onboarded one.
  */
 
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
-import type { Id, TableNames } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
 import { isProductionTestAccount } from "./lib/testAccount";
 import { managedBucketName } from "./lib/managedStorage";
-import { normalizeName } from "./lib/names";
-import { requireWorkspaceRole } from "./lib/workspaceAuth";
-
-/**
- * The minimal shape `deleteWorkspaceCascade` needs from a query over a table
- * discovered generically at runtime: filter by a field, then collect. Typed
- * loosely on purpose — Convex's real query builder is typed per concrete
- * table, which a name computed from `CONNECT_ATTEMPT_TABLES` cannot supply at
- * compile time — but every table that reaches this type has already been
- * proven, by `connectAttemptTables`, to have both a `workspaceId` field and
- * the `_id` every Convex document carries.
- */
-type GenericConnectAttemptQuery = {
-  filter: (
-    predicate: (q: {
-      eq: (a: unknown, b: unknown) => unknown;
-      field: (name: "workspaceId") => unknown;
-    }) => unknown,
-  ) => { collect: () => Promise<Array<{ _id: Id<TableNames> }>> };
-};
-
-/**
- * `workspaceInvitations` deliberately has no plain `by_workspace` index (the
- * schema explains why), so a full teardown walks the statuses through
- * `by_workspace_status`. Spelled out rather than derived so a new status is a
- * conscious addition here too.
- */
-const INVITATION_STATUSES = [
-  "pending",
-  "accepted",
-  "declined",
-  "revoked",
-] as const;
+import { voidCapabilitiesAddressedTo } from "./lib/account/addressedTo";
+import { type GenericConnectAttemptQuery, INVITATION_STATUSES } from "./lib/account/cascadeShapes";
+import {
+  authorizeTestWorkspaceDeletion,
+  authorizeWorkspaceDeletion,
+} from "./lib/account/deletionGuards";
+import { deletePersonalRows } from "./lib/account/personalRows";
 
 /**
  * Delete one disposable workspace owned by the production CUJ account.
@@ -101,31 +75,7 @@ export const deleteTestWorkspace = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ deleted: v.boolean() }),
   handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const user = await ctx.db.get(userId);
-    const workspace = await ctx.db.get(args.workspaceId);
-    const memberships = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-    const ownsWorkspace = memberships.some(
-      (membership) =>
-        membership.userId === userId && membership.role === "owner",
-    );
-
-    if (
-      !isProductionTestAccount(user) ||
-      workspace === null ||
-      workspace.createdBy !== userId ||
-      !ownsWorkspace ||
-      memberships.some((membership) => membership.userId !== userId)
-    ) {
-      throw new ConvexError({
-        code: "FORBIDDEN",
-        message:
-          "Only an unshared workspace created by the production test account can use this cleanup.",
-      });
-    }
+    await authorizeTestWorkspaceDeletion(ctx, args);
 
     await deleteWorkspaceCascade(ctx, args.workspaceId);
     return { deleted: true };
@@ -185,68 +135,7 @@ export const deleteWorkspace = mutation({
   args: { workspaceId: v.id("workspaces"), confirmSlug: v.string() },
   returns: v.object({ deleted: v.boolean() }),
   handler: async (ctx, args) => {
-    const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const { workspace } = await requireWorkspaceRole(
-      ctx,
-      args.workspaceId,
-      userId,
-      "owner",
-    );
-
-    if (workspace.kind !== "shared") {
-      throw new ConvexError({
-        code: "PERSONAL_CONTEXT",
-        message:
-          "A personal workspace is deleted with the account it belongs to, not from here.",
-      });
-    }
-
-    /*
-      The `@` is stripped here rather than in `normalizeName`, which is
-      deliberately a trim and a lowercase and nothing else: a normalizer that
-      silently dropped a character would be rewriting names on the claim path
-      too. Here it is a courtesy to somebody copying what the screen shows
-      them, and it widens nothing — `@` is not a legal character in a name, so
-      no other workspace can be reached by adding one.
-    */
-    if (normalizeName(args.confirmSlug).replace(/^@/, "") !== workspace.slug) {
-      throw new ConvexError({
-        code: "CONFIRMATION_MISMATCH",
-        message: "That is not this workspace's name, so nothing was deleted.",
-      });
-    }
-
-    /*
-      A move *into* managed storage that has started is the same refusal one
-      step earlier: the managed bucket already exists, already holds a partial
-      copy, and its scoped token is live. The cascade would delete the row that
-      names both and leave us paying for a bucket nobody can reach — so a
-      migration in flight, or one parked `failed` with its cursor kept for a
-      retry, blocks deletion until it is finished or abandoned.
-    */
-    const migration = await ctx.db
-      .query("managedStorageMigrations")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (migration !== null) {
-      throw new ConvexError({
-        code: "MANAGED_MIGRATION",
-        message:
-          "A move into storage we run is under way for this workspace. Let it finish or cancel it first.",
-      });
-    }
-
-    const binding = await ctx.db
-      .query("storageBindings")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (binding !== null && binding.bucket === managedBucketName(args.workspaceId)) {
-      throw new ConvexError({
-        code: "MANAGED_STORAGE",
-        message:
-          "This workspace's notes are in storage we run, and moving them out is not built yet. Connect a bucket you own first, or delete it once hand-off ships.",
-      });
-    }
+    await authorizeWorkspaceDeletion(ctx, args);
 
     await deleteWorkspaceCascade(ctx, args.workspaceId);
     return { deleted: true };
@@ -298,99 +187,7 @@ export const deleteAccount = mutation({
       }
     }
 
-    // The address, which `deleteAccount` frees exactly as it frees a handle —
-    // the `users` row goes below, and `resolveAddressedUser` then resolves the
-    // address to whoever verifies it next. There is no claim date to pin an
-    // email share against (`emailVerificationTime` is re-stamped on every
-    // verifying sign-in), so unlike a handle this sweep is the whole control,
-    // and the residue — a mailbox changing hands outside Context — is recorded
-    // in `shares.ts` and pinned by a test rather than left to a comment.
-    //
-    // Unverified addresses are skipped because they are not identifiers:
-    // `resolveAddressedUser` refuses them, so nothing was ever addressed here.
-    const me = await ctx.db.get(userId);
-    if (me?.email !== undefined && me.emailVerificationTime !== undefined) {
-      await revokeSharesAddressedTo(ctx, "email", me.email.toLowerCase());
-    }
-
-    // The user's own name claims. Nothing writes a `kind: "user"` row today
-    // (see functions/invitations.ts), so this is usually a no-op — but the
-    // schema supports them and a claimed username must not outlive the person.
-    const nameRows = await ctx.db
-      .query("names")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
-    for (const row of nameRows) {
-      // Same rule as the workspace slugs below: a freed name inherits
-      // nothing, so its pending invitations go before the row does.
-      await voidCapabilitiesAddressedTo(ctx, row.name);
-      await ctx.db.delete(row._id);
-    }
-
-    // Grants the user holds on *surviving* workspaces — a membership they gave
-    // up above, or a co-owned context that lives on. The cascade already took
-    // the ones on destroyed workspaces; this index walk is what makes revoking
-    // the person's authority complete rather than incidental.
-    const grants = await ctx.db
-      .query("oauthGrants")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
-    for (const grant of grants) {
-      await ctx.db.delete(grant._id);
-    }
-
-    // Parked authorization requests the person approved. `userId` here is a
-    // field, not an index — the table is keyed by request id and code — but
-    // rows live ten minutes and are swept hourly (see crons.ts), so the
-    // unindexed walk is over a table that is small by construction, and an
-    // approved-but-unredeemed code must not mint a grant for a deleted user.
-    const authorizations = await ctx.db
-      .query("oauthAuthorizations")
-      .filter((q) => q.eq(q.field("userId"), userId))
-      .collect();
-    for (const authorization of authorizations) {
-      await ctx.db.delete(authorization._id);
-    }
-
-    // Auth material, leaves first: each account's verification codes, then the
-    // account; each session's refresh tokens, then the session. Order matters
-    // only for legibility — everything commits in one transaction — but the
-    // grouping mirrors how @convex-dev/auth keys the rows.
-    const accounts = await ctx.db
-      .query("authAccounts")
-      .withIndex("userIdAndProvider", (q) => q.eq("userId", userId))
-      .collect();
-    for (const account of accounts) {
-      const codes = await ctx.db
-        .query("authVerificationCodes")
-        .withIndex("accountId", (q) => q.eq("accountId", account._id))
-        .collect();
-      for (const code of codes) {
-        await ctx.db.delete(code._id);
-      }
-      await ctx.db.delete(account._id);
-    }
-    const sessions = await ctx.db
-      .query("authSessions")
-      .withIndex("userId", (q) => q.eq("userId", userId))
-      .collect();
-    for (const session of sessions) {
-      const refreshTokens = await ctx.db
-        .query("authRefreshTokens")
-        .withIndex("sessionId", (q) => q.eq("sessionId", session._id))
-        .collect();
-      for (const token of refreshTokens) {
-        await ctx.db.delete(token._id);
-      }
-      await ctx.db.delete(session._id);
-    }
-
-    // Finally, the person. `requireAuthId` proved the row existed moments ago,
-    // but the guard keeps this safe against a concurrent deletion rather than
-    // throwing over a row that is already gone.
-    if ((await ctx.db.get(userId)) !== null) {
-      await ctx.db.delete(userId);
-    }
+    await deletePersonalRows(ctx, userId);
 
     return { deleted: true };
   },
@@ -887,124 +684,6 @@ async function deleteWorkspaceCascade(
   }
 
   await ctx.db.delete(workspaceId);
-}
-
-/**
- * A freed name must inherit nothing.
- *
- * Invitations are addressed to an identifier and resolved only at accept
- * time — deliberately, so `listInvitations` cannot be a username oracle and
- * so an email invitation follows whoever holds the mailbox. That design is
- * exactly why freeing a name is dangerous: a pending invitation to `@agent`
- * sitting in somebody else's workspace would be acceptable by the name's
- * NEXT owner — a stranger walking into a context that was shared with a
- * person who no longer exists. So every name this deletion releases takes
- * its pending invitations with it, across all workspaces, before the row is
- * freed.
- *
- * Pending only. `accepted`, `declined` and `expired` rows are other
- * workspaces' history, none of them can mint access (accepting requires
- * `pending`), and deleting them would be erasing somebody else's audit trail.
- *
- * **And note shares, which are the same shape and worse.** A share is
- * addressed to a `@handle` the same way and resolved the same way, but where an
- * invitation is a one-time offer that dies when it is answered, a share is
- * standing and by default never expires — so the window in which a freed name
- * can inherit one is not bounded by anything. Measured before this covered
- * them: the successor claimed the handle and `listSharedWithMe`, their own
- * inbox, handed them a live token for a note in a stranger's context, with no
- * link involved.
- *
- * This is the sweep half. `shareStillStands` in `functions/shares.ts` is the
- * re-check half, and it is not redundant — it is what makes the next table
- * somebody forgets to add here inert instead of exploitable.
- */
-async function voidCapabilitiesAddressedTo(
-  ctx: MutationCtx,
-  name: string,
-): Promise<void> {
-  const pending = await ctx.db
-    .query("workspaceInvitations")
-    .withIndex("by_invitee", (q) =>
-      q.eq("inviteeKind", "name").eq("invitee", name),
-    )
-    .filter((q) => q.eq(q.field("status"), "pending"))
-    .collect();
-  for (const invitation of pending) {
-    await ctx.db.delete(invitation._id);
-  }
-
-  await revokeSharesAddressedTo(ctx, "name", name);
-}
-
-/**
- * Every standing note share addressed to one identifier, revoked.
- *
- * Revoked rather than deleted, which is the one place this differs from the
- * invitations above — and the honest statement of why is that **neither reason
- * previously given here was true.** It was first justified as preserving the
- * owner's disclosure record: nothing reads a revoked row, so there is no
- * record. It was then justified as required by the re-share path: measured,
- * and false — `findShareFor` is a `.unique()` on
- * `by_workspace_entry_recipient`, so deleting the row *frees* the tuple and a
- * later re-share simply inserts, with the same one-row outcome.
- *
- * What is left is a preference with one real property behind it: `revoked` is
- * this table's own word for "no longer live", so the sweep says the thing
- * `revokeShare` says, in the same field the three recipient channels already
- * check. Deleting would work identically and shrink the table. If that is
- * preferred later it is a safe change, and no comment here should be read as
- * an argument against it.
- *
- * No audit event is written. Whether an account deletion should write
- * `share.revoked` into a workspace whose owner is not the acting person is a
- * question about what a deletion may tell third parties, and it is left open
- * rather than answered in passing.
- *
- * **Complete, and therefore unbounded — like every sibling sweep here.** An
- * earlier version of this drained in pages and called that a bound, citing
- * `MAX_SHARES_RETURNED`'s rule that a read whose cost is set by other people's
- * rows gets a ceiling. Two reviews took that apart and both were right:
- * `.take()` in a loop reads and writes exactly the same total documents as
- * `.collect()`, so it bounded nothing, and it added a hazard no sibling has —
- * a mutation that stopped removing rows from the range would spin forever
- * rather than fail.
- *
- * A sweep that stops early **leaves a live capability addressed to an
- * identifier somebody else is about to hold**, so completeness is not
- * negotiable and the ceiling has to come from somewhere else. It is available:
- * a scheduled continuation, whose "scheduling is not calling" property this
- * codebase already relies on, would give completeness *and* a per-transaction
- * bound. It is not built. That is the accurate sentence — not that no ceiling
- * exists.
- *
- * So what stays open is real: `createShare` has no rate limit, and one account
- * can aim `MAX_WORKSPACES_PER_USER` × `MAX_ACTIVE_SHARES` rows at a single
- * identifier — multiplied by however many accounts an attacker makes, since
- * accounts are free.
- *
- * `deleteWorkspaceCascade` sweeps `auditEvents` unbounded too, and for an
- * established account that is the larger read. **That is not a reason to think
- * this one is handled**, and an earlier version of this comment came close to
- * saying so: the audit trail grows with the victim's own history, while these
- * rows are written by strangers, so for a new account they are the only
- * attacker-controlled term in the sum.
- */
-async function revokeSharesAddressedTo(
-  ctx: MutationCtx,
-  kind: "name" | "email",
-  value: string,
-): Promise<void> {
-  const now = Date.now();
-  const standing = await ctx.db
-    .query("noteShares")
-    .withIndex("by_recipient", (q) =>
-      q.eq("recipientKind", kind).eq("recipient", value).eq("status", "active"),
-    )
-    .collect();
-  for (const share of standing) {
-    await ctx.db.patch(share._id, { status: "revoked", revokedAt: now });
-  }
 }
 
 /**

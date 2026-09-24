@@ -106,9 +106,10 @@ describe("no public function can reach a storage secret", () => {
       .map(([path]) => path.replace(/^(\.\.?\/)+/, ""))
       .sort();
 
-    // The schema, and nowhere else. It is where the field list is defined, and
+    // The schema, and nowhere else. It is where the field list is defined (in
+    // the storage table module `schema.ts` spreads in), and
     // `functions/storage.ts` builds the one validator from it.
-    expect(declarers).toEqual(["schema.ts"]);
+    expect(declarers).toEqual(["functions/lib/schema/storage.ts"]);
   });
 
   test("only these functions can reach a decrypted credential", () => {
