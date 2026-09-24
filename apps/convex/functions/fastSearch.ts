@@ -25,144 +25,27 @@
  * A `releasing` row serves nothing: `fastSearchOptedIn` reads `optedIn`, which
  * is already false. So the moment somebody switches off, search returns to the
  * R2 index — the delete finishing is bookkeeping, not the switch.
+ *
+ * Every export below is a thin Convex registration whose handler delegates to
+ * `lib/fastSearchFns/`, where the logic (and its comments) actually live.
  */
 
-import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { internal } from "../_generated/api";
-import type { Doc, Id } from "../_generated/dataModel";
+import { v } from "convex/values";
+import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
+import { statusHandler } from "./lib/fastSearchFns/status";
+import { disableHandler, enableHandler, releaseForStorageHandler } from "./lib/fastSearchFns/toggle";
+import { syncPremiumSelectionHandler } from "./lib/fastSearchFns/premium";
+import { searchableContextsForHandler, searchableContextsHandler } from "./lib/fastSearchFns/scope";
 import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-  type QueryCtx,
-} from "../_generated/server";
-import { recordAudit } from "./lib/audit";
-import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
-import {
-  BACKFILL_STALL_MS,
-  FAST_SEARCH_GENERATION,
-  PROJECTION_CHAIN,
-  backfillPercent,
-  fastSearchEntitled,
-  fastSearchState,
-  searchProjectionState,
-  type FastSearchState,
-  type SearchProjectionState,
-} from "./lib/fastSearch";
-
-async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) {
-    throw new ConvexError({
-      code: "NOT_AUTHENTICATED",
-      message: "Sign in first.",
-    });
-  }
-  return userId;
-}
-
-async function bindingFor(
-  ctx: QueryCtx,
-  workspaceId: Id<"workspaces">,
-): Promise<Doc<"searchIndexes"> | null> {
-  return await ctx.db
-    .query("searchIndexes")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-}
-
-async function planFor(
-  ctx: QueryCtx,
-  workspaceId: Id<"workspaces">,
-): Promise<Doc<"workspacePlans"> | null> {
-  return await ctx.db
-    .query("workspacePlans")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-}
-
-export interface FastSearchStatus {
-  state: FastSearchState;
-  /** Whether the viewer may change it. Rendering only; the mutation re-checks. */
-  canChange: boolean;
-  /**
-   * Backfill progress — present while backfilling, **and absent to everyone
-   * but the owner.**
-   *
-   * The index counts every note the context has, private ones included, while
-   * a member may read only the `team` tier. Handing them the total would let
-   * them derive how much they are not being shown, and watch it move. Same
-   * rule, same shape, as `getStorageBinding`'s `noteCount`.
-   */
-  notesIndexed?: number;
-  notesPending?: number;
-  /**
-   * The same census as one number, and therefore **under the same gate**.
-   *
-   * The two counters above are owner-only because a member may read only the
-   * `team` tier, so a total that includes private notes lets them derive how
-   * much they are not being shown. A percentage IS that total, divided — it
-   * moves when a private note is written and it stops moving when the backfill
-   * ends, which is the whole of what the counters leak. It leaks it while
-   * looking like a progress bar rather than like a count, which is precisely
-   * how a gate gets left off the second field.
-   *
-   * Both forms are returned rather than one, because the console renders a bar
-   * and a "41 of 48" line from the same read and neither should be a second
-   * round trip. `undefined` for anyone but an owner — the test that says so is
-   * the one that matters most in `fastSearch.test.ts`.
-   *
-   * **Absent and `0` are different answers**, and the console reads them that
-   * way: absent means "this viewer does not get this" and draws nothing, while
-   * any number is a state to render. So a member gets no field rather than a
-   * zero, and so does a context with no notes at all — "0 of 0" is not a
-   * percentage of anything, and the console says so in words.
-   *
-   * **100 belongs to `ready`.** Whether a backfill is finished is `state`, which
-   * this control plane owns; it is never inferred from `notesPending === 0`, and
-   * a row that is not serving is capped at 99 so a completed bar cannot appear
-   * beside a card that says the index is still being built.
-   *
-   * Always a finite integer in 0–100 when present, because the console range-
-   * checks and falls back to computing the ratio itself — and a fallback that
-   * fires is a second implementation of `backfillPercent` running in production.
-   *
-   * Derived on every read and never stored: see `backfillPercent` for why a
-   * stored ratio goes stale against a corpus that moves, and for what each
-   * edge case answers.
-   */
-  percentIndexed?: number;
-  /** Set only in `failed`. Our sentence, never a provider's. */
-  error?: string;
-  optedInAt?: number;
-}
-
-/**
- * The wire form of `FastSearchState`.
- *
- * Declared once so the three functions returning it cannot disagree with each
- * other. It does **not** tie itself to the union in `lib/fastSearch.ts` — that
- * is a type and this is a value, and nothing checks them against one another.
- * A sixth state added there would leave this stale.
- *
- * The direction that failure takes is why it is acceptable rather than merely
- * noted: Convex validates a return against this at runtime, so the new state
- * would be **refused** and every test covering it would fail loudly. A stale
- * validator here breaks the feature; it cannot widen what a caller sees.
- *
- * `structure.test.ts` requires the `returns:` itself: without one, a public
- * function hands the credential guard a return schema of `"null"`, which it
- * reads and passes whatever the function actually returns.
- */
-const stateValidator = v.union(
-  v.literal("off"),
-  v.literal("preparing"),
-  v.literal("on"),
-  v.literal("failed"),
-  v.literal("unavailable"),
-);
+  bindingForWorkspaceHandler,
+  forgetIndexHandler,
+  projectionTargetForWorkspaceHandler,
+  recordProjectionProgressHandler,
+  recordProvisionResultHandler,
+  sweepStalledBackfillsHandler,
+} from "./lib/fastSearchFns/internal";
+import { searchableContextValidator, stateValidator } from "./lib/fastSearchFns/validators";
+export type { FastSearchStatus, SearchableContext } from "./lib/fastSearchFns/validators";
 
 /**
  * What the settings screen draws.
@@ -205,38 +88,7 @@ export const status = query({
     error: v.optional(v.string()),
     optedInAt: v.optional(v.number()),
   }),
-  handler: async (ctx, args): Promise<FastSearchStatus> => {
-    const userId = await requireUserId(ctx);
-    const { workspace, membership } = await requireWorkspaceAccess(
-      ctx,
-      args.workspaceId,
-      userId,
-    );
-    const binding = await bindingFor(ctx, args.workspaceId);
-    const plan = await planFor(ctx, args.workspaceId);
-
-    const isOwner = membership.role === "owner";
-    const state = fastSearchState(workspace, plan, binding);
-
-    return {
-      state,
-      canChange: isOwner && fastSearchEntitled(workspace, plan),
-      notesIndexed: isOwner ? binding?.notesIndexed : undefined,
-      notesPending: isOwner ? binding?.notesPending : undefined,
-      // `isOwner &&` rather than a ternary over the computed value, so the
-      // percentage is not even computed for a member — there is no expression
-      // here that could survive a refactor that dropped the gate on the line
-      // above and be returned by accident.
-      // `state === "on"` and not `binding.status === "ready"`: an opted-out or
-      // unentitled row must never read 100 either, and `fastSearchState` is
-      // where "is this actually serving" is decided once.
-      percentIndexed: isOwner
-        ? backfillPercent(binding?.notesIndexed, binding?.notesPending, state === "on")
-        : undefined,
-      error: binding?.error,
-      optedInAt: binding?.optedInAt,
-    };
-  },
+  handler: (ctx, args) => statusHandler(ctx, args),
 });
 
 /**
@@ -255,103 +107,9 @@ export const status = query({
 export const enable = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ state: stateValidator }),
-  handler: async (ctx, args): Promise<{ state: FastSearchState }> => {
-    const userId = await requireUserId(ctx);
-    const { workspace } = await requireWorkspaceRole(
-      ctx,
-      args.workspaceId,
-      userId,
-      "owner",
-    );
-
-    const plan = await planFor(ctx, args.workspaceId);
-    if (!fastSearchEntitled(workspace, plan)) {
-      throw new ConvexError({
-        code: "NOT_ENTITLED",
-        message: "Fast search is not available for this context.",
-      });
-    }
-
-    const existing = await bindingFor(ctx, args.workspaceId);
-    const now = Date.now();
-
-    if (existing !== null && existing.optedIn && existing.status !== "failed") {
-      // Already on or on its way. Not an error, and not a second database.
-      //
-      // `failed` is excluded, and that exclusion is the whole point of the
-      // condition rather than a refinement of it. A failed row keeps
-      // `optedIn: true` — nobody opted out, the provision fell over — so
-      // without this clause every retry landed here and returned the failure
-      // it was called to clear: no patch, no schedule, no write of any kind.
-      // The card's "Try again" was inert for the one state that renders it,
-      // and the branch immediately below, whose comment already said "a failed
-      // one being retried", was unreachable from the moment it was written.
-      // Shipped that way, and found only by reading `updatedAt` on a row a
-      // person had pressed the button on repeatedly: it still held the
-      // timestamp of the original failure, hours earlier.
-      return { state: fastSearchState(workspace, plan, existing) };
-    }
-
-    if (existing !== null) {
-      // A row that is `releasing`, or a failed one being retried. Re-opting in
-      // reuses the row rather than racing a second one against the unique
-      // lookup — and deliberately keeps `databaseId` if the release had not
-      // finished, so the sweep still knows what to delete if this fails again.
-      await ctx.db.patch(existing._id, {
-        generation: FAST_SEARCH_GENERATION,
-        optedIn: true,
-        optedInBy: userId,
-        optedInAt: now,
-        status: "provisioning",
-        errorCode: undefined,
-        error: undefined,
-        ...(existing.generation === FAST_SEARCH_GENERATION
-          ? {}
-          : {
-              databaseId: undefined,
-              databaseName: undefined,
-              schemaVersion: undefined,
-              notesIndexed: undefined,
-              notesPending: undefined,
-            }),
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert("searchIndexes", {
-        workspaceId: args.workspaceId,
-        generation: FAST_SEARCH_GENERATION,
-        optedIn: true,
-        optedInBy: userId,
-        optedInAt: now,
-        status: "provisioning",
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: userId,
-      action: "search.fast_enabled",
-    });
-
-    await ctx.scheduler.runAfter(
-      0,
-      internal.functions.fastSearchProvision.provisionIndex,
-      { workspaceId: args.workspaceId, generation: FAST_SEARCH_GENERATION },
-    );
-
-    return { state: "preparing" };
-  },
+  handler: (ctx, args) => enableHandler(ctx, args),
 });
 
-/**
- * Turn it off, and delete what it built.
- *
- * The row is marked rather than removed — see the header. Search falls back to
- * the R2 index the instant `optedIn` goes false, so nothing here is on a
- * person's critical path.
- */
 /**
  * Release this context's projection because its **storage** went away.
  *
@@ -393,81 +151,20 @@ export const enable = mutation({
 export const releaseForStorage = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ releasing: v.boolean() }),
-  handler: async (ctx, args): Promise<{ releasing: boolean }> => {
-    const existing = await bindingFor(ctx, args.workspaceId);
-    if (existing === null) return { releasing: false };
-
-    if (
-      existing.generation !== FAST_SEARCH_GENERATION ||
-      existing.databaseId === undefined
-    ) {
-      // Nothing was ever created, so there is nothing to delete and the row is
-      // a tombstone rather than a pointer. Same branch `disable` takes.
-      await ctx.db.delete(existing._id);
-      return { releasing: false };
-    }
-
-    await ctx.db.patch(existing._id, {
-      optedIn: false,
-      status: "releasing",
-      updatedAt: Date.now(),
-    });
-    await ctx.scheduler.runAfter(
-      0,
-      internal.functions.fastSearchProvision.releaseIndex,
-      { workspaceId: args.workspaceId },
-    );
-    return { releasing: true };
-  },
+  handler: (ctx, args) => releaseForStorageHandler(ctx, args),
 });
 
+/**
+ * Turn it off, and delete what it built.
+ *
+ * The row is marked rather than removed — see the header. Search falls back to
+ * the R2 index the instant `optedIn` goes false, so nothing here is on a
+ * person's critical path.
+ */
 export const disable = mutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ state: stateValidator }),
-  handler: async (ctx, args): Promise<{ state: FastSearchState }> => {
-    const userId = await requireUserId(ctx);
-    const { workspace } = await requireWorkspaceRole(
-      ctx,
-      args.workspaceId,
-      userId,
-      "owner",
-    );
-
-    const existing = await bindingFor(ctx, args.workspaceId);
-    const plan = await planFor(ctx, args.workspaceId);
-    if (existing === null) return { state: fastSearchState(workspace, plan, null) };
-
-    const now = Date.now();
-
-    if (
-      existing.generation !== FAST_SEARCH_GENERATION ||
-      existing.databaseId === undefined
-    ) {
-      // Nothing was ever created — a failed provision, or an opt-in that was
-      // reversed before it got that far. There is nothing to delete, so the
-      // row goes now and the context is back to "never asked".
-      await ctx.db.delete(existing._id);
-    } else {
-      await ctx.db.patch(existing._id, {
-        optedIn: false,
-        status: "releasing",
-        updatedAt: now,
-      });
-      await ctx.scheduler.runAfter(
-        0,
-        internal.functions.fastSearchProvision.releaseIndex,
-        { workspaceId: args.workspaceId },
-      );
-    }
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: userId,
-      action: "search.fast_disabled",
-    });
-
-    return { state: "off" };
-  },
+  handler: (ctx, args) => disableHandler(ctx, args),
 });
 
 /**
@@ -484,279 +181,12 @@ export const syncPremiumSelection = internalMutation({
     actorUserId: v.id("users"),
   },
   returns: v.object({ state: stateValidator }),
-  handler: async (ctx, args): Promise<{ state: FastSearchState }> => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null) return { state: "unavailable" };
-    const membership = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace_user", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("userId", args.actorUserId),
-      )
-      .unique();
-    if (membership?.role !== "owner") return { state: "unavailable" };
-
-    const plan = await planFor(ctx, args.workspaceId);
-    const existing = await bindingFor(ctx, args.workspaceId);
-    const entitled = fastSearchEntitled(workspace, plan);
-
-    if (!entitled) {
-      if (existing === null) return { state: "unavailable" };
-      if (existing.generation !== FAST_SEARCH_GENERATION) {
-        // Legacy coordinates belong to the retired generation and account.
-        // They are intentionally not sent to the current account's delete API.
-        await ctx.db.delete(existing._id);
-        return { state: "unavailable" };
-      }
-      if (existing.databaseId === undefined) {
-        await ctx.db.delete(existing._id);
-      } else {
-        await ctx.db.patch(existing._id, {
-          optedIn: false,
-          status: "releasing",
-          updatedAt: Date.now(),
-        });
-        await ctx.scheduler.runAfter(
-          0,
-          internal.functions.fastSearchProvision.releaseIndex,
-          { workspaceId: args.workspaceId },
-        );
-      }
-      await recordAudit(ctx, {
-        workspaceId: args.workspaceId,
-        actorUserId: args.actorUserId,
-        action: "search.fast_disabled",
-      });
-      return { state: "unavailable" };
-    }
-
-    if (
-      existing?.generation === FAST_SEARCH_GENERATION &&
-      existing.optedIn &&
-      existing.status !== "failed"
-    ) {
-      return { state: fastSearchState(workspace, plan, existing) };
-    }
-
-    const now = Date.now();
-    if (existing === null) {
-      await ctx.db.insert("searchIndexes", {
-        workspaceId: args.workspaceId,
-        generation: FAST_SEARCH_GENERATION,
-        optedIn: true,
-        optedInBy: args.actorUserId,
-        optedInAt: now,
-        status: "provisioning",
-        createdAt: now,
-        updatedAt: now,
-      });
-    } else {
-      /*
-        A LEGACY row starts clean; a failed or releasing one keeps its handle.
-
-        Letting go of `databaseId` is right for legacy coordinates — they name a
-        database in the retired account, which is never served and must never be
-        mistaken for one here. It is wrong for every row on the current
-        generation, and both of the states that reach this branch on it hold a
-        live database: a `failed` row records `databaseId` before applying the
-        schema, precisely so a schema failure knows what it created, and a
-        `releasing` row exists for no other purpose than to be deleted.
-
-        Clearing there strands them. `releaseIndex` reaches a database only
-        through `binding.databaseId`; without it, it calls `forgetIndex` and
-        reports `released: true` having deleted nothing — so "off actually
-        deletes it" quietly stops being true and a derived copy of somebody's
-        notes outlives the context that asked for it.
-
-        Which is the same condition `enable` already applies for the same
-        reason. This is that decision reached from billing instead of from the
-        owner's switch, so it had better be the same decision.
-      */
-      await ctx.db.patch(existing._id, {
-        generation: FAST_SEARCH_GENERATION,
-        optedIn: true,
-        optedInBy: args.actorUserId,
-        optedInAt: now,
-        status: "provisioning",
-        errorCode: undefined,
-        error: undefined,
-        ...(existing.generation === FAST_SEARCH_GENERATION
-          ? {}
-          : {
-              databaseId: undefined,
-              databaseName: undefined,
-              schemaVersion: undefined,
-              notesIndexed: undefined,
-              notesPending: undefined,
-            }),
-        updatedAt: now,
-      });
-    }
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
-      action: "search.fast_enabled",
-      details: { generation: FAST_SEARCH_GENERATION },
-    });
-    await ctx.scheduler.runAfter(
-      0,
-      internal.functions.fastSearchProvision.provisionIndex,
-      { workspaceId: args.workspaceId, generation: FAST_SEARCH_GENERATION },
-    );
-    return { state: "preparing" };
-  },
+  handler: (ctx, args) => syncPremiumSelectionHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
 /*                     which contexts a blended search may ask                */
 /* -------------------------------------------------------------------------- */
-
-/**
- * Contexts one person may search at once.
- *
- * The same order of magnitude as `listMyWorkspaces`' own cap and for the same
- * reason: a bounded read rather than a scan whose cost is somebody's
- * membership count. A fan-out has a second reason — every context in this list
- * is a request to a customer's storage, so the number is also the width of the
- * widest search anybody can cause with one keystroke.
- */
-const SEARCHABLE_CONTEXT_CAP = 50;
-
-/**
- * A context the blended search will ask, and how it will be answered.
- *
- * **Every context the caller is a member of is in this list.** It used to hold
- * only the ones serving from a hosted index, with the rest in a second list
- * the page could do nothing with but apologise — which made the search page a
- * dead end for the ordinary account, the one paying for nothing and owning a
- * workspace in its own bucket. `lib/fastSearch.ts` has always said what the right
- * answer is: "either condition false means the existing R2 shard index serves
- * the search, exactly as it does today… the fast path is an upgrade, and its
- * absence is the product as it already is." The blended page is the one
- * surface that did not believe it.
- *
- * So `search` says which way this one will be answered, and nothing is left
- * out on account of it:
- *
- *  - `"fast"` — a projection the control plane calls `ready` answers from a
- *    database, in a round trip.
- *  - `"slow"` — the R2 shard index in the customer's own bucket answers, in
- *    several. Bounded by `SOURCE_DEADLINE_MS` in `files.searchContexts` like
- *    every other source, so a slow context costs its own row and never the
- *    page.
- *
- * `fastSearch` carries *why* a slow one is slow, in the settings card's own
- * vocabulary (`FastSearchState`), and `owner` says whether this viewer is the
- * person who could change it. Together they are what the page's upsell is
- * built from: "not paying" and "have not asked" are different sentences with
- * different presses behind them, and that distinction is the reason
- * `lib/fastSearch.ts` keeps entitlement and opt-in apart in the first place.
- */
-export interface SearchableContext {
-  workspaceId: Id<"workspaces">;
-  slug: string;
-  displayName: string;
-  kind: string;
-  role: string;
-  /** Which index answers this context — see above. */
-  search: "fast" | "slow";
-  /** Why it is not fast, in the settings card's words. `"on"` when it is. */
-  fastSearch: FastSearchState;
-  /** Whether this viewer may change that — an owner, and only an owner. */
-  owner: boolean;
-}
-
-const searchableContextValidator = v.object({
-  workspaceId: v.id("workspaces"),
-  slug: v.string(),
-  displayName: v.string(),
-  kind: v.string(),
-  role: v.string(),
-  search: v.union(v.literal("fast"), v.literal("slow")),
-  fastSearch: v.union(
-    v.literal("off"),
-    v.literal("preparing"),
-    v.literal("on"),
-    v.literal("failed"),
-    v.literal("unavailable"),
-  ),
-  owner: v.boolean(),
-});
-
-/**
- * Every context this person may run a blended search over, and how each one
- * will answer.
- *
- * One condition decides membership of this list, and it is live: **a
- * membership row exists right now.** Not "existed when the page loaded" — the
- * search page re-asks this on every page of every query, so somebody removed
- * from a workspace between two pages gets the second one without it.
- *
- * ## What the second condition used to be, and why it is a field instead
- *
- * `searchProjectionState(...) === "ready"` used to gate the list, and the
- * argument for it was cost: a context without a projection answers from the R2
- * shard index in the customer's own bucket — a manifest read, some shard
- * reads, a snippet read per hit — and eight of those inside one request is a
- * lot of round trips for contexts the word is mostly not in.
- *
- * That is a real cost and it is the wrong thing to spend a person's search on.
- * The page it produced said "no context you can reach has fast search switched
- * on, so nothing was searched" to somebody with four contexts and a question,
- * and offered them a settings screen. **Nothing is a worse answer than slow**,
- * and the cost is already bounded where costs belong: `files.searchContexts`
- * gives every source its own deadline, so the slow ones cost their own rows
- * and the page still renders whatever answered.
- *
- * A `preparing` context is included now for the same reason, and it is safe
- * for a reason that is easy to miss: the gateway's projection reader
- * (`search/d1/serve.js`) treats a miss as "go and ask the R2 index the
- * expensive way" rather than as an answer — "only a *hit* short-circuits" — so
- * a half-built index can never lose a result the slow path would have found.
- * What it can do is be *slower* than a finished one, which is a row on the
- * page and not a reason to leave a context out of somebody's search.
- *
- * A context is named here only because the caller is in it, so this is not an
- * oracle: it enumerates the caller's own **live** memberships, which
- * `listMyWorkspaces` already returns in full.
- */
-async function searchScopeFor(
-  ctx: QueryCtx,
-  userId: Id<"users">,
-): Promise<SearchableContext[]> {
-  const memberships = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(SEARCHABLE_CONTEXT_CAP);
-
-  const contexts: SearchableContext[] = [];
-  for (const membership of memberships) {
-    const workspace = await ctx.db.get(membership.workspaceId);
-    if (workspace === null) continue;
-    const binding = await bindingFor(ctx, membership.workspaceId);
-    const plan = await planFor(ctx, membership.workspaceId);
-    const serving = searchProjectionState(workspace, plan, binding) === "ready";
-    const state = fastSearchState(workspace, plan, binding);
-    contexts.push({
-      workspaceId: workspace._id,
-      slug: workspace.slug,
-      displayName: workspace.displayName,
-      kind: workspace.kind,
-      role: membership.role,
-      search: serving ? "fast" : "slow",
-      // `fastSearchState` can answer "on" for a binding whose status is
-      // "ready" but has no recorded database id yet — a narrower window than
-      // `searchProjectionState` accepts. That context is searched slowly, so
-      // its own state must not claim otherwise: "preparing" is the honest word
-      // for "opted in and not yet actually serving", which is what the window
-      // is, and it is the word the settings card uses for it.
-      fastSearch: serving ? "on" : state === "on" ? "preparing" : state,
-      owner: membership.role === "owner",
-    });
-  }
-
-  contexts.sort((a, b) => a.slug.localeCompare(b.slug));
-  return contexts;
-}
 
 /**
  * The scope picker's list, and the upsell beside it: every context this viewer
@@ -779,10 +209,7 @@ async function searchScopeFor(
 export const searchableContexts = query({
   args: {},
   returns: v.object({ contexts: v.array(searchableContextValidator) }),
-  handler: async (ctx): Promise<{ contexts: SearchableContext[] }> => {
-    const userId = await requireUserId(ctx);
-    return { contexts: await searchScopeFor(ctx, userId) };
-  },
+  handler: (ctx) => searchableContextsHandler(ctx),
 });
 
 /**
@@ -798,20 +225,15 @@ export const searchableContexts = query({
 export const searchableContextsFor = internalQuery({
   args: { actorUserId: v.id("users") },
   returns: v.array(searchableContextValidator),
-  handler: async (ctx, args): Promise<SearchableContext[]> =>
-    await searchScopeFor(ctx, args.actorUserId),
+  handler: (ctx, args) => searchableContextsForHandler(ctx, args),
 });
 
 // -- internals ------------------------------------------------------------
 
-/** Contexts one sweep may restart. See `sweepStalledBackfills`. */
-const SWEEP_BATCH = 50;
-
 /** The binding, for the provisioner and for the gateway's session resolution. */
 export const bindingForWorkspace = internalQuery({
   args: { workspaceId: v.id("workspaces") },
-  handler: async (ctx, args): Promise<Doc<"searchIndexes"> | null> =>
-    await bindingFor(ctx, args.workspaceId),
+  handler: (ctx, args) => bindingForWorkspaceHandler(ctx, args),
 });
 
 /**
@@ -844,18 +266,7 @@ export const projectionTargetForWorkspace = internalQuery({
       state: v.union(v.literal("backfilling"), v.literal("ready")),
     }),
   ),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ databaseId: string; state: SearchProjectionState } | null> => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null) return null;
-    const binding = await bindingFor(ctx, args.workspaceId);
-    const plan = await planFor(ctx, args.workspaceId);
-    const state = searchProjectionState(workspace, plan, binding);
-    if (state === null) return null;
-    return { databaseId: binding!.databaseId as string, state };
-  },
+  handler: (ctx, args) => projectionTargetForWorkspaceHandler(ctx, args),
 });
 
 /**
@@ -885,42 +296,7 @@ export const recordProvisionResult = internalMutation({
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const existing = await bindingFor(ctx, args.workspaceId);
-    if (existing === null) return { applied: false };
-    if (
-      args.generation !== undefined &&
-      existing.generation !== args.generation
-    ) {
-      return { applied: false };
-    }
-    if (!existing.optedIn) {
-      // Opted out while this was in flight. The database id is still recorded
-      // if the provisioner learned one, because the release needs it — but the
-      // status stays `releasing` and nothing starts serving.
-      if (args.databaseId !== undefined && existing.databaseId === undefined) {
-        await ctx.db.patch(existing._id, {
-          databaseId: args.databaseId,
-          databaseName: args.databaseName,
-          updatedAt: Date.now(),
-        });
-      }
-      return { applied: false };
-    }
-
-    await ctx.db.patch(existing._id, {
-      status: args.status,
-      databaseId: args.databaseId ?? existing.databaseId,
-      databaseName: args.databaseName ?? existing.databaseName,
-      schemaVersion: args.schemaVersion ?? existing.schemaVersion,
-      errorCode: args.errorCode,
-      error: args.error,
-      notesIndexed: args.notesIndexed ?? existing.notesIndexed,
-      notesPending: args.notesPending ?? existing.notesPending,
-      updatedAt: Date.now(),
-    });
-    return { applied: true };
-  },
+  handler: (ctx, args) => recordProvisionResultHandler(ctx, args),
 });
 
 /**
@@ -973,58 +349,13 @@ export const recordProjectionProgress = internalMutation({
     ready: v.boolean(),
   },
   returns: v.object({ applied: v.boolean() }),
-  handler: async (ctx, args): Promise<{ applied: boolean }> => {
-    // Re-checked here and not only at the door. The door is one caller; this is
-    // the invariant, and a count that is not a non-negative integer would be
-    // rendered as a percentage of something.
-    if (
-      !Number.isInteger(args.notesIndexed) ||
-      !Number.isInteger(args.notesPending) ||
-      args.notesIndexed < 0 ||
-      args.notesPending < 0
-    ) {
-      return { applied: false };
-    }
-
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (workspace === null) return { applied: false };
-    const binding = await bindingFor(ctx, args.workspaceId);
-    const plan = await planFor(ctx, args.workspaceId);
-    // The same gate that decided the credential could be handed over. A row
-    // that is `releasing`, `failed`, `provisioning`, opted out or unentitled is
-    // refused here, by the one function that knows what "serving" means.
-    const state = searchProjectionState(workspace, plan, binding);
-    if (state === null) return { applied: false };
-
-    await ctx.db.patch(binding!._id, {
-      notesIndexed: args.notesIndexed,
-      notesPending: args.notesPending,
-      // Only `backfilling` → `ready`. `state` is one of two values here, so a
-      // report of `ready` against an already-ready row keeps it ready and a
-      // report without `ready` never demotes one — a gateway that reports
-      // progress after finishing must not restart the spinner.
-      status: args.ready ? "ready" : binding!.status,
-      updatedAt: Date.now(),
-    });
-    return { applied: true };
-  },
+  handler: (ctx, args) => recordProjectionProgressHandler(ctx, args),
 });
 
 /** The release finished: the remote database is gone, so the row goes too. */
 export const forgetIndex = internalMutation({
   args: { workspaceId: v.id("workspaces") },
-  handler: async (ctx, args) => {
-    const existing = await bindingFor(ctx, args.workspaceId);
-    if (existing === null) return { forgotten: false };
-    // Only a row that is actually released. A row somebody re-enabled while
-    // the delete was in flight must survive — the provisioner will make it a
-    // new database, and forgetting it here would strand that one instead.
-    if (existing.optedIn || existing.status !== "releasing") {
-      return { forgotten: false };
-    }
-    await ctx.db.delete(existing._id);
-    return { forgotten: true };
-  },
+  handler: (ctx, args) => forgetIndexHandler(ctx, args),
 });
 
 /**
@@ -1067,29 +398,5 @@ export const forgetIndex = internalMutation({
 export const sweepStalledBackfills = internalMutation({
   args: {},
   returns: v.object({ started: v.number() }),
-  handler: async (ctx): Promise<{ started: number }> => {
-    const now = Date.now();
-    const rows = await ctx.db
-      .query("searchIndexes")
-      .withIndex("by_status", (q) => q.eq("status", "backfilling"))
-      // Bounded, like every other sweep here: a backlog drains over several
-      // runs rather than in one transaction big enough to hit a limit.
-      .take(SWEEP_BATCH);
-
-    let started = 0;
-    for (const row of rows) {
-      // A `backfilling` row that is not opted in should not exist — `disable`
-      // moves it to `releasing` — but a status index is a poor place to trust
-      // an invariant that lives on another field.
-      if (!row.optedIn) continue;
-      if (now - row.updatedAt < BACKFILL_STALL_MS) continue;
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: row.workspaceId,
-        scope: "private",
-        operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
-      });
-      started += 1;
-    }
-    return { started };
-  },
+  handler: (ctx) => sweepStalledBackfillsHandler(ctx),
 });
