@@ -53,7 +53,7 @@
  * leak would be invisible until one did.
  */
 
-import { readFile } from "node:fs/promises";
+import { gatewaySourceFiles, soleSource } from "./gatewaySource.mjs";
 
 import worker from "../src/index.js";
 import {
@@ -1046,12 +1046,11 @@ export async function runCrossContextChecks(check) {
   // so no behaviour changes if it leaks through — which is exactly why this is
   // asserted where it is decided. Read off disk rather than fetched: `fetch` is
   // the stub's, and a suite that asks its own fixtures about the source is
-  // asking the wrong thing.
+  // asking the wrong thing. Named by the module that decides it, and it must be
+  // the only module under `src/` that does (`gatewaySource.mjs`).
   check(
     "the addressing argument is stripped before the tool sees the arguments",
-    /delete args\.context;/.test(
-      await readFile(new URL("../src/index.js", import.meta.url), "utf8")
-    )
+    soleSource(gatewaySourceFiles(), /delete args\.context;/, "index.js").ok
   );
 
   /* -------------------------- the tools advertise it ----------------------- */

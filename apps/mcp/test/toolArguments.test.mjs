@@ -91,8 +91,7 @@
  *    read it.
  */
 
-import { readFile } from "node:fs/promises";
-
+import { gatewaySourceFiles, soleSource } from "./gatewaySource.mjs";
 import worker, { EXISTENCE_MASKED_TOOLS } from "../src/index.js";
 import { META_PROTOCOL_VERSION, MODERN_PROTOCOLS } from "../src/protocol.js";
 import {
@@ -593,7 +592,34 @@ export async function runToolArgumentChecks(check) {
 
   /* ================== 3. the census, read out of the source =============== */
 
-  const SOURCE = await readFile(new URL("../src/index.js", import.meta.url), "utf8");
+  /*
+    Where the census reads from. Each piece is named by the module that holds
+    it, and that module must be the ONLY file under `src/` declaring it
+    (`gatewaySource.mjs`): code that moves without this moving, or a second
+    copy left behind, reads as "" and fails the checks below rather than
+    letting them read a stale copy.
+  */
+  const GATEWAY = gatewaySourceFiles();
+  const DISPATCH = soleSource(
+    GATEWAY,
+    /^(?:export )?async function callTool\(name, args, store, scope\)/m,
+    "index.js"
+  );
+  const SESSION = soleSource(
+    GATEWAY,
+    /^(?:export )?async function callToolForSession\(params, store, session\)/m,
+    "index.js"
+  );
+  const ALIASES = soleSource(GATEWAY, /^(?:export )?const TOOL_NAME_ALIASES\b/m, "index.js");
+  const UNLISTED = soleSource(GATEWAY, /^(?:export )?const UNLISTED_TOOLS\b/m, "index.js");
+  for (const [what, found] of [
+    ["callTool", DISPATCH],
+    ["callToolForSession", SESSION],
+    ["TOOL_NAME_ALIASES", ALIASES],
+    ["UNLISTED_TOOLS", UNLISTED],
+  ]) {
+    if (!found.ok) console.log(`  census: ${what} is not declared once where expected (found in: ${found.where})`);
+  }
 
   /** The body of one top-level function, by name. */
   function functionBody(source, signature) {
@@ -603,7 +629,7 @@ export async function runToolArgumentChecks(check) {
     return end === -1 ? "" : source.slice(start, end);
   }
 
-  const dispatchBody = functionBody(SOURCE, "async function callTool(name, args, store, scope)");
+  const dispatchBody = functionBody(DISPATCH.text, "async function callTool(name, args, store, scope)");
   const dispatched = [...dispatchBody.matchAll(/^\s*case "([a-z_]+)":/gm)].map((m) => m[1]);
   // The parser's own self-test. A census built on a regex that silently
   // matched nothing would pass every check below by finding no tools at all,
@@ -636,9 +662,9 @@ export async function runToolArgumentChecks(check) {
     caseLabels.length === dispatched.length && computedCases.length === 0
   );
 
-  const aliasBlock = SOURCE.slice(
-    SOURCE.indexOf("const TOOL_NAME_ALIASES"),
-    SOURCE.indexOf("const TOOL_NAME_ALIASES") + 400
+  const aliasBlock = ALIASES.text.slice(
+    ALIASES.text.indexOf("const TOOL_NAME_ALIASES"),
+    ALIASES.text.indexOf("const TOOL_NAME_ALIASES") + 400
   );
   const aliases = new Map(
     [...aliasBlock.matchAll(/\["([a-z_]+)",\s*"([a-z_]+)"\]/g)].map((m) => [m[1], m[2]])
@@ -658,9 +684,9 @@ export async function runToolArgumentChecks(check) {
     reason the dispatch table is: a set nobody reads is a set that can be
     emptied without a single check noticing.
   */
-  const unlistedBlock = SOURCE.slice(
-    SOURCE.indexOf("const UNLISTED_TOOLS"),
-    SOURCE.indexOf("const UNLISTED_TOOLS") + 200
+  const unlistedBlock = UNLISTED.text.slice(
+    UNLISTED.text.indexOf("const UNLISTED_TOOLS"),
+    UNLISTED.text.indexOf("const UNLISTED_TOOLS") + 200
   );
   const unlisted = new Set(
     [...unlistedBlock.matchAll(/"([a-z_]+)"/g)].map((m) => m[1])
@@ -829,13 +855,24 @@ export async function runToolArgumentChecks(check) {
     /* ------------ and the validator is on the one path to a tool ---------- */
 
     const sessionBody = functionBody(
-      SOURCE,
+      SESSION.text,
       "async function callToolForSession(params, store, session)"
     );
+    /*
+      Counted over every module that can reach the dispatcher — the one that
+      declares `callTool` and every one that imports it — not over one file,
+      so a second dispatch site cannot hide by living in a module of its own.
+      `agent/turn.js` has a `callTool` too, and it is not this one: it is the
+      callback `handleAgent` hands in, which is `callToolForSession` itself.
+    */
+    const dispatchSites = GATEWAY.filter(
+      (file) =>
+        /^(?:export )?async function callTool\(/m.test(file.text) ||
+        /import\s*{[^}]*\bcallTool\b[^}]*}\s*from/.test(file.text)
+    ).reduce((sum, file) => sum + (file.text.match(/await callTool\(/g) || []).length, 0);
     check(
       "there is exactly one place a tool is dispatched from",
-      (SOURCE.match(/await callTool\(/g) || []).length === 1 &&
-        /await callTool\(/.test(sessionBody)
+      dispatchSites === 1 && /await callTool\(/.test(sessionBody)
     );
     check(
       "...and the validator runs before it, on that path",

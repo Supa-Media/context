@@ -5,12 +5,21 @@
  * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2/Dropbox stubs.
  */
 
-import { readFileSync } from "./fixtures.mjs";
+import { gatewaySourceFiles, soleSource } from "../gatewaySource.mjs";
 
 export async function runStoreWorkerWiringChecks(check) {
   /* ------------------------ no binding in tool logic ----------------------- */
 
-  const workerSource = readFileSync(new URL("../../src/index.js", import.meta.url), "utf8");
+  // The worker is every module under `src/`, not its entry file alone: code
+  // split out of `index.js` must not leave these checks' sight. The session
+  // store is asserted in `route` itself, read from the one module declaring it
+  // (see ../gatewaySource.mjs).
+  const files = gatewaySourceFiles();
+  const workerSource = files.map((file) => file.text).join("\n");
+  const router = soleSource(files, /^(?:export )?async function route\(request, env, ctx\)/m, "index.js");
+  const routeStart = router.text.indexOf("async function route(request, env, ctx)");
+  const routeBody =
+    routeStart === -1 ? "" : router.text.slice(routeStart, router.text.indexOf("\n}\n", routeStart));
   const legacyBindingUses = workerSource.match(/env\.BRAIN/g) || [];
   check(
     "the legacy single-tenant BRAIN binding is gone from the worker entirely",
@@ -19,7 +28,7 @@ export async function runStoreWorkerWiringChecks(check) {
   check(
     "the worker builds no store of its own; every caller-facing store comes from a session",
     !/new R2Store\(env\.[A-Z_]*BRAIN/.test(workerSource) &&
-      /storeForSession\(session, env, controlPlane\)/.test(workerSource)
+      /storeForSession\(session, env, controlPlane\)/.test(routeBody)
   );
   check(
     "no static env token survives anywhere in the worker's logic",
