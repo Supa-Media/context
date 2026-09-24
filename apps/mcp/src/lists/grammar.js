@@ -4,7 +4,9 @@
 export const LIST_FENCE_LANG = "list";
 
 /** Every key the block accepts. Anything else is an error, not a warning. */
-export const LIST_KEYS = new Set(["from", "where", "sort", "show", "limit", "subfolders"]);
+// One string rather than an array literal: `"from", "` reads as an import to
+// scripts/check-gateway-imports.mjs, which scans this folder by pattern.
+export const LIST_KEYS = new Set("from where sort show limit subfolders".split(" "));
 
 /** The only key that may appear more than once; its lines are ANDed. */
 export const REPEATABLE_KEYS = new Set(["where"]);

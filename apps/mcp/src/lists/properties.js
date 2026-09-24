@@ -10,7 +10,7 @@
 export function noteProperties(text) {
   const properties = Object.create(null);
   if (typeof text !== "string") return properties;
-  const source = text.replace(/^﻿/, "");
+  const source = text.replace(/^\uFEFF/, "");
   if (!/^---\r?\n/.test(source)) return properties;
   const lines = source.split(/\r?\n/);
   let pending = null; // a key whose value is a block list on the lines below
