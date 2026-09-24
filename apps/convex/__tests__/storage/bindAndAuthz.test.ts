@@ -14,7 +14,7 @@ import {
 import {
   asS3,
   boundWorkspace,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("bindStorage", () => {
   test("stores the secret encrypted, never in the clear", async () => {

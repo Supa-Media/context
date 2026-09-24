@@ -30,7 +30,7 @@ import {
   configureWorker,
   signedIn,
   transcribe,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("what one account may spend", () => {
   /** One user, and a worker that answers, for a whole test. */

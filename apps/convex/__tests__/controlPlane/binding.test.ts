@@ -24,7 +24,7 @@ import {
   danglingWorkspaceId,
   removeMembership,
   bodyOf,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /* 3. /gateway/binding — the two-factor route                                 */

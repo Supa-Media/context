@@ -22,7 +22,7 @@ import {
   bindGmail,
   connectionRow,
   bindCalendar,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("isolation: no cross-workspace leak through the shared connection table", () => {
   test("one workspace's Calendar connection never appears when another workspace is queried", async () => {

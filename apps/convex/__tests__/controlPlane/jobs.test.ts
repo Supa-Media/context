@@ -20,7 +20,7 @@ import {
   twoConnectedTenants,
   danglingWorkspaceId,
   bodyOf,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* 3c. /gateway/jobs/* — queued gateway work                                  */
 /* -------------------------------------------------------------------------- */

@@ -19,7 +19,7 @@ import {
   patchConnection,
   readConnection,
   sweep,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("a pass that ran out of history pages", () => {
   beforeEach(() => enableMailSync());

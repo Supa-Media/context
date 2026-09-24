@@ -12,7 +12,7 @@ import {
   errorShape,
   scenario,
   share,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("creating a share", () => {
   test("an owner can share a note with somebody outside the context", async () => {

@@ -24,7 +24,7 @@ import {
   twoConnectedTenants,
   removeMembership,
   bodyOf,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /* 1. The gateway secret                                                      */

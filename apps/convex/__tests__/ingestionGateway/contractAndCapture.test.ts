@@ -26,7 +26,7 @@ import {
   ready,
   resolve,
   resolvedTicket,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the wire contract matches the worker's", () => {
   const WORKER_SOURCES = import.meta.glob(

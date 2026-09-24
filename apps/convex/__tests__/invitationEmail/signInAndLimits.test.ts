@@ -20,7 +20,7 @@ import {
   invite,
   invitationRow,
   linkFrom,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 describe("the magic link, once a provider can mint one", () => {
   /**

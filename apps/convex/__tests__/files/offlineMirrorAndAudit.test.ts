@@ -13,7 +13,7 @@ import {
   Fixture,
   fixture,
   share,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                         what the offline mirror is fed                     */

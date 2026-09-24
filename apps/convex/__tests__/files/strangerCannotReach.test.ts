@@ -13,7 +13,7 @@ import {
   fixture,
   errorShape,
   danglingWorkspaceId,
-} from "./fixtures";
+} from "./fixtures.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                              tenant isolation                              */
