@@ -106,7 +106,6 @@
     "apps/mobile/features/console/files/ShareDialog.tsx": 1784,
     "apps/mobile/features/console/files/browser.ts": 1026,
     "apps/mobile/features/console/files/imageBlock.ts": 1132,
-    "apps/mobile/features/console/files/useFileBrowser.ts": 4853,
     "apps/mobile/features/console/files/webview/host.ts": 1066,
     "apps/mobile/features/console/panes/BrowsePane.tsx": 2097,
     "apps/mobile/features/console/plugins/runtime.ts": 1123,
