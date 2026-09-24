@@ -114,7 +114,7 @@ function occurrences(haystack: string, needle: string): number[] {
   return found;
 }
 
-const MOBILE_BROWSER = "../../mobile/features/console/files/browser.ts";
+const MOBILE_BROWSER = "../../mobile/features/console/files/browser/errors.ts";
 
 /**
  * The allow-list, read out of the console rather than restated here.
