@@ -39,7 +39,8 @@ export type ButtonVariant =
   | "danger"
   | "decision"
   | "dialog"
-  | "dialogPrimary";
+  | "dialogPrimary"
+  | "dialogDanger";
 
 const radiusFor: Record<ButtonVariant, number> = {
   white: radii.cta,
@@ -50,6 +51,7 @@ const radiusFor: Record<ButtonVariant, number> = {
   decision: radii.cta,
   dialog: radii.lg,
   dialogPrimary: radii.lg,
+  dialogDanger: radii.lg,
 };
 
 const labelVariant: Record<ButtonVariant, TextVariant> = {
@@ -61,6 +63,7 @@ const labelVariant: Record<ButtonVariant, TextVariant> = {
   decision: "cta",
   dialog: "mini",
   dialogPrimary: "mini",
+  dialogDanger: "mini",
 };
 
 export interface ButtonProps {
@@ -130,7 +133,7 @@ export function Button({
         style={[
           variant === "danger" && styles.dangerLabel,
           variant === "decision" && styles.decisionLabel,
-          variant === "dialogPrimary" && styles.dialogPrimaryLabel,
+          (variant === "dialogPrimary" || variant === "dialogDanger") && styles.dialogPrimaryLabel,
           variant === "ghost" && hovered && styles.ghostLabelHover,
         ]}
       >
@@ -284,6 +287,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.white,
   },
 
+  /**
+   * `dialogDanger` — the default action of a confirmation that destroys
+   * something: `dialogPrimary`'s box, filled `crit`. The pair rule holds — it
+   * sits beside `dialog` at the same size — and the fill, not the size, says
+   * this one cannot be undone.
+   */
+  dialogDanger: {
+    ...DIALOG_ACTION,
+    borderColor: colors.crit,
+    backgroundColor: colors.crit,
+  },
+
   dangerLabel: { color: colors.critText },
   dialogPrimaryLabel: { color: colors.ink },
   decisionLabel: { color: colors.text },
@@ -314,6 +329,7 @@ const makeHoverStyles = (colors: Colors) => StyleSheet.create({
   // not move, so the hero's `translateY` would read as a wobble.
   dialog: { borderColor: "rgba(255,255,255,.26)" },
   dialogPrimary: { opacity: 0.9 },
+  dialogDanger: { opacity: 0.9 },
 });
 
 /**
