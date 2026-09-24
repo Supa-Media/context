@@ -1,3 +1,5 @@
+import { textFacts } from "./facts";
+import { followHelpers } from "./helpers";
 import { CREDENTIAL_BARRIERS, CREDENTIAL_HTTP_ROUTES } from "./pins";
 import {
   type AnalyzedModule,
@@ -5,8 +7,6 @@ import {
   CONVEX_REFERENCE,
   DECRYPT_CALL,
   exportBlocks,
-  RUN_CALL,
-  SCHEDULE_CALL,
   type Violation,
   withoutImports,
 } from "./source";
@@ -20,8 +20,13 @@ import {
 export function analyze(modules: AnalyzedModule[]): {
   violations: Violation[];
   decryptCapable: Set<string>;
+  /** Registered function → the registered functions it calls. */
+  edges: Map<string, string[]>;
+  /** Registered function → the internal functions it only schedules. */
+  schedules: Map<string, string[]>;
 } {
   const violations: Violation[] = [];
+  const schedules = new Map<string, string[]>();
   const decryptCapable = new Set<string>();
   const edges = new Map<string, string[]>();
   const classifications = new Map<string, Classification>();
@@ -32,6 +37,7 @@ export function analyze(modules: AnalyzedModule[]): {
       knownNodes.add(`${module.reference}.${name}`);
     }
   }
+  const follower = followHelpers(modules, knownNodes);
 
   for (const module of modules) {
     const { preamble, blocks } = exportBlocks(module.source);
@@ -99,12 +105,10 @@ export function analyze(modules: AnalyzedModule[]): {
       // behind an indirect export makes the analysis *more* suspicious of it,
       // not blind to it.
       const body = blocks.get(name) ?? module.source;
-      if (moduleWideTaintFromHelpers || DECRYPT_CALL.test(body)) {
-        decryptCapable.add(node);
-      }
-
-      let match: RegExpExecArray | null;
-
+      // What the export block itself says. `textFacts` is the one reading of
+      // a call, a schedule, a decrypt and an unfollowable `ctx.run…`, shared
+      // with the helper follower so a helper is held to the same rules.
+      //
       // Scheduling is not calling, and the difference is the whole reason the
       // connect flow can exist. `ctx.runQuery/runMutation/runAction` awaits a
       // value and hands it to the caller, so a public function that runs a
@@ -133,47 +137,27 @@ export function analyze(modules: AnalyzedModule[]): {
       // rule can; `__tests__/provisioning.test.ts` asserts behaviourally that
       // the credential appears in no recorded error, audit event, or return
       // value, and the public return-validator check below is the second net.
-      const scheduledSpans: [number, number][] = [];
-      SCHEDULE_CALL.lastIndex = 0;
-      while ((match = SCHEDULE_CALL.exec(body)) !== null) {
-        const argument = match[1];
-        const start = match.index + match[0].length - argument.length;
-        scheduledSpans.push([start, start + argument.length]);
-        if (!/^internal\./.test(argument)) {
-          violations.push({
-            node,
-            reason: `schedules ${argument || "<unparsed>"}, which is not a statically resolvable internal function reference — a scheduled target must be nameable, or the credential-reachability graph cannot see what was queued`,
-          });
-        }
-      }
-      const isScheduledReference = (index: number) =>
-        scheduledSpans.some(([start, end]) => index >= start && index < end);
+      const own = textFacts(body, knownNodes);
 
-      const targets: string[] = [];
-      CONVEX_REFERENCE.lastIndex = 0;
-      while ((match = CONVEX_REFERENCE.exec(body)) !== null) {
-        const target = match[1].slice(1);
-        if (!knownNodes.has(target)) continue;
-        if (isScheduledReference(match.index)) continue;
-        targets.push(target);
-      }
-      edges.set(node, [...targets, ...preambleTargets]);
+      // …and everything it reaches through the names it uses: helpers in
+      // other modules, followed through their imports, and registered
+      // functions it calls directly. See `helpers.ts`.
+      const reached = follower.reach(module, name);
 
-      // Every `ctx.runX` must name a statically resolvable function, or the
-      // graph above is a fiction.
-      RUN_CALL.lastIndex = 0;
-      while ((match = RUN_CALL.exec(body)) !== null) {
-        const argument = match[1];
-        if (!/^(internal|api)\./.test(argument)) {
-          violations.push({
-            node,
-            reason: `calls ctx.run…(${argument || "<unparsed>"}), which cannot be resolved statically — the credential-reachability graph cannot see through it`,
-          });
-        }
+      if (moduleWideTaintFromHelpers || own.decrypt || reached.decrypt) {
+        decryptCapable.add(node);
       }
+      edges.set(node, [...own.calls, ...preambleTargets, ...reached.calls]);
+      schedules.set(node, [...new Set([...own.schedules, ...reached.schedules])]);
+
+      // Every `ctx.runX` must name a statically resolvable function, every
+      // scheduled target must be a nameable internal one, and every name the
+      // follower could not resolve fails closed — or the graph is a fiction.
+      const problems = new Set(own.problems);
+      for (const problem of reached.problems) problems.add(problem);
+      for (const reason of problems) violations.push({ node, reason });
     }
   }
-
   // Propagate capability backwards until nothing new is tainted.
   let changed = true;
   while (changed) {
@@ -218,7 +202,7 @@ export function analyze(modules: AnalyzedModule[]): {
     }
   }
 
-  return { violations, decryptCapable };
+  return { violations, decryptCapable, edges, schedules };
 }
 
 export function findViolations(modules: AnalyzedModule[]): Violation[] {
