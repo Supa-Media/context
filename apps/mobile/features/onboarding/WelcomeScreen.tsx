@@ -15,8 +15,11 @@ import { NameStep } from "./steps/NameStep";
 import { StorageStep } from "./steps/StorageStep";
 import { VaultImportStep } from "./steps/VaultImportStep";
 import { StructureStep } from "./steps/StructureStep";
-import { AgentsStep } from "./steps/AgentsStep";
 import { BootstrapStep } from "./redesign/BootstrapStep";
+import { ForkStep } from "./redesign/ForkStep";
+import { DryRunStep } from "./redesign/DryRunStep";
+import { ConnectionsContainer, ToolsLiveContainer } from "./steps/ToolsSteps";
+import { INVITE_ROUTE } from "../auth/redirect";
 import { DoneStep } from "./steps/DoneStep";
 
 /**
@@ -73,6 +76,7 @@ export function WelcomeScreen() {
           const slug = controller.claimed?.slug;
           router.replace(slug === undefined ? "/console" : browseHref(slug));
         }}
+        onOpenInvitations={() => router.push(INVITE_ROUTE)}
       />
     </WelcomeChrome>
   );
@@ -159,21 +163,42 @@ export function WelcomeChrome({
 function StepBody({
   controller,
   onOpenConsole,
+  onOpenInvitations,
 }: {
   controller: ReturnType<typeof useOnboarding>;
   onOpenConsole: () => void;
+  onOpenInvitations: () => void;
 }) {
+  const workspaceId = controller.claimed?.workspaceId ?? null;
   switch (controller.step) {
     case "name":
       return <NameStep controller={controller} />;
+    case "fork":
+      return (
+        <ForkStep
+          offer={controller.forkOffer}
+          starting={controller.startingFree}
+          failure={controller.forkFailure}
+          onPickManaged={controller.pickManaged}
+          onPickBYO={controller.pickOwn}
+          onOpenInvitations={onOpenInvitations}
+        />
+      );
     case "storage":
       return <StorageStep controller={controller} />;
+    case "dryrun":
+      // The binding is already `connected` — that is what moved the flow here —
+      // so the report has its facts; `null` is only ever a render between
+      // subscription ticks, and continuing past it loses nothing.
+      return controller.dryRun === null ? null : (
+        <DryRunStep {...controller.dryRun} onContinue={controller.finishDryRun} />
+      );
     case "vault":
       return <VaultImportStep controller={controller} />;
     case "structure":
       return <StructureStep controller={controller} />;
     case "agents":
-      return <AgentsStep controller={controller} onContinue={controller.finishAgents} />;
+      return <ConnectionsContainer workspaceId={workspaceId} onContinue={controller.finishAgents} />;
     case "bootstrap":
       /*
         The second half of "point your AI at it". `AgentsStep` handed over the
@@ -190,6 +215,8 @@ function StepBody({
           onSkip={controller.finishBootstrap}
         />
       );
+    case "live":
+      return <ToolsLiveContainer workspaceId={workspaceId} onContinue={controller.finishLive} />;
     case "done":
       return <DoneStep controller={controller} onOpenConsole={onOpenConsole} />;
   }

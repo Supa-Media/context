@@ -90,6 +90,7 @@ export function StorageStepBody({
         state={{
           paid: managed.paid,
           stagingFreeStorage: managed.status?.stagingFreeStorage,
+          free: managed.startedFree,
           storageReady,
           slow: managed.slow,
           failure: managed.provisionFailure,

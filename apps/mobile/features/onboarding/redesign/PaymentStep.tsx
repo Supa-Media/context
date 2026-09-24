@@ -18,14 +18,19 @@ export function PaymentStep({
   used,
   cap,
   monthly,
+  ceiling,
   onLevelUp,
   onBringOwn,
 }: {
   used: number;
   cap: number;
   monthly: string;
-  onLevelUp: () => void;
-  onBringOwn: () => void;
+  /** Premium's storage ceiling as a person reads it, e.g. "50 GB". */
+  ceiling: string;
+  /** Absent for somebody who cannot change what the context pays for. */
+  onLevelUp?: () => void;
+  /** Absent where there is nowhere to connect a bucket from. */
+  onBringOwn?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const pct = Math.min(100, Math.round((used / cap) * 100));
@@ -46,9 +51,9 @@ export function PaymentStep({
           <Text style={styles.metricDim}> / {cap.toLocaleString()} notes</Text>
         </Text>
         <Text variant="foot" style={styles.metricHint}>
-          You've reached the free-tier cap. Nothing has been deleted, and reads
-          keep working. New writes pause until you level up or point at your
-          own bucket.
+          You've reached the free-tier cap. Nothing has been deleted: reading,
+          editing, moving and downloading what you have all keep working. New
+          notes pause until you level up or bring a bucket of your own.
         </Text>
       </View>
 
@@ -59,13 +64,14 @@ export function PaymentStep({
           </Text>
           <Text style={styles.cardTitle}>Managed bucket</Text>
           <Text variant="rowSub" style={styles.cardBody}>
-            Unlimited notes and up to 25&nbsp;GB. Same bucket, same URL,
-            everything you've written stays where it is.
+            {`No note cap, up to ${ceiling}. Same bucket, same endpoint — everything you've written stays where it is.`}
           </Text>
           <Text style={styles.price}>{monthly}</Text>
-          <View style={styles.cardAction}>
-            <Button label="Level up" variant="white" onPress={onLevelUp} />
-          </View>
+          {onLevelUp ? (
+            <View style={styles.cardAction}>
+              <Button label="Level up" variant="white" onPress={onLevelUp} testID="payment-level-up" />
+            </View>
+          ) : null}
         </View>
         <View style={[styles.card, styles.cardSecondary]}>
           <Text variant="eyebrow" style={styles.eyebrow}>
@@ -73,18 +79,20 @@ export function PaymentStep({
           </Text>
           <Text style={styles.cardTitle}>Point at your bucket</Text>
           <Text variant="rowSub" style={styles.cardBody}>
-            Cloudflare R2, Amazon S3, or anything S3-compatible. We export
-            everything you've written into it, in one call. Free.
+            Cloudflare R2, Amazon S3, or anything S3-compatible, from Settings ›
+            Storage. Any folder you have here downloads as a .zip, free, today
+            and after you leave.
           </Text>
-          <View style={styles.cardAction}>
-            <Button label="Bring my own bucket" variant="ghost" onPress={onBringOwn} />
-          </View>
+          {onBringOwn ? (
+            <View style={styles.cardAction}>
+              <Button label="Bring my own bucket" variant="ghost" onPress={onBringOwn} testID="payment-bring-own" />
+            </View>
+          ) : null}
         </View>
       </View>
 
       <Text variant="foot" style={styles.exit}>
-        <Text style={styles.exitBold}>You can take everything with you, any time — including after you cancel.</Text>{" "}
-        Non-negotiable #1, in code.
+        <Text style={styles.exitBold}>You can take everything with you, any time — including after you cancel.</Text>
       </Text>
     </View>
   );

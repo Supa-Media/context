@@ -27,7 +27,8 @@ import { BootstrapStep } from "./BootstrapStep";
 import { BOOTSTRAP_PROMPT } from "../agents";
 import { ToolsLiveStep, type LiveEvent } from "./ToolsLiveStep";
 import { PaymentStep } from "./PaymentStep";
-import { DryRunStep, type DryRunFinding } from "./DryRunStep";
+import { DryRunStep } from "./DryRunStep";
+import { dryRunReport } from "../dryRun";
 
 export type PreviewKey =
   | "fork"
@@ -49,19 +50,20 @@ const MOCK_CLIENTS: ClientRow[] = [
 ];
 
 const MOCK_EVENTS: LiveEvent[] = [
-  { id: "1", when: "09:14:02", client: "Claude Desktop", action: "orient" },
-  { id: "2", when: "09:14:04", client: "Claude Desktop", action: "list_folder", target: "areas" },
-  { id: "3", when: "09:14:11", client: "Claude Desktop", action: "save_context", target: "areas/about-me.md" },
-  { id: "4", when: "09:14:18", client: "Claude Desktop", action: "save_context", target: "projects/context-lc.md" },
+  { id: "1", when: "09:14:02", client: "Claude", action: "read", target: "index.md" },
+  { id: "2", when: "09:14:11", client: "Claude", action: "wrote", target: "2-areas/about-me.md" },
+  { id: "3", when: "09:14:18", client: "Claude", action: "wrote", target: "1-projects/context-lc.md" },
 ];
 
-const MOCK_FINDINGS: DryRunFinding[] = [
-  { key: "objects", label: "Objects", value: "0 — bucket is empty", tone: "ok" },
-  { key: "vault", label: "Looks like Obsidian?", value: "No — no .obsidian folder", tone: "ok" },
-  { key: "manifest", label: "Existing context here?", value: "No — no .context/ prefix", tone: "ok" },
-  { key: "write-check", label: "Write test", value: "Skipped — read-only key", tone: "warn" },
-  { key: "conditional", label: "Conditional writes", value: "Supported (R2)", tone: "ok" },
-];
+/** A fake bucket, through the real report, so the preview cannot drift from it. */
+const MOCK_REPORT = dryRunReport({
+  provider: "r2",
+  bucket: "notes-live",
+  region: "auto",
+  capabilities: { conditionalWrite: true },
+  scaffoldReason: "empty",
+  noteCount: 0,
+});
 
 const noop = () => {};
 
@@ -83,7 +85,7 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     key: "fork",
     title: "A-04 · Fork",
     Component: ForkStep as ComponentType<Record<string, unknown>>,
-    props: { onPickManaged: noop, onPickBYO: noop, onOpenInvitations: noop },
+    props: { offer: { kind: "free", cap: 1000 }, onPickManaged: noop, onPickBYO: noop, onOpenInvitations: noop },
   },
   {
     key: "connections",
@@ -125,21 +127,13 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     key: "payment",
     title: "A-12 · Payment nudge",
     Component: PaymentStep as ComponentType<Record<string, unknown>>,
-    props: { used: 1000, cap: 1000, monthly: "$5 / mo", onLevelUp: noop, onBringOwn: noop },
+    props: { used: 1000, cap: 1000, monthly: "$5 / mo", ceiling: "50 GB", onLevelUp: noop, onBringOwn: noop },
   },
   {
     key: "dry-run",
     title: "B1-02 · Dry-run report",
     Component: DryRunStep as ComponentType<Record<string, unknown>>,
-    props: {
-      bucket: "notes-live",
-      region: "auto (R2)",
-      findings: MOCK_FINDINGS,
-      looksReady: true,
-      onContinue: noop,
-      onShowFolder: noop,
-      onBack: noop,
-    },
+    props: { ...MOCK_REPORT, onContinue: noop },
   },
 ];
 

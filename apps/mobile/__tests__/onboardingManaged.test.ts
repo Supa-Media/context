@@ -95,6 +95,10 @@ function offer(over: Partial<ManagedOffer> = {}): ManagedOffer {
     toggle: () => {},
     proceed: () => {},
     retry: () => {},
+    free: null,
+    startedFree: false,
+    startFree: () => {},
+    startingFree: false,
     ...over,
   };
 }

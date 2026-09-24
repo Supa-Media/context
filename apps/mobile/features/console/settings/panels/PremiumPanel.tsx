@@ -42,6 +42,8 @@ import {
 } from "./premium";
 import { usePremium } from "./usePremium";
 import { useArming } from "../../useArming";
+import { FreeTierNudge } from "./FreeTierNudge";
+
 
 /**
  * Premium, in a context's settings.
@@ -89,10 +91,13 @@ export function PremiumPanel({
    * which is exactly what happened when it read the parameter itself.
    */
   returned = null,
+  onOpenStorage,
 }: {
   data: ConsoleData;
   section?: string;
   returned?: CheckoutOutcome | null;
+  /** Opens Settings › Storage, where the overlay has one. */
+  onOpenStorage?: () => void;
 }) {
   /*
     `useConvex` returns `undefined` rather than throwing when there is no
@@ -117,6 +122,7 @@ export function PremiumPanel({
         view={data.demo ? demoPremiumView() : unreadablePremiumView()}
         section={section}
         returned={returned}
+        onOpenStorage={onOpenStorage}
       />
     );
   }
@@ -125,6 +131,7 @@ export function PremiumPanel({
       workspaceId={workspaceId}
       section={section}
       returned={returned}
+      onOpenStorage={onOpenStorage}
     />
   );
 }
@@ -134,13 +141,15 @@ function PremiumLive({
   workspaceId,
   section,
   returned,
+  onOpenStorage,
 }: {
   workspaceId: string;
   section?: string;
   returned: CheckoutOutcome | null;
+  onOpenStorage?: () => void;
 }) {
   const view = usePremium({ workspaceId: workspaceId as Id<"workspaces"> });
-  return <PremiumBody view={view} section={section} returned={returned} />;
+  return <PremiumBody view={view} section={section} returned={returned} onOpenStorage={onOpenStorage} />;
 }
 
 /**
@@ -156,8 +165,11 @@ export function PremiumBody({
   returned = null,
   /** Test seam: the settling copy's later wording, without waiting for it. */
   slowAfter = CHECKOUT_SETTLING_SLOW_MS,
+  onOpenStorage,
 }: {
   view: PremiumView;
+  /** Opens Settings › Storage — the free tier's "bring your own" way out. */
+  onOpenStorage?: () => void;
   section?: string;
   /** What the return from Stripe said, or `null` for an ordinary visit. */
   returned?: CheckoutOutcome | null;
@@ -238,6 +250,12 @@ export function PremiumBody({
         than per person, so upgrading this one leaves every other context you
         can reach exactly as it is.
       </Text>
+
+      <FreeTierNudge
+        status={status}
+        onLevelUp={view.upgrade === undefined ? undefined : () => run(view.upgrade)}
+        onBringOwn={onOpenStorage}
+      />
 
       {/*
         A return that is still settling is drawn *as* the plan, not above it.

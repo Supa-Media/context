@@ -335,7 +335,12 @@ export function SettingsPane({
         Downloading everything is free on either plan and still works after
         you cancel.
       </PanelHead>
-      <PremiumPanel data={data} section={section} returned={returned} />
+      <PremiumPanel
+        data={data}
+        section={section}
+        returned={returned}
+        onOpenStorage={onSelect === undefined ? undefined : () => onSelect("storage")}
+      />
       </>
       ) : null}
 

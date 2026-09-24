@@ -84,6 +84,19 @@ export interface PremiumStatus {
   managedMigrationObjectsTotal?: number;
   managedMigrationObjectsProcessed?: number;
   managedMigrationPhase?: "count" | "copy" | "verify_source" | "verify_target";
+  /**
+   * The free managed tier. Optional for the reason `managedStorageAvailable`
+   * is: a control plane older than the tier answers without them, and absent
+   * reads as "not offered", which never offers what cannot be delivered.
+   */
+  freeManagedAvailable?: boolean;
+  /** This owner may start it on this context. Always false for anyone else. */
+  freeManagedEligible?: boolean;
+  freeManagedNoteCap?: number;
+  /** This context started on the free tier. */
+  freeManaged?: boolean;
+  /** The note cap in force on this context, absent where there is none. */
+  noteCap?: number;
 }
 
 /** Where an opened Checkout or portal attempt has got to. */
