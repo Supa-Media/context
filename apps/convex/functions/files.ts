@@ -278,6 +278,10 @@ import {
   importVaultBatchHandler,
   importVaultJobBatchHandler,
 } from "./lib/filesFns/vaultImportBatches";
+import {
+  runStorageLayoutMigrationHandler,
+  updateStorageLayoutHandler,
+} from "./lib/filesFns/storageLayout";
 export { scopeForRole, resolveFileAccess, callerId } from "./lib/filesFns/access";
 export { executeOperation } from "./lib/filesFns/executeOperation";
 
@@ -972,46 +976,7 @@ export const runStorageLayoutMigration = internalAction({
     actorUserId: v.id("users"),
   },
   returns: storageMigrationResultValidator,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => {
-    const verification = await ctx.runAction(
-      internal.functions.provisioning.verifyStorageBinding,
-      args,
-    );
-    if (
-      !verification.verified ||
-      verification.conditionalCreate !== true ||
-      verification.conditionalWrite !== true
-    ) {
-      /*
-        A refusal is an answer, and it is the one most worth remembering: a
-        bucket that cannot do conflict-safe writes will never run this, so
-        offering it again is offering something that cannot happen. Recorded
-        here rather than in `runFileOperation` because this arm never reaches
-        it — the operation is not attempted at all.
-      */
-      await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
-        workspaceId: args.workspaceId,
-        state: "unsupported",
-      });
-      return {
-        kind: "storageMigrated",
-        state: "unsupported",
-        objectsCopied: 0,
-        objectsVerified: 0,
-        objectsDeleted: 0,
-        conflicts: 0,
-        error: "migration requires conflict-safe storage writes",
-      };
-    }
-    return (await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope: "private",
-      operation: { kind: "migrateStorage", cleanup: false },
-    })) as Extract<OperationResult, { kind: "storageMigrated" }>;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => await runStorageLayoutMigrationHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -2636,43 +2601,7 @@ export const resetPrivacy = action({
 export const updateStorageLayout = action({
   args: { workspaceId: v.id("workspaces") },
   returns: storageMigrationResultValidator,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => {
-    const actorUserId = await callerId(ctx);
-    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
-      actorUserId,
-      workspaceId: args.workspaceId,
-      minimum: "owner",
-    });
-    await ctx.scheduler.runAfter(0, internal.functions.files.runStorageLayoutMigration, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-    });
-    const result: Extract<OperationResult, { kind: "storageMigrated" }> = {
-      kind: "storageMigrated",
-      state: "copying",
-      objectsCopied: 0,
-      objectsVerified: 0,
-      objectsDeleted: 0,
-      conflicts: 0,
-    };
-
-    await ctx.runMutation(internal.functions.audit.recordEvent, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      action: "storage.layout_migration_requested",
-      paths: [],
-      details: {
-        state: result.state,
-        objectsCopied: result.objectsCopied,
-        objectsVerified: result.objectsVerified,
-        conflicts: result.conflicts,
-      },
-    });
-    return result;
-  },
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => await updateStorageLayoutHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */
