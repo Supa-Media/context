@@ -92,6 +92,9 @@ export async function gatewayBindingHandler(
     // which is every context that has never rotated (all of them, before
     // this shipped) and every one whose last rotation finished.
     rotation: opened.rotation,
+    // Fifth, same terms: absent for every context not on the free managed
+    // tier. The gateway refuses a new note past it — `store/noteCap.js`.
+    noteCap: opened.noteCap,
   });
 }
 

@@ -36,6 +36,7 @@ import { runTreeHintChecks } from "./treeHints.test.mjs";
 import { runForwardingChecks } from "./forwarding.test.mjs";
 import { runPresenceChecks } from "./presence.test.mjs";
 import { runAgentActivityChecks } from "./agentActivity.test.mjs";
+import { runNoteCapGatewayChecks } from "./noteCapGateway.test.mjs";
 import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
@@ -330,6 +331,7 @@ await suite("runChatContributionStoreChecks", () => runChatContributionStoreChec
 await suite("runPresenceChecks", () => runPresenceChecks(check));
 await suite("runCollaborationChecks", () => runCollaborationChecks(check));
 await suite("runAgentActivityChecks", () => runAgentActivityChecks(check));
+await suite("runNoteCapGatewayChecks", () => runNoteCapGatewayChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
 
 console.log(getFailures() ? `\n${getFailures()} FAILURES` : "\nALL PASS");

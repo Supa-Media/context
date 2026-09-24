@@ -24,6 +24,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { createD1Client } from "../../../../mcp/src/search/d1/client.js";
 import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
+import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
 import { clearanceOf } from "../clearance";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET, messageFor } from "../d1";
@@ -99,6 +100,9 @@ async function announceTreeChange(
     // See above: a hint is never a failed change.
   }
 }
+
+/** Operations that rearrange notes inside one context: never refused by the note cap. */
+const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
 
 export async function runFileOperationHandler(
   ctx: ActionCtx,
@@ -327,6 +331,13 @@ export async function runFileOperationHandler(
     });
   }
 
+  // The free managed tier's cap, the same number `/gateway/binding` sends, so
+  // the console and an AI client are refused at the same count. A failed read
+  // is no cap: a billing lookup must never cost somebody their notes.
+  const noteCap = await ctx
+    .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
+    .catch(() => null);
+
   // A plaintext secret is in scope from here to the end of this function. It
   // is used to construct one store and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
@@ -356,6 +367,7 @@ export async function runFileOperationHandler(
     // now, for every caller and every backend.
     store = storeForBinding(credential, undefined, {
       fetchImpl: timeoutFetch,
+      noteCap,
     }) as unknown as FileStore;
   } catch {
     // The constructor's message can quote the endpoint the customer typed.
@@ -391,7 +403,11 @@ export async function runFileOperationHandler(
   const treeChange = treeChangeOf(args.operation as FileOperation);
   const privacyBefore =
     treeChange?.narrows === true ? await loadPrivacyState(store).catch(() => null) : null;
-  const result = await executeOperation(
+  // A move inside this context adds no note, so it runs in the cap's
+  // relocation window (`store/noteCap.js`). Copying, duplicating, restoring
+  // from the trash and a move in from another context all add one, and stay
+  // capped.
+  const operate = () => executeOperation(
     store,
     clearanceOf(args.scope, args.grantedNames ?? []),
     args.operation as FileOperation,
@@ -410,6 +426,9 @@ export async function runFileOperationHandler(
       dueNotification = material;
     },
   );
+  const result = RELOCATING_OPERATIONS.has(args.operation.kind)
+    ? await asRelocation(store, operate)
+    : await operate();
 
   /*
     TELLING SOMEBODY IS SCHEDULED AFTER THE WRITE, NEVER AWAITED INSIDE IT,

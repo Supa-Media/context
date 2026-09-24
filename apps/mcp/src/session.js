@@ -753,8 +753,9 @@ export async function storeForSession(session, env, controlPlane) {
   let searchIndex;
   let encryptionKey;
   let rotation;
+  let noteCap;
   try {
-    ({ binding, searchIndex, encryptionKey, rotation } = await controlPlane.getStorageBinding(
+    ({ binding, searchIndex, encryptionKey, rotation, noteCap } = await controlPlane.getStorageBinding(
       session.accessToken,
       session.workspaceId
     ));
@@ -791,7 +792,7 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  const store = storeForBinding(binding, env);
+  const store = storeForBinding(binding, env, { noteCap });
   // The backend's name, for the search trace and nothing else. Latency is a
   // property of which backend this is — a native R2 binding and an S3 endpoint
   // reached over HTTP are not the same round trip — so a timing that does not

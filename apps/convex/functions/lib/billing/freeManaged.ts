@@ -4,8 +4,8 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { requireWorkspaceRole } from "../workspaceAuth";
-import { FREE_MANAGED_PER_ACCOUNT, planIsPaying } from "../premium";
-import { deploymentOffersFreeManaged, planFor, statusOf } from "./plan";
+import { FREE_MANAGED_PER_ACCOUNT, noteCapFor, planIsPaying } from "../premium";
+import { bindingIsManaged, deploymentOffersFreeManaged, planFor, statusOf } from "./plan";
 
 /**
  * The free managed tier: a bucket we run, no card, a note cap.
@@ -140,4 +140,21 @@ export async function startFreeManagedHandler(
     action: "billing.free_managed_started",
   });
   return { started: true };
+}
+
+/**
+ * The note cap in force on this workspace, or `null` for none — what the
+ * gateway and the console's file operations are handed beside the binding.
+ */
+export async function noteCapForWorkspace(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<number | null> {
+  const plan = await planFor(ctx, workspaceId);
+  if (plan?.freeManaged !== true) return null;
+  const binding = await ctx.db
+    .query("storageBindings")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return noteCapFor(plan, bindingIsManaged(binding, workspaceId));
 }

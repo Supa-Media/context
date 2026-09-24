@@ -198,7 +198,8 @@ function controlPlaneStub(options: StubOptions = {}): StubbedControlPlane {
     async getBinding() {
       calls.push("binding");
       if (options.bindingThrows) throw new Error("control plane down");
-      return options.binding === undefined ? BINDING : options.binding;
+      const binding = options.binding === undefined ? BINDING : options.binding;
+      return binding === null ? null : { binding, noteCap: null };
     },
     async record() {
       calls.push("record");

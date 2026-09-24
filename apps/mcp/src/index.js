@@ -108,6 +108,7 @@ import { handleGatewayJobMessage } from "./moves/queueConsumer.js";
 import { processPendingGranolaEvents } from "./ingestion/granolaWebhook.js";
 import { route } from "./http/route.js";
 import { syncCalendar } from "./calendar/sync.js";
+import { NoteCapReached } from "./store/noteCap.js";
 
 export { presenceClientKey } from "./live/relayAuthorization.js";
 export { EXISTENCE_MASKED_TOOLS, toolDefinitions } from "./tools/advertised.js";
@@ -168,6 +169,11 @@ export default {
     try {
       return await route(request, env, ctx);
     } catch (error) {
+      // A create refused at the free tier's note cap is an answer, not a
+      // fault: our own sentence and a fixed code, no key and no content.
+      if (error instanceof NoteCapReached) {
+        return json({ error: "note_cap_reached", cap: error.cap, message: error.message }, 403);
+      }
       try {
         console.error(
           "unhandled",

@@ -448,7 +448,15 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
     internal.functions.ingestionGateway.openIngestionBinding,
     { hashedTicket: await hashToken(ticket) },
   );
-  return json({ binding });
+  if (binding === null) return json({ binding });
+  // The free managed tier's note cap, a sibling as on `/gateway/binding`, for
+  // the workspace read off the ticket's own row — never anything the caller
+  // sent. Absent for every other context, and absent on a failed read: a
+  // billing lookup must not cost somebody their mail.
+  const noteCap = await ctx
+    .runQuery(internal.functions.billing.noteCap, { workspaceId: binding.workspaceId })
+    .catch(() => null);
+  return json({ binding, ...(noteCap === null ? {} : { noteCap }) });
 });
 
 /* -------------------------------------------------------------------------- */

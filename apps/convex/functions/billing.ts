@@ -81,7 +81,7 @@ import {
   sessionForActionReturns,
 } from "./lib/billing/sessions";
 import { billingStatusReturns, readBillingStatus } from "./lib/billing/status";
-import { startFreeManagedHandler } from "./lib/billing/freeManaged";
+import { noteCapForWorkspace, startFreeManagedHandler } from "./lib/billing/freeManaged";
 
 /**
  * What the Premium section draws.
@@ -183,6 +183,17 @@ export const startFreeManaged = mutation({
   returns: v.object({ started: v.literal(true) }),
   handler: async (ctx, args) =>
     await startFreeManagedHandler(ctx, await requireUserId(ctx), args.workspaceId),
+});
+
+/**
+ * The note cap in force on a workspace, or `null`. INTERNAL: read by
+ * `/gateway/binding`, the ingestion route and the console's file operations,
+ * so every path that creates a note is handed the same number.
+ */
+export const noteCap = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.number(), v.null()),
+  handler: async (ctx, args) => await noteCapForWorkspace(ctx, args.workspaceId),
 });
 
 /**
