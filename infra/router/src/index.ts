@@ -11,14 +11,16 @@
 import { previewForNote,
   previewForShortLink, previewForShare, renderPreviewHtml,
   SHORT_CARD_PREFIX } from "./preview";
-import { route, type Upstream } from "./route";
+import { route, type RouteDecision, type Upstream } from "./route";
+import { isPlatformHost } from "./site";
+import { siteResponse } from "./siteWorker";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
 // a crawler is guaranteed to fetch should not depend on an upstream that might
 // be mid-deploy. See og-card.source.html for how the image is produced.
 import ogCard from "./og-card.png";
 
-interface Env {
+export interface Env {
   /** EAS Hosting origin for the exported Expo web bundle. */
   EXPO_ORIGIN?: string;
   /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
@@ -64,11 +66,23 @@ const VAR_NAME: Record<Upstream, string> = {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const decision = route(
-      new URL(request.url),
-      request.headers.get("User-Agent"),
-    );
+    const url = new URL(request.url);
+    // A customer's domain has a routing table of its own, and it is closed:
+    // see `site.ts`. Decided by the hostname the request arrived at, which is
+    // the one thing about it a client cannot choose for another host.
+    if (!isPlatformHost(url.hostname)) {
+      return await siteResponse(request, url, env, ctx, respond);
+    }
+    return await respond(route(url, request.headers.get("User-Agent")), request, env, ctx);
+  },
+};
 
+async function respond(
+  decision: RouteDecision,
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
     switch (decision.kind) {
       case "preview":
         return new Response(renderPreviewHtml(decision.meta), {
@@ -227,8 +241,7 @@ export default {
         return fetch(proxyRequest);
       }
     }
-  },
-};
+}
 
 /**
  * How long the control plane gets to answer before the card falls back.
