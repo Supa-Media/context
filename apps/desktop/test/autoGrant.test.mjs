@@ -249,38 +249,40 @@ export async function runAutoGrantChecks(check) {
 
   // --- the wiring that cannot be imported here -----------------------------
 
-  const index = readFileSync(
-    fileURLToPath(new URL("../src/main/index.ts", import.meta.url)),
+  // The connect and its approval moved out of `main/index.ts` into their own
+  // module; every check below is about that flow and nothing else.
+  const connectFlow = readFileSync(
+    fileURLToPath(new URL("../src/main/connectFlow.ts", import.meta.url)),
     "utf8",
   );
   check(
     "THE FALLBACK CHAIN IS THREE STEPS, IN THE ORDER THAT ASKS FOR THE LEAST",
     /const target = approvalTargetFor\(href\);\s*if \(target !== null && \(await askConsoleToApprove\(href, target\)\)\) return;\s*if \(await approveInConsoleWindow\(href\)\) return;\s*await openInSystemBrowser\(href\);/.test(
-      index,
+      connectFlow,
     ),
   );
   check(
     "the handover closes with the loopback allowance, on every path out of a connect",
-    /function endApproval\(\): void \{[\s\S]{0,600}handover\.end\(\);/.test(index),
+    /function endApproval\(\): void \{[\s\S]{0,600}handover\.end\(\);/.test(connectFlow),
   );
   check(
     "...and the page is told the approval is over at the same moment",
-    /handover\.end\(\);\s*consoleBridge\?\.emitPendingApproval\(null\);/.test(index),
+    /handover\.end\(\);\s*ctx\.consoleBridge\?\.emitPendingApproval\(null\);/.test(connectFlow),
   );
   check(
     "the page's answer is only ever about the request this machine parked",
-    /const pending = handover\.take\(result\.requestId\);\s*if \(pending === null\) return;/.test(index),
+    /const pending = ctx\.handover\.take\(result\.requestId\);\s*if \(pending === null\) return;/.test(connectFlow),
   );
   check(
     "A PAGE THAT NEVER ANSWERS FALLS BACK RATHER THAN WAITING OUT THE LISTENER",
-    /setTimeout\(\(\) => \{\s*const stale = handover\.take\(parked\);[\s\S]{0,320}fallBackToApproveScreen\(stale\.authorize\);/.test(
-      index,
+    /setTimeout\(\(\) => \{\s*const stale = ctx\.handover\.take\(parked\);[\s\S]{0,320}fallBackToApproveScreen\(stale\.authorize\);/.test(
+      connectFlow,
     ),
   );
   check(
     "the parked request is read only from the origin this window is pinned to",
-    /parkedRequestFrom\(\s*response\.headers\.get\("location"\) \?\? "",\s*consoleOrigin\(consoleAddress\),\s*\)/.test(
-      index,
+    /parkedRequestFrom\(\s*response\.headers\.get\("location"\) \?\? "",\s*consoleOrigin\(ctx\.consoleAddress\),\s*\)/.test(
+      connectFlow,
     ),
   );
 

@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { BRIDGE_CHANNELS, BRIDGE_CHANNEL_NAMES } from "@context/desktop-bridge";
 import { darwinMajorFrom, systemAudioCapability } from "../../src/core/shell/capabilities.ts";
 import { CHANNELS, COMMANDS } from "../../src/main/ipc.ts";
+import { readMainSource, readMainWiring } from "../mainWiring.mjs";
 import { installed, mainBridge, fakeWindow, contamination, HANDLED, CONNECTED, QUEUE } from "./fixtures.mjs";
 
 export async function runProducerCensusChecks(check) {
@@ -91,7 +92,9 @@ export async function runProducerCensusChecks(check) {
       file that owns the shell's wiring. Read as text because it imports
       Electron at the top level and this suite cannot load it.
     */
-    const wiring = readFileSync(new URL("../../src/main/index.ts", import.meta.url), "utf8");
+    // Every module `main/index.ts` was split into, since the calls are spread
+    // across them now. See `test/mainWiring.mjs`.
+    const wiring = readMainWiring();
     const uncalled = [...producers, "dispose"].filter(
       (name) => !new RegExp(`consoleBridge\\??\\.${name}\\(`).test(wiring),
     );
@@ -175,7 +178,8 @@ export async function runProducerCensusChecks(check) {
     throws outright if the channel is registered a second time.
   */
   {
-    const source = readFileSync(new URL("../../src/main/index.ts", import.meta.url), "utf8");
+    // The console window is opened, and closed, in `main/windowIpc.ts`.
+    const source = readMainSource("windowIpc.ts");
     const closed = source.match(/consoleWindow\.on\("closed",[\s\S]{0,800}?\n {4}\}\);/)?.[0] ?? "";
     check(
       "THE CONSOLE WINDOW CLOSING UNREGISTERS THE BRIDGE — no channel outlives the window it answers",

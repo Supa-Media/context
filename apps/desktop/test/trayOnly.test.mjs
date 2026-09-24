@@ -64,6 +64,7 @@ import { fakeTranscriber } from "../src/core/capture/transcriber.ts";
 import { emptyOutbox } from "../src/core/sync/outbox.ts";
 import { trayPresentation } from "../src/core/tray/presentation.ts";
 import { fakeClock } from "./fakes.mjs";
+import { readMainSource, readMainWiring } from "./mainWiring.mjs";
 
 const SOURCE = { kind: "zoom", app: "zoom.us" };
 
@@ -176,12 +177,18 @@ export async function runTrayOnlyChecks(check) {
 
   /* --- and the shell really does not build the windows -------------------- */
 
+  // `main/index.ts`'s wiring, split by subject: the windows are built in
+  // `services.ts`, raised and explained in `surfaces.ts`, and the tray is still
+  // built in `index.ts`. The closed-set sweep reads all of it.
   const source = readFileSync(new URL("../src/main/index.ts", import.meta.url), "utf8");
+  const services = readMainSource("services.ts");
+  const surfaces = readMainSource("surfaces.ts");
+  const wiring = readMainWiring();
 
   check(
     "IN CONSOLE MODE THE PANEL AND THE NOTEPAD ARE NOT CREATED AT ALL",
-    /const panel = RENDERER_UI \? createPanel\(RENDERER_DIR\) : null;/.test(source) &&
-      /const notepad = RENDERER_UI \? createNotepad\(RENDERER_DIR\) : null;/.test(source),
+    /const panel = RENDERER_UI \? createPanel\(RENDERER_DIR\) : null;/.test(services) &&
+      /const notepad = RENDERER_UI \? createNotepad\(RENDERER_DIR\) : null;/.test(services),
   );
   /*
     There is no check here that every *use* of `panel` is guarded, and that is
@@ -198,7 +205,7 @@ export async function runTrayOnlyChecks(check) {
       sets `consoleWindow` to `null`, so a menu-bar click that only raises an
       existing window is a click that does nothing for the rest of the run.
     */
-    const opener = source.match(/function openConsoleWindow\(\)[\s\S]{0,400}?\n {2}\}/)?.[0] ?? "";
+    const opener = surfaces.match(/function openConsoleWindow\(\)[\s\S]{0,400}?\n {2}\}/)?.[0] ?? "";
     check(
       "A CLOSED CONSOLE WINDOW IS OPENED AGAIN, so the red button is not a one-way door",
       opener.includes("openConsoleWindowIfAsked()") && opener.includes("showConsoleWindow()"),
@@ -226,7 +233,7 @@ export async function runTrayOnlyChecks(check) {
       passes an assembled string by excluding it, which is the shape of a guard
       that measures zero.
     */
-    const explained = source.match(/(?<!function )explain\([^)]*\);/g) ?? [];
+    const explained = wiring.match(/(?<!function )explain\([^)]*\);/g) ?? [];
     check(
       "EVERY SENTENCE THE TRAY EXPLAINS COMES FROM THE CLOSED SET, none is assembled",
       explained.length >= 5 &&
@@ -234,7 +241,7 @@ export async function runTrayOnlyChecks(check) {
     );
     check(
       "...and a launch with a panel still shows the panel instead of a dialog",
-      /function explain\(sentence: string\): void \{\s*if \(panel !== null\) \{\s*showPanel\(\);/.test(source),
+      /function explain\(sentence: string\): void \{\s*if \(panel !== null\) \{\s*showPanel\(\);/.test(surfaces),
     );
   }
 }
