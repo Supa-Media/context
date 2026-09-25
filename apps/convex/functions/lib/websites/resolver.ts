@@ -139,17 +139,20 @@ export async function websiteResolutionPlanHandler(
     .unique();
   if (state?.state !== "enabled") return NO_SITE;
 
-  // An absent generation means no complete bucket snapshot has ever landed.
-  // A mismatch means a source change invalidated the last one. Neither may
-  // consult its rows, including for navigation.
-  const fresh =
-    state.routeGeneration !== undefined &&
-    state.routeGeneration === state.routeReconciledGeneration;
+  // An absent reconciled generation means no complete bucket snapshot has
+  // ever landed, so there are no rows to consult. A mismatch means a source
+  // change invalidated the last one and a rebuild is queued: its rows may
+  // still locate a page, because `resolveWebsitePageHandler` re-derives the
+  // route, audience and status from the live bytes before serving anything,
+  // but they no longer vouch for the menu, which is dropped until the
+  // rebuild lands. Refusing outright left a site on "Nothing here" for every
+  // visit between a save and the rebuild.
   const emptyShell: SiteShell = {
     siteName: workspace.displayName,
     navigation: [],
   };
-  if (!fresh) return unavailable(emptyShell);
+  if (state.routeReconciledGeneration === undefined) return unavailable(emptyShell);
+  const fresh = state.routeGeneration === state.routeReconciledGeneration;
 
   const indexed = await ctx.db
     .query("websiteRouteIndex")
@@ -175,7 +178,10 @@ export async function websiteResolutionPlanHandler(
       routePath: itemPath,
       title,
     }));
-  const shell: SiteShell = { siteName: workspace.displayName, navigation };
+  const shell: SiteShell = {
+    siteName: workspace.displayName,
+    navigation: fresh ? navigation : [],
+  };
   const lookupKey = websiteRouteLookupKey(routePath);
   const matches = indexed.filter(
     (row) => row.lookupKey === lookupKey && row.status === "live",
@@ -362,11 +368,19 @@ export async function resolveWebsitePageHandler(
   } catch {
     return sourceUnavailable;
   }
-  if (result.kind !== "file" || result.etag !== plan.sourceEtag) {
+  if (result.kind !== "file") {
     await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
       workspaceId: plan.workspaceId,
     });
     return sourceUnavailable;
+  }
+  // Edited since the index was built: queue the rebuild, then judge the live
+  // bytes below exactly as the index would have. A saved page is served as
+  // saved, never refused for having been saved.
+  if (result.etag !== plan.sourceEtag) {
+    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
+      workspaceId: plan.workspaceId,
+    });
   }
 
   const statuses = buildWebsiteRouteStatuses([
@@ -379,7 +393,7 @@ export async function resolveWebsitePageHandler(
     status?.status !== "live" ||
     status.routePath !== plan.routePath ||
     status.audience !== plan.audience ||
-    status.title !== plan.title ||
+    status.title === null ||
     parsed.problems.length > 0
   ) {
     await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
@@ -431,8 +445,8 @@ export async function resolveWebsitePageHandler(
     siteName: plan.siteName,
     routePath: plan.routePath,
     audience: plan.audience,
-    title: plan.title,
-    description: plan.description,
+    title: status.title,
+    description: status.description,
     markdown: rewriteWebsiteLinks(withLists, linkOptions, readableShares),
     navigation: plan.navigation,
   };
