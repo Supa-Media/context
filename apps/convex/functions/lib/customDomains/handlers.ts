@@ -268,6 +268,13 @@ export async function checkNowHandler(
   await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.provision, {
     domainId: row._id,
   });
+  // A provider can take up our template after the domain was connected, so a
+  // domain without a button looks again whenever its owner asks for a check.
+  if (row.status === "pending" && row.oneClick === undefined) {
+    await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.detectProvider, {
+      domainId: row._id,
+    });
+  }
   return null;
 }
 

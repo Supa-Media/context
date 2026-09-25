@@ -155,9 +155,10 @@ export const check = internalAction({
  * Find the customer's DNS provider and, when it has our Domain Connect
  * template, record a signed link that applies both records there.
  *
- * Once, at connect. Everything that can go wrong — no signing key, a
- * self-hosted target the published template does not name, a provider without
- * the template or not answering — ends the same way: no link, and the manual
+ * At connect, and again on "Check again" while there is no link yet. Everything
+ * that can go wrong — no signing key, a self-hosted target the published
+ * template does not name, a provider without the template or not answering —
+ * ends the same way: no link, and the manual
  * records the customer would have had anyway. The key is read here and never
  * leaves this action; what reaches the row is the signed link, which carries
  * nothing the owner is not already shown.
