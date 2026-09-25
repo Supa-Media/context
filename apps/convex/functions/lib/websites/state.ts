@@ -138,6 +138,13 @@ export async function recordWebsiteEnabledHandler(
     actorUserId: args.actorUserId,
     action: "website.enabled",
   });
+  // Index the homepage straight away: until a first scan lands, the resolver
+  // fails closed and the site the card calls Live says "Nothing here".
+  await ctx.scheduler.runAfter(
+    0,
+    internal.functions.websites.reconcileWorkspace,
+    { workspaceId: args.workspaceId },
+  );
   return {
     contractVersion: WEBSITE_CONTRACT_VERSION,
     state: "enabled",

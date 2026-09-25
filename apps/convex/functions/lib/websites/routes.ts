@@ -250,8 +250,20 @@ export async function invalidateRouteIndexHandler(
     routeGeneration: (state.routeGeneration ?? 0) + 1,
     routeAttemptedAt: Date.now(),
   });
+  // A stale index serves nothing, so rebuild it now rather than at the next
+  // sweep: waiting left a site on "Nothing here" for up to a quarter hour
+  // after every edit. The short delay lets a burst of saves share one scan;
+  // only a fresh index is invalidated, so a burst schedules once.
+  await ctx.scheduler.runAfter(
+    RECONCILE_AFTER_CHANGE_MS,
+    internal.functions.websites.reconcileWorkspace,
+    { workspaceId: args.workspaceId },
+  );
   return true;
 }
+
+/** How long a changed website waits before its index is rebuilt. */
+export const RECONCILE_AFTER_CHANGE_MS = 2_000;
 
 /** Live owner/member view; owners additionally refresh the global derivative. */
 export async function refreshRouteStatusesHandler(
