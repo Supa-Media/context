@@ -13,6 +13,8 @@ import { ConnectionsStep } from "../features/onboarding/redesign/ConnectionsStep
 import { ForkStep, type ForkOffer } from "../features/onboarding/redesign/ForkStep";
 import { PaymentStep } from "../features/onboarding/redesign/PaymentStep";
 import { DoneStep } from "../features/onboarding/steps/DoneStep";
+import { PointAtBucket } from "../features/onboarding/steps/PointAtBucket";
+import { NAME_MAX_LENGTH, NAME_MIN_LENGTH } from "../features/onboarding/name";
 import { nameStatus } from "../features/onboarding/name";
 import { emptyCustomFolders, validateCustomFolders } from "../features/onboarding/structure";
 import type { OnboardingController } from "../features/onboarding/useOnboarding";
@@ -418,5 +420,86 @@ describe("the last screen", () => {
     );
 
     expect(text).not.toMatch(/nowhere to keep notes/i);
+  });
+});
+
+/*
+  The canvas screens that replaced the first run's original ones: A-03 (the
+  handle), B1-01 (point at a bucket) and A-09 (done). Each keeps a claim the
+  design would have let slip, and these pin that claim.
+*/
+describe("the handle screen (A-03)", () => {
+  test("says Available where the name was typed, and the real length limits", () => {
+    const { text, html } = render(
+      createElement(NameStep, {
+        controller: controller({
+          name: "seyi",
+          nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
+          canClaim: true,
+        }),
+      }),
+    );
+    expect(html).toContain('data-testid="welcome-name-available"');
+    expect(text).toContain("Claim @seyi");
+    // The canvas said "two to twenty"; the control plane says otherwise.
+    expect(text).toContain(`${NAME_MIN_LENGTH} to ${NAME_MAX_LENGTH} characters`);
+  });
+
+  test("a taken name gets its sentence, not the Available tick", () => {
+    const { text, html } = render(
+      createElement(NameStep, {
+        controller: controller({
+          name: "seyi",
+          nameStatus: nameStatus("seyi", { available: false, normalized: "seyi" }),
+        }),
+      }),
+    );
+    expect(html).not.toContain('data-testid="welcome-name-available"');
+    expect(text).toMatch(/Somebody already has @seyi/);
+  });
+});
+
+describe("point at a bucket (B1-01)", () => {
+  const mount = (onPickFree?: () => void) =>
+    render(withConvex(createElement(PointAtBucket, { connect: async () => ({ status: "ok" }), onPickFree })));
+
+  test("says what the probe writes, never that it writes nothing", () => {
+    const { text } = mount();
+    expect(text).toMatch(/one temporary test object, written\s+and removed/);
+    expect(text).not.toMatch(/read-only/);
+  });
+
+  test("offers the free bucket only where it is offered", () => {
+    expect(mount(() => {}).html).toContain('data-testid="point-at-bucket-free"');
+    expect(mount().html).not.toContain('data-testid="point-at-bucket-free"');
+  });
+
+  test("the vault row is not a control that does nothing", () => {
+    const { html } = mount();
+    const vault = html.slice(html.indexOf('data-testid="point-at-vault"') - 200, html.indexOf('data-testid="point-at-vault"'));
+    expect(vault).not.toMatch(/role="button"/);
+  });
+});
+
+describe("the last screen (A-09)", () => {
+  test("says You're set up only where storage answers", () => {
+    const done = render(
+      createElement(DoneStep, { controller: controller({ shape: { storage: "connected" }, step: "done" }), onOpenConsole: () => {} }),
+    );
+    expect(done.text).toContain("You're set up.");
+    const skipped = render(
+      createElement(DoneStep, { controller: controller({ shape: { storage: "skipped" }, step: "done" }), onOpenConsole: () => {} }),
+    );
+    expect(skipped.text).not.toContain("You're set up.");
+    expect(skipped.text).toMatch(/storage isn't yet/);
+  });
+
+  test("states the exit, and draws no Download button with nothing behind it", () => {
+    const { text, html } = render(
+      createElement(DoneStep, { controller: controller({ step: "done" }), onOpenConsole: () => {} }),
+    );
+    expect(text).toMatch(/Take everything with you/);
+    expect(text).toMatch(/downloads as a \.zip/);
+    expect(html).not.toMatch(/>Download</);
   });
 });

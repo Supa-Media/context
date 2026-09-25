@@ -52,4 +52,11 @@ export type BrowsePaneProps = {
    * nothing.
    */
   onOpenComms?: (path: string, anchor?: string) => void;
+  /**
+   * Go to a console-wide route — the welcome card's Connections and
+   * `/welcome` rows. A prop rather than `useRouter` in the band, for
+   * `onOpenComms`' reason: the demo console and the fixtures have no router,
+   * and without one those rows are drawn as text rather than as dead links.
+   */
+  onNavigate?: (href: string) => void;
 };

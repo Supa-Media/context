@@ -13,6 +13,8 @@ import { SetupPrompt } from "../../setup/SetupPrompt";
 import type { BrowsePaneProps } from "./props";
 import { makeStyles } from "./styles";
 import type { BrowseNoticeState } from "./useBrowseNotices";
+import { sharedWelcome } from "../../sharedWelcome";
+import { SharedWelcomeCard } from "./SharedWelcomeCard";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
@@ -24,6 +26,7 @@ export function BrowseNotices({
   current,
   compact,
   onOpenSettings,
+  onNavigate,
   setup,
   introVisible,
   intro,
@@ -39,6 +42,7 @@ export function BrowseNotices({
   current: ReturnType<typeof selectedContext>;
   compact: boolean;
   onOpenSettings: BrowsePaneProps["onOpenSettings"];
+  onNavigate?: BrowsePaneProps["onNavigate"];
   setup: BrowseNoticeState["setup"];
   introVisible: boolean;
   intro: BrowseNoticeState["intro"];
@@ -50,6 +54,16 @@ export function BrowseNotices({
   storageMigration: BrowseNoticeState["storageMigration"];
 }) {
   const styles = useThemedStyles(makeStyles);
+  // The intro, drawn as B2-02's welcome where it can be — see `sharedWelcome`.
+  const welcome = introVisible
+    ? sharedWelcome({
+        intro,
+        current,
+        contexts: data.contexts,
+        demo: data.demo === true,
+        compact,
+      })
+    : null;
   return (
     <View style={[styles.notices, compact && styles.noticesCompact]}>
       {/*
@@ -78,7 +92,14 @@ export function BrowseNotices({
         />
       ) : null}
 
-      {introVisible ? (
+      {welcome !== null ? (
+        <SharedWelcomeCard
+          welcome={welcome}
+          text={intro!.text}
+          onDismiss={introAnswer.dismiss}
+          onNavigate={onNavigate}
+        />
+      ) : introVisible ? (
         <View style={styles.notice} testID="browse-context-intro">
           {/*
             The sentence without the chip. The chip is in the top bar, on

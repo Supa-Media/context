@@ -1,3 +1,4 @@
+import { resetResumeAsked } from "../onboarding/resume";
 /**
  * How the app returns somebody to the URL they were sent, after signing in.
  *
@@ -46,6 +47,8 @@
  * already mounted.
  */
 export function landAfterSignIn(next: string, fallback: (href: string) => void): void {
+  // A real sign-in asks about an unfinished setup again — `onboarding/resume.ts`.
+  resetResumeAsked();
   const location = typeof window === "undefined" ? undefined : window.location;
   // The same test `attemptedHrefFrom` makes, and for the same reason: a
   // `window` with no `location` is React Native, not a broken browser.

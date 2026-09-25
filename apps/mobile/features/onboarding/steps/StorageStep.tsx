@@ -12,6 +12,7 @@ import type { ManagedOffer } from "../useManagedOffer";
 import type { OnboardingController } from "../useOnboarding";
 import { ManagedConfirm } from "./ManagedConfirm";
 import { ManagedSettling } from "./ManagedSettling";
+import { PointAtBucket } from "./PointAtBucket";
 
 /**
  * Step 2 — where the notes live.
@@ -51,6 +52,8 @@ export function StorageStep({ controller }: { controller: OnboardingController }
       storageReady={controller.connectState.kind === "connected"}
       onSkip={controller.skipStorage}
       onContinuePast={controller.continuePastStorage}
+      route={controller.shape.route}
+      onPickFree={controller.forkOffer?.kind === "free" ? controller.pickManaged : undefined}
     />
   );
 }
@@ -68,7 +71,13 @@ export function StorageStepBody({
   storageReady,
   onSkip,
   onContinuePast,
+  route,
+  onPickFree,
 }: {
+  /** "byo" draws B1-01 — the person already said "I have a bucket" on the fork. */
+  route?: "byo" | "managed";
+  /** Back to the free bucket from B1-01, where it is on offer. */
+  onPickFree?: () => void;
   connectState: ConnectState;
   workspaceId: string | null;
   contextName: string;
@@ -123,10 +132,12 @@ export function StorageStepBody({
         already opens with what a bucket is for and what happens to the secret.
         Repeating it here was the first thing that read as filler on screen.
       */}
-      <Text variant="rowSub" style={styles.lede}>
-        Your name is claimed. Context keeps your notes as plain Markdown files — this is
-        where those files go.
-      </Text>
+      {route === "byo" ? null : (
+        <Text variant="rowSub" style={styles.lede}>
+          Your name is claimed. Context keeps your notes as plain Markdown files — this is
+          where those files go.
+        </Text>
+      )}
 
       {connectState.kind === "connected" ? (
         <Notice tone="ok">
@@ -134,6 +145,8 @@ export function StorageStepBody({
             Your storage is connected — we can list it and write to it.
           </Text>
         </Notice>
+      ) : route === "byo" ? (
+        <PointAtBucket connect={connect} onPickFree={onPickFree} />
       ) : (
         <StorageChoice
           workspaceId={workspaceId}

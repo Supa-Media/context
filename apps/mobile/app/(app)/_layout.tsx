@@ -4,6 +4,7 @@ import { Redirect, Stack, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
@@ -17,6 +18,13 @@ import {
   standingFrom,
   type WorkspaceStandingRow,
 } from "../../features/onboarding/route";
+import {
+  ownPersonalWorkspace,
+  resumeAsked,
+  resumeAtLogin,
+  sessionEntry,
+  type ResumeWorkspaceRow,
+} from "../../features/onboarding/resume";
 
 /**
  * Everything under `(app)` needs a session, and an account with nowhere to go
@@ -179,18 +187,52 @@ export default function AppLayout() {
     };
   }, [authed]);
   const results = useQueries(spec);
+  const rows = usable<(WorkspaceStandingRow & ResumeWorkspaceRow)[]>(results.workspaces);
+
+  /*
+    An unfinished setup, picked back up at sign-in — `onboarding/resume.ts`
+    has the rule. The binding is only asked for while it could change the
+    answer: a session that came in by the front door, not yet asked since
+    sign-in, for somebody who owns a personal workspace.
+  */
+  const asked = resumeAsked();
+  const entry = authed ? sessionEntry(pathname) : null;
+  const ownId = ownPersonalWorkspace(rows)?.workspaceId;
+  const askBinding = entry === "front" && !asked && ownId !== undefined;
+  const bindingSpec = useMemo<RequestForQueries>(() => {
+    if (!askBinding || ownId === undefined) return EMPTY_QUERY_SPEC;
+    return {
+      binding: {
+        query: api.functions.storage.getStorageBinding,
+        args: { workspaceId: ownId as Id<"workspaces"> },
+      },
+    };
+  }, [askBinding, ownId]);
+  const bindingResults = useQueries(bindingSpec);
 
   if (decision.action === "wait") return null;
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
 
   const onboarding = needsOnboarding({
-    standing: standingFrom(
-      usable<WorkspaceStandingRow[]>(results.workspaces),
-      usable<unknown[]>(results.invitations),
-    ),
+    standing: standingFrom(rows, usable<unknown[]>(results.invitations)),
     pathname,
   });
   if (onboarding.action === "redirect") return <Redirect href={onboarding.href} />;
+
+  const resume = resumeAtLogin({
+    rows,
+    binding: usable<object | null>(bindingResults.binding),
+    asked,
+    entry: entry ?? "deep",
+    pathname,
+  });
+  /*
+    Not marked as asked here. A render is not a navigation: the next re-render
+    would read "asked", draw the console, and unmount this `Redirect` before
+    its navigation ran — the prompt lost to a subscription tick. `/welcome`
+    records it once the question is actually on screen.
+  */
+  if (resume.action === "redirect") return <Redirect href={resume.href} />;
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.ground }]}>

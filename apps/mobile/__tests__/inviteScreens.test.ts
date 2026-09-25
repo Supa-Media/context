@@ -244,10 +244,20 @@ describe("the invitation itself", () => {
 
   test("names the context, the role, and when the link runs out", () => {
     const screen = mountInvite(view);
-    expect(screen.text).toContain("You've been invited to @ignite");
-    expect(screen.text).toContain("Ignite Media (@ignite)");
+    // B2-01: the eyebrow, then the one thing being asked.
+    expect(screen.text).toContain("You've been invited");
+    expect(screen.q("invite-context")?.textContent).toContain("Ignite Media (@ignite)");
+    expect(screen.q("invite-context")?.textContent).toContain("IM");
+    expect(screen.q("invite-accept")?.textContent).toContain("Accept and open @ignite");
     expect(screen.text).toContain("A member — can read notes.");
     expect(screen.text).toContain("expires in 6 days");
+    screen.unmount();
+  });
+
+  test("says accepting creates nothing of theirs, and where their own workspace comes from", () => {
+    const screen = mountInvite(view);
+    expect(screen.q("invite-foot")?.textContent).toContain("Nothing is created for you here");
+    expect(screen.q("invite-foot")?.textContent).toContain("workspace switcher");
     screen.unmount();
   });
 

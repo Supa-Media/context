@@ -1,9 +1,9 @@
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../design/components/Button";
-import { Field } from "../../design/components/Field";
-import { FormError, TextField } from "../../design/components/Input";
+import { FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { leading } from "../../design/tokens";
+import { fonts, leading, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   isPreviewable,
@@ -11,11 +11,12 @@ import {
   nameFeedback,
   rejectionFeedback,
   NAME_MAX_LENGTH,
+  NAME_MIN_LENGTH,
 } from "../name";
 import type { OnboardingController } from "../useOnboarding";
 
 /**
- * Step 1 — the name.
+ * A-03 — claim your handle.
  *
  * The single thing this screen has to get across is that **the name is the
  * context**, not a label on it. People arrive expecting to pick a username and
@@ -44,6 +45,7 @@ import type { OnboardingController } from "../useOnboarding";
 export function NameStep({ controller }: { controller: OnboardingController }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const [focused, setFocused] = useState(false);
   const { name, setName, nameStatus: status, claiming, claimFailure } = controller;
   const rejection = claimFailure?.nameRejection;
   const feedback =
@@ -51,38 +53,67 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
       ? nameFeedback(status)
       : rejectionFeedback(rejection, status.kind === "empty" ? name : status.normalized);
   const shown = nameConsequences(isPreviewable(status) ? status.normalized : "");
+  const available = rejection === undefined && status.kind === "available";
 
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        Pick the name for your personal context. It is the context — not a label on one — so
-        this is the name your notes live under, the name other people reach you by, and the
-        address you forward mail to.
+        It <Text style={styles.em}>is</Text> the context — not a label on one. This is the path your
+        notes are addressed by, the name others reach you at, and the address you can forward
+        mail to.
       </Text>
 
-      <TextField
-        label="Your name"
-        value={name}
-        onChangeText={setName}
-        placeholder="yourname"
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="username"
-        maxLength={NAME_MAX_LENGTH}
-        editable={!claiming}
-        onSubmitEditing={() => {
-          if (controller.canClaim) void controller.claim();
-        }}
-        hint="Lowercase letters, numbers and hyphens."
-        testID="welcome-name"
-        containerStyle={styles.field}
-      />
+      {/*
+        A-03's field: the `@` inside the box, and "✓ Available" at its end
+        rather than on a line of its own — the answer sits where the question
+        was typed. Every other answer (taken, reserved, malformed, a refusal
+        from the server) still gets the full sentence under the field, because
+        those are the ones that need explaining.
+      */}
+      <Text variant="eyebrow" style={styles.label} nativeID="welcome-name-label">
+        Your handle
+      </Text>
+      <View style={[styles.box, focused && styles.boxFocused, feedback?.tone === "crit" && styles.boxError]}>
+        <Text style={styles.at} aria-hidden>
+          @
+        </Text>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="yourname"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="username"
+          maxLength={NAME_MAX_LENGTH}
+          editable={!claiming}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onSubmitEditing={() => {
+            if (controller.canClaim) void controller.claim();
+          }}
+          aria-labelledby="welcome-name-label"
+          accessibilityLabel="Your handle"
+          aria-describedby="welcome-name-hint"
+          aria-invalid={feedback?.tone === "crit"}
+          style={styles.input}
+          testID="welcome-name"
+        />
+        {available ? (
+          <Text style={styles.available} role="status" testID="welcome-name-available">
+            ✓ Available
+          </Text>
+        ) : null}
+      </View>
+      <Text variant="foot" style={styles.hint} nativeID="welcome-name-hint">
+        {`Lowercase letters, numbers and hyphens. ${NAME_MIN_LENGTH} to ${NAME_MAX_LENGTH} characters.`}
+      </Text>
 
-      {feedback ? (
+      {feedback && !available ? (
         <Text
           variant={feedback.tone === "crit" ? "error" : "rowSub"}
           role={feedback.tone === "crit" ? "alert" : "status"}
-          style={[styles.feedback, feedback.tone === "ok" ? styles.feedbackOk : undefined]}
+          style={styles.feedback}
           testID="welcome-name-feedback"
         >
           {feedback.message}
@@ -90,26 +121,17 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
       ) : null}
 
       <View style={styles.consequences}>
-        {/*
-          Sentence case, not the design system's uppercase eyebrow. Every
-          `Field` below already carries one, and two uppercase lines stacked a
-          few pixels apart read as one doubled label rather than as a lead-in
-          and its list.
-        */}
-        <Text variant="rowSub" style={styles.consequencesHead}>
-          Which makes it:
+        <Text variant="eyebrow" style={styles.consequencesHead}>
+          Which makes it
         </Text>
-        <View style={styles.fields}>
-          <Field label="Your workspace" value={shown.context} />
-          <Field label="How others address a note in it" value={shown.path} />
-          <Field label="Your capture address" value={shown.mailbox} />
-        </View>
+        <Consequence label="Your workspace" value={shown.context} first />
+        <Consequence label="How others address a note in it" value={shown.path} />
+        <Consequence label="Your capture address" value={shown.mailbox} />
       </View>
 
       <Text variant="foot" style={styles.permanent}>
-        One personal context per person, and the name cannot be changed once it is claimed —
-        there is no rename yet. It is the path your notes are addressed by and a live mailbox,
-        so pick one you will still want in a year.
+        One personal context per person, and the name cannot be changed once it is claimed — pick
+        one you will still want in a year.
       </Text>
 
       {/*
@@ -117,21 +139,13 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
         already back under the field, in the feedback line, where the fix is.
       */}
       {claimFailure !== null && rejection === undefined ? (
-        <FormError
-          headline={claimFailure.headline}
-          next={claimFailure.next}
-          style={styles.failure}
-        />
+        <FormError headline={claimFailure.headline} next={claimFailure.next} style={styles.failure} />
       ) : null}
 
       <View style={styles.actions}>
         <Button
           label={
-            claiming
-              ? "Claiming…"
-              : status.kind === "available"
-                ? `Claim @${status.normalized}`
-                : "Claim your name"
+            claiming ? "Claiming…" : status.kind === "available" ? `Claim @${status.normalized}` : "Claim your handle"
           }
           variant="white"
           disabled={!controller.canClaim}
@@ -144,15 +158,66 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  lede: { marginBottom: 20, lineHeight: leading(12.5, 1.7) },
-  field: { marginBottom: 0 },
-  feedback: { marginTop: 8 },
-  feedbackOk: { color: colors.okText },
-  consequences: { marginTop: 22 },
-  consequencesHead: { marginBottom: 12 },
-  fields: { gap: 11 },
-  permanent: { marginTop: 20, lineHeight: leading(12.5, 1.7) },
-  failure: { marginTop: 16 },
-  actions: { marginTop: 20, flexDirection: "row", alignItems: "center", gap: 14 },
-});
+/** One line of "Which makes it": what it is, then the literal value. */
+function Consequence({ label, value, first = false }: { label: string; value: string; first?: boolean }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={[styles.consequence, !first && styles.consequenceRule]}>
+      <Text variant="rowSub" style={styles.consequenceLabel}>
+        {label}
+      </Text>
+      <Text style={styles.consequenceValue} selectable>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    lede: { color: colors.text2, lineHeight: leading(15, 1.6), fontSize: t.lede },
+    em: { fontStyle: "italic" },
+    label: { marginTop: 24, marginBottom: 8, color: colors.muted },
+    box: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.lineStrong,
+      borderRadius: radii.md,
+      backgroundColor: colors.well,
+      paddingHorizontal: 14,
+    },
+    boxFocused: { borderColor: colors.accent },
+    boxError: { borderColor: colors.crit },
+    at: { fontFamily: fonts.mono, fontSize: t.lede, color: colors.muted },
+    input: {
+      flex: 1,
+      minWidth: 0,
+      paddingVertical: 12,
+      fontFamily: fonts.mono,
+      fontSize: t.lede,
+      color: colors.text,
+      outlineStyle: "none",
+    } as object,
+    available: { fontSize: t.meta, fontWeight: "600", color: colors.okText },
+    hint: { marginTop: 6, color: colors.muted },
+    feedback: { marginTop: 8 },
+    consequences: {
+      marginTop: 22,
+      borderWidth: 1,
+      borderColor: colors.line,
+      borderRadius: radii.md,
+      backgroundColor: colors.well,
+      paddingVertical: 16,
+      paddingHorizontal: 18,
+    },
+    consequencesHead: { marginBottom: 8, color: colors.muted },
+    consequence: { paddingVertical: 8, gap: 3 },
+    consequenceRule: { borderTopWidth: 1, borderTopColor: colors.line },
+    consequenceLabel: { color: colors.text2 },
+    consequenceValue: { fontFamily: fonts.mono, fontSize: t.ui, color: colors.text },
+    permanent: { marginTop: 16, lineHeight: leading(12.5, 1.5), color: colors.text2 },
+    failure: { marginTop: 16 },
+    actions: { marginTop: 20, alignSelf: "stretch" },
+  });

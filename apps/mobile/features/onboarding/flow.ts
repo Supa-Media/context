@@ -232,10 +232,12 @@ export function stepProgress(
 }
 
 /** The one-line title over each step. */
-export function stepTitle(key: StepKey): string {
+export function stepTitle(key: StepKey, shape?: FlowShape): string {
+  // B1-01: somebody who said "I have a bucket" is asked to show it.
+  if (key === "storage" && shape?.route === "byo") return "Show us what's already there";
   switch (key) {
     case "name":
-      return "Claim your name";
+      return "Pick the name your notes live under";
     case "fork":
       return "Where should it live?";
     case "dryrun":
