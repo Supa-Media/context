@@ -172,6 +172,8 @@ const { DropboxCallbackScreen } =
   require("../features/console/storage/DropboxCallbackScreen") as typeof import("../features/console/storage/DropboxCallbackScreen");
 const { GoogleCallbackScreen } =
   require("../features/console/google/GoogleCallbackScreen") as typeof import("../features/console/google/GoogleCallbackScreen");
+const { CliConnectedScreen } =
+  require("../features/cli/CliConnectedScreen") as typeof import("../features/cli/CliConnectedScreen");
 const { EditorRegion } =
   require("../features/console/EditorRegion") as typeof import("../features/console/EditorRegion");
 const { AppFrame } = require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
@@ -276,6 +278,7 @@ const ROUTES: Record<string, Coverage> = {
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },
+  "connect/cli.tsx": { kind: "screen", mount: () => createElement(CliConnectedScreen) },
   /*
     `EXPO_PUBLIC_E2E_FIXTURE` is unset here, exactly as it is in every real
     build, so this renders a bare `Redirect` and nothing else — the `gate`

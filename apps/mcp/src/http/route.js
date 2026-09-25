@@ -120,7 +120,7 @@ export async function route(request, env, ctx) {
         return new Response(null, { status: 405 });
       }
       if (wellKnown.kind === "authorization-server") {
-        return authorizationServerMetadata(origin);
+        return authorizationServerMetadata(origin, env.APP_ORIGIN);
       }
       // A client that was handed `https://host/@seyi/mcp` probes
       // `/.well-known/oauth-protected-resource/@seyi/mcp` before the root form,

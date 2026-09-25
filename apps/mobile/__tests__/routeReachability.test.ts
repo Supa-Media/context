@@ -514,6 +514,7 @@ describe("every route is reachable, or says why not", () => {
       "/[handle]/[...path]",
       "/admin",
       "/authorize",
+      "/connect/cli",
       "/connect/dropbox",
       "/connect/google",
       /*
