@@ -42,7 +42,12 @@ import {
   portalReturnPath,
 } from "@context/shared";
 import { routeFromFile } from "../features/app/reachability";
-import { contextSegment, settingsFromQuery, settingsHref, slugFromSegment } from "../features/console/nav";
+import {
+  contextSegment,
+  settingsFromQuery,
+  settingsHref,
+  slugFromSegment,
+} from "../features/console/nav";
 
 const APP = join(__dirname, "..", "app");
 
@@ -71,8 +76,10 @@ function split(url: string): { pathname: string; query: URLSearchParams } {
 /**
  * Does this app route that path?
  *
- * A dynamic segment (`[slug]`) matches one segment of anything, which is what
- * makes `/console/@seyi` a route rather than a literal nobody declared.
+ * A dynamic segment (`[slug]`) matches one segment of anything, except the
+ * root `[handle]` seam whose route module explicitly accepts only `@name`.
+ * That distinction keeps an unrelated `/settings` from becoming a route just
+ * because public website homepages live at `/@seyi`.
  */
 function isRoute(pathname: string): boolean {
   const asked = pathname.split("/").filter((segment) => segment !== "");
@@ -81,16 +88,23 @@ function isRoute(pathname: string): boolean {
     if (declared.length !== asked.length) return false;
     return declared.every(
       (segment, index) =>
-        segment === asked[index] || (segment.startsWith("[") && segment.endsWith("]")),
+        segment === asked[index] ||
+        (segment === "[handle]"
+          ? /^@[a-z0-9][a-z0-9-]{0,62}$/i.test(asked[index] ?? "")
+          : segment.startsWith("[") && segment.endsWith("]")),
     );
   });
 }
 
 describe("where Stripe sends somebody back to", () => {
   test("a settings checkout returns to a route this app has", () => {
-    const { pathname, query } = split(checkoutReturnPath("settings", "seyi", "done"));
+    const { pathname, query } = split(
+      checkoutReturnPath("settings", "seyi", "done"),
+    );
     expect(isRoute(pathname)).toBe(true);
-    expect(settingsFromQuery(query.get("settings") ?? undefined)).toBe("premium");
+    expect(settingsFromQuery(query.get("settings") ?? undefined)).toBe(
+      "premium",
+    );
     expect(checkoutOutcomeFrom(query.get(CHECKOUT_PARAM))).toBe("done");
   });
 
@@ -112,13 +126,17 @@ describe("where Stripe sends somebody back to", () => {
   });
 
   test("a cancelled checkout returns to the same place, saying so", () => {
-    const { pathname, query } = split(checkoutReturnPath("settings", "seyi", "cancelled"));
+    const { pathname, query } = split(
+      checkoutReturnPath("settings", "seyi", "cancelled"),
+    );
     expect(isRoute(pathname)).toBe(true);
     expect(checkoutOutcomeFrom(query.get(CHECKOUT_PARAM))).toBe("cancelled");
   });
 
   test("a first-run checkout returns into first run", () => {
-    const { pathname, query } = split(checkoutReturnPath("onboarding", "seyi", "done"));
+    const { pathname, query } = split(
+      checkoutReturnPath("onboarding", "seyi", "done"),
+    );
     expect(pathname).toBe("/welcome");
     expect(isRoute(pathname)).toBe(true);
     expect(checkoutOutcomeFrom(query.get(CHECKOUT_PARAM))).toBe("done");
@@ -127,7 +145,9 @@ describe("where Stripe sends somebody back to", () => {
   test("the billing portal returns to a route this app has", () => {
     const { pathname, query } = split(portalReturnPath("seyi"));
     expect(isRoute(pathname)).toBe(true);
-    expect(settingsFromQuery(query.get("settings") ?? undefined)).toBe("premium");
+    expect(settingsFromQuery(query.get("settings") ?? undefined)).toBe(
+      "premium",
+    );
   });
 
   test("and the path that shipped is not a route, which is why any of this exists", () => {

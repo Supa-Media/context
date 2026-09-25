@@ -151,6 +151,7 @@ describe("website route path contract", () => {
     "website/.well-known/acme.md",
     "website/app.js.md",
     "website/logo.PNG.md",
+    "website/@other/page.md",
   ])("refuses the platform-reserved route claimed by %s", (objectKey) => {
     const result = compileWebsiteRoutes([objectKey]);
 

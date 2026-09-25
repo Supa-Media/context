@@ -163,6 +163,7 @@ async function respond(
           decision.handle,
           decision.slug,
           readOrigin(env.CONVEX_ORIGIN),
+          decision.routePath,
         );
         const meta = previewForShortLink(
           shortTitle,
@@ -597,6 +598,7 @@ async function shortLinkPreview(
   handle: string,
   slug: string,
   convexOrigin: string | null,
+  routePath?: string,
 ): Promise<[string | null, string | null]> {
   if (!convexOrigin) return [null, null];
 
@@ -609,7 +611,11 @@ async function shortLinkPreview(
     const response = await fetch(`${convexOrigin}/share/short`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handle, slug }),
+      body: JSON.stringify({
+        handle,
+        slug,
+        ...(routePath === undefined ? {} : { routePath }),
+      }),
       ...(timeout ? { signal: timeout } : {}),
     });
     if (!response.ok) return [null, null];

@@ -228,7 +228,9 @@ export function compileWebsiteRoutes(
       PLATFORM_ROOT_ASSET.test(firstSegment);
     if (
       firstSegment &&
-      (reserved.has(websiteRouteLookupKey(firstSegment)) || claimsPlatformAsset)
+      (firstSegment.startsWith("@") ||
+        reserved.has(websiteRouteLookupKey(firstSegment)) ||
+        claimsPlatformAsset)
     ) {
       diagnostics.push({
         code: "reserved_path",

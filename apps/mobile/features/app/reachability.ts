@@ -498,7 +498,10 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
             file: "features/console/contextMenu.ts",
             contains: ['key: "settings"', 'view: "settings"'],
           },
-          { file: CONSOLE_NAV_BAND, contains: ["router.replace(hrefFor(next))"] },
+          {
+            file: CONSOLE_NAV_BAND,
+            contains: ["router.replace(hrefFor(next))"],
+          },
         ],
         region: "screen",
         densities: PHONE,
@@ -510,7 +513,10 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
           contains: ['testID: "switcher-settings"', "onOpenSettings?.()"],
         },
         navigation: [
-          { file: CONSOLE_LAYOUT, contains: ["DEFAULT_SETTINGS_SECTION", "router.setParams"] },
+          {
+            file: CONSOLE_LAYOUT,
+            contains: ["DEFAULT_SETTINGS_SECTION", "router.setParams"],
+          },
         ],
         region: "switcher",
         densities: POINTER,
@@ -759,16 +765,27 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link an owner pasted into a chat",
   },
   {
-    route: "/[handle]/[slug]",
-    file: "app/[handle]/[slug].tsx",
+    route: "/[handle]",
+    file: "app/[handle]/index.tsx",
     reachable: false,
     reason:
-      "The short link, `/@seyi/intake` — the same share at an address somebody " +
-      "can say out loud. Unreachable from inside the app for the reason " +
-      "`/s/[token]` is, plus one of its own: reaching it from a control would " +
-      "mean the app knowing which names exist, and a share page has no listing " +
-      "precisely so that nothing here confirms that any particular one does.",
-    marker: "the short link, the one an owner can say out loud",
+      "A public website homepage, `/@seyi`, reached from an address its owner " +
+      "publishes outside the console. The console's website panel manages the " +
+      "source files rather than opening the public surface, so an in-app route " +
+      "to the rendered page would duplicate that external-address contract.",
+    marker: "The public website homepage somebody opens from outside the app",
+  },
+  {
+    route: "/[handle]/[...path]",
+    file: "app/[handle]/[...path].tsx",
+    reachable: false,
+    reason:
+      "A public website path or the compatibility short link `/@seyi/intake`. " +
+      "Both are addresses an owner publishes outside the console; linking to " +
+      "one from app chrome would also require listing which public paths or " +
+      "legacy names exist, which the public reader deliberately never does.",
+    marker:
+      "public website path or compatibility short link somebody was handed",
   },
   {
     route: "/welcome",
