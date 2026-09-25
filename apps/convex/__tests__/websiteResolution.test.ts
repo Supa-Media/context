@@ -103,6 +103,88 @@ describe("public website resolution", () => {
     });
   });
 
+  test("publishes only live routes and currently readable anyone-shares as links", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      "website/index.md",
+      [
+        "---",
+        "title: Home",
+        "---",
+        "",
+        "[[about|About us]]",
+        "[Shared](../1-projects/shared.md#details)",
+        "[Private](../1-projects/private.md)",
+        "[[draft|Draft]]",
+      ].join("\n"),
+    );
+    f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nAbout\n");
+    f.backend.seed(
+      "website/draft.md",
+      "---\ntitle: Draft\ndraft: true\n---\n\nSecret draft\n",
+    );
+    f.backend.seed("1-projects/shared.md", "# Shared\n");
+    f.backend.seed("1-projects/private.md", "# Private\n");
+    await asUser(f.t, f.owner).action(
+      api.functions.files.setDirectoryVisibility,
+      {
+        workspaceId: f.workspaceId,
+        path: "1-projects",
+        visibility: "team",
+      },
+    );
+    await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/private.md",
+      visibility: "private",
+    });
+    await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: "website/draft.md",
+      visibility: "team",
+    });
+    const { token } = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
+    );
+    await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
+      workspaceId: f.workspaceId,
+      path: "website/draft.md",
+    });
+    await publish(f);
+
+    const resolved = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    expect(resolved).toMatchObject({
+      kind: "page",
+      markdown: [
+        "[About us](/about)",
+        `[Shared](/s/${token}#details)`,
+        "[Private](../1-projects/private.md)",
+        "[[draft|Draft]]",
+      ].join("\n"),
+    });
+
+    await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/shared.md",
+      visibility: "private",
+    });
+    await expect(
+      f.t.action(api.functions.websites.resolvePage, {
+        handle: "atlas",
+        routePath: "/",
+      }),
+    ).resolves.toMatchObject({
+      kind: "page",
+      markdown: expect.stringContaining(
+        "[Shared](../1-projects/shared.md#details)",
+      ),
+    });
+  });
+
   test("an anonymous members page returns only a server-built sign-in route", async () => {
     const f = await fixture();
     f.backend.seed(
