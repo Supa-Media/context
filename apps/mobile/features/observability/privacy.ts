@@ -49,6 +49,7 @@ export function redactTelemetryText(value: string): string {
 export const ROUTE_SEGMENTS = new Set([
   "admin",
   "authorize",
+  "cli",
   "connect",
   "connections",
   "console",

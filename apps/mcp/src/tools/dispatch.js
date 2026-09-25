@@ -56,7 +56,7 @@ export async function callTool(name, args, store, scope) {
     case "orient":
       return toolOrient(store, scope, rules, overrides);
     case "scope_info":
-      return toolScopeInfo(store, scope, rules, overrides, args.path);
+      return toolScopeInfo(store, scope, rules, overrides, args.path, args.workspaces === true);
     case "list_notes":
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":

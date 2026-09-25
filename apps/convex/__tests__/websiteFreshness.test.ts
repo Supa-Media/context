@@ -1,5 +1,5 @@
 /**
- * A stale route index serves nothing, so the site must not wait for the
+ * A stale route index drops the site's menu, so the site must not wait for the
  * quarter-hourly sweep to become fresh again. Turning a site on indexes its
  * homepage at once, and every invalidation (a save under `website/`, or a
  * source mismatch the resolver noticed) queues one rebuild shortly after.
@@ -79,5 +79,21 @@ describe("website index freshness", () => {
       routePath: "/",
     });
     expect(page).toMatchObject({ kind: "page", title: "Home" });
+  }, 15_000);
+
+  test("an open page can watch its site's revision, and a save moves it", async () => {
+    const f = await fixture();
+    const revision = () => f.t.query(api.functions.websites.siteRevision, { handle: "@Atlas" });
+    await expect(revision()).resolves.toBeNull();
+    await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
+      workspaceId: f.workspaceId,
+    });
+    await drainScheduled(f.t);
+
+    const before = await revision();
+    expect(before).toEqual(expect.any(String));
+    await f.t.mutation(internal.functions.websites.invalidateRouteIndex, { workspaceId: f.workspaceId });
+    expect(await revision()).not.toBe(before);
+    await expect(f.t.query(api.functions.websites.siteRevision, { handle: "nobody" })).resolves.toBeNull();
   }, 15_000);
 });

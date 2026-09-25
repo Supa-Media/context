@@ -79,6 +79,20 @@ describe("a page", () => {
   });
 
   // jsdom has no layout width, so this is the phone menu: folded until pressed.
+  test("a note's own first heading is the page heading, even when it differs from the title", () => {
+    const { root } = mount({ ...page, routePath: "/", title: "Home", navigation: [], markdown: "# Hi\n\nI do things.\n" });
+    const headings = root.querySelectorAll('[role="heading"][aria-level="1"]');
+    expect([...headings].map((h) => h.textContent)).toEqual(["Hi"]);
+    expect(root.textContent).not.toContain("Home");
+  });
+
+  test("a homepage without a heading draws none; any other page draws its title", () => {
+    const home = mount({ ...page, routePath: "/", title: "Home", markdown: "Hello.\n" }).root;
+    expect(home.querySelectorAll('[role="heading"]')).toHaveLength(0);
+    const other = mount({ ...page, markdown: "Hello.\n" }).root;
+    expect([...other.querySelectorAll('[role="heading"]')].map((h) => h.textContent)).toEqual(["About us"]);
+  });
+
   test("the menu is the server's, in its order, with the current page marked", () => {
     const { root, navigate } = mount(page);
     expect(byTestId(root, "site-nav-item")).toHaveLength(0);

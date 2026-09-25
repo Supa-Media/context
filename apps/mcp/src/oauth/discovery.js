@@ -174,7 +174,17 @@ export function protectedResourceMetadata(origin, slug) {
 }
 
 /** RFC 8414 authorization server metadata. */
-export function authorizationServerMetadata(origin) {
+export function authorizationServerMetadata(origin, appOrigin) {
+  // The app's address, so a CLI that finished signing in on its loopback page
+  // can hand the browser to the app's own "connected" screen. An https origin
+  // only; anything else is left out rather than sent to a browser.
+  let app = null;
+  try {
+    const url = new URL(appOrigin);
+    if (url.protocol === "https:") app = url.origin;
+  } catch {
+    app = null;
+  }
   return metadataResponse({
     issuer: origin,
     authorization_endpoint: `${origin}/oauth/authorize`,
@@ -193,5 +203,6 @@ export function authorizationServerMetadata(origin) {
     revocation_endpoint_auth_methods_supported: ["none", "client_secret_post"],
     scopes_supported: SUPPORTED_SCOPES,
     service_documentation: "https://github.com/Supa-Media/context",
+    ...(app ? { context_app_origin: app } : {}),
   });
 }
