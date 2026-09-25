@@ -132,6 +132,12 @@ export {
   type WebsiteRouteOptions,
 } from "./websiteRoutes";
 export {
+  buildWebsiteRouteStatuses,
+  parseWebsitePage,
+  type ParsedWebsitePage,
+  type WebsitePageSource,
+} from "./websiteMetadata";
+export {
   WEBSITE_CONTRACT_VERSION,
   WEBSITE_STARTER_MARKDOWN,
   summarizeWebsiteRoutes,

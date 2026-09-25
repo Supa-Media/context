@@ -161,6 +161,14 @@ crons.interval(
   {},
 );
 
+/** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
+crons.interval(
+  "reconcile website route indexes",
+  { minutes: 15 },
+  internal.functions.websites.sweepRouteReconciliation,
+  {},
+);
+
 /**
  * Poll every connected Google account that is due.
  *
