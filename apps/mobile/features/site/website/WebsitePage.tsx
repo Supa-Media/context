@@ -1,5 +1,5 @@
 import { useEffect, useMemo, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import type { ResolvedWebsitePage, WebsiteNavigationItem } from "@context/shared";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -7,9 +7,10 @@ import { leading, siteType } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { parseNote, noteTitle } from "../../share/markdown";
 import { NoteBody } from "../../share/NoteBody";
+import { UNDERLINE } from "../../share/siteLook";
 import { PLATFORM_ORIGIN } from "../host";
 import { ensureSiteSerifLoaded, siteSerif } from "../siteFonts";
-import { SiteFrame } from "./SiteFrame";
+import { PHONE, SiteFrame } from "./SiteFrame";
 
 /**
  * What a visitor sees at a website address, for every answer the server can
@@ -54,7 +55,7 @@ export function WebsitePage({
   return (
     <SiteFrame name={name} navigation={navigation} current={current} navigate={navigate} madeWith={PLATFORM_ORIGIN}>
       {view.kind === "page" ? (
-        <Page title={view.title} markdown={view.markdown} />
+        <Page title={view.title} markdown={view.markdown} home={view.routePath === "/"} />
       ) : view.kind === "authentication_required" ? (
         <Notice title="Members only" line="Sign in to read this page.">
           <Button
@@ -73,19 +74,26 @@ export function WebsitePage({
   );
 }
 
-function Page({ title, markdown }: { title: string; markdown: string }) {
+function Page({ title, markdown, home }: { title: string; markdown: string; home: boolean }) {
   const styles = useThemedStyles(makeStyles);
-  const blocks = useMemo(() => {
+  const phone = useWindowDimensions().width < PHONE;
+  const { heading, blocks } = useMemo(() => {
     const parsed = parseNote(markdown).blocks;
-    // The page's title is drawn once, as its heading; a note that opens with
-    // the same H1 would otherwise say it twice.
-    return noteTitle(parsed) === title ? parsed.slice(1) : parsed;
-  }, [markdown, title]);
+    // A note that opens with an H1 has chosen its heading, and it is drawn in
+    // the title's place; the frontmatter title then only names the tab. A
+    // homepage without one draws none — the header already names the site,
+    // and "Home" is a label, not copy. Any other page falls back to its title.
+    const own = noteTitle(parsed);
+    if (own !== null) return { heading: own, blocks: parsed.slice(1) };
+    return { heading: home ? null : title, blocks: parsed };
+  }, [markdown, title, home]);
   return (
-    <View testID="site-page">
-      <Text variant="body" role="heading" aria-level={1} style={styles.title}>
-        {title}
-      </Text>
+    <View testID="site-page" style={styles.stack}>
+      {heading === null ? null : (
+        <Text variant="body" role="heading" aria-level={1} style={[styles.title, phone && styles.titlePhone]}>
+          {heading}
+        </Text>
+      )}
       <NoteBody blocks={blocks} look="site" />
     </View>
   );
@@ -132,17 +140,19 @@ const makeStyles = (colors: Colors) =>
       lineHeight: leading(siteType.h1, 1.1),
       letterSpacing: -0.6,
       color: colors.text,
-      marginBottom: 20,
       // Web only: balanced lines, so a title never ends on one stranded word.
       ...({ textWrap: "balance" } as object),
     },
+    titlePhone: { fontSize: siteType.h1Phone, lineHeight: leading(siteType.h1Phone, 1.1) },
+    stack: { gap: 24 },
     notice: { alignItems: "center", alignSelf: "center", maxWidth: 360, paddingTop: 64, gap: 6 },
     centred: { textAlign: "center" },
-    line: { fontSize: siteType.body, lineHeight: leading(siteType.body, 1.55), color: colors.text2, marginBottom: 22 },
+    line: { marginTop: 14, fontSize: siteType.body, lineHeight: leading(siteType.body, 1.55), color: colors.text2, marginBottom: 22 },
     home: {
       fontSize: siteType.body,
       color: colors.text,
       textDecorationLine: "underline",
-      textDecorationColor: `${colors.muted}66`,
+      textDecorationColor: colors.muted,
+      ...UNDERLINE,
     },
   });

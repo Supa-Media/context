@@ -4,10 +4,11 @@ import type { WebsiteNavigationItem } from "@context/shared";
 import { Text } from "../../design/components/Text";
 import { ScreenScroll } from "../../app/Screen";
 import { siteType } from "../../design/tokens";
+import { UNDERLINE_CURRENT } from "../../share/siteLook";
 import { useThemedStyles, type Colors } from "../../design/theme";
 
 /** Below this the menu folds under one "Menu" button. */
-const PHONE = 640;
+export const PHONE = 640;
 
 /**
  * The chrome of a published website: the site's name and menu at the top, the
@@ -102,9 +103,6 @@ export function SiteFrame({
           {children}
         </View>
         <View style={styles.footer}>
-          <Text variant="body" style={styles.foot}>
-            {`© ${name}`}
-          </Text>
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(madeWith).catch(() => undefined)}>
             <Text variant="body" style={styles.foot}>
               Made with Context
@@ -133,6 +131,7 @@ const makeStyles = (colors: Colors) =>
       fontSize: siteType.name,
       fontWeight: "600",
       color: colors.text,
+      lineHeight: 22,
       letterSpacing: -0.2,
     },
     nav: {
@@ -143,7 +142,12 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "flex-end",
     },
     navItem: { fontSize: siteType.nav, color: colors.muted },
-    navCurrent: { color: colors.text },
+    navCurrent: {
+      color: colors.text,
+      textDecorationLine: "underline",
+      textDecorationColor: colors.muted,
+      ...UNDERLINE_CURRENT,
+    },
     trigger: { paddingVertical: 10, paddingLeft: 16, marginRight: -4 },
     sheet: {
       width: "100%",
@@ -158,19 +162,19 @@ const makeStyles = (colors: Colors) =>
     column: {
       width: "100%",
       maxWidth: 640,
-      flexGrow: 1,
-      paddingTop: 80,
-      paddingBottom: 72,
+      // The footer follows the page rather than being pinned to the window,
+      // so a short page never has a hairline floating under a gap.
+      paddingTop: 64,
+      paddingBottom: 96,
     },
-    columnPhone: { paddingTop: 56 },
+    columnPhone: { paddingTop: 48, paddingBottom: 72 },
     columnUnderSheet: { paddingTop: 32 },
     footer: {
       width: "100%",
       maxWidth: 640,
       flexDirection: "row",
-      justifyContent: "space-between",
-      gap: 16,
-      paddingVertical: 24,
+      paddingTop: 20,
+      paddingBottom: 32,
       borderTopWidth: 1,
       borderTopColor: colors.line,
     },

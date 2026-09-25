@@ -19,10 +19,15 @@ import { siteSerif } from "../site/siteFonts";
 const BODY = siteType.body;
 // `textWrap` is web-only and not in React Native's types; it balances a
 // heading's lines so none ends on one stranded word.
-const serif = { fontFamily: siteSerif, fontWeight: "400" as const, letterSpacing: -0.4, ...({ textWrap: "balance" } as object) };
+const serif = { fontFamily: siteSerif, fontWeight: "400" as const, letterSpacing: -0.6, ...({ textWrap: "balance" } as object) };
+
+// Web only (React Native has neither key): a 1px underline set clear of the
+// descenders, and the menu's current page marked lower still.
+export const UNDERLINE = { textDecorationThickness: 1, textUnderlineOffset: 3 } as object;
+export const UNDERLINE_CURRENT = { textDecorationThickness: 1, textUnderlineOffset: 6 } as object;
 
 export const SITE_HEADING_SIZE = StyleSheet.create({
-  h1: { ...serif, fontSize: siteType.h1, lineHeight: leading(siteType.h1, 1.1), marginTop: 8 },
+  h1: { ...serif, fontSize: siteType.h1, lineHeight: leading(siteType.h1, 1.1) },
   h2: { ...serif, fontSize: siteType.h2, lineHeight: leading(siteType.h2, 1.2), marginTop: 40 },
   h3: { ...serif, fontSize: siteType.h3, lineHeight: leading(siteType.h3, 1.3), marginTop: 20 },
   h4: { fontSize: BODY, lineHeight: leading(BODY, 1.4), marginTop: 16, fontWeight: "600" },
@@ -34,10 +39,10 @@ export const makeSiteStyles = (colors: Colors) => {
   const run = { fontSize: BODY, lineHeight: leading(BODY, 1.65) };
   return StyleSheet.create({
     body: { gap: 24 },
-    paragraph: { ...run, color: colors.text2 },
-    marker: { ...run, color: colors.muted, minWidth: 20 },
-    itemText: { ...run, flexGrow: 1, flexShrink: 1, color: colors.text2 },
-    list: { gap: 8, paddingLeft: 0 },
+    paragraph: { ...run, color: colors.text },
+    marker: { ...run, color: colors.muted, minWidth: 22 },
+    itemText: { ...run, flexGrow: 1, flexShrink: 1, color: colors.text },
+    list: { gap: 10, paddingLeft: 0 },
     quote: { borderLeftWidth: 2, borderLeftColor: colors.muted, paddingLeft: 18, paddingVertical: 2 },
     quoteText: { ...run, color: colors.muted, fontStyle: "italic" },
     code: {
@@ -52,7 +57,8 @@ export const makeSiteStyles = (colors: Colors) => {
     link: {
       color: colors.text,
       textDecorationLine: "underline",
-      textDecorationColor: `${colors.muted}66`,
+      textDecorationColor: colors.muted,
+      ...UNDERLINE,
     },
   });
 };

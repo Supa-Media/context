@@ -23,6 +23,7 @@ import {
   type WebsiteLinkOptions,
 } from "./links";
 import { renderPublicWebsiteLists } from "./lists";
+import { probeWebsitePage } from "./probe";
 
 type SiteShell = {
   siteName: string;
@@ -35,6 +36,15 @@ export type WebsiteResolutionPlan =
       navigation: WebsiteNavigationItem[];
     })
   | ({ kind: "authentication_required"; signInPath: string } & SiteShell)
+  | ({
+      /** No live index claimant: read the page's own file instead. */
+      kind: "probe";
+      workspaceId: Id<"workspaces">;
+      routePath: string;
+      viewer: "anonymous" | "member" | "other";
+      /** The index was fresh, so the page it lacks means a rebuild is due. */
+      invalidate: boolean;
+    } & SiteShell)
   | ({
       kind: "read";
       workspaceId: Id<"workspaces">;
@@ -147,11 +157,20 @@ export async function websiteResolutionPlanHandler(
   // but they no longer vouch for the menu, which is dropped until the
   // rebuild lands. Refusing outright left a site on "Nothing here" for every
   // visit between a save and the rebuild.
-  const emptyShell: SiteShell = {
-    siteName: workspace.displayName,
-    navigation: [],
-  };
-  if (state.routeReconciledGeneration === undefined) return unavailable(emptyShell);
+  const member =
+    args.actorUserId !== null &&
+    (await hasWorkspaceMembership(ctx, workspace._id, args.actorUserId));
+  const probe = (shell: SiteShell, invalidate: boolean): WebsiteResolutionPlan => ({
+    kind: "probe",
+    ...shell,
+    workspaceId: workspace._id,
+    routePath,
+    viewer: member ? "member" : args.actorUserId === null ? "anonymous" : "other",
+    invalidate,
+  });
+  if (state.routeReconciledGeneration === undefined) {
+    return probe({ siteName: workspace.displayName, navigation: [] }, false);
+  }
   const fresh = state.routeGeneration === state.routeReconciledGeneration;
 
   const indexed = await ctx.db
@@ -183,17 +202,18 @@ export async function websiteResolutionPlanHandler(
     navigation: fresh ? navigation : [],
   };
   const lookupKey = websiteRouteLookupKey(routePath);
-  const matches = indexed.filter(
-    (row) => row.lookupKey === lookupKey && row.status === "live",
-  );
-  if (matches.length !== 1) return unavailable(shell);
+  const claimants = indexed.filter((row) => row.lookupKey === lookupKey);
+  const matches = claimants.filter((row) => row.status === "live");
+  if (matches.length !== 1) {
+    // A fresh index that knows this address as a draft, a problem or a clash
+    // has read the whole folder, which a probe of two keys cannot; it stands.
+    // Anything else is a page the index has not caught up with yet.
+    if (fresh && claimants.length > 0) return unavailable(shell);
+    return probe(shell, fresh);
+  }
   const route = matches[0]!;
   if (route.routePath === null || route.title === null)
     return unavailable(shell);
-
-  const member =
-    args.actorUserId !== null &&
-    (await hasWorkspaceMembership(ctx, workspace._id, args.actorUserId));
   if (route.audience === "members") {
     if (args.actorUserId === null) {
       return {
@@ -219,6 +239,28 @@ export async function websiteResolutionPlanHandler(
     description: route.description,
     viewerAudience: member ? "members" : "public",
   };
+}
+
+/**
+ * A token that changes whenever an enabled site's pages may have: a save under
+ * `website/` or a finished rebuild. An open page subscribes to it and fetches
+ * itself again when it moves, so a visitor sees an edit without reloading.
+ * Null for an unknown or disabled site, the same answer for both.
+ */
+export async function siteRevisionHandler(
+  ctx: QueryCtx,
+  args: { handle: string },
+): Promise<string | null> {
+  const handle = normalizedHandle(args.handle);
+  if (handle === null) return null;
+  const claim = await findName(ctx, handle);
+  if (claim?.workspaceId === undefined) return null;
+  const state = await ctx.db
+    .query("websiteStates")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", claim.workspaceId!))
+    .unique();
+  if (state?.state !== "enabled") return null;
+  return `${state.routeGeneration ?? 0}:${state.routeReconciledGeneration ?? -1}`;
 }
 
 /**
@@ -351,6 +393,7 @@ export async function resolveWebsitePageHandler(
     internal.functions.websites.websiteResolutionPlan,
     { ...args, actorUserId },
   );
+  if (plan.kind === "probe") return await resolveFromBucket(ctx, plan, args.handle);
   if (plan.kind !== "read") return plan;
   const sourceUnavailable = unavailable({
     siteName: plan.siteName,
@@ -402,22 +445,98 @@ export async function resolveWebsitePageHandler(
     return sourceUnavailable;
   }
 
+  return await renderWebsitePage(ctx, {
+    workspaceId: plan.workspaceId,
+    handle: args.handle,
+    objectKey: plan.objectKey,
+    body: parsed.body,
+    viewerAudience: plan.viewerAudience,
+    page: {
+      kind: "page",
+      siteName: plan.siteName,
+      routePath: plan.routePath,
+      audience: plan.audience,
+      title: status.title,
+      description: status.description,
+      markdown: "",
+      navigation: plan.navigation,
+    },
+  });
+}
+
+/**
+ * Serve an address the index has no live claimant for from the page's own
+ * file, gated by the audience those bytes declare.
+ */
+async function resolveFromBucket(
+  ctx: ActionCtx,
+  plan: Extract<WebsiteResolutionPlan, { kind: "probe" }>,
+  rawHandle: string,
+): Promise<ResolvedWebsitePage> {
+  const shell = { siteName: plan.siteName, navigation: plan.navigation };
+  const found = await probeWebsitePage(ctx, plan);
+  if (found === null) return unavailable(shell);
+  if (plan.invalidate) {
+    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
+      workspaceId: plan.workspaceId,
+    });
+  }
+  const { status } = found;
+  if (status.audience === "members" && plan.viewer !== "member") {
+    return plan.viewer === "anonymous"
+      ? {
+          kind: "authentication_required",
+          ...shell,
+          signInPath: signInPath(normalizedHandle(rawHandle)!, status.routePath),
+        }
+      : unavailable(shell);
+  }
+  return await renderWebsitePage(ctx, {
+    workspaceId: plan.workspaceId,
+    handle: rawHandle,
+    objectKey: found.objectKey,
+    body: parseWebsitePage(found.text).body,
+    viewerAudience: plan.viewer === "member" ? "members" : "public",
+    page: {
+      kind: "page",
+      ...shell,
+      routePath: status.routePath,
+      audience: status.audience,
+      title: status.title,
+      description: status.description,
+      markdown: "",
+    },
+  });
+}
+
+/** Lists, link rewriting and share checks: the same for every served page. */
+async function renderWebsitePage(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    handle: string;
+    objectKey: string;
+    body: string;
+    viewerAudience: WebsiteRouteAudience;
+    page: Extract<ResolvedWebsitePage, { kind: "page" }>;
+  },
+): Promise<ResolvedWebsitePage> {
   const catalog = await ctx
     .runQuery(internal.functions.websites.websiteLinkCatalog, {
-      workspaceId: plan.workspaceId,
+      workspaceId: args.workspaceId,
     })
     .catch(() => ({ entries: [], ownedHosts: [] }));
   const linkOptions: WebsiteLinkOptions = {
-    fromPath: plan.objectKey,
+    fromPath: args.objectKey,
     handle: normalizedHandle(args.handle)!,
     ownedHosts: catalog.ownedHosts,
     catalog: catalog.entries,
   };
   const withLists = await renderPublicWebsiteLists(ctx, {
-    workspaceId: plan.workspaceId,
-    markdown: parsed.body,
-    selfPath: plan.objectKey,
-    viewerAudience: plan.viewerAudience,
+    workspaceId: args.workspaceId,
+    markdown: args.body,
+    selfPath: args.objectKey,
+    viewerAudience: args.viewerAudience,
     catalog: catalog.entries,
   });
   const sharePaths = websiteReferencedSharePaths(withLists, linkOptions);
@@ -425,7 +544,7 @@ export async function resolveWebsitePageHandler(
   if (sharePaths.length > 0) {
     const shares = await ctx
       .runAction(internal.functions.files.runFileOperation, {
-        workspaceId: plan.workspaceId,
+        workspaceId: args.workspaceId,
         scope: "team" as const,
         grantedNames: [],
         operation: { kind: "readMany" as const, paths: sharePaths },
@@ -441,13 +560,7 @@ export async function resolveWebsitePageHandler(
   }
 
   return {
-    kind: "page",
-    siteName: plan.siteName,
-    routePath: plan.routePath,
-    audience: plan.audience,
-    title: status.title,
-    description: status.description,
+    ...args.page,
     markdown: rewriteWebsiteLinks(withLists, linkOptions, readableShares),
-    navigation: plan.navigation,
   };
 }

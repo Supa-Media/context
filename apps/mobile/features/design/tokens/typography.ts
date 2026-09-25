@@ -119,6 +119,8 @@ export const siteType = {
   body: 18,
   h3: 21,
   h2: 26,
+  /** A page's heading on a phone, where 44 wraps a short title. */
+  h1Phone: 36,
   /** A page's title, in Instrument Serif. */
   h1: 44,
 } as const;
