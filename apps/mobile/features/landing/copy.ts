@@ -41,7 +41,7 @@ export const HERO_SUB =
   "Obsidian, or through Claude, Cursor and anything else that speaks MCP.";
 
 /** Under the buttons: how storage gets connected. */
-export const HERO_ALSO = "Dropbox in one click · or bring your own bucket";
+export const HERO_ALSO = "Bring your own bucket · R2, S3 or anything compatible";
 
 /** The licence badge, which a screen reader reads as the badge's whole sentence. */
 export const LICENCE_BADGE = "Context is MIT licensed open source on GitHub";

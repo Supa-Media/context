@@ -47,6 +47,11 @@ export interface ManagedSettlingState {
   /** The plan has turned active — the webhook landed. */
   paid: boolean;
   stagingFreeStorage?: boolean;
+  /**
+   * The free managed tier: nothing was charged and nothing is being confirmed,
+   * so no line on this screen may mention a payment.
+   */
+  free?: boolean;
   /** Storage exists and answers. */
   storageReady: boolean;
   /** Long enough that "a few seconds" has stopped being true. */
@@ -77,6 +82,10 @@ export function ManagedSettling({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  const free = state.free === true;
+  // Neither staging nor the free tier charges anything, so neither waits on one.
+  const uncharged = free || state.stagingFreeStorage === true;
+  const paid = state.paid || free;
 
   if (state.failure !== undefined) {
     return (
@@ -103,7 +112,7 @@ export function ManagedSettling({
           />
         </Row>
         <Text variant="foot" style={styles.foot}>
-          {state.stagingFreeStorage ? "If a second attempt fails too, get in touch and we will set it up by hand."
+          {uncharged ? "If a second attempt fails too, get in touch and we will set it up by hand."
             : "If a second attempt fails too, get in touch and we will set it up by hand. You should not pay for storage you are not using — tell us if you connect your own and we will stop the subscription."}
         </Text>
       </View>
@@ -112,12 +121,14 @@ export function ManagedSettling({
 
   const steps: Array<{ label: string; state: "done" | "working" | "waiting" }> = [
     {
-      label: state.stagingFreeStorage ? "Free staging storage" : state.paid ? "Payment confirmed" : "Confirming your payment",
-      state: state.paid ? "done" : "working",
+      label: free
+        ? "Free workspace — no card"
+        : state.stagingFreeStorage ? "Free staging storage" : state.paid ? "Payment confirmed" : "Confirming your payment",
+      state: paid ? "done" : "working",
     },
     {
       label: "Creating your storage",
-      state: state.storageReady ? "done" : state.paid ? "working" : "waiting",
+      state: state.storageReady ? "done" : paid ? "working" : "waiting",
     },
     {
       label: "Laying out your folders",
@@ -129,10 +140,12 @@ export function ManagedSettling({
     <View>
       <View style={styles.head}>
         <Pill tone="ok" leading={<Dot tone="ok" />}>
-          {state.stagingFreeStorage ? "Staging" : "Paid"}
+          {free ? "Free" : state.stagingFreeStorage ? "Staging" : "Paid"}
         </Pill>
         <Text variant="rowTitle" role="status">
-          {state.slow ? "Still working" : state.stagingFreeStorage ? "Creating staging storage" : "Payment received"}
+          {state.slow
+            ? "Still working"
+            : free ? "Creating your bucket" : state.stagingFreeStorage ? "Creating staging storage" : "Payment received"}
         </Text>
       </View>
       <Text variant="rowSub" style={styles.lede}>
@@ -168,7 +181,7 @@ export function ManagedSettling({
         <View>
           <Notice style={styles.card} testID="managed-settling-slow">
             <Text variant="rowSub">
-              {state.stagingFreeStorage ? "We are keeping this screen here until the bucket confirms that it is usable."
+              {uncharged ? "We are keeping this screen here until the bucket confirms that it is usable."
                 : "Your payment is safe and nothing has been lost; we are keeping this screen here until the bucket itself confirms that it is usable."}
             </Text>
           </Notice>

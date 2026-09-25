@@ -12,6 +12,7 @@ import type { SharedDoc } from "../../presence/sharedDoc";
 import type { PresenceMember } from "../../presence/protocol";
 import type { DurableCollaboration } from "../../collaboration/durable";
 import type { NoteLinkOpen } from "../noteLinks";
+import type { FolderListSource } from "../listBlock/model";
 import type {
   FormOutcome,
   FormResponsesOutcome,
@@ -225,6 +226,11 @@ export interface LiveEditorProps {
   }) => Promise<{ target: string } | { error: string }>;
   /** Say a refused paste out loud — a toast on this surface. */
   onImageProblem?: (message: string) => void;
+  /**
+   * Where a ```list block reads the notes it chooses from. Absent on a surface
+   * with no copy of the workspace, and the block then stays as its source.
+   */
+  folderLists?: FolderListSource;
   /**
    * Ask the running plugins to complete the line being typed.
    *

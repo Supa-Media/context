@@ -7,6 +7,7 @@ import { fonts, leading, radii, space, tracking } from "../../design/tokens";
 import { pointerType as t } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
+import { ENDPOINT_NOTE, TIER_NOTE } from "../agents";
 
 /**
  * A-07 — Connections, as an onboarding step.
@@ -41,9 +42,8 @@ export function ConnectionsStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        Point one of the AI tools you already use at this endpoint. When it
-        connects and calls the <Text style={styles.code}>orient</Text> tool, this
-        screen ticks the row and you move on.
+        Point one of the AI tools you already use at this endpoint. Each row
+        turns green once that tool has signed in and made its first call.
       </Text>
 
       <Text variant="eyebrow" style={styles.head}>
@@ -55,8 +55,7 @@ export function ConnectionsStep({
         testID="welcome-connections-endpoint"
       />
       <Text variant="foot" style={styles.hint}>
-        Same URL for everyone. Your client signs in and gets its own revocable
-        grant — nothing in the address identifies you.
+        {ENDPOINT_NOTE}
       </Text>
 
       <Text variant="eyebrow" style={styles.head}>
@@ -72,8 +71,17 @@ export function ConnectionsStep({
         ))}
       </View>
 
+      <Text variant="foot" style={styles.hint}>
+        {TIER_NOTE}
+      </Text>
+
       <View style={styles.footRow}>
-        <Button label="Skip for now" variant="ghost" onPress={onSkip} />
+        <Button
+          label={clients.some((client) => client.status === "connected") ? "Continue" : "Skip for now"}
+          variant={clients.some((client) => client.status === "connected") ? "white" : "ghost"}
+          onPress={onSkip}
+          testID="welcome-connections-continue"
+        />
         <Text variant="foot" style={styles.footHint}>
           You can come back to this from Settings › Connections.
         </Text>

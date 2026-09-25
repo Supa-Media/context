@@ -185,6 +185,7 @@ export default function ContextBrowseRoute() {
         screen; narrowing it here to "and the browser has not reached it yet"
         was the first attempt and closed only the first half.
       */
+      onNavigate={(href) => router.push(href)}
       pendingNote={note}
       anchor={anchor}
       /*

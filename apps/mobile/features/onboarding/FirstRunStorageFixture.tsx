@@ -78,6 +78,10 @@ export function FirstRunStorageFixture({
       })),
     proceed: () => setMode("settling"),
     retry: () => {},
+    free: null,
+    startedFree: false,
+    startFree: () => {},
+    startingFree: false,
   };
 
   return (

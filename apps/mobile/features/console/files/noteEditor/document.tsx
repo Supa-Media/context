@@ -77,6 +77,7 @@ export function noteDocument(view: NoteView) {
     onLoadImage,
     onStoreImage,
     onImageProblem,
+    folderLists,
   } = view;
   return (
     <View
@@ -356,6 +357,7 @@ export function noteDocument(view: NoteView) {
           onLoadImage={onLoadImage}
           onStoreImage={onStoreImage}
           onImageProblem={onImageProblem}
+          folderLists={folderLists}
         />
         </>
         )}

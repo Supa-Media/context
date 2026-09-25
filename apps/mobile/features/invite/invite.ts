@@ -284,6 +284,24 @@ export function invitationTitle(invitation: PendingInvitation): string {
   return `You've been invited to ${atName(invitation.slug)}`;
 }
 
+/** B2-01's heading: "Join @ignite", under a "You've been invited" eyebrow. */
+export function joinTitle(invitation: PendingInvitation): string {
+  return `Join ${atName(invitation.slug)}`;
+}
+
+/**
+ * Two letters for the card's avatar: the first letters of the first two words
+ * of the display name ("Ignite Media" → "IM"), else of the slug's first two
+ * hyphenated parts ("dc-chapter" → "DC"), else its first letter.
+ */
+export function workspaceInitials(invitation: PendingInvitation): string {
+  const words = (source: string) => source.split(/[\s\-_.]+/).filter((word) => /\w/.test(word));
+  const display = words(invitation.displayName.trim());
+  const parts = display.length > 0 ? display : words(invitation.slug);
+  const letters = parts.slice(0, 2).map((word) => word.replace(/\W/g, "").charAt(0));
+  return letters.join("").toUpperCase() || "@";
+}
+
 /**
  * The context, named the way a person would name it.
  *

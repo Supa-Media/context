@@ -17,12 +17,25 @@
 
 export type StepKey =
   | "name"
+  | "fork"
   | "storage"
+  | "dryrun"
   | "vault"
   | "structure"
   | "agents"
   | "bootstrap"
+  | "live"
   | "done";
+
+/**
+ * Which way the fork went: a bucket somebody brought, or one we run.
+ *
+ * Only a brought bucket gets the dry-run report — it is the one that may
+ * already hold something, and the report is what we found in it. A bucket we
+ * made has nothing to report. Absent is "not decided yet", and draws no
+ * dry-run step, which is the shorter rail and the one that stays honest.
+ */
+export type StorageRoute = "byo" | "managed";
 
 export type VaultOutcome = "pending" | "skipped" | "imported" | "existing";
 
@@ -45,6 +58,8 @@ export interface FlowShape {
   storage: StorageOutcome;
   /** Whether an existing Obsidian vault replaced the proposed starting layout. */
   vault?: VaultOutcome;
+  /** Which way the fork went. See `StorageRoute`. */
+  route?: StorageRoute;
 }
 
 /**
@@ -67,17 +82,42 @@ export interface FlowShape {
  * lost by skipping the step: it is in the console, and `DoneStep` says where.
  */
 export function stepsFor(shape: FlowShape): StepKey[] {
-  if (shape.storage === "connected") {
-    return shape.vault === "imported" || shape.vault === "existing"
-      ? ["name", "storage", "vault", "agents", "bootstrap", "done"]
-      : ["name", "storage", "vault", "structure", "agents", "bootstrap", "done"];
-  }
-  return ["name", "storage", "done"];
+  if (shape.storage !== "connected") return ["name", "fork", "storage", "done"];
+  const layout: StepKey[] =
+    shape.vault === "imported" || shape.vault === "existing" ? [] : ["structure"];
+  return [
+    "name",
+    "fork",
+    "storage",
+    ...(shape.route === "byo" ? (["dryrun"] as StepKey[]) : []),
+    "vault",
+    ...layout,
+    "agents",
+    "bootstrap",
+    "live",
+    "done",
+  ];
 }
 
-/** Where the storage step hands off to. */
-export function afterStorage(outcome: StorageOutcome): StepKey {
-  return outcome === "connected" ? "vault" : "done";
+/** A claimed name always asks where the notes live next. */
+export function afterName(): StepKey {
+  return "fork";
+}
+
+/**
+ * Where the storage step hands off to.
+ *
+ * A bucket somebody brought is reported on first — what we found, what it
+ * supports — before anything offers to write to it. See `StorageRoute`.
+ */
+export function afterStorage(outcome: StorageOutcome, route?: StorageRoute): StepKey {
+  if (outcome !== "connected") return "done";
+  return route === "byo" ? "dryrun" : "vault";
+}
+
+/** The dry-run report hands off to the vault question, as a connected bucket always does. */
+export function afterDryRun(): StepKey {
+  return "vault";
 }
 
 export function afterVault(outcome: Exclude<VaultOutcome, "pending">): StepKey {
@@ -119,10 +159,20 @@ export function afterAgents(): StepKey {
 /**
  * Where the bootstrap step hands off to.
  *
- * Always the last screen. Continuing is skipping; a Skip beside a Continue is
+ * Always the live check. Continuing is skipping; a Skip beside a Continue is
  * courtesy, not another destination.
  */
 export function afterBootstrap(): StepKey {
+  return "live";
+}
+
+/**
+ * Where the live check hands off to.
+ *
+ * Always the last screen. Waiting for a client is never a gate: the person
+ * may connect one tomorrow, and the console shows it when they do.
+ */
+export function afterLive(): StepKey {
   return "done";
 }
 
@@ -153,11 +203,14 @@ export function storageWarning(shape: FlowShape): string | null {
 
 export const STEP_LABELS: Record<StepKey, string> = {
   name: "Your name",
+  fork: "Where it lives",
   storage: "Your storage",
+  dryrun: "What we found",
   vault: "Your vault",
   structure: "Your layout",
   agents: "Your tools",
   bootstrap: "Bootstrap",
+  live: "Live",
   done: "You're set",
 };
 
@@ -179,10 +232,18 @@ export function stepProgress(
 }
 
 /** The one-line title over each step. */
-export function stepTitle(key: StepKey): string {
+export function stepTitle(key: StepKey, shape?: FlowShape): string {
+  // B1-01: somebody who said "I have a bucket" is asked to show it.
+  if (key === "storage" && shape?.route === "byo") return "Show us what's already there";
   switch (key) {
     case "name":
-      return "Claim your name";
+      return "Pick the name your notes live under";
+    case "fork":
+      return "Where should it live?";
+    case "dryrun":
+      return "What we found in your bucket";
+    case "live":
+      return "Waiting for your first tool";
     case "storage":
       /*
         Not "Connect your bucket" any more, which presumed the answer: a bucket

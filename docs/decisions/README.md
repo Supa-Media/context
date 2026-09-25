@@ -60,6 +60,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A third route factory, and why it is enumerated separately
 - Storage we run is offered wherever a context is made, personal or shared
 - What is deliberately not built
+- The free managed tier
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 
@@ -162,6 +163,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A form on a share page draws itself, and is the page's one write
 - Asking for a link publishes the form, and a refused mint says why
 - What is deliberately not built
+
+## [Folder lists](./folder-lists.md)
+
+- Nothing about it is website-specific
+- Selection only ever narrows
+- A block that does not parse draws its error
+- The filter lives in the block
 
 ## [Search and the derived index](./search.md)
 

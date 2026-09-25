@@ -188,6 +188,72 @@ export function hasAnyEntitlement(selected: Entitlements): boolean {
 }
 
 /**
+ * How many notes a context on the free managed tier holds.
+ *
+ * A note is counted the way the console counts one (`lib/noteCount.ts`):
+ * Markdown outside the dot-prefixed plumbing. At the cap, **creating** a new
+ * note is refused and nothing else is: reading, editing an existing note,
+ * moving, deleting and every exit keep working, because a limit on how much
+ * somebody may add is a different thing from a limit on leaving with it.
+ * `docs/decisions/billing.md`, "The free managed tier".
+ */
+export const FREE_MANAGED_NOTE_CAP = 1000;
+
+/**
+ * How many free managed contexts one account may own.
+ *
+ * Each one is a bucket in the customer-data account that we create and pay
+ * for, with no card behind it. One per account keeps the free tier a way to
+ * start rather than a way to farm storage; a second context can bring its own
+ * bucket or go on Premium.
+ */
+export const FREE_MANAGED_PER_ACCOUNT = 1;
+
+/** The parts of a plan row these rules read. `null` is the ordinary no-row state. */
+export interface PlanFacts {
+  managedStorage?: boolean;
+  status?: PlanStatus;
+  freeManaged?: boolean;
+}
+
+/**
+ * Whether this context may have a managed bucket minted for it right now.
+ *
+ * Paying for managed storage, as before; or being on the free managed tier
+ * *while this deployment offers it*. The second half is what keeps the tier
+ * off in production until the exit path lands (non-negotiable #1): with the
+ * offer switched off, no new free bucket is created. Nothing here touches a
+ * bucket that already exists — this gates provisioning, never access.
+ */
+export function managedStorageEntitled(
+  plan: PlanFacts | null,
+  deployment: { freeTierOffered: boolean },
+): boolean {
+  if (plan?.managedStorage !== true) return false;
+  if (planIsPaying(plan.status ?? "none")) return true;
+  return plan.freeManaged === true && deployment.freeTierOffered;
+}
+
+/**
+ * The note cap on this context, or `null` for none.
+ *
+ * Only a context on the free tier, on storage we run, and not currently
+ * paying. Paying lifts it; a bucket the customer owns is never capped by us
+ * (it is theirs, and they pay the provider). A paid context that lapsed is not
+ * thereby a free one — `freeManaged` records that it *started* free, which is
+ * also what puts a free context that upgraded and then cancelled back on the
+ * cap rather than making it read-only.
+ */
+export function noteCapFor(
+  plan: Pick<PlanFacts, "status" | "freeManaged"> | null,
+  storageIsManaged: boolean,
+): number | null {
+  if (!storageIsManaged || plan?.freeManaged !== true) return null;
+  if (planIsPaying(plan.status ?? "none")) return null;
+  return FREE_MANAGED_NOTE_CAP;
+}
+
+/**
  * Whether writing is still allowed after a lapse.
  *
  * Cancelling makes a context **read-only and exportable; it never deletes**
@@ -200,10 +266,16 @@ export function hasAnyEntitlement(selected: Entitlements): boolean {
  * is the whole of it: a context on a bucket the customer owns keeps working
  * with their own credentials whatever we think of their card, because the
  * bucket is theirs and revoking our access is *their* lever, not ours.
+ *
+ * A context on the free managed tier never goes read-only here: it has no
+ * subscription to lapse, and falling back to free puts it on the note cap
+ * (`noteCapFor`) instead.
  */
 export function cancellationMakesReadOnly(
   status: PlanStatus,
   storageIsManaged: boolean,
+  freeManaged = false,
 ): boolean {
+  if (freeManaged) return false;
   return storageIsManaged && !planIsPaying(status);
 }

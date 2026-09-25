@@ -77,6 +77,7 @@ import { R2Store } from "./r2.js";
 import { S3Store } from "./s3.js";
 import { DropboxStore } from "./dropbox.js";
 import { withLogicalDelete } from "./logicalDelete.js";
+import { withNoteCap } from "./noteCap.js";
 
 /**
  * The gateway could not reach a usable bucket for an otherwise valid session.
@@ -131,7 +132,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean, rawObjects?: boolean, noteCap?: number|null}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -159,7 +160,11 @@ export function storeForBinding(binding, env, options = {}) {
   // objects themselves. Ordinary gateway callers always receive the logical
   // view, so this escape hatch is intentionally opt-in.
   if (options.rawObjects === true) return probed;
-  return withLogicalDelete(probed);
+  // The free managed tier's note cap, outermost so every write a caller makes
+  // crosses it — `noteCap.js`. Absent for every other context. The two
+  // escape hatches above never see it: a connect probe writes no notes, and a
+  // storage-layout migration only moves what is already there.
+  return withNoteCap(withLogicalDelete(probed), options.noteCap);
 }
 
 /**

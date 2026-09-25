@@ -6,16 +6,15 @@ import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { Card } from "../design/components/Card";
 import { CenteredScroll } from "../design/components/CenteredScroll";
-import { Fact } from "../design/components/Fact";
 import { FormError } from "../design/components/Input";
-import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, leading, pointerType as t, tracking } from "../design/tokens";
+import { clamp, fonts, leading, pointerType as t, radii, space, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE } from "../auth/redirect";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { ContextOverview } from "../overview/ContextOverview";
+import { atName } from "../console/format";
 import {
   acceptanceLine,
   contextLabel,
@@ -23,8 +22,9 @@ import {
   firstParam,
   invitationLede,
   invitationTerms,
-  invitationTitle,
+  joinTitle,
   resolveInviteView,
+  workspaceInitials,
   type InvitationsResult,
   type InviteDecision,
   type InviteView,
@@ -138,7 +138,6 @@ export function InvitePage({
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.ground}>
-      <StageBackdrop />
       <CenteredScroll testID={testID}>
         <View style={styles.wrap}>
           <Text variant="mark" style={styles.mark}>
@@ -261,22 +260,41 @@ function ReadyBody({
   const styles = useThemedStyles(makeStyles);
   const invitation = view.invitation;
 
+  const label = contextLabel(invitation);
+
   return (
     <>
-      <Title size={titleSize}>{invitationTitle(invitation)}</Title>
-      <Text variant="heroSub" style={styles.sub}>
-        {invitationLede(invitation)}
+      <Text variant="eyebrow" style={styles.eyebrow}>
+        You've been invited
       </Text>
+      <Title size={titleSize}>{joinTitle(invitation)}</Title>
 
-      <Card style={styles.card}>
-        <Fact title="The context" body={contextLabel(invitation)} />
-        <Fact title="Your role" body={acceptanceLine(invitation.role)} testID="invite-role" />
-        <Fact
-          title="This link"
-          body={invitationTerms(invitation, now)}
-          testID="invite-terms"
-        />
-      </Card>
+      {/*
+        B2-01 draws the *inviter* here — a name, a handle, "Owner of @x". We
+        cannot: `listMyInvitations` returns `invitedBy` as an opaque id (see
+        `invitationLede`). So the card is the workspace being offered, which is
+        the thing they will see in their switcher afterwards.
+      */}
+      <View style={styles.host} testID="invite-context">
+        <View style={styles.avatar} aria-hidden>
+          <Text style={styles.avatarText}>{workspaceInitials(invitation)}</Text>
+        </View>
+        <View style={styles.hostText}>
+          <Text style={styles.hostName}>{label}</Text>
+          <Text variant="rowSub" style={styles.hostSub}>
+            {invitationLede(invitation)}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.terms}>
+        <Text style={styles.role} testID="invite-role">
+          {acceptanceLine(invitation.role)}
+        </Text>
+        <Text variant="foot" style={styles.termsLine} testID="invite-terms">
+          {invitationTerms(invitation, now)}
+        </Text>
+      </View>
 
       {/*
         The overview sits here, between what is being offered and the decision
@@ -294,29 +312,16 @@ function ReadyBody({
         One shape used twice, like Approve and Deny on the consent screen.
         Declining an invitation is a legitimate answer, not a failure, and a
         quieter, greyer control for it would be a dark pattern whatever the
-        copy says.
+        copy says — which is why B2-01's filled Accept beside a text Decline is
+        not what is built.
       */}
       <View style={styles.decisions}>
         <Button
-          label={view.busy === "decline" ? "Declining…" : "Decline"}
+          label={view.busy === "accept" ? "Accepting…" : `Accept and open ${atName(invitation.slug)}`}
           variant="decision"
           style={styles.decision}
           disabled={view.busy !== null}
-          accessibilityLabel={`Decline the invitation to ${contextLabel(invitation)}`}
-          onPress={() => onDecide("decline")}
-          trailing={
-            view.busy === "decline" ? (
-              <ActivityIndicator color={colors.text} size="small" />
-            ) : null
-          }
-          testID="invite-decline"
-        />
-        <Button
-          label={view.busy === "accept" ? "Accepting…" : "Accept"}
-          variant="decision"
-          style={styles.decision}
-          disabled={view.busy !== null}
-          accessibilityLabel={`Accept the invitation to ${contextLabel(invitation)}`}
+          accessibilityLabel={`Accept the invitation to ${label}`}
           onPress={() => onDecide("accept")}
           trailing={
             view.busy === "accept" ? (
@@ -325,7 +330,26 @@ function ReadyBody({
           }
           testID="invite-accept"
         />
+        <Button
+          label={view.busy === "decline" ? "Declining…" : "Decline"}
+          variant="decision"
+          style={styles.decision}
+          disabled={view.busy !== null}
+          accessibilityLabel={`Decline the invitation to ${label}`}
+          onPress={() => onDecide("decline")}
+          trailing={
+            view.busy === "decline" ? (
+              <ActivityIndicator color={colors.text} size="small" />
+            ) : null
+          }
+          testID="invite-decline"
+        />
       </View>
+
+      <Text variant="foot" style={styles.foot} testID="invite-foot">
+        Nothing is created for you here. You can start a personal workspace of your own later,
+        from the workspace switcher.
+      </Text>
     </>
   );
 }
@@ -412,11 +436,46 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 48,
   },
   mark: { alignSelf: "flex-start", marginBottom: 30 },
-  markSuffix: { color: colors.muted },
-  title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text },
+  markSuffix: { color: colors.accent },
+  title: { fontFamily: fonts.display, fontWeight: "600", color: colors.text },
+  eyebrow: { color: colors.muted, marginBottom: space.x2 },
   sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
 
-  card: { marginTop: 26, gap: 13 },
+  host: {
+    marginTop: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.card,
+    backgroundColor: colors.surface2,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+  },
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.hintWash,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { fontSize: t.ui, fontWeight: "600", color: colors.accent },
+  hostText: { flex: 1, gap: 3 },
+  hostName: { fontSize: t.lede, fontWeight: "600", color: colors.text },
+  hostSub: { color: colors.text2 },
+  terms: {
+    marginTop: 12,
+    borderRadius: radii.card,
+    backgroundColor: colors.well,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    gap: 6,
+  },
+  role: { fontSize: t.ui, lineHeight: leading(t.ui, 1.55), color: colors.text },
+  termsLine: { color: colors.muted },
+  foot: { marginTop: 16, color: colors.muted, lineHeight: leading(12.5, 1.5) },
   overview: { marginTop: 26 },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
 

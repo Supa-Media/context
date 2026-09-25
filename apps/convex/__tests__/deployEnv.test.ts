@@ -60,6 +60,10 @@ const SET_ELSEWHERE: Record<string, string> = {
   INGESTION_RECEIVER:
     "flipped by hand once, when Email Routing is actually pointed at the Worker — " +
     "a deploy must not be able to turn ingestion live",
+  FREE_MANAGED_STORAGE:
+    "flipped by hand, deliberately — production stays off until the export and hand-off " +
+    "path lands (non-negotiable #1), staging is on through stagingStorageIsFree(), and a " +
+    "deploy must not be able to turn a no-card managed bucket live",
 };
 
 /** Every `.ts` under a directory, skipping tests and generated code. */

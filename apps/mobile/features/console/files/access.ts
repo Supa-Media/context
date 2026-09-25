@@ -125,19 +125,19 @@ function removalFor(role: string, kind: "file" | "folder"): RemovalRoute[] {
           id: "note-private",
           label: "Make this folder private",
           detail:
-            "Takes it back from everyone except owners — this folder and everything in it.",
+            "Only owners keep it: this folder and everything in it",
           danger: false,
         }
       : {
           id: "note-private",
           label: "Make this note private",
-          detail: "Takes it back from everyone except owners. Only this note changes.",
+          detail: "Only owners keep it. Only this note changes",
           danger: false,
         },
     {
       id: "workspace-remove",
-      label: "Remove from this context",
-      detail: "Closes every note and folder in this context to them, not just this one.",
+      label: "Remove from this workspace",
+      detail: "Closes every note in the workspace to them, not just this one",
       danger: true,
     },
   ];

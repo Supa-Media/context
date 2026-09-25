@@ -165,7 +165,8 @@ describe("a screen's controls stay reachable at any viewport height", () => {
   test("the login screen can scroll to its submit button", () => {
     mockParams = {};
     const { container, unmount } = render(createElement(LoginScreen));
-    expect(container.textContent).toContain("Sign in or create your workspace");
+    expect(container.textContent).toContain("Tell one AI once");
+    expect(container.textContent).toContain("Signing in creates an account");
     expectReachable(container, "login-submit");
     unmount();
   });

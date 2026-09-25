@@ -273,6 +273,8 @@ async function settle(turns = 6) {
 /** Fills and submits `LockNoteDialog` with a passphrase that clears every bar. */
 function lockWith(passphrase: string): void {
   press(document.body, "browse-share");
+  // Encryption is a rare act, so it sits in the share dialog's header menu.
+  press(document.body, "share-more");
   press(document.body, "share-lock-note");
   type("Passphrase", passphrase);
   type("Passphrase again", passphrase);

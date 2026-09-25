@@ -120,10 +120,13 @@ function mountCard(
     start?: () => void;
     note?: string;
     managed?: { price: string; onChoose: () => void };
+    /** Settings reconnecting a context already on Dropbox is the only caller that sets it. */
+    allowDropbox?: boolean;
   } = {},
 ): Screen {
   return mount(
     createElement(StorageChoiceBody, {
+      allowDropbox: overrides.allowDropbox ?? false,
       dropboxReady: overrides.dropboxReady ?? true,
       redirectUri: overrides.redirectUri === undefined ? "https://context.lc/connect/dropbox" : overrides.redirectUri,
       dropboxState: overrides.state ?? { kind: "idle" },
@@ -271,13 +274,41 @@ describe("the storage choice: two paths, provider details behind the click", () 
   });
 
   /**
+   * New Dropbox connections are not offered (owner, 2026-09-24). Opening "your
+   * own storage" on any screen that is making a *new* connection shows the
+   * bucket card and nothing else.
+   */
+  test("a new connection is never offered Dropbox", () => {
+    const screen = mountCard();
+    expect(screen.text).not.toContain("Dropbox");
+    screen.click("choose-own-storage");
+    expect(screen.q("choose-bucket")).not.toBe(null);
+    expect(screen.q("choose-dropbox")).toBe(null);
+    expect(screen.text).not.toContain("Dropbox");
+    screen.unmount();
+  });
+
+  /**
+   * The one exception, and the reason for it: a context already on Dropbox
+   * whose token lapsed must be able to consent again, because an existing
+   * workspace keeps connecting and working unchanged (non-negotiable #2).
+   */
+  test("a context already on Dropbox can reconnect it", () => {
+    const screen = mountCard({ allowDropbox: true });
+    screen.click("choose-own-storage");
+    expect(screen.q("choose-dropbox")).not.toBe(null);
+    expect(screen.text).toContain("Reconnect Dropbox");
+    screen.unmount();
+  });
+
+  /**
    * Pressing Dropbox goes — it does not expand into one more button. The app
    * is folder-scoped so there is nothing to ask, and a step that exists only
    * to be clicked through teaches people to click through steps.
    */
   test("pressing Dropbox starts the flow immediately, asking nothing", () => {
     let starts = 0;
-    const screen = mountCard({ start: () => (starts += 1) });
+    const screen = mountCard({ allowDropbox: true, start: () => (starts += 1) });
     screen.click("choose-own-storage");
     screen.click("choose-dropbox");
     expect(starts).toBe(1);
@@ -288,11 +319,10 @@ describe("the storage choice: two paths, provider details behind the click", () 
   });
 
   test("the consent promise is on the card before anybody presses it", () => {
-    const screen = mountCard();
+    const screen = mountCard({ allowDropbox: true });
     screen.click("choose-own-storage");
-    // "its own folder" — the same words the Dropbox consent screen uses for an
-    // App Folder scoped app.
-    expect(screen.text).toContain("its own folder");
+    // "own Dropbox folder" — the App Folder scope the consent screen names.
+    expect(screen.text).toContain("own Dropbox folder");
     screen.unmount();
   });
 
@@ -304,7 +334,7 @@ describe("the storage choice: two paths, provider details behind the click", () 
    */
   test("where the flow cannot finish, pressing explains and does not start", () => {
     let starts = 0;
-    const screen = mountCard({ redirectUri: null, start: () => (starts += 1) });
+    const screen = mountCard({ allowDropbox: true, redirectUri: null, start: () => (starts += 1) });
     expect(screen.q("dropbox-unavailable")).toBe(null);
     screen.click("choose-own-storage");
     screen.click("choose-dropbox");
@@ -333,6 +363,7 @@ describe("the storage choice: two paths, provider details behind the click", () 
   test("while starting, the Dropbox card is busy and not pressable twice", () => {
     let starts = 0;
     const screen = mountCard({
+      allowDropbox: true,
       state: { kind: "starting" },
       start: () => (starts += 1),
     });

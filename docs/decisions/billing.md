@@ -396,3 +396,53 @@ cleanup. Staging is disposable: identify it with a compact Staging pill beside
 the console storage badge, and warn before storage activation that data may be
 deleted at any time and must not hold vital information. The full-width app
 banner was removed at the owner’s request.
+
+## The free managed tier (2026-09-24)
+
+A context can start on a bucket we run with **no card**: 1,000 notes, one free
+context per account, owner-only (`billing.startFreeManaged`). It is the same
+provisioning run a payment starts, entitled by `managedStorageEntitled` instead
+of by a paying status.
+
+**It ships dark in production, and that is the decision, not a delay.** A free
+bucket is one the customer holds no key to, so non-negotiable #1's exit — a
+free download of everything, or handing the bucket to storage of their own — is
+the only thing that makes it theirs. Downloading a folder as a `.zip` works
+today; moving a managed bucket's notes into one of theirs is not built. Until
+it is, `FREE_MANAGED_STORAGE=enabled` is set by hand and never by a deploy
+(`deployEnv.test.ts` names why), and staging has it on because storage there is
+already free and disposable. Switching it off stops new free buckets and
+touches no existing one: it gates provisioning, never access. Removing the
+switch before the hand-off path lands is the reversal this section exists to
+stop, and `freeManaged.test.ts` ("a deployment that has not switched it on does
+not offer it") fails if the default flips.
+
+**The cap refuses creating a note, and nothing else.** Reading, editing,
+moving, deleting and every exit keep working on a full context — a limit on
+how much somebody may add is a different thing from a limit on leaving with it.
+Bytes are not metered, so no byte figure is promised. The cap is a store wrapper
+in `storeForBinding` (`apps/mcp/src/store/noteCap.js`), the one factory every
+write path already crosses — agent tools, the console, live editing, email —
+so no path has to remember a check. The control plane sends `noteCap` as a
+sibling of the binding, never inside it, and a failed lookup sends none: a
+billing read must never cost somebody their notes. Moves inside a context run
+in a relocation window the cap admits; a move in from another context is a
+create. The count may overshoot by the number of concurrent creates; closing
+that would put a cross-request lock on every write, for a free allowance.
+
+**A free context never goes read-only.** It has no subscription to lapse, so
+`cancellationMakesReadOnly` leaves it writable and on the cap. Paying lifts the
+cap; a free context that upgraded and then cancelled falls back onto the cap
+rather than going read-only.
+
+**Onboarding asks the question first.** After the name, the fork offers the
+free bucket where this deployment offers it and this owner may start it, the
+paid bucket where it can only sell one, and only a bucket of their own where it
+can do neither. A bucket somebody brought gets a dry-run report before the vault
+question, and it says what the probe did: one temporary object written under
+`.context/probes/` and removed — never "nothing was written".
+
+**No new Dropbox connections.** Onboarding and new workspaces no longer offer
+Dropbox. A context already bound to Dropbox keeps working and can reconnect
+from Settings, because non-negotiable #2 says an existing workspace must keep
+working unchanged; removing the adapter would break exactly those.

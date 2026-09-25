@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  *
- * Settings › Domain, mounted in every state it can be in.
+ * Settings › Website (the domain card), mounted in every state it can be in.
  *
  * What this holds: an owner sees the records and every control, a member sees
  * the address and no control at all (absent, not disabled), a free workspace

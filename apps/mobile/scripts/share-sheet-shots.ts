@@ -3,8 +3,8 @@
  */
 
 /**
- * Screenshots of the rebuilt share sheet, for the five-move sweep the owner
- * asked for after "this shared dialogue doesn't really make sense to me".
+ * Screenshots of the share dialog, for the design audit every UI change here
+ * gets before it ships (`docs/decisions/app-and-console.md`).
  *
  * Same technique as `design-shots.ts` and `editor-accessory-shots.ts`: the
  * shipped component, rendered by react-dom into a real DOM, written out as a
@@ -12,6 +12,8 @@
  * picture of a component nobody ships is worth nothing in a review.
  *
  *     pnpm exec jest --testMatch '**\/scripts/share-sheet-shots.ts' --testPathIgnorePatterns '[]'
+ *
+ * Each board is written at a desktop and a phone width, in the Paper theme.
  */
 
 import { afterEach, describe, expect, test } from "@jest/globals";
@@ -25,6 +27,7 @@ import { createRoot, type Root } from "react-dom/client";
 const OUT = resolve(__dirname, "../../../docs/design/share-sheet");
 
 const { ShareDialog } = require("../features/console/files/ShareDialog") as typeof import("../features/console/files/ShareDialog");
+const { ThemeProvider } = require("../features/design/theme") as typeof import("../features/design/theme");
 const { StyleSheet } = require("react-native") as {
   StyleSheet: { getSheet(): { textContent: string } };
 };
@@ -56,12 +59,14 @@ function page(title: string, body: string, css: string, width: number, height: n
 <html lang="en"><head><meta charset="utf-8">
 <title>${title}</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #FFFFFF; }
+  html, body { margin: 0; padding: 0; background: #F4F1EA; }
+  #note { position: absolute; inset: 0; padding: 72px 12% 0; background: #FFFDF9; color: #4A443C; font: 17px/1.65 "Instrument Sans", sans-serif; }
+  #note h1 { font-size: 30px; color: #1A1714; margin: 0 0 16px; }
   body { -webkit-font-smoothing: antialiased; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   #shot { width: ${width}px; height: ${height}px; overflow: hidden; position: relative; }
 </style>
 <style id="rnw">${css}</style>
-</head><body><div id="shot">${body}</div></body></html>`;
+</head><body><div id="shot"><div id="note"><h1>Artist role</h1><p>Being an artist is like running a business: expect ten or more hours a week on craft, rehearsal and the work nobody sees.</p><p>Artists lead worship on Sundays and at street gatherings, write and arrange new songs, and mentor anyone joining the team.</p></div>${body}</div></body></html>`;
 }
 
 function mount(node: ReturnType<typeof createElement>, width: number, height: number): void {
@@ -72,7 +77,7 @@ function mount(node: ReturnType<typeof createElement>, width: number, height: nu
   document.body.appendChild(container);
   root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
   act(() => {
-    root!.render(node);
+    root!.render(createElement(ThemeProvider, { scheme: "light", children: node }));
   });
 }
 
@@ -110,22 +115,38 @@ function write(name: string, width: number, height: number): void {
   const css = `${StyleSheet.getSheet().textContent}\n${injected}`;
   const file = resolve(OUT, `${name}.html`);
   mkdirSync(dirname(file), { recursive: true });
-  // The sheet, not the empty container it portalled out of.
-  writeFileSync(file, page(name, sheet()!.outerHTML, css, width, height));
+  // The whole portalled modal: its menus are siblings of the card, not inside it.
+  const modal = [...document.body.children].filter((node) => node !== container);
+  expect(sheet()).not.toBeNull();
+  writeFileSync(file, page(name, modal.map((node) => node.outerHTML).join(""), css, width, height));
 }
 
 const MEMBERS = [
-  { userId: "u1", role: "owner", name: "seyi@example.invalid", isMe: true },
-  { userId: "u2", role: "editor", name: "agent@example.invalid", isMe: false },
-  { userId: "u3", role: "editor", name: "dimelu@example.invalid", isMe: false },
-  { userId: "u4", role: "editor", name: "shyoh@example.invalid", isMe: false },
+  { userId: "u1", role: "owner", name: "Seyi O", email: "seyi@example.invalid", isMe: true },
+  { userId: "u2", role: "editor", name: "Layomi A", email: "layomi@example.invalid", isMe: false },
+  { userId: "u3", role: "editor", name: "John B", email: "john@example.invalid", isMe: false },
+  { userId: "u4", role: "member", name: "Lara K", email: "lara@example.invalid", isMe: false },
 ];
 
-const GROUPS = [{ name: "supa-leads", label: "leads", liveCount: 2 }];
+const GROUPS = [{ name: "public-worship-leads", label: "leads", liveCount: 3 }];
+const NOTE = "artists/artist-role.md";
+
+const share = (overrides: Record<string, unknown>) => ({
+  shareId: "s-person",
+  token: "a".repeat(64),
+  recipient: "Kemi D",
+  audience: "name",
+  entryPath: NOTE,
+  titleInPreview: false,
+  collecting: false,
+  createdAt: 1,
+  ...overrides,
+});
+const OPEN_LINK = share({ shareId: "s-open", recipient: "Anyone with the link", audience: "anyone" });
 
 function dialog(overrides: Record<string, unknown> = {}) {
   return createElement(ShareDialog as never, {
-    path: "2-areas/apps/ai-agents/overview.md",
+    path: NOTE,
     shares: [],
     origin: "https://example.invalid",
     onShare: () => {},
@@ -137,98 +158,155 @@ function dialog(overrides: Record<string, unknown> = {}) {
     onRemovalRoute: () => {},
     onCreateGroup: () => {},
     onSetScope: () => {},
-    groupSlug: "supa",
+    onSetSlug: async () => true,
+    onSetCollecting: async () => true,
+    groupSlug: "public-worship",
     entryKind: "file",
     groups: GROUPS,
-    access: { visibility: "team", exception: false, members: MEMBERS },
+    context: { slug: "public-worship", kind: "shared", viewerIsOwner: true },
+    access: { visibility: "private", exception: true, members: MEMBERS },
+    advanced: {
+      action: {
+        id: "encrypt",
+        label: "Encrypt with a password…",
+        detail: "Only people you tell the password can read it. Not Context, and not your AI tools.",
+        icon: "lock",
+        testID: "share-lock-note",
+        onPress: () => {},
+      },
+    },
     ...overrides,
   } as never);
 }
 
-describe("share sheet shots", () => {
-  /** The sheet at rest: audience named, every person carrying a verb. */
-  test("at rest, on a phone", () => {
-    mount(dialog(), 390, 844);
-    // Asserted before it is photographed — `design-shots.ts`'s own rule.
-    expect(byId("share-audience")).not.toBeNull();
-    expect(byId("share-access-remove-u3")).not.toBeNull();
-    expect(byId("share-make-group")).not.toBeNull();
-    write("sheet-at-rest", 390, 844);
+const VIEWPORTS = [
+  { name: "desktop", width: 1280, height: 820 },
+  { name: "phone", width: 390, height: 844 },
+] as const;
+
+/** One board at both widths: mount, act, assert, write. */
+function board(
+  name: string,
+  overrides: Record<string, unknown>,
+  steps: () => void = () => {},
+): void {
+  for (const viewport of VIEWPORTS) {
+    mount(dialog(overrides), viewport.width, viewport.height);
+    steps();
+    write(`${name}-${viewport.name}`, viewport.width, viewport.height);
+    act(() => root!.unmount());
+    container!.remove();
+    root = null;
+    container = null;
+  }
+}
+
+const TEAM = { access: { visibility: "team", exception: false, members: MEMBERS } };
+
+describe("share dialog shots", () => {
+  test("a restricted note", () => {
+    board("01-restricted", {}, () => expect(byId("share-audience")).not.toBeNull());
   });
 
-  /**
-   * The defect that started this: typing a colleague's name produced an empty
-   * box, because every member of the context was excluded from the list.
-   */
   test("typing a name offers people, groups and a way to make one", () => {
-    mount(dialog({ access: { visibility: "private", exception: true, members: MEMBERS } }), 390, 844);
-    type(document.body.querySelector('[aria-label="Share with"]'), "d");
-    expect(byId("share-suggestions")).not.toBeNull();
-    write("sheet-typing", 390, 844);
-  });
-
-  /** Somebody who already reaches the note is shown and marked, never hidden. */
-  test("a name that already has access is answered rather than swallowed", () => {
-    mount(dialog(), 390, 844);
-    type(document.body.querySelector('[aria-label="Share with"]'), "dimelu");
-    expect(byId("share-reaching-u3")).not.toBeNull();
-    write("sheet-already-has-access", 390, 844);
-  });
-
-  /** The two honest routes, with their blast radius on each. */
-  test("removing somebody offers routes, not a button that picks one silently", () => {
-    mount(dialog(), 390, 844);
-    press(byId("share-access-remove-u3"));
-    expect(byId("share-route-note-private")).not.toBeNull();
-    expect(byId("share-route-workspace-remove")).not.toBeNull();
-    write("sheet-removal-routes", 390, 844);
-  });
-
-  /** The step the padlock used to take on one unlabelled tap. */
-  test("going public asks first", () => {
-    mount(dialog(), 390, 844);
-    press(byId("share-audience-anyone"));
-    expect(byId("share-confirm-public")).not.toBeNull();
-    write("sheet-going-public", 390, 844);
-  });
-
-  /**
-   * A refusal from the control plane, shown where it can be read.
-   *
-   * `createGroup` rejects a name it will not take — NAME_TAKEN, a reserved
-   * word, TOO_MANY_GROUPS. The console's notice line sits *behind* this modal,
-   * so the sheet answers for itself, and the maker stays open holding the
-   * label and the people already picked rather than making somebody re-choose
-   * four names to fix one word.
-   */
-  test("a refused group name is said here, and nothing is lost", async () => {
-    mount(
-      dialog({
-        onCreateGroup: () => Promise.reject(new Error("That name is already taken.")),
-      }),
-      390,
-      844,
-    );
-    press(byId("share-make-group"));
-    type(document.body.querySelector('[aria-label="Group name"]'), "leads");
-    press(byId("share-group-pick-u3"));
-    await act(async () => {
-      press(document.body.querySelector('[aria-label="Create"]'));
+    board("02-typing", {}, () => {
+      type(document.body.querySelector('[aria-label="Share with"]'), "la");
+      expect(byId("share-suggestions")).not.toBeNull();
     });
-
-    expect(byId("share-group-problem")?.textContent).toContain("already taken");
-    // Still open, still holding the pick.
-    expect(byId("share-group-maker")).not.toBeNull();
-    expect(byId("share-group-pick-u3")?.getAttribute("aria-checked")).toBe("true");
-    write("sheet-group-refused", 390, 844);
   });
 
-  /** A group, made from the note that needed it. */
-  test("a group can be made here", () => {
-    mount(dialog(), 390, 844);
-    press(byId("share-make-group"));
-    expect(byId("share-group-maker")).not.toBeNull();
-    press(byId("share-group-pick-u3"));
-    write("sheet-new-group", 390, 844);
+  test("a picked person waits for Share", () => {
+    board("03-picked", {}, () => {
+      type(document.body.querySelector('[aria-label="Share with"]'), "layomi");
+      press(byId("share-suggest-u2"));
+      expect(byId("share-submit")).not.toBeNull();
+    });
+  });
+
+  test("shared with people and a group", () => {
+    board("04-shared", {
+      shares: [share({}), share({ shareId: "s-2", recipient: "Tola F" })],
+    });
+  });
+
+  test("inherited from its folder", () => {
+    board("05-inherited", TEAM, () => expect(byId("share-inherited")).not.toBeNull());
+  });
+
+  test("the audience menu", () => {
+    board("06-audience-menu", TEAM, () => {
+      press(byId("share-audience"));
+      expect(byId("share-audience-anyone")).not.toBeNull();
+    });
+  });
+
+  test("going public asks first", () => {
+    board("07-going-public", TEAM, () => {
+      press(byId("share-audience"));
+      press(byId("share-audience-anyone"));
+      expect(byId("share-confirm-public")).not.toBeNull();
+    });
+  });
+
+  test("a live public link, with its options", () => {
+    board("08-public-link", { ...TEAM, shares: [OPEN_LINK] }, () =>
+      expect(byId("share-collect-row")).not.toBeNull(),
+    );
+  });
+
+  test("a person's menu", () => {
+    board("09-person-menu", { shares: [share({})] }, () => {
+      press(byId("share-row-menu-s-person"));
+      expect(byId("share-revoke-s-person")).not.toBeNull();
+    });
+  });
+
+  test("a member's menu offers routes, not a button that picks one silently", () => {
+    board("10-member-menu", TEAM, () => {
+      press(byId("share-see-members"));
+      press(byId("share-access-remove-u2"));
+      expect(byId("share-route-note-private")).not.toBeNull();
+      expect(byId("share-route-workspace-remove")).not.toBeNull();
+    });
+  });
+
+  test("a note pointed at a group", () => {
+    board("11-group", {
+      access: { visibility: "@public-worship-leads", exception: true, members: MEMBERS },
+    });
+  });
+
+  test("the header menu", () => {
+    board("12-more-menu", { ...TEAM, shares: [OPEN_LINK] }, () => {
+      press(byId("share-more"));
+      expect(byId("share-lock-note")).not.toBeNull();
+    });
+  });
+
+  test("a folder", () => {
+    board("13-folder", { path: "artists", entryKind: "folder", ...TEAM });
+  });
+
+  test("a refused group name is said here, and nothing is lost", async () => {
+    for (const viewport of VIEWPORTS) {
+      mount(
+        dialog({ onCreateGroup: () => Promise.reject(new Error("That name is already taken.")) }),
+        viewport.width,
+        viewport.height,
+      );
+      type(document.body.querySelector('[aria-label="Share with"]'), "leads");
+      press(byId("share-make-group"));
+      press(byId("share-group-pick-u3"));
+      await act(async () => {
+        press(document.body.querySelector('[aria-label="Create"]'));
+      });
+      expect(byId("share-group-problem")?.textContent).toContain("already taken");
+      expect(byId("share-group-pick-u3")?.getAttribute("aria-checked")).toBe("true");
+      write(`14-group-refused-${viewport.name}`, viewport.width, viewport.height);
+      act(() => root!.unmount());
+      container!.remove();
+      root = null;
+      container = null;
+    }
   });
 });
