@@ -202,12 +202,53 @@ export function parseInline(source: string): Inline[] {
       continue;
     }
 
+    // A URL or a domain typed as plain text is a link, as the editor and
+    // every mail client draw it — but only where a word starts, so the tail of
+    // `name@site.com` or `v1.2.3` never becomes one.
+    if (i === 0 || /[\s(]/.test(source[i - 1])) {
+      const auto = matchAutolink(rest);
+      if (auto) {
+        flush();
+        out.push({ kind: "link", text: auto.text, href: auto.href });
+        i += auto.text.length;
+        continue;
+      }
+    }
+
     plain += source[i];
     i += 1;
   }
 
   flush();
   return out;
+}
+
+const URL_RUN = /^(?:https?:\/\/|www\.)[^\s<>()]+/i;
+const BARE_DOMAIN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.([a-z]{2,24})(?:\/[^\s<>()]*)?/;
+/** Endings that name a file, not a site: `notes.md` is not a domain. */
+const FILE_ENDINGS = new Set([
+  "md", "txt", "png", "jpg", "jpeg", "gif", "svg", "webp", "pdf", "csv", "json", "js", "ts", "tsx", "jsx",
+  "mjs", "html", "htm", "css", "yml", "yaml", "toml", "zip", "mov", "mp4", "mp3", "wav", "doc", "docx",
+  "xls", "xlsx", "ppt", "pptx", "py", "rb", "sh", "log", "lock", "sql", "xml", "ics", "heic",
+]);
+
+/**
+ * A plain-text URL or domain at the start of `rest`: `https://…`, `www.…`, or
+ * a lowercase `name.tld` whose ending is not a file extension. Trailing
+ * sentence punctuation stays text. The href always carries a scheme, and only
+ * `https:` is ever added, so this can never produce a link `safeHref` would
+ * refuse.
+ */
+function matchAutolink(rest: string): { text: string; href: string } | null {
+  const url = URL_RUN.exec(rest);
+  const bare = url ? null : BARE_DOMAIN.exec(rest);
+  if (bare && FILE_ENDINGS.has(bare[1])) return null;
+  const raw = (url ?? bare)?.[0];
+  if (raw === undefined) return null;
+  const text = raw.replace(/[.,;:!?'"’”]+$/, "");
+  if (text === "" || text.endsWith("://")) return null;
+  const href = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+  return safeHref(href) === null ? null : { text, href };
 }
 
 
@@ -375,8 +416,9 @@ export function parseNote(source: string): ParsedNote {
       continue;
     }
 
-    // Everything else is a paragraph, and consecutive lines join into one the
-    // way Markdown means them to.
+    // Everything else is a paragraph. Its lines keep their breaks, as the
+    // editor and Obsidian both draw them: four links typed on four lines are a
+    // list to the person who typed them, not one run-on sentence.
     const body: string[] = [];
     while (i < lines.length && lines[i].trim() !== "" && !isBlockStart(lines[i])) {
       body.push(lines[i].trim());
@@ -388,7 +430,7 @@ export function parseNote(source: string): ParsedNote {
       body.push(lines[i].trim());
       i += 1;
     }
-    if (!push({ kind: "paragraph", content: parseInline(body.join(" ")) })) break;
+    if (!push({ kind: "paragraph", content: parseInline(body.join("\n")) })) break;
   }
 
   return { blocks, truncated };
