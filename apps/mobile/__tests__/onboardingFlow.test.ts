@@ -1,18 +1,11 @@
 import { describe, expect, test } from "@jest/globals";
 import { ConvexError } from "convex/values";
 import {
-  STEP_LABELS,
-  afterAgents,
-  afterBootstrap,
   afterDryRun,
-  afterLive,
   afterName,
   afterStorage,
-  afterStructure,
-  stepProgress,
+  headerLabel,
   stepTitle,
-  stepsFor,
-  storageWarning,
   type StepKey,
 } from "../features/onboarding/flow";
 import {
@@ -20,173 +13,58 @@ import {
   describeStructureFailure,
 } from "../features/onboarding/errors";
 
+/**
+ * The canvas's first run: Handle → Fork → the console, with one side track
+ * for a bucket somebody brought. Nine steps was the complaint; these are the
+ * tests that fail if a tenth is quietly added back.
+ */
 describe("the shape of the run", () => {
-  test("connecting storage offers a vault import before layout, tools, bootstrap and the live check", () => {
-    expect(stepsFor({ storage: "connected" })).toEqual([
-      "name",
-      "fork",
-      "storage",
-      "vault",
-      "structure",
-      "agents",
-      "bootstrap",
-      "live",
-      "done",
-    ]);
-  });
-
-  test("a bucket somebody brought is reported on before anything is written to it", () => {
-    // The dry run says what we found in *their* bucket. A bucket we made has
-    // nothing in it to report, so a managed run never shows it.
-    const run = stepsFor({ storage: "connected", route: "byo" });
-    expect(run.slice(0, 5)).toEqual(["name", "fork", "storage", "dryrun", "vault"]);
-    expect(stepsFor({ storage: "connected", route: "managed" })).not.toContain("dryrun");
-    expect(afterStorage("connected", "byo")).toBe("dryrun");
-    expect(afterStorage("connected", "managed")).toBe("vault");
-    expect(afterDryRun()).toBe("vault");
-  });
-
   test("the name hands off to the fork, which asks where the notes live", () => {
     expect(afterName()).toBe("fork");
   });
 
-  test("the live check hands off to the last screen", () => {
-    expect(afterLive()).toBe("done");
-    const run = stepsFor({ storage: "connected" });
-    expect(run[run.indexOf("live") + 1]).toBe("done");
+  test("a bucket we run goes straight to the console once it is ready", () => {
+    // Layout, tools, bootstrap and the summary live in the console's setup
+    // widget now — none of them is a step between a person and their notes.
+    expect(afterStorage("connected", "managed")).toBe("console");
   });
 
-  test("skipping storage drops the layout step, because there is nowhere to put it", () => {
-    expect(stepsFor({ storage: "skipped" })).toEqual(["name", "fork", "storage", "done"]);
+  test("a bucket somebody brought is reported on before the console", () => {
+    expect(afterStorage("connected", "byo")).toBe("dryrun");
+    expect(afterDryRun()).toBe("console");
   });
 
-  test("and drops the tools and bootstrap steps with it, because the prompts would fail on contact", () => {
-    // The tools step hands over an instruction telling an AI client to write
-    // notes; the bootstrap step hands over a second one asking the same
-    // client to seed the context. Giving either to somebody whose bucket we
-    // could not reach moves the failure into their client, where we cannot
-    // explain it — the same dishonesty as a capture address that was
-    // copyable before anything could receive mail. So both drop together.
-    for (const storage of ["skipped", "unverified"] as const) {
-      const run = stepsFor({ storage });
-      expect(run).not.toContain("agents");
-      expect(run).not.toContain("bootstrap");
-      expect(run).not.toContain("live");
+  test("skipping storage, or carrying on past a failed check, goes to the console too", () => {
+    // Nothing is laid out, nothing is written: the widget's storage row is the
+    // thing still to do, and it says so.
+    for (const route of ["byo", "managed", undefined] as const) {
+      expect(afterStorage("skipped", route)).toBe("console");
+      expect(afterStorage("unverified", route)).toBe("console");
     }
   });
 
-  test("the layout step always hands off to the tools step", () => {
-    // They share a precondition — a connected bucket — so the pairing holds by
-    // construction rather than by coincidence, and this asserts it.
-    expect(afterStructure()).toBe("agents");
-    const run = stepsFor({ storage: "connected" });
-    expect(run[run.indexOf("structure") + 1]).toBe("agents");
-  });
-
-  test("the tools step always hands off to the bootstrap step", () => {
-    // Same shape as the layout → tools pairing above and for the same
-    // reason: bootstrap only exists on a run whose bucket is connected —
-    // which is what the tools step needed too — and asserting the pairing
-    // in one place keeps the two branches from drifting.
-    expect(afterAgents()).toBe("bootstrap");
-    const run = stepsFor({ storage: "connected" });
-    expect(run[run.indexOf("agents") + 1]).toBe("bootstrap");
-  });
-
-  test("the bootstrap step hands off to the live check", () => {
-    // Continuing is skipping; the prompt lands in the client the person
-    // pasted it into, not here, so there is nothing to commit — but whether
-    // a client has actually reached the context is worth one screen.
-    expect(afterBootstrap()).toBe("live");
-    const run = stepsFor({ storage: "connected" });
-    expect(run[run.indexOf("bootstrap") + 1]).toBe("live");
-  });
-
-  test("the storage step hands off differently depending on what happened", () => {
-    expect(afterStorage("connected")).toBe("vault");
-    expect(afterStorage("skipped")).toBe("done");
-  });
-
-  test("carrying on past a probe we never got an answer from drops the layout step", () => {
-    // The layout step opens with "Your bucket is empty, so here is a starting
-    // shape". Nobody has looked in this bucket. It might be a live vault.
-    expect(stepsFor({ storage: "unverified" })).toEqual(["name", "fork", "storage", "done"]);
-    expect(afterStorage("unverified")).toBe("done");
+  test("there are four screens at most, and none of them is layout, tools or a summary", () => {
+    const every: StepKey[] = ["name", "fork", "storage", "dryrun"];
+    for (const step of every) expect(stepTitle(step).length).toBeGreaterThan(0);
+    expect(every).toHaveLength(4);
   });
 });
 
-describe("what the last screen says about the bucket", () => {
-  test("a verified bucket gets no warning", () => {
-    expect(storageWarning({ storage: "connected" })).toBeNull();
+describe("the line in the corner", () => {
+  test("says what the canvas says, board by board", () => {
+    expect(headerLabel("name", null)).toBe("Step 1 of 1");
+    expect(headerLabel("fork", "seyi")).toBe("@seyi · claimed");
+    expect(headerLabel("storage", "seyi")).toBe("@seyi · claimed");
   });
 
-  test("skipping is warned about, because there is nowhere to keep notes", () => {
-    const warning = storageWarning({ storage: "skipped" });
-    expect(warning).toMatch(/no bucket is connected/i);
+  test("never calls the report read-only, because the probe writes one object and removes it", () => {
+    expect(headerLabel("dryrun", "seyi")).not.toMatch(/read-only/i);
   });
 
-  test("a bucket we could not check is warned about too, and does not claim we looked", () => {
-    // The regression this exists for: "Carry on anyway" was recorded as
-    // "connected", so the one person who most needed this warning was the one
-    // person who never saw it.
-    const warning = storageWarning({ storage: "unverified" });
-    expect(warning).not.toBeNull();
-    expect(warning).toMatch(/could not confirm/i);
-    expect(warning).toMatch(/never looked inside it/i);
-    expect(warning).toMatch(/nothing has been written to it/i);
-  });
-
-  test("every step has a label and a title", () => {
-    const keys: StepKey[] = [
-      "name",
-      "fork",
-      "storage",
-      "dryrun",
-      "vault",
-      "structure",
-      "agents",
-      "bootstrap",
-      "live",
-      "done",
-    ];
-    for (const key of keys) {
-      expect(STEP_LABELS[key].length).toBeGreaterThan(0);
-      expect(stepTitle(key).length).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe("the progress indicator", () => {
-  test("counts the run you are actually in", () => {
-    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 9 });
-    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 9, total: 9 });
-  });
-
-  test("a completed vault import replaces the layout question", () => {
-    expect(stepsFor({ storage: "connected", vault: "imported" })).toEqual([
-      "name",
-      "fork",
-      "storage",
-      "vault",
-      "agents",
-      "bootstrap",
-      "live",
-      "done",
-    ]);
-  });
-
-  test("shrinks when the layout step is not going to happen", () => {
-    // Better than showing "3 of 4" for a step that is the last one.
-    expect(stepProgress("done", { storage: "skipped" })).toEqual({ index: 4, total: 4 });
-  });
-
-  test("a step this run does not contain has no number", () => {
-    expect(stepProgress("structure", { storage: "skipped" })).toBeNull();
-    expect(stepProgress("agents", { storage: "skipped" })).toBeNull();
-    // Same rule for the second half of "point your AI at it": if the tools
-    // step never happens, neither does the bootstrap step that lives on it.
-    expect(stepProgress("bootstrap", { storage: "skipped" })).toBeNull();
-    expect(stepProgress("bootstrap", { storage: "unverified" })).toBeNull();
+  test("the bucket track has its own title", () => {
+    expect(stepTitle("fork")).toBe("Where should we start you?");
+    expect(stepTitle("storage", { route: "byo" })).toBe("Show us what's already there");
+    expect(stepTitle("name")).toBe("Pick the name your notes live under");
   });
 });
 

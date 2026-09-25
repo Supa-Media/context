@@ -12,7 +12,6 @@ import {
   useOnboarding,
   type OnboardingController,
 } from "../features/onboarding/useOnboarding";
-import { afterStorage, afterStructure } from "../features/onboarding/flow";
 
 // React only treats `act` as authoritative when this is set, and warns loudly on
 // every call when it is not. Setting it keeps the suite's output readable and
@@ -262,138 +261,30 @@ describe("claiming a name", () => {
   });
 });
 
-describe("pressing “Create these”", () => {
-  test("actually calls the mutation, with the layout that was chosen", async () => {
-    // The regression: `findApplyStructure()` enumerated `api.functions`, which
-    // is a `Proxy` with no `ownKeys` trap, so it was always `[]` and the button
-    // silently advanced to the last screen. There was no deployment on which
-    // this could work.
+describe("leaving the storage step without a verified bucket", () => {
+  test("carrying on past a failed check goes to the console and writes nothing", async () => {
+    // Nobody has looked inside that bucket — it could be a live Obsidian vault
+    // — so no layout is asked for on the way out.
     const harness = mountOnboarding(happyDeployment());
     await claimSeyi(harness);
-
-    await harness.act(() => harness.current().applyStructure());
-
-    const applied = harness.calls.filter((call) => call.name === APPLY_STRUCTURE);
-    expect(applied).toHaveLength(1);
-    expect(applied[0]!.args).toEqual({ workspaceId: "w1", template: "para" });
-    // Read from `afterStructure()` rather than written out, so that moving the
-    // step after this one cannot make this assertion quietly wrong — which is
-    // what it was between the tools step landing and this line being updated.
-    // What is being asserted is that a successful mutation *advances*, which is
-    // the half the sibling test below proves a failure must not do.
-    expect(harness.current().step).toBe(afterStructure());
-    harness.unmount();
-  });
-
-  test("sends the folders somebody typed, which had no path to a server at all", async () => {
-    const harness = mountOnboarding(happyDeployment());
-    await claimSeyi(harness);
-
-    await harness.act(() => {
-      harness.current().setTemplate("custom");
-    });
-    await harness.act(() => {
-      harness.current().setFolders([
-        { name: " clients ", description: " one folder per engagement " },
-        { name: "reading", description: "things to get to" },
-        { name: "", description: "" },
-      ]);
-    });
-    expect(harness.current().canApply).toBe(true);
-
-    await harness.act(() => harness.current().applyStructure());
-
-    const applied = harness.calls.filter((call) => call.name === APPLY_STRUCTURE);
-    expect(applied).toHaveLength(1);
-    expect(applied[0]!.args).toEqual({
-      workspaceId: "w1",
-      template: "custom",
-      folders: [
-        { folder: "clients", description: "one folder per engagement" },
-        { folder: "reading", description: "things to get to" },
-      ],
-    });
-    harness.unmount();
-  });
-
-  test("holds still for a custom layout with nothing named in it", async () => {
-    // `applyStructure` refuses an empty list. Sending it would put a refusal in
-    // front of somebody for following the instruction on screen.
-    const harness = mountOnboarding(happyDeployment());
-    await claimSeyi(harness);
-
-    await harness.act(() => harness.current().setTemplate("custom"));
-    expect(harness.current().canApply).toBe(false);
-
-    await harness.act(() => harness.current().applyStructure());
-    expect(harness.calls.filter((call) => call.name === APPLY_STRUCTURE)).toHaveLength(0);
-    harness.unmount();
-  });
-
-  test("a refusal is shown rather than swallowed, and does not advance the flow", async () => {
-    // The old code's "this deployment has no such function" branch called
-    // `setStep("done")` and said nothing — the same silent success a genuine
-    // failure would now get if this were dropped. A failure is a failure.
-    const harness = mountOnboarding({
-      ...happyDeployment(),
-      [`${APPLY_STRUCTURE}:throws`]: new Error("Could not find public function"),
-    });
-    await claimSeyi(harness);
-
-    await harness.act(() => harness.current().applyStructure());
-
-    expect(harness.calls.filter((call) => call.name === APPLY_STRUCTURE)).toHaveLength(1);
-    expect(harness.current().step).not.toBe("done");
-    expect(harness.current().structureFailure?.next).toMatch(/could not find public function/i);
-    harness.unmount();
-  });
-});
-
-describe("the Obsidian fork", () => {
-  test("skipping a vault import leads to the layout question", async () => {
-    const harness = mountOnboarding(happyDeployment());
-    await claimSeyi(harness);
-
-    await harness.act(() => harness.current().skipVaultImport());
-    expect(harness.current().shape.vault).toBe("skipped");
-    expect(harness.current().step).toBe("structure");
-    harness.unmount();
-  });
-
-  test("a successful import skips the layout question", async () => {
-    const harness = mountOnboarding(happyDeployment());
-    await claimSeyi(harness);
-
-    await harness.act(() => harness.current().finishVaultImport("imported"));
-    expect(harness.current().shape.vault).toBe("imported");
-    expect(harness.current().step).toBe("agents");
-    harness.unmount();
-  });
-});
-
-describe("carrying on past a bucket we could not check", () => {
-  test("is not recorded as a connected bucket", async () => {
-    // The button only appears when the probe failed or timed out. Nobody has
-    // looked inside that bucket — it could be a live Obsidian vault — so the
-    // layout step must not open with "Your bucket is empty".
-    const harness = mountOnboarding(happyDeployment());
-    await claimSeyi(harness);
+    await harness.act(() => harness.current().pickOwn());
 
     await harness.act(() => harness.current().continuePastStorage());
 
-    expect(harness.current().shape.storage).toBe("unverified");
-    expect(harness.current().step).toBe("done");
+    expect(harness.current().finished).toBe(true);
+    expect(harness.calls.map((call) => call.name)).not.toContain(APPLY_STRUCTURE);
     harness.unmount();
   });
 
-  test("skipping is its own state, and also not connected", async () => {
+  test("“I'll do this later” goes to the console too, and writes nothing", async () => {
     const harness = mountOnboarding(happyDeployment());
     await claimSeyi(harness);
+    await harness.act(() => harness.current().pickOwn());
 
     await harness.act(() => harness.current().skipStorage());
 
-    expect(harness.current().shape.storage).toBe("skipped");
-    expect(harness.current().step).toBe("done");
+    expect(harness.current().finished).toBe(true);
+    expect(harness.calls.map((call) => call.name)).not.toContain(APPLY_STRUCTURE);
     harness.unmount();
   });
 });
@@ -449,8 +340,21 @@ describe("coming back from Stripe with a managed bucket", () => {
 
     expect(harness.current().claimed).toEqual({ workspaceId: "w1", slug: "blessing" });
     expect(harness.current().connectState.kind).toBe("connected");
-    expect(harness.current().step).toBe(afterStorage("connected"));
-    expect(harness.current().step).not.toBe("storage");
+    expect(harness.current().finished).toBe(true);
+    harness.unmount();
+  });
+
+  test("a bucket that was already laid out is not asked to be laid out again", async () => {
+    // `created` is a layout the provisioning run already wrote.
+    // `applyStructure` refuses it; asking would be a failed call on every
+    // return from Stripe.
+    const harness = mountOnboarding(settledManagedDeployment("connected"), {
+      resume: "storage",
+      checkout: "done",
+    });
+    await harness.notify();
+    expect(harness.current().finished).toBe(true);
+    expect(harness.calls.map((call) => call.name)).not.toContain(APPLY_STRUCTURE);
     harness.unmount();
   });
 
@@ -465,6 +369,7 @@ describe("coming back from Stripe with a managed bucket", () => {
 
     expect(harness.current().connectState.kind).toBe("idle");
     expect(harness.current().step).toBe("storage");
+    expect(harness.current().finished).toBe(false);
     harness.unmount();
   });
 });
@@ -530,7 +435,7 @@ describe("the redesigned steps, wired", () => {
     harness.unmount();
   });
 
-  test("a bucket somebody brought is reported on, then asked about their vault", async () => {
+  test("a bucket somebody brought is reported on, then the console — and never written to", async () => {
     const results: Record<string, unknown> = {
       ...happyDeployment(),
       "functions/storage:getStorageBinding": null,
@@ -560,17 +465,58 @@ describe("the redesigned steps, wired", () => {
     expect(harness.current().dryRun?.bucket).toBe("example-bucket");
 
     await harness.act(() => harness.current().finishDryRun());
-    expect(harness.current().step).toBe("vault");
+    expect(harness.current().finished).toBe(true);
+    // Their bucket: nothing is laid out into it from here, empty or not. The
+    // console's own offer is the only thing that ever does.
+    expect(harness.calls.map((call) => call.name)).not.toContain(APPLY_STRUCTURE);
     harness.unmount();
   });
 
-  test("the bootstrap prompt hands off to the live check, and the live check to the last screen", async () => {
-    const harness = mountOnboarding(happyDeployment());
+  test("“Start fresh” lays out the five folders once our bucket answers, then the console", async () => {
+    const results: Record<string, unknown> = {
+      ...happyDeployment(),
+      "functions/storage:getStorageBinding": null,
+      "functions/billing:status": {
+        status: "none",
+        priceCents: 0,
+        currency: "usd",
+        interval: "month",
+        selected: { managedStorage: false, fastSearch: false },
+        active: { managedStorage: false, fastSearch: false },
+        freeManagedAvailable: true,
+        freeManagedEligible: true,
+        freeManagedNoteCap: 1000,
+        storageIsManaged: false,
+      },
+    };
+    const harness = mountOnboarding(results);
     await claimSeyi(harness);
-    await harness.act(() => harness.current().finishBootstrap());
-    expect(harness.current().step).toBe("live");
-    await harness.act(() => harness.current().finishLive());
-    expect(harness.current().step).toBe("done");
+    await harness.act(() => harness.current().pickManaged());
+    expect(harness.current().finished).toBe(false);
+
+    // Our bucket is made and verifies — empty, because nothing has written to it.
+    results["functions/storage:getStorageBinding"] = { status: "connected", scaffoldReason: "empty" };
+    await harness.notify();
+
+    const layout = harness.calls.find((call) => call.name === APPLY_STRUCTURE);
+    expect(layout?.args).toEqual({ workspaceId: "w1", template: "para" });
+    expect(harness.current().finished).toBe(true);
+    harness.unmount();
+  });
+
+  test("a layout that fails to queue still lets them in — the console offers it again", async () => {
+    const results: Record<string, unknown> = {
+      ...happyDeployment(),
+      "functions/storage:getStorageBinding": { status: "connected", scaffoldReason: "empty" },
+      [`${APPLY_STRUCTURE}:throws`]: new Error("queue unavailable"),
+      "functions/workspaces:listMyWorkspaces": [
+        { workspaceId: "w1", slug: "blessing", kind: "personal", role: "owner" },
+      ],
+    };
+    const harness = mountOnboarding(results, { resume: "storage", checkout: "done" });
+    await harness.notify();
+    expect(harness.calls.map((call) => call.name)).toContain(APPLY_STRUCTURE);
+    expect(harness.current().finished).toBe(true);
     harness.unmount();
   });
 });

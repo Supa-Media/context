@@ -76,21 +76,21 @@ function contextFinding(reason: string | undefined): DryRunFinding {
     case "existing-context":
       return {
         key: "context",
-        label: "Already a context?",
-        value: "Yes — we will use it as it is, and ask no layout question",
+        label: "Already a workspace?",
+        value: "Yes — we will use it as it is, and write no layout into it",
         tone: "ok",
       };
     case "empty":
       return {
         key: "context",
-        label: "Already a context?",
-        value: "No — you can choose a starting layout next, or skip it",
+        label: "Already a workspace?",
+        value: "No — your workspace offers a starting layout once you are in",
         tone: "ok",
       };
     default:
       return {
         key: "context",
-        label: "Already a context?",
+        label: "Already a workspace?",
         value: "Not checked — the probe did not get that far",
         tone: "warn",
       };

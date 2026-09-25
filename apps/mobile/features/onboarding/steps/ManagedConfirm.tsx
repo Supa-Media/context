@@ -1,6 +1,7 @@
 import { STAGING_DATA_WARNING } from "../../app/StagingNotice";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Card, Row } from "../../design/components/Card";
 import { Hint } from "../../design/components/Field";
 import { FormError, Notice, ToggleGroup } from "../../design/components/Input";
@@ -216,9 +217,8 @@ export function ManagedConfirm({
           onPress={onContinue}
           testID="managed-confirm-continue"
         />
-        <Button
+        <TextLink
           label="Not now"
-          variant="ghost"
           disabled={state === "opening"}
           onPress={onBack}
           testID="managed-confirm-back"

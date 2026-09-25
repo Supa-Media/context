@@ -1,5 +1,7 @@
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { DeleteButton } from "../../design/components/DeleteButton";
+import { TextLink } from "../../design/components/TextLink";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { ChoiceGroup, FormError, Notice, TextField } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
@@ -119,10 +121,8 @@ export function WorkspacePeopleStep({
                 <Text variant="rowSub">{describeRole(invite.role)}</Text>
               </Grow>
               <Pill>{invite.role}</Pill>
-              <Button
-                label="Remove"
+              <DeleteButton
                 accessibilityLabel={`Remove ${invite.invitee} from the list`}
-                variant="ghost"
                 disabled={sending}
                 onPress={() => controller.dropInvite(index)}
                 testID={`workspace-invite-remove-${index}`}
@@ -160,16 +160,15 @@ export function WorkspacePeopleStep({
                   ? "Send 1 invitation"
                   : `Send ${queued.length} invitations`
           }
-          variant="white"
+          variant="accent"
           disabled={sending}
           onPress={() => void controller.sendInvites()}
           trailing={sending ? <ActivityIndicator color={colors.ink} size="small" /> : null}
           testID="workspace-invite-send"
         />
         {queued.length > 0 ? (
-          <Button
+          <TextLink
             label="Skip for now"
-            variant="ghost"
             disabled={sending}
             onPress={controller.skipInvites}
             testID="workspace-invite-skip"

@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, radii, space, tracking } from "../../design/tokens";
@@ -83,16 +84,16 @@ export function DryRunStep({
       </View>
 
       <View style={styles.actions}>
-        {onBack ? <Button label="Back" variant="ghost" onPress={onBack} /> : null}
-        {onShowFolder ? (
-          <Button label="Show me a folder" variant="ghost" onPress={onShowFolder} />
-        ) : null}
         <Button
-          label={looksReady ? "Looks right — continue" : "Continue anyway"}
-          variant="white"
+          label={looksReady ? "Looks right — continue →" : "Continue anyway →"}
+          variant="accent"
           onPress={onContinue}
           testID="welcome-dryrun-continue"
         />
+        {onShowFolder ? (
+          <TextLink label="Show me a folder" onPress={onShowFolder} />
+        ) : null}
+        {onBack ? <TextLink label="Back" onPress={onBack} /> : null}
       </View>
     </View>
   );

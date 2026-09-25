@@ -1,5 +1,6 @@
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Field } from "../../design/components/Field";
 import { FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
@@ -144,15 +145,14 @@ export function WorkspaceNameStep({
                 ? `Create @${status.normalized}`
                 : "Create the workspace"
           }
-          variant="white"
+          variant="accent"
           disabled={!controller.canCreate}
           onPress={() => void controller.create()}
           trailing={creating ? <ActivityIndicator color={colors.ink} size="small" /> : null}
           testID="workspace-name-submit"
         />
-        <Button
+        <TextLink
           label="Cancel"
-          variant="ghost"
           disabled={creating}
           onPress={onCancel}
           testID="workspace-name-cancel"

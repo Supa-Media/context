@@ -474,3 +474,6 @@ Moved to [Several rows are one operation, and a pick is what the keyboard acts o
 
 Moved to [No UI ships without a design audit first (2026-09-23)](./app-and-console/share-cards-and-collab-room.md#no-ui-ships-without-a-design-audit-first-2026-09-23).
 
+### The first run is two screens, and the rest is a checklist in the console (2026-09-25)
+
+Moved to [The first run is two screens, and the rest is a checklist in the console](./app-and-console/first-run.md#the-first-run-is-two-screens-and-the-rest-is-a-checklist-in-the-console-2026-09-25).

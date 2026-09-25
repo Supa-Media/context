@@ -1,3 +1,4 @@
+import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useNoteRoom } from "../../../../features/console/presence/useNoteRoom";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
@@ -7,13 +8,17 @@ import {
   noteFromQuery,
   noteHref,
 } from "../../../../features/console/nav";
-import { DEFAULT_SETTINGS_SECTION } from "../../../../features/console/settings/sections";
+import {
+  DEFAULT_SETTINGS_SECTION,
+  type SettingsSectionKey,
+} from "../../../../features/console/settings/sections";
 import { placeFor } from "../../../../features/console/lastPlace";
 import { useContextSlug } from "../../../../features/console/useContextSlug";
 import { useRememberPlace } from "../../../../features/console/useLastPlace";
 import { useNoteAddress } from "../../../../features/console/useNoteAddress";
 import { useNoteUrl } from "../../../../features/console/useNoteUrl";
 import { BrowsePane } from "../../../../features/console/panes/BrowsePane";
+import { SetupWidgetHost } from "../../../../features/console/setupWidget/SetupWidgetHost";
 import { selectedContext } from "../../../../features/console/types";
 import { visibilityTierForRole } from "../../../../features/console/visibility";
 
@@ -162,44 +167,53 @@ export default function ContextBrowseRoute() {
     onCollaborationState: data.files.setCollaborationState,
   });
 
+  const openSettings =
+    slug === null
+      ? undefined
+      : (section?: SettingsSectionKey) =>
+          router.setParams({ settings: section ?? DEFAULT_SETTINGS_SECTION });
+
   return (
-    <BrowsePane
-      data={data}
-      presence={presence}
-      drawingCollaboration={drawingCollaboration}
-      /*
-        `setParams`, not a push of `settingsHref`: this route is already the
-        context the gear belongs to, and building a fresh URL would drop the
-        `?note=` beside it — closing the note as a side effect of opening
-        settings, which is the defect the overlay exists to fix.
-      */
-      onOpenSettings={
-        slug === null
-          ? undefined
-          : (section) =>
-              router.setParams({ settings: section ?? DEFAULT_SETTINGS_SECTION })
-      }
-      /*
-        What the URL has asked for. The pane pairs it with the browser's own
-        `opening` to cover both halves of the gap before a linked note is on
-        screen; narrowing it here to "and the browser has not reached it yet"
-        was the first attempt and closed only the first half.
-      */
-      onNavigate={(href) => router.push(href)}
-      pendingNote={note}
-      anchor={anchor}
-      /*
-        A contact's activity link names a path *and* an anchor, which
-        `files.select` has no way to carry — so this is a real navigation
-        rather than a selection, the same URL a pasted link or a search
-        result would use. `noteHref` with no anchor is exactly `noteHref`
-        without one, so this never behaves differently for a plain link.
-      */
-      onOpenComms={
-        slug === null
-          ? undefined
-          : (path, targetAnchor) => router.push(noteHref(slug, path, targetAnchor))
-      }
-    />
+    <View style={{ flex: 1 }}>
+      <BrowsePane
+        data={data}
+        presence={presence}
+        drawingCollaboration={drawingCollaboration}
+        /*
+          `setParams`, not a push of `settingsHref`: this route is already the
+          context the gear belongs to, and building a fresh URL would drop the
+          `?note=` beside it — closing the note as a side effect of opening
+          settings, which is the defect the overlay exists to fix.
+        */
+        onOpenSettings={openSettings}
+        /*
+          What the URL has asked for. The pane pairs it with the browser's own
+          `opening` to cover both halves of the gap before a linked note is on
+          screen; narrowing it here to "and the browser has not reached it yet"
+          was the first attempt and closed only the first half.
+        */
+        onNavigate={(href) => router.push(href)}
+        pendingNote={note}
+        anchor={anchor}
+        /*
+          A contact's activity link names a path *and* an anchor, which
+          `files.select` has no way to carry — so this is a real navigation
+          rather than a selection, the same URL a pasted link or a search
+          result would use. `noteHref` with no anchor is exactly `noteHref`
+          without one, so this never behaves differently for a plain link.
+        */
+        onOpenComms={
+          slug === null
+            ? undefined
+            : (path, targetAnchor) => router.push(noteHref(slug, path, targetAnchor))
+        }
+      />
+      {/* The first run's second half — see `SetupWidgetHost`. */}
+      <SetupWidgetHost
+        data={data}
+        onOpenSettings={openSettings}
+        onNavigate={(href) => router.push(href)}
+      />
+    </View>
   );
 }

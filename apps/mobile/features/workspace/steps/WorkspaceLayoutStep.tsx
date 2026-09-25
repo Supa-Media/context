@@ -1,5 +1,7 @@
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { DeleteButton } from "../../design/components/DeleteButton";
+import { TextLink } from "../../design/components/TextLink";
 import { Card } from "../../design/components/Card";
 import { ChoiceGroup, FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
@@ -88,15 +90,14 @@ export function WorkspaceLayoutStep({
       <View style={styles.actions}>
         <Button
           label={applying ? "Creating…" : "Create these"}
-          variant="white"
+          variant="accent"
           disabled={!controller.canApply}
           onPress={() => void controller.applyStructure()}
           trailing={applying ? <ActivityIndicator color={colors.ink} size="small" /> : null}
           testID="workspace-layout-submit"
         />
-        <Button
+        <TextLink
           label="Skip for now"
-          variant="ghost"
           disabled={applying}
           onPress={controller.skipStructure}
           testID="workspace-layout-skip"
@@ -188,10 +189,8 @@ function FolderRows({ controller }: { controller: CreateWorkspaceController }) {
             testID={`workspace-folder-description-${index}`}
           />
           <View style={index === 0 ? styles.removeFirst : styles.remove}>
-            <Button
-              label="Remove"
+            <DeleteButton
               accessibilityLabel={`Remove folder ${index + 1}`}
-              variant="ghost"
               disabled={applying}
               onPress={() => setFolders(removeFolderRow(folders, index))}
               testID={`workspace-folder-remove-${index}`}

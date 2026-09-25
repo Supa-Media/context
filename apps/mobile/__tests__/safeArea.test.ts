@@ -242,7 +242,7 @@ const ROUTES: Record<string, Coverage> = {
         WelcomeChrome,
         {
           step: "name",
-          shape: { storage: "connected" },
+          shape: {},
           children: createElement(Text, null, "the step's card"),
         },
       ),
