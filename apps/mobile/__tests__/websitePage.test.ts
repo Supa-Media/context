@@ -93,6 +93,19 @@ describe("a page", () => {
     expect([...other.querySelectorAll('[role="heading"]')].map((h) => h.textContent)).toEqual(["About us"]);
   });
 
+  test("a desktop page signs its footer with the site's name; a phone keeps one quiet line", () => {
+    // react-native-web measures clientWidth, which jsdom reports as 0.
+    const setWidth = (width: number) => {
+      Object.defineProperty(document.documentElement, "clientWidth", { configurable: true, value: width });
+      act(() => window.dispatchEvent(new Event("resize")));
+    };
+    setWidth(1440);
+    expect(mount(page).root.textContent).toContain("© Acme");
+    setWidth(390);
+    expect(mount(page).root.textContent).not.toContain("© Acme");
+    setWidth(0);
+  });
+
   test("the menu is the server's, in its order, with the current page marked", () => {
     const { root, navigate } = mount(page);
     expect(byTestId(root, "site-nav-item")).toHaveLength(0);

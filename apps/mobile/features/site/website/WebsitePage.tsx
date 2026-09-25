@@ -1,5 +1,5 @@
 import { useEffect, useMemo, type ReactNode } from "react";
-import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import type { ResolvedWebsitePage, WebsiteNavigationItem } from "@context/shared";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -10,7 +10,7 @@ import { NoteBody } from "../../share/NoteBody";
 import { UNDERLINE } from "../../share/siteLook";
 import { PLATFORM_ORIGIN } from "../host";
 import { ensureSiteSerifLoaded, siteSerif } from "../siteFonts";
-import { PHONE, SiteFrame } from "./SiteFrame";
+import { SiteFrame, useSiteSize } from "./SiteFrame";
 
 /**
  * What a visitor sees at a website address, for every answer the server can
@@ -76,7 +76,7 @@ export function WebsitePage({
 
 function Page({ title, markdown, home }: { title: string; markdown: string; home: boolean }) {
   const styles = useThemedStyles(makeStyles);
-  const phone = useWindowDimensions().width < PHONE;
+  const size = useSiteSize();
   const { heading, blocks } = useMemo(() => {
     const parsed = parseNote(markdown).blocks;
     // A note that opens with an H1 has chosen its heading, and it is drawn in
@@ -88,13 +88,13 @@ function Page({ title, markdown, home }: { title: string; markdown: string; home
     return { heading: home ? null : title, blocks: parsed };
   }, [markdown, title, home]);
   return (
-    <View testID="site-page" style={styles.stack}>
+    <View testID="site-page" style={[styles.stack, size === "desktop" && styles.stackDesktop]}>
       {heading === null ? null : (
-        <Text variant="body" role="heading" aria-level={1} style={[styles.title, phone && styles.titlePhone]}>
+        <Text variant="body" role="heading" aria-level={1} style={[styles.title, size === "phone" && styles.titlePhone, size === "desktop" && styles.titleDesktop]}>
           {heading}
         </Text>
       )}
-      <NoteBody blocks={blocks} look="site" />
+      <NoteBody blocks={blocks} look={size === "desktop" ? "siteWide" : "site"} />
     </View>
   );
 }
@@ -144,7 +144,9 @@ const makeStyles = (colors: Colors) =>
       ...({ textWrap: "balance" } as object),
     },
     titlePhone: { fontSize: siteType.h1Phone, lineHeight: leading(siteType.h1Phone, 1.1) },
+    titleDesktop: { fontSize: siteType.h1Desktop, lineHeight: leading(siteType.h1Desktop, 1.05), letterSpacing: -1.2 },
     stack: { gap: 24 },
+    stackDesktop: { gap: 32 },
     notice: { alignItems: "center", alignSelf: "center", maxWidth: 360, paddingTop: 64, gap: 6 },
     centred: { textAlign: "center" },
     line: { marginTop: 14, fontSize: siteType.body, lineHeight: leading(siteType.body, 1.55), color: colors.text2, marginBottom: 22 },
