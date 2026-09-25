@@ -29,6 +29,8 @@ import {
   FileOpError,
   type FileStore,
   listFolder,
+  MANIFEST_PAGE_ENTRIES,
+  MANIFEST_PAGE_FOLDERS,
   READ_BATCH_BYTES,
   READ_BATCH_PATHS,
   type SyncManifest,
@@ -128,6 +130,31 @@ async function capture(fn: () => Promise<unknown>): Promise<FileOpError> {
 /* -------------------------------------------------------------------------- */
 
 describe("the sync manifest", () => {
+  test("default pages stay below Convex's 8,192-element return limit", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    for (let index = 0; index < 8_200; index += 1) {
+      store.seed(`bulk/note-${String(index).padStart(5, "0")}.md`, "# Note\n");
+    }
+
+    const pages: SyncManifest[] = [];
+    let cursor: string | undefined;
+    for (let guard = 0; guard < 10; guard += 1) {
+      const page = await syncManifest(store, { clearance: OWNER, cursor });
+      pages.push(page);
+      expect(page.entries.length).toBeLessThan(8_192);
+      expect(page.folders.length).toBeLessThan(8_192);
+      if (page.cursor === null) break;
+      cursor = page.cursor;
+    }
+
+    expect(MANIFEST_PAGE_ENTRIES).toBeLessThan(8_192);
+    expect(MANIFEST_PAGE_FOLDERS).toBeLessThan(8_192);
+    expect(pages).toHaveLength(3);
+    expect(pages.flatMap((page) => page.entries)).toHaveLength(8_201);
+    expect(pages.at(-1)?.truncated).toBe(false);
+  });
+
   test("an owner gets every file, recursively, with the etag a read would return", async () => {
     const store = await bucket();
     const manifest = await syncManifest(store, { clearance: OWNER });
