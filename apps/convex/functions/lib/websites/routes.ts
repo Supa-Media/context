@@ -240,7 +240,12 @@ export async function invalidateRouteIndexHandler(
 ): Promise<boolean> {
   const state = await websiteState(ctx, args.workspaceId);
   if (state?.state !== "enabled") return false;
-  if (state.routeGeneration !== state.routeReconciledGeneration) return false;
+  if (
+    state.routeGeneration === undefined ||
+    state.routeGeneration !== state.routeReconciledGeneration
+  ) {
+    return false;
+  }
   await ctx.db.patch(state._id, {
     routeGeneration: (state.routeGeneration ?? 0) + 1,
     routeAttemptedAt: Date.now(),
