@@ -44,7 +44,7 @@
 # mcp.yml's header records the same shape one layer down: the gateway's own
 # suite never ran, for the same reason, until it was moved out of the
 # framework's filtered pipeline. That is not the only precedent — mcp.yml,
-# router.yml, email-worker.yml, hook.yml's YAML-parse job and ci.yml's
+# router.yml, email-worker.yml, cli.yml's YAML-parse job and ci.yml's
 # lint-command comment each record a version of "a check that is green because
 # it did not execute".
 #

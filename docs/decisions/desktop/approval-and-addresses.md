@@ -10,7 +10,7 @@ Both halves are load-bearing and the second is not a softening of the first. The
 grant stays what *One meeting is one credential, and on a Mac it is the
 machine's* made it: one OAuth client per machine, `context:write
 context:private` and nothing wider, revocable on its own, minted through
-`packages/hook`'s reviewed flow and stored in `safeStorage`. What moves is the
+`plugins/context`'s reviewed flow and stored in `safeStorage`. What moves is the
 *window the approve screen is drawn in*, and only that.
 
 **What it was.** `connect()` opened the system browser. The person then met a

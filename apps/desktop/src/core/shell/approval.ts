@@ -2,7 +2,7 @@
  * Approving this machine **inside the app's own window**, and the guard that
  * makes that one navigation and not a hole in the origin pin.
  *
- * The OAuth flow is unchanged and is still `packages/hook`'s: dynamic client
+ * The OAuth flow is unchanged and is still `plugins/context`'s: dynamic client
  * registration, PKCE with S256, a single-use `state`, a loopback listener on
  * `127.0.0.1` with the port the OS handed out, and a code exchanged in the main
  * process. What changes is **where the person sees the approve screen**. It
@@ -69,7 +69,7 @@ import { isAllowedConsoleNavigation } from "./mirror.ts";
  *
  * `127.0.0.1` only, and deliberately not `localhost`: the name is resolved by
  * the OS and can be pointed at something that is not this machine, while the
- * literal cannot. `packages/hook`'s listener binds the literal, so nothing is
+ * literal cannot. `plugins/context`'s listener binds the literal, so nothing is
  * given up by refusing the name here.
  */
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["127.0.0.1"]);

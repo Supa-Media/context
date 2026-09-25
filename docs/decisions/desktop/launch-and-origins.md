@@ -424,7 +424,7 @@ the claim it is careful not to make:
 
 - **It does not model the bundle, and three shapes of it that tried were each
   wrong in the same direction.** Walking `<pkg>/src` missed a live registration
-  in `packages/hook/bin`, which this app can deep-import. Reading
+  in `plugins/context/bin`, which this app can deep-import. Reading
   `dependencies` missed a package moved to `devDependencies`. Reading
   `apps/desktop/package.json` at all missed a package reached *transitively*
   through another workspace package, and one still imported after being dropped

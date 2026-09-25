@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "context",
+  "version": "0.1.0",
+  "description": "Your Context notes in your coding agent: the MCP server, skills that say when to read and write them, and hooks that orient at session start and save the session at the end.",
+  "author": {
+    "name": "Supa Media",
+    "url": "https://context.lc"
+  },
+  "homepage": "https://context.lc",
+  "repository": "https://github.com/Supa-Media/context",
+  "license": "MIT",
+  "keywords": [
+    "notes",
+    "memory",
+    "mcp",
+    "context"
+  ]
+}

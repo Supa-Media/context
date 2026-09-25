@@ -41,6 +41,8 @@ export interface FixtureParams {
    */
   panel?: string | string[];
   at?: string | string[];
+  /** `screen=domain`: which website switch state to draw above the domain card. */
+  site?: string | string[];
   slow?: string | string[];
   failed?: string | string[];
   available?: string | string[];
@@ -56,7 +58,7 @@ function first(value: string | string[] | undefined): string | undefined {
 export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
-  if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} />;
+  if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
 
   /*
     The application frame, which is otherwise on no browser-reachable screen

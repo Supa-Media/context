@@ -332,7 +332,7 @@ jobs:
             desktop:
               - "apps/desktop/**"
               - "packages/desktop-bridge/**"
-              - "packages/hook/**"
+              - "plugins/context/**"
               - "packages/communications/**"
               - "packages/meetings/**"
               - "apps/mcp/**"

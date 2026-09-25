@@ -16,7 +16,7 @@
     "package": "node scripts/build.mjs && electron-builder --mac --config electron-builder.yml --publish never"
   },
   "dependencies": {
-    "@supa-media/context-hook": "workspace:*",
+    "@supa-media/context": "workspace:*",
     "@context/communications": "workspace:*",
     "@context/desktop-bridge": "workspace:*",
     "@context/meetings": "workspace:*",
