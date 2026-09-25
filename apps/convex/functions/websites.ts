@@ -1,14 +1,24 @@
 /** Public and internal registrations for bucket-backed website routing. */
 
 import { v } from "convex/values";
-import { action, internalAction, internalMutation } from "../_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "../_generated/server";
 import {
   beginRouteReconciliationHandler,
   commitRouteReconciliationHandler,
+  invalidateRouteIndexHandler,
   reconcileWorkspaceHandler,
   refreshRouteStatusesHandler,
   sweepRouteReconciliationHandler,
 } from "./lib/websites/routes";
+import {
+  resolveWebsitePageHandler,
+  websiteResolutionPlanHandler,
+} from "./lib/websites/resolver";
 
 const problemValidator = v.object({ code: v.string(), message: v.string() });
 const statusValidator = v.object({
@@ -24,6 +34,66 @@ const statusValidator = v.object({
 const indexedStatusValidator = v.object({
   ...statusValidator.fields,
   sourceEtag: v.string(),
+});
+const navigationValidator = v.array(
+  v.object({ routePath: v.string(), title: v.string() }),
+);
+const authenticationRequiredValidator = v.object({
+  kind: v.literal("authentication_required"),
+  siteName: v.string(),
+  navigation: navigationValidator,
+  signInPath: v.string(),
+});
+const unavailableValidator = v.object({
+  kind: v.literal("unavailable"),
+  siteName: v.union(v.string(), v.null()),
+  navigation: navigationValidator,
+});
+const resolvedPageValidator = v.union(
+  v.object({
+    kind: v.literal("page"),
+    siteName: v.string(),
+    routePath: v.string(),
+    audience: v.union(v.literal("public"), v.literal("members")),
+    title: v.string(),
+    description: v.union(v.string(), v.null()),
+    markdown: v.string(),
+    navigation: navigationValidator,
+  }),
+  authenticationRequiredValidator,
+  unavailableValidator,
+);
+const resolutionPlanValidator = v.union(
+  authenticationRequiredValidator,
+  unavailableValidator,
+  v.object({
+    kind: v.literal("read"),
+    siteName: v.string(),
+    navigation: navigationValidator,
+    workspaceId: v.id("workspaces"),
+    objectKey: v.string(),
+    sourceEtag: v.string(),
+    routePath: v.string(),
+    audience: v.union(v.literal("public"), v.literal("members")),
+    title: v.string(),
+    description: v.union(v.string(), v.null()),
+  }),
+);
+
+export const resolvePage = action({
+  args: { handle: v.string(), routePath: v.string() },
+  returns: resolvedPageValidator,
+  handler: resolveWebsitePageHandler,
+});
+
+export const websiteResolutionPlan = internalQuery({
+  args: {
+    handle: v.string(),
+    routePath: v.string(),
+    actorUserId: v.union(v.id("users"), v.null()),
+  },
+  returns: resolutionPlanValidator,
+  handler: websiteResolutionPlanHandler,
 });
 
 export const refreshRouteStatuses = action({
@@ -50,6 +120,12 @@ export const commitRouteReconciliation = internalMutation({
   },
   returns: v.boolean(),
   handler: commitRouteReconciliationHandler,
+});
+
+export const invalidateRouteIndex = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: invalidateRouteIndexHandler,
 });
 
 export const reconcileWorkspace = internalAction({

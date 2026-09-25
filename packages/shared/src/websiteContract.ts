@@ -126,6 +126,7 @@ export interface WebsiteNavigationItem {
 export type ResolvedWebsitePage =
   | {
       kind: "page";
+      siteName: string;
       routePath: string;
       audience: WebsiteRouteAudience;
       title: string;
@@ -135,7 +136,16 @@ export type ResolvedWebsitePage =
     }
   | {
       kind: "authentication_required";
+      siteName: string;
+      /** Public live pages explicitly placed in the site menu. */
+      navigation: WebsiteNavigationItem[];
       /** Server-produced and validated; clients must not construct return URLs. */
       signInPath: string;
     }
-  | { kind: "unavailable" };
+  | {
+      kind: "unavailable";
+      /** Null when no enabled site may be disclosed for this address. */
+      siteName: string | null;
+      /** Empty beside a null site name; otherwise the same public menu. */
+      navigation: WebsiteNavigationItem[];
+    };
