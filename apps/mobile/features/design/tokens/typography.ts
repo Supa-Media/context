@@ -95,6 +95,34 @@ export const pointerType = {
   display: 40,
 } as const;
 
+/**
+ * The published website's scale — a different voice from the console's.
+ *
+ * A visitor reading somebody's site is reading, not operating an app, so the
+ * body is 18 and the headings are serif and large (the approved public-site
+ * spec). Only `features/site` and the `site` look of `NoteBody` draw from it;
+ * nothing in the console does.
+ */
+export const siteType = {
+  /** The footer line. */
+  foot: 13,
+  /** Code blocks and the smallest heading. */
+  code: 14,
+  /** The header menu. */
+  nav: 15,
+  /** Inline code inside an 18px line. */
+  inlineCode: 15,
+  h5: 16,
+  /** The site's name, and the phone menu's rows. */
+  name: 17,
+  /** A page's prose. */
+  body: 18,
+  h3: 21,
+  h2: 26,
+  /** A page's title, in Instrument Serif. */
+  h1: 44,
+} as const;
+
 export type TypeScale = Readonly<Record<keyof typeof pointerType, number>>;
 
 export const touchType: TypeScale = {
