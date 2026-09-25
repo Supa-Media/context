@@ -52,6 +52,15 @@ export function isLive(share: Doc<"noteShares">, now: number): boolean {
   );
 }
 
+/** The live membership predicate shared by member shares and website pages. */
+export async function hasWorkspaceMembership(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  userId: Id<"users">,
+): Promise<boolean> {
+  return (await getMembership(ctx, workspaceId, userId)) !== null;
+}
+
 /**
  * Whether this share still stands, for this caller, right now.
  *
@@ -234,8 +243,9 @@ export async function shareStillStands(
   if (userId === null) return null;
 
   if (share.recipientKind === "members") {
-    const membership = await getMembership(ctx, share.workspaceId, userId);
-    return membership === null ? null : workspace;
+    return (await hasWorkspaceMembership(ctx, share.workspaceId, userId))
+      ? workspace
+      : null;
   }
 
   // Last, and the authority on who an identifier belongs to.

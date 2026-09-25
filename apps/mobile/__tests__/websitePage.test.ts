@@ -53,6 +53,7 @@ function mount(view: WebsiteView) {
 
 const page: ResolvedWebsitePage = {
   kind: "page",
+  siteName: "Acme",
   routePath: "/about",
   audience: "public",
   title: "About us",
@@ -92,7 +93,12 @@ describe("a page", () => {
 
 describe("the members gate", () => {
   test("follows the server's sign-in path exactly and shows nothing of the page", () => {
-    const { root, signIn } = mount({ kind: "authentication_required", signInPath: "/signin?return=abc" });
+    const { root, signIn } = mount({
+      kind: "authentication_required",
+      siteName: "Acme",
+      navigation: [],
+      signInPath: "/signin?return=abc",
+    });
     expect(root.textContent).toContain("Members only");
     expect(byTestId(root, "site-nav-item")).toHaveLength(0);
     click(byTestId(root, "site-sign-in")[0]!);
@@ -102,7 +108,11 @@ describe("the members gate", () => {
 
 describe("nothing here", () => {
   test("an unavailable page is one screen with a way home", () => {
-    const { root, navigate } = mount({ kind: "unavailable" });
+    const { root, navigate } = mount({
+      kind: "unavailable",
+      siteName: "Acme",
+      navigation: [],
+    });
     expect(root.textContent).toContain("Nothing here");
     click(byTestId(root, "site-home")[0]!);
     expect(navigate).toHaveBeenCalledWith("/");

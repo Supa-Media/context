@@ -121,7 +121,10 @@ export async function scanWebsiteRoutes(
         // barrier, so no existence detail escapes.
         if (result.outcome !== "read") continue;
         pages.push({ objectKey: result.path, markdown: result.note.text });
-        etags.set(result.path, result.note.rawEtag ?? result.note.etag);
+        // The effective etag includes collaboration updates. Using only the
+        // provider object's raw etag could leave changed frontmatter live when
+        // a Yjs sidecar advanced without rewriting the Markdown base object.
+        etags.set(result.path, result.note.etag);
       }
       if (expected.size > 0) {
         throw scanError("The bucket returned an incomplete website read set.");
@@ -226,6 +229,26 @@ export async function commitRouteReconciliationHandler(
   await ctx.db.patch(state._id, {
     routeReconciledGeneration: args.generation,
     routeReconciledAt: now,
+  });
+  return true;
+}
+
+/** Mark a complete derivative stale after a runtime source mismatch. */
+export async function invalidateRouteIndexHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<boolean> {
+  const state = await websiteState(ctx, args.workspaceId);
+  if (state?.state !== "enabled") return false;
+  if (
+    state.routeGeneration === undefined ||
+    state.routeGeneration !== state.routeReconciledGeneration
+  ) {
+    return false;
+  }
+  await ctx.db.patch(state._id, {
+    routeGeneration: (state.routeGeneration ?? 0) + 1,
+    routeAttemptedAt: Date.now(),
   });
   return true;
 }
