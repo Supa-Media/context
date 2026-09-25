@@ -12,12 +12,28 @@
  * text and is not tappable at all.
  */
 
-import type { ReactNode } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import { createContext, useContext, type ReactNode } from "react";
+import { Linking, Text as RNText, StyleSheet, View } from "react-native";
 import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { Block, Inline } from "./markdown";
+import { SITE_HEADING_SIZE, makeSiteStyles } from "./siteLook";
+
+/**
+ * Which voice the document is drawn in: `note` for a shared note, `site` for a
+ * page on a published website — larger body type and serif headings, the one
+ * face the public site adds. Same blocks, same safety rules; only styles differ.
+ */
+export type NoteLook = "note" | "site";
+
+const Look = createContext<NoteLook>("note");
+
+function useBodyStyles() {
+  const note = useThemedStyles(makeStyles);
+  const site = useThemedStyles(makeSiteStyles);
+  return useContext(Look) === "site" ? { ...note, ...site } : note;
+}
 
 /**
  * `renderCode` — the one place this renderer hands a block to somebody else.
@@ -34,11 +50,27 @@ import type { Block, Inline } from "./markdown";
 export function NoteBody({
   blocks,
   renderCode,
+  look = "note",
+}: {
+  blocks: readonly Block[];
+  renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
+  look?: NoteLook;
+}) {
+  return (
+    <Look.Provider value={look}>
+      <Blocks blocks={blocks} renderCode={renderCode} />
+    </Look.Provider>
+  );
+}
+
+function Blocks({
+  blocks,
+  renderCode,
 }: {
   blocks: readonly Block[];
   renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
 }) {
-  const styles = useThemedStyles(makeStyles);
+  const styles = useBodyStyles();
   return (
     <View style={styles.body}>
       {blocks.map((block, index) => (
@@ -55,7 +87,8 @@ function BlockView({
   block: Block;
   renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
 }) {
-  const styles = useThemedStyles(makeStyles);
+  const styles = useBodyStyles();
+  const look = useContext(Look);
   if (block.kind === "code" && renderCode !== undefined) {
     const replaced = renderCode(block);
     if (replaced !== null && replaced !== undefined) return <>{replaced}</>;
@@ -67,7 +100,7 @@ function BlockView({
           variant="paneTitle"
           role="heading"
           aria-level={block.level}
-          style={[styles.heading, headingStyle(block.level)]}
+          style={[styles.heading, headingStyle(block.level, look)]}
         >
           <Runs runs={block.content} />
         </Text>
@@ -159,41 +192,46 @@ function BlockView({
   }
 }
 
+/*
+ * Runs are bare `Text`, not the body variant: a nested variant carries its own
+ * size and face, which pinned every run in a heading to body size — a heading
+ * of plain words drew at 16 whatever its level. Bare, a run inherits the
+ * block's type and adds only its own emphasis.
+ */
 function Runs({ runs }: { runs: readonly Inline[] }) {
-  const styles = useThemedStyles(makeStyles);
+  const styles = useBodyStyles();
   return (
     <>
       {runs.map((run, index) => {
         switch (run.kind) {
           case "strong":
             return (
-              <Text key={index} variant="body" style={styles.strong}>
+              <RNText key={index} style={styles.strong}>
                 {run.text}
-              </Text>
+              </RNText>
             );
           case "em":
             return (
-              <Text key={index} variant="body" style={styles.em}>
+              <RNText key={index} style={styles.em}>
                 {run.text}
-              </Text>
+              </RNText>
             );
           case "strike":
             return (
-              <Text key={index} variant="body" style={styles.strike}>
+              <RNText key={index} style={styles.strike}>
                 {run.text}
-              </Text>
+              </RNText>
             );
           case "code":
             return (
-              <Text key={index} variant="body" style={styles.inlineCode}>
+              <RNText key={index} style={styles.inlineCode}>
                 {run.text}
-              </Text>
+              </RNText>
             );
           case "link":
             return (
-              <Text
+              <RNText
                 key={index}
-                variant="body"
                 style={styles.link}
                 accessibilityRole="link"
                 // `openURL` rather than an anchor: the href was vetted by
@@ -204,13 +242,13 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
                 }}
               >
                 {run.text}
-              </Text>
+              </RNText>
             );
           default:
             return (
-              <Text key={index} variant="body">
+              <RNText key={index}>
                 {run.text}
-              </Text>
+              </RNText>
             );
         }
       })}
@@ -244,7 +282,8 @@ const HEADING_SIZE = StyleSheet.create({
  * size. Invisible to a test that asserts on the parsed level; obvious in a
  * screenshot.
  */
-const headingStyle = (level: 1 | 2 | 3 | 4 | 5 | 6) => HEADING_SIZE[`h${level}` as const];
+const headingStyle = (level: 1 | 2 | 3 | 4 | 5 | 6, look: NoteLook) =>
+  (look === "site" ? SITE_HEADING_SIZE : HEADING_SIZE)[`h${level}` as const];
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   body: { gap: 12 },

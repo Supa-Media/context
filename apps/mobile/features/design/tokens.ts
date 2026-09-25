@@ -22,6 +22,7 @@ export {
 export {
   fonts,
   pointerType,
+  siteType,
   type TypeScale,
   touchType,
   typeFor,
