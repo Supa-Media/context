@@ -14,9 +14,20 @@
  *    plugin runtime to run them from.
  *
  * **This is the only module that loads `add-mcp`**, and only through a dynamic
- * import on the install path. The hooks and the credential code never load it,
- * so the one third-party dependency never runs while a session's transcript
- * or a token is in hand. `check-gateway-imports.mjs` enforces the file.
+ * import on the install path. `check-gateway-imports.mjs` enforces the file,
+ * and `installer.test.mjs` asserts that `commands.js` — which every hook runs
+ * through — loads neither third-party dependency.
+ *
+ * So a **capture** never shares a process with them: a session's transcript is
+ * read and posted by code that has not imported either one. **An install
+ * does.** `install` signs in and mints an access token, then calls
+ * `detectAgents`, which loads `add-mcp` into that same process — and the
+ * credential is a file this process owns (`credentials.json`, mode 0600, which
+ * keeps it from other *users*, not from other code running as this one). So
+ * the confinement bounds *when* the dependency runs, not what it could reach;
+ * what bounds that is the review of the package itself, which
+ * `.github/workflows/cli.yml` pins to an exact version and argues for in
+ * `docs/decisions/plugins.md`.
  *
  * Everything an install did is recorded in `~/.context/installs.json`, and
  * `uninstall` reverses exactly that record and nothing else.
