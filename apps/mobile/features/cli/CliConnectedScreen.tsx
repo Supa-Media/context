@@ -72,7 +72,7 @@ export function CliConnectedBody({ result, onLeave }: { result: CliResult; onLea
           <View style={styles.actions}>
             <Button
               label="Go to your notes"
-              variant="white"
+              variant="accent"
               onPress={() => onLeave(CONSOLE_ROUTE)}
               testID="cli-connected-console"
             />
