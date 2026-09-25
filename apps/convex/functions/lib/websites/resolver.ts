@@ -16,7 +16,6 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
 import { isEncryptedNote } from "../noteEncryption";
-import { shortLinkSlugFrom } from "../shareSlug";
 import { hasWorkspaceMembership } from "../shares/standing";
 import { websiteTextRestricts } from "./changes";
 import {
@@ -61,16 +60,6 @@ export type WebsiteResolutionPlan =
       releasePageId?: string;
     } & SiteShell);
 
-export type WebsiteAddressPlan =
-  | { kind: "website" }
-  | { kind: "legacy_short_link"; handle: string; slug: string }
-  | { kind: "unavailable" };
-
-export type WebsiteAddressPreview = {
-  owned: boolean;
-  title: string | null;
-};
-
 const NO_SITE: Extract<WebsiteResolutionPlan, { kind: "unavailable" }> = {
   kind: "unavailable",
   siteName: null,
@@ -87,13 +76,13 @@ function unavailable(
   };
 }
 
-function normalizedHandle(raw: string): string | null {
+export function normalizedHandle(raw: string): string | null {
   const value = raw.replace(/^@/, "").toLowerCase();
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value) ? value : null;
 }
 
 /** Canonical decoded route path; query strings and encoded ambiguity stay out. */
-function normalizedRoutePath(raw: string): string | null {
+export function normalizedRoutePath(raw: string): string | null {
   if (
     !raw.startsWith("/") ||
     raw.length > 1024 ||
@@ -279,126 +268,6 @@ export async function siteRevisionHandler(
     .unique();
   if (state?.state !== "enabled") return null;
   return `${state.routeGeneration ?? 0}:${state.routeReconciledGeneration ?? -1}`;
-}
-
-/**
- * Decide whether an address belongs to the website before a legacy named
- * share is considered. Any indexed claimant owns its route even when it is a
- * draft or has a problem; an enabled but stale index also fails closed.
- */
-export async function websiteAddressPlanHandler(
-  ctx: QueryCtx,
-  args: { handle: string; routePath: string; legacySlug?: string },
-): Promise<WebsiteAddressPlan> {
-  const handle = normalizedHandle(args.handle);
-  const routePath = normalizedRoutePath(args.routePath);
-  if (handle === null || routePath === null) return { kind: "unavailable" };
-
-  const claim = await findName(ctx, handle);
-  if (claim?.workspaceId === undefined) return { kind: "unavailable" };
-  const workspace = await ctx.db.get(claim.workspaceId);
-  if (workspace === null) return { kind: "unavailable" };
-
-  const state = await ctx.db
-    .query("websiteStates")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-    .unique();
-  if (state?.state === "enabled") {
-    const fresh =
-      state.routeGeneration !== undefined &&
-      state.routeGeneration === state.routeReconciledGeneration;
-    if (!fresh) return { kind: "website" };
-    const indexed = await ctx.db
-      .query("websiteRouteIndex")
-      .withIndex("by_workspace_lookup", (q) =>
-        q
-          .eq("workspaceId", workspace._id)
-          .eq("lookupKey", websiteRouteLookupKey(routePath)),
-      )
-      .first();
-    if (indexed !== null) return { kind: "website" };
-  }
-
-  const rawSlug =
-    routePath === "/"
-      ? (args.legacySlug ?? "")
-      : routePath.slice(1).includes("/")
-        ? ""
-        : routePath.slice(1);
-  const slug = shortLinkSlugFrom(rawSlug);
-  return slug === null
-    ? { kind: "unavailable" }
-    : { kind: "legacy_short_link", handle, slug };
-}
-
-/** Crawler metadata for a website-owned one-segment address, or no ownership. */
-export async function websiteAddressPreviewHandler(
-  ctx: QueryCtx,
-  args: { handle: string; slug: string; routePath?: string },
-): Promise<WebsiteAddressPreview> {
-  const routePath = args.routePath ?? `/${args.slug}`;
-  const plan = await websiteAddressPlanHandler(ctx, {
-    handle: args.handle,
-    routePath,
-  });
-  if (plan.kind !== "website") return { owned: false, title: null };
-
-  const handle = normalizedHandle(args.handle);
-  const normalizedPath = normalizedRoutePath(routePath);
-  if (handle === null || normalizedPath === null) {
-    return { owned: true, title: null };
-  }
-  const claim = await findName(ctx, handle);
-  if (claim?.workspaceId === undefined) return { owned: true, title: null };
-  const state = await ctx.db
-    .query("websiteStates")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", claim.workspaceId!))
-    .unique();
-  const fresh =
-    state?.state === "enabled" &&
-    state.routeGeneration !== undefined &&
-    state.routeGeneration === state.routeReconciledGeneration;
-  if (!fresh) return { owned: true, title: null };
-
-  const matches = await ctx.db
-    .query("websiteRouteIndex")
-    .withIndex("by_workspace_lookup", (q) =>
-      q
-        .eq("workspaceId", claim.workspaceId!)
-        .eq("lookupKey", websiteRouteLookupKey(normalizedPath)),
-    )
-    .collect();
-  const route = matches.length === 1 ? matches[0] : null;
-  return {
-    owned: true,
-    title:
-      route?.status === "live" && route.audience === "public"
-        ? route.title
-        : null,
-  };
-}
-
-/** Public website-first address resolver; it never returns a bearer token. */
-export async function resolveWebsiteAddressHandler(
-  ctx: ActionCtx,
-  args: { handle: string; routePath: string; legacySlug?: string },
-): Promise<ResolvedWebsiteAddress> {
-  const plan = await ctx.runQuery(
-    internal.functions.websites.websiteAddressPlan,
-    args,
-  );
-  const pageArgs = { handle: args.handle, routePath: args.routePath };
-  if (plan.kind === "website") {
-    return await resolveWebsitePageHandler(ctx, pageArgs);
-  }
-  if (plan.kind === "legacy_short_link") {
-    const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
-      handle: plan.handle,
-      slug: plan.slug,
-    });
-    if (token !== null) return plan;
-  }
-  return await resolveWebsitePageHandler(ctx, pageArgs);
 }
 
 /** Public action: re-check the exact indexed source before returning content. */

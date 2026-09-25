@@ -18,11 +18,13 @@ import {
   sweepRouteReconciliationHandler,
 } from "./lib/websites/routes";
 import {
+  resolveWebsiteAddressHandler,
+  websiteAddressPlanHandler,
+  websiteAddressPreviewHandler,
+} from "./lib/websites/addresses";
+import {
   resolveWebsitePageHandler,
   siteRevisionHandler,
-  resolveWebsiteAddressHandler,
-  websiteAddressPreviewHandler,
-  websiteAddressPlanHandler,
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
