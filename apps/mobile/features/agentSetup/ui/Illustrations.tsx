@@ -260,6 +260,24 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
           <Consent agent={agent === "claude" ? "Claude" : "ChatGPT"} slug={slug} />
         </Frame>
       );
+    case "allow":
+      return (
+        <Frame caption={SEEN_IN.claude}>
+          <Win title="Customize">
+            <Text style={s.lab}>← Your connectors</Text>
+            <Text style={s.strong}>Context</Text>
+            <Text style={s.lab}>Tool permissions</Text>
+            <RowItem>
+              <Text style={s.inpText}>Read-only tools</Text>
+              <Fake label="Always allow ⌄" pin={1} />
+            </RowItem>
+            <RowItem>
+              <Text style={s.inpText}>Write/delete tools</Text>
+              <Fake label="Always allow ⌄" pin={2} />
+            </RowItem>
+          </Win>
+        </Frame>
+      );
     case "stick":
       return agent === "claude" ? (
         <Frame caption={SEEN_IN.claude}>

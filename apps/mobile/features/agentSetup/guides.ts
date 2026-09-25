@@ -13,7 +13,7 @@
 
 export type SetupAgent = "claude" | "chatgpt";
 
-export type StepKey = "open" | "add" | "devmode" | "create" | "signin" | "stick" | "bring";
+export type StepKey = "open" | "add" | "devmode" | "create" | "signin" | "allow" | "stick" | "bring";
 
 export const SETUP_AGENTS: readonly SetupAgent[] = ["claude", "chatgpt"];
 
@@ -23,7 +23,7 @@ export const AGENT_NAMES: Record<SetupAgent, string> = {
 };
 
 export const GUIDE_STEPS: Record<SetupAgent, readonly StepKey[]> = {
-  claude: ["open", "add", "signin", "stick", "bring"],
+  claude: ["open", "add", "signin", "allow", "stick", "bring"],
   chatgpt: ["devmode", "create", "signin", "stick", "bring"],
 };
 
@@ -48,6 +48,16 @@ export const AGENT_LINKS: Record<SetupAgent, { settings: string; label: string; 
     chat: "https://chatgpt.com/",
   },
 };
+
+/**
+ * Claude asks before every Context tool call until the connector's two tool
+ * groups are set to Always allow, which makes "check Context first" a stream
+ * of prompts. The connector's own page has no stable address (it is keyed by
+ * an id Claude assigns), so the link opens the list and Context is one press
+ * from there. ChatGPT has no equivalent: developer mode confirms each write,
+ * and there is no setting to turn that off.
+ */
+export const CLAUDE_ALLOW_LINK = "https://claude.ai/customize/connectors";
 
 /**
  * Where the standing instruction goes, in each agent's own words, and a link

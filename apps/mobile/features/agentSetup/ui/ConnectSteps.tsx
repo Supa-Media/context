@@ -1,7 +1,7 @@
 import { Linking } from "react-native";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
 import { CLAUDE_CUSTOM_INSTRUCTION } from "../../onboarding/agents";
-import { AGENT_LINKS, AGENT_NAMES, GUIDE_STEPS, STICK_FIELD, type SetupAgent, type StepKey } from "../guides";
+import { AGENT_LINKS, AGENT_NAMES, CLAUDE_ALLOW_LINK, GUIDE_STEPS, STICK_FIELD, type SetupAgent, type StepKey } from "../guides";
 import type { SigninState } from "../guideState";
 import { StepIllustration } from "./Illustrations";
 import { BackLink, GuideButton, GuideFrame } from "./GuideFrame";
@@ -174,6 +174,32 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
                 ? "No window? Allow pop-ups for claude.ai and press Connect again. Signed in to the wrong Context account? Sign out in the window first."
                 : "No window? In Settings › Apps, open Context and press Connect."}
             </P>
+          </>
+        ),
+      };
+    case "allow":
+      return {
+        next: "Both are set",
+        node: (
+          <>
+            <Heading>Let Claude use Context without asking</Heading>
+            <P>
+              Claude asks before every Context action until you tell it not to, so checking your notes becomes a
+              stream of Allow buttons. Turn that off once.
+            </P>
+            <P>
+              In <MenuPath parts={["Customize", "Connectors"]} />, open <B>Context</B>. Under <B>Tool permissions</B>,
+              set <B>Read-only tools</B> and <B>Write/delete tools</B> to <B>Always allow</B>.
+            </P>
+            <GuideButton
+              label="Open Claude's connectors ↗"
+              quiet
+              onPress={() => open(CLAUDE_ALLOW_LINK)}
+              style={{ alignSelf: "flex-start" }}
+              testID="agent-setup-open-allow"
+            />
+            <Gap />
+            <P small>You can switch either back there at any time.</P>
           </>
         ),
       };
