@@ -85,10 +85,13 @@ export async function readSharedNoteHandler(
   // enough, which it is for exactly one kind of share.
   const actorUserId = await getAuthUserId(ctx);
 
-  const grant = await ctx.runQuery(internal.functions.shares.authorizeShareRead, {
-    actorUserId: actorUserId as Id<"users"> | null,
-    token: args.token,
-  });
+  const grant = await ctx.runQuery(
+    internal.functions.shares.authorizeShareRead,
+    {
+      actorUserId: actorUserId as Id<"users"> | null,
+      token: args.token,
+    },
+  );
   if (grant === null) {
     // Nothing resolved. For a signed-in caller that is the share's one
     // refusal; for a caller with no session it is a fact about their own
@@ -104,7 +107,8 @@ export async function readSharedNoteHandler(
     throw shareUnavailable();
   }
 
-  const asked = args.path === undefined ? grant.entryPath : normalizePath(args.path);
+  const asked =
+    args.path === undefined ? grant.entryPath : normalizePath(args.path);
   if (asked === null) throw anonymousSafe(actorUserId, shareUnavailable());
 
   /*
@@ -172,7 +176,12 @@ export async function readSharedNoteHandler(
     if (!withinSharedFolder(entryPath, requested)) {
       throw anonymousSafe(actorUserId, shareUnavailable());
     }
-    return await readWithinSharedFolder(ctx, shareGrant, requested, actorUserId);
+    return await readWithinSharedFolder(
+      ctx,
+      shareGrant,
+      requested,
+      actorUserId,
+    );
   }
 
   // The entry note is read on every request. It is what step 3 is checked
@@ -208,7 +217,8 @@ export async function readSharedNoteHandler(
     if (grant.collecting) throw anonymousSafe(actorUserId, shareUnavailable());
     // `SHARE_TRAVERSAL_DEPTH` is 1: the entry note's own links and nothing
     // further. See the constant.
-    if (!links.includes(requested)) throw anonymousSafe(actorUserId, shareUnavailable());
+    if (!links.includes(requested))
+      throw anonymousSafe(actorUserId, shareUnavailable());
     const target = await readThroughShare(
       ctx,
       grant.workspaceId,
@@ -304,7 +314,13 @@ async function readWithinSharedFolder(
       actorUserId,
       grant.openToAnyone,
     );
-    return { path: requested, text: note.text, kind: "note", entries: [], ...shared };
+    return {
+      path: requested,
+      text: note.text,
+      kind: "note",
+      entries: [],
+      ...shared,
+    };
   }
 
   let listing;
@@ -320,7 +336,8 @@ async function readWithinSharedFolder(
     // cannot become a way to ask whether a hidden folder has anything in it.
     throw anonymousSafe(actorUserId, shareUnavailable());
   }
-  if (listing.kind !== "listing") throw anonymousSafe(actorUserId, shareUnavailable());
+  if (listing.kind !== "listing")
+    throw anonymousSafe(actorUserId, shareUnavailable());
 
   /*
     AN EMPTY FOLDER IS NOT A REFUSAL, AND THE ROOT IS THE CASE THAT PROVES IT.
@@ -335,11 +352,13 @@ async function readWithinSharedFolder(
     path: requested,
     text: null,
     kind: "folder",
-    entries: listing.entries.map((entry: { path: string; name: string; kind: string }) => ({
-      path: entry.path,
-      name: entry.name,
-      kind: entry.kind === "folder" ? ("folder" as const) : ("file" as const),
-    })),
+    entries: listing.entries.map(
+      (entry: { path: string; name: string; kind: string }) => ({
+        path: entry.path,
+        name: entry.name,
+        kind: entry.kind === "folder" ? ("folder" as const) : ("file" as const),
+      }),
+    ),
     ...shared,
   };
 }
@@ -365,12 +384,16 @@ async function readThroughShare(
   openToAnyone: boolean,
 ): Promise<{ text: string }> {
   try {
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId,
-      scope: "team",
-      operation: { kind: "read", path },
-    });
-    if (result.kind !== "file") throw anonymousSafe(actorUserId, shareUnavailable());
+    const result = await ctx.runAction(
+      internal.functions.files.runFileOperation,
+      {
+        workspaceId,
+        scope: "team",
+        operation: { kind: "read", path },
+      },
+    );
+    if (result.kind !== "file")
+      throw anonymousSafe(actorUserId, shareUnavailable());
     /*
       AND A LIVE LINK STOPS RESOLVING THE MOMENT THE NOTE IS ENCRYPTED.
 
@@ -441,6 +464,15 @@ export async function readShortLinkHandler(
   collecting: boolean;
   editableInContext: string | null;
 }> {
+  // A website file owns its public path before the compatibility link does.
+  // Re-check here as well as in the address resolver so a client cannot race
+  // or bypass the website-first decision by calling this action directly.
+  const website = await ctx.runQuery(
+    internal.functions.websites.websiteAddressPlan,
+    { handle: args.handle, routePath: `/${args.slug}` },
+  );
+  if (website.kind === "website") throw shareUnavailable();
+
   const token = await ctx.runQuery(internal.functions.shares.shortLinkToken, {
     handle: args.handle,
     slug: args.slug,

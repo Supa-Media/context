@@ -143,6 +143,7 @@ export {
   summarizeWebsiteRoutes,
 } from "./websiteContract";
 export type {
+  ResolvedWebsiteAddress,
   ResolvedWebsitePage,
   WebsiteEnableResult,
   WebsiteNavigationItem,
