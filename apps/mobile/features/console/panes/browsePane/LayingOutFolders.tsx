@@ -1,15 +1,18 @@
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { Text } from "../../design/components/Text";
-import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { paraFolderLines } from "../structure";
+import { Text } from "../../../design/components/Text";
+import { fonts, leading, pointerType as t, radii, space } from "../../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import { paraFolderLines } from "../../../onboarding/structure";
 
 /**
- * "Setting up @you" — the five folders "Start fresh" promised, being written.
+ * "Setting up @you" — the five folders "Start fresh" promised, being written,
+ * drawn in the console the person has already landed in.
  *
- * The run waits here until the layout has actually landed (`useOnboarding`'s
- * `layout`), because going to the console a few seconds early showed a new
- * owner a privacy warning about a `privacy.md` that did not exist *yet*.
+ * The first run no longer holds anybody on a screen of its own while this
+ * happens (the owner asked for it here, 2026-09-25): "Take me to the console →"
+ * goes to the console, and the console says what is being written until it is.
+ * `useBrowseNotices` decides when — a layout the control plane has queued and
+ * not yet answered, then a moment of ticks once it lands.
  *
  * Every row turns at once, and that is honest rather than lazy: the job writes
  * the folders and the privacy file in one run and reports back once, so there
@@ -19,23 +22,25 @@ import { paraFolderLines } from "../structure";
 export function LayingOutFolders({ slug, done }: { slug: string | null; done: boolean }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  const name = slug === null ? "your workspace" : `@${slug}`;
   const rows = [
     ...paraFolderLines(),
     { folder: "privacy.md", line: "Your privacy rules — every folder private until you share it." },
   ];
   return (
-    <View testID="welcome-laying-out">
-      <Text variant="rowSub" style={styles.lede} role="status">
+    <View style={styles.card} testID="browse-laying-out">
+      <Text style={styles.title}>{done ? `${name} is ready` : `Setting up ${name}`}</Text>
+      <Text style={styles.lede} role="status">
         {done
-          ? `${slug === null ? "Your workspace" : `@${slug}`} is ready. Opening it now…`
-          : "Your bucket is ready. Writing the folders you start with — this takes a few seconds."}
+          ? "Your folders are in, and every one of them is private until you share it."
+          : "Writing the folders you start with — this takes a few seconds."}
       </Text>
       <View style={styles.list}>
         {rows.map(({ folder, line }, index) => (
           <View
             key={folder}
             style={[styles.row, index > 0 && styles.rule]}
-            testID={`welcome-laying-out-${folder}`}
+            testID={`browse-laying-out-${folder}`}
           >
             <View style={styles.mark}>
               {done ? (
@@ -59,7 +64,9 @@ export function LayingOutFolders({ slug, done }: { slug: string | null; done: bo
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    lede: { color: colors.text2, fontSize: t.lede, lineHeight: leading(15, 1.6), marginBottom: space.x5 },
+    card: { maxWidth: 560, gap: space.x2 },
+    title: { fontSize: t.lede, fontWeight: "600", color: colors.text },
+    lede: { color: colors.text2, fontSize: t.ui, lineHeight: leading(t.ui, 1.5), marginBottom: space.x2 },
     list: {
       borderWidth: 1,
       borderColor: colors.lineStrong,

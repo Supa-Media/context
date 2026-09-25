@@ -1,4 +1,4 @@
-import { ActivityIndicator, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
@@ -15,6 +15,7 @@ import { makeStyles } from "./styles";
 import type { BrowseNoticeState } from "./useBrowseNotices";
 import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
+import { LayingOutFolders } from "./LayingOutFolders";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
@@ -28,7 +29,7 @@ export function BrowseNotices({
   onOpenSettings,
   onNavigate,
   setup,
-  writing,
+  layingOut,
   introVisible,
   intro,
   introAnswer,
@@ -45,8 +46,8 @@ export function BrowseNotices({
   onOpenSettings: BrowsePaneProps["onOpenSettings"];
   onNavigate?: BrowsePaneProps["onNavigate"];
   setup: BrowseNoticeState["setup"];
-  /** A layout is being written right now — see `layoutWriting`. */
-  writing: boolean;
+  /** The folders after "Start fresh": being written, or just written. */
+  layingOut: BrowseNoticeState["layingOut"];
   introVisible: boolean;
   intro: BrowseNoticeState["intro"];
   introAnswer: BrowseNoticeState["introAnswer"];
@@ -81,12 +82,9 @@ export function BrowseNotices({
         and hiding a fails-closed privacy notice because a fix is on offer is
         the wrong way round.
       */}
-      {writing ? (
-        <View style={[styles.notice, styles.noticeRow]} testID="browse-layout-writing">
-          <ActivityIndicator size="small" />
-          <Text variant="hint" role="status">
-            Setting up your folders — this takes a few seconds.
-          </Text>
+      {layingOut !== null ? (
+        <View style={styles.notice}>
+          <LayingOutFolders slug={current?.slug ?? null} done={layingOut === "done"} />
         </View>
       ) : null}
 

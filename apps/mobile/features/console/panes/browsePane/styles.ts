@@ -113,8 +113,6 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.hintWash,
     gap: 10,
   },
-  /** A notice that is one line beside a spinner — the layout being written. */
-  noticeRow: { flexDirection: "row", alignItems: "center" },
   noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
   noticeWarnText: { color: colors.warnText },
   dismiss: { alignSelf: "flex-start" },

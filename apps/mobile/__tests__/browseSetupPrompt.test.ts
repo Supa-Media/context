@@ -46,6 +46,7 @@ import { BrowsePane } from "../features/console/panes/BrowsePane";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import { emptyEditor } from "../features/console/files/editor";
+import { LAYOUT_LANDED_MS } from "../features/console/panes/browsePane/useBrowseNotices";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -337,9 +338,14 @@ describe("a layout on its way is not a broken context", () => {
   const writing = () =>
     emptyContextConsole({ scaffoldQueuedAt: Date.now(), manifestUsable: false, rootEntries: [] });
 
-  test("says it is setting up the folders, and neither warns nor offers", () => {
+  test("draws the folders being written, and neither warns nor offers", () => {
     const { container, unmount } = mount(writing(), () => {});
-    expect(find(container, "browse-layout-writing")?.textContent).toMatch(/Setting up your folders/);
+    expect(find(container, "browse-laying-out")?.textContent).toMatch(/Setting up/);
+    // The standard folders and the privacy file, each still on its way.
+    for (const row of ["1-projects", "2-areas", "3-resources", "4-archive", "privacy.md"]) {
+      expect(find(container, `browse-laying-out-${row}`)).not.toBeNull();
+    }
+    expect(container.querySelector('[aria-label="written"]')).toBeNull();
     expect(container.textContent).not.toMatch(/privacy\.md is missing/);
     expect(find(container, "console-setup-prompt")).toBeNull();
     unmount();
@@ -352,7 +358,7 @@ describe("a layout on its way is not a broken context", () => {
       rootEntries: [],
     });
     const { container, unmount } = mount(stale, () => {});
-    expect(find(container, "browse-layout-writing")).toBeNull();
+    expect(find(container, "browse-laying-out")).toBeNull();
     expect(find(container, "console-setup-prompt")).not.toBeNull();
     unmount();
   });
@@ -368,6 +374,48 @@ describe("a layout on its way is not a broken context", () => {
     expect(listed).toEqual([]);
     render(emptyContextConsole({ scaffoldReason: "created", listed }));
     expect(listed).toContainEqual(["", true]);
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  test("when it lands written, the rows tick, and then the card goes", () => {
+    jest.useFakeTimers();
+    try {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+      const render = (data: ConsoleData) =>
+        act(() => root.render(createElement(BrowsePane, { data, onOpenSettings: () => {} } as never)));
+      render(emptyContextConsole({ scaffoldQueuedAt: Date.now(), manifestUsable: false }));
+      // Landed, and the root on screen is still the one read before it: the
+      // card stays, ticked, and the warning stays away.
+      render(emptyContextConsole({ scaffoldReason: "created", manifestUsable: false }));
+      expect(find(container, "browse-laying-out")?.textContent).toMatch(/is ready/);
+      // Every row ticked — the folders and the privacy file alike.
+      const rows = container.querySelectorAll('[data-testid^="browse-laying-out-"]').length;
+      expect(rows).toBeGreaterThan(1);
+      expect(container.querySelectorAll('[aria-label="written"]')).toHaveLength(rows);
+      expect(container.textContent).not.toMatch(/privacy\.md is missing/);
+      act(() => {
+        jest.advanceTimersByTime(LAYOUT_LANDED_MS);
+      });
+      expect(find(container, "browse-laying-out")).toBeNull();
+      act(() => root.unmount());
+      container.remove();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a layout that lands half-written is not drawn as ready", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+    const render = (data: ConsoleData) =>
+      act(() => root.render(createElement(BrowsePane, { data, onOpenSettings: () => {} } as never)));
+    render(emptyContextConsole({ scaffoldQueuedAt: Date.now(), rootEntries: [] }));
+    render(emptyContextConsole({ scaffoldReason: "partial", rootEntries: [] }));
+    expect(find(container, "browse-laying-out")).toBeNull();
     act(() => root.unmount());
     container.remove();
   });

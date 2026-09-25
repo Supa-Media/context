@@ -203,7 +203,7 @@ export function BrowsePane({
     noBucket,
     manifestBroken,
     setup,
-    writing,
+    layingOut,
     storageMigration,
     intro,
     introAnswer,
@@ -231,7 +231,7 @@ export function BrowsePane({
       onOpenSettings={onOpenSettings}
       onNavigate={onNavigate}
       setup={setup}
-      writing={writing}
+      layingOut={layingOut}
       introVisible={introVisible}
       intro={intro}
       introAnswer={introAnswer}

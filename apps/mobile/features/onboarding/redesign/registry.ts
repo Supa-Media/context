@@ -30,7 +30,7 @@ import { PaymentStep } from "./PaymentStep";
 import { DryRunStep } from "./DryRunStep";
 import { dryRunReport } from "../dryRun";
 import { PointAtBucket } from "../steps/PointAtBucket";
-import { LayingOutFolders } from "../steps/LayingOutFolders";
+import { LayingOutFolders } from "../../console/panes/browsePane/LayingOutFolders";
 import { SetupWidget } from "../../console/setupWidget/SetupWidget";
 import { SetupDone } from "../../console/setupWidget/SetupDone";
 import { setupView } from "../../console/setupWidget/rules";
@@ -185,7 +185,7 @@ export const PREVIEWS: readonly PreviewEntry[] = [
   },
   {
     key: "laying-out",
-    title: "Setting up your workspace (after Start fresh)",
+    title: "Setting up your workspace (in the console, after Start fresh)",
     Component: LayingOutFolders as ComponentType<Record<string, unknown>>,
     props: { slug: "seyi", done: false },
   },

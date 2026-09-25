@@ -14,7 +14,6 @@ import type { OnboardingController } from "../useOnboarding";
 import { ManagedConfirm } from "./ManagedConfirm";
 import { ManagedSettling } from "./ManagedSettling";
 import { PointAtBucket } from "./PointAtBucket";
-import { LayingOutFolders } from "./LayingOutFolders";
 
 /**
  * Step 2 — where the notes live.
@@ -44,12 +43,6 @@ import { LayingOutFolders } from "./LayingOutFolders";
  * in `ManagedSettling`.
  */
 export function StorageStep({ controller }: { controller: OnboardingController }) {
-  // "Start fresh" after our bucket is ready: the folders, until they land.
-  if (controller.layout !== "idle") {
-    return (
-      <LayingOutFolders slug={controller.claimed?.slug ?? null} done={controller.layout === "done"} />
-    );
-  }
   return (
     <StorageStepBody
       connectState={controller.connectState}

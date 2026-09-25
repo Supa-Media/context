@@ -10,6 +10,12 @@ import type { ConsoleData, selectedContext } from "../../types";
 import { contextIntro, useContextIntro } from "../../contextIntro";
 import { contextSetupFor, setupPromptVisible } from "../../setup";
 
+/** The folder card after "Start fresh": being written, then written, then gone. */
+export type LayingOut = "writing" | "done" | null;
+
+/** How long the ticked folders stay once the layout has landed. */
+export const LAYOUT_LANDED_MS = 2500;
+
 /**
  * What the band above the note has to say, and whether it has anything: the
  * missing bucket, the broken manifest, the setup offer, the intro sentence,
@@ -71,21 +77,41 @@ export function useBrowseNotices({
     For the seconds after "Start fresh" the bucket has no `privacy.md` yet, and
     this band used to say so as a fails-closed privacy warning — to somebody
     who had signed up a moment before. While the layout is being written the
-    band says that instead (`setup.kind === "writing"`), and the warning waits
-    for a manifest that is actually missing.
+    band shows the folders being written instead (`setup.kind === "writing"`,
+    drawn by `LayingOutFolders`), and the warning waits for a manifest that is
+    actually missing.
   */
   const writing = setup.kind === "writing";
-  const manifestBroken = !writing && files.listings[""]?.manifestUsable === false;
   /*
     And when it lands, the root is read again. Listings are actions, not
     subscriptions, so the empty root read while the layout was on its way
     would otherwise stay on screen until somebody reloaded.
+
+    A layout that landed *written* keeps its card a moment longer with every
+    row ticked, so the person who watched the spinners sees them finish
+    rather than the card vanishing — the first run sends people here the
+    moment the layout is queued, and this card is that step's screen now.
   */
+  const [landed, setLanded] = useState(false);
   const wasWriting = useRef(false);
+  const landedWritten = data.storage?.scaffoldReason === "created";
   useEffect(() => {
-    if (wasWriting.current && !writing) files.ensureListing("", true);
+    if (wasWriting.current && !writing) {
+      files.ensureListing("", true);
+      if (landedWritten) setLanded(true);
+    }
     wasWriting.current = writing;
-  }, [files, writing]);
+  }, [files, writing, landedWritten]);
+  useEffect(() => {
+    if (!landed) return;
+    const handle = setTimeout(() => setLanded(false), LAYOUT_LANDED_MS);
+    return () => clearTimeout(handle);
+  }, [landed]);
+  const layingOut: LayingOut = writing ? "writing" : landed ? "done" : null;
+  // Held back while the card is up, including its ticked moment: the root
+  // listing on screen is the one read before the layout landed until the
+  // re-read above comes back.
+  const manifestBroken = layingOut === null && files.listings[""]?.manifestUsable === false;
   /*
     Ask the bucket before offering anything, once per context.
 
@@ -219,7 +245,7 @@ export function useBrowseNotices({
   const hasNotice =
     introVisible ||
     setupPromptVisible(setup) ||
-    writing ||
+    layingOut !== null ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
@@ -230,7 +256,7 @@ export function useBrowseNotices({
     noBucket,
     manifestBroken,
     setup,
-    writing,
+    layingOut,
     storageMigration,
     intro,
     introAnswer,

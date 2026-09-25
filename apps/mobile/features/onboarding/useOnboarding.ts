@@ -74,15 +74,6 @@ function usable<T>(value: unknown): T | undefined {
   return value as T;
 }
 
-/** The standard folders being written after "Start fresh". */
-export type LayoutProgress = "idle" | "writing" | "done";
-
-/** How long the ticked folders stay on screen before the console. */
-export const LAYOUT_SETTLE_MS = 900;
-
-/** The most a layout that never reports back may hold the run. */
-export const LAYOUT_WAIT_MS = 60_000;
-
 export interface ClaimedContext {
   workspaceId: Id<"workspaces">;
   slug: string;
@@ -123,8 +114,6 @@ export interface OnboardingController {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   connectState: ConnectState;
   managed: ManagedOffer | null;
-  /** The standard folders after "Start fresh": being written, then written. */
-  layout: LayoutProgress;
   /** "I'll do this later" — out to the console, whose setup widget asks again. */
   skipStorage: () => void;
   continuePastStorage: () => void;
@@ -148,8 +137,6 @@ export function useOnboarding(
     checkout?: CheckoutOutcome | null;
     /** Test seam for the settling copy's later wording. */
     settlingSlowAfter?: number;
-    /** Test seam: how long the ticked folders stay before the console. */
-    layoutSettleMs?: number;
   } = {},
 ): OnboardingController {
   const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces) as
@@ -310,8 +297,7 @@ export function useOnboarding(
     console's own offer is the only thing that ever writes a layout into it.
   */
   const applyStructure = useMutation(api.functions.workspaces.applyStructure);
-  const [layout, setLayout] = useState<LayoutProgress>("idle");
-  // Once per run. A failed queue goes to the console rather than round again:
+  // Once per run. A refusal goes to the console rather than round again:
   // retrying here is how a refusal becomes a stream of mutations.
   const layoutAttempted = useRef(false);
   const layOutFreshBucket = useCallback(async () => {
@@ -321,59 +307,27 @@ export function useOnboarding(
     // it); `existing-context` is somebody's notes. Everything else on a bucket
     // we just made is empty — `features/console/setup.ts` has the vocabulary.
     const reason = binding?.scaffoldReason;
-    if (reason === "created" || structureStepFor(reason).kind !== "ask") {
-      go("console");
-      return;
+    if (reason !== "created" && structureStepFor(reason).kind === "ask") {
+      try {
+        const args = toApplyStructureArgs(claimed.workspaceId, "para", []);
+        await applyStructure({ ...args, workspaceId: claimed.workspaceId });
+      } catch {
+        // See above: the console offers it again.
+      }
     }
-    setLayout("writing");
-    try {
-      const args = toApplyStructureArgs(claimed.workspaceId, "para", []);
-      await applyStructure({ ...args, workspaceId: claimed.workspaceId });
-    } catch {
-      // A layout that fails to queue: straight in. The console offers it.
-      go("console");
-    }
+    /*
+      Straight to the console, without waiting for the folders to land.
+
+      Queuing returns at once and the job takes a few seconds. The console is
+      where those seconds are spent: the mutation above has stamped the
+      binding (`scaffoldQueuedAt`) before it resolves, so the console opens
+      already knowing a layout is on its way and draws the folders being
+      written (`LayingOutFolders`) rather than a privacy warning about a
+      `privacy.md` that does not exist yet. The owner asked for it there
+      rather than on a screen of its own here (2026-09-25).
+    */
+    go("console");
   }, [applyStructure, binding?.scaffoldReason, claimed, go]);
-
-  /*
-    HOLD THE RUN UNTIL THE FOLDERS ARE ACTUALLY THERE.
-
-    Queuing the layout returns at once; writing it takes a few seconds. Going
-    to the console in between put the first thing a new owner saw as a
-    privacy warning about a `privacy.md` that was seconds from existing. So
-    this step waits on the binding: the control plane clears
-    `scaffoldQueuedAt` when the job reports back, and the verdict is in
-    `scaffoldReason`. The five folders are drawn ticked for a moment, then
-    the console — or, on a failure or a job that never answers within
-    `LAYOUT_WAIT_MS`, the console anyway, whose band now says what is true.
-  */
-  const queuedAt = (binding as { scaffoldQueuedAt?: number } | null | undefined)?.scaffoldQueuedAt;
-  // "No stamp" before the subscription has shown ours is not an answer: the
-  // mutation can return before the binding it patched reaches this client.
-  const sawQueued = useRef(false);
-  if (layout === "writing" && typeof queuedAt === "number") sawQueued.current = true;
-  const reason = binding?.scaffoldReason;
-  useEffect(() => {
-    if (layout !== "writing") return;
-    if (reason === "created") {
-      setLayout("done");
-      return;
-    }
-    // A failed or half-written layout is also an answer, and one the console
-    // can finish; so is the stamp clearing after we saw it set.
-    if (reason === "partial" || reason === "failed") go("console");
-    else if (sawQueued.current && queuedAt === undefined) go("console");
-  }, [go, layout, queuedAt, reason]);
-  useEffect(() => {
-    if (layout !== "done") return;
-    const handle = setTimeout(() => go("console"), options.layoutSettleMs ?? LAYOUT_SETTLE_MS);
-    return () => clearTimeout(handle);
-  }, [go, layout, options.layoutSettleMs]);
-  useEffect(() => {
-    if (layout !== "writing") return;
-    const handle = setTimeout(() => go("console"), LAYOUT_WAIT_MS);
-    return () => clearTimeout(handle);
-  }, [go, layout]);
 
   /**
    * The probe landing is what moves the flow on — not the action returning.
@@ -459,7 +413,6 @@ export function useOnboarding(
     connect,
     connectState,
     managed: managed.available || managed.mode !== "choose" ? managed : null,
-    layout,
     skipStorage,
     continuePastStorage,
     dryRun,
