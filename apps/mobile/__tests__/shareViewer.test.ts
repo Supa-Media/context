@@ -513,11 +513,11 @@ describe("what a note looks like", () => {
     expect(parsed.blocks.map((b) => b.kind === "heading" && b.level)).toEqual([1, 2, 6]);
   });
 
-  test("paragraphs join their lines the way markdown means them to", () => {
+  test("a paragraph keeps its line breaks, as the editor draws them", () => {
     const parsed = parseNote("one\ntwo\n\nthree\n");
     expect(parsed.blocks).toHaveLength(2);
     expect(parsed.blocks[0].kind === "paragraph" && textOf(parsed.blocks[0].content)).toBe(
-      "one two",
+      "one\ntwo",
     );
   });
 
