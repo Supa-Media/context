@@ -53,6 +53,10 @@ jobs:
       STRIPE_PRICE_ID: ${{ secrets.STRIPE_PRICE_ID }}
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       MANAGED_R2_ACCOUNT_ID: ${{ secrets.MANAGED_R2_ACCOUNT_ID }}
+      # Staging uses its own SaaS zone and provisioning credential; never
+      # point these at production's registry or wildcard router.
+      CUSTOM_DOMAINS_ZONE_ID: ${{ secrets.CUSTOM_DOMAINS_ZONE_ID }}
+      CUSTOM_DOMAINS_TARGET: ${{ secrets.CUSTOM_DOMAINS_TARGET }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
