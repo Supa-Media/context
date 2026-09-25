@@ -59,41 +59,18 @@ export {
 export type { VaultImportFile, VaultImportResult } from "./fileOps/vaultImport";
 export { FileOpError } from "./fileOps/errors";
 export type { FileErrorCode } from "./fileOps/errors";
-export {
-  normalizePath,
-  parentOf,
-  baseName,
-  joinPath,
-  timestampSlug,
-} from "./fileOps/paths";
+export { normalizePath, parentOf, baseName, joinPath, timestampSlug } from "./fileOps/paths";
 export { loadPrivacyState } from "./fileOps/privacyState";
 export type { PrivacyState } from "./fileOps/privacyState";
 export { listFolder } from "./fileOps/listing";
 export type { FileEntry, FolderListing } from "./fileOps/listing";
-export {
-  MANIFEST_PAGE_ENTRIES,
-  MANIFEST_PAGE_FOLDERS,
-  syncManifest,
-} from "./fileOps/syncManifest";
-export type {
-  ManifestEntry,
-  ManifestFolder,
-  SyncManifest,
-} from "./fileOps/syncManifest";
-export {
-  readFile,
-  READ_BATCH_PATHS,
-  READ_BATCH_BYTES,
-  readFiles,
-} from "./fileOps/reading";
+export { MANIFEST_PAGE_ENTRIES, syncManifest } from "./fileOps/syncManifest";
+export type { ManifestEntry, ManifestFolder, SyncManifest } from "./fileOps/syncManifest";
+export { readFile, READ_BATCH_PATHS, READ_BATCH_BYTES, readFiles } from "./fileOps/reading";
 export type { FileContents, BatchRead } from "./fileOps/reading";
 export { writeFile, removeNoteEncryption } from "./fileOps/writing";
 export type { WriteResult } from "./fileOps/writing";
-export {
-  renderFolderPlaceholder,
-  createFolder,
-  duplicateName,
-} from "./fileOps/folders";
+export { renderFolderPlaceholder, createFolder, duplicateName } from "./fileOps/folders";
 export { movePath } from "./fileOps/moving";
 export type { MoveResult } from "./fileOps/moving";
 export {
@@ -128,11 +105,7 @@ export {
 export type { DeleteResult } from "./fileOps/deleting";
 export { resetPrivacyManifest } from "./fileOps/privacyReset";
 export type { PrivacyResetResult } from "./fileOps/privacyReset";
-export {
-  setExactVisibility,
-  setVisibility,
-  setFolderVisibility,
-} from "./fileOps/visibility";
+export { setExactVisibility, setVisibility, setFolderVisibility } from "./fileOps/visibility";
 export type { VisibilityResult } from "./fileOps/visibility";
 export {
   MAX_STORED_IMAGE_BYTES,
@@ -143,15 +116,8 @@ export {
   pasteImageLeaf,
   workspaceIconLeaf,
 } from "./fileOps/images";
-export {
-  notePathIndex,
-  searchNotes,
-  maintainSearchIndex,
-} from "./fileOps/search";
-export type {
-  SearchHit,
-  SearchResults,
-  ProjectionClient,
-} from "./fileOps/search";
+export { notePathIndex, searchNotes, maintainSearchIndex } from "./fileOps/search";
+export type { SearchHit, SearchResults, ProjectionClient } from "./fileOps/search";
 export { projectSearchIndex } from "./fileOps/projection";
 export type { ProjectionPass } from "./fileOps/projection";
+
