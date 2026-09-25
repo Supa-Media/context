@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { KeyValueStore } from "../offline/memory";
 import { openStore } from "../offline/store";
 import type { SetupAgent } from "./guides";
-import { decodeProgress, encodeProgress, progressKey, type SetupProgress } from "./progress";
+import {
+  decodeProgress,
+  encodeProgress,
+  progressKey,
+  setupKeys,
+  setupKeysForWorkspace,
+  type SetupProgress,
+} from "./progress";
 
 /**
  * Saved progress, shared by everything on screen that shows it.
@@ -74,7 +82,50 @@ export function useSetupProgress(
   return [progress, update];
 }
 
-/** For tests: forget every cached record. */
+/**
+ * Forget every record this module holds on the device, and in this process.
+ *
+ * Called from sign-out beside the offline copies and the last place, for the
+ * same reason those two are there rather than left to `ownedKeys`: `written`
+ * is a list of **note paths**, and a path is the name of one of somebody's
+ * notes. The next person to sign in on this machine is a member of the same
+ * contexts often enough for that to matter, and `bringView` renders the list
+ * from this record alone, before any fresh activity is fetched.
+ *
+ * The in-memory half goes too. It outlives a sign-out inside one running app,
+ * and a `useSetupProgress` mounted after one would be served the previous
+ * session's paths out of the cache without the device ever being read.
+ */
+export async function forgetSetupProgress(store: KeyValueStore): Promise<void> {
+  resetSetupProgressCache();
+  for (const key of setupKeys(await store.keys())) await store.remove(key);
+}
+
+/**
+ * The same, for one context somebody left.
+ *
+ * Only that context's records, in memory as well as on the device — clearing
+ * the whole cache here would make every other context's tile re-read before it
+ * could draw. **Only this version's keys**, unlike sign-out: a stale-version
+ * record cannot be attributed to a workspace at all, and taking every one of
+ * them would delete the guide progress of contexts the person still has. The
+ * residual is that a stale record survives a leave until the next sign-out,
+ * which does take them all.
+ */
+export async function forgetSetupProgressFor(
+  store: KeyValueStore,
+  workspaceId: string,
+): Promise<void> {
+  for (const key of setupKeysForWorkspace([...cache.keys()], workspaceId)) {
+    cache.delete(key);
+    loading.delete(key);
+  }
+  for (const key of setupKeysForWorkspace(await store.keys(), workspaceId)) {
+    await store.remove(key);
+  }
+}
+
+/** Forget every cached record, without touching the device. */
 export function resetSetupProgressCache() {
   cache.clear();
   loading.clear();

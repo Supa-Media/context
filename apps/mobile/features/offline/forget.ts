@@ -6,6 +6,8 @@ import {
 } from "./cache";
 import { endSession } from "./epoch";
 import { keysForDepartedContexts, keysForWorkspace, ownedKeys } from "./keys";
+import { forgetSetupProgress, forgetSetupProgressFor } from "../agentSetup/useSetupProgress";
+import { setupKeys, setupKeysForWorkspace } from "../agentSetup/progress";
 import { forgetPlace, placeKeys } from "../console/lastPlace";
 import { forgetAllMeetings } from "../meetings/local";
 import { forgetSpooledAudio, spooledAudioCounts } from "../meetings/capture";
@@ -292,6 +294,19 @@ async function clearEverything(): Promise<ForgetResult> {
     */
     await forgetAllMeetings(store);
     /*
+      And the agent-setup guide's record, for the first of those two reasons.
+
+      It holds no note text either — a step, the topics picked, when the prompt
+      was copied — but `written` is the list of paths the agent wrote during
+      somebody's setup, and `bringView` renders that list from the record alone
+      before any fresh activity is fetched. So the next person to sign in on
+      this machine, opening the same context's guide, is shown the names of
+      notes that were never theirs to see. Its namespace is its own, like the
+      page above and the meetings beside it, so it is cleared and verified
+      explicitly rather than trusted to `ownedKeys`.
+    */
+    await forgetSetupProgress(store);
+    /*
       And the mirror — every note body on the device, not only the opened ones.
       Through the store's own queue, which the epoch bumped above already
       guards: a sync write still in flight is either before the clear in that
@@ -310,7 +325,12 @@ async function clearEverything(): Promise<ForgetResult> {
     // the audio spool and the mirror are measured on their own either way.
     if (!store.durable && mirrorRoots === 0 && audio.left === 0) return { verdict: "unmeasured" };
     const keys = store.durable ? await store.keys() : [];
-    const left = [...ownedKeys(keys), ...placeKeys(keys), ...meetingKeys(keys)];
+    const left = [
+      ...ownedKeys(keys),
+      ...placeKeys(keys),
+      ...meetingKeys(keys),
+      ...setupKeys(keys),
+    ];
     if (left.length + mirrorRoots + audio.left > 0) {
       warnLeftBehind("sign-out", left.length + mirrorRoots + audio.left);
       return { verdict: "left-behind" };
@@ -365,6 +385,10 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
   try {
     const store = openStore();
     await forgetWorkspace(store, workspaceId);
+    // A context somebody left takes its guide record with it, for the reason
+    // sign-out takes all of them: `written` names notes in a context they can
+    // no longer reach.
+    await forgetSetupProgressFor(store, workspaceId);
     forgetMirrorStatus(workspaceId);
     forgetMirrorSearch(workspaceId);
     forgetMirrorLists(workspaceId);
@@ -378,9 +402,12 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
     // with its own idea of which keys belong to this context is a verification
     // that reports `cleared` over records nothing looked at — which is the
     // failure this module's "never silently" stance exists to prevent.
+    const remaining = store.durable ? await store.keys() : [];
     const left =
-      (store.durable ? keysForWorkspace(await store.keys(), workspaceId).length : 0) +
-      mirrorRoots;
+      (store.durable
+        ? keysForWorkspace(remaining, workspaceId).length +
+          setupKeysForWorkspace(remaining, workspaceId).length
+        : 0) + mirrorRoots;
     if (left > 0) {
       warnLeftBehind("leave", left);
       return { verdict: "left-behind" };
