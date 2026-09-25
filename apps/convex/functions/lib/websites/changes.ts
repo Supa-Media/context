@@ -1,6 +1,10 @@
 /** Which successful bucket operations can change website route ownership. */
 
-import { DEFAULT_WEBSITE_ROOT } from "@context/shared";
+import {
+  DEFAULT_WEBSITE_ROOT,
+  buildWebsiteRouteStatuses,
+} from "@context/shared";
+import { isEncryptedNote } from "../noteEncryption";
 import type {
   FileOperation,
   OperationResult,
@@ -62,4 +66,43 @@ export function operationTouchesWebsite(
     default:
       return false;
   }
+}
+
+function textExplicitlyRestricts(path: string, text: string): boolean {
+  if (!isWebsitePath(path)) return false;
+  if (isEncryptedNote(text)) return true;
+  const status = buildWebsiteRouteStatuses([
+    { objectKey: path, markdown: text },
+  ])[0];
+  // A problem is the autosave case the last-good release exists for. Draft
+  // and members are complete, explicit instructions to stop public serving.
+  return (
+    status?.status === "draft" ||
+    (status?.status === "live" && status.audience === "members")
+  );
+}
+
+/** Whether a successful operation may have explicitly narrowed a live route. */
+export function operationMayRestrictWebsite(
+  operation: FileOperation,
+  result: OperationResult,
+): boolean {
+  if (!operationTouchesWebsite(operation, result)) return false;
+  if (operation.kind === "write" || operation.kind === "removeEncryption") {
+    return textExplicitlyRestricts(operation.path, operation.text);
+  }
+  if (operation.kind === "importVault") {
+    return operation.files.some(
+      (file) =>
+        isWebsitePath(file.path) &&
+        textExplicitlyRestricts(
+          file.path,
+          new TextDecoder().decode(new Uint8Array(file.bytes)),
+        ),
+    );
+  }
+  // A form response does not rewrite the page that contains the form. Its
+  // conservative rebuild is not evidence that any public route narrowed.
+  if (operation.kind === "form") return false;
+  return true;
 }

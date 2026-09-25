@@ -13,6 +13,7 @@ const NOTE_ACL_PREFIX = `${CONTEXT_ROOT}access/note-acl/`;
 const GRANOLA_EVENTS_PREFIX = `${CONTEXT_ROOT}integrations/granola/events/`;
 const PROPOSAL_PREFIX = `${CONTEXT_ROOT}proposals/`;
 const PROBE_PREFIX = `${CONTEXT_ROOT}probes/`;
+const WEBSITE_RELEASE_PREFIX = `${CONTEXT_ROOT}website/releases/`;
 
 const LEGACY_STORAGE_PREFIXES = Object.freeze([
   [".audit/", AUDIT_PREFIX],
@@ -54,6 +55,7 @@ module.exports = {
   GRANOLA_EVENTS_PREFIX,
   PROPOSAL_PREFIX,
   PROBE_PREFIX,
+  WEBSITE_RELEASE_PREFIX,
   LEGACY_STORAGE_PREFIXES,
   currentStorageKey,
   legacyStorageKey,

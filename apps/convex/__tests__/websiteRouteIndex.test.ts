@@ -199,8 +199,18 @@ describe("website route index", () => {
     );
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.sourceEtag).every(Boolean)).toBe(true);
+    expect(
+      rows
+        .filter((row) => row.status === "live")
+        .every((row) => row.releaseId && row.releasePageId),
+    ).toBe(true);
     expect(JSON.stringify(rows)).not.toContain("# Hello");
     expect(JSON.stringify(rows)).not.toContain("Members\\n");
+    expect(
+      Object.keys(f.backend.snapshot()).filter((key) =>
+        key.startsWith(".context/website/releases/"),
+      ),
+    ).toHaveLength(2);
   }, 15_000);
 
   test("reconciliation removes a route deleted from the bucket", async () => {
@@ -339,6 +349,46 @@ describe("website route index", () => {
     expect(rows[0]).toMatchObject({ routePath: "/", title: "Home" });
   });
 
+  test("a failed release write leaves the last good route and snapshot intact", async () => {
+    let refuseRelease = false;
+    const f = await fixture("atlas-release-failure", {
+      refuseWrite: (key) =>
+        refuseRelease && key.startsWith(".context/website/releases/"),
+    });
+    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld page\n");
+    await asUser(f.t, f.owner).action(
+      api.functions.websites.refreshRouteStatuses,
+      { workspaceId: f.workspaceId },
+    );
+    const before = await f.t.run((ctx) =>
+      ctx.db
+        .query("websiteRouteIndex")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .unique(),
+    );
+
+    f.backend.seed("website/index.md", "---\ntitle: New\n---\n\nNew page\n");
+    refuseRelease = true;
+    await expect(
+      asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, {
+        workspaceId: f.workspaceId,
+      }),
+    ).rejects.toThrow();
+
+    const after = await f.t.run((ctx) =>
+      ctx.db
+        .query("websiteRouteIndex")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .unique(),
+    );
+    expect(after).toMatchObject({
+      _id: before?._id,
+      title: "Home",
+      releaseId: before?.releaseId,
+      releasePageId: before?.releasePageId,
+    });
+  });
+
   test("identical route paths remain isolated by workspace", async () => {
     const first = await fixture("atlas-first");
     first.backend.seed("website/index.md", "---\ntitle: First\n---\n\nFirst\n");
@@ -376,14 +426,14 @@ describe("website route index", () => {
         generation: older,
         routes: [],
       }),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ committed: false });
     await expect(
       f.t.mutation(internal.functions.websites.commitRouteReconciliation, {
         workspaceId: f.workspaceId,
         generation: newer,
         routes: [],
       }),
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({ committed: true });
   });
 
   test("the unattended reconciler rebuilds enabled websites", async () => {

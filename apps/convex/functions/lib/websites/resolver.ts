@@ -1,6 +1,7 @@
 /** Public website route resolution and final bucket-source verification. */
 
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { ConvexError } from "convex/values";
 import {
   buildWebsiteRouteStatuses,
   parseWebsitePage,
@@ -55,6 +56,8 @@ export type WebsiteResolutionPlan =
       title: string;
       description: string | null;
       viewerAudience: WebsiteRouteAudience;
+      releaseId?: string;
+      releasePageId?: string;
     } & SiteShell);
 
 export type WebsiteAddressPlan =
@@ -153,10 +156,10 @@ export async function websiteResolutionPlanHandler(
   // ever landed, so there are no rows to consult. A mismatch means a source
   // change invalidated the last one and a rebuild is queued: its rows may
   // still locate a page, because `resolveWebsitePageHandler` re-derives the
-  // route, audience and status from the live bytes before serving anything,
-  // but they no longer vouch for the menu, which is dropped until the
-  // rebuild lands. Refusing outright left a site on "Nothing here" for every
-  // visit between a save and the rebuild.
+  // route, audience and status from the live bytes before serving anything.
+  // The last complete menu remains valid while a newer snapshot is being
+  // prepared; dropping it made an ordinary autosave look like half the site
+  // had disappeared.
   const member =
     args.actorUserId !== null &&
     (await hasWorkspaceMembership(ctx, workspace._id, args.actorUserId));
@@ -199,7 +202,8 @@ export async function websiteResolutionPlanHandler(
     }));
   const shell: SiteShell = {
     siteName: workspace.displayName,
-    navigation: fresh ? navigation : [],
+    navigation:
+      !fresh && state.routeUnsafeGeneration !== undefined ? [] : navigation,
   };
   const lookupKey = websiteRouteLookupKey(routePath);
   const claimants = indexed.filter((row) => row.lookupKey === lookupKey);
@@ -238,7 +242,20 @@ export async function websiteResolutionPlanHandler(
     title: route.title,
     description: route.description,
     viewerAudience: member ? "members" : "public",
+    ...(route.releaseId === undefined ? {} : { releaseId: route.releaseId }),
+    ...(route.releasePageId === undefined
+      ? {}
+      : { releasePageId: route.releasePageId }),
   };
+}
+
+function errorCode(error: unknown): string | null {
+  if (!(error instanceof ConvexError)) return null;
+  const data = error.data;
+  if (typeof data !== "object" || data === null || !("code" in data)) {
+    return null;
+  }
+  return typeof data.code === "string" ? data.code : null;
 }
 
 /**
@@ -397,6 +414,10 @@ export async function resolveWebsitePageHandler(
   if (plan.kind !== "read") return plan;
   const sourceUnavailable = unavailable({
     siteName: plan.siteName,
+    navigation: plan.navigation,
+  });
+  const restrictedUnavailable = unavailable({
+    siteName: plan.siteName,
     navigation: [],
   });
 
@@ -408,14 +429,28 @@ export async function resolveWebsitePageHandler(
       grantedNames: [],
       operation: { kind: "read", path: plan.objectKey, forward: "never" },
     });
-  } catch {
-    return sourceUnavailable;
+  } catch (error) {
+    if (errorCode(error) === "FILE_NOT_FOUND") {
+      await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
+        workspaceId: plan.workspaceId,
+        unsafe: true,
+      });
+      return restrictedUnavailable;
+    }
+    return (
+      (await resolveReleasedPage(ctx, plan, args.handle).catch(() => null)) ??
+      sourceUnavailable
+    );
   }
   if (result.kind !== "file") {
     await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
       workspaceId: plan.workspaceId,
+      unsafe: true,
     });
-    return sourceUnavailable;
+    return (
+      (await resolveReleasedPage(ctx, plan, args.handle).catch(() => null)) ??
+      sourceUnavailable
+    );
   }
   // Edited since the index was built: queue the rebuild, then judge the live
   // bytes below exactly as the index would have. A saved page is served as
@@ -431,18 +466,37 @@ export async function resolveWebsitePageHandler(
   ]);
   const status = statuses[0];
   const parsed = parseWebsitePage(result.text);
+  if (result.encrypted) {
+    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
+      workspaceId: plan.workspaceId,
+      unsafe: true,
+    });
+    return restrictedUnavailable;
+  }
   if (
-    result.encrypted ||
+    status?.status === "draft" ||
+    (status?.status === "live" &&
+      (status.routePath !== plan.routePath ||
+        status.audience !== plan.audience))
+  ) {
+    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
+      workspaceId: plan.workspaceId,
+      unsafe: true,
+    });
+    return restrictedUnavailable;
+  }
+  if (
     status?.status !== "live" ||
-    status.routePath !== plan.routePath ||
-    status.audience !== plan.audience ||
     status.title === null ||
     parsed.problems.length > 0
   ) {
     await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
       workspaceId: plan.workspaceId,
     });
-    return sourceUnavailable;
+    return (
+      (await resolveReleasedPage(ctx, plan, args.handle).catch(() => null)) ??
+      sourceUnavailable
+    );
   }
 
   return await renderWebsitePage(ctx, {
@@ -458,6 +512,72 @@ export async function resolveWebsitePageHandler(
       audience: plan.audience,
       title: status.title,
       description: status.description,
+      markdown: "",
+      navigation: plan.navigation,
+    },
+  });
+}
+
+/** A malformed or temporarily unreadable save never replaces the last good page. */
+async function resolveReleasedPage(
+  ctx: ActionCtx,
+  plan: Extract<WebsiteResolutionPlan, { kind: "read" }>,
+  handle: string,
+): Promise<ResolvedWebsitePage | null> {
+  if (plan.releaseId === undefined || plan.releasePageId === undefined) {
+    return null;
+  }
+  const released = await ctx.runAction(
+    internal.functions.files.runFileOperation,
+    {
+      workspaceId: plan.workspaceId,
+      scope: "private",
+      grantedNames: [],
+      operation: {
+        kind: "readWebsiteRelease",
+        pages: [
+          {
+            releaseId: plan.releaseId,
+            pageId: plan.releasePageId,
+            path: plan.objectKey,
+          },
+        ],
+      },
+    },
+  );
+  const page =
+    released.kind === "websiteReleasePages"
+      ? released.results[0]
+      : undefined;
+  if (page?.outcome !== "read") return null;
+  const parsed = parseWebsitePage(page.text);
+  const status = buildWebsiteRouteStatuses([
+    { objectKey: plan.objectKey, markdown: page.text },
+  ])[0];
+  if (
+    isEncryptedNote(page.text) ||
+    status?.status !== "live" ||
+    status.routePath !== plan.routePath ||
+    status.audience !== plan.audience ||
+    status.title !== plan.title ||
+    status.description !== plan.description ||
+    parsed.problems.length > 0
+  ) {
+    return null;
+  }
+  return await renderWebsitePage(ctx, {
+    workspaceId: plan.workspaceId,
+    handle,
+    objectKey: plan.objectKey,
+    body: parsed.body,
+    viewerAudience: plan.viewerAudience,
+    page: {
+      kind: "page",
+      siteName: plan.siteName,
+      routePath: plan.routePath,
+      audience: plan.audience,
+      title: plan.title,
+      description: plan.description,
       markdown: "",
       navigation: plan.navigation,
     },

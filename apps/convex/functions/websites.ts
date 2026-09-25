@@ -12,6 +12,7 @@ import {
   beginRouteReconciliationHandler,
   commitRouteReconciliationHandler,
   invalidateRouteIndexHandler,
+  recordRouteChangeHandler,
   reconcileWorkspaceHandler,
   refreshRouteStatusesHandler,
   sweepRouteReconciliationHandler,
@@ -44,6 +45,8 @@ const statusValidator = v.object({
 const indexedStatusValidator = v.object({
   ...statusValidator.fields,
   sourceEtag: v.string(),
+  releaseId: v.optional(v.string()),
+  releasePageId: v.optional(v.string()),
 });
 const navigationValidator = v.array(
   v.object({ routePath: v.string(), title: v.string() }),
@@ -118,6 +121,8 @@ const resolutionPlanValidator = v.union(
     title: v.string(),
     description: v.union(v.string(), v.null()),
     viewerAudience: v.union(v.literal("public"), v.literal("members")),
+    releaseId: v.optional(v.string()),
+    releasePageId: v.optional(v.string()),
   }),
 );
 const linkCatalogValidator = v.object({
@@ -201,6 +206,7 @@ export const beginRouteReconciliation = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     enabledOnly: v.optional(v.boolean()),
+    expectedGeneration: v.optional(v.number()),
   },
   returns: v.union(v.number(), v.null()),
   handler: beginRouteReconciliationHandler,
@@ -211,16 +217,33 @@ export const commitRouteReconciliation = internalMutation({
     workspaceId: v.id("workspaces"),
     generation: v.number(),
     routes: v.array(indexedStatusValidator),
+    releaseId: v.optional(v.string()),
     enabledOnly: v.optional(v.boolean()),
+    problemsOnlyIfUnpublished: v.optional(v.boolean()),
   },
-  returns: v.boolean(),
+  returns: v.object({
+    committed: v.boolean(),
+    cleanupReleaseId: v.union(v.string(), v.null()),
+  }),
   handler: commitRouteReconciliationHandler,
 });
 
 export const invalidateRouteIndex = internalMutation({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    unsafe: v.optional(v.boolean()),
+  },
   returns: v.boolean(),
   handler: invalidateRouteIndexHandler,
+});
+
+export const recordRouteChange = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    unsafe: v.optional(v.boolean()),
+  },
+  returns: v.boolean(),
+  handler: recordRouteChangeHandler,
 });
 
 export const websiteStarterRepairNeeded = internalQuery({
@@ -236,7 +259,10 @@ export const markWebsiteStarterEnsured = internalMutation({
 });
 
 export const reconcileWorkspace = internalAction({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    expectedGeneration: v.optional(v.number()),
+  },
   returns: v.boolean(),
   handler: reconcileWorkspaceHandler,
 });

@@ -173,6 +173,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A block that does not parse draws its error
 - The filter lives in the block
 
+## [Bucket-backed websites](./websites.md)
+
+- An edit is a candidate; the last complete release is the fallback
+- A fallback never reverses an explicit restriction
+- Release bytes stay in the customer's bucket, with one generation of grace
+
 ## [Search and the derived index](./search.md)
 
 - Search answers from a derived index, and the index is budgeted, filtered, and disposable

@@ -5,7 +5,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { asUser } from "./fixtures.helpers";
 import { fixture, publish } from "./website.helpers";
 
@@ -435,7 +435,7 @@ describe("public website resolution", () => {
     }
   });
 
-  test("a stale index still serves a page its live bytes vouch for, without a menu", async () => {
+  test("a stale index keeps the last complete menu while live bytes are changing", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", "---\ntitle: Home\nnav: 1\n---\n\nOld\n");
     await publish(f);
@@ -454,7 +454,65 @@ describe("public website resolution", () => {
         handle: "atlas",
         routePath: "/",
       }),
-    ).resolves.toMatchObject({ kind: "page", title: "Home", navigation: [] });
+    ).resolves.toMatchObject({
+      kind: "page",
+      title: "Home",
+      navigation: [{ routePath: "/", title: "Home" }],
+    });
+  });
+
+  test("an incomplete autosave serves the last good page instead of Nothing here", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      "website/index.md",
+      "---\ntitle: Home\nnav: 1\n---\n\nThe published page.\n",
+    );
+    await publish(f);
+
+    // A text editor can persist between the opening and closing frontmatter
+    // delimiters. That intermediate file is not a request to take the site
+    // down; it is simply not a publishable revision yet.
+    f.backend.seed(
+      "website/index.md",
+      "---\ntitle: Editing right now\nnav: 1\n\nHalf-written frontmatter.\n",
+    );
+    await expect(
+      f.t.action(internal.functions.websites.reconcileWorkspace, {
+        workspaceId: f.workspaceId,
+      }),
+    ).resolves.toBe(false);
+
+    await expect(
+      f.t.action(api.functions.websites.resolvePage, {
+        handle: "atlas",
+        routePath: "/",
+      }),
+    ).resolves.toMatchObject({
+      kind: "page",
+      title: "Home",
+      markdown: "The published page.\n",
+      navigation: [{ routePath: "/", title: "Home" }],
+    });
+
+    f.backend.seed(
+      "website/index.md",
+      "---\ntitle: Finished\nnav: 1\n---\n\nThe complete edit.\n",
+    );
+    await expect(
+      f.t.action(internal.functions.websites.reconcileWorkspace, {
+        workspaceId: f.workspaceId,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      f.t.action(api.functions.websites.resolvePage, {
+        handle: "atlas",
+        routePath: "/",
+      }),
+    ).resolves.toMatchObject({
+      kind: "page",
+      title: "Finished",
+      markdown: "The complete edit.\n",
+    });
   });
 
   test("an ordinary edit is served as saved, not refused until the rebuild", async () => {

@@ -92,7 +92,8 @@ human-readable:
 ├── migrations/
 ├── probes/
 ├── proposals/
-└── search/
+├── search/
+└── website/releases/
 ```
 
 Buckets created before storage-layout v1 continue to work through dual reads;

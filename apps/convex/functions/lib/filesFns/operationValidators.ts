@@ -56,6 +56,21 @@ import {
 } from "./searchValidators";
 
 export const operationResultValidator = v.union(
+  v.object({ kind: v.literal("websiteReleaseWritten"), pages: v.number() }),
+  v.object({
+    kind: v.literal("websiteReleasePages"),
+    results: v.array(
+      v.union(
+        v.object({
+          path: v.string(),
+          outcome: v.literal("read"),
+          text: v.string(),
+        }),
+        v.object({ path: v.string(), outcome: v.literal("missing") }),
+      ),
+    ),
+  }),
+  v.object({ kind: v.literal("websiteReleaseDeleted"), objects: v.number() }),
   listingValidator,
   fileValidator,
   manifestValidator,
@@ -127,6 +142,24 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()) }),
   /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
   v.object({ kind: v.literal("readMany"), paths: v.array(v.string()) }),
+  v.object({
+    kind: v.literal("writeWebsiteRelease"),
+    releaseId: v.string(),
+    pages: v.array(
+      v.object({
+        pageId: v.string(),
+        path: v.string(),
+        expectedEtag: v.string(),
+      }),
+    ),
+  }),
+  v.object({
+    kind: v.literal("readWebsiteRelease"),
+    pages: v.array(
+      v.object({ releaseId: v.string(), pageId: v.string(), path: v.string() }),
+    ),
+  }),
+  v.object({ kind: v.literal("deleteWebsiteRelease"), releaseId: v.string() }),
   v.object({
     kind: v.literal("search"),
     query: v.string(),
