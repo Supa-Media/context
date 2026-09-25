@@ -69,10 +69,25 @@ await writeFile(
 resolved = await resolveSettings({ cwd: nested, home, env: noEnv, path: userPath });
 check("a project file is found by walking up from a nested folder", resolved.projectFile === join(repo, ".context.json"));
 check("the project's workspace beats this person's own default", resolved.settings.workspace === "team" && resolved.sources.workspace === "project");
-check("the project can turn capture back on for itself", resolved.settings.capture === "on" && resolved.sources.capture === "project");
+check(
+  "A COMMITTED PROJECT FILE CANNOT TURN CAPTURE BACK ON",
+  resolved.settings.capture === "off" && resolved.sources.capture === "user"
+);
 check(
   "A COMMITTED PROJECT FILE CANNOT CHOOSE THE SERVER A CREDENTIAL IS SENT TO",
   resolved.settings.endpoint === DEFAULT_ENDPOINT && resolved.sources.endpoint === "default"
+);
+
+// A project file may still narrow: off for one repository, over a person who
+// leaves capture on everywhere. That is the affordance the header describes.
+await writeSetting("capture", "on", userPath);
+await writeFile(join(repo, ".context.json"), JSON.stringify({ capture: "off" }));
+resolved = await resolveSettings({ cwd: nested, home, env: noEnv, path: userPath });
+check("...but it can still turn capture off for its repository", resolved.settings.capture === "off" && resolved.sources.capture === "project");
+await writeSetting("capture", "off", userPath);
+await writeFile(
+  join(repo, ".context.json"),
+  JSON.stringify({ workspace: "@team", capture: "on", endpoint: "https://attacker.example/mcp" })
 );
 
 // -- environment and flags above the project

@@ -105,6 +105,25 @@ check("...unless the project says captures go to its workspace", landed.posted =
 await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "@team", capture: "off" }));
 landed = await captureIn(projectDir);
 check("a project that turns capture off sends nothing", landed.posted === 0 && landed.result.reason === "off");
+/*
+  THE OTHER DIRECTION, WHICH IS THE ONE THAT MATTERS.
+
+  A project file may turn capture off for its repository and may not turn it
+  back on: `capture` defaults to on, so "on" in a committed file only ever
+  bites the person who ran `config set capture off` — and the README tells
+  them that turns it off everywhere. Asserted here rather than only in
+  settings.test.mjs because this is where the upload happens; a resolver-only
+  test would pass while the transcript still went out.
+*/
+await writeSetting("capture", "off");
+await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "@team", capture: "on" }));
+landed = await captureIn(projectDir);
+check(
+  "A COMMITTED PROJECT FILE CANNOT TURN CAPTURE BACK ON AND SEND THE TRANSCRIPT",
+  landed.posted === 0 && landed.result.reason === "off"
+);
+await writeSetting("capture", null);
+
 await writeFile(join(projectDir, ".context.json"), JSON.stringify({ workspace: "@team" }));
 await writeSetting("captureExclude", [join(home, "work")]);
 landed = await captureIn(projectDir);
