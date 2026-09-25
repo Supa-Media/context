@@ -51,3 +51,25 @@ test('staging sync supplies both backend deployment selectors', () => {
   assert.ok(backendKeys.includes('APP_ENV'));
   assert.ok(backendKeys.includes('STAGING_CONVEX_DEPLOYMENT'));
 });
+
+test('staging custom domains require a complete isolated configuration', () => {
+  const isolated = { CUSTOM_DOMAINS_ZONE_ID: 'a'.repeat(32), CUSTOM_DOMAINS_TARGET: 'customers.example.net' };
+  assert.doesNotThrow(() => validateStaging({ ...valid, ...isolated }));
+  for (const changed of [
+    { CUSTOM_DOMAINS_ZONE_ID: isolated.CUSTOM_DOMAINS_ZONE_ID },
+    { CUSTOM_DOMAINS_TARGET: isolated.CUSTOM_DOMAINS_TARGET },
+    { ...isolated, CUSTOM_DOMAINS_ZONE_ID: 'invalid' },
+    { ...isolated, CUSTOM_DOMAINS_TARGET: 'https://customers.example.net' },
+    { ...isolated, CUSTOM_DOMAINS_TARGET: 'customers.context.lc' },
+    { ...isolated, CUSTOM_DOMAINS_TARGET: 'customers.staging.context.lc' },
+    { ...isolated, CUSTOM_DOMAINS_TARGET: ' CUSTOMERS.CONTEXT.LC ' },
+  ]) assert.throws(() => validateStaging({ ...valid, ...changed }));
+});
+
+test('staging deployment syncs its own custom domain identifiers', () => {
+  const workflow = read('.github/workflows/deploy-staging.yml');
+  for (const name of ['CUSTOM_DOMAINS_ZONE_ID', 'CUSTOM_DOMAINS_TARGET']) {
+    assert.ok(backendKeys.includes(name));
+    assert.ok(workflow.includes(`${name}: \u0024{{ secrets.${name} }}`));
+  }
+});
