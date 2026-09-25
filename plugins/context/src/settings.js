@@ -37,6 +37,27 @@ export const DEFAULTS = Object.freeze({
 /** The keys a project file may set. `endpoint` is deliberately absent. */
 const PROJECT_KEYS = ["workspace", "capture", "captureTo"];
 
+/**
+ * A project file may NARROW what is captured, never widen it.
+ *
+ * `capture` defaults to `on`, so a project saying `on` changes nothing for
+ * anybody except the person who ran `config set capture off` — and the README
+ * tells them that turns it off *everywhere*. A file anybody can commit to a
+ * repository is not that person, and this file already refuses that reasoning
+ * once: `endpoint` is absent from `PROJECT_KEYS` because a committed file must
+ * not choose where a credential is sent.
+ *
+ * `captureExclude` has never been project-settable for the same reason — a
+ * repository cannot shrink the folders somebody excluded — and overriding the
+ * global off was the same widening by a different door.
+ *
+ * Turning capture *off* for one repository stays exactly as it was: that is
+ * the affordance the header above describes, and it only ever saves less.
+ */
+function projectMayNarrow(key, value) {
+  return key !== "capture" || value === "off";
+}
+
 const VALID = {
   endpoint: (value) => typeof value === "string" && /^https?:\/\//.test(value),
   workspace: (value) => value === null || (typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,62}$/.test(value)),
@@ -131,7 +152,10 @@ export async function resolveSettings({
     capture: env.CONTEXT_CAPTURE,
   };
   const projectLayer = Object.fromEntries(
-    PROJECT_KEYS.filter((key) => project?.content && key in project.content).map((key) => [key, project.content[key]])
+    PROJECT_KEYS.filter(
+      (key) =>
+        project?.content && key in project.content && projectMayNarrow(key, project.content[key])
+    ).map((key) => [key, project.content[key]])
   );
   const layers = [
     ["flag", flags],
