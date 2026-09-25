@@ -67,6 +67,34 @@ describe("website derivative invalidation", () => {
     ).toBe(true);
   });
 
+  test("reads the restriction, not the status that hides it", () => {
+    const write = (text: string) =>
+      operationMayRestrictWebsite(
+        { kind: "write", path: "website/index.md", text },
+        written,
+      );
+
+    // Every one of these is a page the route status calls a "problem", so the
+    // last good release would keep answering for it. Each also says, in the
+    // frontmatter, that it should stop being served to anyone.
+    expect(write("---\ntitle: Home\naudience: members\n---\n")).toBe(true);
+    expect(write("---\ntitle: \naudience: members\n---\n\nHello\n")).toBe(true);
+    expect(write("---\ntitle: Home\ndraft: true\n---\n")).toBe(true);
+    // A value the parser rejects leaves `audience` at its permissive default.
+    // Not understanding an instruction is not permission to ignore it.
+    expect(write("---\ntitle: Home\naudience: Members\n---\n\nHi\n")).toBe(true);
+    expect(write("---\ntitle: Home\naudience:\n---\n\nHi\n")).toBe(true);
+    expect(write("---\ntitle: Home\n  audience: members\n---\n\nHi\n")).toBe(true);
+    // A restriction typed into a block whose closing marker is not there yet.
+    expect(write("---\ntitle: Home\naudience: members\n\nHi\n")).toBe(true);
+
+    // And the autosave cases the release exists for stay autosave cases.
+    expect(write("---\ntitle: Home\naudience: public\n---\n")).toBe(false);
+    expect(write("---\ntitle: Home\ndraft: false\nnav: x\n---\n\nHi\n")).toBe(false);
+    expect(write("---\ntitle: Home\n---\n")).toBe(false);
+    expect(write("---\ntitle: Audiences\n---\n\naudience: members\n")).toBe(false);
+  });
+
   test("uses landed paths when an operation reports a move", () => {
     expect(
       touches(
