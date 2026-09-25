@@ -172,7 +172,7 @@ export function BringStep({
         }
       : state.kind === "stalled-no-write"
         ? agent === "claude"
-          ? { tone: "warn", title: "Nothing written yet", sub: "Claude is probably waiting for your go, or for you to press Allow." }
+          ? { tone: "warn", title: "Nothing written yet", sub: "Claude is probably waiting for your go in the chat." }
           : { tone: "bad", title: "ChatGPT hasn't written anything", sub: "If Deny was pressed, send the prompt again and press Confirm this time." }
         : { tone: "todo", title: "Write notes" };
   const stalled = state.kind === "stalled-nothing" || state.kind === "stalled-no-write";
@@ -183,8 +183,8 @@ export function BringStep({
       <P>
         {agent === "claude" ? (
           <>
-            The prompt is copied. Paste it into a new Claude chat and press <B>Allow</B> when Claude asks to use
-            Context. Notes appear here as it writes them.
+            The prompt is copied. Paste it into a new Claude chat. If Claude still asks to use Context, press{" "}
+            <B>Always allow</B>. Notes appear here as it writes them.
           </>
         ) : (
           <>
@@ -226,7 +226,7 @@ function tipsFor(agent: SetupAgent, kind: "stalled-nothing" | "stalled-no-write"
     return [
       agent === "claude" ? (
         <>
-          In the chat, reply <B>Go ahead</B> or press <B>Allow</B>.
+          In the chat, reply <B>Go ahead</B>, or press <B>Always allow</B> if Claude is asking.
         </>
       ) : (
         <>

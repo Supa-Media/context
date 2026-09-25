@@ -359,7 +359,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     form: "connector",
     note: "Opens the Add custom connector dialog on claude.ai. Paste the URL, then approve the sign-in Claude sends you to.",
     customization: {
-      hint: "Paste it into Settings → Profile → Instructions for Claude — the same field in " +
+      hint: "Paste it into Settings → Account → Instructions for Claude — the same field in " +
         "Claude Desktop — or a project's own instructions.",
     },
     link: () => ({

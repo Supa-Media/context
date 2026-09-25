@@ -260,12 +260,35 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
           <Consent agent={agent === "claude" ? "Claude" : "ChatGPT"} slug={slug} />
         </Frame>
       );
+    case "allow":
+      return (
+        <Frame caption={SEEN_IN.claude}>
+          <Win title="Settings" nav={CLAUDE_NAV} hit="Connectors">
+            <Text style={s.lab}>← Your connectors</Text>
+            <Text style={s.strong}>Context</Text>
+            <View>
+              <Text style={s.strong}>Tool permissions</Text>
+              <Text style={s.lab}>Choose when Claude is allowed to use these tools.</Text>
+            </View>
+            <RowItem>
+              <Text style={s.inpText}>Read-only tools</Text>
+              <Fake label="Always allow ⌄" pin={1} />
+            </RowItem>
+            <RowItem>
+              <Text style={s.inpText}>Write/delete tools</Text>
+              <Fake label="Always allow ⌄" pin={2} />
+            </RowItem>
+          </Win>
+        </Frame>
+      );
     case "stick":
       return agent === "claude" ? (
         <Frame caption={SEEN_IN.claude}>
-          <Win title="Settings" nav={CLAUDE_NAV} hit="General">
+          <Win title="Settings" nav={CLAUDE_NAV} hit="Account">
             <Text style={s.strong}>Profile</Text>
-            <Input label="What personal preferences should Claude consider in responses?" value={short} pin={1} plain />
+            <Text style={s.lab}>What should Claude call you?</Text>
+            <Line width="45%" />
+            <Input label="Instructions for Claude" value={short} pin={1} plain />
             <Right><Fake label="Save" solid /></Right>
           </Win>
         </Frame>

@@ -6,7 +6,8 @@ import { describe, expect, test } from "@jest/globals";
  *
  * Every "done" here is read from a fact the product already records (a grant,
  * an agent-activity mark), never from a click. The one step nothing can see,
- * "Make it stick", takes the person's word and is the only one that does.
+ * "Always allow" and "Make it stick", take the person's word and are the only
+ * ones that do.
  */
 
 import { bringPrompt, DEFAULT_TOPICS } from "../features/agentSetup/bring";
@@ -55,7 +56,9 @@ function activity(marks: Array<{ path: string; kind: "read" | "write"; at: numbe
 
 describe("the steps", () => {
   test("Claude: the app only — no picker, no Claude Code — and both end on stick, then bring", () => {
-    expect(GUIDE_STEPS.claude).toEqual(["open", "add", "signin", "stick", "bring"]);
+    // Claude alone asks before every tool call until told not to; ChatGPT has
+    // no setting for it, so it has no "allow" step.
+    expect(GUIDE_STEPS.claude).toEqual(["open", "add", "signin", "allow", "stick", "bring"]);
     expect(GUIDE_STEPS.chatgpt).toEqual(["devmode", "create", "signin", "stick", "bring"]);
   });
 
@@ -67,7 +70,7 @@ describe("the steps", () => {
   });
 
   test("saved steps never point past the end", () => {
-    expect(clampStep("claude", 99)).toBe(4);
+    expect(clampStep("claude", 99)).toBe(5);
     expect(clampStep("claude", -1)).toBe(0);
     expect(clampStep("claude", Number.NaN)).toBe(0);
   });
@@ -168,7 +171,7 @@ describe("when the guide moves on", () => {
     expect(signinState("claude", [claudeGrant()], T0, T0 + 1)).toBe("done");
   });
 
-  test("an agent already signed in skips to make it stick; a later saved step is kept", () => {
+  test("an agent already signed in skips past sign-in; a later saved step is kept", () => {
     expect(openingStep("claude", progress({ step: 0 }), [claudeGrant()])).toBe(3);
     expect(openingStep("claude", progress({ step: 0 }), [])).toBe(0);
     expect(openingStep("claude", progress({ step: 4 }), [claudeGrant()])).toBe(4);
@@ -177,11 +180,11 @@ describe("when the guide moves on", () => {
 
   test("bring: pick, then live, then done when Getting started arrives", () => {
     const base = { agent: "claude" as const, grants: [claudeGrant({ lastUsedAt: T0 })], now: T0 + 1000 };
-    expect(bringView({ ...base, progress: progress({ step: 4 }), activity: undefined }).kind).toBe("pick");
+    expect(bringView({ ...base, progress: progress({ step: 5 }), activity: undefined }).kind).toBe("pick");
 
     const live = bringView({
       ...base,
-      progress: progress({ step: 4, copiedAt: T0 }),
+      progress: progress({ step: 5, copiedAt: T0 }),
       activity: activity([
         { path: "index.md", kind: "read", at: T0 + 1 },
         { path: "1-projects/a.md", kind: "write", at: T0 + 2 },
@@ -196,14 +199,14 @@ describe("when the guide moves on", () => {
 
     const done = bringView({
       ...base,
-      progress: progress({ step: 4, copiedAt: T0, written: [{ path: "1-projects/a.md", at: T0 + 2 }] }),
+      progress: progress({ step: 5, copiedAt: T0, written: [{ path: "1-projects/a.md", at: T0 + 2 }] }),
       activity: activity([{ path: "0-inbox/getting-started.md", kind: "write", at: T0 + 9 }]),
     });
     expect(done.kind).toBe("done");
 
     const little = bringView({
       ...base,
-      progress: progress({ step: 4, copiedAt: T0 }),
+      progress: progress({ step: 5, copiedAt: T0 }),
       activity: activity([{ path: "0-inbox/Getting started.md", kind: "write", at: T0 + 9 }]),
     });
     expect(little.kind).toBe("little");
@@ -211,7 +214,7 @@ describe("when the guide moves on", () => {
 
   test("the tile: set up, partway, connected — and a revoked grant is not connected", () => {
     expect(tileState("claude", undefined, [])).toEqual({ kind: "new" });
-    expect(tileState("claude", progress({ step: 3 }), [])).toEqual({ kind: "partway", step: 4, of: 5 });
+    expect(tileState("claude", progress({ step: 3 }), [])).toEqual({ kind: "partway", step: 4, of: 6 });
     expect(tileState("claude", undefined, [claudeGrant({ lastUsedAt: T0 })])).toEqual({ kind: "connected" });
     expect(tileState("claude", progress({ finished: true, step: 4 }), [claudeGrant()])).toEqual({ kind: "connected" });
     expect(tileState("claude", progress({ finished: true, step: 4 }), [])).toEqual({ kind: "new" });
@@ -236,7 +239,7 @@ describe("saved progress", () => {
       "claude",
       JSON.stringify({ step: 42, topics: ["work", "secrets"], copiedAt: "soon", written: [{ path: 1 }, { path: "a.md", at: 2 }] }),
     );
-    expect(odd.step).toBe(4);
+    expect(odd.step).toBe(5);
     expect(odd.topics).toEqual(["work"]);
     expect(odd.copiedAt).toBeNull();
     expect(odd.written).toEqual([{ path: "a.md", at: 2 }]);

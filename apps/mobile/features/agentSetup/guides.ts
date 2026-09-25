@@ -13,7 +13,7 @@
 
 export type SetupAgent = "claude" | "chatgpt";
 
-export type StepKey = "open" | "add" | "devmode" | "create" | "signin" | "stick" | "bring";
+export type StepKey = "open" | "add" | "devmode" | "create" | "signin" | "allow" | "stick" | "bring";
 
 export const SETUP_AGENTS: readonly SetupAgent[] = ["claude", "chatgpt"];
 
@@ -23,7 +23,7 @@ export const AGENT_NAMES: Record<SetupAgent, string> = {
 };
 
 export const GUIDE_STEPS: Record<SetupAgent, readonly StepKey[]> = {
-  claude: ["open", "add", "signin", "stick", "bring"],
+  claude: ["open", "add", "signin", "allow", "stick", "bring"],
   chatgpt: ["devmode", "create", "signin", "stick", "bring"],
 };
 
@@ -49,15 +49,32 @@ export const AGENT_LINKS: Record<SetupAgent, { settings: string; label: string; 
   },
 };
 
-/** Where the standing instruction goes, in each agent's own words. */
-export const STICK_FIELD: Record<SetupAgent, { path: readonly string[]; field: string }> = {
+/**
+ * Claude asks before every Context tool call until the connector's two tool
+ * groups are set to Always allow, which makes "check Context first" a stream
+ * of prompts. The connector's own page has no stable address (it is keyed by
+ * an id Claude assigns), so the link opens the list and Context is one press
+ * from there. ChatGPT has no equivalent: developer mode confirms each write,
+ * and there is no setting to turn that off.
+ */
+export const CLAUDE_ALLOW_LINK = "https://claude.ai/customize/connectors";
+
+/**
+ * Where the standing instruction goes, in each agent's own words, and a link
+ * straight to that page so nobody has to find it from a menu path.
+ */
+export const STICK_FIELD: Record<SetupAgent, { path: readonly string[]; field: string; link: string; label: string }> = {
   claude: {
-    path: ["Settings", "General"],
-    field: "What personal preferences should Claude consider in responses?",
+    path: ["Settings", "Account"],
+    field: "Instructions for Claude",
+    link: "https://claude.ai/settings/account",
+    label: "Open Account settings",
   },
   chatgpt: {
     path: ["Settings", "Personalization", "Custom instructions"],
     field: "Anything else ChatGPT should know about you?",
+    link: "https://chatgpt.com/#settings/Personalization",
+    label: "Open Personalization",
   },
 };
 

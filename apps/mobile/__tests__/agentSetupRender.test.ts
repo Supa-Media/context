@@ -46,10 +46,10 @@ function draw(key: AgentSetupPreviewKey, over: Record<string, unknown> = {}) {
 }
 
 describe("the connect steps", () => {
-  test("step one names where to go, counts 1 of 5, and has no Back", () => {
+  test("step one names where to go, counts 1 of 6, and has no Back", () => {
     const guide = draw("guide-claude-open");
     expect(guide.text()).toContain("Connect Claude to @seyi");
-    expect(guide.byId("agent-setup-count")?.textContent).toBe("1 of 5");
+    expect(guide.byId("agent-setup-count")?.textContent).toBe("1 of 6");
     expect(guide.text()).toContain("Settings › Connectors");
     expect(guide.byId("agent-setup-back")).toBeNull();
     expect(guide.byId("agent-setup-next")?.textContent).toBe("I'm there");
@@ -74,13 +74,26 @@ describe("the connect steps", () => {
     guide.done();
   });
 
+  test("always allow names both tool groups and opens Claude's connectors", () => {
+    const guide = draw("guide-claude-allow");
+    expect(guide.byId("agent-setup-count")?.textContent).toBe("4 of 6");
+    expect(guide.text()).toContain("Read-only tools");
+    expect(guide.text()).toContain("Write/delete tools");
+    expect(guide.text()).toContain("Always allow");
+    expect(guide.byId("agent-setup-open-allow")).not.toBeNull();
+    guide.done();
+  });
+
   test("make it stick names the agent's own field and hands over the instruction", () => {
     const claude = draw("guide-claude-stick");
-    expect(claude.text()).toContain("What personal preferences should Claude consider in responses?");
+    expect(claude.text()).toContain("Settings › Account");
+    expect(claude.text()).toContain("Instructions for Claude");
     expect(claude.text()).toContain("call orient");
+    expect(claude.byId("agent-setup-open-stick")?.textContent).toContain("Open Account settings");
     claude.done();
     const gpt = draw("guide-chatgpt-stick");
     expect(gpt.text()).toContain("Anything else ChatGPT should know about you?");
+    expect(gpt.byId("agent-setup-open-stick")).not.toBeNull();
     gpt.done();
   });
 

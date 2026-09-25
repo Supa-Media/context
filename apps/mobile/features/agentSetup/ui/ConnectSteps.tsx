@@ -1,7 +1,7 @@
 import { Linking } from "react-native";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
 import { CLAUDE_CUSTOM_INSTRUCTION } from "../../onboarding/agents";
-import { AGENT_LINKS, AGENT_NAMES, GUIDE_STEPS, STICK_FIELD, type SetupAgent, type StepKey } from "../guides";
+import { AGENT_LINKS, AGENT_NAMES, CLAUDE_ALLOW_LINK, GUIDE_STEPS, STICK_FIELD, type SetupAgent, type StepKey } from "../guides";
 import type { SigninState } from "../guideState";
 import { StepIllustration } from "./Illustrations";
 import { BackLink, GuideButton, GuideFrame } from "./GuideFrame";
@@ -177,6 +177,29 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
           </>
         ),
       };
+    case "allow":
+      return {
+        next: "Both are set",
+        node: (
+          <>
+            <Heading>Let Claude use Context without asking</Heading>
+            <P>Otherwise Claude stops to ask before every note it reads or saves.</P>
+            <P>
+              In <MenuPath parts={["Settings", "Connectors"]} />, open <B>Context</B>. Set <B>Read-only tools</B> and{" "}
+              <B>Write/delete tools</B> to <B>Always allow</B>.
+            </P>
+            <GuideButton
+              label="Open Connectors ↗"
+              quiet
+              onPress={() => open(CLAUDE_ALLOW_LINK)}
+              style={{ alignSelf: "flex-start" }}
+              testID="agent-setup-open-allow"
+            />
+            <Gap />
+            <P small>You can change this back anytime.</P>
+          </>
+        ),
+      };
     case "stick": {
       const field = STICK_FIELD[agent];
       return {
@@ -186,24 +209,32 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
             <Heading>Make it stick</Heading>
             <P>
               {agent === "claude"
-                ? "This tells Claude to check Context in every chat and save what it learns, without you asking each time."
-                : "This tells ChatGPT to check Context and save what it learns whenever Context is switched on, without you asking."}
+                ? "So Claude checks Context in every chat and saves what it learns, without being asked."
+                : "So ChatGPT checks Context and saves what it learns whenever Context is switched on, without being asked."}
             </P>
             <P>
               In <MenuPath parts={field.path} />, paste this into <B>{field.field}</B> and save.
             </P>
             <PromptBox
               text={CLAUDE_CUSTOM_INSTRUCTION}
-              note="Paste it word for word."
+              note={agent === "claude" ? "Already have instructions? Add this on a new line." : "Paste it word for word."}
               copyLabel="Copy the instruction"
               testID="agent-setup-copy-instruction"
             />
             <Gap />
-            <P small>
-              {agent === "claude"
-                ? "Already have preferences there? Add this on a new line below them."
-                : "ChatGPT only uses Context in chats where you switch it on: + › More › Developer mode › Context."}
-            </P>
+            <GuideButton
+              label={`${field.label} ↗`}
+              quiet
+              onPress={() => open(field.link)}
+              style={{ alignSelf: "flex-start" }}
+              testID="agent-setup-open-stick"
+            />
+            {agent === "chatgpt" ? (
+              <>
+                <Gap />
+                <P small>ChatGPT only uses Context in chats where you switch it on: + › More › Developer mode › Context.</P>
+              </>
+            ) : null}
           </>
         ),
       };

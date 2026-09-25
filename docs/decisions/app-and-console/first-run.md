@@ -73,6 +73,14 @@ artboards on 2026-09-25 and decided three things:
   instruction, `CLAUDE_CUSTOM_INSTRUCTION` in `onboarding/agents.ts`, pasted
   into each agent's own custom-instructions field. A connector that the agent
   never consults is one that people give up on.
+- **Claude's guide has an "Always allow" step** (added 2026-09-25 at the
+  owner's request). Out of the box Claude asks before every Context tool call,
+  which turns "check Context first" into a stream of prompts, so the guide has
+  people set both tool groups on the connector to Always allow. ChatGPT has no
+  such setting (developer mode confirms each write), so its guide has no such
+  step. Where a step names a settings page, it also has a button that opens it:
+  Claude's instructions field is Settings › Account › "Instructions for
+  Claude".
 - **Bringing over what the agent knows is the last step, and it is the check.**
   One prompt (`agentSetup/bring.ts`) asks the agent to orient, say where each
   note will go, wait for the person's go, write only what it knows, and finish
@@ -87,8 +95,8 @@ No new backend was added. The "Getting started" note arriving is what ends the
 run, so an agent with an empty memory still passes. It is told apart from a
 full run, and the finish screen tells the person how to turn memory on.
 
-"Make it stick" is the one step that nothing can observe, so it takes the
-person's word. Two things the guide cannot see are covered by copy rather than
+"Always allow" and "Make it stick" are the steps that nothing can observe, so
+they take the person's word. Two things the guide cannot see are covered by copy rather than
 by a check:
 
 - **ChatGPT's Deny.** It looks the same as "nothing written", so the stalled
