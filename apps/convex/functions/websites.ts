@@ -19,6 +19,7 @@ import {
   resolveWebsitePageHandler,
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
+import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
 
 const problemValidator = v.object({ code: v.string(), message: v.string() });
 const statusValidator = v.object({
@@ -79,6 +80,16 @@ const resolutionPlanValidator = v.union(
     description: v.union(v.string(), v.null()),
   }),
 );
+const linkCatalogValidator = v.object({
+  entries: v.array(
+    v.object({
+      kind: v.union(v.literal("route"), v.literal("share")),
+      objectKey: v.string(),
+      href: v.string(),
+    }),
+  ),
+  ownedHosts: v.array(v.string()),
+});
 
 export const resolvePage = action({
   args: { handle: v.string(), routePath: v.string() },
@@ -94,6 +105,12 @@ export const websiteResolutionPlan = internalQuery({
   },
   returns: resolutionPlanValidator,
   handler: websiteResolutionPlanHandler,
+});
+
+export const websiteLinkCatalog = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: linkCatalogValidator,
+  handler: websiteLinkCatalogHandler,
 });
 
 export const refreshRouteStatuses = action({

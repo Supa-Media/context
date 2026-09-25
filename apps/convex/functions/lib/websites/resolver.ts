@@ -13,7 +13,13 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { findName } from "../nameClaims";
+import { isEncryptedNote } from "../noteEncryption";
 import { hasWorkspaceMembership } from "../shares/standing";
+import {
+  rewriteWebsiteLinks,
+  websiteReferencedSharePaths,
+  type WebsiteLinkOptions,
+} from "./links";
 
 type SiteShell = {
   siteName: string;
@@ -244,6 +250,37 @@ export async function resolveWebsitePageHandler(
     return sourceUnavailable;
   }
 
+  const catalog = await ctx
+    .runQuery(internal.functions.websites.websiteLinkCatalog, {
+      workspaceId: plan.workspaceId,
+    })
+    .catch(() => ({ entries: [], ownedHosts: [] }));
+  const linkOptions: WebsiteLinkOptions = {
+    fromPath: plan.objectKey,
+    handle: normalizedHandle(args.handle)!,
+    ownedHosts: catalog.ownedHosts,
+    catalog: catalog.entries,
+  };
+  const sharePaths = websiteReferencedSharePaths(parsed.body, linkOptions);
+  const readableShares = new Set<string>();
+  if (sharePaths.length > 0) {
+    const shares = await ctx
+      .runAction(internal.functions.files.runFileOperation, {
+        workspaceId: plan.workspaceId,
+        scope: "team" as const,
+        grantedNames: [],
+        operation: { kind: "readMany" as const, paths: sharePaths },
+      })
+      .catch(() => null);
+    if (shares?.kind === "notes") {
+      for (const result of shares.results) {
+        if (result.outcome === "read" && !isEncryptedNote(result.note.text)) {
+          readableShares.add(result.path);
+        }
+      }
+    }
+  }
+
   return {
     kind: "page",
     siteName: plan.siteName,
@@ -251,7 +288,7 @@ export async function resolveWebsitePageHandler(
     audience: plan.audience,
     title: plan.title,
     description: plan.description,
-    markdown: parsed.body,
+    markdown: rewriteWebsiteLinks(parsed.body, linkOptions, readableShares),
     navigation: plan.navigation,
   };
 }
