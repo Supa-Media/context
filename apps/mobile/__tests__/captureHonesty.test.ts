@@ -6,7 +6,9 @@ import { describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { IngestionCard } from "../features/console/ingestion/IngestionCard";
-import { DoneStep } from "../features/onboarding/steps/DoneStep";
+import { NameStep } from "../features/onboarding/steps/NameStep";
+import { nameStatus } from "../features/onboarding/name";
+import { SetupDone } from "../features/console/setupWidget/SetupDone";
 import {
   NO_INGESTION_ADDRESS,
   describeSenderPolicy,
@@ -15,7 +17,6 @@ import {
   type IngestionSettings,
   type IngestionState,
 } from "../features/console/ingestion/settings";
-import { emptyCustomFolders } from "../features/onboarding/structure";
 import type { OnboardingController } from "../features/onboarding/useOnboarding";
 
 /**
@@ -94,6 +95,9 @@ const PRESENT_TENSE_CLAIMS: ReadonlyArray<{ what: string; pattern: RegExp }> = [
   { what: "mail lands somewhere", pattern: /\b(it|they)\s+lands?\b/i },
   { what: "mail lands somewhere", pattern: /\blands?\s+in\s+(your|the|0-inbox|\d)/i },
   { what: "forwarding works", pattern: /\bforward(ed)?\s+(any|anything|to it)\b/i },
+  // "the address you can forward mail to" — the handle screen's first draft,
+  // taken from the canvas while nothing was receiving.
+  { what: "forwarding works", pattern: /\bcan\s+forward\b/i },
   { what: "senders are accepted", pattern: /\b(is|are)\s+accepted\b/i },
   { what: "senders are accepted", pattern: /\bmail\s+is\s+accepted\b/i },
   { what: "mail is dropped", pattern: /\b(is|are)\s+dropped\b/i },
@@ -175,38 +179,28 @@ function card(state: IngestionState): Rendered {
   );
 }
 
-/** A controller with nothing happening, for the last onboarding screen to read. */
-function controller(overrides: Partial<OnboardingController>): OnboardingController {
-  return {
-    step: "done",
-    shape: { storage: "connected" },
-    contextCount: 1,
-    claimed: { workspaceId: "w1" as OnboardingController["claimed"] & string, slug: "seyi" },
-    captureReceivesMail: false,
+/** The handle screen with `seyi` typed and free — the first run's one address. */
+function handleScreen() {
+  const controller = {
+    step: "name",
+    shape: {},
+    owned: 0,
+    claimed: null,
+    finished: false,
     name: "seyi",
     setName: () => {},
-    nameStatus: { kind: "empty" },
+    nameStatus: nameStatus("seyi", { available: true, normalized: "seyi" }),
     claiming: false,
     claimFailure: null,
     claim: async () => {},
-    canClaim: false,
-    connect: async () => ({ status: "connected" }),
-    connectState: { kind: "idle" },
-    skipStorage: () => {},
-    continuePastStorage: () => {},
-    structureStep: { kind: "ask" },
-    template: "para",
-    setTemplate: () => {},
-    folders: emptyCustomFolders(),
-    setFolders: () => {},
-    folderErrors: {},
-    applying: false,
-    structureFailure: null,
-    canApply: true,
-    applyStructure: async () => {},
-    skipStructure: () => {},
-    ...overrides,
-  } as OnboardingController;
+    canClaim: true,
+  } as unknown as OnboardingController;
+  return render(createElement(NameStep, { controller }));
+}
+
+/** The in-console "You're set up." card. */
+function doneCard() {
+  return render(createElement(SetupDone, { onClose: () => {}, onCopyBootstrap: async () => true }));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -289,11 +283,12 @@ describe("no surface claims mail currently lands anywhere", () => {
     });
   }
 
-  test("the last screen of the first run makes no delivery claim", () => {
-    const { text } = render(
-      createElement(DoneStep, { controller: controller({}), onOpenConsole: () => {} }),
-    );
-    expect(claimsFound(text)).toEqual([]);
+  test("the first run's handle screen makes no delivery claim", () => {
+    expect(claimsFound(handleScreen().text)).toEqual([]);
+  });
+
+  test("the console's “You're set up.” makes no delivery claim", () => {
+    expect(claimsFound(doneCard().text)).toEqual([]);
   });
 
   /**
@@ -448,24 +443,18 @@ describe("the address is still shown, and still says what it is", () => {
     expect(card(DARK).text).toContain("seyi@context.lc");
   });
 
-  test("the first run shows the address even with nothing receiving", () => {
-    const { text } = render(
-      createElement(DoneStep, { controller: controller({}), onOpenConsole: () => {} }),
-    );
+  test("the first run shows the address, as reserved rather than working", () => {
+    const { text } = handleScreen();
     expect(text).toContain("seyi@context.lc");
+    expect(text).toMatch(/reserve/i);
   });
 
-  test("both surfaces say, in one sentence, that mail sent today bounces", () => {
+  test("the console says, in one sentence, that mail sent today bounces", () => {
     // One sentence, not a stack of hedges. Somebody who reads only this must
     // come away knowing not to try it yet, and why.
-    for (const text of [
-      card(DARK).text,
-      render(createElement(DoneStep, { controller: controller({}), onOpenConsole: () => {} }))
-        .text,
-    ]) {
-      expect(text).toMatch(/nothing is receiving mail at it yet/i);
-      expect(text).toMatch(/bounces/i);
-    }
+    const { text } = card(DARK);
+    expect(text).toMatch(/nothing is receiving mail at it yet/i);
+    expect(text).toMatch(/bounces/i);
   });
 
   /**
@@ -497,32 +486,8 @@ describe("the Copy affordance does not invite someone to use a dead address", ()
     expect(card(NO_INGESTION_ADDRESS).html).not.toMatch(/Copy your ingestion address/i);
   });
 
-  test("the first run offers no copy button while nothing is receiving", () => {
-    // The shape is a run that skipped storage, which is the one that still
-    // shows the endpoint on this screen: the tools step, which otherwise owns
-    // it, only exists on a run whose bucket connected. Asserting a live copy
-    // button alongside the withheld one is the point — this must not turn into
-    // "the last screen has no copy buttons".
-    const { html } = render(
-      createElement(DoneStep, {
-        controller: controller({ shape: { storage: "skipped" } }),
-        onOpenConsole: () => {},
-      }),
-    );
-    expect(html).not.toMatch(/Copy your capture address/i);
-    expect(html).toMatch(/Copy your MCP endpoint/i);
-  });
-
-  test("a run that reached the tools step is not shown the endpoint twice", () => {
-    // It is on the previous screen, which is about it. The same field on two
-    // consecutive screens reads as an oversight.
-    const { html } = render(
-      createElement(DoneStep, {
-        controller: controller({ shape: { storage: "connected" } }),
-        onOpenConsole: () => {},
-      }),
-    );
-    expect(html).not.toMatch(/Copy your MCP endpoint/i);
+  test("the first run offers no copy button for the capture address", () => {
+    expect(handleScreen().html).not.toMatch(/Copy your capture address/i);
   });
 });
 
@@ -607,13 +572,5 @@ describe("the gate is the control plane's answer, not a client-side guess", () =
     expect(rendered.html).toMatch(/Copy your ingestion address/i);
     expect(rendered.text).not.toMatch(/nothing is receiving mail at it yet/i);
 
-    const done = render(
-      createElement(DoneStep, {
-        controller: controller({ captureReceivesMail: true }),
-        onOpenConsole: () => {},
-      }),
-    );
-    expect(done.text).toMatch(/it lands in your workspace/);
-    expect(done.html).toMatch(/Copy your capture address/i);
   });
 });

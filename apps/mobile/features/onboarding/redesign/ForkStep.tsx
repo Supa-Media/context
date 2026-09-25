@@ -1,32 +1,37 @@
-import { StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Button } from "../../design/components/Button";
-import { Text } from "../../design/components/Text";
-import { fonts, leading, radii, space, tracking } from "../../design/tokens";
-import { pointerType as t } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
 import { FormError } from "../../design/components/Input";
+import { Text } from "../../design/components/Text";
+import { TextLink } from "../../design/components/TextLink";
+import { leading, pointerType as t, radii, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 
 /**
- * What the first card offers, decided by the control plane — never assumed.
+ * What "Start fresh" can offer, decided by the control plane — never assumed.
  *
- * `free` where this deployment offers the free managed tier and this owner
- * may start it; `paid` where it can only sell managed storage; `null` where it
- * can do neither (a self-hoster, or production before the exit path lands), in
- * which case the only card is bringing a bucket.
+ * `free` where this deployment offers the free managed tier and this owner may
+ * start it; `paid` where it can only sell managed storage; `null` where it can
+ * do neither (a self-hoster, or production while the free tier is switched
+ * off), in which case the only card is bringing what you have.
  */
 export type ForkOffer = { kind: "free"; cap: number } | { kind: "paid"; price: string } | null;
 
 /**
- * A-04 — the fork.
+ * A-04 — "Where should we start you?"
  *
- * One binary question the six-step flow used to fold into the storage step: do
- * you have a bucket already, or do you want us to run one? Asking it here means
- * the storage step can be one shape rather than three, and the person who
- * chose "run one for me" never sees the connect form.
+ * Two cards side by side and one way on, as the canvas draws it:
  *
- * A third row is present but framed as an escape hatch: somebody who arrived
- * with an invitation is not signing up for their own context, and the flow
- * should route them out rather than push them through the branches.
+ *  - **Start fresh** is the selected card, and "Take me to the console →" is
+ *    what it does: our bucket, the five standard folders, and straight into
+ *    the workspace. It is not a card with its own button inside it — one
+ *    screen, one primary action.
+ *  - **I already have notes** is a card you press. It goes to the
+ *    point-at-your-bucket track, which is a different kind of step (a form and
+ *    a report) and so is a different screen rather than a second primary here.
+ *
+ * Where "Start fresh" cannot be offered at all, the other card is the only one
+ * and the primary action is its own.
  */
 export function ForkStep({
   offer,
@@ -34,163 +39,137 @@ export function ForkStep({
   failure,
   onPickManaged,
   onPickBYO,
-  onOpenInvitations,
 }: {
   offer: ForkOffer;
-  /** The free bucket has been asked for and the answer is on its way. */
+  /** The bucket has been asked for and the answer is on its way. */
   starting?: boolean;
   /** Our sentence for a start that did not go through. */
   failure?: string;
   onPickManaged: () => void;
   onPickBYO: () => void;
-  onOpenInvitations: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const { width } = useWindowDimensions();
+  const [explaining, setExplaining] = useState(false);
+  const sideBySide = width >= 640;
 
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        Where should your context live? Every path keeps the notes as plain
-        Markdown files you can take with you at any time.
+        Either path lands you in a working workspace in seconds. You can change your mind later —
+        none of this is permanent.
       </Text>
 
-      {offer?.kind === "free" ? (
-        <Choice
-          eyebrow="Recommended"
-          title="Start on a bucket we run"
-          body={`Free for your first ${offer.cap.toLocaleString("en-US")} notes. No card and no time limit. Past that you can keep reading, editing and exporting everything; adding more notes asks you to level up or bring a bucket of your own.`}
-          cta={starting ? "Starting…" : "Start free"}
-          onPress={onPickManaged}
-          variant="primary"
-          disabled={starting}
-          testID="welcome-fork-free"
-        />
-      ) : offer?.kind === "paid" ? (
-        <Choice
-          eyebrow="We run it"
-          title="Let us keep the bucket"
-          body={`A bucket we create and run for you, ${offer.price}. You see the price and what it covers before anything is charged.`}
-          cta="Choose managed storage"
-          onPress={onPickManaged}
-          variant="secondary"
-          testID="welcome-fork-managed"
-        />
-      ) : null}
-      {failure ? <FormError headline={failure} style={styles.failure} /> : null}
-      <Choice
-        eyebrow="Bring your own"
-        title="Point at a bucket you already have"
-        body="Cloudflare R2, Amazon S3, or anything S3-compatible. We check the bucket, tell you what we found, and write nothing of yours until you say go."
-        cta="I have a bucket"
-        onPress={onPickBYO}
-        variant={offer?.kind === "free" ? "secondary" : "primary"}
-        testID="welcome-fork-own"
-      />
-
-      <View style={styles.foot}>
-        <Text variant="foot" style={styles.footLine}>
-          Got an invitation?{" "}
-          <Text
-            variant="foot"
-            style={styles.link}
-            onPress={onOpenInvitations}
-            accessibilityRole="link"
-            accessibilityLabel="Open an invitation"
-            testID="welcome-fork-invitation"
+      <View style={[styles.cards, sideBySide && styles.cardsRow]}>
+        {offer === null ? null : (
+          <View
+            style={[styles.card, styles.cardOn, sideBySide && styles.cardHalf]}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: true }}
+            testID="welcome-fork-fresh"
           >
-            Open it here →
-          </Text>
-        </Text>
-      </View>
-    </View>
-  );
-}
+            <Text style={styles.cardTitle}>Start fresh</Text>
+            <Text variant="rowSub" style={styles.cardBody}>
+              {offer.kind === "free"
+                ? `Five folders to get you going, on our free bucket · ${offer.cap.toLocaleString("en-US")} notes. No countdown.`
+                : `Five folders to get you going, on a bucket we run for you · ${offer.price}. You see what it covers before anything is charged.`}
+            </Text>
+            <Text style={styles.cardNote}>
+              Setting up for a team? Do this first — you can add a shared workspace from the
+              switcher once you're in.
+            </Text>
+          </View>
+        )}
 
-function Choice({
-  eyebrow,
-  title,
-  body,
-  cta,
-  onPress,
-  variant,
-  disabled = false,
-  testID,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  cta: string;
-  onPress: () => void;
-  variant: "primary" | "secondary";
-  disabled?: boolean;
-  testID?: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <View
-      style={[
-        styles.card,
-        variant === "primary" ? styles.cardPrimary : styles.cardSecondary,
-      ]}
-    >
-      <Text variant="eyebrow" style={variant === "primary" ? styles.eyebrowOn : styles.eyebrow}>
-        {eyebrow}
-      </Text>
-      <Text style={styles.title}>{title}</Text>
-      <Text variant="rowSub" style={styles.body}>
-        {body}
-      </Text>
-      <View style={styles.action}>
-        <Button
-          label={cta}
-          variant={variant === "primary" ? "white" : "ghost"}
-          onPress={onPress}
-          disabled={disabled}
-          testID={testID}
-        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="I already have notes — point at my bucket"
+          onPress={onPickBYO}
+          style={[styles.card, styles.cardOff, sideBySide && styles.cardHalf]}
+          testID="welcome-fork-own"
+        >
+          <Text style={styles.cardTitle}>I already have notes</Text>
+          <Text variant="rowSub" style={styles.cardBody}>
+            An Obsidian vault or an S3-compatible bucket. We read what is there — we never move it.
+          </Text>
+          <Text style={styles.cardNote}>Recommended if this replaces something.</Text>
+        </Pressable>
       </View>
+
+      {failure ? <FormError headline={failure} style={styles.failure} /> : null}
+
+      <View style={styles.actions}>
+        {offer === null ? (
+          <Button
+            label="Point at my bucket →"
+            variant="accent"
+            onPress={onPickBYO}
+            testID="welcome-fork-primary"
+          />
+        ) : (
+          <Button
+            label={
+              starting
+                ? "Starting…"
+                : offer.kind === "free"
+                  ? "Take me to the console →"
+                  : // Paid goes to a confirmation of what is charged, not the
+                    // console — the label says so.
+                    "Continue →"
+            }
+            variant="accent"
+            onPress={onPickManaged}
+            disabled={starting}
+            testID="welcome-fork-primary"
+          />
+        )}
+        {offer === null ? null : (
+          <TextLink
+            label="What is the difference?"
+            onPress={() => setExplaining((open) => !open)}
+            testID="welcome-fork-difference"
+          />
+        )}
+      </View>
+
+      {explaining && offer !== null ? (
+        <Text variant="rowSub" style={styles.difference} testID="welcome-fork-explained">
+          {offer.kind === "free"
+            ? "Start fresh keeps your notes in a bucket we run, free up to "
+            : "Start fresh keeps your notes in a bucket we run and bill for, "}
+          {offer.kind === "free" ? `${offer.cap.toLocaleString("en-US")} notes. ` : ""}
+          Bringing your own keeps them in storage you already pay for, with no note limit. Either
+          way they are plain Markdown files, you can download all of them at any time, and you can
+          move between the two later from Settings → Storage.
+        </Text>
+      ) : null}
     </View>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    lede: { marginBottom: space.x5, lineHeight: leading(12.5, 1.7) },
-    failure: { marginBottom: space.x3 },
+    lede: { color: colors.text2, fontSize: t.lede, lineHeight: leading(15, 1.6), marginBottom: space.x5 },
+    cards: { gap: 12 },
+    cardsRow: { flexDirection: "row", alignItems: "stretch" },
     card: {
       borderWidth: 1,
       borderRadius: radii.card,
-      paddingVertical: space.x5,
-      paddingHorizontal: space.x5,
-      marginBottom: space.x3,
+      paddingVertical: 18,
+      paddingHorizontal: 18,
+      gap: 4,
     },
-    cardPrimary: {
+    cardHalf: { flex: 1, flexBasis: 0 },
+    cardOn: {
       borderColor: colors.accent,
       backgroundColor: colors.hintWash,
+      boxShadow: `0 0 0 3px ${colors.hintWash}`,
     },
-    cardSecondary: {
-      borderColor: colors.line,
-      backgroundColor: colors.surface2,
-    },
-    eyebrow: { color: colors.muted, marginBottom: space.x2 },
-    eyebrowOn: { color: colors.accent, marginBottom: space.x2 },
-    title: {
-      fontFamily: fonts.display,
-      fontSize: t.body,
-      lineHeight: leading(18, 1.25),
-      letterSpacing: tracking(18, -0.015),
-      fontWeight: "600",
-      color: colors.text,
-      marginBottom: space.x2,
-    },
-    body: { color: colors.text2, lineHeight: leading(12.5, 1.6) },
-    action: { marginTop: space.x4, flexDirection: "row" },
-    foot: {
-      marginTop: space.x4,
-      paddingTop: space.x4,
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
-    },
-    footLine: { color: colors.muted, lineHeight: leading(12.5, 1.6) },
-    link: { color: colors.accent, fontWeight: "600" },
+    cardOff: { borderColor: colors.lineStrong, backgroundColor: colors.surface2 },
+    cardTitle: { fontSize: t.lede, fontWeight: "600", color: colors.text },
+    cardBody: { color: colors.text2, lineHeight: leading(13, 1.5) },
+    cardNote: { marginTop: space.x3, fontSize: t.meta, color: colors.muted, lineHeight: leading(12, 1.5) },
+    failure: { marginTop: space.x3 },
+    actions: { marginTop: 20, flexDirection: "row", alignItems: "center", gap: 14, flexWrap: "wrap" },
+    difference: { marginTop: space.x2, color: colors.text2, lineHeight: leading(13, 1.6) },
   });

@@ -106,7 +106,8 @@ export function ManagedSettling({
           ) : null}
           <Button
             label="Connect storage I own"
-            variant={state.failure.canRetry ? "ghost" : "decision"}
+            // Equal weight beside "Try again": both are real answers.
+            variant="decision"
             onPress={onUseOwnStorage}
             testID="managed-settling-own"
           />

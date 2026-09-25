@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { CopyField } from "../../design/components/CopyField";
 import { Text } from "../../design/components/Text";
 import { useCopy } from "../../design/useCopy";
@@ -66,8 +67,8 @@ export function ClaudeGuideStep({
       />
 
       <View style={styles.actions}>
-        <Button label="Back" variant="ghost" onPress={onBack} />
-        <Button label="Done — Claude is set" variant="white" onPress={onDone} />
+        <Button label="Done — Claude is set" variant="accent" onPress={onDone} />
+        <TextLink label="Back" onPress={onBack} />
       </View>
     </View>
   );
@@ -176,8 +177,8 @@ const makeStyles = (colors: Colors) =>
       marginTop: space.x6,
       flexDirection: "row",
       alignItems: "center",
-      gap: space.x3,
-      justifyContent: "space-between",
+      gap: 14,
+      flexWrap: "wrap",
     },
     block: {
       backgroundColor: colors.well,

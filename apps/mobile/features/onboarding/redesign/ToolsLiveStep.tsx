@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, radii, space, tracking } from "../../design/tokens";
@@ -71,12 +72,11 @@ export function ToolsLiveStep({
       </View>
 
       <View style={styles.actions}>
-        <Button
-          label={connected ? "Continue" : "Skip for now"}
-          variant={connected ? "white" : "ghost"}
-          onPress={onContinue}
-          testID="welcome-live-continue"
-        />
+        {connected ? (
+          <Button label="Continue" variant="accent" onPress={onContinue} testID="welcome-live-continue" />
+        ) : (
+          <TextLink label="Skip for now" onPress={onContinue} testID="welcome-live-continue" />
+        )}
         {!connected && (
           <Text variant="foot" style={styles.hint}>
             You can leave this open on another tab.
