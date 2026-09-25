@@ -350,3 +350,34 @@ whichever answer arrives first. **A read answers the request that made it, or
 nobody.** `__tests__/openNoteRace.test.ts` drives all three shapes against the
 real hook; dropping the comparison fails exactly those three and nothing else.
 
+### An action row is primary first, and the way out sits beside it (2026-09-25)
+
+The owner's review of staging: "We need to fix the layout issue with button
+placement across the app" — a "Skip for now" floating at the far end of a
+row, a "Remove" that read as loose text, primaries in two different colours.
+
+One order for every action row outside a dialog: **the primary first and
+left-aligned, in the accent; the secondary action immediately beside it**,
+as an underlined `TextLink` (Skip, Cancel, Back, "I'll do this later") or a
+bordered button when it is a real second choice ("Bring my own bucket",
+"Resend code"). Never `justifyContent: "space-between"` between two actions
+and never a spacer pushing them apart: a secondary action at the opposite
+edge reads as unrelated to the one it qualifies.
+
+- **`Button variant="ghost"` is not an action.** It draws a bare label with no
+  colour, underline or box; beside a filled button it looked like stray text.
+  Every ghost action became a `TextLink`.
+- **The accent is the primary everywhere but the landing page**, whose white
+  hero button stays its own (as "No UI ships without a design audit first"
+  already says). The owner's canvas draws every primary teal.
+- **Deleting something somebody just typed is a bin** (`DeleteButton`);
+  removing something that already exists stays the two-step Remove → Confirm.
+  A chip's remove is a close mark with a label naming what it removes.
+- **Exceptions, deliberately:** a dialog keeps Cancel then Confirm at its
+  trailing edge (the platform's order); a list row keeps its trailing action;
+  A-02 keeps "Resend code" and "Continue →" at opposite ends because the
+  canvas draws them there.
+
+What a "simplification" would cost: a ghost button or a space-between action
+row is the review's complaint coming back one screen at a time.
+

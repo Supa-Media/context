@@ -134,6 +134,10 @@ export async function applyStructureHandler(
     updatedAt: Date.now(),
   });
 
+  // Tells every screen watching this binding that a layout is on its way —
+  // cleared by the verification the job below records. See the schema.
+  await ctx.db.patch(binding._id, { scaffoldQueuedAt: Date.now() });
+
   await ctx.scheduler.runAfter(
     0,
     internal.functions.provisioning.verifyStorageBinding,

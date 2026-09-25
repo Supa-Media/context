@@ -261,7 +261,7 @@ function SiteSignIn({ onContinue }: { onContinue: () => void }) {
             <Text variant="paneSub">
               This page is shared with the members of a Context workspace. Sign in on Context to read it.
             </Text>
-            <Button label="Continue on Context" variant="white" onPress={onContinue} />
+            <Button label="Continue on Context" variant="accent" onPress={onContinue} />
           </View>
         </Card>
       </CenteredScroll>

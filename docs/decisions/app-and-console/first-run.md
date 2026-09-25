@@ -22,6 +22,21 @@ over the workspace once all four are true. It lives in
   lets them in, and the workspace's own band offers it again. A bucket
   somebody *brought* is never written a layout from the first run: the report
   comes first, and the console's `SetupPrompt` is the only thing that offers.
+- **The folders are drawn being written in the console, not before it.**
+  Queuing the layout returns at once; the job takes a few seconds, and the
+  first owner to sign up spent them looking at a fails-closed warning that
+  `privacy.md` was missing. The binding now carries `scaffoldQueuedAt` from
+  the queue until the job reports back, so the console opens knowing a layout
+  is on its way and draws the folders with spinners (`LayingOutFolders`) in
+  the document area, where a note would be — one line and a row of chips
+  beside the sidebar, never a band across the whole pane — ticks them once it
+  lands, and re-reads the root. The warning and the
+  "empty" card wait for the truth, and a stamp nobody answers stops counting
+  after two minutes. A holding screen in `/welcome` was built first and
+  replaced the same day: the owner wanted the person in their workspace, with
+  the folders arriving there. `browseSetupPrompt.test.ts` ("a layout on its
+  way") fails if the warning comes back, and `onboardingMount.test.ts` fails
+  if the first run waits.
 - **Every row is done because of a fact**, never because somebody pressed past
   it: storage when the binding verified, notes when there are notes or a
   layout we wrote, tools when a client has actually called. `rules.ts` is

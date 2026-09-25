@@ -5,6 +5,7 @@ import { useAction, useConvexAuth, useQueries, type RequestForQueries } from "co
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Card } from "../../design/components/Card";
 import { CenteredScroll } from "../../design/components/CenteredScroll";
 import { FormError, Notice } from "../../design/components/Input";
@@ -384,9 +385,8 @@ function Actions({
         testID="dropbox-primary"
       />
       {primary.href === CONSOLE_ROUTE ? null : (
-        <Button
+        <TextLink
           label="Go to your console"
-          variant="ghost"
           style={styles.ghost}
           onPress={() => onLeave(CONSOLE_ROUTE)}
           testID="dropbox-console"

@@ -124,7 +124,7 @@ export function ConflictResolver({
         <View style={[styles.floating, compact && styles.floatingCompact]}>
           <Button
             label={REVIEW.save.label}
-            variant="white"
+            variant="accent"
             onPress={() => onResolveWith(proposal)}
             testID="conflict-save-merge"
           />

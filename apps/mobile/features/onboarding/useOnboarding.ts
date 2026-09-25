@@ -297,10 +297,12 @@ export function useOnboarding(
     console's own offer is the only thing that ever writes a layout into it.
   */
   const applyStructure = useMutation(api.functions.workspaces.applyStructure);
-  const layingOut = useRef(false);
+  // Once per run. A refusal goes to the console rather than round again:
+  // retrying here is how a refusal becomes a stream of mutations.
+  const layoutAttempted = useRef(false);
   const layOutFreshBucket = useCallback(async () => {
-    if (claimed === null || layingOut.current) return;
-    layingOut.current = true;
+    if (claimed === null || layoutAttempted.current) return;
+    layoutAttempted.current = true;
     // `created` is a layout already written (a Stripe return can land after
     // it); `existing-context` is somebody's notes. Everything else on a bucket
     // we just made is empty — `features/console/setup.ts` has the vocabulary.
@@ -313,6 +315,17 @@ export function useOnboarding(
         // See above: the console offers it again.
       }
     }
+    /*
+      Straight to the console, without waiting for the folders to land.
+
+      Queuing returns at once and the job takes a few seconds. The console is
+      where those seconds are spent: the mutation above has stamped the
+      binding (`scaffoldQueuedAt`) before it resolves, so the console opens
+      already knowing a layout is on its way and draws the folders being
+      written (`LayingOutFolders`) rather than a privacy warning about a
+      `privacy.md` that does not exist yet. The owner asked for it there
+      rather than on a screen of its own here (2026-09-25).
+    */
     go("console");
   }, [applyStructure, binding?.scaffoldReason, claimed, go]);
 

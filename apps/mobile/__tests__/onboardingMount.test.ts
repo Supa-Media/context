@@ -472,7 +472,7 @@ describe("the redesigned steps, wired", () => {
     harness.unmount();
   });
 
-  test("“Start fresh” lays out the five folders once our bucket answers, then the console", async () => {
+  test("“Start fresh” queues the five folders, then goes straight to the console", async () => {
     const results: Record<string, unknown> = {
       ...happyDeployment(),
       "functions/storage:getStorageBinding": null,
@@ -492,14 +492,15 @@ describe("the redesigned steps, wired", () => {
     const harness = mountOnboarding(results);
     await claimSeyi(harness);
     await harness.act(() => harness.current().pickManaged());
-    expect(harness.current().finished).toBe(false);
 
     // Our bucket is made and verifies — empty, because nothing has written to it.
     results["functions/storage:getStorageBinding"] = { status: "connected", scaffoldReason: "empty" };
     await harness.notify();
-
-    const layout = harness.calls.find((call) => call.name === APPLY_STRUCTURE);
-    expect(layout?.args).toEqual({ workspaceId: "w1", template: "para" });
+    await harness.act(async () => {});
+    const layouts = harness.calls.filter((call) => call.name === APPLY_STRUCTURE);
+    expect(layouts.map((call) => call.args)).toEqual([{ workspaceId: "w1", template: "para" }]);
+    // Not held here until the folders land: the console draws them being
+    // written (`browseSetupPrompt.test.ts`, "a layout on its way").
     expect(harness.current().finished).toBe(true);
     harness.unmount();
   });
@@ -515,7 +516,9 @@ describe("the redesigned steps, wired", () => {
     };
     const harness = mountOnboarding(results, { resume: "storage", checkout: "done" });
     await harness.notify();
-    expect(harness.calls.map((call) => call.name)).toContain(APPLY_STRUCTURE);
+    await harness.act(async () => {});
+    // Asked once — a refusal is not retried in a loop.
+    expect(harness.calls.filter((call) => call.name === APPLY_STRUCTURE)).toHaveLength(1);
     expect(harness.current().finished).toBe(true);
     harness.unmount();
   });

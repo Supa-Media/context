@@ -210,6 +210,11 @@ export interface ConsoleStorage {
    * nothing rather than to guess.
    */
   scaffoldReason?: string;
+  /**
+   * A layout asked for and not yet answered — see `layoutWriting` in
+   * `setup.ts`, and the control plane's schema.
+   */
+  scaffoldQueuedAt?: number;
   /** Real, from the connect-time capability probe. */
   conditionalWrite: boolean;
   /**

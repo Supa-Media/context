@@ -308,7 +308,7 @@ export function VoiceButton({
           </Text>
           <Button
             label="Stop"
-            variant="white"
+            variant="accent"
             onPress={stop}
             accessibilityLabel="Stop dictating and keep what was said"
             testID="voice-stop"

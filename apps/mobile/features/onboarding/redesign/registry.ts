@@ -30,6 +30,7 @@ import { PaymentStep } from "./PaymentStep";
 import { DryRunStep } from "./DryRunStep";
 import { dryRunReport } from "../dryRun";
 import { PointAtBucket } from "../steps/PointAtBucket";
+import { LayingOutPage } from "../../console/panes/browsePane/LayingOutFolders";
 import { SetupWidget } from "../../console/setupWidget/SetupWidget";
 import { SetupDone } from "../../console/setupWidget/SetupDone";
 import { setupView } from "../../console/setupWidget/rules";
@@ -47,7 +48,8 @@ export type PreviewKey =
   | "dry-run"
   | "point-at-bucket"
   | "setup-widget"
-  | "setup-done";
+  | "setup-done"
+  | "laying-out";
 
 const MOCK_CLIENTS: ClientRow[] = [
   { key: "claude-desktop", name: "Claude Desktop", status: "not-connected", hasGuide: true },
@@ -180,6 +182,12 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     title: "A-09 · You're set up (in the console)",
     Component: SetupDone as ComponentType<Record<string, unknown>>,
     props: { onClose: noop, onNewWorkspace: noop, onCopyBootstrap: copied },
+  },
+  {
+    key: "laying-out",
+    title: "Setting up your workspace (in the console, after Start fresh)",
+    Component: LayingOutPage as ComponentType<Record<string, unknown>>,
+    props: { contextLabel: "@seyi", done: false },
   },
 ];
 

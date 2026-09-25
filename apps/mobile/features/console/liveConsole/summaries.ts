@@ -98,6 +98,7 @@ export interface StorageBinding {
    * into somebody's live vault.
    */
   scaffoldReason?: string;
+  scaffoldQueuedAt?: number;
   /**
    * Where the storage-layout migration got to. Absent until it has run through
    * us, which is the only state the console still offers it in.

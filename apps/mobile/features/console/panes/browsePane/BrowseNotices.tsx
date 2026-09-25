@@ -78,6 +78,7 @@ export function BrowseNotices({
         and hiding a fails-closed privacy notice because a fix is on offer is
         the wrong way round.
       */}
+
       {setupPromptVisible(setup) && current?.id !== undefined ? (
         <SetupPrompt
           setup={setup}
