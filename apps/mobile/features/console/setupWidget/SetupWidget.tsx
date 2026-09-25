@@ -4,13 +4,17 @@ import { Text } from "../../design/components/Text";
 import { TextLink } from "../../design/components/TextLink";
 import { pointerType as t, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import type { SetupRow, SetupView, ToolRow } from "./rules";
+import { AgentTiles } from "../../agentSetup/AgentTiles";
+import type { SetupAgent } from "../../agentSetup/guides";
+import type { GrantFacts } from "../../onboarding/tools";
+import type { SetupRow, SetupView } from "./rules";
 
 export interface SetupActions {
   onOpenStorage: () => void;
-  onOpenTools: () => void;
-  /** Copies the bootstrap prompt; resolves true when the clipboard took it. */
-  onCopyBootstrap: () => Promise<boolean>;
+  /** Settings › Connections: every other client, and managing these two. */
+  onOpenConnections: () => void;
+  /** The guided setup for one agent (`?connect=`). */
+  onOpenGuide: (agent: SetupAgent) => void;
   onPutAway: () => void;
 }
 
@@ -18,8 +22,9 @@ export interface SetupActions {
  * W-07 — the setup widget, floating bottom-right over the workspace.
  *
  * Four rows and their facts (`rules.ts`), a header that collapses it to one
- * line, the tools row that opens into its clients and the bootstrap prompt,
- * and the canvas's exit line at the foot. It sits over the note rather than in
+ * line, Claude and ChatGPT as tiles under the last row — each opens its guide,
+ * which ends by bringing over what the agent knows — and the canvas's exit
+ * line at the foot. It sits over the note rather than in
  * the page so a person can read and write around it; collapsed, it is one line
  * high.
  */
@@ -27,14 +32,18 @@ export function SetupWidget({
   slug,
   view,
   actions,
+  workspaceId,
+  grants,
 }: {
   slug: string;
   view: SetupView;
   actions: SetupActions;
+  workspaceId: string;
+  grants: readonly GrantFacts[] | undefined;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(true);
-  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsDone = view.rows.find((row) => row.key === "tools")?.state === "done";
 
   return (
     <View style={styles.card} testID="setup-widget">
@@ -55,15 +64,19 @@ export function SetupWidget({
       {open ? (
         <>
           {view.rows.map((row) => (
-            <Row
-              key={row.key}
-              row={row}
-              action={actionFor(row, actions, toolsOpen, () => setToolsOpen((value) => !value))}
-            />
+            <Row key={row.key} row={row} action={actionFor(row, actions)} />
           ))}
-          {toolsOpen ? (
-            <ToolSubRows tools={view.tools} actions={actions} />
-          ) : null}
+          <View style={styles.sub} testID="setup-tools">
+            <AgentTiles workspaceId={workspaceId} grants={grants} onOpen={actions.onOpenGuide} />
+            {toolsDone ? null : (
+              <Text style={styles.subNote}>
+                Cursor, Codex and others are in{" "}
+                <Text style={styles.subLink} role="link" onPress={actions.onOpenConnections}>
+                  Settings › Connections
+                </Text>
+              </Text>
+            )}
+          </View>
           <View style={styles.foot}>
             <TextLink
               label="Take everything with you →"
@@ -85,12 +98,7 @@ export function SetupWidget({
   );
 }
 
-function actionFor(
-  row: SetupRow,
-  actions: SetupActions,
-  toolsOpen: boolean,
-  toggleTools: () => void,
-): { label: string; onPress?: () => void } {
+function actionFor(row: SetupRow, actions: SetupActions): { label: string; onPress?: () => void } {
   switch (row.key) {
     case "handle":
       return { label: "Done" };
@@ -99,7 +107,7 @@ function actionFor(
     case "notes":
       return { label: row.state === "done" ? "Done" : "" };
     case "tools":
-      return { label: toolsOpen ? "Open ⌃" : "Open ⌄", onPress: toggleTools };
+      return row.state === "done" ? { label: "Manage", onPress: actions.onOpenConnections } : { label: "" };
   }
 }
 
@@ -140,67 +148,6 @@ function Row({ row, action }: { row: SetupRow; action: { label: string; onPress?
     >
       {body}
     </Pressable>
-  );
-}
-
-function ToolSubRows({ tools, actions }: { tools: ToolRow[]; actions: SetupActions }) {
-  const styles = useThemedStyles(makeStyles);
-  const [copied, setCopied] = useState<boolean | null>(null);
-  return (
-    <View style={styles.sub} testID="setup-tools">
-      {tools.map((tool) => (
-        <Pressable
-          key={tool.key}
-          accessibilityRole="button"
-          accessibilityLabel={`${tool.name}: ${tool.sub}`}
-          onPress={tool.status === "verified" ? undefined : actions.onOpenTools}
-          style={styles.subRow}
-          testID={`setup-tool-${tool.key}`}
-        >
-          <Text
-            style={[styles.subMark, tool.status === "verified" ? styles.markDone : styles.markOpen]}
-            aria-hidden
-          >
-            {tool.status === "verified" ? "✓" : tool.status === "waiting" ? "●" : "○"}
-          </Text>
-          <View style={styles.rowText}>
-            <Text style={styles.subTitle}>{tool.name}</Text>
-            <Text style={styles.subSub}>{tool.sub}</Text>
-          </View>
-          <Text style={tool.status === "verified" ? styles.subActionOff : styles.subActionOn}>
-            {tool.status === "verified"
-              ? "Verified"
-              : tool.status === "waiting"
-                ? "Continue →"
-                : "Set up →"}
-          </Text>
-        </Pressable>
-      ))}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Copy the bootstrap prompt"
-        onPress={() => {
-          void actions.onCopyBootstrap().then(setCopied);
-        }}
-        style={styles.subRow}
-        testID="setup-tool-bootstrap"
-      >
-        <Text style={[styles.subMark, styles.markOpen]} aria-hidden>
-          ○
-        </Text>
-        <View style={styles.rowText}>
-          <Text style={styles.subTitle}>Bootstrap context</Text>
-          <Text style={styles.subSub} role={copied === null ? undefined : "status"}>
-            {copied === true
-              ? "Copied — paste it into Claude or ChatGPT"
-              : copied === false
-                ? "Could not copy — open AI apps in Settings"
-                : "Fill it from what your AI already knows"}
-          </Text>
-        </View>
-        <Text style={styles.subActionOn}>Try it →</Text>
-      </Pressable>
-    </View>
   );
 }
 
@@ -247,19 +194,16 @@ const makeStyles = (colors: Colors) =>
     actionOff: { fontSize: t.meta, fontWeight: "500", color: colors.muted },
     sub: {
       paddingTop: space.x1,
-      paddingBottom: space.x3,
-      paddingLeft: 44,
+      paddingBottom: 14,
+      paddingLeft: 46,
       paddingRight: 14,
+      gap: 10,
       backgroundColor: colors.surface3,
       borderBottomWidth: 1,
       borderBottomColor: colors.line,
     },
-    subRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
-    subMark: { width: 16, textAlign: "center", fontSize: t.meta, fontWeight: "700" },
-    subTitle: { fontSize: t.meta, fontWeight: "500", color: colors.text },
-    subSub: { fontSize: t.label, color: colors.text2 },
-    subActionOn: { fontSize: t.label, fontWeight: "600", color: colors.accent },
-    subActionOff: { fontSize: t.label, fontWeight: "500", color: colors.muted },
+    subNote: { fontSize: t.meta, color: colors.muted },
+    subLink: { fontSize: t.meta, color: colors.accent, fontWeight: "600" },
     foot: {
       flexDirection: "row",
       justifyContent: "space-between",

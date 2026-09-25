@@ -1,6 +1,7 @@
 import type { ConsoleStorage } from "../types";
 import { providerLabel } from "../storage/pill";
-import { connectionRows, toolsLive, type GrantFacts } from "../../onboarding/tools";
+import { toolsLive, type GrantFacts } from "../../onboarding/tools";
+import { agentUsed } from "../../agentSetup/checks";
 
 /**
  * "Set up @you · n of 4" — the canvas's widget (A-05, W-07), as rules.
@@ -26,19 +27,11 @@ export interface SetupRow {
   state: SetupRowState;
 }
 
-export interface ToolRow {
-  key: "claude-desktop" | "chatgpt";
-  name: string;
-  status: "verified" | "waiting" | "not-started";
-  sub: string;
-}
-
 export interface SetupView {
   rows: SetupRow[];
   done: number;
   total: number;
   complete: boolean;
-  tools: ToolRow[];
 }
 
 function storageDone(storage: ConsoleStorage | null | undefined): boolean {
@@ -79,19 +72,19 @@ function notesSub(storage: ConsoleStorage | null | undefined): string {
   return "Empty — add a starting layout from your workspace";
 }
 
-const TOOL_NAMES: Record<ToolRow["key"], string> = {
-  "claude-desktop": "Claude Desktop",
-  chatgpt: "ChatGPT",
-};
-
-function toolRows(grants: readonly GrantFacts[] | undefined): ToolRow[] {
-  const rows = connectionRows(grants);
-  return (["claude-desktop", "chatgpt"] as const).map((key) => {
-    const status = rows.find((row) => row.key === key)?.status ?? "not-connected";
-    if (status === "connected") return { key, name: TOOL_NAMES[key], status: "verified", sub: "Verified — it has read your context" };
-    if (status === "connecting") return { key, name: TOOL_NAMES[key], status: "waiting", sub: "Signed in · waiting for its first call" };
-    return { key, name: TOOL_NAMES[key], status: "not-started", sub: "Not started" };
-  });
+/**
+ * The fourth row's line. Named for what connecting buys — the AI remembering —
+ * and, once one has called, for which one; the tiles under it carry the rest.
+ */
+function toolsSub(grants: readonly GrantFacts[] | undefined): string {
+  if (grants === undefined) return "Checking…";
+  const claude = agentUsed("claude", grants);
+  const chatgpt = agentUsed("chatgpt", grants);
+  if (claude && chatgpt) return "Claude and ChatGPT know your work";
+  if (claude) return "Claude knows your work";
+  if (chatgpt) return "ChatGPT knows your work";
+  if (toolsLive(grants)) return "A tool has read your context";
+  return "So it remembers what you tell it";
 }
 
 export function setupView({
@@ -104,23 +97,14 @@ export function setupView({
   /** `undefined` while the grants list is loading. */
   grants: readonly GrantFacts[] | undefined;
 }): SetupView {
-  const tools = toolRows(grants);
-  const verified = tools.filter((tool) => tool.status === "verified").length;
   const facts: Array<Omit<SetupRow, "state"> & { done: boolean }> = [
     { key: "handle", title: "Your handle", sub: `@${slug} · claimed`, done: true },
     { key: "storage", title: "Your storage", sub: storageSub(slug, storage), done: storageDone(storage) },
     { key: "notes", title: "Your notes", sub: notesSub(storage), done: notesDone(storage) },
     {
       key: "tools",
-      title: "Your tools",
-      sub:
-        grants === undefined
-          ? "Checking…"
-          : toolsLive(grants)
-            ? verified > 0
-              ? `${verified} of 2 clients verified · Bootstrap optional`
-              : "A tool has read your context · Bootstrap optional"
-            : `${verified} of 2 clients verified · Claude & ChatGPT`,
+      title: "Connect your AI",
+      sub: toolsSub(grants),
       done: grants !== undefined && toolsLive(grants),
     },
   ];
@@ -131,7 +115,7 @@ export function setupView({
     state: done ? "done" : index === firstOpen ? "current" : "todo",
   }));
   const done = facts.filter((row) => row.done).length;
-  return { rows, done, total: facts.length, complete: done === facts.length, tools };
+  return { rows, done, total: facts.length, complete: done === facts.length };
 }
 
 /**

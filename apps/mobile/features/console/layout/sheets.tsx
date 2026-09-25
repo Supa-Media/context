@@ -8,9 +8,12 @@ import { RecentSheet } from "../files/RecentSheet";
 import { saveChip } from "../files/status";
 import { SyncSheet } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
-import { settingsHref, type settingsFromQuery } from "../nav";
+import { noteHref, settingsHref, type settingsFromQuery } from "../nav";
+import { AgentSetupOverlay } from "../../agentSetup/AgentSetupOverlay";
+import type { SetupAgent } from "../../agentSetup/guides";
+
 import { SettingsOverlay } from "../settings/SettingsOverlay";
-import type { ConsoleData } from "../types";
+import { selectedContext, type ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 
 /*
@@ -187,5 +190,44 @@ export function consoleCloseTabConfirm({
         }}
       />
     )
+  );
+}
+
+/**
+ * `?connect=claude|chatgpt` — the guided setup, over the workspace it connects.
+ *
+ * A parameter beside `?note=` for settings' reason: the note stays open under
+ * it, and closing drops one parameter. Only inside a context and never in the
+ * demo, which has no control plane to hold a grant; anywhere else the
+ * parameter draws nothing, as an unknown `?settings=` does.
+ *
+ * Not for the owner of a shared workspace: `listGrants` shows an owner every
+ * member's grants, so a teammate's Claude would read as this person signing
+ * in. Everywhere the guide is offered — a personal workspace's owner, a
+ * member of somebody else's — the grants listed are the viewer's own.
+ */
+export function consoleAgentSetup({
+  connectAgent,
+  data,
+  router,
+}: {
+  connectAgent: SetupAgent | null;
+  data: ConsoleData;
+  router: ConsoleRouter;
+}) {
+  const current = selectedContext(data);
+  if (connectAgent === null || current === null || data.demo === true) return null;
+  if (current.kind !== "personal" && current.role === "owner") return null;
+  const slug = current.slug;
+  return (
+    <AgentSetupOverlay
+      key={`${current.id}:${connectAgent}`}
+      workspaceId={current.id}
+      slug={slug}
+      agent={connectAgent}
+      onClose={() => router.setParams({ connect: undefined })}
+      onSwitchAgent={(agent) => router.setParams({ connect: agent })}
+      onOpenNote={(path) => router.push(noteHref(slug, path))}
+    />
   );
 }

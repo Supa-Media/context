@@ -62,7 +62,8 @@ describe("each row is done because of a fact", () => {
     });
     expect(view.complete).toBe(true);
     expect(view.rows[2]!.sub).toBe("47 notes");
-    expect(view.tools.find((tool) => tool.key === "claude-desktop")?.status).toBe("verified");
+    expect(view.rows[3]!.title).toBe("Connect your AI");
+    expect(view.rows[3]!.sub).toBe("Claude knows your work");
   });
 
   test("a grant nobody has used is not a connected tool", () => {
@@ -72,7 +73,7 @@ describe("each row is done because of a fact", () => {
       grants: [{ clientId: "c1", clientName: "Claude", status: "active", lastUsedAt: null }],
     });
     expect(view.complete).toBe(false);
-    expect(view.tools[0]!.status).toBe("waiting");
+    expect(view.rows[3]!.sub).toBe("So it remembers what you tell it");
   });
 
   test("a bucket that failed its check is not storage done, and says so", () => {
@@ -145,11 +146,8 @@ describe("the widget", () => {
   const calls: string[] = [];
   const actions: SetupActions = {
     onOpenStorage: () => calls.push("storage"),
-    onOpenTools: () => calls.push("tools"),
-    onCopyBootstrap: async () => {
-      calls.push("copy");
-      return true;
-    },
+    onOpenConnections: () => calls.push("connections"),
+    onOpenGuide: (agent) => calls.push(`guide:${agent}`),
     onPutAway: () => calls.push("away"),
   };
   const view = setupView({ slug: "seyi", storage: storage({ managed: true, scaffoldReason: "created" }), grants: [] });
@@ -159,28 +157,41 @@ describe("the widget", () => {
   });
 
   test("says where you are, and opens storage from its row", async () => {
-    const widget = mount(createElement(SetupWidget, { slug: "seyi", view, actions }));
+    const widget = mount(createElement(SetupWidget, { slug: "seyi", view, actions, workspaceId: "ws-test", grants: [] }));
     expect(widget.byId("setup-widget-count")?.textContent).toMatch(/^3 of 4/);
     await widget.press("setup-row-storage");
     expect(calls).toEqual(["storage"]);
     widget.unmount();
   });
 
-  test("the tools row opens into Claude, ChatGPT and the bootstrap prompt", async () => {
-    const widget = mount(createElement(SetupWidget, { slug: "seyi", view, actions }));
-    expect(widget.byId("setup-tools")).toBeNull();
+  test("Claude and ChatGPT are tiles under the last row, and each opens its guide", async () => {
+    const widget = mount(createElement(SetupWidget, { slug: "seyi", view, actions, workspaceId: "ws-test", grants: [] }));
+    expect(widget.byId("setup-row-tools")?.textContent).toContain("Connect your AI");
+    // No bootstrap row any more: bringing over what the AI knows is the guide's last step.
+    expect(widget.byId("setup-tool-bootstrap")).toBeNull();
+    await act(async () => {});
+    expect(widget.byId("agent-tile-claude")?.textContent).toContain("Set up");
+    await widget.press("agent-tile-claude");
+    await widget.press("agent-tile-chatgpt");
+    expect(calls).toEqual(["guide:claude", "guide:chatgpt"]);
+    widget.unmount();
+  });
+
+  test("a tool that has called turns the row into a Manage link, and the tile says Connected", async () => {
+    const done = setupView({ slug: "seyi", storage: storage({ noteCount: 3 }), grants: claudeUsed });
+    const widget = mount(
+      createElement(SetupWidget, { slug: "seyi", view: done, actions, workspaceId: "ws-test", grants: claudeUsed }),
+    );
+    await act(async () => {});
+    expect(widget.byId("agent-tile-claude")?.textContent).toContain("Connected");
+    expect(widget.byId("agent-tile-chatgpt")?.textContent).toContain("Set up");
     await widget.press("setup-row-tools");
-    expect(widget.byId("setup-tool-claude-desktop")?.textContent).toContain("Claude Desktop");
-    expect(widget.byId("setup-tool-chatgpt")?.textContent).toContain("ChatGPT");
-    await widget.press("setup-tool-chatgpt");
-    await widget.press("setup-tool-bootstrap");
-    expect(calls).toEqual(["tools", "copy"]);
-    expect(widget.byId("setup-tool-bootstrap")?.textContent).toMatch(/Copied/);
+    expect(calls).toEqual(["connections"]);
     widget.unmount();
   });
 
   test("collapses to its header, and can be put away", async () => {
-    const widget = mount(createElement(SetupWidget, { slug: "seyi", view, actions }));
+    const widget = mount(createElement(SetupWidget, { slug: "seyi", view, actions, workspaceId: "ws-test", grants: [] }));
     await widget.press("setup-widget-toggle");
     expect(widget.byId("setup-row-storage")).toBeNull();
     await widget.press("setup-widget-toggle");

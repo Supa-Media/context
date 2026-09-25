@@ -71,6 +71,7 @@ import { consoleNavBandNodes } from "../../../features/console/layout/navBand";
 import {
   consoleCloseTabConfirm,
   consoleRecentSheet,
+  consoleAgentSetup,
   consoleSettings,
   consoleSyncSheet,
 } from "../../../features/console/layout/sheets";
@@ -115,7 +116,7 @@ export default function ConsoleLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const route = routeForPath(pathname);
-  const { quickParams, openSettingsSection, checkoutReturn } = useConsoleParams();
+  const { quickParams, openSettingsSection, checkoutReturn, connectAgent } = useConsoleParams();
   /*
     Ending the session, asked for from either the rail's account block or the
     settings overlay's Sign out row. One flow, because it decides whether
@@ -410,7 +411,12 @@ export default function ConsoleLayout() {
           onPickSpent={() => setTreePick(NO_PICK)}
           onSearch={() => setPaletteOpen(true)}
           paletteOpen={
-            paletteOpen || treeOverlay || recentOpen || syncOpen || openSettingsSection !== null
+            paletteOpen ||
+            treeOverlay ||
+            recentOpen ||
+            syncOpen ||
+            openSettingsSection !== null ||
+            connectAgent !== null
           }
         />
         {/*
@@ -446,6 +452,8 @@ export default function ConsoleLayout() {
         {consoleSettings({
           openSettingsSection, data, checkoutReturn, router, requestSignOut,
         })}
+
+        {consoleAgentSetup({ connectAgent, data, router })}
 
         {signOutDialog}
 

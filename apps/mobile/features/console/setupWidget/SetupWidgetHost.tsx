@@ -5,6 +5,7 @@ import { writeClipboard } from "../../design/clipboard";
 import { BOOTSTRAP_PROMPT } from "../../onboarding/agents";
 import { NEW_WORKSPACE_ROUTE } from "../../workspace/create";
 import type { SettingsSectionKey } from "../settings/sections";
+import type { SetupAgent } from "../../agentSetup/guides";
 import { selectedContext, type ConsoleData } from "../types";
 import { setupView, showSetupWidget } from "./rules";
 import { SetupDone } from "./SetupDone";
@@ -24,10 +25,13 @@ export function SetupWidgetHost({
   data,
   onOpenSettings,
   onNavigate,
+  onConnectAgent,
 }: {
   data: ConsoleData;
   onOpenSettings?: (section?: SettingsSectionKey) => void;
   onNavigate?: (href: string) => void;
+  /** Opens the guided setup for one agent over this workspace. */
+  onConnectAgent?: (agent: SetupAgent) => void;
 }) {
   const { width } = useWindowDimensions();
   const convex = useConvex();
@@ -51,6 +55,7 @@ export function SetupWidgetHost({
       compact={compact}
       onOpenSettings={onOpenSettings}
       onNavigate={onNavigate}
+      onConnectAgent={onConnectAgent}
     />
   );
 }
@@ -64,6 +69,7 @@ function SetupWidgetLive({
   compact,
   onOpenSettings,
   onNavigate,
+  onConnectAgent,
 }: {
   data: ConsoleData;
   workspaceId: string;
@@ -73,6 +79,7 @@ function SetupWidgetLive({
   compact: boolean;
   onOpenSettings?: (section?: SettingsSectionKey) => void;
   onNavigate?: (href: string) => void;
+  onConnectAgent?: (agent: SetupAgent) => void;
 }) {
   const { grants, retired, retire } = useSetupWidget(workspaceId, true);
   if (!showSetupWidget({ demo: data.demo === true, compact, kind, role, retired })) return null;
@@ -97,10 +104,12 @@ function SetupWidgetLive({
       <SetupWidget
         slug={slug}
         view={view}
+        workspaceId={workspaceId}
+        grants={grants}
         actions={{
           onOpenStorage: () => onOpenSettings?.("storage"),
-          onOpenTools: () => onOpenSettings?.("integrations"),
-          onCopyBootstrap: copyBootstrap,
+          onOpenConnections: () => onOpenSettings?.("integrations"),
+          onOpenGuide: (agent) => onConnectAgent?.(agent),
           onPutAway: retire,
         }}
       />

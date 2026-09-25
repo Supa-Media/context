@@ -59,3 +59,52 @@ What a "simplification" would cost: putting the layout, tools or summary back
 between the fork and the workspace is the ten-step flow this replaced.
 `onboardingFlow.test.ts` ("there are four screens at most") fails if a fifth
 screen is added.
+
+## Connecting an AI is a guide that checks itself (2026-09-25)
+
+The setup widget's last row is "Connect your AI", and it offers two tiles,
+Claude and ChatGPT. Each tile opens a full-screen guide at `?connect=`, drawn
+beside `?settings=` so the note stays open underneath. The owner reviewed the
+artboards on 2026-09-25 and decided three things:
+
+- **The Claude app only.** The guide has no "which Claude" picker and no
+  Claude Code step. Claude Code keeps its own row under Settings.
+- **Every guide has a "Make it stick" step.** It hands over the one standing
+  instruction, `CLAUDE_CUSTOM_INSTRUCTION` in `onboarding/agents.ts`, pasted
+  into each agent's own custom-instructions field. A connector that the agent
+  never consults is one that people give up on.
+- **Bringing over what the agent knows is the last step, and it is the check.**
+  One prompt (`agentSetup/bring.ts`) asks the agent to orient, say where each
+  note will go, wait for the person's go, write only what it knows, and finish
+  with a "Getting started" note.
+
+The guide moves on by itself, and only on facts the product already records:
+
+- A live grant for that client means signed in.
+- The gateway's agent-activity marks mean read and wrote.
+
+No new backend was added. The "Getting started" note arriving is what ends the
+run, so an agent with an empty memory still passes. It is told apart from a
+full run, and the finish screen tells the person how to turn memory on.
+
+"Make it stick" is the one step that nothing can observe, so it takes the
+person's word. Two things the guide cannot see are covered by copy rather than
+by a check:
+
+- **ChatGPT's Deny.** It looks the same as "nothing written", so the stalled
+  screen covers both.
+- **An agent writing to the wrong workspace.** This would need a second
+  workspace's activity, and it is not detected yet.
+
+The guide is not offered to a shared workspace's owner, because `listGrants`
+shows an owner every member's grants.
+
+What a "simplification" would cost:
+
+- Ticking steps on a click would bring back the "connected" that nothing had
+  connected.
+- Dropping the bring-over step leaves a workspace that is still empty after
+  setup.
+
+`agentSetup.test.ts` fails if a step turns done on anything but a grant or a
+mark, or if the prompt loses a guardrail.
