@@ -17,6 +17,9 @@ import {
 } from "./lib/websites/routes";
 import {
   resolveWebsitePageHandler,
+  resolveWebsiteAddressHandler,
+  websiteAddressPreviewHandler,
+  websiteAddressPlanHandler,
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
@@ -64,6 +67,27 @@ const resolvedPageValidator = v.union(
   authenticationRequiredValidator,
   unavailableValidator,
 );
+const resolvedAddressValidator = v.union(
+  resolvedPageValidator,
+  v.object({
+    kind: v.literal("legacy_short_link"),
+    handle: v.string(),
+    slug: v.string(),
+  }),
+);
+const addressPlanValidator = v.union(
+  v.object({ kind: v.literal("website") }),
+  v.object({
+    kind: v.literal("legacy_short_link"),
+    handle: v.string(),
+    slug: v.string(),
+  }),
+  v.object({ kind: v.literal("unavailable") }),
+);
+const addressPreviewValidator = v.object({
+  owned: v.boolean(),
+  title: v.union(v.string(), v.null()),
+});
 const resolutionPlanValidator = v.union(
   authenticationRequiredValidator,
   unavailableValidator,
@@ -98,6 +122,36 @@ export const resolvePage = action({
   args: { handle: v.string(), routePath: v.string() },
   returns: resolvedPageValidator,
   handler: resolveWebsitePageHandler,
+});
+
+export const resolveAddress = action({
+  args: {
+    handle: v.string(),
+    routePath: v.string(),
+    legacySlug: v.optional(v.string()),
+  },
+  returns: resolvedAddressValidator,
+  handler: resolveWebsiteAddressHandler,
+});
+
+export const websiteAddressPlan = internalQuery({
+  args: {
+    handle: v.string(),
+    routePath: v.string(),
+    legacySlug: v.optional(v.string()),
+  },
+  returns: addressPlanValidator,
+  handler: websiteAddressPlanHandler,
+});
+
+export const previewAddress = internalQuery({
+  args: {
+    handle: v.string(),
+    slug: v.string(),
+    routePath: v.optional(v.string()),
+  },
+  returns: addressPreviewValidator,
+  handler: websiteAddressPreviewHandler,
 });
 
 export const websiteResolutionPlan = internalQuery({

@@ -266,20 +266,13 @@ const ROUTES: Record<string, Coverage> = {
   "invite/index.tsx": { kind: "screen", mount: () => createElement(InviteListScreen) },
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
-  /*
-    The same screen at its second address. `/@seyi/intake` resolves the name
-    server-side to the share row `/s/<token>` carries directly, so what is
-    mounted here is `ShareScreen` with an address rather than a token — one
-    page, two ways in, and no second layout to keep in step.
-  */
-  "[handle]/[slug].tsx": {
+  "[handle]/index.tsx": {
     kind: "screen",
-    mount: () =>
-      createElement(ShareScreen as (props: {
-        shortLink?: { handle: string; slug: string };
-      }) => ReturnType<typeof ShareScreen>, {
-        shortLink: { handle: "seyi", slug: "intake" },
-      }),
+    mount: () => createElement(requireRoute("[handle]/index.tsx")),
+  },
+  "[handle]/[...path].tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("[handle]/[...path].tsx")),
   },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },

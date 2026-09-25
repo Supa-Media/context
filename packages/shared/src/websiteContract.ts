@@ -149,3 +149,12 @@ export type ResolvedWebsitePage =
       /** Empty beside a null site name; otherwise the same public menu. */
       navigation: WebsiteNavigationItem[];
     };
+
+/** Website-first address resolution, with an existing named share as fallback. */
+export type ResolvedWebsiteAddress =
+  | ResolvedWebsitePage
+  | {
+      kind: "legacy_short_link";
+      handle: string;
+      slug: string;
+    };
