@@ -298,6 +298,20 @@ function connectorFields(endpoint: string, withDescription: boolean): ProviderFi
 // ─── The catalogue ───────────────────────────────────────────────────────────
 
 /**
+ * The command that installs Context into one agent, for the endpoint this pane
+ * shows. `--endpoint` keeps a self-hosted gateway's own address.
+ */
+function installCommand(agent: string, endpoint: string): string {
+  return `npx -y @supa-media/context install --agent ${agent} --endpoint ${shellQuote(endpoint)}`;
+}
+
+const PLUGIN_NOTE =
+  "Installs the context plugin: the MCP server, two skills, and two session hooks. At the start of a session the agent is told to orient before answering; when it ends, the session's user-visible messages are saved to your inbox (turn that off with: npx @supa-media/context config set capture off). Signs in once with read and write access; on the approval page you choose whether it also sees your private notes.";
+
+const MCP_ONLY_NOTE =
+  "Adds the MCP server and the two skills. This client has no plugin hooks, so sessions are not saved automatically; the agent saves with save_context. Signs in once with read and write access; on the approval page you choose whether it also sees your private notes.";
+
+/**
  * Ordered by how many people will want each one, not alphabetically.
  *
  * Adding a client means adding a row here and nothing else: the pane renders
@@ -347,8 +361,8 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
       hint: "Paste it into CLAUDE.md, or ~/.claude/CLAUDE.md to apply it to every project.",
     },
     hook: {
-      note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended.",
-      command: (endpoint) => `npx -y @supa-media/context install --client claude-code --endpoint ${shellQuote(endpoint)}`,
+      note: PLUGIN_NOTE,
+      command: (endpoint) => installCommand("claude-code", endpoint),
     },
     link: () => ({
       kind: "docs",
@@ -374,8 +388,8 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
       hint: "Paste it into AGENTS.md, or ~/.codex/AGENTS.md to apply it to every project.",
     },
     hook: {
-      note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
-      command: (endpoint) => `npx -y @supa-media/context install --client codex --endpoint ${shellQuote(endpoint)}`,
+      note: PLUGIN_NOTE,
+      command: (endpoint) => installCommand("codex", endpoint),
     },
     link: () => ({
       kind: "docs",
@@ -400,6 +414,10 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     customization: {
       hint: "Paste it into User Rules under Cursor Settings → Rules, or a new .mdc file in a project's .cursor/rules/ directory.",
     },
+    hook: {
+      note: MCP_ONLY_NOTE,
+      command: (endpoint) => installCommand("cursor", endpoint),
+    },
     link: (endpoint) => ({
       kind: "install",
       label: "Add to Cursor",
@@ -415,6 +433,10 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     note: "Installs it into VS Code's MCP settings for Copilot's agent mode.",
     customization: {
       hint: "Paste it into .github/copilot-instructions.md at your workspace root.",
+    },
+    hook: {
+      note: MCP_ONLY_NOTE,
+      command: (endpoint) => installCommand("vscode", endpoint),
     },
     link: (endpoint) => ({
       kind: "install",
@@ -450,8 +472,8 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
       hint: "Paste it into GEMINI.md, or ~/.gemini/GEMINI.md to apply it to every project.",
     },
     hook: {
-      note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
-      command: (endpoint) => `npx -y @supa-media/context install --client gemini-cli --endpoint ${shellQuote(endpoint)}`,
+      note: PLUGIN_NOTE,
+      command: (endpoint) => installCommand("gemini-cli", endpoint),
     },
     link: () => ({
       kind: "docs",

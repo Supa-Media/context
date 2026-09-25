@@ -106,3 +106,15 @@ export const BOOTSTRAP_PROMPT =
  */
 export const CLAUDE_CUSTOM_INSTRUCTION =
   "Always orient using the Context MCP (call orient) before answering anything about me or my work, and save what you learn with save_context before you finish. Always leave the context in a better state than you found it, updating the information there — this is the memory that will persist.";
+
+/**
+ * The one command for coding agents.
+ *
+ * It finds Claude Code, Codex, Cursor, Gemini CLI, OpenCode and VS Code on the
+ * machine and adds Context to each, signing in once, so a person with a coding
+ * agent never has to paste the endpoint into it by hand.
+ */
+export const INSTALL_COMMAND = "npx -y @supa-media/context install";
+
+export const INSTALL_NOTE =
+  "Finds the coding agents on this computer (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, VS Code) and adds Context to each. For ChatGPT, Claude and other apps, paste the endpoint below.";

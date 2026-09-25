@@ -229,6 +229,19 @@ describe("the tools screen", () => {
   const rows = (status: "connected" | "not-connected") =>
     [{ key: "claude-desktop" as const, name: "Claude", status, hasGuide: true }];
 
+  test("offers one command that installs Context into every coding agent", () => {
+    const { text } = render(
+      createElement(ConnectionsStep, {
+        clients: rows("not-connected"),
+        onOpenGuide: () => {},
+        onSkip: () => {},
+      }),
+    );
+    expect(text).toContain("npx -y @supa-media/context install");
+    // The endpoint stays, for the apps no command reaches.
+    expect(text).toMatch(/endpoint/i);
+  });
+
   test("does not imply a connected client sees everything", () => {
     // Every grant defaults to `team`, owners included. A first-run screen
     // promising otherwise describes a product we deliberately do not ship.
