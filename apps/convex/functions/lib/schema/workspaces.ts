@@ -177,8 +177,42 @@ export const workspaceTables = {
     state: v.union(v.literal("enabled"), v.literal("disabled")),
     enabledAt: v.optional(v.number()),
     enabledBy: v.optional(v.id("users")),
+    /** Monotonic fence: an older bucket scan may never replace a newer one. */
+    routeGeneration: v.optional(v.number()),
+    routeReconciledGeneration: v.optional(v.number()),
+    routeReconciledAt: v.optional(v.number()),
+    routeAttemptedAt: v.optional(v.number()),
     updatedAt: v.number(),
-  }).index("by_workspace", ["workspaceId"]),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_state_attempted", ["state", "routeAttemptedAt"]),
+
+  /**
+   * Disposable website routing metadata, rebuilt from the workspace bucket.
+   * It deliberately holds no Markdown: a matching etag is checked against the
+   * bucket before runtime serving, and deleting every row loses no authorship.
+   */
+  websiteRouteIndex: defineTable({
+    workspaceId: v.id("workspaces"),
+    objectKey: v.string(),
+    routePath: v.union(v.string(), v.null()),
+    lookupKey: v.optional(v.string()),
+    sourceEtag: v.string(),
+    status: v.union(
+      v.literal("live"),
+      v.literal("draft"),
+      v.literal("problem"),
+    ),
+    audience: v.union(v.literal("public"), v.literal("members")),
+    title: v.union(v.string(), v.null()),
+    description: v.union(v.string(), v.null()),
+    nav: v.union(v.number(), v.null()),
+    problems: v.array(v.object({ code: v.string(), message: v.string() })),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_object", ["workspaceId", "objectKey"])
+    .index("by_workspace_lookup", ["workspaceId", "lookupKey"]),
 
   /**
    * Membership carries an explicit role. Read access and write access to
