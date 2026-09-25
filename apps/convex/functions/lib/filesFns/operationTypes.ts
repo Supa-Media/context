@@ -50,6 +50,16 @@ export type FileOperation =
   | { kind: "manifest"; cursor?: string }
   | { kind: "readMany"; paths: string[] }
   | {
+      kind: "writeWebsiteRelease";
+      releaseId: string;
+      pages: Array<{ pageId: string; path: string; expectedEtag: string }>;
+    }
+  | {
+      kind: "readWebsiteRelease";
+      pages: Array<{ releaseId: string; pageId: string; path: string }>;
+    }
+  | { kind: "deleteWebsiteRelease"; releaseId: string }
+  | {
       kind: "search";
       query: string;
       prefix?: string;
@@ -153,6 +163,15 @@ export type FileOperation =
  */
 export type OperationResult =
   | { kind: "activity"; entries: ActivityEntry[] }
+  | { kind: "websiteReleaseWritten"; pages: number }
+  | {
+      kind: "websiteReleasePages";
+      results: Array<
+        | { path: string; outcome: "read"; text: string }
+        | { path: string; outcome: "missing" }
+      >;
+    }
+  | { kind: "websiteReleaseDeleted"; objects: number }
   | ({ kind: "formApplied" } & Omit<FormResult, "notify">)
   | {
       kind: "formNotifyRead";

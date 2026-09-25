@@ -22,7 +22,16 @@ type Clearance = {
   grantedNames: string[];
 };
 
-type IndexedRoute = WebsiteRouteStatus & { sourceEtag: string };
+type IndexedRoute = WebsiteRouteStatus & {
+  sourceEtag: string;
+  releaseId?: string;
+  releasePageId?: string;
+};
+
+type ReconciliationCommit = {
+  committed: boolean;
+  cleanupReleaseId: string | null;
+};
 
 function scanError(
   message: string,
@@ -161,13 +170,22 @@ async function websiteState(
 /** Allocate a monotonic fence before opening the bucket. */
 export async function beginRouteReconciliationHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces">; enabledOnly?: boolean },
+  args: {
+    workspaceId: Id<"workspaces">;
+    enabledOnly?: boolean;
+    expectedGeneration?: number;
+  },
 ): Promise<number | null> {
   if ((await ctx.db.get(args.workspaceId)) === null) {
     throw workspaceNotFound();
   }
   const current = await websiteState(ctx, args.workspaceId);
   if (args.enabledOnly === true && current?.state !== "enabled") return null;
+  if (args.expectedGeneration !== undefined) {
+    if (current?.routeGeneration !== args.expectedGeneration) return null;
+    await ctx.db.patch(current._id, { routeAttemptedAt: Date.now() });
+    return args.expectedGeneration;
+  }
   const generation = (current?.routeGeneration ?? 0) + 1;
   const attemptedAt = Date.now();
   if (current === null) {
@@ -194,15 +212,19 @@ export async function commitRouteReconciliationHandler(
     workspaceId: Id<"workspaces">;
     generation: number;
     routes: IndexedRoute[];
+    releaseId?: string;
     enabledOnly?: boolean;
+    problemsOnlyIfUnpublished?: boolean;
   },
-): Promise<boolean> {
+): Promise<ReconciliationCommit> {
   const state = await websiteState(ctx, args.workspaceId);
   if (
     state?.routeGeneration !== args.generation ||
-    (args.enabledOnly === true && state.state !== "enabled")
+    (args.enabledOnly === true && state.state !== "enabled") ||
+    (args.problemsOnlyIfUnpublished === true &&
+      state.routeReconciledGeneration !== undefined)
   ) {
-    return false;
+    return { committed: false, cleanupReleaseId: null };
   }
   const existing = await ctx.db
     .query("websiteRouteIndex")
@@ -219,6 +241,10 @@ export async function commitRouteReconciliationHandler(
         ? {}
         : { lookupKey: websiteRouteLookupKey(route.routePath) }),
       sourceEtag: route.sourceEtag,
+      ...(route.releaseId === undefined ? {} : { releaseId: route.releaseId }),
+      ...(route.releasePageId === undefined
+        ? {}
+        : { releasePageId: route.releasePageId }),
       status: route.status,
       audience: route.audience,
       title: route.title,
@@ -228,17 +254,129 @@ export async function commitRouteReconciliationHandler(
       updatedAt: now,
     });
   }
+  const cleanupReleaseId =
+    args.releaseId === undefined ? null : (state.previousReleaseId ?? null);
   await ctx.db.patch(state._id, {
     routeReconciledGeneration: args.generation,
     routeReconciledAt: now,
+    routeUnsafeGeneration: undefined,
+    ...(args.releaseId === undefined
+      ? {}
+      : {
+          publishedReleaseId: args.releaseId,
+          previousReleaseId: state.publishedReleaseId,
+        }),
   });
+  return { committed: true, cleanupReleaseId };
+}
+
+async function stageWebsiteRelease(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  routes: IndexedRoute[],
+): Promise<{ releaseId: string; routes: IndexedRoute[] }> {
+  const releaseId = crypto.randomUUID();
+  const released = routes.map((route) =>
+    route.status === "live"
+      ? { ...route, releaseId, releasePageId: crypto.randomUUID() }
+      : route,
+  );
+  const pages = released.flatMap((route) =>
+    route.releasePageId === undefined
+      ? []
+      : [
+          {
+            pageId: route.releasePageId,
+            path: route.objectKey,
+            expectedEtag: route.sourceEtag,
+          },
+        ],
+  );
+  try {
+    for (let offset = 0; offset < pages.length; offset += READ_BATCH) {
+      const written = await ctx.runAction(
+        internal.functions.files.runFileOperation,
+        {
+          workspaceId,
+          scope: "private",
+          grantedNames: [],
+          operation: {
+            kind: "writeWebsiteRelease",
+            releaseId,
+            pages: pages.slice(offset, offset + READ_BATCH),
+          },
+        },
+      );
+      if (written.kind !== "websiteReleaseWritten") {
+        throw scanError("The bucket returned an invalid website release result.");
+      }
+    }
+  } catch (error) {
+    await ctx
+      .runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        grantedNames: [],
+        operation: { kind: "deleteWebsiteRelease", releaseId },
+      })
+      .catch(() => {});
+    throw error;
+  }
+  return { releaseId, routes: released };
+}
+
+async function finishWebsiteRelease(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  generation: number,
+  routes: IndexedRoute[],
+  enabledOnly: boolean,
+): Promise<boolean> {
+  const release = await stageWebsiteRelease(ctx, workspaceId, routes);
+  const result = await ctx.runMutation(
+    internal.functions.websites.commitRouteReconciliation,
+    {
+      workspaceId,
+      generation,
+      routes: release.routes,
+      releaseId: release.releaseId,
+      ...(enabledOnly ? { enabledOnly: true } : {}),
+    },
+  );
+  if (!result.committed) {
+    await ctx
+      .runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        grantedNames: [],
+        operation: {
+          kind: "deleteWebsiteRelease",
+          releaseId: release.releaseId,
+        },
+      })
+      .catch(() => {});
+    return false;
+  }
+  if (result.cleanupReleaseId !== null) {
+    await ctx
+      .runAction(internal.functions.files.runFileOperation, {
+        workspaceId,
+        scope: "private",
+        grantedNames: [],
+        operation: {
+          kind: "deleteWebsiteRelease",
+          releaseId: result.cleanupReleaseId,
+        },
+      })
+      .catch(() => {});
+  }
   return true;
 }
 
 /** Mark a complete derivative stale after a runtime source mismatch. */
 export async function invalidateRouteIndexHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces"> },
+  args: { workspaceId: Id<"workspaces">; unsafe?: boolean },
 ): Promise<boolean> {
   const state = await websiteState(ctx, args.workspaceId);
   if (state?.state !== "enabled") return false;
@@ -246,11 +384,18 @@ export async function invalidateRouteIndexHandler(
     state.routeGeneration === undefined ||
     state.routeGeneration !== state.routeReconciledGeneration
   ) {
+    if (args.unsafe === true && state.routeUnsafeGeneration === undefined) {
+      await ctx.db.patch(state._id, {
+        routeUnsafeGeneration: state.routeGeneration ?? 0,
+      });
+    }
     return false;
   }
+  const generation = (state.routeGeneration ?? 0) + 1;
   await ctx.db.patch(state._id, {
-    routeGeneration: (state.routeGeneration ?? 0) + 1,
+    routeGeneration: generation,
     routeAttemptedAt: Date.now(),
+    ...(args.unsafe === true ? { routeUnsafeGeneration: generation } : {}),
   });
   // A stale index serves nothing, so rebuild it now rather than at the next
   // sweep: waiting left a site on "Nothing here" for up to a quarter hour
@@ -259,7 +404,29 @@ export async function invalidateRouteIndexHandler(
   await ctx.scheduler.runAfter(
     RECONCILE_AFTER_CHANGE_MS,
     internal.functions.websites.reconcileWorkspace,
-    { workspaceId: args.workspaceId },
+    { workspaceId: args.workspaceId, expectedGeneration: generation },
+  );
+  return true;
+}
+
+/** Record every in-product write, so the last save in a burst owns the rebuild. */
+export async function recordRouteChangeHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces">; unsafe?: boolean },
+): Promise<boolean> {
+  const state = await websiteState(ctx, args.workspaceId);
+  if (state?.state !== "enabled") return false;
+  const generation = (state.routeGeneration ?? 0) + 1;
+  const now = Date.now();
+  await ctx.db.patch(state._id, {
+    routeGeneration: generation,
+    routeAttemptedAt: now,
+    ...(args.unsafe === true ? { routeUnsafeGeneration: generation } : {}),
+  });
+  await ctx.scheduler.runAfter(
+    RECONCILE_AFTER_CHANGE_MS,
+    internal.functions.websites.reconcileWorkspace,
+    { workspaceId: args.workspaceId, expectedGeneration: generation },
   );
   return true;
 }
@@ -293,14 +460,25 @@ export async function refreshRouteStatusesHandler(
     grantedNames: access.grantedNames,
   });
   if (generation !== null) {
-    await ctx.runMutation(
-      internal.functions.websites.commitRouteReconciliation,
-      {
-        workspaceId: args.workspaceId,
+    if (snapshot.statuses.some((status) => status.status === "problem")) {
+      await ctx.runMutation(
+        internal.functions.websites.commitRouteReconciliation,
+        {
+          workspaceId: args.workspaceId,
+          generation,
+          routes: snapshot.indexed,
+          problemsOnlyIfUnpublished: true,
+        },
+      );
+    } else {
+      await finishWebsiteRelease(
+        ctx,
+        args.workspaceId,
         generation,
-        routes: snapshot.indexed,
-      },
-    );
+        snapshot.indexed,
+        false,
+      );
+    }
   }
   return snapshot.statuses;
 }
@@ -308,16 +486,22 @@ export async function refreshRouteStatusesHandler(
 /** Unattended repair pass; disabled sites are re-checked and refused. */
 export async function reconcileWorkspaceHandler(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces"> },
+  args: { workspaceId: Id<"workspaces">; expectedGeneration?: number },
 ): Promise<boolean> {
-  const generation = await ctx.runMutation(
+  let generation = await ctx.runMutation(
     internal.functions.websites.beginRouteReconciliation,
-    { ...args, enabledOnly: true },
+    {
+      workspaceId: args.workspaceId,
+      enabledOnly: true,
+      ...(args.expectedGeneration === undefined
+        ? {}
+        : { expectedGeneration: args.expectedGeneration }),
+    },
   );
   if (generation === null) return false;
   const repairStarter = await ctx.runQuery(
     internal.functions.websites.websiteStarterRepairNeeded,
-    args,
+    { workspaceId: args.workspaceId },
   );
   if (repairStarter) {
     await ensureWebsiteStarter(ctx, {
@@ -328,21 +512,42 @@ export async function reconcileWorkspaceHandler(
     });
     await ctx.runMutation(
       internal.functions.websites.markWebsiteStarterEnsured,
-      args,
+      { workspaceId: args.workspaceId },
     );
+    // The starter write is itself a website change and advances the fence.
+    // Claim the now-current generation before scanning the bytes it created.
+    generation = await ctx.runMutation(
+      internal.functions.websites.beginRouteReconciliation,
+      { workspaceId: args.workspaceId, enabledOnly: true },
+    );
+    if (generation === null) return false;
   }
   const snapshot = await scanWebsiteRoutes(ctx, args.workspaceId, {
     scope: "private",
     grantedNames: [],
   });
-  return await ctx.runMutation(
-    internal.functions.websites.commitRouteReconciliation,
-    {
-      workspaceId: args.workspaceId,
-      generation,
-      routes: snapshot.indexed,
-      enabledOnly: true,
-    },
+  // A half-written frontmatter block, a temporary empty document, or a route
+  // clash is not a release. Keep serving the previous complete derivative;
+  // a later save owns a newer generation and schedules another attempt.
+  if (snapshot.statuses.some((status) => status.status === "problem")) {
+    await ctx.runMutation(
+      internal.functions.websites.commitRouteReconciliation,
+      {
+        workspaceId: args.workspaceId,
+        generation,
+        routes: snapshot.indexed,
+        enabledOnly: true,
+        problemsOnlyIfUnpublished: true,
+      },
+    );
+    return false;
+  }
+  return await finishWebsiteRelease(
+    ctx,
+    args.workspaceId,
+    generation,
+    snapshot.indexed,
+    true,
   );
 }
 

@@ -2,6 +2,11 @@
 
 _Decided 2026-09-24. See `docs/decisions/README.md` for the index._
 
+The link-only serving model below records the original custom-domain decision.
+The later, explicitly enabled `website/` authoring surface is documented in
+[Bucket-backed websites](../websites.md) and is resolved before these legacy
+named links.
+
 ### A custom domain is a third locator, never a wider tier
 
 A Premium workspace can connect a domain it owns, such as `docs.acme.com`.

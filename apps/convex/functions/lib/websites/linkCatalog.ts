@@ -28,8 +28,8 @@ export async function websiteLinkCatalogHandler(
     .unique();
   if (
     state?.state !== "enabled" ||
-    state.routeGeneration === undefined ||
-    state.routeGeneration !== state.routeReconciledGeneration
+    state.routeReconciledGeneration === undefined ||
+    state.routeUnsafeGeneration !== undefined
   ) {
     return EMPTY_CATALOG;
   }

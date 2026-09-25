@@ -3,7 +3,10 @@ import type {
   FileOperation,
   OperationResult,
 } from "../functions/lib/filesFns/operationTypes";
-import { operationTouchesWebsite } from "../functions/lib/websites/changes";
+import {
+  operationMayRestrictWebsite,
+  operationTouchesWebsite,
+} from "../functions/lib/websites/changes";
 
 const written: OperationResult = {
   kind: "written",
@@ -35,6 +38,32 @@ describe("website derivative invalidation", () => {
         path: "/website/page.md",
         confirmation: "page",
       }),
+    ).toBe(true);
+  });
+
+  test("distinguishes incomplete autosaves from explicit restrictions", () => {
+    const write = (text: string) =>
+      operationMayRestrictWebsite(
+        { kind: "write", path: "website/index.md", text },
+        written,
+      );
+
+    expect(write("---\ntitle: Home\n---\n\nHello\n")).toBe(false);
+    expect(write("---\ntitle: Half written\n\nHello\n")).toBe(false);
+    expect(write("---\ntitle: Home\ndraft: true\n---\n\nHello\n")).toBe(true);
+    expect(
+      write("---\ntitle: Home\naudience: members\n---\n\nHello\n"),
+    ).toBe(true);
+    expect(
+      write(
+        "---\ncontext_encryption: v1\n---\n\n```context-encrypted\n{}\n```\n",
+      ),
+    ).toBe(true);
+    expect(
+      operationMayRestrictWebsite(
+        { kind: "delete", path: "website/index.md", confirmation: "index.md" },
+        { kind: "deleted", paths: ["website/index.md"] },
+      ),
     ).toBe(true);
   });
 

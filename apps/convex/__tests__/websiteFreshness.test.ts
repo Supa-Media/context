@@ -1,8 +1,8 @@
 /**
- * A stale route index drops the site's menu, so the site must not wait for the
- * quarter-hourly sweep to become fresh again. Turning a site on indexes its
- * homepage at once, and every invalidation (a save under `website/`, or a
- * source mismatch the resolver noticed) queues one rebuild shortly after.
+ * A stale route index must not wait for the quarter-hourly sweep to become
+ * fresh again. Turning a site on indexes its homepage at once, and every
+ * invalidation (a save under `website/`, or a source mismatch the resolver
+ * noticed) queues one rebuild shortly after.
  *
  * Without this, the Settings card said Live while the site said "Nothing
  * here" for up to fifteen minutes after enabling and after every edit.
@@ -35,7 +35,7 @@ async function fixture() {
   backend.seed("index.md", "# Atlas\n");
   vi.stubGlobal("fetch", backend.fetchImpl);
   await seedStorageBinding(t, { workspaceId, boundBy: owner });
-  return { t, owner, workspaceId };
+  return { t, owner, workspaceId, backend };
 }
 
 const reconcileJobs = async (f: Awaited<ReturnType<typeof fixture>>) =>
@@ -95,5 +95,54 @@ describe("website index freshness", () => {
     await f.t.mutation(internal.functions.websites.invalidateRouteIndex, { workspaceId: f.workspaceId });
     expect(await revision()).not.toBe(before);
     await expect(f.t.query(api.functions.websites.siteRevision, { handle: "nobody" })).resolves.toBeNull();
+  }, 15_000);
+
+  test("only the latest save in an autosave burst may publish", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
+      workspaceId: f.workspaceId,
+    });
+    await drainScheduled(f.t);
+
+    await f.t.mutation(internal.functions.websites.recordRouteChange, {
+      workspaceId: f.workspaceId,
+    });
+    const older = await f.t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("websiteStates")
+          .withIndex("by_workspace", (q) =>
+            q.eq("workspaceId", f.workspaceId),
+          )
+          .unique())!.routeGeneration!,
+    );
+    await f.t.mutation(internal.functions.websites.recordRouteChange, {
+      workspaceId: f.workspaceId,
+    });
+    const latest = await f.t.run(
+      async (ctx) =>
+        (await ctx.db
+          .query("websiteStates")
+          .withIndex("by_workspace", (q) =>
+            q.eq("workspaceId", f.workspaceId),
+          )
+          .unique())!.routeGeneration!,
+    );
+    expect(latest).toBeGreaterThan(older);
+
+    const before = f.backend.requests.length;
+    await expect(
+      f.t.action(internal.functions.websites.reconcileWorkspace, {
+        workspaceId: f.workspaceId,
+        expectedGeneration: older,
+      }),
+    ).resolves.toBe(false);
+    expect(f.backend.requests).toHaveLength(before);
+    await expect(
+      f.t.action(internal.functions.websites.reconcileWorkspace, {
+        workspaceId: f.workspaceId,
+        expectedGeneration: latest,
+      }),
+    ).resolves.toBe(true);
   }, 15_000);
 });

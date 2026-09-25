@@ -42,7 +42,10 @@ import {
   trimTrailingSlashes,
 } from "../treeAnnounce";
 import { treeChangeOf } from "./access";
-import { operationTouchesWebsite } from "../websites/changes";
+import {
+  operationMayRestrictWebsite,
+  operationTouchesWebsite,
+} from "../websites/changes";
 import { executeOperation } from "./executeOperation";
 import {
   failForwardSync,
@@ -458,8 +461,12 @@ export async function runFileOperationHandler(
     operationTouchesWebsite(args.operation as FileOperation, result)
   ) {
     await ctx
-      .runMutation(internal.functions.websites.invalidateRouteIndex, {
+      .runMutation(internal.functions.websites.recordRouteChange, {
         workspaceId: args.workspaceId,
+        unsafe: operationMayRestrictWebsite(
+          args.operation as FileOperation,
+          result,
+        ),
       })
       .catch(() => {});
   }

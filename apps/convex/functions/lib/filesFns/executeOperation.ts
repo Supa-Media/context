@@ -58,6 +58,11 @@ import {
 } from "../../../../mcp/src/storageLayout.js";
 import { resolveContextPlugins, setPluginEnabled } from "../../../../mcp/src/plugins/enablement.js";
 import { type FileOperation, IDLE_PROJECTION, type OperationResult } from "./operationTypes";
+import {
+  deleteWebsiteRelease,
+  readWebsiteRelease,
+  writeWebsiteRelease,
+} from "../fileOps/websiteReleases";
 import type { ManagedInstalls, PluginInventory } from "./pluginValidators";
 import {
   contextPluginsResult,
@@ -474,6 +479,24 @@ export async function executeOperation(
               ? { ...result, note: { kind: "file" as const, ...result.note } }
               : result,
           ),
+        };
+      }
+      case "writeWebsiteRelease": {
+        return {
+          kind: "websiteReleaseWritten",
+          pages: await writeWebsiteRelease(store, clearance, operation),
+        };
+      }
+      case "readWebsiteRelease": {
+        return {
+          kind: "websiteReleasePages",
+          results: await readWebsiteRelease(store, operation.pages),
+        };
+      }
+      case "deleteWebsiteRelease": {
+        return {
+          kind: "websiteReleaseDeleted",
+          objects: await deleteWebsiteRelease(store, operation.releaseId),
         };
       }
       case "clearVault": {

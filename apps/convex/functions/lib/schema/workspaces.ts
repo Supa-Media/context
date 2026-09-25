@@ -192,6 +192,11 @@ export const workspaceTables = {
     routeReconciledGeneration: v.optional(v.number()),
     routeReconciledAt: v.optional(v.number()),
     routeAttemptedAt: v.optional(v.number()),
+    /** Set while an unpublished change may have narrowed a public route. */
+    routeUnsafeGeneration: v.optional(v.number()),
+    /** Current and one grace release; page bytes remain in the customer bucket. */
+    publishedReleaseId: v.optional(v.string()),
+    previousReleaseId: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
@@ -208,6 +213,9 @@ export const workspaceTables = {
     routePath: v.union(v.string(), v.null()),
     lookupKey: v.optional(v.string()),
     sourceEtag: v.string(),
+    /** Immutable fallback page in the customer's `.context/` namespace. */
+    releaseId: v.optional(v.string()),
+    releasePageId: v.optional(v.string()),
     status: v.union(
       v.literal("live"),
       v.literal("draft"),
