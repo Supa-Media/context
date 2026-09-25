@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { useWindowDimensions } from "react-native";
+import { layout } from "../../design/tokens";
 import { AGENT_NAMES, GUIDE_STEPS, type SetupAgent } from "../guides";
 import type { BringView } from "../guideState";
 import type { BringTopic } from "../bring";
@@ -52,6 +54,8 @@ export function BringStep({
 }) {
   const name = AGENT_NAMES[agent];
   const of = GUIDE_STEPS[agent].length;
+  // A phone's foot has room for Back and one button; ✕ is the "later" there.
+  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
   const picture = <StepIllustration agent={agent} step="bring" slug={slug} />;
   const frame = (children: ReactNode, footLeft: ReactNode, footRight: ReactNode, counted = true) => (
     <GuideFrame
@@ -201,7 +205,7 @@ export function BringStep({
     </>,
     <BackLink onPress={onBack} />,
     <>
-      {stalled ? <QuietLink label="Do this later" onPress={onClose} testID="agent-setup-later" /> : null}
+      {stalled && !phone ? <QuietLink label="Do this later" onPress={onClose} testID="agent-setup-later" /> : null}
       <GuideButton label="Copy the prompt again" quiet onPress={onCopyAgain} testID="agent-setup-copy-again" />
     </>,
   );

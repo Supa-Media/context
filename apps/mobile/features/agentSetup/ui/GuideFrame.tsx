@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ShellTitleBand } from "../../app/ShellTitleBandView";
 import { Icon } from "../../design/components/Icon";
@@ -56,7 +56,7 @@ export function GuideFrame({
     <Modal visible animationType={reduced ? "none" : phone ? "slide" : "fade"} onRequestClose={onClose}>
       <GuidePhone.Provider value={phone}>
         <View style={[s.page, { paddingTop: insets.top, paddingBottom: insets.bottom }]} testID="agent-setup">
-          <ShellTitleBand color={colors.surface} />
+          <ShellTitleBand color={colors.surface2} />
           <View style={[s.top, phone && s.topPhone]}>
             <Text style={[s.who, phone && s.whoPhone]} numberOfLines={1} role="heading" aria-level={2}>
               Connect {agentName} to <Text style={s.slug}>@{slug}</Text>
@@ -71,7 +71,10 @@ export function GuideFrame({
               role="button"
               accessibilityLabel="Close the guide"
               onPress={onClose}
-              style={s.close}
+              // The modal focuses its first control on open; a browser ring on
+              // a mouse user's close button reads as stuck. The ring is drawn
+              // here instead, quietly, in the accent.
+              style={(press) => [s.close, (press as { focused?: boolean }).focused === true && s.closeFocused]}
               testID="agent-setup-close"
             >
               <Icon name="close" size={14} color={colors.text2} />
@@ -82,7 +85,7 @@ export function GuideFrame({
             contentContainerStyle={[s.main, phone ? s.mainPhone : s.mainDesk]}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={[s.left, phone && s.leftPhone]}>
+            <View style={[s.left, !picture && s.leftAlone, phone && s.leftPhone]}>
               {children}
               {phone && picture ? (
                 <Reveal label="Show me where" testID="agent-setup-show-me">
@@ -105,9 +108,10 @@ export function GuideFrame({
 /** "← Back", quiet, as the foot's left side. */
 export function BackLink({ onPress }: { onPress: () => void }) {
   const s = useThemedStyles(makeStyles);
+  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
   return (
     <Pressable role="button" onPress={onPress} style={s.quietPress} testID="agent-setup-back">
-      <Text style={s.quiet}>← Back</Text>
+      <Text style={[s.quiet, phone && s.quietPhone]}>← Back</Text>
     </Pressable>
   );
 }
@@ -115,9 +119,10 @@ export function BackLink({ onPress }: { onPress: () => void }) {
 /** A quiet word link in the foot: "Do this later", "Connect ChatGPT too". */
 export function QuietLink({ label, onPress, testID }: { label: string; onPress: () => void; testID?: string }) {
   const s = useThemedStyles(makeStyles);
+  const phone = useWindowDimensions().width < layout.narrowBreakpoint;
   return (
     <Pressable role="button" onPress={onPress} style={s.quietPress} testID={testID}>
-      <Text style={s.quiet}>{label}</Text>
+      <Text style={[s.quiet, phone && s.quietPhone]}>{label}</Text>
     </Pressable>
   );
 }
@@ -131,11 +136,13 @@ export function GuideButton({
   label,
   onPress,
   quiet = false,
+  style,
   testID,
 }: {
   label: string;
   onPress: () => void;
   quiet?: boolean;
+  style?: ViewStyle;
   testID?: string;
 }) {
   const s = useThemedStyles(makeStyles);
@@ -144,7 +151,7 @@ export function GuideButton({
     <Pressable
       role="button"
       onPress={onPress}
-      style={({ pressed }) => [s.btn, phone && s.btnPhone, quiet && s.btnQuiet, pressed && s.btnPressed]}
+      style={({ pressed }) => [s.btn, phone && s.btnPhone, quiet && s.btnQuiet, pressed && s.btnPressed, style]}
       testID={testID}
     >
       <Text style={[s.btnLabel, phone && s.btnLabelPhone, quiet && s.btnLabelQuiet]}>{label}</Text>
@@ -163,7 +170,7 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: space.x6,
       borderBottomWidth: 1,
       borderBottomColor: colors.line,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.surface2,
     },
     topPhone: { paddingHorizontal: space.x4, paddingVertical: space.x3, gap: space.x3 },
     who: { fontSize: pointerType.ui, fontWeight: "600", color: colors.text, flexShrink: 1 },
@@ -177,8 +184,10 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.lg,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.chipFill,
+      backgroundColor: colors.surface3,
+      outlineWidth: 0,
     },
+    closeFocused: { borderWidth: 1.5, borderColor: colors.accent },
     scroll: { flex: 1 },
     main: { flexGrow: 1 },
     mainDesk: {
@@ -192,6 +201,7 @@ const makeStyles = (colors: Colors) =>
     },
     mainPhone: { paddingHorizontal: space.x4, paddingTop: space.x7, paddingBottom: space.x6 },
     left: { flexShrink: 1, width: 440, maxWidth: "100%" },
+    leftAlone: { width: 560 },
     leftPhone: { width: "100%" },
     right: { flexShrink: 1, width: 520, maxWidth: "100%" },
     foot: {
@@ -207,7 +217,7 @@ const makeStyles = (colors: Colors) =>
     },
     footPhone: { paddingHorizontal: space.x4 },
     footSide: { flexDirection: "row", alignItems: "center", gap: space.x4 },
-    footRight: { flexShrink: 1, justifyContent: "flex-end", flexWrap: "wrap" },
+    footRight: { flexShrink: 1, justifyContent: "flex-end" },
     btn: {
       paddingVertical: 11,
       paddingHorizontal: 22,
@@ -216,12 +226,13 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 1,
       borderColor: colors.accent,
     },
-    btnPhone: { paddingVertical: 13, paddingHorizontal: space.x5 },
+    btnPhone: { paddingVertical: 13, paddingHorizontal: space.x5, flexShrink: 1 },
     btnQuiet: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },
     btnPressed: { opacity: 0.85 },
     btnLabel: { fontSize: pointerType.ui, fontWeight: "600", color: colors.ink },
     btnLabelPhone: { fontSize: touchType.ui },
     btnLabelQuiet: { color: colors.text },
-    quietPress: { paddingVertical: space.x2 },
-    quiet: { fontSize: pointerType.meta, fontWeight: "500", color: colors.muted },
+    quietPress: { paddingVertical: space.x2, flexShrink: 0 },
+    quiet: { fontSize: pointerType.ui, fontWeight: "500", color: colors.text2 },
+    quietPhone: { fontSize: touchType.ui },
   });

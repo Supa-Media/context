@@ -111,11 +111,14 @@ describe("bringing it over", () => {
     guide.done();
   });
 
-  test("stalled: what to try, and a way to do it later", () => {
+  test("stalled: what to try, and the prompt one press away", () => {
+    // jsdom has no window width, so this is the phone's foot: Back, one
+    // button, and ✕ for "later".
     const guide = draw("guide-claude-nothing");
     expect(guide.text()).toContain("Still stuck?");
     expect(guide.text()).toContain("Start a new chat");
-    expect(guide.byId("agent-setup-later")).not.toBeNull();
+    expect(guide.byId("agent-setup-copy-again")).not.toBeNull();
+    expect(guide.byId("agent-setup-later")).toBeNull();
     guide.done();
   });
 

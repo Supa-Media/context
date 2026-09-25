@@ -203,7 +203,7 @@ const makeStyles = (colors: Colors) =>
       borderBottomColor: colors.line,
     },
     subNote: { fontSize: t.meta, color: colors.muted },
-    subLink: { color: colors.accent, fontWeight: "600" },
+    subLink: { fontSize: t.meta, color: colors.accent, fontWeight: "600" },
     foot: {
       flexDirection: "row",
       justifyContent: "space-between",

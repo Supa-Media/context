@@ -44,7 +44,20 @@ function Pin({ n }: { n: number }) {
   );
 }
 
-function Win({ title, nav, hit, children }: { title?: string; nav?: string[]; hit?: string; children: ReactNode }) {
+function Win({
+  title,
+  nav,
+  hit,
+  hitPin,
+  children,
+}: {
+  title?: string;
+  nav?: string[];
+  hit?: string;
+  /** Ring the highlighted nav item itself, numbered, when it is the thing to press. */
+  hitPin?: number;
+  children: ReactNode;
+}) {
   const s = useIll();
   return (
     <View style={s.win}>
@@ -59,11 +72,18 @@ function Win({ title, nav, hit, children }: { title?: string; nav?: string[]; hi
       <View style={s.wbody}>
         {nav === undefined ? null : (
           <View style={s.wnav}>
-            {nav.map((item) => (
-              <Text key={item} style={[s.navItem, item === hit && s.navHit]}>
-                {item}
-              </Text>
-            ))}
+            {nav.map((item) =>
+              item === hit && hitPin !== undefined ? (
+                <View key={item} style={s.hl}>
+                  <Text style={[s.navItem, s.navHit]}>{item}</Text>
+                  <Pin n={hitPin} />
+                </View>
+              ) : (
+                <Text key={item} style={[s.navItem, item === hit && s.navHit]}>
+                  {item}
+                </Text>
+              ),
+            )}
           </View>
         )}
         <View style={s.wpane}>{children}</View>
@@ -176,12 +196,12 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
     case "open":
       return (
         <Frame caption={SEEN_IN.claude}>
-          <Win title="Settings" nav={CLAUDE_NAV} hit="Connectors">
+          <Win title="Settings" nav={CLAUDE_NAV} hit="Connectors" hitPin={1}>
             <Text style={s.strong}>Connectors</Text>
             <Line />
             <RowItem><Line width="50%" /><Fake label="Connect" /></RowItem>
             <RowItem><Line width="50%" /><Fake label="Connect" /></RowItem>
-            <View style={{ flexDirection: "row" }}><Fake label="Add custom connector" pin={1} /></View>
+            <View style={{ flexDirection: "row" }}><Fake label="Add custom connector" /></View>
           </Win>
         </Frame>
       );
@@ -221,8 +241,15 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
             <Input label="Name" value="Context" pin={1} />
             <Input label="MCP server URL" value={MCP_ENDPOINT} pin={2} />
             <Input label="Authentication" value="OAuth ⌄" pin={3} plain />
+            <View style={s.tick}>
+              <View style={[s.tickBox, s.hl]}>
+                <Text style={s.tickMark}>✓</Text>
+                <Pin n={4} />
+              </View>
+              <Text style={s.lab}>I understand and want to continue</Text>
+            </View>
             <Right>
-              <Fake label="Create" solid pin={4} />
+              <Fake label="Create" solid pin={5} />
             </Right>
           </Win>
         </Frame>
@@ -257,9 +284,9 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
       return (
         <Frame caption={SEEN_IN[agent]}>
           {agent === "claude" ? (
-            <Chat ask="Claude wants to use Context" detail="write_note · 1-projects/…" allow="Always allow" input="Reply to Claude…" />
+            <Chat ask="Claude wants to use Context" detail="write_note · 1-projects/context-lc.md" allow="Always allow" input="Reply to Claude…" />
           ) : (
-            <Chat ask="Context wants to write a note" detail="1-projects/…" allow="Confirm" input="+ · Developer mode · Context" />
+            <Chat ask="Context wants to write a note" detail="1-projects/context-lc.md" allow="Confirm" input="+ · Developer mode · Context" />
           )}
         </Frame>
       );
@@ -350,6 +377,16 @@ const makeStyles = (colors: Colors) =>
     },
     inpText: { fontSize: t.meta, color: colors.text, lineHeight: 18 },
     mono: { fontFamily: fonts.mono },
+    tick: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+    tickBox: {
+      width: 16,
+      height: 16,
+      borderRadius: 4,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    tickMark: { fontSize: t.label, fontWeight: "700", color: colors.ink },
     toggle: { width: 30, height: 18, borderRadius: 9, backgroundColor: colors.accent, justifyContent: "center" },
     knob: { width: 14, height: 14, borderRadius: 7, backgroundColor: colors.ground, alignSelf: "flex-end", marginRight: 2 },
     chat: { flex: 1, minHeight: 240, padding: 18, gap: 10, justifyContent: "flex-end" },

@@ -67,9 +67,13 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
               one setup, and the phone app picks it up too.
             </P>
             <P>On a phone, use claude.ai in your browser for this part.</P>
-            <P>
-              <Link label={`${link.label} ↗`} onPress={() => open(link.settings)} testID="agent-setup-open-link" />
-            </P>
+            <GuideButton
+              label={`${link.label} ↗`}
+              quiet
+              onPress={() => open(link.settings)}
+              style={{ alignSelf: "flex-start" }}
+              testID="agent-setup-open-link"
+            />
           </>
         ),
       };
@@ -107,9 +111,13 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
               from us. On ChatGPT's free plan? <Link label="Set up Claude instead" onPress={onSwitchAgent} />, which
               works on its free plan.
             </P>
-            <P>
-              <Link label={`${link.label} ↗`} onPress={() => open(link.settings)} testID="agent-setup-open-link" />
-            </P>
+            <GuideButton
+              label={`${link.label} ↗`}
+              quiet
+              onPress={() => open(link.settings)}
+              style={{ alignSelf: "flex-start" }}
+              testID="agent-setup-open-link"
+            />
           </>
         ),
       };

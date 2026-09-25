@@ -1,10 +1,10 @@
-import { Fragment, useState, type ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { Fragment, useContext, useState, type ReactNode } from "react";
+import { Pressable, Text as Inline, View } from "react-native";
 import { Text } from "../../design/components/Text";
 import { useCopy } from "../../design/useCopy";
 import { notePlace, noteTitle, type WrittenNote } from "../checks";
 import { BRING_TOPICS, type BringTopic } from "../bring";
-import { useGuideStyles } from "./styles";
+import { GuidePhone, useGuideStyles } from "./styles";
 
 /**
  * The guide's small parts: one heading, prose with bold words and menu paths
@@ -26,32 +26,37 @@ export function P({ children, small = false }: { children: ReactNode; small?: bo
   return <Text style={small ? [s.small, { marginBottom: 12 }] : s.p}>{children}</Text>;
 }
 
+/*
+  The inline pieces — bold words, a menu path, a link — are React Native's own
+  `Text`, not the design one: that applies the body variant's size, and a word
+  set inside a sentence has to take the sentence's size, not its own.
+*/
 export function B({ children }: { children: ReactNode }) {
   const s = useGuideStyles();
-  return <Text style={s.b}>{children}</Text>;
+  return <Inline style={s.b}>{children}</Inline>;
 }
 
 /** `Settings › General`, the way a menu path reads: bold words, quiet arrows. */
 export function MenuPath({ parts }: { parts: readonly string[] }) {
   const s = useGuideStyles();
   return (
-    <Text style={s.b}>
+    <Inline style={s.b}>
       {parts.map((part, index) => (
         <Fragment key={part}>
-          {index > 0 ? <Text style={s.sep}> › </Text> : null}
+          {index > 0 ? <Inline style={s.sep}> › </Inline> : null}
           {part}
         </Fragment>
       ))}
-    </Text>
+    </Inline>
   );
 }
 
 export function Link({ label, onPress, testID }: { label: string; onPress: () => void; testID?: string }) {
   const s = useGuideStyles();
   return (
-    <Text role="link" onPress={onPress} style={s.link} testID={testID}>
+    <Inline role="link" onPress={onPress} style={s.link} testID={testID}>
       {label}
-    </Text>
+    </Inline>
   );
 }
 
@@ -161,6 +166,7 @@ export function WrittenList({
   testID?: string;
 }) {
   const s = useGuideStyles();
+  const phone = useContext(GuidePhone);
   return (
     <View style={s.written} testID={testID}>
       {notes.map((note, index) => (
@@ -170,15 +176,17 @@ export function WrittenList({
           accessibilityLabel={onOpen ? `Open ${noteTitle(note.path)}` : undefined}
           disabled={onOpen === undefined}
           onPress={() => onOpen?.(note.path)}
-          style={[s.wr, index > 0 && s.ckRule]}
+          style={[s.wr, phone && s.wrStacked, index > 0 && s.ckRule]}
         >
           <Text style={s.wrTitle} numberOfLines={1}>
             {noteTitle(note.path)}
           </Text>
-          <Text style={s.wrPath} numberOfLines={1}>
-            {notePlace(note.path)}
-            {onOpen ? " ›" : ""}
-          </Text>
+          <View style={[s.wrRight, phone && s.wrRightStacked]}>
+            <Text style={s.wrPath} numberOfLines={1} ellipsizeMode="head">
+              {notePlace(note.path)}
+            </Text>
+            {onOpen && !phone ? <Text style={s.wrChev}>›</Text> : null}
+          </View>
         </Pressable>
       ))}
     </View>
@@ -193,7 +201,7 @@ export function Tips({ items }: { items: readonly ReactNode[] }) {
       <Text style={s.tipsHead}>Still stuck?</Text>
       {items.map((item, index) => (
         <View key={index} style={s.tip}>
-          <Text style={s.tipText}>{index + 1}.</Text>
+          <Text style={[s.tipText, s.tipNumber]}>{index + 1}.</Text>
           <Text style={s.tipText}>{item}</Text>
         </View>
       ))}

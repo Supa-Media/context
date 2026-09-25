@@ -101,8 +101,8 @@ const build = (colors: Colors, t: TypeScale) =>
     glyphWarn: { color: colors.warnText },
     glyphBad: { color: colors.critText },
     ckText: { flex: 1, minWidth: 0 },
-    ckTitle: { fontSize: t.ui, fontWeight: "500", color: colors.text },
-    ckSub: { fontSize: t.meta, color: colors.text2, marginTop: 1 },
+    ckTitle: { fontSize: t.ui, fontWeight: "600", color: colors.text },
+    ckSub: { fontSize: t.meta, lineHeight: Math.round(t.meta * 1.45), color: colors.text2, marginTop: 2 },
 
     written: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.card, overflow: "hidden" },
     wr: {
@@ -113,8 +113,12 @@ const build = (colors: Colors, t: TypeScale) =>
       paddingVertical: 11,
       paddingHorizontal: 14,
     },
-    wrTitle: { fontSize: t.ui, color: colors.text, flexShrink: 1 },
-    wrPath: { fontFamily: fonts.mono, fontSize: t.meta, color: colors.muted, flexShrink: 1, textAlign: "right" },
+    wrStacked: { flexDirection: "column", alignItems: "flex-start", gap: 2 },
+    wrTitle: { fontSize: t.ui, fontWeight: "500", color: colors.text, flexShrink: 0, maxWidth: "55%" },
+    wrRight: { flex: 1, minWidth: 0, flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 6 },
+    wrRightStacked: { justifyContent: "flex-start", width: "100%" },
+    wrPath: { fontFamily: fonts.mono, fontSize: t.meta, color: colors.muted, flexShrink: 1 },
+    wrChev: { fontSize: t.meta, color: colors.muted, width: 8 },
 
     opt: { flexDirection: "row", gap: space.x3, alignItems: "flex-start", paddingVertical: 11 },
     box: {
@@ -133,6 +137,7 @@ const build = (colors: Colors, t: TypeScale) =>
     optSub: { fontSize: t.meta, color: colors.muted },
 
     tipsHead: { fontSize: t.meta, fontWeight: "600", color: colors.muted, marginBottom: 6, marginTop: space.x5 },
+    tipNumber: { flex: 0, width: 18 },
     tip: { flexDirection: "row", gap: space.x2, marginBottom: space.x1 },
     tipText: { flex: 1, fontSize: t.ui, lineHeight: Math.round((t.ui) * 1.7), color: colors.text2 },
 
