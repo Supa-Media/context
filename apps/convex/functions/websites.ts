@@ -6,6 +6,7 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  query,
 } from "../_generated/server";
 import {
   beginRouteReconciliationHandler,
@@ -17,6 +18,7 @@ import {
 } from "./lib/websites/routes";
 import {
   resolveWebsitePageHandler,
+  siteRevisionHandler,
   resolveWebsiteAddressHandler,
   websiteAddressPreviewHandler,
   websiteAddressPlanHandler,
@@ -96,6 +98,15 @@ const resolutionPlanValidator = v.union(
   authenticationRequiredValidator,
   unavailableValidator,
   v.object({
+    kind: v.literal("probe"),
+    siteName: v.string(),
+    navigation: navigationValidator,
+    workspaceId: v.id("workspaces"),
+    routePath: v.string(),
+    viewer: v.union(v.literal("anonymous"), v.literal("member"), v.literal("other")),
+    invalidate: v.boolean(),
+  }),
+  v.object({
     kind: v.literal("read"),
     siteName: v.string(),
     navigation: navigationValidator,
@@ -126,6 +137,12 @@ export const resolvePage = action({
   args: { handle: v.string(), routePath: v.string() },
   returns: resolvedPageValidator,
   handler: resolveWebsitePageHandler,
+});
+
+export const siteRevision = query({
+  args: { handle: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: siteRevisionHandler,
 });
 
 export const resolveAddress = action({
