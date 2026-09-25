@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Linking, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import type { WebsiteNavigationItem } from "@context/shared";
 import { Text } from "../../design/components/Text";
+import { ScreenScroll } from "../../app/Screen";
 import { siteType } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 
@@ -60,51 +61,58 @@ export function SiteFrame({
     </Pressable>
   ));
   return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.scroll}>
-      <View style={styles.header} role="banner">
-        <Pressable accessibilityRole="link" onPress={() => go("/")} testID="site-name">
-          <Text variant="body" style={styles.name}>
-            {name}
-          </Text>
-        </Pressable>
-        {navigation.length === 0 ? null : phone ? (
-          <Pressable
-            accessibilityRole="button"
-            aria-expanded={open}
-            onPress={() => setOpen(!open)}
-            hitSlop={8}
-            style={styles.trigger}
-            testID="site-menu"
-          >
-            <Text variant="body" style={styles.navItem}>
-              {open ? "Close" : "Menu"}
+    // The ground sits outside the scroller so the status-bar band a phone
+    // holds back is the page's colour, not a gap.
+    <View style={styles.page}>
+      <ScreenScroll contentContainerStyle={styles.scroll}>
+        <View style={styles.header} role="banner">
+          <Pressable accessibilityRole="link" onPress={() => go("/")} testID="site-name">
+            <Text variant="body" style={styles.name}>
+              {name}
             </Text>
           </Pressable>
-        ) : (
-          <View style={styles.nav} role="navigation">
+          {navigation.length === 0 ? null : phone ? (
+            <Pressable
+              accessibilityRole="button"
+              aria-expanded={open}
+              onPress={() => setOpen(!open)}
+              hitSlop={8}
+              style={styles.trigger}
+              testID="site-menu"
+            >
+              <Text variant="body" style={styles.navItem}>
+                {open ? "Close" : "Menu"}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.nav} role="navigation">
+              {links}
+            </View>
+          )}
+        </View>
+        {phone && open ? (
+          <View style={styles.sheet} role="navigation">
             {links}
           </View>
-        )}
-      </View>
-      {phone && open ? (
-        <View style={styles.sheet} role="navigation">
-          {links}
+        ) : null}
+        <View
+          style={[styles.column, phone && styles.columnPhone, phone && open && styles.columnUnderSheet]}
+          role="main"
+        >
+          {children}
         </View>
-      ) : null}
-      <View style={[styles.column, phone && styles.columnPhone, phone && open && styles.columnUnderSheet]} role="main">
-        {children}
-      </View>
-      <View style={styles.footer}>
-        <Text variant="body" style={styles.foot}>
-          {`© ${name}`}
-        </Text>
-        <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(madeWith).catch(() => undefined)}>
+        <View style={styles.footer}>
           <Text variant="body" style={styles.foot}>
-            Made with Context
+            {`© ${name}`}
           </Text>
-        </Pressable>
-      </View>
-    </ScrollView>
+          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(madeWith).catch(() => undefined)}>
+            <Text variant="body" style={styles.foot}>
+              Made with Context
+            </Text>
+          </Pressable>
+        </View>
+      </ScreenScroll>
+    </View>
   );
 }
 
@@ -121,8 +129,19 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "space-between",
       gap: 16,
     },
-    name: { fontSize: siteType.name, fontWeight: "600", color: colors.text, letterSpacing: -0.2 },
-    nav: { flexDirection: "row", gap: 26, flexShrink: 1, flexWrap: "wrap", justifyContent: "flex-end" },
+    name: {
+      fontSize: siteType.name,
+      fontWeight: "600",
+      color: colors.text,
+      letterSpacing: -0.2,
+    },
+    nav: {
+      flexDirection: "row",
+      gap: 26,
+      flexShrink: 1,
+      flexWrap: "wrap",
+      justifyContent: "flex-end",
+    },
     navItem: { fontSize: siteType.nav, color: colors.muted },
     navCurrent: { color: colors.text },
     trigger: { paddingVertical: 10, paddingLeft: 16, marginRight: -4 },
@@ -136,7 +155,13 @@ const makeStyles = (colors: Colors) =>
     },
     sheetRow: { minHeight: 44, paddingVertical: 10, justifyContent: "center" },
     sheetItem: { fontSize: siteType.name },
-    column: { width: "100%", maxWidth: 640, flexGrow: 1, paddingTop: 80, paddingBottom: 72 },
+    column: {
+      width: "100%",
+      maxWidth: 640,
+      flexGrow: 1,
+      paddingTop: 80,
+      paddingBottom: 72,
+    },
     columnPhone: { paddingTop: 56 },
     columnUnderSheet: { paddingTop: 32 },
     footer: {

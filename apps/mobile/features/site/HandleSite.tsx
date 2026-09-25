@@ -46,7 +46,16 @@ export function HandleSite({
       name={view.siteName ?? handle}
       view={view}
       navigate={(path) => router.push(`/@${handle}${path === "/" ? "" : path}`)}
-      signIn={(path) => router.push(path)}
+      // Server-built; followed as given, and only ever inside this app, so a
+      // bad answer cannot send a visitor off-site.
+      signIn={(path) => {
+        if (isInAppPath(path)) router.push(path);
+      }}
     />
   );
+}
+
+/** A path within this app: rooted, and not a protocol-relative or backslash escape. */
+function isInAppPath(path: string): boolean {
+  return path.startsWith("/") && !path.startsWith("//") && !path.includes("\\");
 }
