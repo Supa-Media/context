@@ -22,7 +22,11 @@ export const workspaceTables = {
    */
   names: defineTable({
     name: v.string(),
-    kind: v.union(v.literal("user"), v.literal("workspace"), v.literal("group")),
+    kind: v.union(
+      v.literal("user"),
+      v.literal("workspace"),
+      v.literal("group"),
+    ),
     /** Set when `kind === "user"`. */
     userId: v.optional(v.id("users")),
     /** Set when `kind === "workspace"`. */
@@ -177,6 +181,12 @@ export const workspaceTables = {
     state: v.union(v.literal("enabled"), v.literal("disabled")),
     enabledAt: v.optional(v.number()),
     enabledBy: v.optional(v.id("users")),
+    /**
+     * Set only after the enable path has verified the starter homepage.
+     * Legacy enabled rows without this marker get one absent-only repair;
+     * later intentional homepage deletion is left alone.
+     */
+    starterEnsuredAt: v.optional(v.number()),
     /** Monotonic fence: an older bucket scan may never replace a newer one. */
     routeGeneration: v.optional(v.number()),
     routeReconciledGeneration: v.optional(v.number()),
