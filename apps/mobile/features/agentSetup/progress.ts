@@ -36,9 +36,30 @@ export const FRESH_PROGRESS: SetupProgress = {
   finished: false,
 };
 
+/**
+ * This module's own namespace on the device, current version or not.
+ *
+ * Sign-out has to take the stale ones too, for `lastPlace`'s reason: a record
+ * written by a previous shape still holds the names of somebody's notes.
+ */
+const NAMESPACE = "context.lc.agent-setup";
+
 /** One record per workspace and agent: a member can set up Claude for two teams. */
 export function progressKey(workspaceId: string, agent: SetupAgent): string {
-  return `context.lc.agent-setup.v1.${workspaceId}.${agent}`;
+  return `${NAMESPACE}.v1.${workspaceId}.${agent}`;
+}
+
+/** Every key this module owns. `ownedKeys` does not reach them. */
+export function setupKeys(keys: readonly string[]): string[] {
+  return keys.filter((key) => key.startsWith(`${NAMESPACE}.`));
+}
+
+/** This version's keys for one workspace. For leaving a context. */
+export function setupKeysForWorkspace(
+  keys: readonly string[],
+  workspaceId: string,
+): string[] {
+  return setupKeys(keys).filter((key) => key.startsWith(`${NAMESPACE}.v1.${workspaceId}.`));
 }
 
 const TOPIC_KEYS = new Set<string>(BRING_TOPICS.map((row) => row.key));

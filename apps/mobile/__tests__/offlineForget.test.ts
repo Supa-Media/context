@@ -138,6 +138,39 @@ describe("the meetings namespace", () => {
   });
 });
 
+describe("the agent-setup guide's record", () => {
+  /*
+    A third namespace outside `ownedKeys`, and the same argument as the two
+    above: `written` is the list of paths the agent wrote during somebody's
+    setup, and `bringView` renders that list from the record alone. Left
+    behind, the next person to sign in on this machine opens the same
+    context's guide and reads the names of notes that were never theirs.
+  */
+  const setupKey = (workspaceId: string) =>
+    `context.lc.agent-setup.v1.${workspaceId}.claude`;
+  const record = JSON.stringify({
+    step: 4,
+    topics: ["work"],
+    copiedAt: 1,
+    written: [{ path: "1-projects/pay.md", at: 2 }],
+    finished: true,
+  });
+
+  test("goes with the copies on sign-out", async () => {
+    mockOpened = store({}, { [setupKey("w1")]: record, [setupKey("w2")]: record });
+
+    expect(await forgetLocalCopies()).toEqual({ verdict: "cleared" });
+    expect(await mockOpened.keys()).toEqual([]);
+  });
+
+  test("and leaving one context takes only that context's", async () => {
+    mockOpened = store({}, { [setupKey("w1")]: record, [setupKey("w2")]: record });
+
+    expect(await forgetContextCopies("w1")).toEqual({ verdict: "cleared" });
+    expect(await mockOpened.keys()).toEqual([setupKey("w2")]);
+  });
+});
+
 describe("a store that behaves", () => {
   test("the verdict is cleared, and only this feature's keys go", async () => {
     // The anti-vacuity witness for everything below: a verdict of `cleared`

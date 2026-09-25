@@ -271,6 +271,23 @@ async function seedDevice(what: { cached?: boolean; typed?: boolean } = {}) {
     );
   }
 
+  /*
+    The agent-setup guide's record. It is not a note body, and it lives in its
+    own namespace rather than `forgetEverything`'s — but `written` is a list of
+    NOTE PATHS, which is the same "the name of one of somebody's notes"
+    argument `forgetPlace` and `forgetAllMeetings` are both here for.
+  */
+  window.localStorage.setItem(
+    "context.lc.agent-setup.v1.w1.claude",
+    JSON.stringify({
+      step: 4,
+      topics: ["work"],
+      copiedAt: 1,
+      written: [{ path: "1-projects/pay.md", at: 2 }],
+      finished: true,
+    }),
+  );
+
   window.localStorage.setItem("some.other.feature key", "not ours");
 }
 
@@ -389,6 +406,29 @@ describe("signing out takes the notes off the device", () => {
     await app.signOut();
 
     expect(ownedAtSignOut).toEqual([]);
+    app.unmount();
+  });
+
+  test("including the setup guide's record, which is a list of note paths", async () => {
+    /*
+      `ownedKeys` does not reach it — the guide keys by workspace and agent in
+      its own namespace — so this asserts on the raw key, exactly as the two
+      clears before it had to.
+
+      What it holds is `written`: the paths the agent wrote during somebody's
+      setup. On a shared machine the next person to sign in is handed the names
+      of notes they may never have been able to read, and the guide renders
+      them from this record alone — `bringView` returns the list before any
+      fresh activity is fetched.
+    */
+    await seedDevice();
+    const key = "context.lc.agent-setup.v1.w1.claude";
+    expect(window.localStorage.getItem(key)).not.toBeNull();
+
+    const app = mountConsole();
+    await app.signOut();
+
+    expect(window.localStorage.getItem(key)).toBeNull();
     app.unmount();
   });
 
