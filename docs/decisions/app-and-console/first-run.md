@@ -81,6 +81,10 @@ artboards on 2026-09-25 and decided three things:
   step. Where a step names a settings page, it also has a button that opens it:
   Claude's instructions field is Settings › Account › "Instructions for
   Claude".
+- **The last step is never a dead end** (owner, 2026-09-25). Every face of
+  it has a way out that marks the guide done: "Skip for now" while nothing has
+  arrived, and "Finish" as soon as one note has, since the connection is then
+  proven. Closing with ✕ instead keeps the step to resume later.
 - **Bringing over what the agent knows is the last step, and it is the check.**
   One prompt (`agentSetup/bring.ts`) asks the agent to orient, say where each
   note will go, wait for the person's go, write only what it knows, and finish

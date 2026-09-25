@@ -111,27 +111,41 @@ describe("bringing it over", () => {
     expect(guide.byId("agent-setup-topic-personal")?.getAttribute("aria-checked")).toBe("false");
     expect(guide.byId("agent-setup-topic-work")?.getAttribute("aria-checked")).toBe("true");
     expect(guide.byId("agent-setup-copy-open")?.textContent).toBe("Copy and open Claude");
+    expect(guide.byId("agent-setup-skip")?.textContent).toBe("Skip for now");
     guide.done();
   });
 
-  test("live: notes as they land, and only the quiet copy-again", () => {
-    const guide = draw("guide-claude-bring-live");
+  test("live: notes as they land, and Finish as soon as one has", () => {
+    const calls: string[] = [];
+    const guide = draw("guide-claude-bring-live", { onFinish: () => calls.push("finish") });
     expect(guide.text()).toContain("Writing notes");
     expect(guide.byId("agent-setup-written")?.textContent).toContain("context-lc");
     expect(guide.byId("agent-setup-copy-open")).toBeNull();
     expect(guide.byId("agent-setup-copy-again")).not.toBeNull();
-    expect(guide.byId("agent-setup-later")).toBeNull();
+    expect(guide.byId("agent-setup-skip")).toBeNull();
+    guide.press("agent-setup-finish");
+    expect(calls).toEqual(["finish"]);
     guide.done();
   });
 
+  test("never a dead end: waiting with nothing written can still be skipped", () => {
+    for (const key of ["guide-claude-no-write", "guide-claude-nothing", "guide-chatgpt-bring"] as const) {
+      const calls: string[] = [];
+      const guide = draw(key, { onFinish: () => calls.push("finish") });
+      guide.press("agent-setup-skip");
+      expect(calls).toEqual(["finish"]);
+      guide.done();
+    }
+  });
+
   test("stalled: what to try, and the prompt one press away", () => {
-    // jsdom has no window width, so this is the phone's foot: Back, one
-    // button, and ✕ for "later".
+    // jsdom has no window width, so this is the phone's foot: Back and one
+    // button, with "Skip for now" at the foot of the page.
     const guide = draw("guide-claude-nothing");
     expect(guide.text()).toContain("Still stuck?");
     expect(guide.text()).toContain("Start a new chat");
     expect(guide.byId("agent-setup-copy-again")).not.toBeNull();
-    expect(guide.byId("agent-setup-later")).toBeNull();
+    expect(guide.byId("agent-setup-skip")).not.toBeNull();
     guide.done();
   });
 

@@ -34,6 +34,7 @@ export function GuideFrame({
   children,
   footLeft,
   footRight,
+  after,
   onClose,
 }: {
   agentName: string;
@@ -44,6 +45,8 @@ export function GuideFrame({
   children: ReactNode;
   footLeft?: ReactNode;
   footRight?: ReactNode;
+  /** Last in the column, below "Show me where": a phone's quiet way out. */
+  after?: ReactNode;
   onClose: () => void;
 }) {
   const colors = useColors();
@@ -92,6 +95,7 @@ export function GuideFrame({
                   {picture}
                 </Reveal>
               ) : null}
+              {after}
             </View>
             {!phone && picture ? <View style={s.right}>{picture}</View> : null}
           </ScrollView>
