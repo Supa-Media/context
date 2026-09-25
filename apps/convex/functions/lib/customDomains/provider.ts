@@ -47,6 +47,8 @@ export interface CustomHostname {
   hostname: string;
   status?: string;
   verification_errors?: string[];
+  /** The TXT record Cloudflare wants before it serves a hostname that is not a CNAME to us. */
+  ownership_verification?: { type?: string; name?: string; value?: string };
   ssl?: {
     status?: string;
     validation_errors?: { message?: string }[];
@@ -61,7 +63,7 @@ interface Envelope<T> {
 
 async function call<T>(
   config: ProviderConfig,
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<T> {
@@ -154,6 +156,16 @@ export async function readHostname(
   }
 }
 
+/**
+ * Ask Cloudflare to look at a pending hostname now rather than at the next
+ * step of its own backoff, by re-sending the certificate settings unchanged.
+ */
+export async function refreshHostname(config: ProviderConfig, id: string): Promise<CustomHostname> {
+  return await call<CustomHostname>(config, "PATCH", `/custom_hostnames/${encodeURIComponent(id)}`, {
+    ssl: { method: "http", type: "dv", settings: { min_tls_version: "1.2" } },
+  });
+}
+
 /** Delete a registration. Already gone is success. */
 export async function deleteHostname(config: ProviderConfig, id: string): Promise<void> {
   try {
@@ -181,6 +193,24 @@ export interface ProviderReadiness {
   /** A certificate for the hostname is issued and deployed. */
   https: boolean;
   problem: ProviderProblem | null;
+  /**
+   * The TXT record that lets Cloudflare serve a root domain. A root domain
+   * points at us by ALIAS or a flattened CNAME, which answers with addresses
+   * rather than a CNAME, and without Enterprise apex proxying Cloudflare
+   * only activates such a hostname once this record is in place.
+   */
+  hostnameTxt?: { name: string; value: string } | null;
+}
+
+const HOSTNAME_TXT_VALUE = /^[A-Za-z0-9-]{8,100}$/;
+
+/** Cloudflare's TXT for this hostname, only in the one shape it can take. */
+export function hostnameTxtOf(registration: CustomHostname): { name: string; value: string } | null {
+  const proof = registration.ownership_verification;
+  if (proof === undefined || proof.type !== "txt") return null;
+  if (proof.name !== `_cf-custom-hostname.${registration.hostname}`) return null;
+  if (typeof proof.value !== "string" || !HOSTNAME_TXT_VALUE.test(proof.value)) return null;
+  return { name: proof.name, value: proof.value };
 }
 
 /**
@@ -192,7 +222,7 @@ export interface ProviderReadiness {
  * has to act on; everything else pending is a wait.
  */
 export function readinessOf(registration: CustomHostname | null): ProviderReadiness {
-  if (registration === null) return { routing: false, https: false, problem: null };
+  if (registration === null) return { routing: false, https: false, problem: null, hostnameTxt: null };
   const routing = registration.status === "active";
   const https = registration.ssl?.status === "active";
   let problem: ProviderProblem | null = null;
@@ -201,5 +231,5 @@ export function readinessOf(registration: CustomHostname | null): ProviderReadin
   } else if (CERTIFICATE_STUCK.has(registration.ssl?.status ?? "")) {
     problem = "CERTIFICATE_FAILED";
   }
-  return { routing, https, problem };
+  return { routing, https, problem, hostnameTxt: hostnameTxtOf(registration) };
 }

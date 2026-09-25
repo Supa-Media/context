@@ -108,6 +108,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Which workspace a host serves comes from the host alone
 - Premium serves the domain, and a lapse deletes nothing
 - One-click setup is Domain Connect, signed, and never for a root domain
+- A root domain carries Cloudflare's TXT as a third record
 
 ## [Per-note encryption](./encryption.md)
 

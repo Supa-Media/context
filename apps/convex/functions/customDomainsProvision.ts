@@ -39,6 +39,7 @@ import {
   ProviderError,
   readHostname,
   readinessOf,
+  refreshHostname,
   registerHostname,
   type CustomHostname,
   type ProviderConfig,
@@ -108,7 +109,11 @@ async function ensureRegistration(
   return registration;
 }
 
-async function runCheck(ctx: ActionCtx, domainId: Doc<"customDomains">["_id"]): Promise<void> {
+async function runCheck(
+  ctx: ActionCtx,
+  domainId: Doc<"customDomains">["_id"],
+  options: { refresh: boolean } = { refresh: false },
+): Promise<void> {
   const row = await ctx.runQuery(internal.functions.customDomains.rowForProvider, { domainId });
   if (row === null || (row.status !== "pending" && row.status !== "active")) return;
 
@@ -120,7 +125,12 @@ async function runCheck(ctx: ActionCtx, domainId: Doc<"customDomains">["_id"]): 
     findings.providerProblem = "NOT_CONFIGURED";
   } else {
     try {
-      const registration = await ensureRegistration(ctx, config, row);
+      let registration = await ensureRegistration(ctx, config, row);
+      // A root domain waits on Cloudflare's own backoff, which reaches hours
+      // between looks; a press of "Check again" asks it to look now.
+      if (options.refresh && row.apex && registration !== null && registration.status === "pending") {
+        registration = await refreshHostname(config, registration.id);
+      }
       findings.readiness = readinessOf(registration);
     } catch (error) {
       logFailure("check", row, error);
@@ -136,7 +146,7 @@ export const provision = internalAction({
   args: { domainId: v.id("customDomains") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await runCheck(ctx, args.domainId);
+    await runCheck(ctx, args.domainId, { refresh: true });
     return null;
   },
 });

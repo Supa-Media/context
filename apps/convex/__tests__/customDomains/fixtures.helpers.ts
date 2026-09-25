@@ -22,6 +22,7 @@ export interface FakeRegistration {
   hostname: string;
   status: string;
   ssl: { status: string };
+  ownership_verification?: { type: string; name: string; value: string };
 }
 
 /**
@@ -72,7 +73,18 @@ export function stubWorld() {
       if ([...registrations.values()].some((row) => row.hostname === body.hostname)) {
         return envelope(null, 409, [{ code: 1406, message: "Duplicate custom hostname found." }]);
       }
-      const row = { id: `ch_${nextId++}`, hostname: body.hostname, status: "pending", ssl: { status: "initializing" } };
+      const id = `ch_${nextId++}`;
+      const row = {
+        id,
+        hostname: body.hostname,
+        status: "pending",
+        ssl: { status: "initializing" },
+        ownership_verification: {
+          type: "txt",
+          name: `_cf-custom-hostname.${body.hostname}`,
+          value: `00000000-0000-4000-8000-${id.replace(/\D/g, "").padStart(12, "0")}`,
+        },
+      };
       registrations.set(row.id, row);
       return envelope(row);
     }

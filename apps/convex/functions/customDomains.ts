@@ -104,6 +104,7 @@ const readinessValidator = v.union(
     routing: v.boolean(),
     https: v.boolean(),
     problem: v.union(v.null(), v.literal("ROUTING_BLOCKED"), v.literal("CERTIFICATE_FAILED")),
+    hostnameTxt: v.optional(v.union(v.null(), v.object({ name: v.string(), value: v.string() }))),
   }),
 );
 

@@ -68,6 +68,7 @@ const pending = (over: Partial<DomainView> = {}): DomainView => ({
   problem: null,
   homeSlug: null,
   checkedAt: Date.now() - 20_000,
+  checkingSince: Date.now() - 60_000,
   oneClick: null,
   records: [
     { purpose: "routing", type: "CNAME", name: "docs.acme.com", host: "docs", value: "customers.context.lc", done: false },
@@ -108,19 +109,36 @@ describe("DomainPanel", () => {
     expect(root.textContent).not.toMatch(/\$\d/);
   });
 
-  test("while pending, an owner sees both records, the steps and Check again", () => {
+  test("while pending, an owner sees both records with a status each, and Check again", () => {
     const root = mount({
-      settings: settings({ domain: pending({ ownershipVerified: true }) }),
+      settings: settings({ domain: pending() }),
       failed: false,
       homepageChoices: [],
       actions: actions(),
     });
-    expect(byTest(root, "domain-pill")?.textContent).toBe("Waiting for DNS");
+    expect(byTest(root, "domain-pill")?.textContent).toBe("Add records");
     expect(byTest(root, "domain-record-routing")?.textContent).toContain("customers.context.lc");
-    expect(byTest(root, "domain-record-ownership")?.textContent).toContain("Found");
-    expect(byTest(root, "domain-steps")?.getAttribute("aria-label")).toBe("Step 2 of 3: connected");
+    expect(byTest(root, "domain-record-routing-status")?.textContent).toBe("Not seen yet");
+    expect(byTest(root, "domain-records-toggle")).toBeNull();
     expect(root.textContent).toContain("Check again");
     expect(root.textContent).toContain("Remove");
+  });
+
+  test("once the domain is proved theirs, it says nothing more is needed and folds the records", () => {
+    const root = mount({
+      settings: settings({ domain: pending({ ownershipVerified: true, stage: "routing" }) }),
+      failed: false,
+      homepageChoices: [],
+      actions: actions(),
+    });
+    expect(byTest(root, "domain-pill")?.textContent).toBe("Connecting");
+    expect(byTest(root, "domain-steps")?.getAttribute("aria-label")).toBe("Step 2 of 3: connected");
+    expect(root.textContent).toContain("there's nothing more to do");
+    expect(byTest(root, "domain-record-routing")).toBeNull();
+    expect(byTest(root, "domain-records-toggle")?.textContent).toContain("Your DNS records");
+
+    act(() => (byTest(root, "domain-records-toggle") as HTMLElement).click());
+    expect(byTest(root, "domain-record-routing-status")?.textContent).toBe("Checking");
   });
 
   test("a live domain shows its address and the homepage, and no records", () => {
@@ -231,7 +249,7 @@ describe("DomainPanel", () => {
       });
       expect(byTest(root, "domain-one-click")).toBeNull();
       expect(byTest(root, "domain-records-toggle")).toBeNull();
-      expect(root.textContent).toContain("Both records found.");
+      expect(root.textContent).toContain("Your records are in.");
     });
   });
 });

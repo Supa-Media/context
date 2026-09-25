@@ -58,6 +58,7 @@ const DEMO_DOMAIN_VIEW: DomainPanelView = {
       problem: null,
       homeSlug: null,
       checkedAt: null,
+      checkingSince: 0,
       records: [],
       oneClick: null,
     },
