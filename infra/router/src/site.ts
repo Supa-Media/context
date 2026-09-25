@@ -6,7 +6,8 @@
  *
  *   /                -> the homepage link the owner chose (the SPA, or a
  *                       crawler's card)
- *   /<short>         -> that workspace's short link, as /@handle/<short>
+ *   /<path>          -> a website page, with one-segment legacy short links
+ *                       resolved by the app only when no page owns the path
  *   /_expo/...       -> the web bundle, identical for every host
  *   /icon.png, ...   -> the handful of static files the page itself loads
  *   /robots.txt      -> "Disallow: /", because nothing here is indexed
@@ -51,7 +52,64 @@ export function isPlatformHost(hostname: string): boolean {
 }
 
 /** The static files `public/index.html` and the SPA load from the root. */
-const STATIC_FILE = /^\/[a-z0-9][a-z0-9._-]*\.(?:js|png|ico|svg|webmanifest|json|css|woff2?|ttf|txt|map)$/i;
+const STATIC_FILE =
+  /^\/[a-z0-9][a-z0-9._-]*\.(?:js|png|ico|svg|webmanifest|json|css|woff2?|ttf|txt|map)$/i;
+const RESERVED_FIRST_SEGMENTS = new Set([
+  ".well-known",
+  "_expo",
+  "api",
+  "assets",
+  "auth",
+  "console",
+  "favicon.ico",
+  "health",
+  "icon.png",
+  "og",
+  "preview",
+  "robots.txt",
+  "s",
+]);
+const CONTROL_OR_BACKSLASH = /[\u0000-\u001f\u007f\\]/;
+
+/** A decoded website path that cannot escape into the platform route table. */
+function websitePath(pathname: string): string | null {
+  // Encoded separators change segment ownership after decoding. A remaining
+  // percent after one decode is a second possible interpretation, so neither
+  // form is allowed to reach the SPA.
+  if (pathname.length > 3072 || /%(?:2f|5c)/i.test(pathname)) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+  if (
+    !decoded.startsWith("/") ||
+    decoded.length > 1024 ||
+    CONTROL_OR_BACKSLASH.test(decoded) ||
+    /[?#%]/.test(decoded)
+  ) {
+    return null;
+  }
+  const withoutTrailing =
+    decoded === "/" ? decoded : decoded.replace(/\/+$/, "");
+  if (withoutTrailing === "/") return "/";
+  const segments = withoutTrailing.slice(1).split("/");
+  if (
+    segments.some(
+      (segment) =>
+        segment.length === 0 ||
+        segment === "." ||
+        segment === ".." ||
+        segment.startsWith("."),
+    )
+  ) {
+    return null;
+  }
+  const first = segments[0]!.normalize("NFC").toLowerCase();
+  if (first.startsWith("@") || RESERVED_FIRST_SEGMENTS.has(first)) return null;
+  return withoutTrailing.normalize("NFC");
+}
 
 export type SiteDecision =
   | { kind: "site-missing" }
@@ -76,21 +134,29 @@ export function siteRoute(
   if (pathname.startsWith("/_expo/")) {
     return { kind: "proxy", upstream: "expo", path, cache: "immutable" };
   }
-  if (STATIC_FILE.test(pathname)) return { kind: "proxy", upstream: "expo", path };
+  if (STATIC_FILE.test(pathname))
+    return { kind: "proxy", upstream: "expo", path };
 
   let slug: string | null;
   if (pathname === "/") {
     slug = binding.homeSlug;
   } else {
-    const segment = pathname.slice(1);
-    if (!SHORT_LINK_SLUG.test(segment)) return { kind: "site-missing" };
-    slug = segment;
+    const routePath = websitePath(pathname);
+    if (routePath === null) return { kind: "site-missing" };
+    const segment = routePath.slice(1);
+    slug =
+      !segment.includes("/") && SHORT_LINK_SLUG.test(segment) ? segment : null;
   }
 
   if (isCrawler(userAgent)) {
-    return slug === null
-      ? { kind: "preview", meta: GENERIC_PREVIEW }
-      : { kind: "short-link-preview", handle: binding.handle, slug };
+    return slug !== null
+      ? {
+          kind: "short-link-preview",
+          handle: binding.handle,
+          slug,
+          ...(pathname === "/" ? { routePath: "/" } : {}),
+        }
+      : { kind: "preview", meta: GENERIC_PREVIEW };
   }
   return { kind: "proxy", upstream: "expo", path };
 }

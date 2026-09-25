@@ -74,6 +74,8 @@ export const domainTables = {
      * signed link applies both records there. Absent: add them by hand.
      */
     oneClick: v.optional(v.object({ provider: v.string(), url: v.string() })),
+    /** Cloudflare's TXT for a root domain, as its registration last gave it. */
+    hostnameTxt: v.optional(v.object({ name: v.string(), value: v.string() })),
   })
     .index("by_hostname", ["hostname"])
     .index("by_workspace", ["workspaceId"])

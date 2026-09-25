@@ -58,6 +58,7 @@ const DEMO_DOMAIN_VIEW: DomainPanelView = {
       problem: null,
       homeSlug: null,
       checkedAt: null,
+      checkingSince: 0,
       records: [],
       oneClick: null,
     },
@@ -273,7 +274,7 @@ function ConnectForm({ actions }: { actions: DomainActions }) {
       />
       <Button
         label={busy ? "Connecting…" : "Connect"}
-        variant="white"
+        variant="accent"
         disabled={busy || cleaned === ""}
         style={styles.connect}
         onPress={() => void connect()}

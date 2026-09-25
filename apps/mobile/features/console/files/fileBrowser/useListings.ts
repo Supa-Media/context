@@ -197,9 +197,10 @@ export function useListings(deps: ListingsDeps) {
    * result lands in `listings` on its own next render.
    */
   const ensureListing = useCallback(
-    (path: string) => {
+    (path: string, fresh = false) => {
       if (workspaceId === null) return;
-      if (listings[path] !== undefined) return;
+      // `fresh`: something outside this browser wrote here — a layout landing.
+      if (!fresh && listings[path] !== undefined) return;
       void refresh([path]).catch(reportRefreshFailure);
     },
     [listings, refresh, reportRefreshFailure, workspaceId],

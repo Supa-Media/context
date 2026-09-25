@@ -203,6 +203,7 @@ export function BrowsePane({
     noBucket,
     manifestBroken,
     setup,
+    layingOut,
     storageMigration,
     intro,
     introAnswer,
@@ -295,6 +296,7 @@ export function BrowsePane({
       noteEncryption={noteEncryption}
       notices={notices}
       pathBar={pathBar}
+      layingOut={layingOut}
     />
   );
 

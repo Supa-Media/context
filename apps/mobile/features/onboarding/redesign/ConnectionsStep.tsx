@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { CopyField } from "../../design/components/CopyField";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
@@ -89,12 +90,11 @@ export function ConnectionsStep({
       </Text>
 
       <View style={styles.footRow}>
-        <Button
-          label={clients.some((client) => client.status === "connected") ? "Continue" : "Skip for now"}
-          variant={clients.some((client) => client.status === "connected") ? "white" : "ghost"}
-          onPress={onSkip}
-          testID="welcome-connections-continue"
-        />
+        {clients.some((client) => client.status === "connected") ? (
+          <Button label="Continue" variant="accent" onPress={onSkip} testID="welcome-connections-continue" />
+        ) : (
+          <TextLink label="Skip for now" onPress={onSkip} testID="welcome-connections-continue" />
+        )}
         <Text variant="foot" style={styles.footHint}>
           You can come back to this from Settings › Connections.
         </Text>

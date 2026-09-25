@@ -89,5 +89,20 @@ export function coreToolDefinitions() {
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
+    {
+      name: "evaluate_lists",
+      description:
+        "Evaluate every Folder list block in one note against the notes this connection can currently open. " +
+        "Returns selected rows without hidden-note counts; use read_note when you need the source block itself.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "A visible Markdown note containing Folder list blocks." },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
   ];
 }

@@ -233,7 +233,7 @@ export const deleteAccount = mutation({
  *    how `dropboxConnectAttempts` and `googleConnectAttempts` are both
  *    covered by one loop instead of one hand-maintained call per provider.
  *  - **`ingestionSettings`**, **`vaultImportJobs`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
- *    **`websiteStates`**,
+ *    **`websiteStates`**, **`websiteRouteIndex`**,
  *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
  *    **`oauthGrants`**, **`noteShares`** (every status), **`auditEvents`**,
  *    **`workspaceMembers`**, **`names`** — swept below, each with its own

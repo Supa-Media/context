@@ -415,7 +415,11 @@ export function memoryS3(
       if (!value) return new Response("", { status: 404 });
       // The bytes, not the decoded text — a GET of a PNG must return the PNG.
       return new Response(value.bytes as unknown as BodyInit, {
-        headers: { etag: `"${value.etag}"`, ...(value.contentType ? { "content-type": value.contentType } : {}) },
+        headers: {
+          etag: `"${value.etag}"`,
+          "last-modified": new Date(0).toUTCString(),
+          ...(value.contentType ? { "content-type": value.contentType } : {}),
+        },
       });
     }
 

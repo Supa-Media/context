@@ -7,20 +7,13 @@ import { Text } from "../design/components/Text";
 import { fonts, layout, leading, pointerType as t, tracking } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { browseHref } from "../console/nav";
-import { STEP_LABELS, stepProgress, stepTitle, type FlowShape, type StepKey } from "./flow";
+import { headerLabel, stepTitle, type FlowShape, type StepKey } from "./flow";
 import { resolveWelcomeRoute } from "./route";
 import { useOnboarding } from "./useOnboarding";
 import { NameStep } from "./steps/NameStep";
 import { StorageStep } from "./steps/StorageStep";
-import { VaultImportStep } from "./steps/VaultImportStep";
-import { StructureStep } from "./steps/StructureStep";
-import { BootstrapStep } from "./redesign/BootstrapStep";
 import { ForkStep } from "./redesign/ForkStep";
 import { DryRunStep } from "./redesign/DryRunStep";
-import { ConnectionsContainer, ToolsLiveContainer } from "./steps/ToolsSteps";
-import { INVITE_ROUTE } from "../auth/redirect";
-import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
-import { DoneStep } from "./steps/DoneStep";
 import { ResumeNotice } from "./ResumeNotice";
 import { markResumeAsked } from "./resume";
 
@@ -86,11 +79,21 @@ export function WelcomeScreen() {
 
   if (decision.action === "wait") return <View style={styles.ground} />;
   if (decision.action === "redirect") return <Redirect href={decision.href} />;
+  /*
+    The end of the run is the console — the canvas's "Take me to the console →"
+    — opened on the workspace just made, where the setup widget carries on with
+    whatever is left.
+  */
+  if (controller.finished) {
+    const slug = controller.claimed?.slug;
+    return <Redirect href={slug === undefined ? "/console" : browseHref(slug)} />;
+  }
 
   return (
     <WelcomeChrome
       step={controller.step}
       shape={controller.shape}
+      slug={controller.claimed?.slug ?? null}
       notice={
         fromLogin && (controller.step === "fork" || controller.step === "storage") ? (
           <ResumeNotice
@@ -100,21 +103,13 @@ export function WelcomeScreen() {
         ) : null
       }
     >
-      <StepBody
-        controller={controller}
-        onOpenConsole={() => {
-          const slug = controller.claimed?.slug;
-          router.replace(slug === undefined ? "/console" : browseHref(slug));
-        }}
-        onOpenInvitations={() => router.push(INVITE_ROUTE)}
-        onNewWorkspace={() => router.push(NEW_WORKSPACE_ROUTE)}
-      />
+      <StepBody controller={controller} />
     </WelcomeChrome>
   );
 }
 
 /**
- * The page around a step: wordmark, step rail, title, and the card.
+ * The page around a step: the wordmark and the header line, the title, the step.
  *
  * Separated from the screen so the chrome can be rendered — and looked at —
  * without a session or a Convex deployment behind it. The gate above is a pure
@@ -124,17 +119,19 @@ export function WelcomeScreen() {
 export function WelcomeChrome({
   step,
   shape,
+  slug = null,
   notice = null,
   children,
 }: {
   step: StepKey;
   shape: FlowShape;
+  /** The claimed handle, once there is one — it is what the header names. */
+  slug?: string | null;
   /** Drawn above the title — the resume line, when there is one. */
   notice?: ReactNode;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const progress = stepProgress(step, shape);
 
   return (
     <ScreenScroll
@@ -150,9 +147,8 @@ export function WelcomeChrome({
       {/*
         The canvas's first-run frame (A-03, A-04, B1-01): the wordmark and where
         you are on one line, then the question as a plain heading and the step
-        beneath it — no card around it, and no rail of every step's name. The
-        rail named steps a person had not reached yet and might never see, and
-        "Step 3 of 9" says the same thing in four words.
+        beneath it — no card around it, no rail of step names, and no footer.
+        The header line is the canvas's, board by board (`headerLabel`).
       */}
       <View style={styles.header}>
         <Text variant="mark">
@@ -161,11 +157,9 @@ export function WelcomeChrome({
             .lc
           </Text>
         </Text>
-        {progress === null ? null : (
-          <Text variant="eyebrow" style={styles.progress} testID="welcome-progress">
-            {`Step ${progress.index} of ${progress.total} · ${STEP_LABELS[step]}`}
-          </Text>
-        )}
+        <Text variant="eyebrow" style={styles.progress} testID="welcome-progress">
+          {headerLabel(step, slug)}
+        </Text>
       </View>
 
       <View style={styles.wrap}>
@@ -175,28 +169,12 @@ export function WelcomeChrome({
         </Text>
 
         <View style={styles.body}>{children}</View>
-
-        <Text variant="foot" style={styles.foot}>
-          Your notes are plain files, in storage that answers to you. Nothing here moves a
-          file you already have, and everything here leaves with you.
-        </Text>
       </View>
     </ScreenScroll>
   );
 }
 
-function StepBody({
-  controller,
-  onOpenConsole,
-  onOpenInvitations,
-  onNewWorkspace,
-}: {
-  controller: ReturnType<typeof useOnboarding>;
-  onOpenConsole: () => void;
-  onOpenInvitations: () => void;
-  onNewWorkspace: () => void;
-}) {
-  const workspaceId = controller.claimed?.workspaceId ?? null;
+function StepBody({ controller }: { controller: ReturnType<typeof useOnboarding> }) {
   switch (controller.step) {
     case "name":
       return <NameStep controller={controller} />;
@@ -208,7 +186,6 @@ function StepBody({
           failure={controller.forkFailure}
           onPickManaged={controller.pickManaged}
           onPickBYO={controller.pickOwn}
-          onOpenInvitations={onOpenInvitations}
         />
       );
     case "storage":
@@ -220,32 +197,6 @@ function StepBody({
       return controller.dryRun === null ? null : (
         <DryRunStep {...controller.dryRun} onContinue={controller.finishDryRun} />
       );
-    case "vault":
-      return <VaultImportStep controller={controller} />;
-    case "structure":
-      return <StructureStep controller={controller} />;
-    case "agents":
-      return <ConnectionsContainer workspaceId={workspaceId} onContinue={controller.finishAgents} />;
-    case "bootstrap":
-      /*
-        The second half of "point your AI at it". `AgentsStep` handed over the
-        endpoint and the seeding prompt; this hands over the standing prompt
-        that asks the same client to carry across everything it already knows
-        about the person. `prompt` comes from the controller (`BOOTSTRAP_PROMPT`
-        in `agents.ts`) rather than from this file, so the pinned wording sits
-        with the other product claims about client behaviour.
-      */
-      return (
-        <BootstrapStep
-          prompt={controller.bootstrapPrompt}
-          onDone={controller.finishBootstrap}
-          onSkip={controller.finishBootstrap}
-        />
-      );
-    case "live":
-      return <ToolsLiveContainer workspaceId={workspaceId} onContinue={controller.finishLive} />;
-    case "done":
-      return <DoneStep controller={controller} onOpenConsole={onOpenConsole} onNewWorkspace={onNewWorkspace} />;
   }
 }
 
@@ -285,5 +236,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text,
   },
   body: { marginTop: 14 },
-  foot: { marginTop: 36, lineHeight: leading(12.5, 1.6), color: colors.muted },
 });

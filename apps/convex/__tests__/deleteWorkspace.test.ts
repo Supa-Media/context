@@ -80,6 +80,20 @@ describe("deleteWorkspace", () => {
         enabledBy: owner,
         updatedAt: Date.now(),
       });
+      await ctx.db.insert("websiteRouteIndex", {
+        workspaceId,
+        objectKey: "website/index.md",
+        routePath: "/",
+        lookupKey: "/",
+        sourceEtag: "fake-etag",
+        status: "live",
+        audience: "public",
+        title: "Home",
+        description: null,
+        nav: null,
+        problems: [],
+        updatedAt: Date.now(),
+      });
     });
 
     // The pre-state, asserted first: an "is gone afterwards" check over a row
@@ -118,6 +132,11 @@ describe("deleteWorkspace", () => {
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .collect();
       expect(websiteStates).toEqual([]);
+      const websiteRoutes = await ctx.db
+        .query("websiteRouteIndex")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      expect(websiteRoutes).toEqual([]);
     });
 
     // And it is claimable again, by anybody — the whole point of freeing it.

@@ -1,6 +1,16 @@
 import { bar, dot, rect, ring, type DrawFn } from "./primitives";
 
-type FilesIconName = "folder" | "file" | "copy" | "clock" | "attach" | "tag" | "link" | "book" | "drive";
+type FilesIconName =
+  | "folder"
+  | "file"
+  | "copy"
+  | "clock"
+  | "attach"
+  | "tag"
+  | "link"
+  | "book"
+  | "drive"
+  | "trash";
 
 /** Files, folders, links and attachments — the vault's own objects. */
 export const filesIcons: Record<FilesIconName, DrawFn> = {
@@ -26,6 +36,21 @@ export const filesIcons: Record<FilesIconName, DrawFn> = {
       bar("l3", u, w, c, { cx: 0.42, cy: 0.68, length: 0.14 }),
     ];
   },
+
+  trash: (u, w, c) => [
+    /*
+      Added for the delete control on a row somebody typed and wants gone —
+      a folder name, an invitee — which was a word ("Remove") where every
+      platform draws a bin. A lid, its handle, and a body with two ribs: the
+      ribs are what separate it from `file` at 16pt, where an empty rounded
+      box is just a box.
+    */
+    bar("lid", u, w, c, { cx: 0.5, cy: 0.24, length: 0.64 }),
+    bar("handle", u, w, c, { cx: 0.5, cy: 0.13, length: 0.2 }),
+    rect("body", u, w, c, { x0: 0.24, y0: 0.32, x1: 0.76, y1: 0.9, radius: 0.1 }),
+    bar("rib1", u, w, c, { cx: 0.42, cy: 0.61, length: 0.28, angle: 90 }),
+    bar("rib2", u, w, c, { cx: 0.58, cy: 0.61, length: 0.28, angle: 90 }),
+  ],
 
   copy: (u, w, c) => {
     /*

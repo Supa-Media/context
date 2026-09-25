@@ -4,7 +4,15 @@ import { Dot } from "../../../design/components/Dot";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
-import { domainSteps, recordPurpose, stepsLabel, type DnsRecord, type DomainView } from "../../domain/domain";
+import {
+  apexNote,
+  domainSteps,
+  recordPurpose,
+  recordStatus,
+  stepsLabel,
+  type DnsRecord,
+  type DomainView,
+} from "../../domain/domain";
 
 /**
  * Three dots and three words — Verified · Connected · HTTPS — instead of a
@@ -32,40 +40,38 @@ export function DomainSteps({ domain }: { domain: DomainView }) {
 }
 
 /**
- * The records to add, stacked so they fit a phone: what each is for, then its
- * name and value with one-tap copy. The name is shown as DNS providers' forms
- * want it (`docs`, `@`), with the full name underneath for the ones that want
- * that instead.
+ * The records to add, stacked so they fit a phone: what each is for and
+ * whether we have found it, then its name and value with one-tap copy. The
+ * name is shown as DNS providers' forms want it (`docs`, `@`), with the full
+ * name underneath for the ones that want that instead.
  */
-export function DnsRecords({ domain }: { domain: DomainView }) {
-  const styles = useThemedStyles(makeStyles);
+export function DnsRecords({ domain, now }: { domain: DomainView; now: number }) {
   return (
     <View>
       {domain.records.map((record) => (
-        <Record key={record.purpose} record={record} />
+        <Record key={record.purpose} domain={domain} record={record} now={now} />
       ))}
-      {domain.apex ? (
-        <Text variant="foot" style={styles.apex}>
-          {`Most providers don't allow a CNAME on a root domain like ${domain.hostname}. Use ALIAS or ANAME if yours offers it; on Cloudflare, add a CNAME and it's flattened for you. If your provider has none of these, connect www.${domain.hostname} instead.`}
-        </Text>
-      ) : null}
     </View>
   );
 }
 
-function Record({ record }: { record: DnsRecord }) {
+function Record({ domain, record, now }: { domain: DomainView; record: DnsRecord; now: number }) {
   const styles = useThemedStyles(makeStyles);
+  const status = recordStatus(domain, record, now);
   return (
     <View style={styles.record} testID={`domain-record-${record.purpose}`}>
       <View style={styles.recordHead}>
         <Text variant="rowTitle" style={styles.recordTitle}>
           {`${record.type} record`}
         </Text>
-        {record.done ? (
-          <Pill tone="ok" leading={<Dot tone="ok" />}>
-            Found
-          </Pill>
-        ) : null}
+        <Pill
+          tone={status.tone}
+          dashed={status.dashed}
+          leading={status.tone === "ok" ? <Dot tone="ok" /> : undefined}
+          testID={`domain-record-${record.purpose}-status`}
+        >
+          {status.label}
+        </Pill>
       </View>
       <Text variant="rowSub">{recordPurpose(record)}</Text>
       <Text variant="eyebrow" style={styles.label}>
@@ -81,6 +87,11 @@ function Record({ record }: { record: DnsRecord }) {
         Value
       </Text>
       <CopyField value={record.value} label="Copy the record value" />
+      {domain.apex && record.purpose === "routing" && !record.done ? (
+        <Text variant="foot" style={styles.fullName}>
+          {apexNote(domain.hostname)}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -102,5 +113,4 @@ const makeStyles = (colors: Colors) =>
     recordTitle: { flexShrink: 1 },
     label: { marginTop: 10, marginBottom: 4 },
     fullName: { marginTop: 4 },
-    apex: { marginTop: 13 },
   });

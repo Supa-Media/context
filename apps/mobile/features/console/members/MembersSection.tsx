@@ -470,7 +470,7 @@ function InviteForm({
 
       <Button
         label={busy ? "Sending…" : "Send invitation"}
-        variant="white"
+        variant="accent"
         disabled={busy || invitee.trim().length === 0}
         accessibilityLabel="Send the invitation"
         testID="invite-send"

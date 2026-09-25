@@ -15,6 +15,14 @@ export async function finalizeWorkspaceDeletion(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  // Disposable website route metadata has no meaning without the workspace;
+  // the canonical Markdown remains untouched in the customer's bucket.
+  const websiteRoutes = await ctx.db
+    .query("websiteRouteIndex")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const route of websiteRoutes) await ctx.db.delete(route._id);
+
   // Website notes remain in the bucket; only the explicit lifecycle switch
   // is control-plane metadata that dies with the workspace.
   const websiteStates = await ctx.db

@@ -8,7 +8,9 @@ import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { ShareScreen } from "../share/ShareScreen";
-import { PLATFORM_ORIGIN, siteSlugFrom } from "./host";
+import { PLATFORM_ORIGIN, siteRoutePathFrom } from "./host";
+import { WebsitePage } from "./website/WebsitePage";
+import { useWebsiteAddress } from "./useWebsiteAddress";
 
 interface Location {
   pathname: string;
@@ -26,17 +28,20 @@ function readLocation(): Location {
  * Mounted **instead of** the route tree when the page is served at a host that
  * is not ours (`app/_layout.tsx`), so no console, sign-in or settings screen
  * can render on somebody else's origin — not by a typed URL and not by a
- * client-side navigation. It keeps its own location: `/` is the homepage link,
- * `/<short>` is that workspace's short link, and following a link inside a
- * shared folder pushes `?path=` onto the same address.
+ * client-side navigation. It keeps its own location: website files resolve
+ * first at `/` and nested paths, while an existing one-segment named share is
+ * the compatibility fallback. Following a link inside that legacy share
+ * pushes `?path=` onto the same address.
  *
  * Which workspace comes from the control plane, asked with the hostname the
- * browser is showing. Every read after that is the same `readShortLink` the
- * `/@handle/<short>` page makes, through the same authorization.
+ * browser is showing. The server makes the precedence decision and re-checks
+ * the same share authorization when it chooses the legacy path.
  */
 export function SiteRoot({ hostname }: { hostname: string }) {
   const styles = useThemedStyles(makeStyles);
-  const binding = useQuery(api.functions.customDomains.resolveHost, { hostname });
+  const binding = useQuery(api.functions.customDomains.resolveHost, {
+    hostname,
+  });
   const [location, setLocation] = useState<Location>(readLocation);
 
   useEffect(() => {
@@ -51,20 +56,39 @@ export function SiteRoot({ hostname }: { hostname: string }) {
     window.scrollTo?.(0, 0);
   }, []);
 
+  const routePath = siteRoutePathFrom(location.pathname);
+  const view = useWebsiteAddress(
+    binding === undefined || binding === null || routePath === null
+      ? null
+      : {
+          handle: binding.handle,
+          routePath,
+          ...(routePath === "/" && binding.homeSlug !== null
+            ? { legacySlug: binding.homeSlug }
+            : {}),
+        },
+  );
+
   if (binding === undefined) return <View style={styles.ground} />;
 
-  const slug = siteSlugFrom(location.pathname);
-  const target = slug === "" ? (binding?.homeSlug ?? null) : slug;
-
-  if (binding === null || slug === null || target === null) {
+  if (binding === null || routePath === null) {
     return (
       <Message
-        title={binding !== null && slug === "" ? "Nothing here yet" : "Nothing here"}
-        body={
-          binding !== null && slug === ""
-            ? undefined
-            : "This page doesn't exist, or is no longer shared."
-        }
+        title="Nothing here"
+        body="This page doesn't exist, or is no longer shared."
+      />
+    );
+  }
+
+  if (view === undefined) return <View style={styles.ground} />;
+
+  if (view.kind !== "legacy_short_link") {
+    return (
+      <WebsitePage
+        name={view.siteName ?? binding.handle}
+        view={view}
+        navigate={navigate}
+        signIn={(path) => void Linking.openURL(`${PLATFORM_ORIGIN}${path}`)}
       />
     );
   }
@@ -72,15 +96,18 @@ export function SiteRoot({ hostname }: { hostname: string }) {
   return (
     <ShareScreen
       // A fresh screen per address, so one link's state never shows under another's.
-      key={`${target}?${location.path ?? ""}`}
-      shortLink={{ handle: binding.handle, slug: target }}
+      key={`${view.slug}?${location.path ?? ""}`}
+      shortLink={{ handle: view.handle, slug: view.slug }}
       site={{
         path: location.path,
-        entry: slug === "" ? "/" : `/${target}`,
+        entry: routePath,
         navigate,
         signIn: (path) => {
-          const query = path === undefined ? "" : `?path=${encodeURIComponent(path)}`;
-          void Linking.openURL(`${PLATFORM_ORIGIN}/@${binding.handle}/${target}${query}`);
+          const query =
+            path === undefined ? "" : `?path=${encodeURIComponent(path)}`;
+          void Linking.openURL(
+            `${PLATFORM_ORIGIN}/@${view.handle}/${view.slug}${query}`,
+          );
         },
       }}
     />

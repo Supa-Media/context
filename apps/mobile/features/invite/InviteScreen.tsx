@@ -4,6 +4,7 @@ import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth, useMutation, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
+import { TextLink } from "../design/components/TextLink";
 import { Card } from "../design/components/Card";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { FormError } from "../design/components/Input";
@@ -391,9 +392,8 @@ export function DeadEnd({
           onPress={onLeaveForWelcome}
           testID="invite-welcome"
         />
-        <Button
+        <TextLink
           label="Go to your console"
-          variant="ghost"
           style={styles.deadEndGhost}
           onPress={onLeaveForConsole}
           testID="invite-console"

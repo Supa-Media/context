@@ -58,9 +58,9 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        It <Text style={styles.em}>is</Text> the context — not a label on one. This is the path your
-        notes are addressed by, the name others reach you at, and the address you can forward
-        mail to.
+        It <Text style={styles.em}>is</Text> the workspace — not a label on one. It is the path
+        your notes are addressed by and the name others reach you at, and it reserves your
+        capture address for mail to your notes.
       </Text>
 
       {/*
@@ -130,7 +130,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
       </View>
 
       <Text variant="foot" style={styles.permanent}>
-        One personal context per person, and the name cannot be changed once it is claimed — pick
+        One personal workspace per person, and the name cannot be changed once it is claimed — pick
         one you will still want in a year.
       </Text>
 
@@ -147,7 +147,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
           label={
             claiming ? "Claiming…" : status.kind === "available" ? `Claim @${status.normalized}` : "Claim your handle"
           }
-          variant="white"
+          variant="accent"
           disabled={!controller.canClaim}
           onPress={() => void controller.claim()}
           trailing={claiming ? <ActivityIndicator color={colors.ink} size="small" /> : null}

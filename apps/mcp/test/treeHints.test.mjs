@@ -188,6 +188,75 @@ export async function runTreeHintChecks(check) {
       "a shared note moved somewhere private still tells the team it went",
       hints().length === 1 && hints()[0].audiences.includes("team"),
     );
+
+    /*
+      AND THE SAME QUESTION FOR THE PUBLISHED FOLDER, WHICH IS A DIFFERENT ONE.
+
+      The control plane keeps a route index built from `website/`, and a
+      console write marks it stale through `runFileOperation`. This Worker
+      writes the same bucket itself, so without a word from here the index goes
+      on describing bytes that moved — and the page menu it feeds is handed to
+      anyone who asks for any address on that site, including a caller with no
+      session asking for a path that does not exist.
+
+      It cannot ride on the tree hint above: that one is gated on changes to
+      the tree's *shape*, and the case that matters most here is an edit to a
+      page that already exists, which is both an agent rewriting frontmatter
+      and a live editing session flushing. It also has to fire on both ends of
+      a move, because a page moved out of the folder unpublishes it.
+
+      And it has to fire on nothing else. Hearing it costs a scan that reads
+      every published page, so an ordinary note write reporting it would mean a
+      full scan after every save.
+    */
+    const siteCalls = () =>
+      controlPlane.calls
+        .filter((entry) => entry.path === "/gateway/website")
+        .map((entry) => entry.body);
+
+    reset();
+    await call("write_note", {
+      path: "website/index.md",
+      content: "---\ntitle: Home\nnav: 0\n---\n\n# Home\n",
+    });
+    check(
+      "publishing a page says so, with an id and nothing else",
+      JSON.stringify(siteCalls()) === JSON.stringify([{ workspaceId: "ws_tree" }]),
+    );
+
+    reset();
+    const page = await call("read_note", { path: "website/index.md" });
+    const pageEtag = /etag: (\S+)/.exec(page?.content?.[0]?.text ?? "")?.[1];
+    await call("write_note", {
+      path: "website/index.md",
+      content: "---\ntitle: Home\nnav: 0\naudience: members\n---\n\n# Home\n",
+      ...(pageEtag ? { expected_etag: pageEtag } : {}),
+    });
+    check(
+      "restricting a page that already exists says so, where the tree hint does not",
+      siteCalls().length === 1 && hints().length === 0,
+    );
+
+    reset();
+    await call("write_note", { path: "2-areas/notes.md", content: "# Notes\n" });
+    check("a write outside the folder says nothing about the site", siteCalls().length === 0);
+
+    reset();
+    await call("move_note", {
+      source: "website/index.md",
+      destination: "2-areas/index.md",
+    });
+    check(
+      "moving a page out of the folder says so, judged by the source it left",
+      siteCalls().length === 1,
+    );
+
+    reset();
+    await call("move_note", {
+      source: "2-areas/index.md",
+      destination: "website/index.md",
+    });
+    check("moving a page back in says so too", siteCalls().length === 1);
   } finally {
     restore();
   }

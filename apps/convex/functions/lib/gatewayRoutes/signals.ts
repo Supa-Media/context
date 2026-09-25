@@ -295,3 +295,57 @@ export async function gatewayUsageHandler(
     return json({ applied: 0 });
   }
 }
+
+/**
+ * That a gateway write moved the bytes under `website/`, so the control
+ * plane's route index is no longer a description of them.
+ *
+ * ## Why this route has to exist at all
+ *
+ * The index is a derivative of bucket objects and **two processes write those
+ * objects**. A console write goes through `runFileOperation`, whose barrier
+ * marks the index stale (`websites/changes.ts`). The gateway writes the same
+ * bucket itself — an MCP client saving a page, a live editing session flushing
+ * one — and had no way to say so, which made `routeGeneration` a fact about
+ * one code path while reading like a fact about the data.
+ *
+ * The resolver's own re-read covers the page it serves: it compares the
+ * effective etag and refuses on any mismatch, so a restricted page's body was
+ * never served stale. It does not cover the **menu**, which is built from
+ * index rows and returned beside every answer, including to a caller with no
+ * session asking for a path that does not exist. Verifying the menu the same
+ * way is not an option — `sourceEtag` is the effective note etag from a read,
+ * precisely so a collaboration sidecar advancing without rewriting the
+ * Markdown cannot leave changed frontmatter live, so it cannot be compared
+ * against a listing and checking it would mean reading every page in the menu
+ * on every public request.
+ *
+ * ## What it carries, and why that is allowed
+ *
+ * A workspace id. No path, no count, no content, the same bar
+ * `/gateway/tree` holds itself to — and strictly less than the control plane
+ * already stores about this folder, since reconciliation puts every published
+ * route's path and title in `websiteRouteIndex`.
+ *
+ * A holder of the gateway secret can, for a workspace it names, make that
+ * workspace re-scan its own published folder. It learns nothing: the answer is
+ * the same whatever it names, and the scan reads nothing back to it.
+ */
+export async function gatewayWebsiteHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const answered = () => json({ ok: true });
+  const workspaceId = stringField(body, "workspaceId");
+  if (workspaceId === null) return answered();
+  try {
+    // Refuses unless the index is currently complete, and schedules the one
+    // rebuild that a burst of saves shares. A site that is off does nothing.
+    await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
+      workspaceId: workspaceId as Id<"workspaces">,
+    });
+  } catch {
+    // A malformed id and a context that is not there answer the same.
+  }
+  return answered();
+}

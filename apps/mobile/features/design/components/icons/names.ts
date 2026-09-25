@@ -57,6 +57,8 @@ export const ICON_NAMES = [
    * confusion `docs/decisions/meetings.md` refuses for the microphone.
    */
   "copy",
+  /** Delete a row somebody added — a folder name, an invitee. See `files.tsx`. */
+  "trash",
   /**
    * Recent, drawn as a clock because every platform draws recency as one.
    *

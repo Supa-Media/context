@@ -109,7 +109,7 @@ export function WorkspaceDoneStep({
       <View style={styles.actions}>
         <Button
           label={`Open @${slug}`}
-          variant="white"
+          variant="accent"
           onPress={onOpenWorkspace}
           testID="workspace-done-open"
         />

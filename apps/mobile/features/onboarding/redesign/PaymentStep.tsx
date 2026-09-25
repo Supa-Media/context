@@ -69,7 +69,7 @@ export function PaymentStep({
           <Text style={styles.price}>{monthly}</Text>
           {onLevelUp ? (
             <View style={styles.cardAction}>
-              <Button label="Level up" variant="white" onPress={onLevelUp} testID="payment-level-up" />
+              <Button label="Level up" variant="accent" onPress={onLevelUp} testID="payment-level-up" />
             </View>
           ) : null}
         </View>
@@ -85,7 +85,7 @@ export function PaymentStep({
           </Text>
           {onBringOwn ? (
             <View style={styles.cardAction}>
-              <Button label="Bring my own bucket" variant="ghost" onPress={onBringOwn} testID="payment-bring-own" />
+              <Button label="Bring my own bucket" variant="decision" onPress={onBringOwn} testID="payment-bring-own" />
             </View>
           ) : null}
         </View>

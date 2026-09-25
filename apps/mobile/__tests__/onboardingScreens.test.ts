@@ -7,16 +7,12 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexProvider } from "convex/react";
 import { NameStep } from "../features/onboarding/steps/NameStep";
-import { StructureStep } from "../features/onboarding/steps/StructureStep";
-import { VaultImportStep } from "../features/onboarding/steps/VaultImportStep";
 import { ConnectionsStep } from "../features/onboarding/redesign/ConnectionsStep";
 import { ForkStep, type ForkOffer } from "../features/onboarding/redesign/ForkStep";
 import { PaymentStep } from "../features/onboarding/redesign/PaymentStep";
-import { DoneStep } from "../features/onboarding/steps/DoneStep";
 import { PointAtBucket } from "../features/onboarding/steps/PointAtBucket";
 import { NAME_MAX_LENGTH, NAME_MIN_LENGTH } from "../features/onboarding/name";
 import { nameStatus } from "../features/onboarding/name";
-import { emptyCustomFolders, validateCustomFolders } from "../features/onboarding/structure";
 import type { OnboardingController } from "../features/onboarding/useOnboarding";
 
 // React only treats `act` as authoritative when this is set, and warns loudly on
@@ -70,6 +66,32 @@ function render(node: ReturnType<typeof createElement>): Rendered {
   return rendered;
 }
 
+/** Mounted and left up, so a test can press things and read what changed. */
+function renderLive(node: ReturnType<typeof createElement>) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  act(() => {
+    root.render(node);
+  });
+  const byId = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+  return {
+    text: container.textContent ?? "",
+    byId,
+    press: (id: string) => {
+      const target = byId(id);
+      if (target === null) throw new Error(`nothing to press: ${id}`);
+      act(() => {
+        target.click();
+      });
+    },
+    unmount: () => {
+      act(() => root.unmount());
+      container.remove();
+    },
+  };
+}
+
 function withConvex(node: ReturnType<typeof createElement>): ReturnType<typeof createElement> {
   const watch = {
     localQueryResult: () => null,
@@ -88,20 +110,16 @@ function withConvex(node: ReturnType<typeof createElement>): ReturnType<typeof c
 function controller(overrides: Partial<OnboardingController>): OnboardingController {
   return {
     step: "name",
-    shape: { storage: "connected" },
+    shape: {},
     owned: 0,
     claimed: null,
+    finished: false,
     forkOffer: null,
     pickManaged: () => {},
     pickOwn: () => {},
     startingFree: false,
     dryRun: null,
     finishDryRun: () => {},
-    finishLive: () => {},
-    // What the control plane answers today: no email receiver is deployed.
-    // `captureHonesty.test.ts` owns the assertions about what that does to the
-    // capture address on the last screen.
-    captureReceivesMail: false,
     name: "",
     setName: () => {},
     nameStatus: { kind: "empty" },
@@ -112,27 +130,10 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     connect: async () => ({ status: "unverified" }),
     connectState: { kind: "idle" },
     // No offer: the default for these screens is a deployment that cannot
-    // provide managed storage, which is every deployment until an account
-    // exists to put the buckets in.
+    // provide managed storage.
     managed: null,
     skipStorage: () => {},
     continuePastStorage: () => {},
-    skipVaultImport: () => {},
-    finishVaultImport: () => {},
-    structureStep: { kind: "ask" },
-    template: "para",
-    setTemplate: () => {},
-    folders: emptyCustomFolders(),
-    setFolders: () => {},
-    folderErrors: {},
-    applying: false,
-    structureFailure: null,
-    canApply: true,
-    applyStructure: async () => {},
-    skipStructure: () => {},
-    finishAgents: () => {},
-    bootstrapPrompt: "",
-    finishBootstrap: () => {},
     ...overrides,
   };
 }
@@ -224,80 +225,6 @@ describe("the name screen", () => {
   });
 });
 
-describe("the layout screen", () => {
-  test("never says the deployment cannot lay folders down", () => {
-    // That caveat was rendered from a probe that could only ever answer "no",
-    // so it was one line away from being on screen for everybody. It is gone,
-    // along with the probe.
-    const { text } = render(createElement(StructureStep, { controller: controller({}) }));
-    expect(text).not.toMatch(/cannot lay folders down/i);
-  });
-
-  test("holds the button for a custom layout with nothing named in it", () => {
-    const rendered = render(
-      createElement(StructureStep, {
-        controller: controller({ template: "custom", canApply: false }),
-      }),
-    );
-    expect(rendered.html).toContain("disabled");
-    expect(rendered.text).toMatch(/at least one folder/i);
-  });
-
-  test("offers the button once a folder is named", () => {
-    const folders = [{ name: "clients", description: "one per engagement" }];
-    const rendered = render(
-      createElement(StructureStep, {
-        controller: controller({
-          template: "custom",
-          folders,
-          folderErrors: validateCustomFolders(folders),
-          canApply: true,
-        }),
-      }),
-    );
-    expect(rendered.text).toMatch(/1 folder\b/);
-  });
-});
-
-describe("the Obsidian vault screen", () => {
-  test("offers a folder import for a new customer-owned or managed bucket", () => {
-    const { text } = render(
-      withConvex(
-        createElement(VaultImportStep, {
-          controller: controller({
-            step: "vault",
-            claimed: { workspaceId: "w1" as never, slug: "seyi" },
-          }),
-        }),
-      ),
-    );
-
-    expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
-    expect(text).toContain("Choose a vault or notes folder");
-    expect(text).toContain("No, start fresh");
-    expect(text).toContain("Existing files stay unchanged.");
-  });
-
-  test("still offers an import when connected storage already contains files", () => {
-    const { text } = render(
-      withConvex(
-        createElement(VaultImportStep, {
-          controller: controller({
-            step: "vault",
-            claimed: { workspaceId: "w1" as never, slug: "seyi" },
-            structureStep: { kind: "existing" },
-          }),
-        }),
-      ),
-    );
-
-    expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
-    expect(text).toContain("How should these notes be added?");
-    expect(text).toContain("Merge without replacing");
-    expect(text).toContain("Keep it in its own folder");
-  });
-});
-
 describe("the tools screen", () => {
   const rows = (status: "connected" | "not-connected") =>
     [{ key: "claude-desktop" as const, name: "Claude", status, hasGuide: true }];
@@ -340,33 +267,65 @@ describe("the tools screen", () => {
   });
 });
 
-describe("the fork", () => {
-  const fork = (offer: ForkOffer) =>
-    render(
-      createElement(ForkStep, { offer, onPickManaged: () => {}, onPickBYO: () => {}, onOpenInvitations: () => {} }),
+describe("the fork (A-04)", () => {
+  const fork = (offer: ForkOffer, picks: string[] = []) =>
+    renderLive(
+      createElement(ForkStep, {
+        offer,
+        onPickManaged: () => picks.push("fresh"),
+        onPickBYO: () => picks.push("own"),
+      }),
     );
 
-  test("the free card names the cap it enforces, and no figure nothing meters", () => {
-    // Bytes are not metered on the free tier, so a byte figure would be a
-    // limit nothing enforces — and `&nbsp;` in a React Native string renders
-    // as those six characters.
-    const { text } = fork({ kind: "free", cap: 1000 });
-    expect(text).toContain("1,000 notes");
-    expect(text).not.toMatch(/MB|GB|&nbsp;/);
-    expect(text).toMatch(/reading, editing and exporting/i);
+  test("two cards and one way on: “Take me to the console →”", () => {
+    const view = fork({ kind: "free", cap: 1000 });
+    expect(view.byId("welcome-fork-fresh")?.textContent).toContain("Start fresh");
+    expect(view.byId("welcome-fork-own")?.textContent).toContain("I already have notes");
+    expect(view.byId("welcome-fork-primary")?.textContent).toBe("Take me to the console →");
+    // One primary on the screen: neither card carries a button of its own.
+    expect(view.byId("welcome-fork-fresh")?.querySelector("button")).toBeNull();
+    view.unmount();
   });
 
-  test("where the deployment offers no free tier, the card is the paid one or none at all", () => {
-    expect(fork({ kind: "paid", price: "$5 a month" }).text).toContain("$5 a month");
-    const none = fork(null);
-    expect(none.text).not.toMatch(/Start free|managed storage/i);
-    expect(none.text).toContain("I have a bucket");
+  test("the fresh card names the cap it enforces, and no figure nothing meters", () => {
+    const view = fork({ kind: "free", cap: 1000 });
+    expect(view.text).toContain("1,000 notes");
+    expect(view.text).not.toMatch(/MB|GB|&nbsp;/);
+    view.unmount();
   });
 
-  test("the invitation escape hatch is a link a screen reader can find", () => {
-    const { html } = fork(null);
-    expect(html).toMatch(/role="link"[^>]*>Open it here|Open it here[^<]*<\/[a-z]+>/);
-    expect(html).toMatch(/aria-label="Open an invitation"/);
+  test("the primary starts fresh; the other card goes to the bucket track", () => {
+    const picks: string[] = [];
+    const view = fork({ kind: "free", cap: 1000 }, picks);
+    view.press("welcome-fork-primary");
+    view.press("welcome-fork-own");
+    expect(picks).toEqual(["fresh", "own"]);
+    view.unmount();
+  });
+
+  test("where it can only be paid for, the button does not promise the console", () => {
+    const view = fork({ kind: "paid", price: "$5 a month" });
+    expect(view.text).toContain("$5 a month");
+    expect(view.byId("welcome-fork-primary")?.textContent).toBe("Continue →");
+    view.unmount();
+  });
+
+  test("where it cannot be offered at all, bringing your own is the only card and the only action", () => {
+    const picks: string[] = [];
+    const view = fork(null, picks);
+    expect(view.byId("welcome-fork-fresh")).toBeNull();
+    expect(view.byId("welcome-fork-primary")?.textContent).toBe("Point at my bucket →");
+    view.press("welcome-fork-primary");
+    expect(picks).toEqual(["own"]);
+    view.unmount();
+  });
+
+  test("“What is the difference?” opens a sentence rather than another screen", () => {
+    const view = fork({ kind: "free", cap: 1000 });
+    expect(view.byId("welcome-fork-explained")).toBeNull();
+    view.press("welcome-fork-difference");
+    expect(view.byId("welcome-fork-explained")?.textContent).toMatch(/plain Markdown/);
+    view.unmount();
   });
 });
 
@@ -392,55 +351,6 @@ describe("the payment nudge", () => {
   });
 });
 
-describe("the last screen", () => {
-  test("warns the person whose bucket check failed", () => {
-    // "Carry on anyway" used to be recorded as a connected bucket, so this
-    // warning was withheld from exactly the person who most needed it.
-    const { text } = render(
-      createElement(DoneStep, {
-        controller: controller({
-          shape: { storage: "unverified" },
-          step: "done",
-        }),
-        onOpenConsole: () => {},
-      }),
-    );
-
-    expect(text).toMatch(/could not confirm your bucket/i);
-    expect(text).toMatch(/never looked inside it/i);
-  });
-
-  test("warns the person who skipped, in different words", () => {
-    const { text } = render(
-      createElement(DoneStep, {
-        controller: controller({ shape: { storage: "skipped" }, step: "done" }),
-        onOpenConsole: () => {},
-      }),
-    );
-
-    expect(text).toMatch(/no bucket is connected/i);
-  });
-
-  test("says nothing about the bucket when the bucket is fine", () => {
-    const { text } = render(
-      createElement(DoneStep, {
-        controller: controller({
-          shape: { storage: "connected" },
-          step: "done",
-        }),
-        onOpenConsole: () => {},
-      }),
-    );
-
-    expect(text).not.toMatch(/nowhere to keep notes/i);
-  });
-});
-
-/*
-  The canvas screens that replaced the first run's original ones: A-03 (the
-  handle), B1-01 (point at a bucket) and A-09 (done). Each keeps a claim the
-  design would have let slip, and these pin that claim.
-*/
 describe("the handle screen (A-03)", () => {
   test("says Available where the name was typed, and the real length limits", () => {
     const { text, html } = render(
@@ -494,25 +404,3 @@ describe("point at a bucket (B1-01)", () => {
   });
 });
 
-describe("the last screen (A-09)", () => {
-  test("says You're set up only where storage answers", () => {
-    const done = render(
-      createElement(DoneStep, { controller: controller({ shape: { storage: "connected" }, step: "done" }), onOpenConsole: () => {} }),
-    );
-    expect(done.text).toContain("You're set up.");
-    const skipped = render(
-      createElement(DoneStep, { controller: controller({ shape: { storage: "skipped" }, step: "done" }), onOpenConsole: () => {} }),
-    );
-    expect(skipped.text).not.toContain("You're set up.");
-    expect(skipped.text).toMatch(/storage isn't yet/);
-  });
-
-  test("states the exit, and draws no Download button with nothing behind it", () => {
-    const { text, html } = render(
-      createElement(DoneStep, { controller: controller({ step: "done" }), onOpenConsole: () => {} }),
-    );
-    expect(text).toMatch(/Take everything with you/);
-    expect(text).toMatch(/downloads as a \.zip/);
-    expect(html).not.toMatch(/>Download</);
-  });
-});

@@ -1,5 +1,6 @@
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { FormError, Notice } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
@@ -198,9 +199,8 @@ export function StorageStepBody({
           />
         ) : null}
         {connectState.kind === "connected" ? null : (
-          <Button
+          <TextLink
             label="I'll do this later"
-            variant="ghost"
             disabled={busy}
             onPress={onSkip}
             testID="welcome-storage-skip"

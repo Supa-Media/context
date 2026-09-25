@@ -123,6 +123,7 @@ export async function recordWebsiteEnabledHandler(
       state: "enabled",
       enabledAt: now,
       enabledBy: args.actorUserId,
+      starterEnsuredAt: now,
       updatedAt: now,
     });
   } else {
@@ -130,6 +131,7 @@ export async function recordWebsiteEnabledHandler(
       state: "enabled",
       enabledAt: now,
       enabledBy: args.actorUserId,
+      starterEnsuredAt: now,
       updatedAt: now,
     });
   }
@@ -138,6 +140,13 @@ export async function recordWebsiteEnabledHandler(
     actorUserId: args.actorUserId,
     action: "website.enabled",
   });
+  // Index the homepage straight away: until a first scan lands, the resolver
+  // fails closed and the site the card calls Live says "Nothing here".
+  await ctx.scheduler.runAfter(
+    0,
+    internal.functions.websites.reconcileWorkspace,
+    { workspaceId: args.workspaceId },
+  );
   return {
     contractVersion: WEBSITE_CONTRACT_VERSION,
     state: "enabled",
@@ -205,14 +214,14 @@ function codeOf(error: unknown): string | null {
  * bucket's absent precondition; a concurrent creator becomes `existing`, not
  * an overwrite or a failed enable.
  */
-async function ensureStarter(
+export async function ensureWebsiteStarter(
   ctx: ActionCtx,
   args: {
     workspaceId: Id<"workspaces">;
-    actorUserId: Id<"users">;
+    actorUserId?: Id<"users">;
     scope: "private" | "team";
     grantedNames: string[];
-    actorName: string | null;
+    actorName?: string | null;
   },
 ): Promise<"created" | "existing"> {
   try {
@@ -245,7 +254,9 @@ async function ensureStarter(
     );
     await ctx.runMutation(internal.functions.audit.recordEvent, {
       workspaceId: args.workspaceId,
-      actorUserId: args.actorUserId,
+      ...(args.actorUserId === undefined
+        ? {}
+        : { actorUserId: args.actorUserId }),
       action: "file.create",
       paths: [STARTER_PATH],
       details: {
@@ -253,6 +264,9 @@ async function ensureStarter(
           "conflictCheck" in written
             ? String(written.conflictCheck)
             : "conditional",
+        ...(args.actorUserId === undefined
+          ? { source: "website-starter-repair" }
+          : {}),
       },
     });
     return "created";
@@ -260,6 +274,29 @@ async function ensureStarter(
     if (codeOf(error) === "CONFLICT") return "existing";
     throw error;
   }
+}
+
+/** Whether this pre-marker enabled site still needs its one safe repair. */
+export async function websiteStarterRepairNeededHandler(
+  ctx: QueryCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<boolean> {
+  const state = await stateRow(ctx, args.workspaceId);
+  return state?.state === "enabled" && state.starterEnsuredAt === undefined;
+}
+
+/** Mark the legacy repair complete only while the site remains enabled. */
+export async function markWebsiteStarterEnsuredHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<boolean> {
+  const state = await stateRow(ctx, args.workspaceId);
+  if (state?.state !== "enabled" || state.starterEnsuredAt !== undefined) {
+    return false;
+  }
+  const now = Date.now();
+  await ctx.db.patch(state._id, { starterEnsuredAt: now, updatedAt: now });
+  return true;
 }
 
 /** Public action: safe starter first, lifecycle state second. */
@@ -284,7 +321,7 @@ export async function enableWebsiteHandler(
       minimum: "owner",
     },
   );
-  const starter = await ensureStarter(ctx, {
+  const starter = await ensureWebsiteStarter(ctx, {
     workspaceId: args.workspaceId,
     actorUserId,
     scope: access.scope,

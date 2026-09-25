@@ -39,6 +39,7 @@ import {
   ProviderError,
   readHostname,
   readinessOf,
+  refreshHostname,
   registerHostname,
   type CustomHostname,
   type ProviderConfig,
@@ -108,7 +109,11 @@ async function ensureRegistration(
   return registration;
 }
 
-async function runCheck(ctx: ActionCtx, domainId: Doc<"customDomains">["_id"]): Promise<void> {
+async function runCheck(
+  ctx: ActionCtx,
+  domainId: Doc<"customDomains">["_id"],
+  options: { refresh: boolean } = { refresh: false },
+): Promise<void> {
   const row = await ctx.runQuery(internal.functions.customDomains.rowForProvider, { domainId });
   if (row === null || (row.status !== "pending" && row.status !== "active")) return;
 
@@ -120,7 +125,12 @@ async function runCheck(ctx: ActionCtx, domainId: Doc<"customDomains">["_id"]): 
     findings.providerProblem = "NOT_CONFIGURED";
   } else {
     try {
-      const registration = await ensureRegistration(ctx, config, row);
+      let registration = await ensureRegistration(ctx, config, row);
+      // A root domain waits on Cloudflare's own backoff, which reaches hours
+      // between looks; a press of "Check again" asks it to look now.
+      if (options.refresh && row.apex && registration !== null && registration.status === "pending") {
+        registration = await refreshHostname(config, registration.id);
+      }
       findings.readiness = readinessOf(registration);
     } catch (error) {
       logFailure("check", row, error);
@@ -136,7 +146,7 @@ export const provision = internalAction({
   args: { domainId: v.id("customDomains") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await runCheck(ctx, args.domainId);
+    await runCheck(ctx, args.domainId, { refresh: true });
     return null;
   },
 });
@@ -155,9 +165,10 @@ export const check = internalAction({
  * Find the customer's DNS provider and, when it has our Domain Connect
  * template, record a signed link that applies both records there.
  *
- * Once, at connect. Everything that can go wrong — no signing key, a
- * self-hosted target the published template does not name, a provider without
- * the template or not answering — ends the same way: no link, and the manual
+ * At connect, and again on "Check again" while there is no link yet. Everything
+ * that can go wrong — no signing key, a self-hosted target the published
+ * template does not name, a provider without the template or not answering —
+ * ends the same way: no link, and the manual
  * records the customer would have had anyway. The key is read here and never
  * leaves this action; what reaches the row is the signed link, which carries
  * nothing the owner is not already shown.

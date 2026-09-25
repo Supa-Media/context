@@ -162,6 +162,12 @@ const { InviteScreen } =
 const { InviteListScreen } =
   require("../features/invite/InviteListScreen") as typeof import("../features/invite/InviteListScreen");
 const { ShareScreen } = require("../features/share/ShareScreen") as typeof import("../features/share/ShareScreen");
+const { WebsitePage } = require("../features/site/website/WebsitePage") as typeof import("../features/site/website/WebsitePage");
+// The handle routes only resolve an address; this is the page they then draw.
+function websitePage(): ReactElement {
+  const page = { kind: "page", siteName: "Seyi", routePath: "/", audience: "public", title: "Home" } as const;
+  return createElement(WebsitePage, { name: "Seyi", view: { ...page, description: null, markdown: "# Home\n\nHello.", navigation: [] }, navigate: () => {}, signIn: () => {} });
+}
 const { DropboxCallbackScreen } =
   require("../features/console/storage/DropboxCallbackScreen") as typeof import("../features/console/storage/DropboxCallbackScreen");
 const { GoogleCallbackScreen } =
@@ -236,7 +242,7 @@ const ROUTES: Record<string, Coverage> = {
         WelcomeChrome,
         {
           step: "name",
-          shape: { storage: "connected" },
+          shape: {},
           children: createElement(Text, null, "the step's card"),
         },
       ),
@@ -266,21 +272,8 @@ const ROUTES: Record<string, Coverage> = {
   "invite/index.tsx": { kind: "screen", mount: () => createElement(InviteListScreen) },
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
-  /*
-    The same screen at its second address. `/@seyi/intake` resolves the name
-    server-side to the share row `/s/<token>` carries directly, so what is
-    mounted here is `ShareScreen` with an address rather than a token — one
-    page, two ways in, and no second layout to keep in step.
-  */
-  "[handle]/[slug].tsx": {
-    kind: "screen",
-    mount: () =>
-      createElement(ShareScreen as (props: {
-        shortLink?: { handle: string; slug: string };
-      }) => ReturnType<typeof ShareScreen>, {
-        shortLink: { handle: "seyi", slug: "intake" },
-      }),
-  },
+  "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
+  "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },
   /*

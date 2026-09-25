@@ -787,12 +787,12 @@ export interface FileBrowser {
    * find which mailboxes exist), and each channel folder in turn, none of
    * which the person has navigated *into*.
    *
-   * A no-op once `listings[path]` is populated — this is a cache to fill, not
+   * A no-op once `listings[path]` is populated unless `fresh` — a cache, not
    * a subscription, so a caller that wants a fresh read after a write already
    * has `select`/`refresh` for that. Fire-and-forget: the result shows up in
    * `listings` on the next render, the same way every other listing does.
    */
-  ensureListing: (path: string) => void;
+  ensureListing: (path: string, fresh?: boolean) => void;
 
   /**
    * Read one note's raw text and etag, without opening it in the editor.

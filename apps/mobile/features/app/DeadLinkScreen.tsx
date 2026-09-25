@@ -80,7 +80,7 @@ export function DeadLinkScreen({
           <View style={styles.actions}>
             <Button
               label="Go to your notes"
-              variant="white"
+              variant="accent"
               onPress={() => router.replace(CONSOLE_ROUTE)}
               testID="dead-link-console"
             />

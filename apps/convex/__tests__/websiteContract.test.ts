@@ -66,14 +66,29 @@ describe("website contract", () => {
   });
 
   test("public resolution has no diagnostic-bearing failure variant", () => {
-    const unavailable: ResolvedWebsitePage = { kind: "unavailable" };
+    const unavailable: ResolvedWebsitePage = {
+      kind: "unavailable",
+      siteName: null,
+      navigation: [],
+    };
     const signIn: ResolvedWebsitePage = {
       kind: "authentication_required",
+      siteName: "Atlas",
+      navigation: [],
       signInPath: "/sign-in?return=%2F%40atlas%2Fteam",
     };
 
-    expect(Object.keys(unavailable)).toEqual(["kind"]);
-    expect(Object.keys(signIn).sort()).toEqual(["kind", "signInPath"]);
+    expect(Object.keys(unavailable).sort()).toEqual([
+      "kind",
+      "navigation",
+      "siteName",
+    ]);
+    expect(Object.keys(signIn).sort()).toEqual([
+      "kind",
+      "navigation",
+      "signInPath",
+      "siteName",
+    ]);
     expect(JSON.stringify([unavailable, signIn])).not.toMatch(
       /draft|collision|missing|private|member/i,
     );

@@ -136,7 +136,11 @@ export async function runProtocolBasicsChecks() {
   // 42 with `create_link`, `list_links` and `revoke_link` — the console has had
   // share links since the beginning and nothing here could mint one, so an agent
   // asked for "a link to send them" wrote a URL out of the path it was holding.
-  check("41 tools listed", tools.result?.tools.length === 41);
+  check("42 tools listed", tools.result?.tools.length === 42);
+  check(
+    "Folder lists have an explicit read-only server evaluator",
+    tools.result?.tools?.find((tool) => tool.name === "evaluate_lists")?.annotations?.readOnlyHint === true,
+  );
   check(
     "storage migration is advertised only to an owner-tier connection",
     tools.result?.tools?.some((tool) => tool.name === "migrate_storage_layout") === true &&
@@ -248,7 +252,7 @@ export async function runProtocolBasicsChecks() {
   const listWithFormsOff = await rpc("priv-token", "tools/list");
   check(
     "a Context plugin turned off takes its tools out of the listing",
-    listWithFormsOff.result?.tools.length === 37 &&
+    listWithFormsOff.result?.tools.length === 38 &&
       listWithFormsOff.result?.tools?.some((tool) => tool.name === "submit_form") === false
   );
   check(
@@ -294,12 +298,12 @@ export async function runProtocolBasicsChecks() {
   await contextStore.put(enablementKey, "{ half a file");
   check(
     "a settings file that does not parse leaves every tool where it was",
-    (await rpc("priv-token", "tools/list")).result?.tools.length === 41
+    (await rpc("priv-token", "tools/list")).result?.tools.length === 42
   );
   await contextStore.delete(enablementKey);
   check(
     "and removing the file restores the full listing",
-    (await rpc("priv-token", "tools/list")).result?.tools.length === 41
+    (await rpc("priv-token", "tools/list")).result?.tools.length === 42
   );
   check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
   check(
@@ -353,6 +357,27 @@ export async function runProtocolBasicsChecks() {
     "read tools have read-only annotations",
     tools.result?.tools.find((tool) => tool.name === "read_note").annotations.readOnlyHint === true
   );
+  await contextStore.put(
+    "1-projects/list-source.md",
+    "```list\nfrom: 1-projects\nwhere: list-fixture is yes\nsubfolders: yes\nsort: title\n```",
+  );
+  await contextStore.put(
+    "1-projects/list-visible.md",
+    "---\ntitle: Visible row\nlist-fixture: yes\n---\n\nVisible",
+  );
+  await contextStore.put(
+    "1-projects/secret-thing/list-hidden.md",
+    "---\ntitle: Hidden row\nlist-fixture: yes\n---\n\nHidden",
+  );
+  const evaluated = await call("pub-token", "evaluate_lists", { path: "1-projects/list-source.md" });
+  const evaluatedText = evaluated?.content?.[0]?.text ?? "";
+  check(
+    "MCP list evaluation returns only rows this connection can open",
+    evaluatedText.includes("Visible row") && !evaluatedText.includes("Hidden row") && !evaluatedText.includes('"total"'),
+  );
+  await contextStore.delete("1-projects/list-source.md");
+  await contextStore.delete("1-projects/list-visible.md");
+  await contextStore.delete("1-projects/secret-thing/list-hidden.md");
 
   // -- auth
   const bad = await worker.fetch(

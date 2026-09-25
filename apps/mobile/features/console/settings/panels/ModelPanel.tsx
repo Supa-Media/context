@@ -4,6 +4,7 @@ import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../../design/components/Button";
+import { TextLink } from "../../../design/components/TextLink";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { FormError, Notice, TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
@@ -286,9 +287,8 @@ function ProviderCard({
             secureTextEntry
             testID={`model-key-${name}`}
           />
+          {/* Primary first, the way out beside it — the app's one action-row order. */}
           <Row style={styles.formRow}>
-            <Grow>{null}</Grow>
-            <Button label="Cancel" onPress={close} disabled={busy} />
             <Button
               label={busy ? "Connecting…" : "Connect"}
               variant="accent"
@@ -296,6 +296,7 @@ function ProviderCard({
               onPress={save}
               testID={`model-save-${name}`}
             />
+            <TextLink label="Cancel" onPress={close} disabled={busy} />
           </Row>
         </View>
       ) : null}

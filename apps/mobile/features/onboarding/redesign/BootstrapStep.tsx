@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Text } from "../../design/components/Text";
 import { useCopy } from "../../design/useCopy";
 import { fonts, leading, radii, space, tracking } from "../../design/tokens";
@@ -58,7 +59,7 @@ export function BootstrapStep({
       <View style={styles.actions}>
         <Button
           label={label === "Copy" ? "Copy the prompt" : label}
-          variant="white"
+          variant="accent"
           onPress={copy}
           testID="welcome-bootstrap-copy"
         />
@@ -76,8 +77,8 @@ export function BootstrapStep({
       </View>
 
       <View style={styles.pageActions}>
-        <Button label="Skip — I'll write my own notes" variant="ghost" onPress={onSkip} />
-        <Button label="Continue" variant="white" onPress={onDone} />
+        <Button label="Continue" variant="accent" onPress={onDone} />
+        <TextLink label="Skip — I'll write my own notes" onPress={onSkip} />
       </View>
     </View>
   );
@@ -152,8 +153,8 @@ const makeStyles = (colors: Colors) =>
     pageActions: {
       marginTop: space.x6,
       flexDirection: "row",
-      justifyContent: "space-between",
       alignItems: "center",
-      gap: space.x3,
+      gap: 14,
+      flexWrap: "wrap",
     },
   });
