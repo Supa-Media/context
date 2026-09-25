@@ -1,0 +1,114 @@
+# The session hook's own CI.
+#
+# Same reason `mcp.yml` exists: the reusable framework pipeline filters on
+# apps/mobile, apps/convex and packages/shared, so nothing under plugins/context
+# matches and its suite would never run. That package holds the code that
+# decides **what leaves somebody's machine** — the capture boundary over a
+# session log full of system prompts, reasoning and tool output — and an OAuth
+# client that keeps a refresh token on disk. Least covered in CI is exactly the
+# wrong place for it.
+#
+# Bare node, no install step: the package has no dependencies, on purpose. It is
+# something people `npx` onto their own machine, so its supply chain should be
+# its own source.
+name: Session hook
+
+# No `paths:` filter on pull_request, deliberately — see mcp.yml. A required
+# check that is filtered out never reports at all, and leaves every unrelated
+# pull request stuck on an "Expected" status it can never satisfy.
+#
+# And no `branches:` filter on pull_request either — see mcp.yml. A base-branch
+# filter means a pull request stacked on another branch runs no checks at all,
+# which is how #169 merged with zero check runs. The key is absent rather than
+# `branches: ['**']` so that a tidy-up to `'*'` cannot silently stop matching
+# `claude/…`-shaped branches; `scripts/check-workflow-triggers.mjs` enforces it.
+# The `push:` filter below stays on `main`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/context/**"
+      - ".github/workflows/cli.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Session Hook
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # setup-node's default cache detection shells out to pnpm before
+          # the step below installs it. See mcp.yml.
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@v4
+
+      # The package's two reviewed dependencies (add-mcp, @clack/prompts).
+      # Most suites inject a stand-in for add-mcp, but cleanup.test.mjs runs
+      # the real one; without this it cannot be imported and the install it
+      # checks fails for that reason instead of the one being tested.
+      - name: Install the CLI's dependencies
+        run: pnpm install --filter "@supa-media/context..." --frozen-lockfile
+
+      - name: Run test suite
+        working-directory: plugins/context
+        run: npm test
+
+  no-dependencies:
+    name: CLI dependencies stay reviewed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      # Two runtime dependencies are allowed, pinned exactly, and nothing else:
+      # `add-mcp`, which writes MCP entries into other agents' config files
+      # during `install`, and `@clack/prompts`, the setup wizard's menus. The
+      # hooks and the credential code load neither; the import check below
+      # confines them to src/installer.js and src/prompt.js. A new dependency is
+      # added to the allowlist here, pinned, and argued for in its pull request
+      # and in docs/decisions/plugins.md.
+      - name: Assert plugins/context declares only its reviewed dependencies
+        run: |
+          set -euo pipefail
+          node -e '
+            const pkg = require("./plugins/context/package.json");
+            const allowed = { "add-mcp": /^\d+\.\d+\.\d+$/, "@clack/prompts": /^\d+\.\d+\.\d+$/ };
+            let bad = false;
+            for (const field of ["optionalDependencies", "peerDependencies", "bundleDependencies"]) {
+              if (pkg[field] && Object.keys(pkg[field]).length) { console.log(`plugins/context declared ${field}`); bad = true; }
+            }
+            for (const [name, range] of Object.entries(pkg.dependencies || {})) {
+              if (!allowed[name]) { console.log(`not a reviewed dependency: ${name}`); bad = true; }
+              else if (!allowed[name].test(range)) { console.log(`${name} must be pinned to an exact version, not ${range}`); bad = true; }
+            }
+            if (bad) {
+              console.log("\nThis package runs on a user\u0027s laptop, holds a credential, and reads their");
+              console.log("session transcripts. Every dependency can change what it does to either.");
+              console.log("Add it to the allowlist here, pinned, and argue for it in the PR and docs/decisions.");
+              process.exit(1);
+            }
+            console.log("OK: only reviewed dependencies, each pinned.");
+          '
+
+      # The same invariant the gateway holds, for the same reason: the package
+      # must import nothing but Node built-ins and its own files. Reuses the
+      # gateway's checker, which strips comments and self-tests rather than
+      # grepping for the word "import" and matching prose.
+      # Quoted, and that is not cosmetic: an unquoted `node:` inside a plain
+      # scalar is a YAML mapping value, so this file failed to parse and GitHub
+      # ignored the whole workflow — silently, with no run, no error and no
+      # failing check. The first version of this file shipped that way and the
+      # PR went green without ever testing the package.
+      - name: "Assert plugins/context imports only node: built-ins and relative paths"
+        run: |
+          node scripts/check-gateway-imports.mjs --self-test
+          node scripts/check-gateway-imports.mjs --allow-node-builtins --allow-import=add-mcp:src/installer.js --allow-import=@clack/prompts:src/prompt.js plugins/context/src plugins/context/bin plugins/context/hooks

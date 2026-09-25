@@ -1,0 +1,49 @@
+{
+  "name": "@supa-media/context",
+  "version": "0.1.0",
+  "description": "Install Context into your AI tools: the MCP server, the skills, and the session hooks that save what a session learned",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Supa-Media/context.git",
+    "directory": "plugins/context"
+  },
+  "homepage": "https://github.com/Supa-Media/context/tree/main/plugins/context#readme",
+  "bugs": {
+    "url": "https://github.com/Supa-Media/context/issues"
+  },
+  "bin": {
+    "context-lc": "./bin/context.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "hooks",
+    "skills",
+    ".claude-plugin",
+    "plugin.json",
+    ".mcp.json",
+    "mcp.json",
+    "gemini",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node test/test.mjs && node test/hooks.test.mjs && node test/cli.test.mjs && node test/skills.test.mjs && node test/settings.test.mjs && node test/plugin.test.mjs && node test/installer.test.mjs && node test/cleanup.test.mjs",
+    "typecheck": "echo \"no typecheck (plain JS, no dependencies)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0",
+    "prepublishOnly": "node test/test.mjs"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.8.1",
+    "add-mcp": "2.4.0"
+  }
+}

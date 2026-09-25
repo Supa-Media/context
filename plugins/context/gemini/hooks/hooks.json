@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "name": "context-session-start",
+            "type": "command",
+            "command": "node \"${extensionPath}/hooks/session-start.mjs\" --client gemini-cli",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "name": "context-capture",
+            "type": "command",
+            "command": "node \"${extensionPath}/hooks/capture.mjs\" --client gemini-cli",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

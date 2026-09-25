@@ -20,7 +20,7 @@
  *
  * **The file is created 0600, at open time.** `writeFile` then `chmod` leaves a
  * window in which somebody else's account can read it, and on a shared machine
- * that window is the whole attack. Same construction as `packages/hook`'s
+ * that window is the whole attack. Same construction as `plugins/context`'s
  * config, for the same reason — and the write is atomic (temp file, rename), so
  * a laptop lid closing mid-write cannot leave a half-credential that the next
  * launch cannot parse and cannot recover from.

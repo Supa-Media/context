@@ -4,3 +4,6 @@ packages:
   # Edge infrastructure that isn't an app: the Cloudflare Worker fronting
   # context.lc. Matches events-os, which keeps its router here too.
   - "infra/*"
+  # Agent plugins. `plugins/context` is both the `context` plugin every coding
+  # agent installs and the `@supa-media/context` npm package that installs it.
+  - "plugins/*"

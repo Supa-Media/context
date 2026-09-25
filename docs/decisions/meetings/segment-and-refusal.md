@@ -160,7 +160,7 @@ its own terms if it wanted to.
 
 - **Route the phone's transcript through the same door the desktop uses.**
   That means the phone acquiring an MCP grant — the OAuth client registration
-  flow `packages/hook` ships and the desktop already runs — instead of, or
+  flow `plugins/context` ships and the desktop already runs — instead of, or
   alongside, its control-plane session. *The desktop is an OAuth client of the
   gateway, and it asks for the tier its meetings are filed at* (above) argues
   at length for why that credential shape is not one to hand a phone lightly:

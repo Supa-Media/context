@@ -38,7 +38,7 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  *
  * `writeInboxCapture` files any capture carrying an `external_id` under
  * `0-inbox/<safeSlug(source)>/`, so the folder name is whatever the sender
- * called itself — and three senders are the product's own. `packages/hook`
+ * called itself — and three senders are the product's own. `plugins/context`
  * publishes exactly three client ids and bakes `--client <id>` into the
  * command it installs, so `hook:claude-code` slugs to `hook-claude-code`;
  * `POST /inbox` defaults `source` to `"inbox"`; the Granola webhook hardcodes

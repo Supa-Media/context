@@ -281,7 +281,7 @@ describe("a folder gets a link too", () => {
 
   test("and every client the hook installs has its capture folder in the list", () => {
     const install = readFileSync(
-      new URL("../../../../packages/hook/src/install.js", import.meta.url),
+      new URL("../../../../plugins/context/src/install.js", import.meta.url),
       "utf8",
     );
     // `writeInboxCapture` files an `external_id` capture under

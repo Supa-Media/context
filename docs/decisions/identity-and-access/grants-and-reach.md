@@ -296,7 +296,7 @@ anything wider, goes through the screen.
 
 **The declaration is client-asserted, and this file says so rather than
 implying otherwise.** The shell registers RFC 7591's `software_id`
-(`DESKTOP_SOFTWARE_ID`, plumbed through `packages/hook`'s `registerClient` and
+(`DESKTOP_SOFTWARE_ID`, plumbed through `plugins/context`'s `registerClient` and
 the gateway's `/oauth/register`), and registration is unauthenticated by
 construction — so anything that can register can claim the string. What it buys
 is **scope**, not authentication: no client that did not declare itself the

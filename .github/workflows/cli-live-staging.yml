@@ -1,0 +1,42 @@
+# The `@supa-media/context` CLI and agent plugin, live against staging.
+#
+# Signs in as the seeded alpha@supa.media persona (docs/staging.md) and runs
+# scripts/staging-cli-live.mjs: OAuth login, the workspace list, tools from the
+# terminal, the session-end hook, the MCP-entry installer and logout, against
+# https://mcp-staging.context.lc. Everything the run creates is removed at the
+# end: the capture note is archived and the run's grant revoked.
+#
+# Manual only. It needs no secret: the persona's fixed code works only on the
+# staging backend, and the deployment name is a variable of the staging
+# environment. Run it from any branch to test that branch's CLI.
+name: CLI Live (staging)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-live-staging
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: CLI against staging
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      APP_ENV: staging
+      STAGING_CONVEX_DEPLOYMENT: ${{ vars.STAGING_CONVEX_DEPLOYMENT }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run the CLI against staging as the alpha persona
+        run: node scripts/staging-cli-live.mjs

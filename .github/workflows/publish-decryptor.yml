@@ -17,16 +17,16 @@
 # repository" is a different instruction from "run one command", and it is the
 # wrong one to hand somebody who has just revoked our credential.
 #
-# ## Shape: identical to `publish-hook.yml`, deliberately
+# ## Shape: identical to `publish-cli.yml`, deliberately
 #
 # `workflow_dispatch` only. Merging to `main` deploys the gateway, the Convex
 # functions and an OTA update; it does not hand a tarball to a public registry.
-# That is the same line `deploy-mobile-native.yml` and `publish-hook.yml` draw,
+# That is the same line `deploy-mobile-native.yml` and `publish-cli.yml` draw,
 # for the same reason — publishing a package people run unattended is a
 # decision somebody takes, not a side effect of a merge.
 #
 # Auth, the `NPMJS_SECRET` setup, and why this is not token-less trusted
-# publishing yet: see the header of `.github/workflows/publish-hook.yml`. This
+# publishing yet: see the header of `.github/workflows/publish-cli.yml`. This
 # package publishes under the same `@supa-media` scope with the same token and
 # has nothing to add to that account.
 #
@@ -119,7 +119,7 @@ jobs:
           set -euo pipefail
           if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
             echo "ERROR: missing required secret 'NPMJS_SECRET' in the 'production' environment."
-            echo "It is in scripts/secrets-allowlist.json; see publish-hook.yml's header for the one-time setup."
+            echo "It is in scripts/secrets-allowlist.json; see publish-cli.yml's header for the one-time setup."
             exit 1
           fi
           npm publish --provenance --access public

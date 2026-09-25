@@ -303,7 +303,8 @@ export async function runNotarizeAndShipChecks(check) {
     "every runtime dependency is either ours, in this repository, or the one named exception",
     // `workspace:` rather than a scope prefix, and the difference is not
     // cosmetic: the first version matched `@context/` and `@context-lc/`, and
-    // #263 renamed the hook to `@supa-media/context-hook` — a package that is
+    // #263 renamed the hook to `@supa-media/context-hook` (since renamed again,
+    // to `@supa-media/context`) — a package that is
     // still ours, still in this repository, and would have turned this check
     // red for a rename. What is being asserted is "resolved from this
     // workspace, not downloaded", and pnpm spells that `workspace:`.

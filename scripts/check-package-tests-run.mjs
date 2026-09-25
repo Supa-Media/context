@@ -62,7 +62,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const WORKSPACE_DIRS = ["apps", "packages", "infra"];
+const WORKSPACE_DIRS = ["apps", "packages", "infra", "plugins"];
 
 /**
  * A YAML-ish comment strip.

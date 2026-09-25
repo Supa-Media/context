@@ -226,7 +226,7 @@ export function createConnectFlow(ctx: MainContext): Pick<MainActions, "answerFr
    *
    * The endpoint is the person's own: self-hosting is a supported path and
    * there is no hard-coded gateway anywhere in this app. Everything after it —
-   * discovery, registration, the approval, the exchange — is `packages/hook`'s
+   * discovery, registration, the approval, the exchange — is `plugins/context`'s
    * reviewed flow, and the record it produces goes straight to the keychain
    * without passing through a renderer.
    *
