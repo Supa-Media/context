@@ -18,6 +18,7 @@ import { findName } from "../nameClaims";
 import { isEncryptedNote } from "../noteEncryption";
 import { shortLinkSlugFrom } from "../shareSlug";
 import { hasWorkspaceMembership } from "../shares/standing";
+import { websiteTextRestricts } from "./changes";
 import {
   rewriteWebsiteLinks,
   websiteReferencedSharePaths,
@@ -490,9 +491,25 @@ export async function resolveWebsitePageHandler(
     status.title === null ||
     parsed.problems.length > 0
   ) {
+    // Unpublishable and restricted are not alternatives: one save can be
+    // both, and the release this would otherwise fall back to is then a
+    // public copy of the page whose own bytes have just asked to stop being
+    // public. The branch above catches a restriction the status can carry;
+    // this catches one it cannot, because any other flaw in the page outranks
+    // both controls in the status.
+    //
+    // A page the index already holds as members-only reached this line
+    // through the membership gate, so its release is not a wider audience and
+    // the autosave grace still applies to it. Ciphertext is different: it is
+    // a restriction at any audience, and its release is the plaintext.
+    const restricted =
+      isEncryptedNote(result.text) ||
+      (plan.audience === "public" && websiteTextRestricts(result.text));
     await ctx.runMutation(internal.functions.websites.invalidateRouteIndex, {
       workspaceId: plan.workspaceId,
+      ...(restricted ? { unsafe: true } : {}),
     });
+    if (restricted) return restrictedUnavailable;
     return (
       (await resolveReleasedPage(ctx, plan, args.handle).catch(() => null)) ??
       sourceUnavailable
