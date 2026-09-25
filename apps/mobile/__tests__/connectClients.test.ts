@@ -298,6 +298,36 @@ describe("the hooks panel", () => {
     expect(screen.text()).toContain("config set capture off");
     screen.unmount();
   });
+
+  /*
+    AND WHERE THE SIGN-IN IS KEPT, WHICH IS THE HALF A READER CANNOT INFER.
+
+    This panel used to say the installer asked for "capture access only — it
+    can add to your inbox and cannot read a single note", and it warned, for
+    the narrower `--orient` variant, about "a credential that lives on your
+    machine unattended". The grant is now read, write and — if the approval
+    page is allowed to — private. The scopes are stated; where the resulting
+    sign-in lives was not, and it is the fact that decides whether somebody
+    runs this on a shared or a work machine.
+
+    Three claims, each true of the code rather than of the copy:
+    `plugins/context/src/config.js` writes with `FILE_MODE = 0o600` and opens
+    `"wx", 0o600` rather than writing then chmod-ing; the sign-in keeps working
+    with nobody present, which is the point of a session hook; and Connections
+    is where it is revoked, which is the one action a reader can take.
+  */
+  test("...and where the sign-in is kept, for every client that offers it", () => {
+    const screen = mount();
+    for (const provider of CLIENT_PROVIDERS.filter((p) => p.hook)) {
+      screen.click(`provider-${provider.id}-hook-toggle`);
+      const text = screen.text();
+      expect(text).toContain("kept on this computer");
+      expect(text).toContain("only your user can read");
+      expect(text).toContain("revoke it in Connections");
+      screen.click(`provider-${provider.id}-hook-toggle`);
+    }
+    screen.unmount();
+  });
 });
 
 describe("the customization instruction", () => {

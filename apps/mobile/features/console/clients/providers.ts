@@ -305,11 +305,29 @@ function installCommand(agent: string, endpoint: string): string {
   return `npx -y @supa-media/context install --agent ${agent} --endpoint ${shellQuote(endpoint)}`;
 }
 
+/*
+  WHAT THESE TWO NOTES OWE A READER, AND WHY THE LAST SENTENCE IS THERE.
+
+  This panel is the last thing somebody reads before running a command that
+  mints a credential. It used to describe a `context:capture` grant — "it can
+  add to your inbox and cannot read a single note" — and, for the narrower
+  `--orient` variant, warned about "a credential that lives on your machine
+  unattended". The installer now signs in with `context:read context:write
+  context:private` (`plugins/context/src/oauth.js`, `LOGIN_SCOPE`), and the
+  scopes are stated above.
+
+  Where the resulting sign-in lives was not, and that is the half a reader
+  cannot infer from a scope. Each clause is a fact about the code: `config.js`
+  writes with `FILE_MODE = 0o600` and opens `"wx", 0o600` rather than writing
+  then chmod-ing; a session hook works with nobody present, which is the point
+  of it; and Connections is where a grant is revoked, which is the one action
+  this sentence can hand the reader.
+*/
 const PLUGIN_NOTE =
-  "Installs the context plugin: the MCP server, two skills, and two session hooks. At the start of a session the agent is told to orient before answering; when it ends, the session's user-visible messages are saved to your inbox (turn that off with: npx @supa-media/context config set capture off). Signs in once with read and write access; on the approval page you choose whether it also sees your private notes.";
+  "Installs the context plugin: the MCP server, two skills, and two session hooks. At the start of a session the agent is told to orient before answering; when it ends, the session's user-visible messages are saved to your inbox (turn that off with: npx @supa-media/context config set capture off). Signs in once with read and write access; on the approval page you choose whether it also sees your private notes. The sign-in is kept on this computer, in a file only your user can read, and works unattended until you revoke it in Connections.";
 
 const MCP_ONLY_NOTE =
-  "Adds the MCP server and the two skills. This client has no plugin hooks, so sessions are not saved automatically; the agent saves with save_context. Signs in once with read and write access; on the approval page you choose whether it also sees your private notes.";
+  "Adds the MCP server and the two skills. This client has no plugin hooks, so sessions are not saved automatically; the agent saves with save_context. Signs in once with read and write access; on the approval page you choose whether it also sees your private notes. The sign-in is kept on this computer, in a file only your user can read, and works unattended until you revoke it in Connections.";
 
 /**
  * Ordered by how many people will want each one, not alphabetically.
