@@ -263,9 +263,11 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
     case "stick":
       return agent === "claude" ? (
         <Frame caption={SEEN_IN.claude}>
-          <Win title="Settings" nav={CLAUDE_NAV} hit="General">
+          <Win title="Settings" nav={CLAUDE_NAV} hit="Account">
             <Text style={s.strong}>Profile</Text>
-            <Input label="What personal preferences should Claude consider in responses?" value={short} pin={1} plain />
+            <Text style={s.lab}>What should Claude call you?</Text>
+            <Line width="45%" />
+            <Input label="Instructions for Claude" value={short} pin={1} plain />
             <Right><Fake label="Save" solid /></Right>
           </Win>
         </Frame>

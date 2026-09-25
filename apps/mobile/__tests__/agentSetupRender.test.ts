@@ -76,11 +76,14 @@ describe("the connect steps", () => {
 
   test("make it stick names the agent's own field and hands over the instruction", () => {
     const claude = draw("guide-claude-stick");
-    expect(claude.text()).toContain("What personal preferences should Claude consider in responses?");
+    expect(claude.text()).toContain("Settings › Account");
+    expect(claude.text()).toContain("Instructions for Claude");
     expect(claude.text()).toContain("call orient");
+    expect(claude.byId("agent-setup-open-stick")?.textContent).toContain("Open Claude's Account settings");
     claude.done();
     const gpt = draw("guide-chatgpt-stick");
     expect(gpt.text()).toContain("Anything else ChatGPT should know about you?");
+    expect(gpt.byId("agent-setup-open-stick")).not.toBeNull();
     gpt.done();
   });
 

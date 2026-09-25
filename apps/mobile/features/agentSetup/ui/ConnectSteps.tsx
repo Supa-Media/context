@@ -192,6 +192,14 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
             <P>
               In <MenuPath parts={field.path} />, paste this into <B>{field.field}</B> and save.
             </P>
+            <GuideButton
+              label={`${field.label} ↗`}
+              quiet
+              onPress={() => open(field.link)}
+              style={{ alignSelf: "flex-start" }}
+              testID="agent-setup-open-stick"
+            />
+            <Gap />
             <PromptBox
               text={CLAUDE_CUSTOM_INSTRUCTION}
               note="Paste it word for word."
@@ -201,7 +209,7 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
             <Gap />
             <P small>
               {agent === "claude"
-                ? "Already have preferences there? Add this on a new line below them."
+                ? "Already have instructions there? Add this on a new line below them."
                 : "ChatGPT only uses Context in chats where you switch it on: + › More › Developer mode › Context."}
             </P>
           </>

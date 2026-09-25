@@ -49,15 +49,22 @@ export const AGENT_LINKS: Record<SetupAgent, { settings: string; label: string; 
   },
 };
 
-/** Where the standing instruction goes, in each agent's own words. */
-export const STICK_FIELD: Record<SetupAgent, { path: readonly string[]; field: string }> = {
+/**
+ * Where the standing instruction goes, in each agent's own words, and a link
+ * straight to that page so nobody has to find it from a menu path.
+ */
+export const STICK_FIELD: Record<SetupAgent, { path: readonly string[]; field: string; link: string; label: string }> = {
   claude: {
-    path: ["Settings", "General"],
-    field: "What personal preferences should Claude consider in responses?",
+    path: ["Settings", "Account"],
+    field: "Instructions for Claude",
+    link: "https://claude.ai/settings/account",
+    label: "Open Claude's Account settings",
   },
   chatgpt: {
     path: ["Settings", "Personalization", "Custom instructions"],
     field: "Anything else ChatGPT should know about you?",
+    link: "https://chatgpt.com/#settings/Personalization",
+    label: "Open ChatGPT's Personalization",
   },
 };
 
