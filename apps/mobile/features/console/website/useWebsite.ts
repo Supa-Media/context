@@ -4,6 +4,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { WebsiteStateView } from "@context/shared";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
+import { requestMirrorRefresh } from "../../offline/mirrorEvents";
 
 export interface WebsiteActions {
   enable: () => Promise<void>;
@@ -46,6 +47,10 @@ export function useWebsite(workspaceId: string | null): WebsiteCardView {
     return {
       enable: async () => {
         await enable(args);
+        // Turning it on may have written `website/index.md`; walk the tree now
+        // so the homepage is in the folder when the person looks, rather than
+        // at the next periodic pass if the server's change hint is missed.
+        requestMirrorRefresh(workspaceId);
       },
       disable: async () => {
         await disable(args);

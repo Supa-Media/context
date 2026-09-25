@@ -5,6 +5,7 @@ import { createElement } from "react";
 import type { ResolvedWebsiteAddress } from "@context/shared";
 
 const mockPush = jest.fn();
+let mockSignIn: (path: string) => void = () => {};
 const mockRequests: unknown[] = [];
 let mockView: ResolvedWebsiteAddress | undefined;
 
@@ -26,7 +27,8 @@ jest.mock("../features/share/ShareScreen", () => ({
   },
 }));
 jest.mock("../features/site/website/WebsitePage", () => ({
-  WebsitePage: ({ view }: { view: ResolvedWebsiteAddress }) => {
+  WebsitePage: ({ view, signIn }: { view: ResolvedWebsiteAddress; signIn: (path: string) => void }) => {
+    mockSignIn = signIn;
     const react = jest.requireActual<typeof import("react")>("react");
     return react.createElement("div", { "data-testid": "website" }, view.kind);
   },
@@ -102,5 +104,18 @@ describe("a handle website address", () => {
       handle: "atlas",
       routePath: "/guides/start",
     });
+  });
+});
+
+describe("the members gate's sign-in", () => {
+  test("follows the server's path only while it stays inside this app", () => {
+    mockView = { kind: "authentication_required", siteName: "Atlas", navigation: [], signInPath: "/login" };
+    render(["team"]);
+    for (const path of ["https://elsewhere.example/login", "//elsewhere.example/login", "/\\elsewhere.example"]) {
+      act(() => mockSignIn(path));
+    }
+    expect(mockPush).not.toHaveBeenCalled();
+    act(() => mockSignIn("/login?next=%2F%40atlas%2Fteam"));
+    expect(mockPush).toHaveBeenCalledWith("/login?next=%2F%40atlas%2Fteam");
   });
 });
