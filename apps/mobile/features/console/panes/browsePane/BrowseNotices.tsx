@@ -1,4 +1,4 @@
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
@@ -28,6 +28,7 @@ export function BrowseNotices({
   onOpenSettings,
   onNavigate,
   setup,
+  writing,
   introVisible,
   intro,
   introAnswer,
@@ -44,6 +45,8 @@ export function BrowseNotices({
   onOpenSettings: BrowsePaneProps["onOpenSettings"];
   onNavigate?: BrowsePaneProps["onNavigate"];
   setup: BrowseNoticeState["setup"];
+  /** A layout is being written right now — see `layoutWriting`. */
+  writing: boolean;
   introVisible: boolean;
   intro: BrowseNoticeState["intro"];
   introAnswer: BrowseNoticeState["introAnswer"];
@@ -78,6 +81,15 @@ export function BrowseNotices({
         and hiding a fails-closed privacy notice because a fix is on offer is
         the wrong way round.
       */}
+      {writing ? (
+        <View style={[styles.notice, styles.noticeRow]} testID="browse-layout-writing">
+          <ActivityIndicator size="small" />
+          <Text variant="hint" role="status">
+            Setting up your folders — this takes a few seconds.
+          </Text>
+        </View>
+      ) : null}
+
       {setupPromptVisible(setup) && current?.id !== undefined ? (
         <SetupPrompt
           setup={setup}

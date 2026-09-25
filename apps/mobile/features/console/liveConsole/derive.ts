@@ -190,6 +190,7 @@ export function consoleStorageFrom(
           noteCountedAt: binding.noteCountedAt,
           noteCountTruncated: binding.noteCountTruncated,
           scaffoldReason: binding.scaffoldReason,
+          scaffoldQueuedAt: binding.scaffoldQueuedAt,
           layoutState: binding.storageLayoutState,
           layoutStateAt: binding.storageLayoutAt,
           /*

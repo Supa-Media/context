@@ -74,7 +74,9 @@ export type ContextSetup =
   /** A verified bucket with nothing in it. */
   | { kind: "empty" }
   /** A layout we began writing and did not finish. */
-  | { kind: "unfinished" };
+  | { kind: "unfinished" }
+  /** A layout asked for seconds ago and still being written. */
+  | { kind: "writing" };
 
 /** The slice of the binding this reads. */
 export interface SetupStorage {
@@ -82,6 +84,34 @@ export interface SetupStorage {
   status: string;
   /** The verifier's word for what it found in the bucket. */
   scaffoldReason?: string;
+  /** A layout asked for and not yet answered — see `layoutWriting`. */
+  scaffoldQueuedAt?: number;
+}
+
+/**
+ * How long a queued layout may be "on its way" before the console stops
+ * saying so. The job takes seconds; a job that never reports back must not
+ * hold the console in "setting up your folders" for ever, and once this
+ * passes the ordinary empty and warning states say what is true again.
+ */
+export const LAYOUT_WRITING_WINDOW_MS = 2 * 60 * 1000;
+
+/**
+ * Whether a layout is being written into this bucket right now.
+ *
+ * The missing `privacy.md` and the empty root that follow "Start fresh" for a
+ * few seconds are this, not something wrong — and the first person to sign
+ * up after the first-run rebuild was shown a fails-closed privacy warning for
+ * exactly that window. The control plane stamps `scaffoldQueuedAt` when the
+ * layout is queued and clears it when the job reports back.
+ */
+export function layoutWriting(
+  storage: SetupStorage | null | undefined,
+  now: number,
+): boolean {
+  const queuedAt = storage?.scaffoldQueuedAt;
+  if (typeof queuedAt !== "number") return false;
+  return now - queuedAt < LAYOUT_WRITING_WINDOW_MS;
 }
 
 export function contextSetupFor(options: {
@@ -106,6 +136,8 @@ export function contextSetupFor(options: {
    * `unfinished` branch below.
    */
   structureTemplate?: string;
+  /** For `layoutWriting`; the caller's clock, so tests can hold it still. */
+  now?: number;
 }): ContextSetup {
   /*
     Owner-only, and this is not merely a UI nicety: `applyStructure` requires
@@ -124,6 +156,10 @@ export function contextSetupFor(options: {
   const storage = options.storage;
   if (storage === null || storage === undefined) return { kind: "none" };
   if (storage.status !== "connected") return { kind: "none" };
+
+  // Before the root listing is read: while a layout is landing, the listing
+  // on screen is the one from before it, and "empty" is the wrong answer.
+  if (layoutWriting(storage, options.now ?? Date.now())) return { kind: "writing" };
 
   /*
     The live fact, and the one that outranks everything below.
@@ -161,7 +197,9 @@ export function contextSetupFor(options: {
 
 /** Whether the prompt is drawn at all. */
 export function setupPromptVisible(setup: ContextSetup): boolean {
-  return setup.kind !== "none";
+  // Not while a layout is being written: that is its own quiet notice, and an
+  // offer to write the layout that is already on its way is a second one.
+  return setup.kind === "empty" || setup.kind === "unfinished";
 }
 
 /**

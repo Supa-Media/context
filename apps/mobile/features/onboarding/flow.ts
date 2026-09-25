@@ -105,7 +105,7 @@ export function stepTitle(key: StepKey, shape?: FlowShape): string {
     case "fork":
       return "Where should we start you?";
     case "storage":
-      return shape?.route === "byo" ? "Show us what's already there" : "Setting up your storage";
+      return shape?.route === "byo" ? "Show us what's already there" : "Setting up your workspace";
     case "dryrun":
       return "Here's what's in your bucket";
   }

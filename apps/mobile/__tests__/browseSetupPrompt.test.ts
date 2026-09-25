@@ -64,6 +64,12 @@ function emptyContextConsole(over: {
   /** What the root listing holds. `undefined` leaves it unread. */
   rootEntries?: Array<Record<string, unknown>> | undefined;
   rootUnread?: boolean;
+  /** A layout asked for and not yet answered. */
+  scaffoldQueuedAt?: number;
+  /** Whether the root listing could read `privacy.md`. */
+  manifestUsable?: boolean;
+  /** Records `ensureListing` calls. */
+  listed?: Array<[string, boolean | undefined]>;
 } = {}): ConsoleData {
   const files = {
     canEdit: true,
@@ -77,7 +83,7 @@ function emptyContextConsole(over: {
             folderDefault: "private",
             entries: over.rootEntries ?? [],
             truncated: false,
-            manifestUsable: true,
+            manifestUsable: over.manifestUsable ?? true,
           },
         },
     expanded: new Set<string>(),
@@ -99,6 +105,7 @@ function emptyContextConsole(over: {
     clipboard: null,
     sync: undefined,
     contextId: "w1",
+    ensureListing: (path: string, fresh?: boolean) => over.listed?.push([path, fresh]),
   // No move into another context is running. `BrowsePane` reads this on
   // every render, so a fixture without it crashes the pane rather than
   // failing the assertion the test was written for.
@@ -130,6 +137,7 @@ function emptyContextConsole(over: {
       bucket: "example-bucket",
       conditionalWrite: true,
       scaffoldReason: over.scaffoldReason ?? "empty",
+      scaffoldQueuedAt: over.scaffoldQueuedAt,
     },
     endpoint: "https://mcp.example",
     ingestionAddress: "seyi@example",
@@ -316,5 +324,51 @@ describe("every other context sees nothing", () => {
     );
     expect(find(container, "console-setup-apply")?.textContent ?? "").toMatch(/finish/i);
     unmount();
+  });
+});
+
+describe("a layout on its way is not a broken context", () => {
+  /*
+    The first person to sign up after the first-run rebuild landed here seconds
+    after "Start fresh": the layout was queued, `privacy.md` did not exist yet,
+    and this band said so as a fails-closed privacy warning — with an "empty"
+    card on top of it offering to write the layout already on its way.
+  */
+  const writing = () =>
+    emptyContextConsole({ scaffoldQueuedAt: Date.now(), manifestUsable: false, rootEntries: [] });
+
+  test("says it is setting up the folders, and neither warns nor offers", () => {
+    const { container, unmount } = mount(writing(), () => {});
+    expect(find(container, "browse-layout-writing")?.textContent).toMatch(/Setting up your folders/);
+    expect(container.textContent).not.toMatch(/privacy\.md is missing/);
+    expect(find(container, "console-setup-prompt")).toBeNull();
+    unmount();
+  });
+
+  test("a stamp nobody answered stops counting, and the truth comes back", () => {
+    const stale = emptyContextConsole({
+      scaffoldQueuedAt: Date.now() - 10 * 60 * 1000,
+      manifestUsable: false,
+      rootEntries: [],
+    });
+    const { container, unmount } = mount(stale, () => {});
+    expect(find(container, "browse-layout-writing")).toBeNull();
+    expect(find(container, "console-setup-prompt")).not.toBeNull();
+    unmount();
+  });
+
+  test("when it lands, the root is read again rather than left empty", () => {
+    const listed: Array<[string, boolean | undefined]> = [];
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+    const render = (data: ConsoleData) =>
+      act(() => root.render(createElement(BrowsePane, { data, onOpenSettings: () => {} } as never)));
+    render(emptyContextConsole({ scaffoldQueuedAt: Date.now(), manifestUsable: false, listed }));
+    expect(listed).toEqual([]);
+    render(emptyContextConsole({ scaffoldReason: "created", listed }));
+    expect(listed).toContainEqual(["", true]);
+    act(() => root.unmount());
+    container.remove();
   });
 });

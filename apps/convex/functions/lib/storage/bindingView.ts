@@ -75,6 +75,8 @@ export const getStorageBindingReturns = v.union(
      * absent means nothing is outstanding.
      */
     scaffoldMissing: v.optional(v.array(v.string())),
+    /** A layout asked for and not yet answered. See the schema. */
+    scaffoldQueuedAt: v.optional(v.number()),
     /**
      * HOW MANY NOTES, AND WHEN SOMETHING LAST LOOKED.
      *
@@ -182,6 +184,7 @@ export async function getStorageBindingHandler(
     scaffolded: binding.scaffolded,
     scaffoldReason: binding.scaffoldReason,
     scaffoldMissing: binding.scaffoldMissing,
+    scaffoldQueuedAt: binding.scaffoldQueuedAt,
     // Owner only. See the validator above: this is a number about private
     // notes, and a member of this context cannot read them.
     noteCount: isOwner ? binding.noteCount : undefined,

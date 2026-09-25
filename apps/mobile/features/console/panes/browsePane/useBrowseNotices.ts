@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FileBrowser } from "../../files/browser";
 import { contextMoveNotices } from "../../files/contextMoveNotice";
 import {
@@ -35,7 +35,6 @@ export function useBrowseNotices({
     refresh.
   */
   const noBucket = data.storage === null;
-  const manifestBroken = files.listings[""]?.manifestUsable === false;
   /*
     THE CONTEXT NOBODY FINISHED SETTING UP.
 
@@ -66,6 +65,27 @@ export function useBrowseNotices({
     root: files.listings[""],
     structureTemplate: current?.structureTemplate,
   });
+  /*
+    A LAYOUT ON ITS WAY IS NOT A BROKEN MANIFEST.
+
+    For the seconds after "Start fresh" the bucket has no `privacy.md` yet, and
+    this band used to say so as a fails-closed privacy warning — to somebody
+    who had signed up a moment before. While the layout is being written the
+    band says that instead (`setup.kind === "writing"`), and the warning waits
+    for a manifest that is actually missing.
+  */
+  const writing = setup.kind === "writing";
+  const manifestBroken = !writing && files.listings[""]?.manifestUsable === false;
+  /*
+    And when it lands, the root is read again. Listings are actions, not
+    subscriptions, so the empty root read while the layout was on its way
+    would otherwise stay on screen until somebody reloaded.
+  */
+  const wasWriting = useRef(false);
+  useEffect(() => {
+    if (wasWriting.current && !writing) files.ensureListing("", true);
+    wasWriting.current = writing;
+  }, [files, writing]);
   /*
     Ask the bucket before offering anything, once per context.
 
@@ -199,6 +219,7 @@ export function useBrowseNotices({
   const hasNotice =
     introVisible ||
     setupPromptVisible(setup) ||
+    writing ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
@@ -209,6 +230,7 @@ export function useBrowseNotices({
     noBucket,
     manifestBroken,
     setup,
+    writing,
     storageMigration,
     intro,
     introAnswer,

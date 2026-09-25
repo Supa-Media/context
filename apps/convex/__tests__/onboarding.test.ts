@@ -206,6 +206,23 @@ describe("the answer is what gets written", () => {
     });
   });
 
+  test("a layout in flight is visible as one, and stops being once it lands", async () => {
+    // The console reads this to say "setting up your folders" rather than a
+    // privacy warning about a manifest that is seconds from being written.
+    const { t, owner, workspaceId } = await connected();
+    expect((await binding(t, owner, workspaceId))?.scaffoldQueuedAt).toBeUndefined();
+
+    await apply(t, owner, workspaceId, { template: "para" });
+    const queued = await binding(t, owner, workspaceId);
+    expect(typeof queued?.scaffoldQueuedAt).toBe("number");
+    expect(queued?.scaffoldReason).not.toBe("created");
+
+    await drainScheduled(t);
+    const landed = await binding(t, owner, workspaceId);
+    expect(landed?.scaffoldReason).toBe("created");
+    expect(landed?.scaffoldQueuedAt).toBeUndefined();
+  });
+
   test("the manifest says what belongs in each folder, one line each", async () => {
     const { t, owner, workspaceId, backend } = await connected();
     await apply(t, owner, workspaceId, { template: "para" });

@@ -132,6 +132,7 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     // No offer: the default for these screens is a deployment that cannot
     // provide managed storage.
     managed: null,
+    layout: "idle",
     skipStorage: () => {},
     continuePastStorage: () => {},
     ...overrides,

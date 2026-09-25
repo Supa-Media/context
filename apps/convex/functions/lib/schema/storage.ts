@@ -233,6 +233,18 @@ export const storageTables = {
      */
     scaffoldMissing: v.optional(v.array(v.string())),
     /**
+     * When a layout was last asked for and not yet answered.
+     *
+     * Stamped by `applyStructure`, cleared by the next recorded verification
+     * (which is the job it queued). While it is set, the console knows the
+     * missing `privacy.md` and the empty root are a layout in flight rather
+     * than something wrong — the difference between "setting up your
+     * folders" and a privacy warning in front of somebody who just signed
+     * up. A time, not a flag, so a job that never reports back cannot hold
+     * the console in "setting up" for ever (`layoutWriting` caps it).
+     */
+    scaffoldQueuedAt: v.optional(v.number()),
+    /**
      * HOW MANY NOTES WERE IN THE BUCKET WHEN SOMETHING LAST LOOKED.
      *
      * A count, a timestamp, and whether the count is a total or a floor. All

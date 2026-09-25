@@ -472,7 +472,7 @@ describe("the redesigned steps, wired", () => {
     harness.unmount();
   });
 
-  test("“Start fresh” lays out the five folders once our bucket answers, then the console", async () => {
+  test("“Start fresh” holds on the folders until they have landed, then the console", async () => {
     const results: Record<string, unknown> = {
       ...happyDeployment(),
       "functions/storage:getStorageBinding": null,
@@ -489,17 +489,70 @@ describe("the redesigned steps, wired", () => {
         storageIsManaged: false,
       },
     };
-    const harness = mountOnboarding(results);
+    const harness = mountOnboarding(results, { layoutSettleMs: 0 });
     await claimSeyi(harness);
     await harness.act(() => harness.current().pickManaged());
-    expect(harness.current().finished).toBe(false);
 
     // Our bucket is made and verifies — empty, because nothing has written to it.
     results["functions/storage:getStorageBinding"] = { status: "connected", scaffoldReason: "empty" };
     await harness.notify();
-
     const layout = harness.calls.find((call) => call.name === APPLY_STRUCTURE);
     expect(layout?.args).toEqual({ workspaceId: "w1", template: "para" });
+    // Not the console yet: this is the moment that used to show a new owner a
+    // privacy warning about a `privacy.md` seconds from existing.
+    expect(harness.current().layout).toBe("writing");
+    expect(harness.current().finished).toBe(false);
+
+    // The binding shows the layout queued, still not in.
+    results["functions/storage:getStorageBinding"] = {
+      status: "connected",
+      scaffoldReason: "empty",
+      scaffoldQueuedAt: 1,
+    };
+    await harness.notify();
+    expect(harness.current().finished).toBe(false);
+
+    // The job reports back: written. The folders are drawn ticked, then the console.
+    results["functions/storage:getStorageBinding"] = { status: "connected", scaffoldReason: "created" };
+    await harness.notify();
+    expect(harness.current().layout).toBe("done");
+    await harness.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    expect(harness.current().finished).toBe(true);
+    harness.unmount();
+  });
+
+  test("a stale binding right after the layout is queued is not taken for an answer", async () => {
+    // The mutation can return before the stamp it wrote reaches this client;
+    // "no stamp" then means "not seen yet", not "done".
+    const results: Record<string, unknown> = {
+      ...happyDeployment(),
+      "functions/storage:getStorageBinding": { status: "connected", scaffoldReason: "empty" },
+      "functions/workspaces:listMyWorkspaces": [
+        { workspaceId: "w1", slug: "blessing", kind: "personal", role: "owner" },
+      ],
+    };
+    const harness = mountOnboarding(results, { resume: "storage", checkout: "done" });
+    await harness.notify();
+    await harness.notify();
+    expect(harness.current().layout).toBe("writing");
+    expect(harness.current().finished).toBe(false);
+    harness.unmount();
+  });
+
+  test("a layout that comes back half-written still lets them in — the console finishes it", async () => {
+    const results: Record<string, unknown> = {
+      ...happyDeployment(),
+      "functions/storage:getStorageBinding": { status: "connected", scaffoldReason: "empty" },
+      "functions/workspaces:listMyWorkspaces": [
+        { workspaceId: "w1", slug: "blessing", kind: "personal", role: "owner" },
+      ],
+    };
+    const harness = mountOnboarding(results, { resume: "storage", checkout: "done" });
+    await harness.notify();
+    results["functions/storage:getStorageBinding"] = { status: "connected", scaffoldReason: "partial" };
+    await harness.notify();
     expect(harness.current().finished).toBe(true);
     harness.unmount();
   });
@@ -515,7 +568,9 @@ describe("the redesigned steps, wired", () => {
     };
     const harness = mountOnboarding(results, { resume: "storage", checkout: "done" });
     await harness.notify();
-    expect(harness.calls.map((call) => call.name)).toContain(APPLY_STRUCTURE);
+    await harness.act(async () => {});
+    // Asked once — a refusal is not retried in a loop.
+    expect(harness.calls.filter((call) => call.name === APPLY_STRUCTURE)).toHaveLength(1);
     expect(harness.current().finished).toBe(true);
     harness.unmount();
   });
