@@ -11,9 +11,10 @@
  * are the four claims the screen itself makes, each of which is a rule from
  * the redesign rather than a rendering detail:
  *
- *  1. **A non-admin sees a missing page**, and none of the figures — the
- *     server refuses them too, but a screen that leaked one before the refusal
- *     landed would be a leak all the same.
+ *  1. **A non-admin sees the app's ordinary dead link**, and none of the
+ *     figures — the server refuses them too, but a screen that leaked one
+ *     before the refusal landed would be a leak all the same. Nothing names
+ *     the page before the check resolves.
  *  2. **A truncated census withholds the growth curves.** The notice alone is
  *     not the rule; drawing a cumulative line from an arbitrary slice of rows
  *     is, and it is the one that would survive a careless edit.
@@ -23,13 +24,22 @@
  *  4. **Figures reach the screen**, so the census query being dropped or
  *     renamed is a red test rather than a page of zeroes.
  *
+ * The Credentials tab's own rules — delete only on a confirmation, a value
+ * that never outlives its write — are in `adminSecretsRender.test.ts`.
+ *
+ * The redesign (2026-09) replaced the old period caption and "Not found" with
+ * the headline cards' split caption and `DeadLinkScreen`; the assertions on
+ * those strings changed with it, and the rules they guard did not.
+ *
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted.
  *
  *   the `census.truncated` guard around the curves removed        1
- *   `Console` rendering every section regardless of the tab       4
+ *   `Console` rendering every section regardless of the tab       5
  *   `AdminPane` rendering the console for a non-admin             1
+ *   `AdminChrome` drawn while `amIAdmin` is unresolved            1
+ *   the Credentials count hard-wired to zero                      2
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
@@ -59,6 +69,10 @@ jest.mock("convex/react", () => {
     },
   };
 });
+
+jest.mock("expo-router", () => ({
+  useRouter: () => ({ replace: () => {}, push: () => {}, back: () => {} }),
+}));
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
@@ -96,16 +110,24 @@ function mount(): HTMLElement {
   return container;
 }
 
-function click(container: HTMLElement, testID: string): void {
-  const node = container.querySelector(`[data-testid="${testID}"]`);
+/*
+  These look in the whole document rather than the mount point: the
+  credential dialogs are `Modal`s, which react-native-web portals to the body.
+*/
+function find(testID: string): HTMLElement | null {
+  return document.querySelector(`[data-testid="${testID}"]`);
+}
+
+function click(_container: HTMLElement, testID: string): void {
+  const node = find(testID);
   if (node === null) throw new Error(`no control called ${testID}`);
   act(() => {
-    (node as HTMLElement).click();
+    node.click();
   });
 }
 
-function has(container: HTMLElement, testID: string): boolean {
-  return container.querySelector(`[data-testid="${testID}"]`) !== null;
+function has(_container: HTMLElement, testID: string): boolean {
+  return find(testID) !== null;
 }
 
 const WINDOW = ["2026-09-13", "2026-09-14"];
@@ -228,25 +250,36 @@ describe("who the page renders for", () => {
     expect(has(container, "admin-stat-accounts")).toBe(true);
   });
 
-  test("a non-admin sees a missing page and not one figure", () => {
+  test("a non-admin sees the ordinary dead link and not one figure", () => {
     mockAnswers.set("functions/admin:amIAdmin", false);
     // Deliberately present, so this asserts the *screen* withholds them rather
     // than there being nothing to withhold.
     mockAnswers.set("functions/admin:censusReport", census());
     mockAnswers.set("functions/admin:usageReport", usage());
+    mockAnswers.set("functions/admin:listSecrets", []);
     const container = mount();
-    expect(container.textContent).toContain("Not found");
+    // The same screen as any address that does not exist — not a refusal
+    // that confirms there is something here to be refused.
+    expect(has(container, "dead-link")).toBe(true);
+    expect(container.textContent).toContain("That link did not go anywhere");
+    expect(container.textContent).not.toContain("Staff console");
+    expect(has(container, "admin-pane")).toBe(false);
     expect(has(container, "admin-stat-accounts")).toBe(false);
     expect(has(container, "admin-roster")).toBe(false);
+    expect(has(container, "admin-tab-credentials")).toBe(false);
     expect(container.textContent).not.toContain("someone@example.test");
   });
 
-  test("an unresolved check shows neither the console nor the refusal", () => {
-    // `undefined` is not `false`. Flashing "not found" at an admin on every
-    // cold load is the bug this guards.
+  test("an unresolved check names nothing: no console, no refusal, no frame", () => {
+    // `undefined` is not `false`. Flashing the dead link at an admin on every
+    // cold load is one bug; drawing the console's title while the check is in
+    // flight tells a non-admin what the page is, and is the other.
     mockAnswers.set("functions/admin:amIAdmin", undefined);
     const container = mount();
-    expect(container.textContent).not.toContain("Not found");
+    expect(has(container, "dead-link")).toBe(false);
+    expect(has(container, "admin-pane")).toBe(false);
+    expect(container.textContent).not.toContain("Staff console");
+    expect(container.textContent).not.toContain("Credentials");
     expect(has(container, "admin-stat-accounts")).toBe(false);
   });
 });
@@ -260,14 +293,42 @@ describe("growth is what the page opens on", () => {
     expect(text).toContain("Accounts");
     expect(text).toContain("Paying contexts");
     // Contexts outnumber accounts, which is the fact this page was asked for.
-    expect(text).toContain("1.8 per account");
+    expect(text).toContain("Contexts each1.8");
+    // The phone's shorter label, or the full one: jsdom has no width.
+    expect(text).toMatch(/(Members per shared|Per shared)2\.5/);
     // $10, from two paying contexts at the one price.
     expect(text).toContain("$10 a month");
   });
 
   test("the period comparison is absolute, not a percentage", () => {
     const container = mount();
-    expect(container.textContent).toContain("+1 — 1 vs 0 before");
+    const text = container.textContent ?? "";
+    expect(text).toContain("1 new in 2 days");
+    expect(text).toContain("+1 on the 2 before");
+    expect(text).not.toMatch(/\d%/);
+  });
+
+  test("the arrival facts come from the window the census sent", () => {
+    // One arrival, on the first of two days: one day of two, and yesterday.
+    const container = mount();
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/(Days with arrivals|Arrival days)1 of 2/);
+    expect(text).toContain("Last arrivalyesterday");
+  });
+
+  test("needs a nudge reads the roster person by person", () => {
+    asAdmin({
+      roster: [
+        { joinedAt: 1, email: "a@example.test", contexts: 1, owned: 1, connectedStorage: 0, clients: 0, plan: "none", lastSeenAt: null },
+        { joinedAt: 2, email: "b@example.test", contexts: 1, owned: 1, connectedStorage: 1, clients: 1, plan: "past_due", lastSeenAt: 2 },
+      ],
+    });
+    const container = mount();
+    expect(find("admin-nudge-storage")?.textContent).toContain("No storage connected1");
+    expect(find("admin-nudge-client")?.textContent).toContain("No client connected1");
+    expect(find("admin-nudge-seen")?.textContent).toContain("Never came back1");
+    expect(find("admin-nudge-due")?.textContent).toContain("Payment past due1");
+    expect(container.textContent).toContain("of the 2 newest");
   });
 
   test("the curves, the funnel and the roster are all drawn", () => {
@@ -344,6 +405,10 @@ describe("the tabs separate the errands", () => {
   test("credentials carries the form and no figures", () => {
     const container = mount();
     click(container, "admin-tab-credentials");
+    // The form is a dialog now, behind "Add credential" — not open above the
+    // list on every visit.
+    expect(has(container, "admin-secret-value")).toBe(false);
+    click(container, "admin-secret-add");
     expect(has(container, "admin-secret-value")).toBe(true);
     expect(has(container, "admin-stat-accounts")).toBe(false);
     expect(has(container, "admin-storage")).toBe(false);
@@ -355,6 +420,34 @@ describe("the tabs separate the errands", () => {
     click(container, "admin-tab-activity");
     // Still offered, and still the one that was picked — re-choosing the
     // period every time you cross a tab is not a feature.
-    expect(has(container, "admin-window-7")).toBe(true);
+    expect(find("admin-window-7")?.getAttribute("aria-checked")).toBe("true");
+    expect(find("admin-window-30")?.getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("the credentials tab counts the known names not set, from any tab", () => {
+    const container = mount();
+    expect(find("admin-credentials-count")?.textContent).toBe("5");
+    click(container, "admin-tab-estate");
+    expect(find("admin-credentials-count")?.textContent).toBe("5");
+  });
+});
+
+describe("an early deployment", () => {
+  test("nobody yet is one calm card that points at credentials", () => {
+    asAdmin({
+      accounts: {
+        total: { count: 0, isFloor: false },
+        added: points([0, 0]),
+        cumulative: points([0, 0]),
+        newInWindow: 0,
+        newInPriorWindow: 0,
+      },
+      roster: [],
+    });
+    const container = mount();
+    expect(container.textContent).toContain("Nobody has signed up yet");
+    expect(has(container, "admin-funnel")).toBe(false);
+    click(container, "admin-empty-credentials");
+    expect(has(container, "admin-secret-add")).toBe(true);
   });
 });

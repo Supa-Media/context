@@ -128,3 +128,26 @@ exactly the query the provider applies` in
   link submits only on `context.lc`.
 - Tool output (`create_link`, `list_links`) and the console's share dialog still
   print `context.lc` URLs. Returning the primary domain there is the next step.
+
+## Staging owns a separate SaaS registry
+
+Production and staging have independent domain-claim databases. They must also
+use different Cloudflare SaaS zones and zone-scoped provisioning tokens. A
+second CNAME under the production zone does not isolate traffic: the zone's
+wildcard Worker still resolves customer hostnames against production.
+
+The staging workflow syncs `CUSTOM_DOMAINS_ZONE_ID` and `CUSTOM_DOMAINS_TARGET`
+from its own GitHub environment secrets. Both are optional together until
+operator setup is complete; malformed pairs and targets under `context.lc`
+fail preflight. The operator must verify that the target belongs to the chosen
+staging zone, enable SaaS there, set its fallback, and route that zone's customer
+traffic to `context-router-staging`, preserving any existing platform hosts.
+Store a token scoped only to that zone in staging `appSecrets`; never reuse the
+production provisioning token. Remove a previously configured deployment's
+environment values explicitly when disabling it: absent GitHub secrets do not
+delete live Convex settings.
+
+The production Domain Connect template has a fixed production CNAME target,
+so isolated staging uses manual DNS records. Verify claims and certificates
+with disposable hostnames and a test workspace through the normal application
+lifecycle before treating the staging setup as complete.
