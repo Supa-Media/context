@@ -50,7 +50,7 @@ describe("website route index", () => {
       entries: [],
       folders: [],
       cursor: "stuck",
-      truncated: true,
+      truncated: false,
       manifestUsable: true,
     };
     const ctx = {
@@ -65,6 +65,84 @@ describe("website route index", () => {
       ),
     ).rejects.toMatchObject({ data: { code: "WEBSITE_SCAN_INCOMPLETE" } });
     expect(ctx.runAction).toHaveBeenCalledTimes(2);
+  });
+
+  test("follows a complete manifest cursor instead of indexing only the first page", async () => {
+    const ctx = {
+      runAction: vi
+        .fn()
+        .mockResolvedValueOnce({
+          kind: "manifest",
+          entries: [{ path: "notes/before-website.md" }],
+          folders: [],
+          cursor: "notes/before-website.md",
+          truncated: false,
+          manifestUsable: true,
+        })
+        .mockResolvedValueOnce({
+          kind: "manifest",
+          entries: [{ path: "website/index.md" }],
+          folders: [],
+          cursor: null,
+          truncated: false,
+          manifestUsable: true,
+        })
+        .mockResolvedValueOnce({
+          kind: "notes",
+          results: [
+            {
+              path: "website/index.md",
+              outcome: "read",
+              note: {
+                text: "---\ntitle: Home\n---\n\nHome\n",
+                etag: "homepage-etag",
+              },
+            },
+          ],
+        }),
+    } as unknown as ActionCtx;
+
+    await expect(
+      scanWebsiteRoutes(
+        ctx,
+        "0000000000000000010002workspaces" as Id<"workspaces">,
+        { scope: "private", grantedNames: [] },
+      ),
+    ).resolves.toMatchObject({
+      indexed: [{ objectKey: "website/index.md", routePath: "/" }],
+    });
+    expect(ctx.runAction).toHaveBeenNthCalledWith(
+      2,
+      internal.functions.files.runFileOperation,
+      expect.objectContaining({
+        operation: {
+          kind: "manifest",
+          cursor: "notes/before-website.md",
+        },
+      }),
+    );
+  });
+
+  test("rejects a non-resumable truncated manifest", async () => {
+    const ctx = {
+      runAction: vi.fn().mockResolvedValue({
+        kind: "manifest",
+        entries: [],
+        folders: [],
+        cursor: null,
+        truncated: true,
+        manifestUsable: true,
+      }),
+    } as unknown as ActionCtx;
+
+    await expect(
+      scanWebsiteRoutes(
+        ctx,
+        "0000000000000000010002workspaces" as Id<"workspaces">,
+        { scope: "private", grantedNames: [] },
+      ),
+    ).rejects.toMatchObject({ data: { code: "WEBSITE_SCAN_INCOMPLETE" } });
+    expect(ctx.runAction).toHaveBeenCalledTimes(1);
   });
 
   test("an incomplete bulk read fails closed instead of deleting old routes", async () => {

@@ -71,21 +71,22 @@ export async function scanWebsiteRoutes(
         }
       }
     }
+    // `truncated` means the manifest is only a non-resumable floor. Ordinary
+    // complete pagination has `truncated: false` plus a non-null cursor.
     if (manifest.truncated) {
-      const nextCursor = manifest.cursor ?? undefined;
-      if (
-        nextCursor === undefined ||
-        nextCursor === cursor ||
-        seenCursors.has(nextCursor)
-      ) {
+      throw scanError("The bucket could not complete a website listing safely.");
+    }
+    const nextCursor = manifest.cursor ?? undefined;
+    if (nextCursor === undefined) {
+      cursor = undefined;
+    } else {
+      if (nextCursor === cursor || seenCursors.has(nextCursor)) {
         throw scanError(
           "The bucket could not complete a website listing safely.",
         );
       }
       seenCursors.add(nextCursor);
       cursor = nextCursor;
-    } else {
-      cursor = undefined;
     }
   } while (cursor !== undefined);
 
