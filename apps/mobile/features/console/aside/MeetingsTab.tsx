@@ -557,7 +557,7 @@ function Stranded({ record }: { record: MeetingRecord }) {
         {landing?.retry == null ? null : (
           <Button
             label="Retry"
-            variant="white"
+            variant="accent"
             onPress={
               landing.retry === "finalize"
                 ? () => void meetings.retryFinalize(record.session.id)

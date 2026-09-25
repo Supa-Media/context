@@ -477,3 +477,7 @@ Moved to [No UI ships without a design audit first (2026-09-23)](./app-and-conso
 ### The first run is two screens, and the rest is a checklist in the console (2026-09-25)
 
 Moved to [The first run is two screens, and the rest is a checklist in the console](./app-and-console/first-run.md#the-first-run-is-two-screens-and-the-rest-is-a-checklist-in-the-console-2026-09-25).
+
+### An action row is primary first, and the way out sits beside it (2026-09-25)
+
+Moved to [An action row is primary first, and the way out sits beside it](./app-and-console/design-tokens-and-interaction.md#an-action-row-is-primary-first-and-the-way-out-sits-beside-it-2026-09-25).

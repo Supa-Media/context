@@ -4,6 +4,7 @@ import { useMutation } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Card, Row } from "../../design/components/Card";
 import { FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
@@ -159,9 +160,8 @@ export function SetupPromptBody({
           />
         )}
         {onImportVault === undefined || applying ? null : (
-          <Button
+          <TextLink
             label="Import an Obsidian vault"
-            variant="ghost"
             onPress={onImportVault}
             testID="console-setup-import"
           />

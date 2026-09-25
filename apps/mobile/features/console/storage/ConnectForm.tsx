@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Card } from "../../design/components/Card";
 import { Hint } from "../../design/components/Field";
 import { ChoiceGroup, FormError, TextField } from "../../design/components/Input";
@@ -251,16 +252,15 @@ export function ConnectForm({
       <View style={styles.actions}>
         <Button
           label={submitting ? "Connecting…" : "Connect"}
-          variant="white"
+          variant="accent"
           disabled={submitting}
           onPress={() => void submit()}
           trailing={submitting ? <ActivityIndicator color={colors.ink} size="small" /> : null}
           testID="connect-submit"
         />
         {onCancel ? (
-          <Button
+          <TextLink
             label="Cancel"
-            variant="ghost"
             disabled={submitting}
             onPress={onCancel}
             testID="connect-cancel"

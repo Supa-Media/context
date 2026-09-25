@@ -229,6 +229,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A copy on the device is bounded by who read it, when, and whether the server said no
 - Making a workspace is its own flow, not onboarding with a flag
 - The first run is two screens, and the rest is a checklist in the console
+- An action row is primary first, and the way out sits beside it
 - Two name fields for a shared workspace, one for a personal one
 - The layout presets are company-shaped, and PARA is not the default
 - Invitations are queued, and a partial send keeps its successes

@@ -361,7 +361,7 @@ export function IngestionCard({
             <Row style={styles.actions}>
               <Button
                 label={saving ? "Saving…" : "Save"}
-                variant="white"
+                variant="accent"
                 disabled={!dirty || saving || folderProblem !== null}
                 onPress={() => {
                   if (draft === null || saved === null || state.save === undefined) return;

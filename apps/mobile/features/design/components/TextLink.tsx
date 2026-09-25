@@ -35,6 +35,7 @@ export function TextLink({
     <Text
       role="link"
       accessibilityState={{ disabled }}
+      aria-disabled={disabled}
       accessibilityLabel={accessibilityLabel ?? label}
       onPress={disabled ? undefined : onPress}
       style={[styles.link, disabled && styles.disabled, style]}
