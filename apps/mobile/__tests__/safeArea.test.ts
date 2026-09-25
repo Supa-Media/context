@@ -163,11 +163,10 @@ const { InviteListScreen } =
   require("../features/invite/InviteListScreen") as typeof import("../features/invite/InviteListScreen");
 const { ShareScreen } = require("../features/share/ShareScreen") as typeof import("../features/share/ShareScreen");
 const { WebsitePage } = require("../features/site/website/WebsitePage") as typeof import("../features/site/website/WebsitePage");
-
+// The handle routes only resolve an address; this is the page they then draw.
 function websitePage(): ReactElement {
-  const view = { kind: "page", siteName: "Seyi", routePath: "/", audience: "public", title: "Home" } as const;
-  const page = { ...view, description: null, markdown: "# Home\n\nHello.", navigation: [] };
-  return createElement(WebsitePage, { name: "Seyi", view: page, navigate: () => {}, signIn: () => {} });
+  const page = { kind: "page", siteName: "Seyi", routePath: "/", audience: "public", title: "Home" } as const;
+  return createElement(WebsitePage, { name: "Seyi", view: { ...page, description: null, markdown: "# Home\n\nHello.", navigation: [] }, navigate: () => {}, signIn: () => {} });
 }
 const { DropboxCallbackScreen } =
   require("../features/console/storage/DropboxCallbackScreen") as typeof import("../features/console/storage/DropboxCallbackScreen");
@@ -273,10 +272,6 @@ const ROUTES: Record<string, Coverage> = {
   "invite/index.tsx": { kind: "screen", mount: () => createElement(InviteListScreen) },
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
-  /*
-    The website at its handle address. The route itself only resolves the
-    address, so what is mounted is the page it draws once the answer is in.
-  */
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
