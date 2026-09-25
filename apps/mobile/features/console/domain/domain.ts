@@ -22,7 +22,7 @@ export type DomainProblem =
   | "TIMED_OUT";
 
 export interface DnsRecord {
-  purpose: "ownership" | "routing";
+  purpose: "ownership" | "routing" | "hostname";
   type: string;
   name: string;
   host: string;
@@ -42,6 +42,8 @@ export interface DomainView {
   problem: string | null;
   homeSlug: string | null;
   checkedAt: number | null;
+  /** When this round of checks began. */
+  checkingSince: number;
   records: DnsRecord[];
   /** Owner only, while records are missing: the provider can add them for you. */
   oneClick: OneClick | null;
@@ -83,9 +85,10 @@ export function domainPill(domain: DomainView): { tone: PillTone; label: string 
       return { tone: "neutral", label: "Removing" };
     case "pending":
       if (needsAttention(domain)) return { tone: "warn", label: "Needs attention" };
-      return domain.stage === "https"
-        ? { tone: "neutral", label: "Issuing certificate" }
-        : { tone: "neutral", label: "Waiting for DNS" };
+      if (domain.stage === "https") return { tone: "neutral", label: "Securing" };
+      return domain.stage === "routing"
+        ? { tone: "neutral", label: "Connecting" }
+        : { tone: "neutral", label: "Add records" };
   }
 }
 
@@ -119,13 +122,68 @@ export function stepsLabel(steps: DomainStep[]): string {
   return `Step ${index + 1} of ${steps.length}: ${steps[index]!.label.toLowerCase()}`;
 }
 
-/** The sentence under the head while a domain is being set up. */
-export function pendingSentence(domain: DomainView): string {
+/**
+ * How long a pointing record usually takes to reach us. Past it, "Checking"
+ * turns into "Not seen yet" and the sentence asks the owner to look.
+ */
+export const USUAL_CONNECT_MS = 30 * 60 * 1000;
+
+function waitedLong(domain: DomainView, now: number): boolean {
+  return now - domain.checkingSince >= USUAL_CONNECT_MS;
+}
+
+const COUNT_WORDS = ["no", "one", "two", "three", "four"];
+
+/** "the ALIAS record", "the ALIAS and _cf-custom-hostname TXT records". */
+function recordList(records: DnsRecord[]): string {
+  const names = records.map((record) => (record.type === "TXT" ? `${record.host} TXT` : record.type));
+  const joined = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]!;
+  return `the ${joined} record${records.length > 1 ? "s" : ""}`;
+}
+
+/**
+ * The sentence under the head while a domain is being set up. It says what is
+ * done and what is left, and says so plainly when nothing is left to do.
+ */
+export function pendingSentence(domain: DomainView, now: number = Date.now()): string {
   if (domain.stage === "https") {
-    return `Both records found. Setting up https for ${domain.hostname}, which usually takes a few minutes.`;
+    return "Your records are in. Setting up HTTPS, which usually takes a few minutes. There's nothing to do.";
   }
-  const zone = registrableDomain(domain.hostname);
-  return `Add these two records where you manage ${zone}'s DNS. We check on our own, so you can close this page.`;
+  if (domain.stage !== "routing") {
+    const zone = registrableDomain(domain.hostname);
+    const count = COUNT_WORDS[domain.records.length] ?? String(domain.records.length);
+    return `Add these ${count} records where you manage ${zone}'s DNS. We check on our own, so you can close this page.`;
+  }
+  const missing = domain.records.filter((record) => !record.done);
+  if (missing.length === 0) {
+    return `${domain.hostname} is yours. Connecting usually takes under 30 minutes, and you can close this page.`;
+  }
+  if (!waitedLong(domain, now)) {
+    return `${domain.hostname} is yours. If you've added ${recordList(missing)}, there's nothing more to do. Connecting usually takes under 30 minutes, and you can close this page.`;
+  }
+  const them = missing.length > 1 ? "they match" : "it matches";
+  return `We haven't seen ${recordList(missing)} reach us yet. Check ${them} below at your DNS provider. Some providers take a few hours.`;
+}
+
+/**
+ * One record's status. A record we have not found reads "Checking" while it
+ * is still normal not to see it, and "Not seen yet" otherwise — dashed, since
+ * neither is a check that said no: a pointing record cannot be seen at all
+ * until Cloudflare takes the domain on.
+ */
+export function recordStatus(
+  domain: DomainView,
+  record: DnsRecord,
+  now: number = Date.now(),
+): { label: string; tone: "ok" | "neutral"; dashed: boolean } {
+  if (record.done) return { label: "Found", tone: "ok", dashed: false };
+  const checking = domain.stage === "routing" && record.purpose !== "ownership" && !waitedLong(domain, now);
+  return { label: checking ? "Checking" : "Not seen yet", tone: "neutral", dashed: true };
+}
+
+/** Under the ALIAS record of a root domain, while it has not been found. */
+export function apexNote(hostname: string): string {
+  return `On ${hostname} itself, use ALIAS or ANAME. On Cloudflare, a CNAME works. No option for this? Connect www.${hostname} instead.`;
 }
 
 /**
@@ -165,11 +223,12 @@ export function notYetNote(provider: string): string {
   return `Nothing from ${providerName(provider)} yet. It can take a minute to show up, and we'll keep checking.`;
 }
 
-/** The manual records, folded: which records, or how many are in. */
+/** The records, folded: how many are in, or which they are. */
 export function recordsSummary(records: DnsRecord[]): string {
   const found = records.filter((record) => record.done).length;
   if (found > 0 && found < records.length) return `${found} of ${records.length} found`;
-  return records.map((record) => record.type).join(" and ");
+  if (found > 0) return records.length === 2 ? "Both found" : "All found";
+  return records.length === 2 ? records.map((record) => record.type).join(" and ") : `${records.length} records`;
 }
 
 /** The last two labels. Only used in sentences, never to route anything. */
@@ -178,6 +237,7 @@ export function registrableDomain(hostname: string): string {
 }
 
 export function recordPurpose(record: DnsRecord): string {
+  if (record.purpose === "hostname") return "Lets us serve your root domain";
   return record.purpose === "routing" ? "Points your domain at Context" : "Proves the domain is yours";
 }
 

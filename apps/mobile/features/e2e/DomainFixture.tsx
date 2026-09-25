@@ -22,6 +22,18 @@ const RECORDS = (host: string, apex: boolean, found: { routing: boolean; ownersh
     value: "customers.context.lc",
     done: found.routing,
   },
+  ...(apex
+    ? [
+        {
+          purpose: "hostname" as const,
+          type: "TXT",
+          name: `_cf-custom-hostname.${host}`,
+          host: "_cf-custom-hostname",
+          value: "5b9d356e-a748-4a62-8318-678de84d6eb7",
+          done: found.routing,
+        },
+      ]
+    : []),
   {
     purpose: "ownership" as const,
     type: "TXT",
@@ -47,6 +59,7 @@ function domain(over: Partial<DomainView> = {}): DomainView {
     problem: null,
     homeSlug: null,
     checkedAt: Date.now() - 20_000,
+    checkingSince: Date.now() - 4 * 60_000,
     records: RECORDS(hostname, apex, { routing: false, ownership: false }),
     oneClick: null,
     ...over,
@@ -81,6 +94,22 @@ function viewFor(at: string | undefined): DomainPanelView {
       };
     case "apex":
       return { ...base, settings: { ...settings, domain: domain({ hostname: "acme.com", apex: true }) } };
+    case "apex-connecting":
+    case "apex-slow":
+      return {
+        ...base,
+        settings: {
+          ...settings,
+          domain: domain({
+            hostname: "acme.com",
+            apex: true,
+            ownershipVerified: true,
+            stage: "routing",
+            checkingSince: Date.now() - (at === "apex-slow" ? 2 * 3_600_000 : 4 * 60_000),
+            records: RECORDS("acme.com", true, { routing: false, ownership: true }),
+          }),
+        },
+      };
     case "issuing":
       return {
         ...base,

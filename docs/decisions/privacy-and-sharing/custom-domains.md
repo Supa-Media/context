@@ -118,6 +118,21 @@ The test that fails if signing is dropped or loosened is `the signature covers
 exactly the query the provider applies` in
 `apps/convex/__tests__/customDomains/domainConnect.test.ts`.
 
+### A root domain carries Cloudflare's TXT as a third record
+
+An ALIAS, ANAME or flattened CNAME answers with addresses, not a CNAME, and
+without Enterprise apex proxying Cloudflare never activates such a hostname by
+its DNS alone: it waits for its own `_cf-custom-hostname` TXT. So a root
+domain's card shows three records: the ALIAS, Cloudflare's TXT (taken from the
+registration's `ownership_verification`, accepted only for exactly that name
+and a plain token), and our `_context` TXT. A subdomain validates by its CNAME
+and never sees the third. "Check again" on a pending root domain re-sends the
+certificate settings, which asks Cloudflare to look now instead of at the next
+step of a backoff that reaches four hours, and Cloudflare deletes an
+unvalidated hostname after seven days. Dropping the record strands every root
+domain at "Connecting"; `apps/convex/__tests__/customDomains/apex.test.ts`
+fails.
+
 ### Not built yet
 
 - `www` alongside an apex, or more than one domain per workspace.
