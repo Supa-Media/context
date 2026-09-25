@@ -1,6 +1,8 @@
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { SettingsOverlay } from "../console/settings/SettingsOverlay";
 import { DomainViewOverride } from "../console/settings/panels/DomainPanel";
+import { WebsiteViewOverride } from "../console/settings/panels/WebsiteCard";
+import type { WebsiteCardView } from "../console/website/useWebsite";
 import type { DomainView } from "../console/domain/domain";
 import type { DomainActions, DomainPanelView } from "../console/domain/useDomain";
 
@@ -122,11 +124,28 @@ function viewFor(at: string | undefined): DomainPanelView {
   }
 }
 
-export function DomainFixture({ at }: { at?: string }) {
+/**
+ * The website switch above the domain card: `site=off`, `site=live` or
+ * `site=member` (live, seen by a member). Absent, the card is not drawn, which
+ * is the domain-only board this fixture was first made for.
+ */
+function websiteFor(site: string | undefined): WebsiteCardView | null {
+  if (site === undefined) return null;
+  const base = { contractVersion: 1 as const, root: "website" as const, handlePath: "/@acme/", canManage: site !== "member" };
+  const state =
+    site === "off" ? { ...base, state: "disabled" as const } : { ...base, state: "enabled" as const, enabledAt: 1 };
+  return site === "member"
+    ? { state, failed: false }
+    : { state, failed: false, actions: { enable: noop, disable: noop } };
+}
+
+export function DomainFixture({ at, site }: { at?: string; site?: string }) {
   const data = useDemoConsoleData();
   return (
-    <DomainViewOverride.Provider value={viewFor(at)}>
-      <SettingsOverlay data={data} section="website" onSelect={() => {}} onDismiss={() => {}} />
-    </DomainViewOverride.Provider>
+    <WebsiteViewOverride.Provider value={websiteFor(site)}>
+      <DomainViewOverride.Provider value={viewFor(at)}>
+        <SettingsOverlay data={data} section="website" onSelect={() => {}} onDismiss={() => {}} />
+      </DomainViewOverride.Provider>
+    </WebsiteViewOverride.Provider>
   );
 }

@@ -25,6 +25,8 @@ import type { DomainActions, DomainPanelView, HomepageChoice } from "../../domai
 import { useDomain } from "../../domain/useDomain";
 import { DomainSetup } from "./DomainSetup";
 import { PanelHead } from "./PanelHead";
+import { LiveWebsiteCard, WebsiteCard, WebsiteViewOverride } from "./WebsiteCard";
+import { consoleOrigin } from "../../files/shareOrigin";
 
 /**
  * A fixed view in place of the subscription, for the browser fixture that
@@ -83,22 +85,43 @@ export function DomainSection({
   */
   const client = useConvex();
   const override = useContext(DomainViewOverride);
+  const websiteOverride = useContext(WebsiteViewOverride);
   const head = (
     <PanelHead section="website" sectioned={sectioned}>
-      Open your short links at an address you own, like docs.acme.com/intake. They keep working at
-      context.lc too.
+      Publish pages from the website folder in your workspace. Nothing else goes live.
     </PanelHead>
   );
   const fixed = override ?? (demo ? DEMO_DOMAIN_VIEW : client === undefined ? UNREADABLE_DOMAIN_VIEW : null);
   return (
     <>
       {head}
+      {/* The demo and the domain-only fixture have no website to show. */}
+      {websiteOverride !== null || fixed === null ? (
+        <>
+          {websiteOverride !== null ? (
+            <WebsiteCard view={websiteOverride} origin={consoleOrigin()} />
+          ) : (
+            <LiveWebsiteCard workspaceId={workspaceId} />
+          )}
+          <DomainIntro />
+        </>
+      ) : null}
       {fixed !== null ? (
         <DomainPanel view={fixed} handle={handle} onOpenPremium={onOpenPremium} />
       ) : (
         <LiveDomainPanel workspaceId={workspaceId} handle={handle} onOpenPremium={onOpenPremium} />
       )}
     </>
+  );
+}
+
+/** The line between the two cards: a domain serves the website as well as the links. */
+function DomainIntro() {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <Text variant="paneSub" style={styles.intro}>
+      Your site and short links can use your own domain.
+    </Text>
   );
 }
 
@@ -464,4 +487,5 @@ const makeStyles = (_colors: Colors) =>
     removeRow: { marginTop: 13 },
     grow: { flex: 1 },
     noticeButton: { marginTop: 10, alignSelf: "flex-start" },
+    intro: { marginTop: 26, marginBottom: 12 },
   });
