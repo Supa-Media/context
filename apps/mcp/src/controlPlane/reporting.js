@@ -110,6 +110,28 @@ export function createReportingMethods({ post }) {
     },
 
     /**
+     * Say that a write of ours moved the bytes under `website/`, so the
+     * control plane's route index is no longer a description of them.
+     *
+     * **An id and nothing else** — the same bar `reportTreeChange` holds
+     * itself to, and strictly less than the control plane already stores about
+     * that folder, since reconciling the index puts every published route's
+     * path and title in it.
+     *
+     * The console's writes say this through `runFileOperation`'s barrier. Ours
+     * had no way to, which left the index describing bytes that had moved: the
+     * resolver re-reads the page it serves, so a restricted page's body was
+     * safe, but the menu beside it is drawn from the index and is handed to
+     * anyone who asks for any address on the site.
+     *
+     * @param {string} workspaceId
+     */
+    async reportWebsiteChange(workspaceId) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      return await post("/gateway/website", { workspaceId });
+    },
+
+    /**
      * That a form took an answer, and who the block says to tell.
      *
      * **Identifiers only.** No field values, no submitter, no timestamp — the
