@@ -123,6 +123,7 @@ import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
+import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 
 const http = httpRouter();
 
@@ -292,6 +293,12 @@ export const gatewayActivity = gatewayRoute(signals.gatewayActivityHandler);
 /* -------------------------------------------------------------------------- */
 
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
+
+/* -------------------------------------------------------------------------- */
+/* 2b-ter. POST /gateway/website — a write of ours moved the site's bytes   */
+/* -------------------------------------------------------------------------- */
+
+export const gatewayWebsite = gatewayRoute(signals.gatewayWebsiteHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/forms/notify — a form took an answer                */
@@ -685,31 +692,9 @@ http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
  * handle, unclaimed name, released, revoked, expired, title switched off — is
  * that shape with `null`.
  */
-export const shareShortLinkPreview = httpAction(async (ctx, request) => {
-  const body = await readJsonBody(request);
-  const handle = body === null ? null : stringField(body, "handle");
-  const slug = body === null ? null : stringField(body, "slug");
-  const routePath = body === null ? null : stringField(body, "routePath");
-  // Both fields on the quiet path too. A field on the success return and not
-  // on this one is a shape that varies with whether the body parsed, which is
-  // the failure `unauthenticatedRouteResponses` exists to catch — and it did.
-  if (handle === null || slug === null)
-    return json({ title: null, cardVersion: null });
-
-  const website = await ctx.runQuery(
-    internal.functions.websites.previewAddress,
-    { handle, slug, ...(routePath === null ? {} : { routePath }) },
-  );
-  if (website.owned) {
-    return json({ title: website.title, cardVersion: null });
-  }
-  const result = await ctx.runQuery(api.functions.shares.previewForShortLink, {
-    handle,
-    slug,
-  });
-  // Named rather than spread, for the reason stated on the three routes above.
-  return json({ title: result.title, cardVersion: result.cardVersion });
-});
+export const shareShortLinkPreview = httpAction(
+  shortLinkCards.shareShortLinkPreviewHandler,
+);
 
 http.route({
   path: "/share/short",
@@ -741,39 +726,9 @@ http.route({
  * deliberately claimed on an `anyone` link, and a slug nobody claimed is
  * byte-identical to one that does not exist.
  */
-export const shareShortLinkCard = httpAction(async (ctx, request) => {
-  const body = await readJsonBody(request);
-  const handle = body === null ? null : stringField(body, "handle");
-  const slug = body === null ? null : stringField(body, "slug");
-  if (handle === null || slug === null)
-    return new Response(null, { status: 404 });
-
-  const website = await ctx.runQuery(
-    internal.functions.websites.previewAddress,
-    { handle, slug },
-  );
-  if (website.owned) return new Response(null, { status: 404 });
-
-  const bytes = await ctx.runAction(
-    internal.functions.shareCard.cardBytesForShortLink,
-    {
-      handle,
-      slug,
-    },
-  );
-  if (bytes === null) return new Response(null, { status: 404 });
-
-  return new Response(bytes, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      // The router caches; its key carries the card version, which is the real
-      // invalidation. Same arrangement as `/share/card`.
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
-});
+export const shareShortLinkCard = httpAction(
+  shortLinkCards.shareShortLinkCardHandler,
+);
 
 http.route({
   path: "/share/short/card",
@@ -897,6 +852,11 @@ http.route({
   handler: gatewayActivity,
 });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
+http.route({
+  path: "/gateway/website",
+  method: "POST",
+  handler: gatewayWebsite,
+});
 http.route({
   path: "/gateway/forms/notify",
   method: "POST",

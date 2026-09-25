@@ -117,15 +117,34 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
  * calls and adds a third branch returning a bare `new Response` — which was
  * also measured green.
  */
+/**
+ * A route's implementation, wherever `http.ts` keeps it.
+ *
+ * Most are written inline. Some are delegated to a module, the arrangement
+ * `gatewayRoutes/` uses and which `publicRoutes/` now uses too, and a
+ * delegated handler must not fall out of these checks just because it moved:
+ * a guard that follows the declaration rather than the code is decor. So the
+ * inline form is tried first and the delegated one second, and a name that
+ * matches neither fails loudly rather than yielding an empty body — which is
+ * the failure mode that would make every assertion below vacuous.
+ */
+function routeImplementation(source: string, handlerName: string): string {
+  const inline = source.indexOf(`export const ${handlerName} = httpAction(async`);
+  if (inline > -1) return source.slice(inline, source.indexOf("\n});", inline));
+
+  const delegated = source.indexOf(`export async function ${handlerName}Handler(`);
+  expect(
+    delegated,
+    `${handlerName} is enumerated but defined neither inline nor as a delegated handler`,
+  ).toBeGreaterThan(-1);
+  return source.slice(delegated, source.indexOf("\n}\n", delegated));
+}
+
 function unauthenticatedRouteResponses(
   source: string,
   handlerName: string,
 ): string[][] {
-  const start = source.indexOf(`export const ${handlerName}`);
-  expect(start, `${handlerName} is enumerated but not defined`).toBeGreaterThan(
-    -1,
-  );
-  const body = source.slice(start, source.indexOf("\n});", start));
+  const body = routeImplementation(source, handlerName);
 
   const returns = [...body.matchAll(/\breturn\s+([\s\S]{0,20}?)[({]/g)].map(
     (m) => m[0].replace(/\s+/g, " "),
@@ -202,6 +221,24 @@ describe("the gateway's HTTP routes", () => {
     const module = realModules().find((m) => m.path === "http.ts");
     expect(module, "http.ts is not being analyzed at all").toBeDefined();
     return module!;
+  }
+
+  /**
+   * `http.ts` plus the modules it hands route bodies to.
+   *
+   * The route table stays in `http.ts` — one place that says what is served
+   * and behind which door — but a handler's body may live beside its
+   * neighbours. These checks are about the bodies, so they read both.
+   */
+  function routedSource(): string {
+    const delegated = realModules().filter((m) =>
+      m.path.startsWith("functions/lib/publicRoutes/"),
+    );
+    expect(
+      delegated.length,
+      "publicRoutes/ is not being analyzed, so a handler moved there is unchecked",
+    ).toBeGreaterThan(0);
+    return [httpModule(), ...delegated].map((m) => m.source).join("\n");
   }
 
   /**
@@ -493,13 +530,8 @@ describe("the gateway's HTTP routes", () => {
    * preview discloses.
    */
   test("the short link's route returns its two fields, and never the token", () => {
-    const source = httpModule().source;
-    const start = source.indexOf("export const shareShortLinkPreview");
-    expect(
-      start,
-      "shareShortLinkPreview is enumerated but not defined",
-    ).toBeGreaterThan(-1);
-    const body = source.slice(start, source.indexOf("\n});", start));
+    const source = routedSource();
+    const body = routeImplementation(source, "shareShortLinkPreview");
 
     expect(body).toContain("previewForShortLink");
     expect(
