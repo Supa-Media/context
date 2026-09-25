@@ -12,6 +12,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
 import { callerId } from "../filesFns/access";
 import { workspaceNotFound } from "../workspaceAuth";
+import { ensureWebsiteStarter } from "./state";
 
 const MAX_WEBSITE_ROUTES = 500;
 const READ_BATCH = 50;
@@ -301,6 +302,22 @@ export async function reconcileWorkspaceHandler(
     { ...args, enabledOnly: true },
   );
   if (generation === null) return false;
+  const repairStarter = await ctx.runQuery(
+    internal.functions.websites.websiteStarterRepairNeeded,
+    args,
+  );
+  if (repairStarter) {
+    await ensureWebsiteStarter(ctx, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      grantedNames: [],
+      actorName: null,
+    });
+    await ctx.runMutation(
+      internal.functions.websites.markWebsiteStarterEnsured,
+      args,
+    );
+  }
   const snapshot = await scanWebsiteRoutes(ctx, args.workspaceId, {
     scope: "private",
     grantedNames: [],

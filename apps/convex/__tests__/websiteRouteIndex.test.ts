@@ -10,8 +10,9 @@ import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { WEBSITE_STARTER_MARKDOWN } from "@context/shared";
 import { scanWebsiteRoutes } from "../functions/lib/websites/routes";
-import { memoryS3 } from "./storeStub.helpers";
+import { memoryS3, type MemoryS3Options } from "./storeStub.helpers";
 import {
   FAKE_STORAGE,
   addMember,
@@ -26,7 +27,7 @@ import {
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function fixture(slug = "atlas") {
+async function fixture(slug = "atlas", options: MemoryS3Options = {}) {
   const t = setupTest();
   const owner = await createUser(t, `${slug}@example.invalid`);
   const stranger = await createUser(t, `stranger-${slug}@example.invalid`);
@@ -34,7 +35,7 @@ async function fixture(slug = "atlas") {
   const workspaceId = await createWorkspace(t, owner, slug);
   await addMember(t, workspaceId, member, "member", owner);
   await createWorkspace(t, stranger, `${slug}-elsewhere`);
-  const backend = memoryS3(FAKE_STORAGE.bucket);
+  const backend = memoryS3(FAKE_STORAGE.bucket, options);
   backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   backend.seed("index.md", `# ${slug}\n`);
   vi.stubGlobal("fetch", backend.fetchImpl);
@@ -335,5 +336,97 @@ describe("website route index", () => {
       title: "Home",
       status: "live",
     });
+    expect(f.backend.snapshot()["website/index.md"]).toBe(
+      "---\ntitle: Home\n---\n\nHome\n",
+    );
+    expect(
+      await f.t.run(
+        async (ctx) =>
+          await ctx.db
+            .query("websiteStates")
+            .withIndex("by_workspace", (q) =>
+              q.eq("workspaceId", f.workspaceId),
+            )
+            .unique(),
+      ),
+    ).toMatchObject({ starterEnsuredAt: expect.any(Number) });
+  }, 15_000);
+
+  test("the unattended reconciler repairs one legacy missing starter, then respects later deletion", async () => {
+    const f = await fixture("atlas-starter-repair");
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("websiteStates", {
+        workspaceId: f.workspaceId,
+        state: "enabled",
+        enabledAt: Date.now(),
+        enabledBy: f.owner,
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      f.t.action(internal.functions.websites.reconcileWorkspace, {
+        workspaceId: f.workspaceId,
+      }),
+    ).resolves.toBe(true);
+    expect(f.backend.snapshot()["website/index.md"]).toBe(
+      WEBSITE_STARTER_MARKDOWN,
+    );
+    expect(
+      await f.t.run(
+        async (ctx) =>
+          await ctx.db
+            .query("websiteStates")
+            .withIndex("by_workspace", (q) =>
+              q.eq("workspaceId", f.workspaceId),
+            )
+            .unique(),
+      ),
+    ).toMatchObject({ starterEnsuredAt: expect.any(Number) });
+
+    f.backend.objects.delete("website/index.md");
+    await expect(
+      f.t.action(internal.functions.websites.reconcileWorkspace, {
+        workspaceId: f.workspaceId,
+      }),
+    ).resolves.toBe(true);
+    expect(f.backend.snapshot()["website/index.md"]).toBeUndefined();
+  }, 15_000);
+
+  test("a failed legacy starter repair stays retryable and publishes no empty index", async () => {
+    const f = await fixture("atlas-starter-failure", {
+      refuseWrite: (key) => key === "website/index.md",
+    });
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("websiteStates", {
+        workspaceId: f.workspaceId,
+        state: "enabled",
+        enabledAt: Date.now(),
+        enabledBy: f.owner,
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      f.t.action(internal.functions.websites.reconcileWorkspace, {
+        workspaceId: f.workspaceId,
+      }),
+    ).rejects.toMatchObject({ data: { code: "STORAGE_FAILED" } });
+    const state = await f.t.run(
+      async (ctx) =>
+        await ctx.db
+          .query("websiteStates")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+          .unique(),
+    );
+    expect(state?.starterEnsuredAt).toBeUndefined();
+    expect(
+      await f.t.run((ctx) =>
+        ctx.db
+          .query("websiteRouteIndex")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+          .collect(),
+      ),
+    ).toEqual([]);
   }, 15_000);
 });

@@ -23,6 +23,10 @@ import {
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import {
+  markWebsiteStarterEnsuredHandler,
+  websiteStarterRepairNeededHandler,
+} from "./lib/websites/state";
 
 const problemValidator = v.object({ code: v.string(), message: v.string() });
 const statusValidator = v.object({
@@ -200,6 +204,18 @@ export const invalidateRouteIndex = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: invalidateRouteIndexHandler,
+});
+
+export const websiteStarterRepairNeeded = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: websiteStarterRepairNeededHandler,
+});
+
+export const markWebsiteStarterEnsured = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: markWebsiteStarterEnsuredHandler,
 });
 
 export const reconcileWorkspace = internalAction({
