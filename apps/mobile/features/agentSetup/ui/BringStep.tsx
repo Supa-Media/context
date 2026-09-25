@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useWindowDimensions } from "react-native";
+import { useWindowDimensions, View } from "react-native";
 import { layout } from "../../design/tokens";
 import { AGENT_NAMES, GUIDE_STEPS, type SetupAgent } from "../guides";
 import type { BringView } from "../guideState";
@@ -54,10 +54,10 @@ export function BringStep({
 }) {
   const name = AGENT_NAMES[agent];
   const of = GUIDE_STEPS[agent].length;
-  // A phone's foot has room for Back and one button; ✕ is the "later" there.
+  // A phone's foot has room for Back and one button; the quiet action goes in the page.
   const phone = useWindowDimensions().width < layout.narrowBreakpoint;
   const picture = <StepIllustration agent={agent} step="bring" slug={slug} />;
-  const frame = (children: ReactNode, footLeft: ReactNode, footRight: ReactNode, counted = true) => (
+  const frame = (children: ReactNode, footLeft: ReactNode, footRight: ReactNode, counted = true, after?: ReactNode) => (
     <GuideFrame
       agentName={name}
       slug={slug}
@@ -66,9 +66,21 @@ export function BringStep({
       onClose={onClose}
       footLeft={footLeft}
       footRight={footRight}
+      after={after}
     >
       {children}
     </GuideFrame>
+  );
+  // Bringing notes over is the last step, not a gate: the connection already
+  // works once signed in, so every face of it has a way out that marks the
+  // guide done. A phone's foot has room for one button, so there the quiet
+  // action moves to the foot of the page.
+  const skip = <QuietLink label="Skip for now" onPress={onFinish} testID="agent-setup-skip" />;
+  const skipInBody = (
+    <>
+      <Gap />
+      <View style={{ alignItems: "center" }}>{skip}</View>
+    </>
   );
   const copyFailed =
     copied === false ? (
@@ -99,7 +111,12 @@ export function BringStep({
         </P>
       </>,
       <BackLink onPress={onBack} />,
-      <GuideButton label={`Copy and open ${name}`} onPress={onCopyAndOpen} testID="agent-setup-copy-open" />,
+      <>
+        {phone ? null : skip}
+        <GuideButton label={`Copy and open ${name}`} onPress={onCopyAndOpen} testID="agent-setup-copy-open" />
+      </>,
+      true,
+      phone ? skipInBody : null,
     );
   }
 
@@ -176,6 +193,24 @@ export function BringStep({
           : { tone: "bad", title: "ChatGPT hasn't written anything", sub: "If Deny was pressed, send the prompt again and press Confirm this time." }
         : { tone: "todo", title: "Write notes" };
   const stalled = state.kind === "stalled-nothing" || state.kind === "stalled-no-write";
+  // Once a note has landed the connection is proven, so Finish is offered
+  // while the agent may still be writing; anything later still lands.
+  const arrived = written.length > 0;
+  const copyAgain = (
+    <GuideButton label="Copy the prompt again" quiet onPress={onCopyAgain} testID="agent-setup-copy-again" />
+  );
+  const copyAgainInBody = (
+    <>
+      <Gap />
+      <GuideButton
+        label="Copy the prompt again"
+        quiet
+        onPress={onCopyAgain}
+        style={{ alignSelf: "center" }}
+        testID="agent-setup-copy-again"
+      />
+    </>
+  );
 
   return frame(
     <>
@@ -204,10 +239,19 @@ export function BringStep({
       {copyFailed}
     </>,
     <BackLink onPress={onBack} />,
-    <>
-      {stalled && !phone ? <QuietLink label="Do this later" onPress={onClose} testID="agent-setup-later" /> : null}
-      <GuideButton label="Copy the prompt again" quiet onPress={onCopyAgain} testID="agent-setup-copy-again" />
-    </>,
+    arrived ? (
+      <>
+        {phone ? null : copyAgain}
+        <GuideButton label="Finish" onPress={onFinish} testID="agent-setup-finish" />
+      </>
+    ) : (
+      <>
+        {phone ? null : skip}
+        {copyAgain}
+      </>
+    ),
+    true,
+    phone ? (arrived ? copyAgainInBody : skipInBody) : null,
   );
 }
 
