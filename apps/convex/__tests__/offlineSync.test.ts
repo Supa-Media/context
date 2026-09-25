@@ -29,6 +29,8 @@ import {
   FileOpError,
   type FileStore,
   listFolder,
+  MANIFEST_PAGE_ENTRIES,
+  MANIFEST_PAGE_FOLDERS,
   READ_BATCH_BYTES,
   READ_BATCH_PATHS,
   type SyncManifest,
@@ -47,7 +49,12 @@ const OWNER = clearanceOf("private");
 const TEAM = clearanceOf("team");
 
 /** Private paths in the fixture. None may appear anywhere a team reader looks. */
-const HIDDEN = ["1-projects/pay.md", "2-areas/health.md", "2-areas/README.md", PRIVACY_KEY];
+const HIDDEN = [
+  "1-projects/pay.md",
+  "2-areas/health.md",
+  "2-areas/README.md",
+  PRIVACY_KEY,
+];
 
 /**
  * A PARA bucket with `1-projects` shared, one note held back inside it, a
@@ -69,8 +76,16 @@ async function bucket(
   store.seed(".context/audit/2026-09.jsonl", "{}\n");
   store.seed(".audit/legacy.jsonl", "{}\n");
   store.seed(".obsidian/app.json", "{}\n");
-  await setFolderVisibility(store, { path: "1-projects", visibility: "team", clearance: OWNER });
-  await setVisibility(store, { path: "1-projects/pay.md", visibility: "private", clearance: OWNER });
+  await setFolderVisibility(store, {
+    path: "1-projects",
+    visibility: "team",
+    clearance: OWNER,
+  });
+  await setVisibility(store, {
+    path: "1-projects/pay.md",
+    visibility: "private",
+    clearance: OWNER,
+  });
   return store;
 }
 
@@ -128,6 +143,31 @@ async function capture(fn: () => Promise<unknown>): Promise<FileOpError> {
 /* -------------------------------------------------------------------------- */
 
 describe("the sync manifest", () => {
+  test("default pages stay below Convex's 8,192-element return limit", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    for (let index = 0; index < 8_200; index += 1) {
+      store.seed(`bulk/note-${String(index).padStart(5, "0")}.md`, "# Note\n");
+    }
+
+    const pages: SyncManifest[] = [];
+    let cursor: string | undefined;
+    for (let guard = 0; guard < 10; guard += 1) {
+      const page = await syncManifest(store, { clearance: OWNER, cursor });
+      pages.push(page);
+      expect(page.entries.length).toBeLessThan(8_192);
+      expect(page.folders.length).toBeLessThan(8_192);
+      if (page.cursor === null) break;
+      cursor = page.cursor;
+    }
+
+    expect(MANIFEST_PAGE_ENTRIES).toBeLessThan(8_192);
+    expect(MANIFEST_PAGE_FOLDERS).toBeLessThan(8_192);
+    expect(pages).toHaveLength(3);
+    expect(pages.flatMap((page) => page.entries)).toHaveLength(8_201);
+    expect(pages.at(-1)?.truncated).toBe(false);
+  });
+
   test("an owner gets every file, recursively, with the etag a read would return", async () => {
     const store = await bucket();
     const manifest = await syncManifest(store, { clearance: OWNER });
@@ -149,7 +189,10 @@ describe("the sync manifest", () => {
     expect(manifest.manifestUsable).toBe(true);
 
     for (const entry of manifest.entries) {
-      const read = await readFile(store, { path: entry.path, clearance: OWNER });
+      const read = await readFile(store, {
+        path: entry.path,
+        clearance: OWNER,
+      });
       expect(entry.etag).toBe(read.etag);
       expect(entry.size).toBe(store.objects.get(entry.path)!.body.length);
       expect(entry.visibility).toBe(read.visibility);
@@ -157,14 +200,26 @@ describe("the sync manifest", () => {
     }
     // `privacy.md` is the owner's to see, and never to type into — the same
     // flag a listing and a read carry.
-    expect(manifest.entries.find((entry) => entry.path === PRIVACY_KEY)?.readOnly).toBe(true);
-    expect(manifest.entries.find((entry) => entry.path === "1-projects/pay.md")?.exception).toBe(true);
+    expect(
+      manifest.entries.find((entry) => entry.path === PRIVACY_KEY)?.readOnly,
+    ).toBe(true);
+    expect(
+      manifest.entries.find((entry) => entry.path === "1-projects/pay.md")
+        ?.exception,
+    ).toBe(true);
   });
 
   test("Context's own plumbing is never part of it, even for an owner", async () => {
     const store = await bucket();
-    const rendered = JSON.stringify(await syncManifest(store, { clearance: OWNER }));
-    for (const plumbing of [".history/", ".context/", ".audit/", ".obsidian/"]) {
+    const rendered = JSON.stringify(
+      await syncManifest(store, { clearance: OWNER }),
+    );
+    for (const plumbing of [
+      ".history/",
+      ".context/",
+      ".audit/",
+      ".obsidian/",
+    ]) {
       expect(rendered).not.toContain(plumbing);
     }
   });
@@ -194,7 +249,9 @@ describe("the sync manifest", () => {
       expect(rendered).not.toContain(`"${store.objects.get(hidden)!.etag}"`);
     }
     // Non-vacuity: the owner's manifest over the same bucket does carry them.
-    const owners = JSON.stringify(await syncManifest(store, { clearance: OWNER }));
+    const owners = JSON.stringify(
+      await syncManifest(store, { clearance: OWNER }),
+    );
     for (const hidden of HIDDEN) expect(owners).toContain(hidden);
   });
 
@@ -206,8 +263,12 @@ describe("the sync manifest", () => {
       clearance: OWNER,
     });
     const paths = async (clearance: ReturnType<typeof clearanceOf>) =>
-      (await syncManifest(store, { clearance })).entries.map((entry) => entry.path);
-    expect(await paths(clearanceOf("team", ["@supa-leads"]))).toContain("1-projects/context-lc.md");
+      (await syncManifest(store, { clearance })).entries.map(
+        (entry) => entry.path,
+      );
+    expect(await paths(clearanceOf("team", ["@supa-leads"]))).toContain(
+      "1-projects/context-lc.md",
+    );
     expect(await paths(TEAM)).not.toContain("1-projects/context-lc.md");
   });
 
@@ -247,9 +308,13 @@ describe("the sync manifest", () => {
       // the page that also holds the last shared note.
       smallPages(store, 3);
       const pages = await everyPage(store, TEAM, 1);
-      const given = new Set(pages.flatMap((page) => page.entries.map((entry) => entry.path)));
+      const given = new Set(
+        pages.flatMap((page) => page.entries.map((entry) => entry.path)),
+      );
 
-      expect(pages.flatMap((page) => page.entries.map((entry) => entry.path))).toEqual([
+      expect(
+        pages.flatMap((page) => page.entries.map((entry) => entry.path)),
+      ).toEqual([
         "1-projects/README.md",
         "1-projects/context-lc.md",
         "1-projects/deep/nested/plan.md",
@@ -269,13 +334,22 @@ describe("the sync manifest", () => {
         lists.push({ ...options });
         return list(options);
       };
-      await syncManifest(store, { clearance: OWNER, cursor: "1-projects/pay.md" });
-      expect(lists[0]).toMatchObject({ prefix: "", startAfter: "1-projects/pay.md" });
+      await syncManifest(store, {
+        clearance: OWNER,
+        cursor: "1-projects/pay.md",
+      });
+      expect(lists[0]).toMatchObject({
+        prefix: "",
+        startAfter: "1-projects/pay.md",
+      });
     });
 
     test("a store that ignores the resume point is reported short, never replayed as the rest", async () => {
       const store = await bucket({ ignoreStartAfter: true });
-      const first = await syncManifest(store, { clearance: OWNER, pageEntries: 3 });
+      const first = await syncManifest(store, {
+        clearance: OWNER,
+        pageEntries: 3,
+      });
       expect(first.cursor).not.toBeNull();
 
       const second = await syncManifest(store, {
@@ -304,7 +378,10 @@ describe("the sync manifest", () => {
       expect(complete.truncated).toBe(false);
       expect(complete.entries).toHaveLength(8);
 
-      const short = await syncManifest(store, { clearance: OWNER, pageEntries: 3 });
+      const short = await syncManifest(store, {
+        clearance: OWNER,
+        pageEntries: 3,
+      });
       expect(short.cursor).toBeNull();
       expect(short.truncated).toBe(true);
     });
@@ -312,7 +389,10 @@ describe("the sync manifest", () => {
     test("a cursor is a path, and one that is not is refused", async () => {
       const store = await bucket();
       const refused = await capture(() =>
-        syncManifest(store, { clearance: OWNER, cursor: "1-projects/../2-areas" }),
+        syncManifest(store, {
+          clearance: OWNER,
+          cursor: "1-projects/../2-areas",
+        }),
       );
       expect(refused.code).toBe("PATH_INVALID");
     });
@@ -342,7 +422,8 @@ async function foldersByListing(
       if (entry.kind !== "folder") continue;
       // The row's badge and the folder's own default are one word.
       expect(entry.visibility).toBe(
-        (await listFolder(store, { path: entry.path, clearance })).folderDefault,
+        (await listFolder(store, { path: entry.path, clearance }))
+          .folderDefault,
       );
       queue.push(entry.path);
     }
@@ -352,7 +433,9 @@ async function foldersByListing(
 
 function foldersOf(pages: readonly SyncManifest[]): Map<string, Visibility> {
   const found = new Map<string, Visibility>();
-  for (const page of pages) for (const folder of page.folders) found.set(folder.path, folder.visibility);
+  for (const page of pages)
+    for (const folder of page.folders)
+      found.set(folder.path, folder.visibility);
   return found;
 }
 
@@ -381,10 +464,16 @@ describe("the manifest names the folders, so the tree needs no listing per folde
       // A shared folder whose only note is held back: listFolder still draws
       // the folder, so the manifest has to, although no entry lives in it.
       store.seed("1-projects/held/secret.md", "# Secret\n");
-      await setVisibility(store, { path: "1-projects/held/secret.md", visibility: "private", clearance: OWNER });
+      await setVisibility(store, {
+        path: "1-projects/held/secret.md",
+        visibility: "private",
+        clearance: OWNER,
+      });
 
       const expected = await foldersByListing(store, clearance);
-      expect(foldersOf([await syncManifest(store, { clearance })])).toEqual(expected);
+      expect(foldersOf([await syncManifest(store, { clearance })])).toEqual(
+        expected,
+      );
 
       // And across pages, however small.
       smallPages(store, 2);
@@ -399,15 +488,17 @@ describe("the manifest names the folders, so the tree needs no listing per folde
     const rendered = JSON.stringify(pages.map((page) => page.folders));
     expect(rendered).not.toContain("2-areas");
     // Non-vacuity: the owner is.
-    expect(JSON.stringify((await syncManifest(store, { clearance: OWNER })).folders)).toContain(
-      "2-areas",
-    );
+    expect(
+      JSON.stringify((await syncManifest(store, { clearance: OWNER })).folders),
+    ).toContain("2-areas");
   });
 
   test("an empty folder made with a marker key is named, although no note lives in it", async () => {
     const store = await bucket();
     store.seed("1-projects/empty/", "");
-    const folders = (await syncManifest(store, { clearance: TEAM })).folders.map((folder) => folder.path);
+    const folders = (
+      await syncManifest(store, { clearance: TEAM })
+    ).folders.map((folder) => folder.path);
     expect(folders).toContain("1-projects/empty");
   });
 });
@@ -426,18 +517,31 @@ describe("reading a batch of notes", () => {
     expect(result).toEqual({
       path: "1-projects/context-lc.md",
       outcome: "read",
-      note: await readFile(store, { path: "1-projects/context-lc.md", clearance: TEAM }),
+      note: await readFile(store, {
+        path: "1-projects/context-lc.md",
+        clearance: TEAM,
+      }),
     });
   });
 
   test("hidden and missing answer byte-identically, in a batch beside a note that reads", async () => {
     const store = await bucket();
     const results = await readFiles(store, {
-      paths: ["1-projects/context-lc.md", "1-projects/pay.md", "1-projects/never-was.md", PRIVACY_KEY],
+      paths: [
+        "1-projects/context-lc.md",
+        "1-projects/pay.md",
+        "1-projects/never-was.md",
+        PRIVACY_KEY,
+      ],
       clearance: TEAM,
     });
 
-    expect(results.map((result) => result.outcome)).toEqual(["read", "error", "error", "error"]);
+    expect(results.map((result) => result.outcome)).toEqual([
+      "read",
+      "error",
+      "error",
+      "error",
+    ]);
     const refusal = (index: number) => {
       const { path: _echoed, ...rest } = results[index] as { path: string };
       return JSON.stringify(rest);
@@ -449,21 +553,33 @@ describe("reading a batch of notes", () => {
     const single = await capture(() =>
       readFile(store, { path: "1-projects/pay.md", clearance: TEAM }),
     );
-    expect(results[1]).toMatchObject({ code: single.code, message: single.message });
+    expect(results[1]).toMatchObject({
+      code: single.code,
+      message: single.message,
+    });
     expect(JSON.stringify(results)).not.toContain("salaries");
   });
 
   test("a hidden note is never fetched from the bucket at all", async () => {
     const store = await bucket();
     const gets = countingGets(store);
-    await readFiles(store, { paths: ["1-projects/pay.md", "2-areas/health.md"], clearance: TEAM });
+    await readFiles(store, {
+      paths: ["1-projects/pay.md", "2-areas/health.md"],
+      clearance: TEAM,
+    });
     expect(gets).toEqual([PRIVACY_KEY]);
   });
 
   test("the owner reads the same private note the team reader was refused", async () => {
     const store = await bucket();
-    const [result] = await readFiles(store, { paths: ["1-projects/pay.md"], clearance: OWNER });
-    expect(result).toMatchObject({ outcome: "read", note: { text: "# Pay\n\nsalaries\n" } });
+    const [result] = await readFiles(store, {
+      paths: ["1-projects/pay.md"],
+      clearance: OWNER,
+    });
+    expect(result).toMatchObject({
+      outcome: "read",
+      note: { text: "# Pay\n\nsalaries\n" },
+    });
   });
 
   test("an unaddressable path is refused for itself and the rest of the batch still reads", async () => {
@@ -472,20 +588,32 @@ describe("reading a batch of notes", () => {
       paths: ["../escape.md", "1-projects/context-lc.md"],
       clearance: TEAM,
     });
-    expect(results[0]).toMatchObject({ path: "../escape.md", outcome: "error", code: "PATH_INVALID" });
+    expect(results[0]).toMatchObject({
+      path: "../escape.md",
+      outcome: "error",
+      code: "PATH_INVALID",
+    });
     expect(results[1]).toMatchObject({ outcome: "read" });
   });
 
   test(`more than ${READ_BATCH_PATHS} paths is refused before the bucket is asked anything`, async () => {
     const store = await bucket();
     const gets = countingGets(store);
-    const paths = Array.from({ length: READ_BATCH_PATHS + 1 }, (_, index) => `1-projects/n${index}.md`);
-    const refused = await capture(() => readFiles(store, { paths, clearance: TEAM }));
+    const paths = Array.from(
+      { length: READ_BATCH_PATHS + 1 },
+      (_, index) => `1-projects/n${index}.md`,
+    );
+    const refused = await capture(() =>
+      readFiles(store, { paths, clearance: TEAM }),
+    );
     expect(refused.code).toBe("BATCH_TOO_LARGE");
     expect(gets).toEqual([]);
 
     // The cap itself is allowed.
-    const atCap = await readFiles(store, { paths: paths.slice(0, READ_BATCH_PATHS), clearance: TEAM });
+    const atCap = await readFiles(store, {
+      paths: paths.slice(0, READ_BATCH_PATHS),
+      clearance: TEAM,
+    });
     expect(atCap).toHaveLength(READ_BATCH_PATHS);
   });
 
@@ -496,7 +624,12 @@ describe("reading a batch of notes", () => {
     store.seed("1-projects/big-b.md", big);
     store.seed("1-projects/big-c.md", big);
     const results = await readFiles(store, {
-      paths: ["1-projects/big-a.md", "1-projects/big-b.md", "1-projects/pay.md", "1-projects/big-c.md"],
+      paths: [
+        "1-projects/big-a.md",
+        "1-projects/big-b.md",
+        "1-projects/pay.md",
+        "1-projects/big-c.md",
+      ],
       clearance: TEAM,
     });
     expect(results.map((result) => result.outcome)).toEqual([
@@ -518,7 +651,11 @@ describe("reading a batch of notes", () => {
  * Somebody else creates the same path between our existence read and our put
  * — an Obsidian sync, an AI client, a second device draining its own queue.
  */
-function raceCreate(store: MemoryStore & FileStore, path: string, theirs: string): void {
+function raceCreate(
+  store: MemoryStore & FileStore,
+  path: string,
+  theirs: string,
+): void {
   const get = store.get.bind(store);
   let raced = false;
   store.get = async (key: string) => {
@@ -537,10 +674,17 @@ describe("a create is atomic where the bucket can make it so", () => {
     raceCreate(store, "1-projects/new.md", "# Theirs\n");
 
     const error = await capture(() =>
-      writeFile(store, { path: "1-projects/new.md", text: "# Mine\n", clearance: TEAM, now: NOW }),
+      writeFile(store, {
+        path: "1-projects/new.md",
+        text: "# Mine\n",
+        clearance: TEAM,
+        now: NOW,
+      }),
     );
     expect(error.code).toBe("CONFLICT");
-    expect(error.currentEtag).toBe(store.objects.get("1-projects/new.md")!.etag);
+    expect(error.currentEtag).toBe(
+      store.objects.get("1-projects/new.md")!.etag,
+    );
     expect(store.snapshot()["1-projects/new.md"]).toBe("# Theirs\n");
   });
 
@@ -559,11 +703,20 @@ describe("a create is atomic where the bucket can make it so", () => {
   test("an existing file is still a conflict with its etag, before any write is tried", async () => {
     const store = await bucket({ conditional: true });
     const error = await capture(() =>
-      writeFile(store, { path: "1-projects/context-lc.md", text: "# Mine\n", clearance: TEAM, now: NOW }),
+      writeFile(store, {
+        path: "1-projects/context-lc.md",
+        text: "# Mine\n",
+        clearance: TEAM,
+        now: NOW,
+      }),
     );
     expect(error.code).toBe("CONFLICT");
-    expect(error.currentEtag).toBe(store.objects.get("1-projects/context-lc.md")!.etag);
-    expect(store.snapshot()["1-projects/context-lc.md"]).toBe("# Context.LC\n\nnotes\n");
+    expect(error.currentEtag).toBe(
+      store.objects.get("1-projects/context-lc.md")!.etag,
+    );
+    expect(store.snapshot()["1-projects/context-lc.md"]).toBe(
+      "# Context.LC\n\nnotes\n",
+    );
   });
 
   /**
@@ -586,7 +739,12 @@ describe("a create is atomic where the bucket can make it so", () => {
     expect(written.conflictCheck).toBe("read-compare");
 
     const error = await capture(() =>
-      writeFile(store, { path: "1-projects/new.md", text: "# Again\n", clearance: TEAM, now: NOW }),
+      writeFile(store, {
+        path: "1-projects/new.md",
+        text: "# Again\n",
+        clearance: TEAM,
+        now: NOW,
+      }),
     );
     expect(error.code).toBe("CONFLICT");
     expect(error.currentEtag).toBe(written.etag);

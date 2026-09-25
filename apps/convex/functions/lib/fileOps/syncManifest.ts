@@ -17,11 +17,13 @@ import { folderVisibleAtScope, describeFile } from "./listing";
 /* -------------------------------------------------------------------------- */
 
 /**
- * Manifest entries one call may return. Around 220 bytes of JSON each, so a
- * page stays near two megabytes — well inside what an action may return — and
- * a context of a few thousand notes arrives in one round trip.
+ * Manifest entries one call may return. Convex rejects any returned array
+ * longer than 8,192 elements before the caller can follow our cursor, so keep
+ * both the entry page and its derived folder list comfortably below that
+ * structural limit as well as the action byte limit.
  */
-export const MANIFEST_PAGE_ENTRIES = 10_000;
+export const MANIFEST_PAGE_ENTRIES = 4_000;
+export const MANIFEST_PAGE_FOLDERS = 4_000;
 
 /**
  * One object the caller may see, as the offline mirror needs it.
@@ -96,7 +98,6 @@ function compareKeys(a: string, b: string): number {
   return x.length - y.length;
 }
 
-
 /**
  * Every object in the bucket this caller may see, with its version — what the
  * offline mirror is built from.
@@ -133,7 +134,8 @@ export async function syncManifest(
   store: FileStore,
   options: { clearance: Clearance; cursor?: string; pageEntries?: number },
 ): Promise<SyncManifest> {
-  const after = options.cursor === undefined ? undefined : requirePath(options.cursor);
+  const after =
+    options.cursor === undefined ? undefined : requirePath(options.cursor);
   const pageEntries = options.pageEntries ?? MANIFEST_PAGE_ENTRIES;
   const state = await loadPrivacyState(store);
   const manifestUsable = state.text !== null && !state.invalid;
@@ -158,17 +160,32 @@ export async function syncManifest(
     the first ancestor already asked about, because that one's ancestors were
     asked about with it. The root is always drawn, so it is always here.
   */
-  const folders: ManifestFolder[] = [{ path: "", visibility: visibilityOf("", state.rules) }];
+  const folders: ManifestFolder[] = [
+    { path: "", visibility: visibilityOf("", state.rules) },
+  ];
   const askedFolders = new Set<string>([""]);
-  const noteFolders = (key: string) => {
+  const noteFolders = (key: string): boolean => {
     let at = key.endsWith("/") ? key.replace(/\/+$/, "") : parentOf(key);
+    const paths: string[] = [];
+    const visible: ManifestFolder[] = [];
     while (at !== "" && !askedFolders.has(at)) {
-      askedFolders.add(at);
-      if (folderVisibleAtScope(at, options.clearance, state.rules, state.overrides)) {
-        folders.push({ path: at, visibility: visibilityOf(at, state.rules) });
+      paths.push(at);
+      if (
+        folderVisibleAtScope(
+          at,
+          options.clearance,
+          state.rules,
+          state.overrides,
+        )
+      ) {
+        visible.push({ path: at, visibility: visibilityOf(at, state.rules) });
       }
       at = parentOf(at);
     }
+    if (folders.length + visible.length > MANIFEST_PAGE_FOLDERS) return false;
+    for (const path of paths) askedFolders.add(path);
+    folders.push(...visible);
+    return true;
   };
 
   /** Stop here, with a cursor only where one can be honoured and moves on. */
@@ -189,7 +206,11 @@ export async function syncManifest(
     const listing = await store.list({
       prefix: "",
       limit: 1000,
-      ...(token !== undefined ? { cursor: token } : after !== undefined ? { startAfter: after } : {}),
+      ...(token !== undefined
+        ? { cursor: token }
+        : after !== undefined
+          ? { startAfter: after }
+          : {}),
     });
 
     for (const object of listing.objects ?? []) {
@@ -197,20 +218,41 @@ export async function syncManifest(
       // The store went back to the start rather than resuming. Nothing it says
       // from here is "the rest", and `entries` may be a replay.
       if (after !== undefined && compareKeys(key, after) <= 0) return short();
-      if (previous !== undefined && compareKeys(key, previous) <= 0) ordered = false;
+      if (previous !== undefined && compareKeys(key, previous) <= 0)
+        ordered = false;
       previous = key;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
-      noteFolders(key);
-      if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
+      // A manifest that Convex refuses to return cannot offer its cursor. Stop
+      // before either returned array reaches the platform's element ceiling;
+      // the last visible entry remains a safe resume point.
+      if (!noteFolders(key)) return stop();
+      if (
+        !canSee(
+          key,
+          options.clearance.scope,
+          state.rules,
+          state.overrides,
+          options.clearance.names,
+        )
+      )
+        continue;
 
-      const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string };
+      const meta = object as {
+        size?: number;
+        uploaded?: Date | string | number;
+        etag?: string;
+      };
       const described = describeFile(key, state.rules, state.overrides);
       entries.push({
         path: key,
-        ...(typeof meta.etag === "string" && meta.etag !== "" ? { etag: meta.etag } : {}),
+        ...(typeof meta.etag === "string" && meta.etag !== ""
+          ? { etag: meta.etag }
+          : {}),
         ...(typeof meta.size === "number" ? { size: meta.size } : {}),
-        ...(meta.uploaded === undefined ? {} : { updatedAt: new Date(meta.uploaded).getTime() }),
+        ...(meta.uploaded === undefined
+          ? {}
+          : { updatedAt: new Date(meta.uploaded).getTime() }),
         visibility: described.visibility,
         inherited: described.inherited,
         exception: described.exception,
@@ -220,7 +262,13 @@ export async function syncManifest(
     }
 
     if (!listing.truncated) {
-      return { entries, folders, cursor: null, truncated: false, manifestUsable };
+      return {
+        entries,
+        folders,
+        cursor: null,
+        truncated: false,
+        manifestUsable,
+      };
     }
     // Truncated with nowhere to go, or a cursor seen before: the store cannot
     // finish this walk. See `listFolder` and `keysUnder` for the shapes.
