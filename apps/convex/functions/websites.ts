@@ -78,6 +78,7 @@ const resolutionPlanValidator = v.union(
     audience: v.union(v.literal("public"), v.literal("members")),
     title: v.string(),
     description: v.union(v.string(), v.null()),
+    viewerAudience: v.union(v.literal("public"), v.literal("members")),
   }),
 );
 const linkCatalogValidator = v.object({
@@ -86,6 +87,8 @@ const linkCatalogValidator = v.object({
       kind: v.union(v.literal("route"), v.literal("share")),
       objectKey: v.string(),
       href: v.string(),
+      audience: v.union(v.literal("public"), v.literal("members")),
+      sourceEtag: v.union(v.string(), v.null()),
     }),
   ),
   ownedHosts: v.array(v.string()),

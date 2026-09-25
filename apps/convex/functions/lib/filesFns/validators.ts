@@ -109,6 +109,7 @@ export const fileValidator = v.object({
   text: v.string(),
   etag: v.string(),
   rawEtag: v.optional(v.string()),
+  updatedAt: v.optional(v.number()),
   visibility: visibilityReadValidator,
   inherited: visibilityReadValidator,
   exception: v.boolean(),

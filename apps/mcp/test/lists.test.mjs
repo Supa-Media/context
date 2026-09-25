@@ -32,6 +32,7 @@ import {
   parseListBlocks,
   parseListBody,
   renderListBlock,
+  renderEvaluatedListBlocks,
   selectListRows,
   noteProperties,
 } from "../src/lists.js";
@@ -189,6 +190,44 @@ export async function runListChecks(check) {
   {
     const tampered = selectListRows({ from: "", where: [], sort: { key: "updated", order: "desc" }, show: [], limit: 50, subfolders: true }, NOTES, {});
     check("a config that skipped the parser still never lists plumbing", !tampered.rows.some((r) => r.path.includes(".context")));
+  }
+
+  /* -------------------------- server-side rendering ------------------------- */
+  {
+    const markdown = [
+      "Before",
+      "```list",
+      "from: 1-projects",
+      "show: owner, updated",
+      "limit: 1",
+      "```",
+      "After",
+    ].join("\n");
+    const rendered = await renderEvaluatedListBlocks(markdown, async (config) => {
+      const selection = selectListRows(config, NOTES, { selfPath: "1-projects/index.md" });
+      return {
+        ...selection,
+        rows: selection.rows.map((row) => ({ ...row, href: `/notes/${row.path}` })),
+      };
+    });
+    check("an evaluated block becomes a Markdown table in place", rendered.includes("| Note | owner | updated |"));
+    check("an evaluated row keeps its server-classified link", rendered.includes("[old](/notes/1-projects/old.md)"));
+    check(
+      "an evaluated list never reports the number trimmed or hidden",
+      !rendered.includes("5") && rendered.includes("More notes are available."),
+    );
+    check(
+      "the prose around an evaluated block stays byte-identical",
+      rendered.startsWith("Before\n") && rendered.endsWith("\nAfter"),
+    );
+  }
+
+  {
+    const malformed = "```list\nfrom: ../private\n```";
+    const rendered = await renderEvaluatedListBlocks(malformed, async () => {
+      throw new Error("a malformed block must not be evaluated");
+    });
+    check("a malformed block renders its grammar error instead of a guess", rendered.startsWith("> Folder list error: "));
   }
 
   /* ------------------------ frontmatter as properties ------------------------ */

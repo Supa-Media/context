@@ -185,6 +185,159 @@ describe("public website resolution", () => {
     });
   });
 
+  test("evaluates folder lists from only the notes this public viewer may open", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      "website/index.md",
+      [
+        "---",
+        "title: Home",
+        "---",
+        "",
+        "```list",
+        "from: website",
+        "sort: title",
+        "```",
+        "",
+        "```list",
+        "from: 1-projects",
+        "sort: title",
+        "```",
+      ].join("\n"),
+    );
+    f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nAbout\n");
+    f.backend.seed(
+      "website/members.md",
+      "---\ntitle: Members\naudience: members\n---\n\nMembers\n",
+    );
+    f.backend.seed(
+      "website/draft.md",
+      "---\ntitle: Hidden draft\ndraft: true\n---\n\nDraft\n",
+    );
+    f.backend.seed(
+      "1-projects/shared.md",
+      "---\ntitle: Shared project\n---\n\nShared\n",
+    );
+    f.backend.seed(
+      "1-projects/private.md",
+      "---\ntitle: Private project\n---\n\nPrivate\n",
+    );
+    await asUser(f.t, f.owner).action(
+      api.functions.files.setDirectoryVisibility,
+      { workspaceId: f.workspaceId, path: "1-projects", visibility: "team" },
+    );
+    await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/private.md",
+      visibility: "private",
+    });
+    const { token } = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
+    );
+    await publish(f);
+
+    const resolved = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    expect(resolved).toMatchObject({ kind: "page" });
+    if (resolved.kind !== "page") throw new Error("expected a website page");
+    expect(resolved.markdown).toContain("[About](/about)");
+    expect(resolved.markdown).toContain(`[Shared project](/s/${token})`);
+    expect(resolved.markdown).not.toContain("Members");
+    expect(resolved.markdown).not.toContain("Hidden draft");
+    expect(resolved.markdown).not.toContain("Private project");
+    expect(resolved.markdown).not.toContain("```list");
+
+    const memberView = await asUser(f.t, f.member).action(
+      api.functions.websites.resolvePage,
+      { handle: "atlas", routePath: "/" },
+    );
+    expect(memberView).toMatchObject({ kind: "page" });
+    if (memberView.kind !== "page") throw new Error("expected a member page");
+    expect(memberView.markdown).toContain("[Members](/members)");
+  });
+
+  test("removes a shared list row immediately when its share is revoked", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      "website/index.md",
+      "---\ntitle: Home\n---\n\n```list\nfrom: 1-projects\n```\n",
+    );
+    f.backend.seed(
+      "1-projects/shared.md",
+      "---\ntitle: Shared project\n---\n\nShared\n",
+    );
+    await asUser(f.t, f.owner).action(
+      api.functions.files.setDirectoryVisibility,
+      { workspaceId: f.workspaceId, path: "1-projects", visibility: "team" },
+    );
+    const { token } = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: "1-projects/shared.md" },
+    );
+    await publish(f);
+
+    await expect(
+      f.t.action(api.functions.websites.resolvePage, {
+        handle: "atlas",
+        routePath: "/",
+      }),
+    ).resolves.toMatchObject({
+      kind: "page",
+      markdown: expect.stringContaining(`[Shared project](/s/${token})`),
+    });
+
+    const [share] = await asUser(f.t, f.owner).query(
+      api.functions.shares.listShares,
+      { workspaceId: f.workspaceId },
+    );
+    await asUser(f.t, f.owner).mutation(api.functions.shares.revokeShare, {
+      shareId: share.shareId,
+    });
+
+    const afterRevoke = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    expect(afterRevoke).toMatchObject({ kind: "page" });
+    if (afterRevoke.kind !== "page") throw new Error("expected a website page");
+    expect(afterRevoke.markdown).not.toContain("Shared project");
+    expect(afterRevoke.markdown).not.toContain(token);
+  });
+
+  test("excludes a list route whose bucket bytes drifted and invalidates the index", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      "website/index.md",
+      "---\ntitle: Home\n---\n\n```list\nfrom: website\n```\n",
+    );
+    f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nOld\n");
+    await publish(f);
+    f.backend.seed(
+      "website/about.md",
+      "---\ntitle: Secret now\naudience: members\n---\n\nChanged\n",
+    );
+
+    const resolved = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    expect(resolved).toMatchObject({ kind: "page" });
+    if (resolved.kind !== "page") throw new Error("expected a website page");
+    expect(resolved.markdown).not.toContain("About");
+    expect(resolved.markdown).not.toContain("Secret now");
+
+    const state = await f.t.run((ctx) =>
+      ctx.db
+        .query("websiteStates")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .unique(),
+    );
+    expect(state?.routeGeneration).not.toBe(state?.routeReconciledGeneration);
+  });
+
   test("an anonymous members page returns only a server-built sign-in route", async () => {
     const f = await fixture();
     f.backend.seed(

@@ -12,6 +12,10 @@ export interface WebsiteLinkCatalogEntry {
   objectKey: string;
   /** Root-relative, so a custom-domain visitor stays on that domain. */
   href: string;
+  /** Shares are public; routes retain their indexed audience. */
+  audience: "public" | "members";
+  /** Exact indexed source version for routes; shares recheck standing live. */
+  sourceEtag: string | null;
 }
 
 export interface WebsiteLinkOptions {
