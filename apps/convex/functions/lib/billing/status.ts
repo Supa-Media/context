@@ -7,12 +7,16 @@ import {
   PREMIUM_CURRENCY,
   PREMIUM_INTERVAL,
   PREMIUM_PRICE_CENTS,
+  FREE_MANAGED_NOTE_CAP,
   activeEntitlements,
+  noteCapFor,
 } from "../premium";
 import { stagingStorageIsFree } from "../managedStorage";
 import { isProductionTestAccount } from "../testAccount";
+import { freeManagedRefusal } from "./freeManaged";
 import {
   bindingIsManaged,
+  deploymentOffersFreeManaged,
   deploymentProvidesManagedStorage,
   deploymentSells,
   entitlementsValidator,
@@ -83,6 +87,21 @@ export const billingStatusReturns = v.object({
       v.literal("verify_target"),
     ),
   ),
+  /**
+   * The free managed tier. `freeManagedAvailable` is whether this deployment
+   * offers it at all; `freeManagedEligible` whether *this owner* may start it
+   * on *this* context (always false for anyone else); `freeManaged` whether
+   * this context started on it. `docs/decisions/billing.md`.
+   */
+  freeManagedAvailable: v.boolean(),
+  freeManagedEligible: v.boolean(),
+  freeManagedNoteCap: v.number(),
+  freeManaged: v.boolean(),
+  /**
+   * The note cap in force on this context, absent where there is none. Only a
+   * free context on a bucket we run, and not paying, has one.
+   */
+  noteCap: v.optional(v.number()),
   /** Exact production CUJ account; owner only. */
   isTestAccount: v.optional(v.boolean()),
   stagingFreeStorage: v.optional(v.boolean()),
@@ -114,6 +133,13 @@ export async function readBillingStatus(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
 
+  const storageIsManaged = bindingIsManaged(binding, args.workspaceId);
+  const noteCap = noteCapFor(plan, storageIsManaged);
+  const freeManagedEligible =
+    isOwner &&
+    plan?.freeManaged !== true &&
+    (await freeManagedRefusal(ctx, userId, args.workspaceId, plan)) === null;
+
   return {
     status: planStatus,
     selected,
@@ -138,7 +164,7 @@ export async function readBillingStatus(
     notes: isOwner ? binding?.noteCount : undefined,
     notesTruncated: isOwner ? binding?.noteCountTruncated : undefined,
     notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
-    storageIsManaged: bindingIsManaged(binding, args.workspaceId),
+    storageIsManaged,
     managedStorageAvailable: deploymentProvidesManagedStorage(),
     managedProvisioning: plan?.managedProvisioning,
     // Owner only, with the rest of the money fields: a member cannot act on
@@ -156,6 +182,11 @@ export async function readBillingStatus(
       ? migration?.objectsProcessedInPhase
       : undefined,
     managedMigrationPhase: isOwner ? migration?.phase : undefined,
+    freeManagedAvailable: deploymentOffersFreeManaged(),
+    freeManagedEligible,
+    freeManagedNoteCap: FREE_MANAGED_NOTE_CAP,
+    freeManaged: plan?.freeManaged === true,
+    noteCap: noteCap ?? undefined,
     stagingFreeStorage: stagingStorageIsFree(),
     isTestAccount: isOwner ? isProductionTestAccount(user) : undefined,
   };

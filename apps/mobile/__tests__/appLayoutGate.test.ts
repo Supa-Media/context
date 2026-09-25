@@ -354,3 +354,81 @@ describe("the (app) gate on a cold start", () => {
     expect(one.html).toContain('data-testid="stack"');
   });
 });
+
+/**
+ * A client that answers each query by name — `listMyWorkspaces`,
+ * `listMyInvitations` and `getStorageBinding` each get their own reply.
+ */
+function routedClient(answers: Record<string, unknown>) {
+  const { getFunctionName } = require("convex/server") as typeof import("convex/server");
+  const client = {
+    watchQuery: (query: never) => ({
+      localQueryResult: () => answers[getFunctionName(query).split(":")[1]!],
+      onUpdate: () => () => {},
+      journal: () => undefined,
+    }),
+    watchPaginatedQuery: () => ({
+      localQueryResult: () => undefined,
+      onUpdate: () => () => {},
+      journal: () => undefined,
+    }),
+    mutation: async () => undefined,
+    action: async () => undefined,
+    connectionState: () => ({ isWebSocketConnected: true }),
+  };
+  return client as never;
+}
+
+describe("an unfinished setup, at sign-in", () => {
+  const { markResumeAsked, resetResumeAsked } =
+    require("../features/onboarding/resume") as typeof import("../features/onboarding/resume");
+  const OWNER = [{ workspaceId: "ws_mine", slug: "seyi", kind: "personal", role: "owner" }];
+
+  afterEach(() => {
+    resetResumeAsked();
+    window.localStorage.clear();
+  });
+
+  test("an owner with no storage is sent back to it — once", () => {
+    resetResumeAsked();
+    mockAuthState = { isLoading: false, isAuthenticated: true };
+    mockPathname = "/console";
+    const client = routedClient({
+      listMyWorkspaces: OWNER,
+      listMyInvitations: [],
+      getStorageBinding: null,
+    });
+    // Held across re-renders: a subscription tick before the navigation runs
+    // must not swap the redirect back out for the console.
+    expect(render(client).html).toContain('data-href="/welcome?resume=storage"');
+    expect(render(client).html).toContain('data-href="/welcome?resume=storage"');
+    // `/welcome` records it once shown; "I'll do this later" lands back here.
+    markResumeAsked();
+    expect(render(client).html).toContain('data-testid="stack"');
+  });
+
+  test("an owner with storage is left alone", () => {
+    resetResumeAsked();
+    mockAuthState = { isLoading: false, isAuthenticated: true };
+    mockPathname = "/console";
+    const html = render(
+      routedClient({
+        listMyWorkspaces: OWNER,
+        listMyInvitations: [],
+        getStorageBinding: { status: "connected" },
+      }),
+    ).html;
+    expect(html).toContain('data-testid="stack"');
+    expect(html).not.toContain("resume=storage");
+  });
+
+  test("a followed link is followed, not redirected", () => {
+    resetResumeAsked();
+    mockAuthState = { isLoading: false, isAuthenticated: true };
+    mockPathname = "/console/@seyi";
+    const html = render(
+      routedClient({ listMyWorkspaces: OWNER, listMyInvitations: [], getStorageBinding: null }),
+    ).html;
+    expect(html).toContain('data-testid="stack"');
+  });
+});

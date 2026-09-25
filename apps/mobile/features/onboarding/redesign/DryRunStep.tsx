@@ -5,6 +5,7 @@ import { Text } from "../../design/components/Text";
 import { fonts, leading, radii, space, tracking } from "../../design/tokens";
 import { pointerType as t } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { DRY_RUN_LEDE } from "../dryRun";
 
 /**
  * B1-02 — the dry-run report.
@@ -37,15 +38,16 @@ export function DryRunStep({
   findings: readonly DryRunFinding[];
   looksReady: boolean;
   onContinue: () => void;
-  onShowFolder: () => void;
-  onBack: () => void;
+  /** Absent where there is nowhere to show one from. */
+  onShowFolder?: () => void;
+  /** Absent where going back would not undo anything. */
+  onBack?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        We listed your bucket, read-only. Nothing has been written, moved, or
-        renamed. Here is what we saw.
+        {DRY_RUN_LEDE}
       </Text>
 
       <View style={styles.head}>
@@ -81,12 +83,15 @@ export function DryRunStep({
       </View>
 
       <View style={styles.actions}>
-        <Button label="Back" variant="ghost" onPress={onBack} />
-        <Button label="Show me a folder" variant="ghost" onPress={onShowFolder} />
+        {onBack ? <Button label="Back" variant="ghost" onPress={onBack} /> : null}
+        {onShowFolder ? (
+          <Button label="Show me a folder" variant="ghost" onPress={onShowFolder} />
+        ) : null}
         <Button
           label={looksReady ? "Looks right — continue" : "Continue anyway"}
           variant="white"
           onPress={onContinue}
+          testID="welcome-dryrun-continue"
         />
       </View>
     </View>

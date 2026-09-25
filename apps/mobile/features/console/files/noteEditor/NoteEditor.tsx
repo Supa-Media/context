@@ -107,6 +107,7 @@ export function NoteEditor({
   onLoadImage,
   onStoreImage,
   onImageProblem,
+  folderLists,
   encryption,
   activity,
   activityShared = false,
@@ -374,7 +375,7 @@ export function NoteEditor({
     onChange, onSave, onDiscard, onUseTheirs, onKeepMine, onOpenLink, notePaths, onSuggest,
     onPickSuggestion, onPreviewLinks, onSubmitForm, onReadFormResponses, onVoteForm,
     onUpdateFormResponse, onRetractFormResponse, onLoadImage, onStoreImage, onImageProblem,
-    encryption, activity, activityShared, activityEditable, onOpenNote,
+    folderLists, encryption, activity, activityShared, activityEditable, onOpenNote,
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,

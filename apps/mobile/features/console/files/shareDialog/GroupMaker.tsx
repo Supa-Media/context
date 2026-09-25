@@ -49,23 +49,23 @@ export function GroupMaker({
           onChangeText={(label) => onChange({ ...state, label })}
           autoCapitalize="none"
           autoCorrect={false}
-          style={styles.input}
+          style={styles.makerInput}
           placeholder="Group name"
           placeholderTextColor={colors.muted}
           accessibilityLabel="Group name"
         />
-        <Button label="Create" disabled={!ready} onPress={onCreate} />
-        <Button label="Cancel" onPress={onCancel} />
+        <Button label="Create" variant="dialogPrimary" disabled={!ready} onPress={onCreate} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
       </View>
 
       {problem === null ? null : (
-        <Text variant="meta" style={styles.routeDanger} testID="share-group-problem">
+        <Text variant="meta" style={styles.danger} testID="share-group-problem">
           {problem}
         </Text>
       )}
 
-      <Text variant="meta" style={styles.suggestionDetail}>
-        {`Name the people you keep picking together. Will be ${previewGroupName(slug, state.label)} — the prefix is this context's, not yours to type.`}
+      <Text variant="meta" style={styles.meta}>
+        {`Pick the people. It will be ${previewGroupName(slug, state.label)}`}
       </Text>
 
       {/*
@@ -81,7 +81,7 @@ export function GroupMaker({
               key={member.userId}
               style={[styles.pick, on && styles.pickOn]}
               /*
-                Web props, like `AudienceControl` beside it. The RN-flavoured
+                Web props, like `GeneralAccess` beside it. The RN-flavoured
                 `accessibilityRole` / `accessibilityState` pair does not reach
                 the DOM as `aria-checked` here, so a screen reader was told this
                 was a checkbox and never told whether it was ticked.
@@ -99,7 +99,7 @@ export function GroupMaker({
                 })
               }
             >
-              <Text variant="meta" style={on ? undefined : styles.suggestionMuted}>
+              <Text variant="meta" style={on ? { color: colors.accentText } : styles.meta}>
                 {`${on ? "✓ " : ""}${memberLabel(member)}`}
               </Text>
             </Pressable>

@@ -13,12 +13,22 @@ import type { ConnectFormValues } from "./connect";
 /**
  * Storage starts with the decision a person is actually making: run it
  * themselves or let Context run it. Provider details stay behind the first
- * path so S3 and Dropbox do not look like separate product tiers.
+ * path.
+ *
+ * ## Dropbox is offered only to a context already on it
+ *
+ * New Dropbox connections are no longer offered (owner, 2026-09-24): the only
+ * caller that passes `allowDropbox` is Settings reconnecting a context whose
+ * binding is already Dropbox. That one stays because non-negotiable #2 says
+ * an existing workspace must keep connecting and working unchanged — a
+ * Dropbox context whose token lapsed must be able to consent again without
+ * being forced to migrate.
  */
 export function StorageChoice({
   workspaceId,
   connect,
   onCancel,
+  allowDropbox = false,
   dropboxNote,
   dropboxResumeTo,
   managed,
@@ -28,6 +38,8 @@ export function StorageChoice({
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   /** Present when this is replacing a binding rather than making the first one. */
   onCancel?: () => void;
+  /** Only for reconnecting a context that is already on Dropbox. */
+  allowDropbox?: boolean;
   /** One line about what leaving for Dropbox does to the screen this is on. */
   dropboxNote?: string;
   /** Set from first-run, so the callback can hand the person back to it. */
@@ -38,6 +50,7 @@ export function StorageChoice({
   const dropbox = useDropboxStart(workspaceId, { resumeTo: dropboxResumeTo });
   return (
     <StorageChoiceBody
+      allowDropbox={allowDropbox}
       dropboxReady={workspaceId !== null}
       redirectUri={dropbox.redirectUri}
       dropboxState={dropbox.state}
@@ -55,6 +68,7 @@ export function StorageChoice({
  * exactly as `DropboxCallbackBody` is.
  */
 export function StorageChoiceBody({
+  allowDropbox = false,
   dropboxReady,
   redirectUri,
   dropboxState,
@@ -64,6 +78,7 @@ export function StorageChoiceBody({
   dropboxNote,
   managed,
 }: {
+  allowDropbox?: boolean;
   dropboxReady: boolean;
   redirectUri: string | null;
   dropboxState: import("./dropbox").DropboxStartState;
@@ -86,7 +101,11 @@ export function StorageChoiceBody({
         <ChoiceCard
           testID="choose-own-storage"
           title="Bring your own storage"
-          sub="Use storage you control through an S3-compatible provider or Dropbox."
+          sub={
+            allowDropbox
+              ? "Use storage you control through an S3-compatible provider, or reconnect this context's Dropbox."
+              : "Use storage you control through an S3-compatible provider."
+          }
           selected={ownOpen}
           onPress={() => {
             setOwnOpen((open) => !open);
@@ -125,21 +144,23 @@ export function StorageChoiceBody({
               selected={bucketOpen}
               onPress={() => setBucketOpen((open) => !open)}
             />
-            <ChoiceCard
-              testID="choose-dropbox"
-              title="Dropbox"
-              sub="Connect with one click. Context gets its own folder in Dropbox."
-              selected={false}
-              busy={starting}
-              disabled={!dropboxReady || starting}
-              onPress={() => {
-                if (redirectUri === null) {
-                  setDropboxBlocked(true);
-                  return;
-                }
-                startDropbox();
-              }}
-            />
+            {allowDropbox ? (
+              <ChoiceCard
+                testID="choose-dropbox"
+                title="Reconnect Dropbox"
+                sub="Approve Context again for this context's own Dropbox folder."
+                selected={false}
+                busy={starting}
+                disabled={!dropboxReady || starting}
+                onPress={() => {
+                  if (redirectUri === null) {
+                    setDropboxBlocked(true);
+                    return;
+                  }
+                  startDropbox();
+                }}
+              />
+            ) : null}
           </View>
         </View>
       ) : null}

@@ -42,6 +42,7 @@ export const openStorageBindingReturns = v.union(
     searchIndex: v.optional(searchIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),
     rotation: v.optional(keyRotationValidator),
+    noteCap: v.optional(v.number()),
   }),
 );
 

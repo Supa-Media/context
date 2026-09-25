@@ -165,6 +165,22 @@ export const workspaceTables = {
   }).index("by_slug", ["slug"]),
 
   /**
+   * Whether this workspace's bucket-backed website is live.
+   *
+   * The bucket remains authoritative for every page and route. This row is
+   * only the explicit lifecycle switch the bucket cannot express by merely
+   * containing a folder. Disabled rows are retained so an idempotent disable
+   * has one answer and never needs to delete customer files.
+   */
+  websiteStates: defineTable({
+    workspaceId: v.id("workspaces"),
+    state: v.union(v.literal("enabled"), v.literal("disabled")),
+    enabledAt: v.optional(v.number()),
+    enabledBy: v.optional(v.id("users")),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
    * Membership carries an explicit role. Read access and write access to
    * someone else's context are different grants; write is never implied.
    *

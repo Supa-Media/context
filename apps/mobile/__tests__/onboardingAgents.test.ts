@@ -1,11 +1,9 @@
 import { describe, expect, test } from "@jest/globals";
-import { PARA_FOLDERS } from "@context/convex/functions/lib/scaffold";
 import {
+  BOOTSTRAP_PROMPT,
   ENDPOINT_NOTE,
   ORIENT_TOOL,
   TIER_NOTE,
-  defaultSeedPrompt,
-  seedPromptFor,
 } from "../features/onboarding/agents";
 
 /**
@@ -21,114 +19,33 @@ import {
  * else's product, where we never see it.
  */
 
-describe("the seed prompt names only folders that exist", () => {
-  test("the standard layout is taken from the control plane, not a second copy", () => {
-    // If PARA_FOLDERS changes upstream, this must move with it rather than
-    // naming a folder the scaffold no longer writes.
-    const prompt = defaultSeedPrompt();
-    // Every folder the prompt names must be one the scaffold actually writes.
-    // The previous version of this looped `expect(PARA_FOLDERS).toContain(f)`
-    // over PARA_FOLDERS itself, which is `for all f in S: f in S` — it could
-    // not fail, and left two hardcoded literals doing the only real work.
-    const named = [...prompt.matchAll(/in `([^`]+)\/`/g)].map((m) => m[1]!);
-    expect(named.length).toBeGreaterThan(0);
-    for (const folder of named) {
-      expect(PARA_FOLDERS).toContain(folder);
-    }
-  });
+/*
+  The folder-aware seed prompt these tests used to pin went with the old tools
+  step. Its guardrails did not: the bootstrap prompt is now the one first-run
+  instruction a client receives, and it has to keep every one of them.
+*/
+describe("the bootstrap prompt keeps the guardrails", () => {
+  const prompt = BOOTSTRAP_PROMPT.replace(/\s+/g, " ");
 
-  test("a custom layout is never told about folders it declined", () => {
-    // The regression this prevents: somebody names two folders of their own on
-    // the layout step and is then handed a prompt instructing their AI to file
-    // things under `1-projects/`, which does not exist in their bucket.
-    const prompt = seedPromptFor(["work", "reading"]);
-    expect(prompt).toContain("work/");
-    expect(prompt).toContain("reading/");
-    for (const folder of PARA_FOLDERS) {
-      expect(prompt).not.toContain(`${folder}/`);
-    }
-  });
-
-  test("a single-folder layout still produces a usable prompt", () => {
-    // `custom` with one folder is a real answer the structure step accepts, so
-    // the prompt must not assume it has two to distribute work across.
-    const prompt = seedPromptFor(["notes"]);
-    expect(prompt).toContain("notes/");
-    // Every task lands somewhere real, rather than one of them falling through
-    // to a target the layout does not have.
-    // All three land in the one folder that exists. The bug this replaced sent
-    // the third to the root, which is where `index.md` lives.
-    expect([...prompt.matchAll(/in `([^`]+)\/`/g)].map((m) => m[1]!)).toEqual([
-      "notes",
-      "notes",
-      "notes",
-    ]);
-  });
-
-  test("no folders at all names no folder, and does not fall back to the root", () => {
-    // Defensive: the structure step refuses to apply an empty custom list, so
-    // this should be unreachable — but a prompt that renders "undefined/" as an
-    // instruction is the kind of thing that ships, and falling back to the root
-    // would aim all three tasks at the two files this prompt forbids.
-    const prompt = seedPromptFor([]);
-    expect(prompt).not.toMatch(/undefined/);
-    expect(prompt).not.toMatch(/null/);
-    expect(prompt).not.toMatch(/`index\.md`:/);
-    expect([...prompt.matchAll(/in `([^`]+)\/`/g)]).toHaveLength(0);
-    expect(prompt).toMatch(/wherever you think it belongs/);
-  });
-});
-
-describe("the three sentences that are not decoration", () => {
   test("it never aims a client at a file Context maintains", () => {
-    // The bug this catches shipped in the first version of this prompt: task 1
-    // said "`index.md` at the root — who I am". `index.md` is INDEX_KEY, the
-    // context manifest, written by the scaffold and read back by `orient` —
-    // and `write_note` only checks an etag when one is supplied. A client
-    // obeying that instruction replaces the manifest with a biography on its
-    // first call, while the next screen still calls it "yours to edit".
-    const prompt = defaultSeedPrompt();
-    expect(prompt).not.toMatch(/In .*index\.md/);
-    expect(prompt).not.toMatch(/\d\.\s*`index\.md`/);
-    expect(prompt).toMatch(/Do not change `index\.md` or `privacy\.md`/);
+    expect(prompt).toMatch(/never touch index\.md or privacy\.md/);
   });
 
   test("it waits for a go, rather than only announcing", () => {
-    // "Tell me which folder, before you write it" is satisfied by a client
-    // that announces and writes in the same turn, which is not a confirmation.
-    expect(defaultSeedPrompt().replace(/\s+/g, " ")).toMatch(/wait for me to say go/i);
-  });
-
-  test("it gives a client that does not know the person somewhere to go", () => {
-    // KNOWN_CLIENTS names clients with no cross-session memory. Without this
-    // the honest one stalls and the eager one invents.
-    expect(defaultSeedPrompt().replace(/\s+/g, " ")).toMatch(/ask me rather than guessing/i);
+    expect(prompt).toMatch(/wait for my go before writing/i);
   });
 
   test("it tells the client to name the folder before writing", () => {
-    // The house rule from the MCP server's own instructions. The folder decides
-    // the visibility scope, so this is the confirmation that stops a private
-    // thing landing somewhere shared — dropping it would teach every client the
-    // product ships with to skip it.
-    expect(defaultSeedPrompt().replace(/\s+/g, " ")).toMatch(/tell me which folder each note is going in/i);
+    expect(prompt).toMatch(/tell me which folder each note is going in/i);
   });
 
   test("it asks for short and factual notes", () => {
-    // Without this the first thing in a brand-new context is a thousand words
-    // of flattering summary, which is what people delete and never return to.
-    expect(defaultSeedPrompt()).toMatch(/short and factual/i);
+    expect(prompt).toMatch(/short and factual/i);
   });
 
-  test("it leaves a standing instruction, not just a one-off import", () => {
-    // The seeding is the demo. This is the line that makes it a habit.
-    const prompt = defaultSeedPrompt();
-    expect(prompt).toMatch(/from now on/i);
-    expect(prompt).toMatch(/check Context before answering/i);
-  });
-
-  test("it calls the tool the gateway actually exposes", () => {
+  test("it calls the tool the gateway actually exposes, first", () => {
     expect(ORIENT_TOOL).toBe("orient");
-    expect(defaultSeedPrompt()).toContain(`\`${ORIENT_TOOL}\``);
+    expect(prompt).toContain(`call \`${ORIENT_TOOL}\` first`);
   });
 });
 

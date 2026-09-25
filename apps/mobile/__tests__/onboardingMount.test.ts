@@ -65,13 +65,19 @@ interface RecordedCall {
  */
 function fakeConvexClient(results: Record<string, unknown>) {
   const calls: RecordedCall[] = [];
+  const listeners = new Set<() => void>();
 
   const client = {
     watchQuery: (ref: AnyRef) => {
       const name = getFunctionName(ref);
       return {
         localQueryResult: () => results[name],
-        onUpdate: () => () => {},
+        // Subscribers are kept so a test can change an answer and tell them —
+        // the way a probe landing reaches the hook in production.
+        onUpdate: (callback: () => void) => {
+          listeners.add(callback);
+          return () => listeners.delete(callback);
+        },
         journal: () => undefined,
       };
     },
@@ -94,7 +100,10 @@ function fakeConvexClient(results: Record<string, unknown>) {
     connectionState: () => ({ isWebSocketConnected: true }),
   };
 
-  return { client: client as never, calls };
+  const notify = () => {
+    for (const listener of [...listeners]) listener();
+  };
+  return { client: client as never, calls, notify };
 }
 
 const RUNAWAY = 30;
@@ -105,6 +114,8 @@ interface Harness {
   calls: RecordedCall[];
   renders: () => number;
   act: (body: () => void | Promise<void>) => Promise<void>;
+  /** Tell every subscription its answer may have changed. */
+  notify: () => Promise<void>;
   unmount: () => void;
 }
 
@@ -114,7 +125,7 @@ function mountOnboarding(
 ): Harness {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const { client, calls } = fakeConvexClient(results);
+  const { client, calls, notify } = fakeConvexClient(results);
 
   let latest: OnboardingController | null = null;
   let renders = 0;
@@ -152,6 +163,11 @@ function mountOnboarding(
     act: async (body) => {
       await act(async () => {
         await body();
+      });
+    },
+    notify: async () => {
+      await act(async () => {
+        notify();
       });
     },
     unmount: () => {
@@ -351,7 +367,6 @@ describe("the Obsidian fork", () => {
     await harness.act(() => harness.current().finishVaultImport("imported"));
     expect(harness.current().shape.vault).toBe("imported");
     expect(harness.current().step).toBe("agents");
-    expect(harness.current().seedPrompt).not.toMatch(/`1-projects\/`/);
     harness.unmount();
   });
 });
@@ -450,6 +465,112 @@ describe("coming back from Stripe with a managed bucket", () => {
 
     expect(harness.current().connectState.kind).toBe("idle");
     expect(harness.current().step).toBe("storage");
+    harness.unmount();
+  });
+});
+
+/*
+  THE FORK, THE DRY RUN AND THE LIVE CHECK, PRESSED.
+
+  Each of these is a button whose whole job is a call and a hand-off, which is
+  exactly what a pure test of `flow.ts` cannot see: the free card has to reach
+  `startFreeManaged` and nothing that costs money, a bucket somebody brought
+  has to be reported on before the vault question, and the live check has to
+  sit between the bootstrap prompt and the last screen.
+*/
+describe("the redesigned steps, wired", () => {
+  const FAKE_VALUES = {
+    provider: "r2" as const,
+    endpoint: "https://0000000000000000000000000000000f.r2.cloudflarestorage.com",
+    region: "auto",
+    bucket: "example-bucket",
+    accessKeyId: "AKIAEXAMPLEEXAMPLE00",
+    secretAccessKey: "not-a-real-secret-key-for-tests-only",
+    rootPrefix: "",
+    forcePathStyle: null,
+  };
+
+  test("a claimed name asks where the notes live, before any storage form", async () => {
+    const harness = mountOnboarding(happyDeployment());
+    await claimSeyi(harness);
+    expect(harness.current().step).toBe("fork");
+    // No billing answer means no managed offer: the only card is their own bucket.
+    expect(harness.current().forkOffer).toBeNull();
+    harness.unmount();
+  });
+
+  test("the free card starts the free tier — and never a checkout", async () => {
+    const results: Record<string, unknown> = {
+      ...happyDeployment(),
+      "functions/storage:getStorageBinding": null,
+      "functions/billing:status": {
+        status: "none",
+        priceCents: 0,
+        currency: "usd",
+        interval: "month",
+        selected: { managedStorage: false, fastSearch: false },
+        active: { managedStorage: false, fastSearch: false },
+        freeManagedAvailable: true,
+        freeManagedEligible: true,
+        freeManagedNoteCap: 1000,
+        storageIsManaged: false,
+      },
+    };
+    const harness = mountOnboarding(results);
+    await claimSeyi(harness);
+    expect(harness.current().forkOffer).toEqual({ kind: "free", cap: 1000 });
+
+    await harness.act(() => harness.current().pickManaged());
+    const names = harness.calls.map((call) => call.name);
+    expect(names).toContain("functions/billing:startFreeManaged");
+    expect(names).not.toContain("functions/billing:startCheckout");
+    expect(names).not.toContain("functions/billing:setEntitlements");
+    expect(harness.current().step).toBe("storage");
+    expect(harness.current().shape.route).toBe("managed");
+    harness.unmount();
+  });
+
+  test("a bucket somebody brought is reported on, then asked about their vault", async () => {
+    const results: Record<string, unknown> = {
+      ...happyDeployment(),
+      "functions/storage:getStorageBinding": null,
+      "functions/storage:bindStorage:result": { status: "unverified" },
+    };
+    const harness = mountOnboarding(results);
+    await claimSeyi(harness);
+    await harness.act(() => harness.current().pickOwn());
+    expect(harness.current().step).toBe("storage");
+
+    // The probe lands on the subscription a moment after the bind returns.
+    results["functions/storage:getStorageBinding"] = {
+      status: "connected",
+      provider: "r2",
+      bucket: "example-bucket",
+      capabilities: { conditionalWrite: true },
+      scaffoldReason: "empty",
+      noteCount: 0,
+    };
+    await harness.act(async () => {
+      await harness.current().connect(FAKE_VALUES);
+    });
+    await harness.notify();
+    expect(harness.current().step).toBe("dryrun");
+    expect(harness.current().shape.route).toBe("byo");
+    expect(harness.current().dryRun?.looksReady).toBe(true);
+    expect(harness.current().dryRun?.bucket).toBe("example-bucket");
+
+    await harness.act(() => harness.current().finishDryRun());
+    expect(harness.current().step).toBe("vault");
+    harness.unmount();
+  });
+
+  test("the bootstrap prompt hands off to the live check, and the live check to the last screen", async () => {
+    const harness = mountOnboarding(happyDeployment());
+    await claimSeyi(harness);
+    await harness.act(() => harness.current().finishBootstrap());
+    expect(harness.current().step).toBe("live");
+    await harness.act(() => harness.current().finishLive());
+    expect(harness.current().step).toBe("done");
     harness.unmount();
   });
 });

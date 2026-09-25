@@ -512,18 +512,28 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
     },
 
     /**
-     * @returns the binding with its secret opened, or `null`.
+     * @returns the binding with its secret opened, and the free managed tier's
+     *          note cap where one is in force — or `null`.
      *
      * The ticket is the only input, and the control plane bound it to a
-     * personal context at mint time. Nothing here can name a context.
+     * personal context at mint time. Nothing here can name a context. The cap
+     * is a sibling of the binding on the wire, never a field inside it, as it
+     * is on `/gateway/binding`.
      */
-    async getBinding(ticket: string): Promise<Record<string, unknown> | null> {
-      const value = required(await post("/gateway/ingest/binding", { ticket }), "binding");
+    async getBinding(
+      ticket: string,
+    ): Promise<{ binding: Record<string, unknown>; noteCap: number | null } | null> {
+      const parsed = await post("/gateway/ingest/binding", { ticket });
+      const value = required(parsed, "binding");
       if (value === null) return null;
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new ControlPlaneError("malformed binding");
       }
-      return value as Record<string, unknown>;
+      const cap = parsed.noteCap;
+      return {
+        binding: value as Record<string, unknown>,
+        noteCap: typeof cap === "number" && Number.isInteger(cap) && cap > 0 ? cap : null,
+      };
     },
 
     /** Quota accounting. Callers swallow failures; the note is already written. */

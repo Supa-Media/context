@@ -14,6 +14,7 @@ import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
 import { openMirrorStore } from "./mirrorStore";
 import { forgetMirrorStatus } from "./mirrorStatus";
+import { forgetMirrorLists } from "./mirrorLists";
 import { forgetMirrorSearch } from "./mirrorSearch";
 import type { MirrorStore } from "./mirrorStoreCore";
 
@@ -299,6 +300,7 @@ async function clearEverything(): Promise<ForgetResult> {
     forgetMirrorStatus();
     // The device search's in-memory copy of the same bodies (`mirrorSearch.ts`).
     forgetMirrorSearch();
+    forgetMirrorLists();
     const mirrorRoots = await mirrorLeft(
       await openMirrorStore(),
       (mirror) => mirror.clearAll(),
@@ -365,6 +367,7 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
     await forgetWorkspace(store, workspaceId);
     forgetMirrorStatus(workspaceId);
     forgetMirrorSearch(workspaceId);
+    forgetMirrorLists(workspaceId);
     const mirrorRoots = await mirrorLeft(
       await openMirrorStore(),
       (mirror) => mirror.forgetWorkspace(workspaceId),
@@ -459,6 +462,7 @@ async function clearDeparted(known: readonly string[]): Promise<ForgetResult> {
         for (const root of departed(await mirror.roots())) {
           forgetMirrorStatus(root.workspaceId);
           forgetMirrorSearch(root.workspaceId);
+          forgetMirrorLists(root.workspaceId);
           await mirror.forgetWorkspace(root.workspaceId);
         }
       },

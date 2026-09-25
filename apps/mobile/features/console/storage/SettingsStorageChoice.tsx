@@ -1,3 +1,11 @@
+/**
+ * Choosing storage from Settings, and importing a vault once it is live.
+ *
+ * Split out of `panes/SettingsPane.tsx`. Billing is optional in render
+ * fixtures and self-hosted builds, so each wrapper renders the plain chooser
+ * when there is no Convex client and the managed-storage offer when there is.
+ */
+
 import { View } from "react-native";
 import { useConvex } from "convex/react";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -7,13 +15,6 @@ import { VaultImport } from "./VaultImport";
 import { useManagedOffer } from "../../onboarding/useManagedOffer";
 import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
 
-/*
-  Settings' two storage entry points that need a Convex client: choosing
-  storage (with the managed offer when billing is live) and importing a vault
-  into storage that is already connected. Both render nothing that subscribes
-  when there is no client — the landing page's demo and the render tests.
-*/
-
 /** Billing is optional in render fixtures and self-hosted builds. */
 export function SettingsStorageChoice({
   workspaceId,
@@ -21,16 +22,26 @@ export function SettingsStorageChoice({
   connect,
   onCancel,
   onOpenPremium,
+  allowDropbox = false,
 }: {
   workspaceId: string;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
   onOpenPremium?: () => void;
+  /** Only when this context's current binding is already Dropbox. */
+  allowDropbox?: boolean;
 }) {
   const client = useConvex();
   if (client === undefined) {
-    return <StorageChoice workspaceId={workspaceId} connect={connect} onCancel={onCancel} />;
+    return (
+      <StorageChoice
+        workspaceId={workspaceId}
+        connect={connect}
+        onCancel={onCancel}
+        allowDropbox={allowDropbox}
+      />
+    );
   }
   return (
     <SettingsStorageChoiceLive
@@ -39,6 +50,7 @@ export function SettingsStorageChoice({
       connect={connect}
       onCancel={onCancel}
       onOpenPremium={onOpenPremium}
+      allowDropbox={allowDropbox}
     />
   );
 }
@@ -49,12 +61,14 @@ function SettingsStorageChoiceLive({
   connect,
   onCancel,
   onOpenPremium,
+  allowDropbox,
 }: {
   workspaceId: Id<"workspaces">;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
   onOpenPremium?: () => void;
+  allowDropbox: boolean;
 }) {
   const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
 
@@ -77,6 +91,7 @@ function SettingsStorageChoiceLive({
       workspaceId={workspaceId}
       connect={connect}
       onCancel={onCancel}
+      allowDropbox={allowDropbox}
       managed={!managed.available ? undefined : {
         price: managed.price,
         onChoose: () => {

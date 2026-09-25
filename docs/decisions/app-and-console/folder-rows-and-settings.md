@@ -207,6 +207,11 @@ reach the workspace's published links. It can't sit under Sharing & Access,
 whose first sentence is "Nothing here is public", and a domain is the most
 public thing in the product. It isn't Premium either, because Premium is about
 paying. See [custom domains](../privacy-and-sharing/custom-domains.md).
+The same day the owner renamed the row **Website** (key `website`), because
+the page is about to hold the website folder as well as its address. "domain"
+stays a search keyword, and an old `?settings=domain` link still opens the page
+through `RENAMED_SETTINGS_SECTIONS`. Test: "the Domain page renamed Website" in
+`settingsSections.test.ts`.
 
 **The four rules the collapse followed.**
 

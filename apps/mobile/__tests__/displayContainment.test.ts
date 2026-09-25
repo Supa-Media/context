@@ -69,6 +69,14 @@ import { displayName, displayPath, folderLabel } from "../features/console/files
 import { describeAgent, noteName } from "../features/console/agents/agentActivity";
 import { linkPromptMessage } from "../features/console/files/linkPrompt";
 import { statusSegments } from "../features/console/files/status";
+import { captionFor, listProblem } from "../features/console/files/listBlock/words";
+import type { ListConfig } from "../features/console/files/listBlock/model";
+import {
+  awaySentence,
+  notYetNote,
+  providerName,
+  providerSentence,
+} from "../features/console/domain/domain";
 import { tabLabel } from "../features/console/files/tabs";
 
 const RLO = String.fromCharCode(0x202e);
@@ -85,6 +93,95 @@ describe("the console contains a name it did not choose", () => {
     expect(displayName(ORDINARY)).toBe("seifdp");
     // The sort number is still filing rather than a name.
     expect(displayName(`1-${ORDINARY}`)).toBe("seifdp");
+  });
+
+  /*
+    A DNS PROVIDER'S NAME IS NOT A NAME THIS PRODUCT CHOSE EITHER.
+
+    `providerDisplayName` arrives in an HTTP response from whatever host the
+    `_domainconnect` TXT record named, and `candidateZones` walks up to the
+    PARENT zones of the hostname being claimed — so for `me.somebody-else.tld`
+    the string is the parent zone operator's, not the claimant's. It is then
+    put inside sentences the console speaks in its own voice, one of which
+    tells the reader to sign in at the named provider, beside a button that
+    opens a URL from the same answer. Sixty characters is a cap, not a
+    container.
+  */
+  test("the DNS provider's own name for itself — providerName and its sentences", () => {
+    const HOSTILE_PROVIDER = `Go${RLO}Daddy`;
+    expect(providerName(HOSTILE_PROVIDER)).toBe(`${FSI}Go${RLO}Daddy${PDI}`);
+    expect(providerName("GoDaddy")).toBe("GoDaddy");
+    // Every sentence that speaks the name, because each is its own boundary.
+    for (const sentence of [providerSentence, awaySentence, notYetNote]) {
+      expect(sentence(HOSTILE_PROVIDER)).toContain(`${FSI}Go${RLO}Daddy${PDI}`);
+      expect(sentence(HOSTILE_PROVIDER)).not.toContain(`Go${RLO}Daddy.`);
+      expect(sentence("GoDaddy")).toContain("GoDaddy");
+      expect(sentence("GoDaddy")).not.toContain(FSI);
+    }
+  });
+
+  /*
+    A FOLDER LIST'S FILTER VALUE IS THE BLOCK AUTHOR'S STRING, NOT OURS.
+
+    `captionFor` writes the app's own caption over a drawn list — "projects ·
+    status is active" — out of the ```list block's `where:` conditions. The
+    property name is safe by grammar (`PROPERTY_NAME` is `/^[A-Za-z][\w-]*$/`,
+    so no bidi character can reach it) and the operator is one of five
+    literals, but **the value is unrestricted**: `parseCondition` only refuses
+    it when it is empty or an unterminated quote.
+
+    Its two neighbours in the same file, `rowTitle` and `formatValue`, both
+    contain. This one did not, and the structural check below exempts the file
+    on the reason that "the widget draws nothing that skipped them" — true of
+    the leaf, and not of the value.
+  */
+  test("a folder list's caption — captionFor, whose filter value the block chose", () => {
+    const base: ListConfig = {
+      from: "1-projects",
+      where: [],
+      sort: { key: "updated", order: "desc" },
+      show: [],
+      limit: 50,
+      subfolders: false,
+    };
+    const condition = (value: string): ListConfig => ({
+      ...base,
+      where: [{ property: "status", op: "is", value }],
+    });
+    expect(captionFor(condition(`acti${RLO}ve`), folderLabel)).toBe(
+      `projects · status is ${FSI}acti${RLO}ve${PDI}`,
+    );
+    // The byte-identical control: the app's own words stay outside the
+    // container, and a value with nothing hostile in it gains nothing.
+    expect(captionFor(condition("active"), folderLabel)).toBe("projects · status is active");
+    // The sort caption has no author string in it at all.
+    expect(captionFor(base, folderLabel)).toBe("projects · newest first");
+  });
+
+  /*
+    AND A LIST'S PARSE ERROR QUOTES THE BLOCK BACK AT THE READER.
+
+    `parseBlock.js` names what it refused — `"stat<RLO>us active" is not a
+    condition`, `"sort" direction "side<RLO>ways" is not one of: …` — so the
+    error string carries the author's own text. The panel draws it inside the
+    app's own sentence ("This can't be listed: …") and the widget draws it
+    under the list in place of rows.
+
+    Contained where it is DRAWN and not where it is produced: `lists.js` is the
+    gateway's pure grammar, shared with the app, and an error containing
+    invisible characters at the source would reach comparisons and tests too:
+    contain the reading, never the using.
+  */
+  test("a folder list's parse error — listProblem, which quotes the block", () => {
+    expect(listProblem(`"stat${RLO}us active" is not a condition`)).toBe(
+      `${FSI}"stat${RLO}us active" is not a condition${PDI}`,
+    );
+    expect(listProblem('"limit" must be a number from 1 to 100')).toBe(
+      '"limit" must be a number from 1 to 100',
+    );
+    // Our own fallback is our own words, and is never contained.
+    expect(listProblem(null)).toBe("the block could not be read");
+    expect(listProblem("")).toBe("the block could not be read");
   });
 
   test("a place named in a sentence — displayPath", () => {
@@ -298,6 +395,12 @@ describe("the console contains a name it did not choose", () => {
       "features/console/files/zip.ts",
       // A key for the offline mirror, compared rather than drawn.
       "features/offline/mirrorSearch.ts",
+      // A folder list's leaf, handed straight to folderLabel or displayName,
+      // which contain it. The rest of that file is checked above rather than
+      // asserted here: it also draws a row's title, a property value and a
+      // filter value, and the filter value reached the caption raw while this
+      // entry said otherwise.
+      "features/console/files/listBlock/words.ts",
     ]);
     const found = sourceFilesMatching("\\.split(\"/\")\\.pop()").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);

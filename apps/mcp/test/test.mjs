@@ -24,6 +24,7 @@ import { runPluginChecks } from "./plugins.test.mjs";
 import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
+import { runListChecks } from "./lists.test.mjs";
 import { runLinkToolChecks } from "./linkTools.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
@@ -36,6 +37,7 @@ import { runTreeHintChecks } from "./treeHints.test.mjs";
 import { runForwardingChecks } from "./forwarding.test.mjs";
 import { runPresenceChecks } from "./presence.test.mjs";
 import { runAgentActivityChecks } from "./agentActivity.test.mjs";
+import { runNoteCapGatewayChecks } from "./noteCapGateway.test.mjs";
 import { runCollaborationChecks } from "./collaboration.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
@@ -131,6 +133,7 @@ await suite("runAgentChecks", () => runAgentChecks(check));
 // guard that tests `=== "private"` instead of `!== "team"` actually leaks.
 await suite("runPrivacyGroupChecks", () => runPrivacyGroupChecks(check));
 await suite("runFormChecks", () => runFormChecks(check));
+await suite("runListChecks", () => runListChecks(check));
 await suite("runLinkToolChecks", () => runLinkToolChecks(check));
 
 // A path is not a place to write privacy rules. Its own bucket, because the
@@ -330,6 +333,7 @@ await suite("runChatContributionStoreChecks", () => runChatContributionStoreChec
 await suite("runPresenceChecks", () => runPresenceChecks(check));
 await suite("runCollaborationChecks", () => runCollaborationChecks(check));
 await suite("runAgentActivityChecks", () => runAgentActivityChecks(check));
+await suite("runNoteCapGatewayChecks", () => runNoteCapGatewayChecks(check));
 await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
 
 console.log(getFailures() ? `\n${getFailures()} FAILURES` : "\nALL PASS");

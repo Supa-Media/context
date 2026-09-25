@@ -1,5 +1,5 @@
 /**
- * The Domain section's words and states, as pure functions.
+ * The Website section's words and states, as pure functions.
  *
  * Every string the panel shows about a domain's state comes from here, so a
  * test can hold the copy without mounting anything. The rules it follows are
@@ -9,6 +9,7 @@
  */
 
 import { convexErrorParts } from "../storage/errors";
+import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 
 export type DomainStatus = "pending" | "active" | "suspended" | "removing";
 export type DomainStage = "ownership" | "routing" | "https" | "live";
@@ -127,19 +128,41 @@ export function pendingSentence(domain: DomainView): string {
   return `Add these two records where you manage ${zone}'s DNS. We check on our own, so you can close this page.`;
 }
 
+/**
+ * The DNS provider's own name for itself, contained.
+ *
+ * `providerDisplayName` comes back in an HTTP response from whatever host the
+ * `_domainconnect` TXT record named, and zone discovery walks up to the parent
+ * zones of the hostname being claimed — so for a subdomain of somebody else's
+ * zone the string belongs to that zone's operator, not to the person reading
+ * it. It is then spoken in the console's own voice, in a sentence that tells
+ * the reader to sign in at the named provider.
+ *
+ * `isolateForDisplay` contains rather than cleans, for the reason its header
+ * gives, and adds nothing to a name with nothing hostile in it. The sixty-
+ * character cap on the write side is a bound on length and not a container.
+ *
+ * Every sentence below takes the raw name and contains it here, so a new one
+ * cannot be written that forgets to.
+ */
+export function providerName(provider: string): string {
+  return isolateForDisplay(provider);
+}
+
 /** The sentence over the "Set up with …" button. */
 export function providerSentence(provider: string): string {
-  return `Your DNS is at ${provider}. Sign in there and approve, and ${provider} adds both records for you.`;
+  const name = providerName(provider);
+  return `Your DNS is at ${name}. Sign in there and approve, and ${name} adds both records for you.`;
 }
 
 /** Once the provider has been opened, until the records turn up. */
 export function awaySentence(provider: string): string {
-  return `Finish in the ${provider} window. We'll check as soon as you're back, and on our own after that.`;
+  return `Finish in the ${providerName(provider)} window. We'll check as soon as you're back, and on our own after that.`;
 }
 
 /** Back from the provider, and nothing found yet. */
 export function notYetNote(provider: string): string {
-  return `Nothing from ${provider} yet. It can take a minute to show up, and we'll keep checking.`;
+  return `Nothing from ${providerName(provider)} yet. It can take a minute to show up, and we'll keep checking.`;
 }
 
 /** The manual records, folded: which records, or how many are in. */

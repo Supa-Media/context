@@ -19,7 +19,8 @@ export interface LiveEvent {
   id: string;
   when: string;
   client: string;
-  action: "orient" | "read_note" | "save_context" | "list_folder";
+  /** What the agent did, as the activity log reports it: it read a note, or wrote one. */
+  action: "read" | "wrote";
   target?: string;
 }
 
@@ -48,8 +49,8 @@ export function ToolsLiveStep({
         </Text>
         <Text variant="rowSub" style={styles.body}>
           {connected
-            ? "The client you connected has read Context and written its first notes. This screen is now safe to leave — the console will keep this event log going."
-            : "Once the client you connected calls `orient` and writes the first note, you'll see it below. Give it a nudge in the conversation if it hasn't."}
+            ? "A tool you connected has reached your context. This screen is safe to leave — the console keeps showing what your tools read and write."
+            : "This turns live the moment a tool you connected makes its first call. If it hasn't, paste the bootstrap prompt into it. The log below refreshes every half minute."}
         </Text>
       </View>
 
@@ -74,6 +75,7 @@ export function ToolsLiveStep({
           label={connected ? "Continue" : "Skip for now"}
           variant={connected ? "white" : "ghost"}
           onPress={onContinue}
+          testID="welcome-live-continue"
         />
         {!connected && (
           <Text variant="foot" style={styles.hint}>
@@ -92,14 +94,8 @@ function EventRow({ event }: { event: LiveEvent }) {
       <Text style={styles.when}>{event.when}</Text>
       <Text style={styles.actionText}>
         <Text style={styles.client}>{event.client}</Text>
-        <Text style={styles.dim}> called </Text>
-        <Text style={styles.mono}>{event.action}</Text>
-        {event.target && (
-          <>
-            <Text style={styles.dim}> on </Text>
-            <Text style={styles.mono}>{event.target}</Text>
-          </>
-        )}
+        <Text style={styles.dim}> {event.action} </Text>
+        {event.target ? <Text style={styles.mono}>{event.target}</Text> : null}
       </Text>
     </View>
   );

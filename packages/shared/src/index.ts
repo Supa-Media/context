@@ -113,3 +113,38 @@ export {
   isSingleEmoji,
   type WorkspaceIcon,
 } from "./workspaceIcon";
+
+/**
+ * The path-only contract for bucket-backed website routes. Page metadata and
+ * source-reference parsing remain separate so an open product decision cannot
+ * silently change route ownership.
+ */
+export {
+  DEFAULT_WEBSITE_ROOT,
+  WEBSITE_PLATFORM_ROOT_ASSET_PATTERN,
+  WEBSITE_RESERVED_FIRST_SEGMENTS,
+  compileWebsiteRoutes,
+  websiteRouteLookupKey,
+  type WebsiteRoute,
+  type WebsiteRouteCompilation,
+  type WebsiteRouteDiagnostic,
+  type WebsiteRouteDiagnosticCode,
+  type WebsiteRouteOptions,
+} from "./websiteRoutes";
+export {
+  WEBSITE_CONTRACT_VERSION,
+  WEBSITE_STARTER_MARKDOWN,
+  summarizeWebsiteRoutes,
+} from "./websiteContract";
+export type {
+  ResolvedWebsitePage,
+  WebsiteEnableResult,
+  WebsiteNavigationItem,
+  WebsiteRouteAudience,
+  WebsiteRouteProblem,
+  WebsiteRouteProblemCode,
+  WebsiteRoutePublicationStatus,
+  WebsiteRouteStatus,
+  WebsiteRouteSummary,
+  WebsiteStateView,
+} from "./websiteContract";

@@ -27,6 +27,7 @@ import {
   settingsSectionsFor,
   SETTINGS_SECTIONS,
 } from "../features/console/settings/sections";
+import { settingsFromQuery } from "../features/console/nav";
 
 describe("which sections a context has", () => {
   test("both kinds get the capture sections", () => {
@@ -76,7 +77,7 @@ describe("the order and the grouping", () => {
     expect(rank("meetings")).toBeLessThan(rank("premium"));
     expect(rank("premium")).toBeLessThan(rank("sharing"));
     // Who can see it, then the address the world types: widening order.
-    expect(rank("sharing")).toBeLessThan(rank("domain"));
+    expect(rank("sharing")).toBeLessThan(rank("website"));
   });
 
   test("nine rows, and one of them only when it has something to say", () => {
@@ -92,7 +93,7 @@ describe("the order and the grouping", () => {
       "meetings",
       "premium",
       "sharing",
-      "domain",
+      "website",
     ]);
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
@@ -435,5 +436,19 @@ describe("reading a section out of a URL", () => {
     expect(isSettingsSection("sources")).toBe(false);
     expect(isSettingsSection("../../etc")).toBe(false);
     expect(isSettingsSection("")).toBe(false);
+  });
+});
+
+describe("the Domain page renamed Website", () => {
+  test("is labelled Website, with domain words still finding it", () => {
+    const section = SETTINGS_SECTIONS.find((candidate) => candidate.key === "website");
+    expect(section?.label).toBe("Website");
+    expect(section?.keywords).toMatch(/\bdomain\b/);
+    expect(SETTINGS_SECTIONS.some((candidate) => (candidate.key as string) === "domain")).toBe(false);
+  });
+
+  test("an old ?settings=domain link still opens it", () => {
+    expect(settingsFromQuery("domain")).toBe("website");
+    expect(settingsFromQuery("website")).toBe("website");
   });
 });

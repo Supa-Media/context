@@ -212,6 +212,8 @@ export type RefusalReason =
   | "invalid_target_folder"
   | "control_plane_unavailable"
   | "storage_unavailable"
+  /** The personal context is on the free managed tier and full. */
+  | "note_cap_reached"
   | "write_failed";
 // There is deliberately no `auth_*` member any more. Authentication cannot
 // refuse a message — see the block at the top of this file — so a reason for it

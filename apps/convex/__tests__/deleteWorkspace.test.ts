@@ -72,6 +72,16 @@ describe("deleteWorkspace", () => {
   test("an owner can delete a workspace, and its name comes back", async () => {
     const { t, owner, workspaceId } = await workspaceOwnedBy();
 
+    await t.run(async (ctx) => {
+      await ctx.db.insert("websiteStates", {
+        workspaceId,
+        state: "enabled",
+        enabledAt: Date.now(),
+        enabledBy: owner,
+        updatedAt: Date.now(),
+      });
+    });
+
     // The pre-state, asserted first: an "is gone afterwards" check over a row
     // the fixture never wrote is vacuously green.
     await t.run(async (ctx) => {
@@ -103,6 +113,11 @@ describe("deleteWorkspace", () => {
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .collect();
       expect(memberships).toEqual([]);
+      const websiteStates = await ctx.db
+        .query("websiteStates")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      expect(websiteStates).toEqual([]);
     });
 
     // And it is claimable again, by anybody — the whole point of freeing it.

@@ -14,6 +14,8 @@ import { writeClipboard } from "../../../design/clipboard";
 import { editorMenuItems, LINE_PREFIXES, type EditorMenuId } from "../editorMenu";
 import { MARKERS, toggleWrap } from "../markdownFormat";
 import { runCommand } from "../editorSetup";
+import { insertFolderList } from "../listBlock/insert";
+import { listHost } from "../listBlock/model";
 import type { EditorHandlers, MenuPoint } from "./contract";
 
   /**
@@ -98,6 +100,7 @@ export function contextMenuListener({
         */
         canDictate: handlers.current.onDictate !== undefined,
         canAsk: handlers.current.onAsk !== undefined,
+        canList: created.state.facet(listHost)?.current != null,
       }).length === 0;
     if (empty) {
       /*
@@ -189,6 +192,11 @@ export function runEditorMenuAction(
 
   if (id === "table") {
     setTableAt(menuAt);
+    return;
+  }
+
+  if (id === "folderList") {
+    insertFolderList(current);
     return;
   }
 

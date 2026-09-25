@@ -9,6 +9,8 @@ import {
   invitationLede,
   invitationTerms,
   invitationTitle,
+  joinTitle,
+  workspaceInitials,
   resolveInviteListView,
   resolveInviteView,
   signInHref,
@@ -369,6 +371,14 @@ describe("reading the token out of the URL", () => {
 describe("what the screen says an invitation is", () => {
   test("the title names the context by its handle", () => {
     expect(invitationTitle(invitation())).toBe("You've been invited to @ignite");
+    expect(joinTitle(invitation())).toBe("Join @ignite");
+  });
+
+  test("the card's initials come from the display name, else the slug", () => {
+    expect(workspaceInitials(invitation({ displayName: "Ignite Media" }))).toBe("IM");
+    expect(workspaceInitials(invitation({ slug: "dc-chapter", displayName: "" }))).toBe("DC");
+    expect(workspaceInitials(invitation({ slug: "ignite", displayName: "ignite" }))).toBe("I");
+    expect(workspaceInitials(invitation({ slug: "x", displayName: "  —  " }))).toBe("X");
   });
 
   test("a display name that only repeats the slug is not said twice", () => {

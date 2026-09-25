@@ -6,7 +6,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "node test/test.mjs && node --test test/logicalDelete.test.mjs test/storeHead.test.mjs test/encryptedGenerationFooter.test.mjs test/liveGrantAccess.test.js test/gatewaySourceGuards.test.mjs test/scopeInfoWorkspaces.test.mjs test/appOriginMetadata.test.mjs",
+    "test": "node test/test.mjs && node --test test/logicalDelete.test.mjs test/noteCap.test.mjs test/storeHead.test.mjs test/encryptedGenerationFooter.test.mjs test/liveGrantAccess.test.js test/gatewaySourceGuards.test.mjs test/scopeInfoWorkspaces.test.mjs test/appOriginMetadata.test.mjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "typecheck": "echo \"no typecheck (plain JS worker)\" && exit 0",
