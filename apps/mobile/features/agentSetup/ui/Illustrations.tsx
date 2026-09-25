@@ -263,10 +263,13 @@ export function StepIllustration({ agent, step, slug }: { agent: SetupAgent; ste
     case "allow":
       return (
         <Frame caption={SEEN_IN.claude}>
-          <Win title="Customize">
+          <Win title="Settings" nav={CLAUDE_NAV} hit="Connectors">
             <Text style={s.lab}>← Your connectors</Text>
             <Text style={s.strong}>Context</Text>
-            <Text style={s.lab}>Tool permissions</Text>
+            <View>
+              <Text style={s.strong}>Tool permissions</Text>
+              <Text style={s.lab}>Choose when Claude is allowed to use these tools.</Text>
+            </View>
             <RowItem>
               <Text style={s.inpText}>Read-only tools</Text>
               <Fake label="Always allow ⌄" pin={1} />

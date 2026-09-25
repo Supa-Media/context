@@ -183,23 +183,20 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
         node: (
           <>
             <Heading>Let Claude use Context without asking</Heading>
+            <P>Otherwise Claude stops to ask before every note it reads or saves.</P>
             <P>
-              Claude asks before every Context action until you tell it not to, so checking your notes becomes a
-              stream of Allow buttons. Turn that off once.
-            </P>
-            <P>
-              In <MenuPath parts={["Customize", "Connectors"]} />, open <B>Context</B>. Under <B>Tool permissions</B>,
-              set <B>Read-only tools</B> and <B>Write/delete tools</B> to <B>Always allow</B>.
+              In <MenuPath parts={["Settings", "Connectors"]} />, open <B>Context</B>. Set <B>Read-only tools</B> and{" "}
+              <B>Write/delete tools</B> to <B>Always allow</B>.
             </P>
             <GuideButton
-              label="Open Claude's connectors ↗"
+              label="Open Connectors ↗"
               quiet
               onPress={() => open(CLAUDE_ALLOW_LINK)}
               style={{ alignSelf: "flex-start" }}
               testID="agent-setup-open-allow"
             />
             <Gap />
-            <P small>You can switch either back there at any time.</P>
+            <P small>You can change this back anytime.</P>
           </>
         ),
       };
@@ -212,12 +209,19 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
             <Heading>Make it stick</Heading>
             <P>
               {agent === "claude"
-                ? "This tells Claude to check Context in every chat and save what it learns, without you asking each time."
-                : "This tells ChatGPT to check Context and save what it learns whenever Context is switched on, without you asking."}
+                ? "So Claude checks Context in every chat and saves what it learns, without being asked."
+                : "So ChatGPT checks Context and saves what it learns whenever Context is switched on, without being asked."}
             </P>
             <P>
               In <MenuPath parts={field.path} />, paste this into <B>{field.field}</B> and save.
             </P>
+            <PromptBox
+              text={CLAUDE_CUSTOM_INSTRUCTION}
+              note={agent === "claude" ? "Already have instructions? Add this on a new line." : "Paste it word for word."}
+              copyLabel="Copy the instruction"
+              testID="agent-setup-copy-instruction"
+            />
+            <Gap />
             <GuideButton
               label={`${field.label} ↗`}
               quiet
@@ -225,19 +229,12 @@ function body(key: StepKey, { agent, slug, signin, onSwitchAgent }: StepProps & 
               style={{ alignSelf: "flex-start" }}
               testID="agent-setup-open-stick"
             />
-            <Gap />
-            <PromptBox
-              text={CLAUDE_CUSTOM_INSTRUCTION}
-              note="Paste it word for word."
-              copyLabel="Copy the instruction"
-              testID="agent-setup-copy-instruction"
-            />
-            <Gap />
-            <P small>
-              {agent === "claude"
-                ? "Already have instructions there? Add this on a new line below them."
-                : "ChatGPT only uses Context in chats where you switch it on: + › More › Developer mode › Context."}
-            </P>
+            {agent === "chatgpt" ? (
+              <>
+                <Gap />
+                <P small>ChatGPT only uses Context in chats where you switch it on: + › More › Developer mode › Context.</P>
+              </>
+            ) : null}
           </>
         ),
       };

@@ -89,7 +89,7 @@ describe("the connect steps", () => {
     expect(claude.text()).toContain("Settings › Account");
     expect(claude.text()).toContain("Instructions for Claude");
     expect(claude.text()).toContain("call orient");
-    expect(claude.byId("agent-setup-open-stick")?.textContent).toContain("Open Claude's Account settings");
+    expect(claude.byId("agent-setup-open-stick")?.textContent).toContain("Open Account settings");
     claude.done();
     const gpt = draw("guide-chatgpt-stick");
     expect(gpt.text()).toContain("Anything else ChatGPT should know about you?");

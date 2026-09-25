@@ -68,13 +68,13 @@ export const STICK_FIELD: Record<SetupAgent, { path: readonly string[]; field: s
     path: ["Settings", "Account"],
     field: "Instructions for Claude",
     link: "https://claude.ai/settings/account",
-    label: "Open Claude's Account settings",
+    label: "Open Account settings",
   },
   chatgpt: {
     path: ["Settings", "Personalization", "Custom instructions"],
     field: "Anything else ChatGPT should know about you?",
     link: "https://chatgpt.com/#settings/Personalization",
-    label: "Open ChatGPT's Personalization",
+    label: "Open Personalization",
   },
 };
 
