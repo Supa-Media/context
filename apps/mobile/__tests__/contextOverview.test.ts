@@ -155,15 +155,17 @@ describe("the trust sentence is the onboarding flow's, word for word", () => {
     expect(render()).toContain(CONTEXT_OVERVIEW_FOOT);
   });
 
-  test("and it is the same sentence `WelcomeScreen` shows, not a paraphrase", () => {
+  test("and onboarding never states a different version of it", () => {
     // Somebody who accepts an invitation today and runs onboarding next week
-    // should meet one promise twice. Two paraphrases are two promises they
-    // have to check against each other, and the moment they differ, one of
-    // them is the wrong one.
+    // should meet one promise, not two paraphrases they have to check against
+    // each other. The first-run frame no longer carries the sentence at all
+    // (the canvas draws no footer), so the guard is the other half: if it ever
+    // comes back, it comes back word for word.
     const welcome = readFileSync(
       join(__dirname, "..", "features", "onboarding", "WelcomeScreen.tsx"),
       "utf8",
     ).replace(/\s+/g, " ");
-    expect(welcome).toContain(CONTEXT_OVERVIEW_FOOT);
+    if (/plain files/i.test(welcome)) expect(welcome).toContain(CONTEXT_OVERVIEW_FOOT);
+    else expect(welcome).not.toMatch(/leaves with you/i);
   });
 });

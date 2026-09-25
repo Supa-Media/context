@@ -58,7 +58,7 @@ async function domainForOwner(
 /* -------------------------------------------------------------------------- */
 
 export const dnsRecordValidator = v.object({
-  purpose: v.union(v.literal("ownership"), v.literal("routing")),
+  purpose: v.union(v.literal("ownership"), v.literal("routing"), v.literal("hostname")),
   type: v.string(),
   /** Fully qualified. */
   name: v.string(),
@@ -85,6 +85,8 @@ export const domainViewValidator = v.object({
   problem: v.union(v.string(), v.null()),
   homeSlug: v.union(v.string(), v.null()),
   checkedAt: v.union(v.number(), v.null()),
+  /** When this round of checks began: connect, "Check again", or a live domain losing its records. */
+  checkingSince: v.number(),
   /** Owner only: the records to add. Empty for anybody else. */
   records: v.array(dnsRecordValidator),
   /** Owner only, while records are missing: set them up at the DNS provider in one click. */
@@ -112,6 +114,21 @@ function recordsFor(row: Row, target: string): Infer<typeof dnsRecordValidator>[
       value: target,
       done: row.routingVerified,
     },
+    // A root domain answers with addresses rather than a CNAME, so Cloudflare
+    // wants its own TXT before it serves it. Found when the hostname goes
+    // active, the same moment as the ALIAS: neither can be seen apart.
+    ...(row.apex && row.hostnameTxt !== undefined
+      ? [
+          {
+            purpose: "hostname" as const,
+            type: "TXT",
+            name: row.hostnameTxt.name,
+            host: relativeRecordName(row.hostnameTxt.name, row.hostname),
+            value: row.hostnameTxt.value,
+            done: row.routingVerified,
+          },
+        ]
+      : []),
     {
       purpose: "ownership",
       type: "TXT",
@@ -155,6 +172,7 @@ export async function settingsHandler(
             problem: row.problem ?? null,
             homeSlug: row.homeSlug ?? null,
             checkedAt: row.checkedAt ?? null,
+            checkingSince: row.checkingSince,
             records: canManage && deployment !== null ? recordsFor(row, deployment.target) : [],
             oneClick:
               canManage && row.status === "pending" && !(row.ownershipVerified && row.routingVerified)
@@ -268,6 +286,13 @@ export async function checkNowHandler(
   await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.provision, {
     domainId: row._id,
   });
+  // A provider can take up our template after the domain was connected, so a
+  // domain without a button looks again whenever its owner asks for a check.
+  if (row.status === "pending" && row.oneClick === undefined) {
+    await ctx.scheduler.runAfter(0, internal.functions.customDomainsProvision.detectProvider, {
+      domainId: row._id,
+    });
+  }
   return null;
 }
 

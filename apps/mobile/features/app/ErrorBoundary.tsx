@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
+import { TextLink } from "../design/components/TextLink";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
@@ -126,11 +127,10 @@ export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => v
           ) : null}
 
           <View style={styles.actions}>
-            <Button label="Try again" variant="white" onPress={onRetry} testID="error-retry" />
+            <Button label="Try again" variant="accent" onPress={onRetry} testID="error-retry" />
             {canReload ? (
-              <Button
+              <TextLink
                 label="Reload"
-                variant="ghost"
                 style={styles.reload}
                 onPress={() => {
                   trackEvent("error_boundary_reloaded");

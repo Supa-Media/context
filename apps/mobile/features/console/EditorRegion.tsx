@@ -51,7 +51,7 @@ export function EditorRegion({
         />
         {canReload ? (
           <View style={styles.failureActions}>
-            <Button label="Reload" variant="white" onPress={reloadApp} />
+            <Button label="Reload" variant="accent" onPress={reloadApp} />
           </View>
         ) : null}
       </View>

@@ -169,7 +169,7 @@ export function LoginScreen() {
         <View style={styles.primaryRow}>
           <Button
             label="Send a sign-in code"
-            variant="white"
+            variant="accent"
             disabled={submitting || !canSubmit}
             onPress={() => void requestCode()}
             trailing={spinner}
@@ -181,14 +181,14 @@ export function LoginScreen() {
           <View style={styles.verifyRow}>
             <Button
               label="Resend code"
-              variant="ghost"
+              variant="decision"
               disabled={submitting}
               onPress={() => void requestCode(true)}
               testID="login-resend"
             />
             <Button
               label="Continue →"
-              variant="white"
+              variant="accent"
               disabled={submitting || !canSubmit}
               onPress={() => void verifyCode()}
               trailing={spinner}

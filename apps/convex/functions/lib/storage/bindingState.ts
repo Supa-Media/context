@@ -161,6 +161,8 @@ export async function recordVerificationHandler(
     scaffolded: args.scaffolded ?? binding.scaffolded,
     scaffoldReason: args.scaffoldReason ?? binding.scaffoldReason,
     scaffoldMissing: args.scaffoldMissing ?? binding.scaffoldMissing,
+    // Whatever was queued has now been answered, one way or the other.
+    scaffoldQueuedAt: undefined,
     updatedAt: now,
   });
 

@@ -42,6 +42,7 @@ import {
   trimTrailingSlashes,
 } from "../treeAnnounce";
 import { treeChangeOf } from "./access";
+import { operationTouchesWebsite } from "../websites/changes";
 import { executeOperation } from "./executeOperation";
 import {
   failForwardSync,
@@ -449,6 +450,19 @@ export async function runFileOperationHandler(
   const result = RELOCATING_OPERATIONS.has(args.operation.kind)
     ? await asRelocation(store, operate)
     : await operate();
+
+  // Website rows are a derivative of bucket bytes. Mark a complete snapshot
+  // stale after the canonical write lands; failure here never rewrites the
+  // already-successful storage answer, and the periodic reconciler repairs it.
+  if (
+    operationTouchesWebsite(args.operation as FileOperation, result)
+  ) {
+    await ctx
+      .runMutation(internal.functions.websites.invalidateRouteIndex, {
+        workspaceId: args.workspaceId,
+      })
+      .catch(() => {});
+  }
 
   /*
     TELLING SOMEBODY IS SCHEDULED AFTER THE WRITE, NEVER AWAITED INSIDE IT,

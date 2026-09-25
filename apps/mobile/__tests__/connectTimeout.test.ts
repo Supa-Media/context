@@ -130,7 +130,11 @@ describe("the connect form, when the bind hangs", () => {
     container.querySelector(`[data-testid="${testID}"]`) as HTMLElement | null;
 
   /** RN-Web renders a disabled `Pressable` as a `<button disabled>`. */
-  const isDisabled = (testID: string) => (q(testID) as HTMLButtonElement).disabled === true;
+  // A button reports it as `disabled`; Cancel is a link, which reports it as
+  // `aria-disabled` and drops its press handler.
+  const isDisabled = (testID: string) =>
+    (q(testID) as HTMLButtonElement).disabled === true ||
+    q(testID)?.getAttribute("aria-disabled") === "true";
   /** …and `editable={false}` as `readonly` on the input. */
   const isReadOnly = (testID: string) => (q(testID) as HTMLInputElement).readOnly === true;
 

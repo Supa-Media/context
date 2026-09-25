@@ -16,8 +16,10 @@ import { InboxView } from "../../communications/InboxView";
 import { MAIL_CONNECT_ENABLED } from "../../communications/flags";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
+import { LayingOutPage } from "./LayingOutFolders";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
+import type { BrowseNoticeState } from "./useBrowseNotices";
 import type { FolderListingState } from "./useFolderListing";
 
 /**
@@ -46,6 +48,7 @@ export function BrowseDocument({
   noteEncryption,
   notices,
   pathBar,
+  layingOut,
 }: {
   data: ConsoleData;
   files: FileBrowser;
@@ -67,6 +70,8 @@ export function BrowseDocument({
   noteEncryption: BrowseEncryption["noteEncryption"];
   notices: ReactNode;
   pathBar: ReactNode;
+  /** The folders after "Start fresh": being written, or just written. */
+  layingOut: BrowseNoticeState["layingOut"];
 }) {
   // Where a folder list in the open note reads its notes: this device's copy.
   const folderLists = useFolderLists(current?.id, current?.role);
@@ -162,7 +167,15 @@ export function BrowseDocument({
         back here, under its notice, instead of on a blank page.
       */
       pendingNote == null && files.opening === null ? (
-        !compact ? (
+        layingOut !== null ? (
+          /*
+            The folders "Start fresh" promised, being written — drawn here,
+            where a note would be, in the column beside the sidebar. It was a
+            card in the notice band first, which spanned the whole pane and
+            pushed the workspace it was announcing off the screen.
+          */
+          <LayingOutPage contextLabel={contextLabel} done={layingOut === "done"} />
+        ) : !compact ? (
           <Empty contextLabel={contextLabel} />
         ) : landing === null ? null : (
           <FolderView

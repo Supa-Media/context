@@ -29,6 +29,12 @@ import { ToolsLiveStep, type LiveEvent } from "./ToolsLiveStep";
 import { PaymentStep } from "./PaymentStep";
 import { DryRunStep } from "./DryRunStep";
 import { dryRunReport } from "../dryRun";
+import { PointAtBucket } from "../steps/PointAtBucket";
+import { LayingOutPage } from "../../console/panes/browsePane/LayingOutFolders";
+import { SetupWidget } from "../../console/setupWidget/SetupWidget";
+import { SetupDone } from "../../console/setupWidget/SetupDone";
+import { setupView } from "../../console/setupWidget/rules";
+import type { ConsoleStorage } from "../../console/types";
 
 export type PreviewKey =
   | "fork"
@@ -39,7 +45,11 @@ export type PreviewKey =
   | "tools-live-waiting"
   | "tools-live-connected"
   | "payment"
-  | "dry-run";
+  | "dry-run"
+  | "point-at-bucket"
+  | "setup-widget"
+  | "setup-done"
+  | "laying-out";
 
 const MOCK_CLIENTS: ClientRow[] = [
   { key: "claude-desktop", name: "Claude Desktop", status: "not-connected", hasGuide: true },
@@ -66,6 +76,22 @@ const MOCK_REPORT = dryRunReport({
 });
 
 const noop = () => {};
+const copied = async () => true;
+
+/** "Start fresh" just landed: our bucket, five folders, no tool yet — 3 of 4. */
+const MOCK_SETUP = setupView({
+  slug: "seyi",
+  storage: {
+    connected: true,
+    status: "connected",
+    provider: "r2",
+    conditionalWrite: true,
+    updatedAt: 0,
+    managed: true,
+    scaffoldReason: "created",
+  } as ConsoleStorage,
+  grants: [],
+});
 
 /**
  * Every preview: which component, and a set of mock props good enough to draw
@@ -85,17 +111,17 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     key: "fork",
     title: "A-04 · Fork",
     Component: ForkStep as ComponentType<Record<string, unknown>>,
-    props: { offer: { kind: "free", cap: 1000 }, onPickManaged: noop, onPickBYO: noop, onOpenInvitations: noop },
+    props: { offer: { kind: "free", cap: 1000 }, onPickManaged: noop, onPickBYO: noop },
   },
   {
     key: "connections",
-    title: "A-07 · Connections",
+    title: "A-10 · Connections (Settings)",
     Component: ConnectionsStep as ComponentType<Record<string, unknown>>,
     props: { clients: MOCK_CLIENTS, onOpenGuide: noop, onSkip: noop },
   },
   {
     key: "claude-guide",
-    title: "A-08 · Claude Desktop setup",
+    title: "A-11 · Claude Desktop setup",
     Component: ClaudeGuideStep as ComponentType<Record<string, unknown>>,
     props: { onDone: noop, onBack: noop },
   },
@@ -107,25 +133,25 @@ export const PREVIEWS: readonly PreviewEntry[] = [
   },
   {
     key: "bootstrap",
-    title: "A-09 · Bootstrap from AI",
+    title: "A-13 · Bootstrap from AI",
     Component: BootstrapStep as ComponentType<Record<string, unknown>>,
     props: { prompt: BOOTSTRAP_PROMPT, onDone: noop, onSkip: noop },
   },
   {
     key: "tools-live-waiting",
-    title: "A-11 · Tools live (waiting)",
+    title: "A-07 · Tools live (waiting)",
     Component: ToolsLiveStep as ComponentType<Record<string, unknown>>,
     props: { state: "waiting", events: [], onContinue: noop },
   },
   {
     key: "tools-live-connected",
-    title: "A-11 · Tools live (connected)",
+    title: "A-07 · Tools live (connected)",
     Component: ToolsLiveStep as ComponentType<Record<string, unknown>>,
     props: { state: "connected", events: MOCK_EVENTS, onContinue: noop },
   },
   {
     key: "payment",
-    title: "A-12 · Payment nudge",
+    title: "A-08 · Payment nudge",
     Component: PaymentStep as ComponentType<Record<string, unknown>>,
     props: { used: 1000, cap: 1000, monthly: "$5 / mo", ceiling: "50 GB", onLevelUp: noop, onBringOwn: noop },
   },
@@ -134,6 +160,34 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     title: "B1-02 · Dry-run report",
     Component: DryRunStep as ComponentType<Record<string, unknown>>,
     props: { ...MOCK_REPORT, onContinue: noop },
+  },
+  {
+    key: "point-at-bucket",
+    title: "B1-01 · Point at what you have",
+    Component: PointAtBucket as ComponentType<Record<string, unknown>>,
+    props: { connect: async () => ({ status: "unverified" }), onPickFree: noop },
+  },
+  {
+    key: "setup-widget",
+    title: "W-07 · Setup widget (in the console)",
+    Component: SetupWidget as ComponentType<Record<string, unknown>>,
+    props: {
+      slug: "seyi",
+      view: MOCK_SETUP,
+      actions: { onOpenStorage: noop, onOpenTools: noop, onCopyBootstrap: copied, onPutAway: noop },
+    },
+  },
+  {
+    key: "setup-done",
+    title: "A-09 · You're set up (in the console)",
+    Component: SetupDone as ComponentType<Record<string, unknown>>,
+    props: { onClose: noop, onNewWorkspace: noop, onCopyBootstrap: copied },
+  },
+  {
+    key: "laying-out",
+    title: "Setting up your workspace (in the console, after Start fresh)",
+    Component: LayingOutPage as ComponentType<Record<string, unknown>>,
+    props: { contextLabel: "@seyi", done: false },
   },
 ];
 

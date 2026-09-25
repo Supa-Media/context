@@ -123,6 +123,7 @@ import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
+import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 
 const http = httpRouter();
 
@@ -145,10 +146,7 @@ auth.addHttpRoutes(http);
  * an attacker could.
  */
 function gatewayRoute(
-  handler: (
-    ctx: ActionCtx,
-    body: Record<string, unknown>,
-  ) => Promise<Response>,
+  handler: (ctx: ActionCtx, body: Record<string, unknown>) => Promise<Response>,
 ) {
   return httpAction(async (ctx, request) => {
     if (!(await requestIsFromGateway(request))) return unauthorized();
@@ -184,10 +182,7 @@ function gatewayRoute(
  * operator can read. See `functions/lib/ingestLog.ts`.
  */
 function emailWorkerRoute(
-  handler: (
-    ctx: ActionCtx,
-    body: Record<string, unknown>,
-  ) => Promise<Response>,
+  handler: (ctx: ActionCtx, body: Record<string, unknown>) => Promise<Response>,
 ) {
   return httpAction(async (ctx, request) => {
     if (!(await requestIsFromEmailWorker(request))) {
@@ -263,7 +258,9 @@ export const gatewaySession = gatewayRoute(sessions.gatewaySessionHandler);
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
 /* -------------------------------------------------------------------------- */
 
-export const gatewaySessionsByGrant = gatewayRoute(sessions.gatewaySessionsByGrantHandler);
+export const gatewaySessionsByGrant = gatewayRoute(
+  sessions.gatewaySessionsByGrantHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 2. POST /gateway/binding — fetch a workspace's storage binding            */
@@ -281,7 +278,9 @@ export const gatewayProvider = gatewayRoute(credentials.gatewayProviderHandler);
 /* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
 /* -------------------------------------------------------------------------- */
 
-export const gatewaySearchIndexProgress = gatewayRoute(signals.gatewaySearchIndexProgressHandler);
+export const gatewaySearchIndexProgress = gatewayRoute(
+  signals.gatewaySearchIndexProgressHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/activity — a context changed                        */
@@ -296,10 +295,18 @@ export const gatewayActivity = gatewayRoute(signals.gatewayActivityHandler);
 export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
 
 /* -------------------------------------------------------------------------- */
+/* 2b-ter. POST /gateway/website — a write of ours moved the site's bytes   */
+/* -------------------------------------------------------------------------- */
+
+export const gatewayWebsite = gatewayRoute(signals.gatewayWebsiteHandler);
+
+/* -------------------------------------------------------------------------- */
 /* 2b-bis. POST /gateway/forms/notify — a form took an answer                */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayFormsNotify = gatewayRoute(signals.gatewayFormsNotifyHandler);
+export const gatewayFormsNotify = gatewayRoute(
+  signals.gatewayFormsNotifyHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 2c. POST /gateway/jobs/create — mint queued gateway work                  */
@@ -323,7 +330,9 @@ export const gatewayJobsReport = gatewayRoute(jobs.gatewayJobsReportHandler);
 /* 3. POST /gateway/clients/register — RFC 7591 dynamic client registration  */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayClientsRegister = gatewayRoute(oauth.gatewayClientsRegisterHandler);
+export const gatewayClientsRegister = gatewayRoute(
+  oauth.gatewayClientsRegisterHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 4. POST /gateway/clients/get — look up a registered client                */
@@ -335,31 +344,41 @@ export const gatewayClientsGet = gatewayRoute(oauth.gatewayClientsGetHandler);
 /* 5. POST /gateway/authorize/start — park a validated authorization request */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayAuthorizeStart = gatewayRoute(oauth.gatewayAuthorizeStartHandler);
+export const gatewayAuthorizeStart = gatewayRoute(
+  oauth.gatewayAuthorizeStartHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 6. POST /gateway/codes/consume — atomically spend an authorization code   */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayCodesConsume = gatewayRoute(oauth.gatewayCodesConsumeHandler);
+export const gatewayCodesConsume = gatewayRoute(
+  oauth.gatewayCodesConsumeHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 7. POST /gateway/grants/create — a grant at the end of a token exchange   */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayGrantsCreate = gatewayRoute(oauth.gatewayGrantsCreateHandler);
+export const gatewayGrantsCreate = gatewayRoute(
+  oauth.gatewayGrantsCreateHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 8. POST /gateway/grants/rotate — refresh, with mandatory rotation         */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayGrantsRotate = gatewayRoute(oauth.gatewayGrantsRotateHandler);
+export const gatewayGrantsRotate = gatewayRoute(
+  oauth.gatewayGrantsRotateHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 9. POST /gateway/grants/revoke — RFC 7009                                 */
 /* -------------------------------------------------------------------------- */
 
-export const gatewayGrantsRevoke = gatewayRoute(oauth.gatewayGrantsRevokeHandler);
+export const gatewayGrantsRevoke = gatewayRoute(
+  oauth.gatewayGrantsRevokeHandler,
+);
 
 /* -------------------------------------------------------------------------- */
 /* 10. POST /gateway/ingest/resolve — a recipient name to a personal context  */
@@ -397,7 +416,11 @@ export const gatewayIngestResolve = emailWorkerRoute(async (ctx, body) => {
   // `{"ingestion":null}` that never touches the database, and reads it as
   // evidence about their data. That happened. The reason is operator-only; the
   // response is unchanged. See `functions/lib/ingestLog.ts`.
-  if (username === null || typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes)) {
+  if (
+    username === null ||
+    typeof sizeBytes !== "number" ||
+    !Number.isFinite(sizeBytes)
+  ) {
     logIngest({
       event: "resolve_refused",
       reason: username === null ? "missing_username" : "missing_size_bytes",
@@ -454,7 +477,9 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
   // sent. Absent for every other context, and absent on a failed read: a
   // billing lookup must not cost somebody their mail.
   const noteCap = await ctx
-    .runQuery(internal.functions.billing.noteCap, { workspaceId: binding.workspaceId })
+    .runQuery(internal.functions.billing.noteCap, {
+      workspaceId: binding.workspaceId,
+    })
     .catch(() => null);
   return json({ binding, ...(noteCap === null ? {} : { noteCap }) });
 });
@@ -477,7 +502,10 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
 export const gatewayIngestRecord = emailWorkerRoute(async (ctx, body) => {
   const ticket = stringField(body, "ticket");
   const outcome = body.outcome === "duplicate" ? "duplicate" : "captured";
-  const bytes = typeof body.bytes === "number" && Number.isFinite(body.bytes) ? body.bytes : 0;
+  const bytes =
+    typeof body.bytes === "number" && Number.isFinite(body.bytes)
+      ? body.bytes
+      : 0;
   if (ticket === null) return json({ ok: true });
 
   await ctx.runMutation(internal.functions.ingestionGateway.recordIngestion, {
@@ -556,9 +584,12 @@ export const shareCard = httpAction(async (ctx, request) => {
   const token = body === null ? null : stringField(body, "token");
   if (token === null) return new Response(null, { status: 404 });
 
-  const bytes = await ctx.runAction(internal.functions.shareCard.cardBytesForToken, {
-    token,
-  });
+  const bytes = await ctx.runAction(
+    internal.functions.shareCard.cardBytesForToken,
+    {
+      token,
+    },
+  );
   if (bytes === null) return new Response(null, { status: 404 });
 
   return new Response(bytes, {
@@ -661,24 +692,15 @@ http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
  * handle, unclaimed name, released, revoked, expired, title switched off — is
  * that shape with `null`.
  */
-export const shareShortLinkPreview = httpAction(async (ctx, request) => {
-  const body = await readJsonBody(request);
-  const handle = body === null ? null : stringField(body, "handle");
-  const slug = body === null ? null : stringField(body, "slug");
-  // Both fields on the quiet path too. A field on the success return and not
-  // on this one is a shape that varies with whether the body parsed, which is
-  // the failure `unauthenticatedRouteResponses` exists to catch — and it did.
-  if (handle === null || slug === null) return json({ title: null, cardVersion: null });
+export const shareShortLinkPreview = httpAction(
+  shortLinkCards.shareShortLinkPreviewHandler,
+);
 
-  const result = await ctx.runQuery(api.functions.shares.previewForShortLink, {
-    handle,
-    slug,
-  });
-  // Named rather than spread, for the reason stated on the three routes above.
-  return json({ title: result.title, cardVersion: result.cardVersion });
+http.route({
+  path: "/share/short",
+  method: "POST",
+  handler: shareShortLinkPreview,
 });
-
-http.route({ path: "/share/short", method: "POST", handler: shareShortLinkPreview });
 
 /* -------------------------------------------------------------------------- */
 /* POST /share/short/card — the card image for a short link                    */
@@ -704,31 +726,15 @@ http.route({ path: "/share/short", method: "POST", handler: shareShortLinkPrevie
  * deliberately claimed on an `anyone` link, and a slug nobody claimed is
  * byte-identical to one that does not exist.
  */
-export const shareShortLinkCard = httpAction(async (ctx, request) => {
-  const body = await readJsonBody(request);
-  const handle = body === null ? null : stringField(body, "handle");
-  const slug = body === null ? null : stringField(body, "slug");
-  if (handle === null || slug === null) return new Response(null, { status: 404 });
+export const shareShortLinkCard = httpAction(
+  shortLinkCards.shareShortLinkCardHandler,
+);
 
-  const bytes = await ctx.runAction(internal.functions.shareCard.cardBytesForShortLink, {
-    handle,
-    slug,
-  });
-  if (bytes === null) return new Response(null, { status: 404 });
-
-  return new Response(bytes, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      // The router caches; its key carries the card version, which is the real
-      // invalidation. Same arrangement as `/share/card`.
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
+http.route({
+  path: "/share/short/card",
+  method: "POST",
+  handler: shareShortLinkCard,
 });
-
-http.route({ path: "/share/short/card", method: "POST", handler: shareShortLinkCard });
 
 /* -------------------------------------------------------------------------- */
 /* POST /domain/resolve — which workspace a customer domain serves             */
@@ -747,8 +753,13 @@ export const domainResolve = httpAction(async (ctx, request) => {
   const body = await readJsonBody(request);
   const hostname = body === null ? null : stringField(body, "hostname");
   if (hostname === null) return json({ handle: null, homeSlug: null });
-  const result = await ctx.runQuery(api.functions.customDomains.resolveHost, { hostname });
-  return json({ handle: result?.handle ?? null, homeSlug: result?.homeSlug ?? null });
+  const result = await ctx.runQuery(api.functions.customDomains.resolveHost, {
+    hostname,
+  });
+  return json({
+    handle: result?.handle ?? null,
+    homeSlug: result?.homeSlug ?? null,
+  });
 });
 
 http.route({ path: "/domain/resolve", method: "POST", handler: domainResolve });
@@ -810,22 +821,47 @@ export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
 
 // POST only, every one of them. The contract has no GET shape, and a GET would
 // put a token in a URL — in a log, in a referrer, in browser history.
-http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
+http.route({
+  path: "/gateway/session",
+  method: "POST",
+  handler: gatewaySession,
+});
 http.route({
   path: "/gateway/sessions/by-grant",
   method: "POST",
   handler: gatewaySessionsByGrant,
 });
-http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
-http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
+http.route({
+  path: "/gateway/binding",
+  method: "POST",
+  handler: gatewayBinding,
+});
+http.route({
+  path: "/gateway/provider",
+  method: "POST",
+  handler: gatewayProvider,
+});
 http.route({
   path: "/gateway/search-index/progress",
   method: "POST",
   handler: gatewaySearchIndexProgress,
 });
-http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
+http.route({
+  path: "/gateway/activity",
+  method: "POST",
+  handler: gatewayActivity,
+});
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
-http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
+http.route({
+  path: "/gateway/website",
+  method: "POST",
+  handler: gatewayWebsite,
+});
+http.route({
+  path: "/gateway/forms/notify",
+  method: "POST",
+  handler: gatewayFormsNotify,
+});
 http.route({
   path: "/gateway/jobs/create",
   method: "POST",
@@ -897,15 +933,27 @@ http.route({
 
 export const gatewayLinksCreate = gatewayRoute(links.gatewayLinksCreateHandler);
 
-http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
+http.route({
+  path: "/gateway/links/create",
+  method: "POST",
+  handler: gatewayLinksCreate,
+});
 
 export const gatewayLinksList = gatewayRoute(links.gatewayLinksListHandler);
 
-http.route({ path: "/gateway/links/list", method: "POST", handler: gatewayLinksList });
+http.route({
+  path: "/gateway/links/list",
+  method: "POST",
+  handler: gatewayLinksList,
+});
 
 export const gatewayLinksRevoke = gatewayRoute(links.gatewayLinksRevokeHandler);
 
-http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
+http.route({
+  path: "/gateway/links/revoke",
+  method: "POST",
+  handler: gatewayLinksRevoke,
+});
 
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 

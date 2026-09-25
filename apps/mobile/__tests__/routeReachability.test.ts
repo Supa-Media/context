@@ -177,10 +177,17 @@ const { regionsFor, initialFrame, topBarLeadFor } =
  * one is descended from: read the note on `a control SwitcherMenu draws is
  * claimed as the switcher` below.
  */
-const REGION_DENSITIES: Record<ReachabilityRegion, ReadonlySet<ReachabilityDensity>> = {
+const REGION_DENSITIES: Record<
+  ReachabilityRegion,
+  ReadonlySet<ReachabilityDensity>
+> = {
   switcher: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "switcher")),
-  contextStrip: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "account")),
-  bottomBar: new Set(DENSITIES.filter((d) => regionsFor(d, initialFrame).bottomBar)),
+  contextStrip: new Set(
+    DENSITIES.filter((d) => topBarLeadFor(d) === "account"),
+  ),
+  bottomBar: new Set(
+    DENSITIES.filter((d) => regionsFor(d, initialFrame).bottomBar),
+  ),
   /*
     The pinned account mark, which is the phone's — `topBarLeadFor` answers
     "account" at exactly the densities that draw it, and it is the same set
@@ -195,11 +202,19 @@ const REGION_DENSITIES: Record<ReachabilityRegion, ReadonlySet<ReachabilityDensi
 /** Something a person can press. */
 const PRESSABLE = ["onPress", "href="];
 /** Something that turns a press into a route. */
-const NAVIGATES = ["router.push", "router.replace", "router.navigate", "Redirect href", "<Link"];
+const NAVIGATES = [
+  "router.push",
+  "router.replace",
+  "router.navigate",
+  "Redirect href",
+  "<Link",
+];
 
 /** Every file a claim rests on, control and navigation together. */
 const filesOf = (point: RouteEntryPoint): readonly Evidence[] =>
-  point.control === undefined ? point.navigation : [point.control, ...point.navigation];
+  point.control === undefined
+    ? point.navigation
+    : [point.control, ...point.navigation];
 
 const sourceOf = (file: string) => readFileSync(join(MOBILE, file), "utf8");
 
@@ -219,7 +234,7 @@ describe("the guard can see", () => {
     expect(routes).toContain("/meetings");
     expect(routes).toContain("/console");
     expect(routes).toContain("/admin");
-    // The nine the walk could not see while it read `app/(app)/` alone, named
+    // The routes the walk could not see while it read `app/(app)/` alone, named
     // one by one rather than absorbed by a count.
     expect(routes).toContain("/");
     expect(routes).toContain("/login");
@@ -229,12 +244,15 @@ describe("the guard can see", () => {
     expect(routes).toContain("/connect/dropbox");
     expect(routes).toContain("/note/[...address]");
     expect(routes).toContain("/s/[token]");
-    expect(routes).toContain("/[handle]/[slug]");
+    expect(routes).toContain("/[handle]");
+    expect(routes).toContain("/[handle]/[...path]");
     expect(routes).toContain("/+not-found");
     // And the derivation itself, on the two shapes that are easy to get wrong:
     // a group segment is not in the URL, and `index` is its folder.
     expect(routeFromFile("(app)/meetings/index.tsx")).toBe("/meetings");
-    expect(routeFromFile("(app)/console/[slug]/settings.tsx")).toBe("/console/[slug]/settings");
+    expect(routeFromFile("(app)/console/[slug]/settings.tsx")).toBe(
+      "/console/[slug]/settings",
+    );
     expect(routeFromFile("index.tsx")).toBe("/");
   });
 
@@ -262,7 +280,12 @@ describe("the guard can see", () => {
       the region that replaced it here. Every key on that row still navigates,
       but within the console rather than to a route of its own.
     */
-    expect([...claimed].sort()).toEqual(["account", "contextStrip", "screen", "switcher"]);
+    expect([...claimed].sort()).toEqual([
+      "account",
+      "contextStrip",
+      "screen",
+      "switcher",
+    ]);
 
     // And the table itself is not empty on either side, which is what makes
     // "claimed at a density this region is not drawn at" a reachable failure.
@@ -307,7 +330,8 @@ describe("every route is reachable, or says why not", () => {
     for (const entry of ROUTE_REACHABILITY) {
       if (!entry.reachable) continue;
       const covered = new Set<ReachabilityDensity>();
-      for (const point of entry.from) for (const density of point.densities) covered.add(density);
+      for (const point of entry.from)
+        for (const density of point.densities) covered.add(density);
       for (const density of DENSITIES) {
         if (!covered.has(density)) missing.push(`${entry.route} at ${density}`);
       }
@@ -336,9 +360,9 @@ describe("every route is reachable, or says why not", () => {
           const source = sourceOf(evidence.file);
           expect(evidence.contains.length).toBeGreaterThan(0);
           for (const needle of evidence.contains) {
-            expect(`${entry.route} ← ${evidence.file}: ${source.includes(needle)}`).toBe(
-              `${entry.route} ← ${evidence.file}: true`,
-            );
+            expect(
+              `${entry.route} ← ${evidence.file}: ${source.includes(needle)}`,
+            ).toBe(`${entry.route} ← ${evidence.file}: true`);
           }
         }
         expect(point.densities.length).toBeGreaterThan(0);
@@ -372,8 +396,12 @@ describe("every route is reachable, or says why not", () => {
         const where = `${entry.route}/${point.surface}`;
         const navigates = point.navigation
           .map((evidence) => sourceOf(evidence.file))
-          .some((source) => NAVIGATES.some((needle) => source.includes(needle)));
-        expect(`${where}: navigates ${navigates}`).toBe(`${where}: navigates true`);
+          .some((source) =>
+            NAVIGATES.some((needle) => source.includes(needle)),
+          );
+        expect(`${where}: navigates ${navigates}`).toBe(
+          `${where}: navigates true`,
+        );
 
         if (point.control === undefined) {
           expect(`${where}: automatic ${point.automatic !== undefined}`).toBe(
@@ -386,12 +414,14 @@ describe("every route is reachable, or says why not", () => {
         // A layout wires screens together and draws none of them. A claim whose
         // control is one is a claim about plumbing, and plumbing is exactly
         // what survived PR #242.
-        expect(`${where}: control drawn in ${point.control.file.split("/")[0]}`).toBe(
-          `${where}: control drawn in features`,
-        );
+        expect(
+          `${where}: control drawn in ${point.control.file.split("/")[0]}`,
+        ).toBe(`${where}: control drawn in features`);
         const source = sourceOf(point.control.file);
         const pressable = PRESSABLE.some((needle) => source.includes(needle));
-        expect(`${where}: pressable ${pressable}`).toBe(`${where}: pressable true`);
+        expect(`${where}: pressable ${pressable}`).toBe(
+          `${where}: pressable true`,
+        );
       }
     }
   });
@@ -419,7 +449,8 @@ describe("every route is reachable, or says why not", () => {
       for (const point of entry.from) {
         const drawn = REGION_DENSITIES[point.region];
         for (const density of point.densities) {
-          if (!drawn.has(density)) wrong.push(`${entry.route}: ${point.region} at ${density}`);
+          if (!drawn.has(density))
+            wrong.push(`${entry.route}: ${point.region} at ${density}`);
         }
       }
     }
@@ -452,9 +483,9 @@ describe("every route is reachable, or says why not", () => {
       for (const point of entry.from) {
         if (point.control?.file !== SWITCHER) continue;
         claims += 1;
-        expect(`${entry.route}: drawn by the switcher, claimed as ${point.region}`).toBe(
-          `${entry.route}: drawn by the switcher, claimed as switcher`,
-        );
+        expect(
+          `${entry.route}: drawn by the switcher, claimed as ${point.region}`,
+        ).toBe(`${entry.route}: drawn by the switcher, claimed as switcher`);
       }
     }
     // The rule has input. Its predecessor did not, which is why it never fired.
@@ -479,7 +510,8 @@ describe("every route is reachable, or says why not", () => {
         the app knowing which names exist, which is the listing a share page
         deliberately does not have.
       */
-      "/[handle]/[slug]",
+      "/[handle]",
+      "/[handle]/[...path]",
       "/admin",
       "/authorize",
       "/connect/cli",
@@ -524,7 +556,9 @@ describe("every route is reachable, or says why not", () => {
       if (entry.reachable) continue;
       expect(entry.reason.length).toBeGreaterThan(60);
       const source = readFileSync(join(MOBILE, entry.file), "utf8");
-      expect(`${entry.route}: ${source.includes(entry.marker)}`).toBe(`${entry.route}: true`);
+      expect(`${entry.route}: ${source.includes(entry.marker)}`).toBe(
+        `${entry.route}: true`,
+      );
     }
   });
 });

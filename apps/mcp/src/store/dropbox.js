@@ -305,6 +305,7 @@ export class DropboxStore {
     const buffer = await response.arrayBuffer();
     return {
       etag: normalizeEtag(metadata.rev),
+      uploaded: new Date(metadata.server_modified || 0),
       text: async () => new TextDecoder().decode(buffer),
       arrayBuffer: async () => buffer,
     };

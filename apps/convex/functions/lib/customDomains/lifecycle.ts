@@ -82,6 +82,7 @@ export function applyCheck(row: Row, findings: CheckFindings, now: number): Chec
     routingVerified,
     httpsReady,
     problem,
+    ...(readiness?.hostnameTxt ? { hostnameTxt: readiness.hostnameTxt } : {}),
     checkedAt: now,
     checkCount: row.checkCount + 1,
     updatedAt: now,

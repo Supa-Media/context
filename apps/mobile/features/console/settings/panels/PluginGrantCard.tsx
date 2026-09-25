@@ -208,7 +208,7 @@ export function PluginGrantCard({
         {canApprove && standing.kind !== "active" ? (
           <Button
             label={busy ? "Enabling…" : standing.kind === "stale" ? "Enable the new bundle" : "Enable"}
-            variant="white"
+            variant="accent"
             disabled={busy}
             onPress={() => void enable(enableCapabilities(offer, view.egress))}
           />
@@ -312,7 +312,7 @@ export function PluginGrantCard({
           <Row style={styles.controls}>
             <Button
               label={busy ? "Enabling…" : "Enable with these"}
-              variant="white"
+              variant="accent"
               disabled={busy || chosen.length === 0}
               onPress={() => void enable(chosen)}
             />

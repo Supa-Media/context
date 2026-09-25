@@ -8,6 +8,7 @@ import {
   matchesDestructiveActionAcknowledgement,
 } from "@context/shared";
 import { Button } from "../../design/components/Button";
+import { TextLink } from "../../design/components/TextLink";
 import { Card } from "../../design/components/Card";
 import { Check } from "../../design/components/Field";
 import { ChoiceGroup, FormError, Notice, TextField } from "../../design/components/Input";
@@ -461,9 +462,8 @@ export function VaultImportBody({
                   testID={`${testIDPrefix}-choose`}
                 />
                 {onSkip === undefined ? null : (
-                  <Button
+                  <TextLink
                     label="No, start fresh"
-                    variant="ghost"
                     onPress={onSkip}
                     testID={`${testIDPrefix}-skip`}
                   />
@@ -590,7 +590,7 @@ export function VaultImportBody({
             {upload.kind === "complete" && onComplete !== undefined ? (
               <Button
                 label="Continue"
-                variant="white"
+                variant="accent"
                 onPress={onComplete}
                 testID={`${testIDPrefix}-continue`}
               />
@@ -603,16 +603,15 @@ export function VaultImportBody({
                       : "Resume upload"
                     : `Upload ${plan.files.length} ${plan.files.length === 1 ? "file" : "files"}`
                 }
-                variant="white"
+                variant="accent"
                 disabled={plan.files.length === 0}
                 onPress={() => void start()}
                 testID={`${testIDPrefix}-upload`}
               />
             )}
             {!busy && upload.kind !== "complete" ? (
-              <Button
+              <TextLink
                 label="Choose another folder"
-                variant="ghost"
                 onPress={() => void select()}
               />
             ) : null}

@@ -160,7 +160,6 @@ jest.mock("../features/onboarding/flow", () => {
   const { stepCopy } = require("../prototypes/premium/copy") as typeof import("../prototypes/premium/copy");
   return {
     ...actual,
-    STEP_LABELS: { ...actual.STEP_LABELS, storage: stepCopy.railLabel },
     stepTitle: (key: string) =>
       key === "storage" ? stepCopy.title : actual.stepTitle(key as never),
   };

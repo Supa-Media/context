@@ -37,6 +37,7 @@ export async function recordChange(store, action, actorScope, paths, details = {
   await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
   await recordActivity(store, { action, paths, details, at });
   announceTreeChange(store, action, paths, details);
+  announceWebsiteChange(store, paths);
 }
 
 /**
@@ -80,6 +81,55 @@ function announceTreeChange(store, action, paths, details) {
     const audiences = treeAudiencesOf(hint.paths, hint.known, state.rules, state.overrides);
     if (audiences.length > 0) await store.reportTreeChange(audiences);
   })().catch(() => {});
+  if (typeof store.defer !== "function") return;
+  try {
+    store.defer(work);
+  } catch {
+    // A host whose `waitUntil` refuses the work simply does not report.
+  }
+}
+
+/**
+ * The published folder, as the control plane spells it.
+ *
+ * Restated here rather than imported: this Worker's only runtime dependency is
+ * `@context/collaboration`, so it cannot reach `@context/shared`, and the
+ * control-plane copy is `websites/changes.ts`. The same restatement
+ * `features/site/host.ts` makes of the router's `isPlatformHost`, for the same
+ * reason.
+ */
+const WEBSITE_ROOT = "website";
+
+function touchesWebsite(path) {
+  const normalized = String(path).replace(/^\/+|\/+$/g, "");
+  return normalized === WEBSITE_ROOT || normalized.startsWith(`${WEBSITE_ROOT}/`);
+}
+
+/**
+ * Tell the control plane its route index no longer describes the bucket.
+ *
+ * ## Why this is not folded into `announceTreeChange`
+ *
+ * That one is gated on `TREE_ACTIONS`, a whitelist of changes to the *shape*
+ * of the tree, and it is right to be: editing a note's body moves nothing.
+ * The website index is a derivative of the bytes, so the case it most needs to
+ * hear about is exactly the one that list leaves out — `update_note`, which is
+ * both an MCP client rewriting a page's frontmatter and a live editing session
+ * flushing one. It also judges a move by its destination alone, and a page
+ * moved *out* of the folder has to invalidate too. So this reads the raw paths
+ * and asks one question of them.
+ *
+ * **Both ends, and only this folder.** The control plane rebuilds the whole
+ * index when it hears this, and since that scan reads every published page,
+ * reporting an ordinary note write would be a full scan after every save.
+ *
+ * Deferred, best-effort and unable to fail the change, like its neighbours: a
+ * missed report costs the freshness the quarter-hourly sweep restores.
+ */
+function announceWebsiteChange(store, paths) {
+  if (typeof store.reportWebsiteChange !== "function") return;
+  if (!Array.isArray(paths) || !paths.some(touchesWebsite)) return;
+  const work = Promise.resolve(store.reportWebsiteChange()).catch(() => {});
   if (typeof store.defer !== "function") return;
   try {
     store.defer(work);

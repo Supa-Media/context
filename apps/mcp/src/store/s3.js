@@ -178,6 +178,7 @@ export class S3Store {
     const buffer = await response.arrayBuffer();
     return {
       etag: normalizeEtag(response.headers.get("etag") || ""),
+      uploaded: new Date(response.headers.get("last-modified") || 0),
       size: buffer.byteLength,
       contentType: response.headers.get("content-type") || undefined,
       text: async () => new TextDecoder().decode(buffer),

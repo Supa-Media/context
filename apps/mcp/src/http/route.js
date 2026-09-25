@@ -528,6 +528,8 @@ export async function route(request, env, ctx) {
 function attachChangeReporters(store, workspaceId, controlPlane) {
   store.reportTreeChange = (audiences) =>
     controlPlane.reportTreeChange(workspaceId, audiences).catch(() => {});
+  store.reportWebsiteChange = () =>
+    controlPlane.reportWebsiteChange(workspaceId).catch(() => {});
   store.reportActivity = (teamVisible) => {
     const send = controlPlane.reportActivity(workspaceId, teamVisible === true).catch(() => {});
     if (typeof store.defer !== "function") return;

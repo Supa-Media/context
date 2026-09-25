@@ -5,6 +5,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { suggestDestinationFolders } from "@context/communications";
 import { Button } from "../../../design/components/Button";
+import { TextLink } from "../../../design/components/TextLink";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { FormError, TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
@@ -254,9 +255,8 @@ function MeetingsDestinationLive({
               onPress={save}
               testID="meetings-folder-save"
             />
-            <Button
+            <TextLink
               label="Cancel"
-              variant="ghost"
               disabled={saving}
               onPress={() => {
                 setDraft(stored);
@@ -271,9 +271,8 @@ function MeetingsDestinationLive({
               press changes nothing.
             */}
             {stored === INBOX_FOLDER ? null : (
-              <Button
+              <TextLink
                 label="Use the default"
-                variant="ghost"
                 disabled={saving}
                 accessibilityLabel={`Go back to ${INBOX_FOLDER}`}
                 onPress={() => setDraft(INBOX_FOLDER)}

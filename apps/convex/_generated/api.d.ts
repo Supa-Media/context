@@ -89,6 +89,7 @@ import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_usage from "../functions/usage.js";
+import type * as functions_websites from "../functions/websites.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
 import type * as http from "../http.js";
 
@@ -180,6 +181,7 @@ declare const fullApi: ApiFromModules<{
   "functions/storage": typeof functions_storage;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
+  "functions/websites": typeof functions_websites;
   "functions/workspaces": typeof functions_workspaces;
   http: typeof http;
 }>;

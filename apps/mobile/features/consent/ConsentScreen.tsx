@@ -11,6 +11,7 @@ import { useAction, useConvexAuth, useQueries, type RequestForQueries } from "co
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../design/components/Button";
+import { TextLink } from "../design/components/TextLink";
 import { Card } from "../design/components/Card";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { ChoiceGroup, FormError, ToggleGroup } from "../design/components/Input";
@@ -300,9 +301,8 @@ export function ConsentBody({
           </Text>
           <View style={styles.deadEndActions}>
             <Button label="Go to your console" variant="decision" onPress={onLeaveForConsole} />
-            <Button
+            <TextLink
               label="Back to Context.lc"
-              variant="ghost"
               style={styles.deadEndGhost}
               onPress={onLeaveForHome}
             />
@@ -321,9 +321,8 @@ export function ConsentBody({
           </Text>
           <View style={styles.deadEndActions}>
             <Button label="Set up your workspace" variant="decision" onPress={onLeaveForConsole} />
-            <Button
+            <TextLink
               label="Back to Context.lc"
-              variant="ghost"
               style={styles.deadEndGhost}
               onPress={onLeaveForHome}
             />

@@ -17,11 +17,13 @@ import { folderVisibleAtScope, describeFile } from "./listing";
 /* -------------------------------------------------------------------------- */
 
 /**
- * Manifest entries one call may return. Around 220 bytes of JSON each, so a
- * page stays near two megabytes — well inside what an action may return — and
- * a context of a few thousand notes arrives in one round trip.
+ * Manifest entries one call may return. Convex rejects any returned array
+ * longer than 8,192 elements before the caller can follow our cursor, so keep
+ * both the entry page and its derived folder list comfortably below that
+ * structural limit as well as the action byte limit.
  */
-export const MANIFEST_PAGE_ENTRIES = 10_000;
+export const MANIFEST_PAGE_ENTRIES = 4_000;
+export const MANIFEST_PAGE_FOLDERS = 4_000;
 
 /**
  * One object the caller may see, as the offline mirror needs it.
@@ -160,15 +162,21 @@ export async function syncManifest(
   */
   const folders: ManifestFolder[] = [{ path: "", visibility: visibilityOf("", state.rules) }];
   const askedFolders = new Set<string>([""]);
-  const noteFolders = (key: string) => {
+  const noteFolders = (key: string): boolean => {
     let at = key.endsWith("/") ? key.replace(/\/+$/, "") : parentOf(key);
+    const paths: string[] = [];
+    const visible: ManifestFolder[] = [];
     while (at !== "" && !askedFolders.has(at)) {
-      askedFolders.add(at);
+      paths.push(at);
       if (folderVisibleAtScope(at, options.clearance, state.rules, state.overrides)) {
-        folders.push({ path: at, visibility: visibilityOf(at, state.rules) });
+        visible.push({ path: at, visibility: visibilityOf(at, state.rules) });
       }
       at = parentOf(at);
     }
+    if (folders.length + visible.length > MANIFEST_PAGE_FOLDERS) return false;
+    for (const path of paths) askedFolders.add(path);
+    folders.push(...visible);
+    return true;
   };
 
   /** Stop here, with a cursor only where one can be honoured and moves on. */
@@ -201,7 +209,10 @@ export async function syncManifest(
       previous = key;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
-      noteFolders(key);
+      // A manifest that Convex refuses to return cannot offer its cursor. Stop
+      // before either returned array reaches the platform's element ceiling;
+      // the last visible entry remains a safe resume point.
+      if (!noteFolders(key)) return stop();
       if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
 
       const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string };

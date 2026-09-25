@@ -69,7 +69,13 @@ export type RouteDecision =
   // here, so `slug` and `path` are well-formed and nothing an attacker types
   // reaches an upstream unchecked.
   | { kind: "note-preview"; slug: string; path: string }
-  | { kind: "short-link-preview"; handle: string; slug: string }
+  | {
+      kind: "short-link-preview";
+      handle: string;
+      slug: string;
+      /** Custom-domain root preview: the website route checked before `slug`. */
+      routePath?: string;
+    }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
   // `path` is the full path + query to request from the upstream. It is never
@@ -142,7 +148,10 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // means one origin in cookies, CORS, and OAuth redirect_uri allow-lists.
   // Crawlers are redirected too, so the card they cache is the apex's.
   if (hostname === WWW_HOST) {
-    return { kind: "redirect", location: `https://${APEX}${pathname}${search}` };
+    return {
+      kind: "redirect",
+      location: `https://${APEX}${pathname}${search}`,
+    };
   }
 
   // The apex — and any other host that reaches this Worker, e.g. its
@@ -176,7 +185,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // `previewForShortLink`.
   const shortCard = shortLinkCardFrom(pathname);
   if (shortCard !== null) {
-    return { kind: "short-link-card", handle: shortCard.handle, slug: shortCard.slug };
+    return {
+      kind: "short-link-card",
+      handle: shortCard.handle,
+      slug: shortCard.slug,
+    };
   }
 
   if (pathname.startsWith(IMMUTABLE_PREFIX)) {
@@ -203,7 +216,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     // handle is guessable *and* unbounded, which is a different question.
     const short = shortLinkFrom(url);
     if (short !== null) {
-      return { kind: "short-link-preview", handle: short.handle, slug: short.slug };
+      return {
+        kind: "short-link-preview",
+        handle: short.handle,
+        slug: short.slug,
+      };
     }
 
     // The one path whose card is not decided here. A share token is

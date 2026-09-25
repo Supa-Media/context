@@ -18,8 +18,8 @@ import type { ConnectFormValues } from "../../console/storage/connect";
  * the same sentence the dry-run report repeats afterwards.
  *
  * The vault row is not a button. An Obsidian vault needs somewhere to go, so
- * it is the step *after* this one — and a card that looked choosable here
- * would be a card that does nothing.
+ * its import runs once a bucket is connected, from Settings → Storage — and a
+ * card that looked choosable here would be a card that does nothing.
  */
 export function PointAtBucket({
   connect,
@@ -56,8 +56,8 @@ export function PointAtBucket({
       <View style={[styles.card, styles.cardQuiet]} testID="point-at-vault">
         <Text style={styles.cardTitle}>Obsidian vault on this device</Text>
         <Text variant="rowSub" style={styles.cardSub}>
-          That comes next: once the bucket is connected, the following step imports your vault
-          into it. Nothing leaves your machine until you say so.
+          Connect the bucket it should live in first, then import the vault from Settings →
+          Storage. Nothing leaves your machine until you say so.
         </Text>
       </View>
 
@@ -69,7 +69,7 @@ export function PointAtBucket({
         <View style={styles.actions}>
           <Button
             label="Point at my bucket →"
-            variant="white"
+            variant="accent"
             onPress={() => setOpen(true)}
             testID="point-at-bucket-open"
           />

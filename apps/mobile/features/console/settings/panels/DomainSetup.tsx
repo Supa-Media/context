@@ -19,6 +19,7 @@ import {
   providerSentence,
   recordsSummary,
   transientNote,
+  USUAL_CONNECT_MS,
   type DomainView,
 } from "../../domain/domain";
 import type { DomainActions } from "../../domain/useDomain";
@@ -40,7 +41,21 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
   const problem = problemCopy(domain);
   const note = transientNote(domain);
   const oneClick = domain.stage === "https" ? null : domain.oneClick;
-  const [recordsOpen, setRecordsOpen] = useState(() => domain.oneClick === null);
+  // Folded on first sight when there is a button above them, or once the
+  // domain is proved to be theirs and the records are mostly a receipt.
+  // Open again when something has been missing for longer than usual: then
+  // the records are what the sentence asks the owner to look at.
+  const [recordsOpen, setRecordsOpen] = useState(
+    () =>
+      (domain.oneClick === null && !domain.ownershipVerified) ||
+      (domain.stage === "routing" && Date.now() - domain.checkingSince >= USUAL_CONNECT_MS),
+  );
+  // "Checking" turns into "Not seen yet" as time passes, without a query.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const [away, setAway] = useState(false);
   const [back, setBack] = useState(false);
   // Full width is the thumb target on a phone; on a wide card it would be a bar.
@@ -76,12 +91,13 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
   }
 
   const sentence =
-    oneClick === null ? pendingSentence(domain) : away ? awaySentence(oneClick.provider) : providerSentence(oneClick.provider);
+    oneClick === null ? pendingSentence(domain, now) : away ? awaySentence(oneClick.provider) : providerSentence(oneClick.provider);
   // The button labels speak the same name outside those sentences, so they
   // take it through the same container rather than off the row.
   const provider = oneClick === null ? "" : providerName(oneClick.provider);
   const showRecords = domain.stage !== "https";
-  const folded = oneClick !== null && !recordsOpen && !needsAttention(domain);
+  const foldable = oneClick !== null || domain.ownershipVerified;
+  const folded = foldable && !recordsOpen && !needsAttention(domain);
 
   return (
     <>
@@ -121,10 +137,10 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
           {notYetNote(oneClick.provider)}
         </Text>
       ) : null}
-      {showRecords && oneClick !== null ? (
+      {showRecords && foldable ? (
         <Row divided style={styles.disclosure}>
           <PressRow
-            accessibilityLabel={folded ? "Show the records to add yourself" : "Hide the records"}
+            accessibilityLabel={folded ? "Show the DNS records" : "Hide the DNS records"}
             onPress={() => setRecordsOpen((open) => !open)}
             radius={radii.md}
             testID="domain-records-toggle"
@@ -132,7 +148,7 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
             <View style={styles.toggle}>
               <Icon name={folded ? "chevronRight" : "chevronDown"} size={13} color={colors.text2} />
               <Grow>
-                <Text variant="rowTitle">Add the records yourself</Text>
+                <Text variant="rowTitle">{oneClick !== null ? "Add the records yourself" : "Your DNS records"}</Text>
                 <Text variant="rowSub" style={styles.sub}>
                   {recordsSummary(domain.records)}
                 </Text>
@@ -141,7 +157,7 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
           </PressRow>
         </Row>
       ) : null}
-      {showRecords && !folded ? <DnsRecords domain={domain} /> : null}
+      {showRecords && !folded ? <DnsRecords domain={domain} now={now} /> : null}
       {note !== null ? (
         <Text variant="foot" style={styles.block}>
           {note}

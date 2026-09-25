@@ -36,44 +36,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { useIngestionSettings } from "../console/ingestion/useIngestionSettings";
-import { receivesMail } from "../console/ingestion/settings";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../console/storage/connect";
-import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
+import { describeCreateFailure, type CreateFailure } from "./errors";
 import {
-  afterAgents,
-  afterBootstrap,
   afterDryRun,
-  afterLive,
   afterName,
   afterStorage,
-  afterStructure,
-  afterVault,
   type FlowShape,
+  type Next,
   type StepKey,
   type StorageOutcome,
   type StorageRoute,
-  type VaultOutcome,
 } from "./flow";
 import { dryRunReport, type DryRunBinding, type DryRunReport } from "./dryRun";
 import type { ForkOffer } from "./redesign/ForkStep";
-import { BOOTSTRAP_PROMPT } from "./agents";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
 import type { CheckoutOutcome } from "@context/shared";
 import { ownedContexts } from "./route";
 import { useManagedOffer, type ManagedOffer } from "./useManagedOffer";
-import {
-  canApplyStructure,
-  emptyCustomFolders,
-  structureStepFor,
-  toApplyStructureArgs,
-  validateCustomFolders,
-  type CustomFolderRow,
-  type FolderErrors,
-  type StructureStep,
-  type StructureTemplate,
-} from "./structure";
+import { structureStepFor, toApplyStructureArgs } from "./structure";
 import {
   CONNECT_TIMEOUT_MS,
   connectProgress,
@@ -81,18 +63,12 @@ import {
   type WatchedBinding,
 } from "./verify";
 
-/**
- * `functions/workspaces:applyStructure`, as a name.
- *
- * The call itself goes through the generated `api` — fully typed now that the
- * mutation has landed on main — so the argument shape is not restated here and
- * cannot drift from the validator. The constant survives only because the mount
- * tests assert on which function was called, and asserting on a string beats
- * asserting on an `anyApi` proxy, which is a fresh object on every access.
- */
 export const APPLY_STRUCTURE = "functions/workspaces:applyStructure";
 
-/** Convex hands back `undefined` while loading and an `Error` when a query throws. */
+/**
+ * Convex hands back `undefined` while loading and an `Error` when a query
+ * throws. Both mean "no answer yet" here.
+ */
 function usable<T>(value: unknown): T | undefined {
   if (value === undefined || value instanceof Error) return undefined;
   return value as T;
@@ -106,33 +82,17 @@ export interface ClaimedContext {
 export interface OnboardingController {
   step: StepKey;
   shape: FlowShape;
-  /**
-   * Personal contexts this account **owns**, or `undefined` until
-   * `listMyWorkspaces` resolves. Never read as zero.
-   *
-   * Owned rather than reachable, because this is the number that decides
-   * whether the flow has already run — and somebody who was given access to
-   * another person's context has not run it. See `resolveWelcomeRoute`.
-   */
+  /** Personal contexts owned, or `undefined` while the list is outstanding. */
   owned: number | undefined;
   claimed: ClaimedContext | null;
   /**
-   * Whether anything is receiving mail at the claimed context's capture
-   * address, straight from the control plane.
-   *
-   * On the controller rather than looked up inside the last step, so that the
-   * *same* backend fact drives the last screen of the first run and the
-   * ingestion card in the console. There is exactly one thing to flip when the
-   * receiver ships (`ingestionIsReceiving` in the Convex lib), and both
-   * surfaces follow it without further edits.
-   *
-   * `false` while there is no claimed context, while the query is in flight,
-   * and on any deployment whose control plane does not answer — none of which
-   * are a yes.
+   * True once the run is over and the person belongs in the console. The
+   * screen navigates on it; nothing here does, so the controller stays a hook
+   * with no router in it.
    */
-  captureReceivesMail: boolean;
+  finished: boolean;
 
-  // ── Step 1 ────────────────────────────────────────────────────────────────
+  // Step 1 — the handle
   name: string;
   setName: (value: string) => void;
   nameStatus: NameStatus;
@@ -141,92 +101,39 @@ export interface OnboardingController {
   claim: () => Promise<void>;
   canClaim: boolean;
 
-  // ── The fork ──────────────────────────────────────────────────────────────
-  /** What the first card offers; see `ForkOffer`. */
+  // Step 2 — the fork
   forkOffer: ForkOffer;
-  /** The free bucket, or the paid offer's confirm screen, depending on `forkOffer`. */
+  /** "Start fresh": a bucket we run, then the standard folders, then the console. */
   pickManaged: () => void;
-  /** A bucket of their own: the connect form, then the dry-run report. */
+  /** "I already have notes": the point-at-your-bucket track. */
   pickOwn: () => void;
   startingFree: boolean;
   forkFailure?: string;
 
-  // ── Step 2 ────────────────────────────────────────────────────────────────
+  // The storage track
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   connectState: ConnectState;
-  /**
-   * The managed-storage offer, or `null` on a deployment that cannot make one.
-   *
-   * Never `undefined`: a step that cannot tell "no offer" from "not asked yet"
-   * draws the card for a moment and takes it away, which is worse than either.
-   */
   managed: ManagedOffer | null;
+  /** "I'll do this later" — out to the console, whose setup widget asks again. */
   skipStorage: () => void;
-  /**
-   * Move on with a binding that failed or timed out.
-   *
-   * Not the same as connecting one. See `StorageOutcome`: this ends the run in
-   * `unverified`, which skips the layout step and warns on the way out.
-   */
   continuePastStorage: () => void;
 
-  // ── The dry run ──────────────────────────────────────────────────────────
-  /** What the probe found in a bucket somebody brought, or `null` before it answered. */
   dryRun: DryRunReport | null;
   finishDryRun: () => void;
-
-  // ── Obsidian vault ───────────────────────────────────────────────────────
-  skipVaultImport: () => void;
-  finishVaultImport: (outcome: "imported" | "existing") => void;
-
-  // ── Step 3 ────────────────────────────────────────────────────────────────
-  structureStep: StructureStep;
-  template: StructureTemplate;
-  setTemplate: (value: StructureTemplate) => void;
-  folders: CustomFolderRow[];
-  setFolders: (rows: CustomFolderRow[]) => void;
-  folderErrors: FolderErrors;
-  applying: boolean;
-  structureFailure: CreateFailure | null;
-  /** False while there is nothing this button could legally send. */
-  canApply: boolean;
-  applyStructure: () => Promise<void>;
-  skipStructure: () => void;
-
-  // ── Step 4 ────────────────────────────────────────────────────────────────
-  /** Advances past the tools step to the bootstrap step, where the same clients are asked to seed the context. */
-  finishAgents: () => void;
-
-  // ── Step 5 ────────────────────────────────────────────────────────────────
-  /**
-   * The prompt handed to a *connected* client, asking it to seed the context
-   * with what it already knows about the person. Kept in `agents.ts` for the
-   * reason `seedPrompt` is derived rather than stored — its guardrails are
-   * product claims, not phrasing.
-   */
-  bootstrapPrompt: string;
-  /** Leaves the last step. Continuing is skipping; there is nothing to commit — the seeding happens in the client the person pasted the prompt into, not here. */
-  finishBootstrap: () => void;
-  /** Leaves the live check. Waiting for a tool is never a gate. */
-  finishLive: () => void;
 }
 
 export function useOnboarding(
   options: {
     /**
-     * Re-enter at the layout step, for a first run that a Dropbox redirect
-     * tore in half. The workspace already exists — step 1 ran before the
-     * person left — so `claimed` is recovered from `listMyWorkspaces` rather
-     * than from a create that happened on a page that no longer exists.
+     * Re-enter mid-run for a person who already owns their workspace.
+     *
+     * `fork` is the sign-in gate's (`resume.ts`): a name, and no storage.
+     * `storage` is a return from Stripe, which lands on the settling screen.
+     * `structure` is what an old Dropbox round trip still sends; the layout
+     * choice moved to the console, so it re-enters by finishing.
      */
     resume?: "structure" | "storage" | "fork";
-    /**
-     * What a return from Stripe said, from `/welcome?checkout=…`.
-     *
-     * A person coming back from a payment is mid-flow with a claimed name and
-     * no storage, so the flow has to be re-entered rather than the console —
-     * which is what `resume: "storage"` beside this is for.
-     */
+    /** What a return from Stripe said, from `/welcome?checkout=…`. */
     checkout?: CheckoutOutcome | null;
     /** Test seam for the settling copy's later wording. */
     settlingSlowAfter?: number;
@@ -237,7 +144,14 @@ export function useOnboarding(
     | undefined;
 
   const [step, setStep] = useState<StepKey>("name");
+  const [finished, setFinished] = useState(false);
   const [claimed, setClaimed] = useState<ClaimedContext | null>(null);
+
+  /** Move on: to a step, or out of the wizard altogether. */
+  const go = useCallback((next: Next) => {
+    if (next === "console") setFinished(true);
+    else setStep(next);
+  }, []);
 
   // Resume happens exactly once, when the owned workspace becomes known, and
   // only while the flow is still sitting on its first step — a person who has
@@ -253,16 +167,10 @@ export function useOnboarding(
     if (own === undefined) return;
     resumed.current = true;
     setClaimed({ workspaceId: own.workspaceId, slug: own.slug });
-    setStep(options.resume);
-  }, [claimed, options.resume, workspaces]);
-  // Starts at `connected` because that is the run the step rail should draw
-  // before anything has gone wrong: the full four steps. It is only ever
-  // narrowed, by an explicit choice on the storage step, and every path off
-  // that step sets it.
-  const [storage, setStorage] = useState<StorageOutcome>("connected");
-  const [vault, setVault] = useState<VaultOutcome>("pending");
+    go(options.resume === "structure" ? "console" : options.resume);
+  }, [claimed, go, options.resume, workspaces]);
+
   const [route, setRoute] = useState<StorageRoute | undefined>(
-    // Back from Stripe is back from choosing a bucket we run.
     options.checkout ? "managed" : undefined,
   );
 
@@ -274,12 +182,8 @@ export function useOnboarding(
 
   const normalized = normalizedName(name);
 
-  // Keyed on the normalized name, so an answer for a name that is no longer in
-  // the field can never be applied to the one that is.
+  // Shared and frozen, for `console/querySpec.ts`'s reason.
   const availabilitySpec = useMemo<RequestForQueries>(() => {
-    // The shared frozen object, not a fresh `{}`. See `console/querySpec.ts`:
-    // a new identity makes `useSubscription` set state during render and tear
-    // the observer down and back up — once per keystroke, here.
     if (!shouldCheckAvailability(name)) return EMPTY_QUERY_SPEC;
     return {
       availability: {
@@ -287,8 +191,6 @@ export function useOnboarding(
         args: { name: normalized },
       },
     };
-    // `normalized` is derived from `name`; both are listed so the intent is
-    // visible at the call site.
   }, [name, normalized]);
 
   const availabilityResults = useQueries(availabilitySpec);
@@ -301,45 +203,32 @@ export function useOnboarding(
   }, []);
 
   const claim = useCallback(async () => {
-    // Narrowed rather than merely checked: only an `available` status carries a
-    // normalized name, and it is the only one that may be claimed.
     if (status.kind !== "available" || claiming) return;
     setClaiming(true);
     setClaimFailure(null);
     try {
+      // No `structureTemplate`: the layout is decided by what the fork does
+      // with the bucket (`applyStructure` below), never presumed at create.
       const result = await createWorkspace({
         slug: status.normalized,
-        // Onboarding does not ask for a separate label — one field is the
-        // point. The name is a perfectly good display name, and the console
-        // renames it without touching the claim.
         displayName: status.normalized,
         kind: "personal",
-        // `structureTemplate` is deliberately **not** sent.
-        //
-        // It used to be sent as `"custom"`, under a comment saying nothing was
-        // decided here. Passing a value *is* the decision — it is the field the
-        // scaffolder reads — and it was made two screens before the person was
-        // shown the choice, then told they would get five PARA folders. They
-        // would have got none. The argument is optional; the layout travels
-        // with `applyStructure`, which overwrites this column with what was
-        // actually picked.
       });
       setClaimed({ workspaceId: result.workspaceId, slug: result.slug });
-      setStep(afterName());
+      go(afterName());
     } catch (error) {
       setClaimFailure(describeCreateFailure(error));
     } finally {
       setClaiming(false);
     }
-  }, [claiming, createWorkspace, status]);
+  }, [claiming, createWorkspace, go, status]);
 
-  // ── Step 2 ──────────────────────────────────────────────────────────────────
+  // ── The storage track ───────────────────────────────────────────────────────
   const bindStorage = useAction(api.functions.storage.bindStorage);
   const [submitted, setSubmitted] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
 
   const bindingSpec = useMemo<RequestForQueries>(() => {
-    // Shared and frozen, for `console/querySpec.ts`'s reason.
     if (claimed === null) return EMPTY_QUERY_SPEC;
     return {
       binding: {
@@ -350,19 +239,12 @@ export function useOnboarding(
   }, [claimed]);
 
   const bindingResults = useQueries(bindingSpec);
-  const rawBinding = bindingResults.binding;
-  const binding =
-    rawBinding === undefined || rawBinding instanceof Error
-      ? undefined
-      : (rawBinding as (WatchedBinding & { scaffoldReason?: string }) | null);
+  const binding = usable<(WatchedBinding & { scaffoldReason?: string }) | null>(
+    bindingResults.binding,
+  );
 
   const connectState = connectProgress({ submitted, binding, timedOut });
 
-  /*
-    The managed answer on this step, and the two screens behind it. A person who
-    never presses that card subscribes to none of it: the hook reads one query
-    for the claimed context and nothing else until it is pressed.
-  */
   const managed = useManagedOffer({
     workspaceId: claimed?.workspaceId ?? null,
     returned: options.checkout ?? null,
@@ -394,9 +276,7 @@ export function useOnboarding(
         });
         return { status: result.status };
       } catch (error) {
-        // The form owns the failure display for a *rejected* bind (a bad
-        // endpoint, an ambiguous address). Reset so its own error panel is the
-        // one on screen rather than a second one underneath it.
+        // The form owns the failure display for a *rejected* bind.
         clearTimer();
         setSubmitted(false);
         throw error;
@@ -405,25 +285,67 @@ export function useOnboarding(
     [bindStorage, claimed, clearTimer],
   );
 
+  /*
+    "Start fresh" means the canvas's promise: our bucket, *with* the standard
+    five folders in it, and then the console. So once a bucket we made is
+    verified, the standard layout is asked for here rather than on a screen of
+    its own. Best-effort on purpose: a layout that fails to queue leaves an
+    empty bucket, which the console already offers to lay out (`SetupPrompt`)
+    — a failure here is never a reason to hold somebody out of their workspace.
+
+    Never for a bucket somebody brought. The report comes first, and the
+    console's own offer is the only thing that ever writes a layout into it.
+  */
+  const applyStructure = useMutation(api.functions.workspaces.applyStructure);
+  // Once per run. A refusal goes to the console rather than round again:
+  // retrying here is how a refusal becomes a stream of mutations.
+  const layoutAttempted = useRef(false);
+  const layOutFreshBucket = useCallback(async () => {
+    if (claimed === null || layoutAttempted.current) return;
+    layoutAttempted.current = true;
+    // `created` is a layout already written (a Stripe return can land after
+    // it); `existing-context` is somebody's notes. Everything else on a bucket
+    // we just made is empty — `features/console/setup.ts` has the vocabulary.
+    const reason = binding?.scaffoldReason;
+    if (reason !== "created" && structureStepFor(reason).kind === "ask") {
+      try {
+        const args = toApplyStructureArgs(claimed.workspaceId, "para", []);
+        await applyStructure({ ...args, workspaceId: claimed.workspaceId });
+      } catch {
+        // See above: the console offers it again.
+      }
+    }
+    /*
+      Straight to the console, without waiting for the folders to land.
+
+      Queuing returns at once and the job takes a few seconds. The console is
+      where those seconds are spent: the mutation above has stamped the
+      binding (`scaffoldQueuedAt`) before it resolves, so the console opens
+      already knowing a layout is on its way and draws the folders being
+      written (`LayingOutFolders`) rather than a privacy warning about a
+      `privacy.md` that does not exist yet. The owner asked for it there
+      rather than on a screen of its own here (2026-09-25).
+    */
+    go("console");
+  }, [applyStructure, binding?.scaffoldReason, claimed, go]);
+
   /**
    * The probe landing is what moves the flow on — not the action returning.
-   *
    * `bindStorage` resolves as soon as the row is written, while the bucket is
-   * still `unverified`. Advancing there would show somebody a layout step for a
-   * bucket that turns out to be unreachable.
+   * still `unverified`.
    */
   useEffect(() => {
     if (step !== "storage") return;
     if (connectState.kind !== "connected") return;
     clearTimer();
-    // Submitting the connect form is what makes it their bucket — whichever
-    // card they pressed on the fork, "use storage I own" can change the answer.
+    // Submitting the connect form is what makes it their bucket.
     const landed: StorageRoute = submitted ? "byo" : "managed";
     setRoute(landed);
-    setStep(afterStorage("connected", landed));
-  }, [clearTimer, connectState.kind, step, submitted]);
+    if (landed === "managed") void layOutFreshBucket();
+    else go(afterStorage("connected", landed));
+  }, [clearTimer, connectState.kind, go, layOutFreshBucket, step, submitted]);
 
-  // ── The fork ──────────────────────────────────────────────────────────────
+  // ── Step 2 ──────────────────────────────────────────────────────────────────
   const forkOffer: ForkOffer =
     managed.free !== null
       ? { kind: "free", cap: managed.free.cap }
@@ -434,8 +356,8 @@ export function useOnboarding(
   const pickManaged = useCallback(() => {
     setRoute("managed");
     if (managed.free !== null) {
-      // The storage step takes over once the start is recorded — the effect
-      // below — so a start that fails leaves them on the fork with its reason.
+      // No confirmation screen for a free bucket: nothing is charged, so
+      // there is nothing to confirm. The start lands on the settling screen.
       managed.startFree();
       return;
     }
@@ -443,6 +365,7 @@ export function useOnboarding(
     setStep("storage");
   }, [managed]);
 
+  // The free start is a mutation; once it lands the settling screen takes over.
   useEffect(() => {
     if (step === "fork" && managed.mode === "settling") setStep("storage");
   }, [managed.mode, step]);
@@ -452,103 +375,26 @@ export function useOnboarding(
     setStep("storage");
   }, []);
 
+  // ── The report ──────────────────────────────────────────────────────────────
   const dryRun = useMemo(
     () => (binding ? dryRunReport(binding as unknown as DryRunBinding) : null),
     [binding],
   );
-  const finishDryRun = useCallback(() => setStep(afterDryRun()), []);
+  const finishDryRun = useCallback(() => go(afterDryRun()), [go]);
 
-  const skipStorage = useCallback(() => {
-    setStorage("skipped");
-    setStep(afterStorage("skipped"));
-  }, []);
-
-  /**
-   * "Carry on anyway", after a probe that failed or never answered.
-   *
-   * This is emphatically **not** `connected`. The button only exists in those
-   * two states, and in both of them nobody has looked inside the bucket: it
-   * could be empty, or it could be a vault somebody has been writing to for
-   * years. Recording it as connected — which is what this used to do — handed
-   * the person the layout step, which opens with "Your bucket is empty, so here
-   * is a starting shape", and left the last screen with no warning on it at all.
-   */
-  const continuePastStorage = useCallback(() => {
-    setStorage("unverified");
-    setStep(afterStorage("unverified"));
-  }, []);
-
-  const skipVaultImport = useCallback(() => {
-    setVault("skipped");
-    setStep(afterVault("skipped"));
-  }, []);
-
-  const finishVaultImport = useCallback((outcome: "imported" | "existing") => {
-    setVault(outcome);
-    setStep(afterVault(outcome));
-  }, []);
-
-  // ── Step 3 ──────────────────────────────────────────────────────────────────
-  const structureStep = structureStepFor(binding?.scaffoldReason);
-  const [template, setTemplate] = useState<StructureTemplate>("para");
-  const [folders, setFolders] = useState<CustomFolderRow[]>(emptyCustomFolders());
-  const [applying, setApplying] = useState(false);
-  const [structureFailure, setStructureFailure] = useState<CreateFailure | null>(null);
-  const applyStructureMutation = useMutation(api.functions.workspaces.applyStructure);
-
-  const folderErrors = validateCustomFolders(folders);
-
-  const skipStructure = useCallback(() => setStep(afterStructure()), []);
-
-  const applyStructure = useCallback(async () => {
-    if (claimed === null || applying) return;
-    if (!canApplyStructure(template, folders, folderErrors)) return;
-    setApplying(true);
-    setStructureFailure(null);
-    try {
-      // The chosen template and the folders typed on this screen, sent as they
-      // were chosen and typed. There is no other path out of the editor.
-      const args = toApplyStructureArgs(claimed.workspaceId, template, folders);
-      await applyStructureMutation({ ...args, workspaceId: claimed.workspaceId });
-      setStep(afterStructure());
-    } catch (error) {
-      setStructureFailure(describeStructureFailure(error));
-    } finally {
-      setApplying(false);
-    }
-  }, [applyStructureMutation, applying, claimed, folderErrors, folders, template]);
-
-  // ── Step 4 ──────────────────────────────────────────────────────────────────
-  const finishAgents = useCallback(() => setStep(afterAgents()), []);
-  const finishBootstrap = useCallback(() => setStep(afterBootstrap()), []);
-  const finishLive = useCallback(() => setStep(afterLive()), []);
-
-  // The first run never edits the ingestion policy. It reads it for one bit:
-  // whether `DoneStep` may promise that mail sent to the capture address
-  // arrives.
-  //
-  // Both of these are literals because both are true by construction here, not
-  // by assumption. `claim` above calls `createWorkspace` with
-  // `kind: "personal"`, so the context this screen is about is the one kind
-  // that has a capture address at all; and whoever just created it is its
-  // owner, which is what `canEdit` means. Passing `false` there would suppress
-  // the query outright — `getIngestionSettings` is owner-only for the read as
-  // well as the write, so `shouldReadIngestionSettings` declines for a
-  // non-owner — and pin `captureReceivesMail` to a permanent `false` that
-  // would still be `false` the day the receiver ships. The `save` that comes
-  // back with it is simply not used.
-  const ingestion = useIngestionSettings({
-    workspaceId: claimed?.workspaceId ?? null,
-    availability: "available",
-    canEdit: true,
-  });
+  const leaveStorage = useCallback(
+    (outcome: StorageOutcome) => go(afterStorage(outcome, route)),
+    [go, route],
+  );
+  const skipStorage = useCallback(() => leaveStorage("skipped"), [leaveStorage]);
+  const continuePastStorage = useCallback(() => leaveStorage("unverified"), [leaveStorage]);
 
   return {
     step,
-    shape: { storage, vault, route },
+    shape: { route },
     owned: ownedContexts(workspaces),
     claimed,
-    captureReceivesMail: receivesMail(ingestion),
+    finished,
 
     name,
     setName,
@@ -571,23 +417,5 @@ export function useOnboarding(
     continuePastStorage,
     dryRun,
     finishDryRun,
-    skipVaultImport,
-    finishVaultImport,
-
-    structureStep,
-    template,
-    setTemplate,
-    folders,
-    setFolders,
-    folderErrors,
-    applying,
-    structureFailure,
-    canApply: canApplyStructure(template, folders, folderErrors) && !applying,
-    applyStructure,
-    skipStructure,
-    finishAgents,
-    bootstrapPrompt: BOOTSTRAP_PROMPT,
-    finishBootstrap,
-    finishLive,
   };
 }

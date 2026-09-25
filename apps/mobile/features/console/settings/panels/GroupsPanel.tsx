@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Button } from "../../../design/components/Button";
+import { Button, PressRow } from "../../../design/components/Button";
+import { Icon } from "../../../design/components/Icon";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { Hint } from "../../../design/components/Field";
 import { FormError, TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
-import { useThemedStyles, type Colors } from "../../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
+import { radii } from "../../../design/tokens";
 import { useArming } from "../../useArming";
 import {
   addableMembers,
@@ -194,8 +196,9 @@ function GroupRow({
             {addable.map((member) => (
               <Button
                 key={member.userId}
-                label={`Add ${member.name ?? member.email ?? member.userId}`}
-                variant="ghost"
+                label={`+ ${member.name ?? member.email ?? member.userId}`}
+                accessibilityLabel={`Add ${member.name ?? member.email ?? member.userId} to this group`}
+                variant="mini"
                 disabled={busy}
                 onPress={() => run(() => actions.addMember(group.groupId, member.userId))}
                 testID={`group-add-${member.userId}`}
@@ -210,7 +213,7 @@ function GroupRow({
       {actions === undefined ? null : (
         <Button
           label={removal.stage === "armed" ? "Press again to delete" : "Delete"}
-          variant={removal.stage === "armed" ? "danger" : "ghost"}
+          variant={removal.stage === "armed" ? "danger" : "mini"}
           disabled={busy}
           onPress={removal.press}
           testID={`group-delete-${group.groupId}`}
@@ -227,6 +230,7 @@ function MemberChip({
   member: ConsoleGroupMember;
   onRemove?: () => void;
 }) {
+  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={[styles.chip, member.live ? null : styles.chipDead]}>
@@ -242,7 +246,15 @@ function MemberChip({
         {memberLabel(member)}
       </Text>
       {onRemove === undefined ? null : (
-        <Button label="×" variant="ghost" onPress={onRemove} testID={`group-drop-${member.userId}`} />
+        <PressRow
+          accessibilityLabel={`Remove ${memberLabel(member)} from this group`}
+          onPress={onRemove}
+          radius={radii.xs}
+          style={styles.chipRemove}
+          testID={`group-drop-${member.userId}`}
+        >
+          <Icon name="close" size={12} color={colors.text2} />
+        </PressRow>
       )}
     </View>
   );
@@ -293,7 +305,7 @@ function NewGroup({ slug, actions }: { slug: string; actions: GroupActions }) {
         </Grow>
         <Button
           label="Create"
-          variant="white"
+          variant="accent"
           disabled={busy || !canSubmitLabel(label)}
           onPress={submit}
           testID="group-create"
@@ -313,6 +325,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   head: { alignItems: "center" },
   name: { fontFamily: "JetBrainsMono_400Regular" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  // The chip's close control: a real target around a small mark, not a bare
+  // "×" label that read as part of the name.
+  chipRemove: { width: 22, height: 22, alignItems: "center", justifyContent: "center" },
   chip: {
     flexDirection: "row",
     alignItems: "center",

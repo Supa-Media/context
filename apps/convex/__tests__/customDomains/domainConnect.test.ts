@@ -204,6 +204,21 @@ describe("detecting the provider", () => {
     });
   }
 
+  test("a provider that takes up the template later is found on Check again", async () => {
+    const t = setupTest();
+    const world = stubWorld();
+    await readyDeployment(t);
+    provider(world, { template: false });
+    const { owner, workspaceId, domainId } = await connect(t, "docs.acme-test.com");
+    expect(await oneClickFor(t, owner, workspaceId)).toBeNull();
+
+    provider(world, { template: true });
+    vi.advanceTimersByTime(10_000);
+    await asUser(t, owner).mutation(api.functions.customDomains.checkNow, { domainId });
+    await runDue(t);
+    expect((await oneClickFor(t, owner, workspaceId))?.provider).toBe("Example DNS");
+  });
+
   test("no link without the signing key, and none for a target the template does not name", async () => {
     const t = setupTest();
     const world = stubWorld();
