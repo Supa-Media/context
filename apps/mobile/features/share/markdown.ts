@@ -153,7 +153,9 @@ export function parseInline(source: string): Inline[] {
     const link = matchLink(rest, false);
     if (link) {
       flush();
-      const href = safeHref(link.target);
+      // Editors often store an autolinked domain without its scheme
+      // (`[supa.media](supa.media)`); that is the site, not a relative path.
+      const href = safeHref(link.target) ?? bareSiteHref(link.target);
       // A rejected scheme becomes the label as plain text — never a link, and
       // never silently dropped, because the words were part of the sentence.
       out.push(
@@ -251,6 +253,12 @@ function matchAutolink(rest: string): { text: string; href: string } | null {
   return safeHref(href) === null ? null : { text, href };
 }
 
+/** A link target that is exactly a bare domain or `www.` address, as https. */
+function bareSiteHref(target: string): string | null {
+  const trimmed = target.trim();
+  const auto = matchAutolink(trimmed);
+  return auto !== null && auto.text === trimmed ? auto.href : null;
+}
 
 /**
  * `[label](target)` at the start of `rest`, with **balanced parentheses** in

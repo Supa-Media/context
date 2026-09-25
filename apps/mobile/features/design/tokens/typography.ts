@@ -110,6 +110,8 @@ export const siteType = {
   code: 14,
   /** The header menu. */
   nav: 15,
+  /** The header menu on a wide screen. */
+  navDesktop: 16,
   /** Inline code inside an 18px line. */
   inlineCode: 15,
   h5: 16,
@@ -117,12 +119,18 @@ export const siteType = {
   name: 17,
   /** A page's prose. */
   body: 18,
+  /** The site's name, and a page's prose, on a wide screen. */
+  nameDesktop: 19,
+  bodyDesktop: 19,
   h3: 21,
   h2: 26,
+  h2Desktop: 30,
   /** A page's heading on a phone, where 44 wraps a short title. */
   h1Phone: 36,
   /** A page's title, in Instrument Serif. */
   h1: 44,
+  /** A page's title on a wide screen. */
+  h1Desktop: 64,
 } as const;
 
 export type TypeScale = Readonly<Record<keyof typeof pointerType, number>>;

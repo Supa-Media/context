@@ -18,21 +18,25 @@ import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { Block, Inline } from "./markdown";
-import { SITE_HEADING_SIZE, makeSiteStyles } from "./siteLook";
+import { SITE_HEADING_SIZE, SITE_WIDE_HEADING_SIZE, makeSiteStyles, makeSiteWideStyles } from "./siteLook";
 
 /**
  * Which voice the document is drawn in: `note` for a shared note, `site` for a
  * page on a published website — larger body type and serif headings, the one
  * face the public site adds. Same blocks, same safety rules; only styles differ.
  */
-export type NoteLook = "note" | "site";
+/** `siteWide` is the site look on a desktop-width screen. */
+export type NoteLook = "note" | "site" | "siteWide";
 
 const Look = createContext<NoteLook>("note");
 
 function useBodyStyles() {
   const note = useThemedStyles(makeStyles);
   const site = useThemedStyles(makeSiteStyles);
-  return useContext(Look) === "site" ? { ...note, ...site } : note;
+  const wide = useThemedStyles(makeSiteWideStyles);
+  const look = useContext(Look);
+  if (look === "note") return note;
+  return look === "site" ? { ...note, ...site } : { ...note, ...site, ...wide };
 }
 
 /**
@@ -283,7 +287,9 @@ const HEADING_SIZE = StyleSheet.create({
  * screenshot.
  */
 const headingStyle = (level: 1 | 2 | 3 | 4 | 5 | 6, look: NoteLook) =>
-  (look === "site" ? SITE_HEADING_SIZE : HEADING_SIZE)[`h${level}` as const];
+  (look === "site" ? SITE_HEADING_SIZE : look === "siteWide" ? SITE_WIDE_HEADING_SIZE : HEADING_SIZE)[
+    `h${level}` as const
+  ];
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   body: { gap: 12 },

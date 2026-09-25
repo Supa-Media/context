@@ -36,6 +36,12 @@ describe("plain-text links", () => {
     expect(links("[my site](https://seyi.co)")).toEqual([["my site", "https://seyi.co"]]);
   });
 
+  test("a written link to a bare domain opens that site, as editors write them", () => {
+    expect(links("[supa.media](supa.media) and [notes](notes.md)")).toEqual([
+      ["supa.media", "https://supa.media"],
+    ]);
+  });
+
   test("text that only looks like a scheme is not linked", () => {
     expect(links("javascript:alert(1) and https://")).toEqual([]);
   });

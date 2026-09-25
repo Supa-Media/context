@@ -9,10 +9,24 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 
 /** Below this the menu folds under one "Menu" button. */
 export const PHONE = 640;
+/** From here the site is laid out for a desktop screen, not a column. */
+export const DESKTOP = 1024;
+
+export type SiteSize = "phone" | "tablet" | "desktop";
+
+/** Which of the site's three layouts the window calls for. */
+export function useSiteSize(): SiteSize {
+  const width = useWindowDimensions().width;
+  return width < PHONE ? "phone" : width < DESKTOP ? "tablet" : "desktop";
+}
 
 /**
  * The chrome of a published website: the site's name and menu at the top, the
  * page column, and one quiet footer line.
+ *
+ * On a phone it is one column. Wider, the name and menu span a wide frame,
+ * the prose keeps a reading measure aligned under the name, and a short page
+ * still fills the window with the footer at its foot.
  *
  * None of the console is here — no card, no stage, no app header. A visitor is
  * reading somebody's site, and it should look like theirs. The menu is what
@@ -36,7 +50,9 @@ export function SiteFrame({
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const phone = useWindowDimensions().width < PHONE;
+  const size = useSiteSize();
+  const phone = size === "phone";
+  const desktop = size === "desktop";
   const [open, setOpen] = useState(false);
   // A new page (back, forward, a link in the body) closes the menu too.
   useEffect(() => setOpen(false), [current]);
@@ -55,7 +71,12 @@ export function SiteFrame({
     >
       <Text
         variant="body"
-        style={[styles.navItem, phone && styles.sheetItem, item.routePath === current && styles.navCurrent]}
+        style={[
+          styles.navItem,
+          phone && styles.sheetItem,
+          desktop && styles.navItemDesktop,
+          item.routePath === current && styles.navCurrent,
+        ]}
       >
         {item.title}
       </Text>
@@ -65,10 +86,10 @@ export function SiteFrame({
     // The ground sits outside the scroller so the status-bar band a phone
     // holds back is the page's colour, not a gap.
     <View style={styles.page}>
-      <ScreenScroll contentContainerStyle={styles.scroll}>
-        <View style={styles.header} role="banner">
+      <ScreenScroll contentContainerStyle={[styles.scroll, !phone && styles.scrollWide, desktop && styles.scrollDesktop]}>
+        <View style={[styles.header, !phone && styles.frameWide, desktop && styles.headerDesktop]} role="banner">
           <Pressable accessibilityRole="link" onPress={() => go("/")} testID="site-name">
-            <Text variant="body" style={styles.name}>
+            <Text variant="body" style={[styles.name, desktop && styles.nameDesktop]}>
               {name}
             </Text>
           </Pressable>
@@ -86,7 +107,7 @@ export function SiteFrame({
               </Text>
             </Pressable>
           ) : (
-            <View style={styles.nav} role="navigation">
+            <View style={[styles.nav, desktop && styles.navDesktop]} role="navigation">
               {links}
             </View>
           )}
@@ -97,12 +118,22 @@ export function SiteFrame({
           </View>
         ) : null}
         <View
-          style={[styles.column, phone && styles.columnPhone, phone && open && styles.columnUnderSheet]}
+          style={[
+            styles.column,
+            phone ? styles.columnPhone : styles.frameWide,
+            desktop && styles.columnDesktop,
+            phone && open && styles.columnUnderSheet,
+          ]}
           role="main"
         >
-          {children}
+          <View style={[styles.measure, desktop && styles.measureDesktop]}>{children}</View>
         </View>
-        <View style={styles.footer}>
+        <View style={[styles.footer, !phone && styles.footerWide, desktop && styles.footerDesktop]}>
+          {phone ? null : (
+            <Text variant="body" style={styles.foot}>
+              {`© ${name}`}
+            </Text>
+          )}
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(madeWith).catch(() => undefined)}>
             <Text variant="body" style={styles.foot}>
               Made with Context
@@ -118,6 +149,10 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     page: { flex: 1, backgroundColor: colors.ground },
     scroll: { flexGrow: 1, alignItems: "center", paddingHorizontal: 22 },
+    scrollWide: { paddingHorizontal: 40 },
+    scrollDesktop: { paddingHorizontal: 56 },
+    // Tablet and desktop: header, page and footer share one wide frame.
+    frameWide: { maxWidth: 1200 },
     header: {
       width: "100%",
       maxWidth: 640,
@@ -127,6 +162,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "space-between",
       gap: 16,
     },
+    headerDesktop: { height: 96 },
     name: {
       fontSize: siteType.name,
       fontWeight: "600",
@@ -134,6 +170,7 @@ const makeStyles = (colors: Colors) =>
       lineHeight: 22,
       letterSpacing: -0.2,
     },
+    nameDesktop: { fontSize: siteType.nameDesktop, lineHeight: 24, letterSpacing: -0.3 },
     nav: {
       flexDirection: "row",
       gap: 26,
@@ -141,7 +178,9 @@ const makeStyles = (colors: Colors) =>
       flexWrap: "wrap",
       justifyContent: "flex-end",
     },
+    navDesktop: { gap: 32 },
     navItem: { fontSize: siteType.nav, color: colors.muted },
+    navItemDesktop: { fontSize: siteType.navDesktop },
     navCurrent: {
       color: colors.text,
       textDecorationLine: "underline",
@@ -162,21 +201,26 @@ const makeStyles = (colors: Colors) =>
     column: {
       width: "100%",
       maxWidth: 640,
-      // The footer follows the page rather than being pinned to the window,
-      // so a short page never has a hairline floating under a gap.
-      paddingTop: 64,
+      // Wider than a phone, the page grows to fill the window so a short
+      // page's footer rests at its foot rather than floating mid-screen.
+      flexGrow: 1,
+      paddingTop: 80,
       paddingBottom: 96,
     },
-    columnPhone: { paddingTop: 48, paddingBottom: 72 },
+    columnPhone: { flexGrow: 0, paddingTop: 48, paddingBottom: 72 },
+    columnDesktop: { paddingTop: 112, paddingBottom: 128 },
+    // Prose keeps a reading measure, aligned under the site's name.
+    measure: { width: "100%", maxWidth: 640 },
+    measureDesktop: { maxWidth: 680 },
     columnUnderSheet: { paddingTop: 32 },
     footer: {
       width: "100%",
       maxWidth: 640,
       flexDirection: "row",
-      paddingTop: 20,
+      paddingTop: 16,
       paddingBottom: 32,
-      borderTopWidth: 1,
-      borderTopColor: colors.line,
     },
-    foot: { fontSize: siteType.foot, color: colors.muted },
+    footerWide: { justifyContent: "space-between", alignItems: "baseline", paddingTop: 24, maxWidth: 1200 },
+    footerDesktop: { paddingBottom: 40 },
+    foot: { fontSize: siteType.foot, lineHeight: 18, color: colors.muted },
   });

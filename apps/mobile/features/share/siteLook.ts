@@ -35,6 +35,30 @@ export const SITE_HEADING_SIZE = StyleSheet.create({
   h6: { fontSize: siteType.code, lineHeight: leading(siteType.code, 1.4), marginTop: 14, fontWeight: "600" },
 });
 
+/**
+ * The same look on a wide screen: a larger display heading and a slightly
+ * larger body, so a desktop page reads as designed for its width rather than
+ * a phone column. Only sizes and spacing change.
+ */
+const WIDE = siteType.bodyDesktop;
+export const SITE_WIDE_HEADING_SIZE = StyleSheet.create({
+  ...SITE_HEADING_SIZE,
+  h1: { ...serif, fontSize: siteType.h1Desktop, lineHeight: leading(siteType.h1Desktop, 1.05), letterSpacing: -1.2 },
+  h2: { ...serif, fontSize: siteType.h2Desktop, lineHeight: leading(siteType.h2Desktop, 1.2), marginTop: 56 },
+  h4: { fontSize: WIDE, lineHeight: leading(WIDE, 1.4), marginTop: 16, fontWeight: "600" },
+});
+
+export const makeSiteWideStyles = () => {
+  const run = { fontSize: WIDE, lineHeight: leading(WIDE, 1.6) };
+  return StyleSheet.create({
+    body: { gap: 28 },
+    paragraph: run,
+    marker: run,
+    itemText: run,
+    quoteText: run,
+  });
+};
+
 export const makeSiteStyles = (colors: Colors) => {
   const run = { fontSize: BODY, lineHeight: leading(BODY, 1.65) };
   return StyleSheet.create({
