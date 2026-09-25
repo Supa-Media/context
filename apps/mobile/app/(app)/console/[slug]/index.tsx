@@ -19,6 +19,7 @@ import { useNoteAddress } from "../../../../features/console/useNoteAddress";
 import { useNoteUrl } from "../../../../features/console/useNoteUrl";
 import { BrowsePane } from "../../../../features/console/panes/BrowsePane";
 import { SetupWidgetHost } from "../../../../features/console/setupWidget/SetupWidgetHost";
+import type { SetupAgent } from "../../../../features/agentSetup/guides";
 import { selectedContext } from "../../../../features/console/types";
 import { visibilityTierForRole } from "../../../../features/console/visibility";
 
@@ -173,6 +174,13 @@ export default function ContextBrowseRoute() {
       : (section?: SettingsSectionKey) =>
           router.setParams({ settings: section ?? DEFAULT_SETTINGS_SECTION });
 
+  /*
+    The guided Claude/ChatGPT setup, drawn by the console layout from
+    `?connect=` — `setParams` for `openSettings`' reason: the note stays open
+    underneath and in the URL.
+  */
+  const connectAgent = (agent: SetupAgent) => router.setParams({ connect: agent });
+
   return (
     <View style={{ flex: 1 }}>
       <BrowsePane
@@ -193,6 +201,7 @@ export default function ContextBrowseRoute() {
           was the first attempt and closed only the first half.
         */
         onNavigate={(href) => router.push(href)}
+        onConnectAgent={connectAgent}
         pendingNote={note}
         anchor={anchor}
         /*
@@ -213,6 +222,7 @@ export default function ContextBrowseRoute() {
         data={data}
         onOpenSettings={openSettings}
         onNavigate={(href) => router.push(href)}
+        onConnectAgent={connectAgent}
       />
     </View>
   );

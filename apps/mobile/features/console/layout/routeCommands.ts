@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { agentFromQuery } from "../../agentSetup/guides";
 import { checkoutOutcomeFrom } from "@context/shared";
 import {
   useOptionalGlobalSearchParams,
@@ -24,6 +25,7 @@ export function useConsoleParams() {
   const settingsParams = useOptionalGlobalSearchParams<{
     settings?: string | string[];
     checkout?: string | string[];
+    connect?: string | string[];
   }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
   /*
@@ -37,7 +39,9 @@ export function useConsoleParams() {
   const checkoutReturn = checkoutOutcomeFrom(
     Array.isArray(rawCheckout) ? rawCheckout[0] : rawCheckout,
   );
-  return { quickParams, openSettingsSection, checkoutReturn };
+  // The guided agent setup, over whatever is open — see `AgentSetupOverlay`.
+  const connectAgent = agentFromQuery(settingsParams.connect);
+  return { quickParams, openSettingsSection, checkoutReturn, connectAgent };
 }
 
 /**

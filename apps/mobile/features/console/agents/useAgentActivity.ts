@@ -28,6 +28,12 @@ export const AGENT_ACTIVITY_POLL_MS = 30_000;
 export function useAgentActivity(
   workspaceId: string | null,
   endpoint: string | null,
+  /**
+   * How often to ask. The setup guide asks every few seconds while it is
+   * watching an agent write, because there somebody is looking at the list
+   * waiting for it to move; everywhere else the sidebar's half minute holds.
+   */
+  pollMs: number = AGENT_ACTIVITY_POLL_MS,
 ): AgentActivityView | undefined {
   const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
   const [view, setView] = useState<{ workspaceId: string; view: AgentActivityView } | null>(null);
@@ -48,7 +54,7 @@ export function useAgentActivity(
     // One timer at a time, however the last read was started.
     const schedule = () => {
       if (timer !== undefined) clearTimeout(timer);
-      if (!stopped) timer = setTimeout(read, AGENT_ACTIVITY_POLL_MS);
+      if (!stopped) timer = setTimeout(read, pollMs);
     };
     const read = async () => {
       if (stopped || inFlight) return;
@@ -89,7 +95,7 @@ export function useAgentActivity(
       if (timer !== undefined) clearTimeout(timer);
       if (listens) window.removeEventListener("visibilitychange", again);
     };
-  }, [workspaceId, endpoint]);
+  }, [workspaceId, endpoint, pollMs]);
 
   // Never another workspace's marks on this one's tree, even for a frame.
   return view !== null && view.workspaceId === workspaceId ? view.view : undefined;

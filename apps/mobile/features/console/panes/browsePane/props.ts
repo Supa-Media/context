@@ -1,3 +1,4 @@
+import type { SetupAgent } from "../../../agentSetup/guides";
 import type { Presence } from "../../presence/usePresence";
 import type { DrawingCollaboration } from "../../files/drawingCollaboration";
 import type { ConsoleData } from "../../types";
@@ -59,4 +60,10 @@ export type BrowsePaneProps = {
    * and without one those rows are drawn as text rather than as dead links.
    */
   onNavigate?: (href: string) => void;
+  /**
+   * Opens the guided Claude/ChatGPT setup over this context (`?connect=`).
+   * Absent in the demo and the fixtures, where the welcome card then offers
+   * Connections instead.
+   */
+  onConnectAgent?: (agent: SetupAgent) => void;
 };

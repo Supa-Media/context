@@ -3,6 +3,8 @@ import { Text } from "../../../design/components/Text";
 import { pointerType as t, radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { WELCOME_ROUTE } from "../../../onboarding/route";
+import { LiveAgentTiles } from "../../../agentSetup/AgentTiles";
+import type { SetupAgent } from "../../../agentSetup/guides";
 import { appSectionHref } from "../../nav";
 import type { SharedWelcome } from "../../sharedWelcome";
 
@@ -19,11 +21,16 @@ export function SharedWelcomeCard({
   text,
   onDismiss,
   onNavigate,
+  onConnectAgent,
+  workspaceId,
 }: {
   welcome: SharedWelcome;
   text: string;
   onDismiss: () => void;
   onNavigate?: (href: string) => void;
+  /** The guided setup for this workspace; without it, the row opens Connections. */
+  onConnectAgent?: (agent: SetupAgent) => void;
+  workspaceId?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   const go = (href: string) => (onNavigate === undefined ? undefined : () => onNavigate(href));
@@ -37,14 +44,28 @@ export function SharedWelcomeCard({
       </View>
 
       <Row mark="✓" done title="You're in" sub={text} />
-      <Row
-        mark="●"
-        title="Connect a tool to your Context"
-        sub="One endpoint reads every workspace you belong to."
-        action="Open →"
-        onPress={go(appSectionHref("connections"))}
-        testID="shared-welcome-connect"
-      />
+      {onConnectAgent !== undefined && workspaceId !== undefined ? (
+        <>
+          <Row
+            mark="●"
+            title={`Connect your AI to ${welcome.handle}`}
+            sub="So it knows what the team knows. Cursor, Codex and others are in Connections."
+            testID="shared-welcome-connect"
+          />
+          <View style={styles.tiles}>
+            <LiveAgentTiles workspaceId={workspaceId} onOpen={onConnectAgent} />
+          </View>
+        </>
+      ) : (
+        <Row
+          mark="●"
+          title="Connect a tool to your Context"
+          sub="One endpoint reads every workspace you belong to."
+          action="Open →"
+          onPress={go(appSectionHref("connections"))}
+          testID="shared-welcome-connect"
+        />
+      )}
       {welcome.offerPersonal ? (
         <Row
           mark="○"
@@ -133,6 +154,7 @@ const makeStyles = (colors: Colors) =>
       overflow: "hidden",
     },
     row: { flexDirection: "row", alignItems: "flex-start", gap: space.x3 },
+    tiles: { paddingLeft: 16 + space.x3 },
     mark: { width: 16, fontSize: t.ui, color: colors.accent, textAlign: "center" },
     markDone: { color: colors.okText },
     rowText: { flex: 1, gap: 2 },

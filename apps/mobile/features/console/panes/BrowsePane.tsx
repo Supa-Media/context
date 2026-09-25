@@ -72,6 +72,7 @@ export function BrowsePane({
   anchor,
   onOpenComms,
   onNavigate,
+  onConnectAgent,
 }: BrowsePaneProps) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
@@ -230,6 +231,7 @@ export function BrowsePane({
       compact={compact}
       onOpenSettings={onOpenSettings}
       onNavigate={onNavigate}
+      onConnectAgent={onConnectAgent}
       setup={setup}
       introVisible={introVisible}
       intro={intro}

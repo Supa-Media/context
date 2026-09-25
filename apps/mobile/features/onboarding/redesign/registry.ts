@@ -21,8 +21,6 @@ import type { ComponentType } from "react";
 import type { ClientRow } from "./ConnectionsStep";
 import { ConnectionsStep } from "./ConnectionsStep";
 import { ForkStep } from "./ForkStep";
-import { ClaudeGuideStep } from "./ClaudeGuideStep";
-import { ChatGPTGuideStep } from "./ChatGPTGuideStep";
 import { BootstrapStep } from "./BootstrapStep";
 import { BOOTSTRAP_PROMPT } from "../agents";
 import { ToolsLiveStep, type LiveEvent } from "./ToolsLiveStep";
@@ -35,12 +33,11 @@ import { SetupWidget } from "../../console/setupWidget/SetupWidget";
 import { SetupDone } from "../../console/setupWidget/SetupDone";
 import { setupView } from "../../console/setupWidget/rules";
 import type { ConsoleStorage } from "../../console/types";
+import { AGENT_SETUP_PREVIEWS, type AgentSetupPreviewKey } from "../../agentSetup/previews";
 
 export type PreviewKey =
   | "fork"
   | "connections"
-  | "claude-guide"
-  | "chatgpt-guide"
   | "bootstrap"
   | "tools-live-waiting"
   | "tools-live-connected"
@@ -49,7 +46,8 @@ export type PreviewKey =
   | "point-at-bucket"
   | "setup-widget"
   | "setup-done"
-  | "laying-out";
+  | "laying-out"
+  | AgentSetupPreviewKey;
 
 const MOCK_CLIENTS: ClientRow[] = [
   { key: "claude-desktop", name: "Claude Desktop", status: "not-connected", hasGuide: true },
@@ -120,18 +118,6 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     props: { clients: MOCK_CLIENTS, onOpenGuide: noop, onSkip: noop },
   },
   {
-    key: "claude-guide",
-    title: "A-11 · Claude Desktop setup",
-    Component: ClaudeGuideStep as ComponentType<Record<string, unknown>>,
-    props: { onDone: noop, onBack: noop },
-  },
-  {
-    key: "chatgpt-guide",
-    title: "A-10 · ChatGPT setup",
-    Component: ChatGPTGuideStep as ComponentType<Record<string, unknown>>,
-    props: { onDone: noop, onBack: noop },
-  },
-  {
     key: "bootstrap",
     title: "A-13 · Bootstrap from AI",
     Component: BootstrapStep as ComponentType<Record<string, unknown>>,
@@ -174,7 +160,9 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     props: {
       slug: "seyi",
       view: MOCK_SETUP,
-      actions: { onOpenStorage: noop, onOpenTools: noop, onCopyBootstrap: copied, onPutAway: noop },
+      actions: { onOpenStorage: noop, onOpenConnections: noop, onOpenGuide: noop, onPutAway: noop },
+      workspaceId: "preview",
+      grants: [],
     },
   },
   {
@@ -189,6 +177,9 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     Component: LayingOutPage as ComponentType<Record<string, unknown>>,
     props: { contextLabel: "@seyi", done: false },
   },
+  ...(Object.entries(AGENT_SETUP_PREVIEWS) as Array<[AgentSetupPreviewKey, (typeof AGENT_SETUP_PREVIEWS)[AgentSetupPreviewKey]]>).map(
+    ([key, preview]) => ({ key, ...preview }),
+  ),
 ];
 
 export function previewFor(key: string | undefined): PreviewEntry | undefined {

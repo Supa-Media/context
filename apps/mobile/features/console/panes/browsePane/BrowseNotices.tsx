@@ -27,6 +27,7 @@ export function BrowseNotices({
   compact,
   onOpenSettings,
   onNavigate,
+  onConnectAgent,
   setup,
   introVisible,
   intro,
@@ -43,6 +44,7 @@ export function BrowseNotices({
   compact: boolean;
   onOpenSettings: BrowsePaneProps["onOpenSettings"];
   onNavigate?: BrowsePaneProps["onNavigate"];
+  onConnectAgent?: BrowsePaneProps["onConnectAgent"];
   setup: BrowseNoticeState["setup"];
   introVisible: boolean;
   intro: BrowseNoticeState["intro"];
@@ -99,6 +101,8 @@ export function BrowseNotices({
           text={intro!.text}
           onDismiss={introAnswer.dismiss}
           onNavigate={onNavigate}
+          onConnectAgent={onConnectAgent}
+          workspaceId={current?.id}
         />
       ) : introVisible ? (
         <View style={styles.notice} testID="browse-context-intro">
