@@ -21,6 +21,7 @@
 export interface ScaffoldStore {
   get(key: string): Promise<{
     etag: string;
+    uploaded?: Date;
     text(): Promise<string>;
     arrayBuffer(): Promise<ArrayBuffer>;
   } | null>;

@@ -45,6 +45,8 @@ export async function websiteLinkCatalogHandler(
             kind: "route" as const,
             objectKey: row.objectKey,
             href: row.routePath,
+            audience: row.audience,
+            sourceEtag: row.sourceEtag,
           },
         ]
       : [],
@@ -70,6 +72,8 @@ export async function websiteLinkCatalogHandler(
       kind: "share",
       objectKey: share.entryPath,
       href: `${SHARE_ROUTE}/${share.token}`,
+      audience: "public",
+      sourceEtag: null,
     });
   }
 

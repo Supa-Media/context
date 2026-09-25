@@ -42,3 +42,7 @@ export { parseListBlocks, parseListBody } from "./lists/parseBlock.js";
 export { renderListBlock } from "./lists/renderBlock.js";
 export { selectListRows } from "./lists/select.js";
 export { noteProperties } from "./lists/properties.js";
+export {
+  MAX_EVALUATED_LIST_BLOCKS,
+  renderEvaluatedListBlocks,
+} from "./lists/evaluate.js";

@@ -20,6 +20,7 @@ import {
   websiteReferencedSharePaths,
   type WebsiteLinkOptions,
 } from "./links";
+import { renderPublicWebsiteLists } from "./lists";
 
 type SiteShell = {
   siteName: string;
@@ -41,6 +42,7 @@ export type WebsiteResolutionPlan =
       audience: WebsiteRouteAudience;
       title: string;
       description: string | null;
+      viewerAudience: WebsiteRouteAudience;
     } & SiteShell);
 
 const NO_SITE: Extract<WebsiteResolutionPlan, { kind: "unavailable" }> = {
@@ -171,6 +173,9 @@ export async function websiteResolutionPlanHandler(
   if (route.routePath === null || route.title === null)
     return unavailable(shell);
 
+  const member =
+    args.actorUserId !== null &&
+    (await hasWorkspaceMembership(ctx, workspace._id, args.actorUserId));
   if (route.audience === "members") {
     if (args.actorUserId === null) {
       return {
@@ -179,7 +184,7 @@ export async function websiteResolutionPlanHandler(
         signInPath: signInPath(handle, route.routePath),
       };
     }
-    if (!(await hasWorkspaceMembership(ctx, workspace._id, args.actorUserId))) {
+    if (!member) {
       return unavailable(shell);
     }
   }
@@ -194,6 +199,7 @@ export async function websiteResolutionPlanHandler(
     audience: route.audience,
     title: route.title,
     description: route.description,
+    viewerAudience: member ? "members" : "public",
   };
 }
 
@@ -261,7 +267,14 @@ export async function resolveWebsitePageHandler(
     ownedHosts: catalog.ownedHosts,
     catalog: catalog.entries,
   };
-  const sharePaths = websiteReferencedSharePaths(parsed.body, linkOptions);
+  const withLists = await renderPublicWebsiteLists(ctx, {
+    workspaceId: plan.workspaceId,
+    markdown: parsed.body,
+    selfPath: plan.objectKey,
+    viewerAudience: plan.viewerAudience,
+    catalog: catalog.entries,
+  });
+  const sharePaths = websiteReferencedSharePaths(withLists, linkOptions);
   const readableShares = new Set<string>();
   if (sharePaths.length > 0) {
     const shares = await ctx
@@ -288,7 +301,7 @@ export async function resolveWebsitePageHandler(
     audience: plan.audience,
     title: plan.title,
     description: plan.description,
-    markdown: rewriteWebsiteLinks(parsed.body, linkOptions, readableShares),
+    markdown: rewriteWebsiteLinks(withLists, linkOptions, readableShares),
     navigation: plan.navigation,
   };
 }

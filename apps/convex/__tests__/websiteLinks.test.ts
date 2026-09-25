@@ -6,12 +6,26 @@ import {
 } from "../functions/lib/websites/links";
 
 const catalog: WebsiteLinkCatalogEntry[] = [
-  { kind: "route", objectKey: "website/index.md", href: "/" },
-  { kind: "route", objectKey: "website/about.md", href: "/about" },
+  {
+    kind: "route",
+    objectKey: "website/index.md",
+    href: "/",
+    audience: "public",
+    sourceEtag: "index-etag",
+  },
+  {
+    kind: "route",
+    objectKey: "website/about.md",
+    href: "/about",
+    audience: "public",
+    sourceEtag: "about-etag",
+  },
   {
     kind: "share",
     objectKey: "1-projects/shared.md",
     href: "/s/public-token",
+    audience: "public",
+    sourceEtag: null,
   },
 ];
 
@@ -96,6 +110,8 @@ describe("website link publication", () => {
         kind: "route",
         objectKey: "website/team/about.md",
         href: "/team/about",
+        audience: "public",
+        sourceEtag: "nested-about-etag",
       },
     ];
     expect(

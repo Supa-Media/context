@@ -31,6 +31,8 @@ export interface FileContents {
   etag: string;
   /** Provider object version, retained for mirror freshness checks. */
   rawEtag?: string;
+  /** Provider-reported last save time, when this backend supplies one. */
+  updatedAt?: number;
   visibility: Visibility;
   inherited: Visibility;
   exception: boolean;
@@ -131,6 +133,9 @@ async function readVisibleFile(
     text: collaboration?.text ?? text,
     etag: collaboration?.etag ?? object.etag,
     ...(collaboration ? { rawEtag: collaboration.rawEtag } : {}),
+    ...(object.uploaded instanceof Date && Number.isFinite(object.uploaded.valueOf())
+      ? { updatedAt: object.uploaded.valueOf() }
+      : {}),
     visibility: described.visibility,
     inherited: described.inherited,
     exception: described.exception,

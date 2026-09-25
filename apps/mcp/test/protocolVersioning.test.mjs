@@ -48,7 +48,7 @@ export async function runProtocolVersioningChecks() {
   );
 
   const modernList = await modernFetch({ method: "tools/list" });
-  check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 41);
+  check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 42);
   check(
     "modern tools/list carries the required freshness hints",
     typeof modernList.body.result?.ttlMs === "number" &&
@@ -274,7 +274,7 @@ export async function runProtocolVersioningChecks() {
   // --- and now the half that must not have moved: legacy clients ---
   check(
     "a legacy client sending no version header still works",
-    (await rpc("priv-token", "tools/list"))?.result?.tools.length === 41
+    (await rpc("priv-token", "tools/list"))?.result?.tools.length === 42
   );
   async function legacyWithVersionHeader(version) {
     return worker.fetch(

@@ -42,6 +42,7 @@ import { toolRotateEncryptionKeys } from "./encryption/rotate.js";
 import { toolSaveContext } from "./saveContext.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "./visibility.js";
 import { toolWriteNote } from "./notes/write.js";
+import { toolEvaluateLists } from "./evaluateLists.js";
 
 export async function callTool(name, args, store, scope) {
   const privacy = await loadPrivacyState(store);
@@ -60,6 +61,8 @@ export async function callTool(name, args, store, scope) {
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
       return toolReadNote(store, scope, rules, overrides, args.path);
+    case "evaluate_lists":
+      return toolEvaluateLists(store, scope, rules, overrides, args.path);
     case "list_meetings":
       return toolListMeetings(store, scope, rules, overrides, args.limit);
     case "read_meeting":
