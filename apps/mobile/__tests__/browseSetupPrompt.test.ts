@@ -341,6 +341,9 @@ describe("a layout on its way is not a broken context", () => {
   test("draws the folders being written, and neither warns nor offers", () => {
     const { container, unmount } = mount(writing(), () => {});
     expect(find(container, "browse-laying-out")?.textContent).toMatch(/Setting up/);
+    // Where a note would be — in place of "Choose a note", not stretched
+    // across the notice band above it.
+    expect(container.textContent).not.toMatch(/Choose a note/);
     // The standard folders and the privacy file, each still on its way.
     for (const row of ["1-projects", "2-areas", "3-resources", "4-archive", "privacy.md"]) {
       expect(find(container, `browse-laying-out-${row}`)).not.toBeNull();
@@ -390,7 +393,7 @@ describe("a layout on its way is not a broken context", () => {
       // Landed, and the root on screen is still the one read before it: the
       // card stays, ticked, and the warning stays away.
       render(emptyContextConsole({ scaffoldReason: "created", manifestUsable: false }));
-      expect(find(container, "browse-laying-out")?.textContent).toMatch(/is ready/);
+      expect(find(container, "browse-laying-out")?.textContent).toMatch(/folders are ready/);
       // Every row ticked — the folders and the privacy file alike.
       const rows = container.querySelectorAll('[data-testid^="browse-laying-out-"]').length;
       expect(rows).toBeGreaterThan(1);

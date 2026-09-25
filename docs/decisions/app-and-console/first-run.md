@@ -27,8 +27,10 @@ over the workspace once all four are true. It lives in
   first owner to sign up spent them looking at a fails-closed warning that
   `privacy.md` was missing. The binding now carries `scaffoldQueuedAt` from
   the queue until the job reports back, so the console opens knowing a layout
-  is on its way and draws the folders with spinners (`LayingOutFolders`),
-  ticks them once it lands, and re-reads the root. The warning and the
+  is on its way and draws the folders with spinners (`LayingOutFolders`) in
+  the document area, where a note would be — one line and a row of chips
+  beside the sidebar, never a band across the whole pane — ticks them once it
+  lands, and re-reads the root. The warning and the
   "empty" card wait for the truth, and a stamp nobody answers stops counting
   after two minutes. A holding screen in `/welcome` was built first and
   replaced the same day: the owner wanted the person in their workspace, with

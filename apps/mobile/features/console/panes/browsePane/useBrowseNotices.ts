@@ -77,9 +77,9 @@ export function useBrowseNotices({
     For the seconds after "Start fresh" the bucket has no `privacy.md` yet, and
     this band used to say so as a fails-closed privacy warning — to somebody
     who had signed up a moment before. While the layout is being written the
-    band shows the folders being written instead (`setup.kind === "writing"`,
-    drawn by `LayingOutFolders`), and the warning waits for a manifest that is
-    actually missing.
+    document area shows the folders being written instead (`setup.kind ===
+    "writing"`, drawn by `LayingOutFolders` where a note would be), and the
+    warning waits for a manifest that is actually missing.
   */
   const writing = setup.kind === "writing";
   /*
@@ -245,7 +245,6 @@ export function useBrowseNotices({
   const hasNotice =
     introVisible ||
     setupPromptVisible(setup) ||
-    layingOut !== null ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||

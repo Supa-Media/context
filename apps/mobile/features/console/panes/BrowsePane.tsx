@@ -231,7 +231,6 @@ export function BrowsePane({
       onOpenSettings={onOpenSettings}
       onNavigate={onNavigate}
       setup={setup}
-      layingOut={layingOut}
       introVisible={introVisible}
       intro={intro}
       introAnswer={introAnswer}
@@ -297,6 +296,7 @@ export function BrowsePane({
       noteEncryption={noteEncryption}
       notices={notices}
       pathBar={pathBar}
+      layingOut={layingOut}
     />
   );
 

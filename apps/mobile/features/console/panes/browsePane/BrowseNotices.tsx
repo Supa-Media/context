@@ -15,7 +15,6 @@ import { makeStyles } from "./styles";
 import type { BrowseNoticeState } from "./useBrowseNotices";
 import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
-import { LayingOutFolders } from "./LayingOutFolders";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
@@ -29,7 +28,6 @@ export function BrowseNotices({
   onOpenSettings,
   onNavigate,
   setup,
-  layingOut,
   introVisible,
   intro,
   introAnswer,
@@ -46,8 +44,6 @@ export function BrowseNotices({
   onOpenSettings: BrowsePaneProps["onOpenSettings"];
   onNavigate?: BrowsePaneProps["onNavigate"];
   setup: BrowseNoticeState["setup"];
-  /** The folders after "Start fresh": being written, or just written. */
-  layingOut: BrowseNoticeState["layingOut"];
   introVisible: boolean;
   intro: BrowseNoticeState["intro"];
   introAnswer: BrowseNoticeState["introAnswer"];
@@ -82,11 +78,6 @@ export function BrowseNotices({
         and hiding a fails-closed privacy notice because a fix is on offer is
         the wrong way round.
       */}
-      {layingOut !== null ? (
-        <View style={styles.notice}>
-          <LayingOutFolders slug={current?.slug ?? null} done={layingOut === "done"} />
-        </View>
-      ) : null}
 
       {setupPromptVisible(setup) && current?.id !== undefined ? (
         <SetupPrompt
