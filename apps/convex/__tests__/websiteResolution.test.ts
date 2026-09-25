@@ -490,9 +490,9 @@ describe("public website resolution", () => {
     }
   });
 
-  test("a stale generation fails closed before opening the bucket", async () => {
+  test("a stale index still serves a page its live bytes vouch for, without a menu", async () => {
     const f = await fixture();
-    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld\n");
+    f.backend.seed("website/index.md", "---\ntitle: Home\nnav: 1\n---\n\nOld\n");
     await publish(f);
     await f.t.run(async (ctx) => {
       const state = await ctx.db
@@ -502,6 +502,40 @@ describe("public website resolution", () => {
       await ctx.db.patch(state!._id, {
         routeGeneration: (state?.routeGeneration ?? 0) + 1,
       });
+    });
+
+    await expect(
+      f.t.action(api.functions.websites.resolvePage, {
+        handle: "atlas",
+        routePath: "/",
+      }),
+    ).resolves.toMatchObject({ kind: "page", title: "Home", navigation: [] });
+  });
+
+  test("an ordinary edit is served as saved, not refused until the rebuild", async () => {
+    const f = await fixture();
+    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld\n");
+    await publish(f);
+    f.backend.seed("website/index.md", "---\ntitle: Hello\n---\n\nHi, I'm Atlas.\n");
+
+    const resolved = await f.t.action(api.functions.websites.resolvePage, {
+      handle: "atlas",
+      routePath: "/",
+    });
+    expect(resolved).toMatchObject({ kind: "page", title: "Hello" });
+    expect(JSON.stringify(resolved)).toContain("Hi, I'm Atlas.");
+  });
+
+  test("a site whose index has never been built opens nothing", async () => {
+    const f = await fixture();
+    f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld\n");
+    await publish(f);
+    await f.t.run(async (ctx) => {
+      const state = await ctx.db
+        .query("websiteStates")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .unique();
+      await ctx.db.patch(state!._id, { routeReconciledGeneration: undefined });
     });
     const before = f.backend.requests.length;
 
@@ -538,7 +572,7 @@ describe("public website resolution", () => {
         .unique(),
     );
     expect(state?.routeGeneration).not.toBe(state?.routeReconciledGeneration);
-    const before = f.backend.requests.length;
+    // The page became members-only: the stale public row cannot serve it.
     await expect(
       f.t.action(api.functions.websites.resolvePage, {
         handle: "atlas",
@@ -549,7 +583,6 @@ describe("public website resolution", () => {
       siteName: "Atlas Studio",
       navigation: [],
     });
-    expect(f.backend.requests).toHaveLength(before);
   });
 
   test("changed source bytes are never served through a stale etag", async () => {
