@@ -110,3 +110,43 @@ write too), and a list-valued property is never offered as one choice.
 `apps/mcp/test/listSetProperty.test.mjs` fails if the change touches any other
 byte or writes a value that reads back differently; `useFolderListsEdit.test.ts`
 fails if a member is offered the edit.
+
+## A folder page shows its children by status
+
+A folder's own page is where projects are seen and set, with no block to write.
+Every folder page offers **Files · List · Board** on its title's row: Files is
+the listing as it always was, List groups the folder's children by `status`,
+Board draws the same groups as columns. A folder opens in List once anything
+in it has a status, and in Files otherwise; what each viewer picks is
+remembered per folder in that browser's storage, never shared and never
+required. When two or more subfolders exist and nothing has a status yet, one
+quiet line offers the list, and closing it is per viewer too.
+
+It differs from `rows: projects` on purpose. A list block shows what already
+*is* a project; a folder page is where something becomes one. So every folder
+and every note in the folder is an item, and everything unset sits in one
+"No status" group with `Set status`, rather than being left out or held back in
+a bucket of its own. A note's status is written into the note; a folder's into
+its front note by the same `overview.md` > `index.md` > `README.md` order; and
+a folder with none gets a new `overview.md` holding only that frontmatter —
+the menu says "Saves to overview.md" before anything is pressed. The
+`README.md` a new folder is made with does not count while it still says only
+that it is a placeholder: a status written there would live in a file the
+console does not list and whose own text says to delete it. The create is the
+ordinary one — `files.writeNote` with no version, which the server refuses if a
+note appeared meanwhile, and that refusal is read and retried like any conflict,
+so nothing is ever replaced.
+
+A project folder's page is titled by its front note (the title opens it) and
+says `status · owner · updated` under the title, with the note's first
+paragraph beneath, and the Files listing below that. It never renders the
+whole note: that would be two places to edit one note.
+
+Everything is read from the same device copy a list block reads, at the role's
+clearance, so the page can only describe notes the reader could already open;
+and the writes are the list's own (`writeNoteProperty`), gated the same way —
+owner and editor, never member. `apps/mobile/__tests__/folderPageView.test.ts`
+fails if a member is shown a control, if a folder's status goes anywhere but its
+front note or a new `overview.md`, or if the unset items are not one group;
+`folderPageModel.test.ts` pins the front-note order and the placeholder rule;
+`listEdit.test.ts` fails if a missing note is created without being asked.

@@ -70,6 +70,8 @@ export interface ListNote {
   readonly properties: Readonly<Record<string, PropertyValue>>;
   /** The note's first heading, which names a project with no `title`. */
   readonly heading?: string | null;
+  /** The note's first paragraph, which a folder page draws under its title. */
+  readonly lede?: string | null;
 }
 
 export interface ListRow {
@@ -124,8 +126,11 @@ export interface FolderListSource {
    * Change one frontmatter property of one listed note; `null` clears it.
    * Resolves to `null` once written, or to a sentence saying why not. Absent
    * where the reader may not write, and a list then offers no edits.
+   *
+   * `create` is for a folder page setting a folder's first property: the note
+   * may not exist yet, and is then written new (see `writeNoteProperty`).
    */
-  setProperty?(path: string, key: string, value: string | null): Promise<string | null>;
+  setProperty?(path: string, key: string, value: string | null, options?: { create?: boolean }): Promise<string | null>;
 }
 
 /** What the notes for one list came back as. */

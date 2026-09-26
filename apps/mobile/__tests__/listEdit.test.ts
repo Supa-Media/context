@@ -164,7 +164,7 @@ describe("changing a value from a list", () => {
 
 describe("the read, the change and the write", () => {
   function io(notes: Record<string, { text: string; etag: string; encrypted?: boolean; readOnly?: boolean }>, fail: string[] = []) {
-    const written: Array<[string, string, string]> = [];
+    const written: Array<[string, string, string | undefined]> = [];
     const store: NoteReadWrite = {
       read: async (path) => {
         const note = notes[path];
@@ -219,5 +219,59 @@ describe("the read, the change and the write", () => {
   test("a note that cannot be read is said so", async () => {
     const { store } = io({});
     expect(await writeNoteProperty(store, "x.md", "status", "active")).toMatch(/could not be opened/);
+  });
+
+  /*
+    A folder page setting the first status of a folder with no front note.
+    The note is created by the ordinary create — `writeNote` with no version,
+    which the server refuses if a note appeared there meanwhile — and holds the
+    frontmatter and nothing else.
+  */
+  describe("creating the note, when asked to", () => {
+    function missing(fail: string[] = []) {
+      const written: Array<[string, string, string | undefined]> = [];
+      let exists: { text: string; etag: string } | null = null;
+      const store: NoteReadWrite = {
+        read: async () => {
+          if (exists === null) throw new ConvexError({ code: "FILE_NOT_FOUND", message: "gone" });
+          return exists;
+        },
+        write: async (path, text, etag) => {
+          const code = fail.shift();
+          if (code !== undefined) {
+            // Somebody else created it between the read and the write.
+            exists = { text: "---\nowner: Sayo\n---\n", etag: "theirs" };
+            throw new ConvexError({ code, message: code });
+          }
+          written.push([path, text, etag]);
+          return { path };
+        },
+      };
+      return { store, written };
+    }
+
+    test("a missing note is written new, with no version, holding only the property", async () => {
+      const { store, written } = missing();
+      expect(await writeNoteProperty(store, "p/do this/overview.md", "status", "active", { create: true })).toBeNull();
+      expect(written).toEqual([["p/do this/overview.md", "---\nstatus: active\n---\n", undefined]]);
+    });
+
+    test("without being asked, a missing note is still refused", async () => {
+      const { store, written } = missing();
+      expect(await writeNoteProperty(store, "p/x.md", "status", "active")).toMatch(/could not be opened/);
+      expect(written).toEqual([]);
+    });
+
+    test("a note that appeared meanwhile is read and changed, never replaced", async () => {
+      const { store, written } = missing(["CONFLICT"]);
+      expect(await writeNoteProperty(store, "p/a/overview.md", "status", "active", { create: true })).toBeNull();
+      expect(written).toEqual([["p/a/overview.md", "---\nowner: Sayo\nstatus: active\n---\n", "theirs"]]);
+    });
+
+    test("clearing a property of a note that does not exist writes nothing", async () => {
+      const { store, written } = missing();
+      expect(await writeNoteProperty(store, "p/a/overview.md", "status", null, { create: true })).toBeNull();
+      expect(written).toEqual([]);
+    });
   });
 });

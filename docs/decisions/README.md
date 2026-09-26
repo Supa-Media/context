@@ -174,6 +174,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The filter lives in the block
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
+- A folder page shows its children by status
 
 ## [Bucket-backed websites](./websites.md)
 

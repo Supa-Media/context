@@ -23,6 +23,8 @@ import { visibilityTierForRole } from "../console/visibility";
  * list: `setProperty` reads the note from the bucket, changes that one line and
  * writes it back against the version read. The device copy is only ever read
  * here, never written, so a list edit takes the same road as any other save.
+ * A folder page may ask for the note to be created (`create`), for a folder
+ * whose first property has nowhere to go yet.
  */
 export function useFolderLists(
   workspaceId: string | null | undefined,
@@ -46,12 +48,18 @@ export function useFolderLists(
         }),
       ...(canEdit
         ? {
-            setProperty: (path: string, key: string, value: string | null) =>
+            setProperty: (path: string, key: string, value: string | null, options?: { create?: boolean }) =>
               writeNoteProperty(
                 {
                   read: (at) => readNote({ workspaceId: workspaceId as Id<"workspaces">, path: at }),
                   write: async (at, text, expectedEtag) => {
-                    const written = await writeNote({ workspaceId: workspaceId as Id<"workspaces">, path: at, text, expectedEtag });
+                    // No version is a create, which the server refuses over an existing note.
+                    const written = await writeNote({
+                      workspaceId: workspaceId as Id<"workspaces">,
+                      path: at,
+                      text,
+                      ...(expectedEtag === undefined ? {} : { expectedEtag }),
+                    });
                     // The file browser's listing is told, as every write outside it does.
                     announceBucketWrite({ workspaceId, path: written.path });
                     return written;
@@ -60,6 +68,7 @@ export function useFolderLists(
                 path,
                 key,
                 value,
+                options,
               ),
           }
         : {}),
