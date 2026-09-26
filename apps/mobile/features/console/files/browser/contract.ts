@@ -41,9 +41,9 @@ import type { SyncFacts } from "../../../offline/copy";
 import type { PendingMarks } from "../pendingMarks";
 import type { ConflictReview } from "../useConflictReview";
 import type { AppliedPluginNoteWrite } from "../../plugins/runtime";
-import type { SearchAnswer, MoveDestination, ContextMoveProgress } from "./supportingTypes";
+import type { SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
 
-export type { SearchAnswer, MoveDestination, ContextMoveProgress } from "./supportingTypes";
+export type { SearchAnswer, MoveDestination, ContextMoveProgress, NoteRename } from "./supportingTypes";
 
 export interface FileBrowser {
   /**
@@ -143,6 +143,20 @@ export interface FileBrowser {
    * bar.
    */
   navigations: number;
+
+  /**
+   * The last note renamed here, so a tab open on it can follow it.
+   *
+   * The listing is redrawn at the new name on the press, and the tab strip
+   * closes any tab whose note a loaded listing no longer holds — which, for a
+   * rename, is the note somebody is reading: the strip dropped its tab, the
+   * last-tab rule deselected the editor, and the page went blank ("when you
+   * rename, the page you are on disappears"). `tabs.ts` always had a `renamed`
+   * action for this; nothing dispatched it. Set on the press, and again the
+   * other way round when a rename is reverted or undone. Optional because only
+   * the live browser renames anything.
+   */
+  renamed?: NoteRename | null;
 
   /**
    * Close what is open and stand at the context's root.

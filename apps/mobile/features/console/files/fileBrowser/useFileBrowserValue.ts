@@ -42,6 +42,7 @@ type FileBrowserValueDeps =
     | "expanded"
     | "loading"
     | "navigations"
+    | "renamed"
     | "notice"
     | "opening"
     | "say"
@@ -138,7 +139,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     duplicate, editor, encryptedElsewhere, ensureListing, expanded, flushAutosave, keepMine,
     linkPaths, listings, loadImage, loading, mayShare, mirrorStatus, move, moveDestinations,
     moveMany, moveToContext, navigations, notice, offline, onExternalWrite, onSaved, openLinkPaths,
-    opening, paste, pending, readFormResponses, readRaw, rename, resetPrivacy, resolveWith,
+    opening, paste, pending, readFormResponses, readRaw, rename, renamed, resetPrivacy, resolveWith,
     restoreMany, resumeContextMove, retractFormResponse, revokeShare, save, say, search, select,
     selectedPath, setClipboard, setCollaborationDraft, setCollaborationOwned,
     setCollaborationState, setDraft, setScope, setShareCollecting, setSharePreviewTitle,
@@ -168,6 +169,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       opening,
       select,
       navigations,
+      renamed,
       deselect,
       search,
       editor,
@@ -340,6 +342,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       search,
       select,
       navigations,
+      renamed,
       deselect,
       selectedPath,
       opening,
