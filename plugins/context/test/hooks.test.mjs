@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 
 import * as commands from "../src/commands.js";
 import { transcriptToMarkdown, messageFromEntry } from "../src/transcript.js";
@@ -261,6 +262,50 @@ check(
   after.refreshToken !== before.refreshToken && typeof after.refreshToken === "string"
 );
 check("and the refreshed token still works", (await commands.accessTokenFor({ endpoint: server.endpoint, configPath })) === refreshed);
+
+/*
+  THE LOCK AROUND A ROTATING REFRESH TOKEN, AND THE TWO WAYS OUT OF IT.
+
+  `accessTokenFor` takes a lock because refresh tokens rotate and the gateway
+  answers a replayed one by revoking the whole grant — its own comment says
+  so, and `rotateGrant` in the gateway does it. So the client must never spend
+  one twice. Two gaps let it:
+
+   - the request inside the lock had no deadline, and a lock older than
+     `staleMs` is taken over, so a hung refresh becomes two refreshes;
+   - a release unlinked the lock BY PATH, so a holder whose lock had already
+     been taken over deleted the new holder's on the way out, and a third
+     process could walk in.
+
+  Neither is a disclosure. Both end with somebody's sign-in revoked at the end
+  of a session, where nobody is looking.
+*/
+const hungAt = JSON.parse(await readFile(configPath, "utf8"));
+hungAt.endpoints[`${server.origin}/mcp`].expiresAt = Date.now() - 1000;
+await writeFile(configPath, JSON.stringify(hungAt));
+const neverAnswers = () => new Promise(() => {});
+const refusedInTime = await Promise.race([
+  commands
+    .accessTokenFor({ endpoint: server.endpoint, configPath, fetchImpl: neverAnswers, timeoutMs: 200 })
+    .then(() => "answered", () => "gave up"),
+  new Promise((resolve) => setTimeout(() => resolve("still holding"), 4000)),
+]);
+check("a refresh whose request never answers gives up instead of holding the lock", refusedInTime === "gave up");
+check("and it leaves no lock behind for the next process to wait on", !existsSync(`${configPath}.lock`));
+check(
+  "the deadline is inside the window in which another process may take the lock over",
+  commands.REFRESH_DEADLINE_MS < commands.LOCK_STALE_MS
+);
+
+const contested = join(home, "contested.lock");
+const releaseFirst = await commands.acquireLock(contested, { staleMs: 0 });
+const releaseSecond = await commands.acquireLock(contested, { staleMs: 0 });
+check(
+  "a holder whose lock was taken over does not delete the lock that replaced it",
+  existsSync(contested) && ((await releaseFirst()), existsSync(contested))
+);
+await releaseSecond();
+check("and the process that does hold it still releases it", !existsSync(contested));
 
 // -- the ways a capture is allowed to do nothing
 
