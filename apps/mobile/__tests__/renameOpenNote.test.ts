@@ -253,6 +253,84 @@ describe("renaming the open note", () => {
     expect(tabs.state.activePath).toBe(FROM);
   });
 
+  test("a folder listing asked for before the rename does not undo it when it lands", async () => {
+    // The audit's reproduction: every save refreshes the note's folder, and
+    // leaving a renamed title often lands mid-way through that refresh. Its
+    // page is the folder *before* the rename — landing it redrew the old row,
+    // the strip pruned the renamed tab, and as the last tab it closed the page.
+    let clock = 1_000;
+    const now = jest.spyOn(Date, "now").mockImplementation(() => (clock += 5));
+    try {
+      unmount = mount();
+      await settle();
+      await open(FROM);
+      let releaseListing: (() => void) | null = null;
+      actions[fn("listFiles")] = (args: never) => {
+        const page = listing((args as { path: string }).path);
+        return new Promise((resolve) => {
+          releaseListing = () => resolve(page);
+        });
+      };
+      await act(async () => {
+        browser.ensureListing(FOLDER, true);
+      });
+      actions[fn("listFiles")] = async (args: never) => listing((args as { path: string }).path);
+
+      seen = [];
+      await act(async () => {
+        browser.rename(FROM, "Launch plan");
+      });
+      await settle();
+      await act(async () => {
+        releaseListing!();
+      });
+      await settle();
+
+      // The stale page did not land: the row and the tab are still the new name.
+      expect(browser.listings[FOLDER]?.entries.map((entry) => entry.path)).toContain(TO);
+      expect(tabs.state.tabs.map((tab) => tab.path)).toEqual([TO]);
+      expect(seen).not.toContain(null);
+
+      await act(async () => {
+        releaseMove!();
+      });
+      await settle();
+      expect(seen).not.toContain(null);
+      expect(browser.editor.path).toBe(TO);
+      expect(tabs.state.activePath).toBe(TO);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("a listing read while the move is still in flight does not close the tab", async () => {
+    // The other half: a refresh asked for *after* the press, answered before
+    // the bucket has moved anything, is newer than the drawing and lands. It
+    // lists the old name, and the renamed tab must not be pruned for it.
+    unmount = mount();
+    await settle();
+    await open(FROM);
+    seen = [];
+    await act(async () => {
+      browser.rename(FROM, "Launch plan");
+    });
+    await settle();
+    await act(async () => {
+      browser.ensureListing(FOLDER, true);
+    });
+    await settle();
+    expect(tabs.state.tabs.map((tab) => tab.path)).toEqual([TO]);
+    expect(seen).not.toContain(null);
+
+    await act(async () => {
+      releaseMove!();
+    });
+    await settle();
+    expect(seen).not.toContain(null);
+    expect(browser.editor.path).toBe(TO);
+    expect(tabs.state.activePath).toBe(TO);
+  });
+
   test("a rename the bucket refuses puts the tab back on the old name", async () => {
     unmount = mount();
     await settle();

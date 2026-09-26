@@ -42,7 +42,7 @@ import type { RowCommandsValues } from "./useRowCommands";
 import type { SharesValues } from "./useShares";
 
 type LinkedTitleDeps =
-  & Pick<BrowserStateValues, "editor">
+  & Pick<BrowserStateValues, "editor" | "renamed">
   & Pick<OfflineQueueValues, "listings">
   & Pick<CreateAndMoveValues, "awaitingTitle">
   & Pick<RowCommandsValues, "rename">
@@ -58,7 +58,7 @@ export interface TitleEdit {
 }
 
 export function useLinkedTitle(deps: LinkedTitleDeps) {
-  const { awaitingTitle, editor, listings, rename, shares } = deps;
+  const { awaitingTitle, editor, listings, rename, renamed, shares } = deps;
 
   /*
     What the note was when it was opened: whether its title is its name, and
@@ -75,7 +75,7 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     already drawn at the new name, and a proposal computed against that listing
     would call the note's own new name taken.
   */
-  const [acted, setActed] = useState<string | null>(null);
+  const [acted, setActed] = useState<{ title: string; label: string; path: string } | null>(null);
   /*
     Whether the title changed under this person's own caret. A collaborator
     typing a new title into the same note changes this draft too, and their
@@ -118,7 +118,7 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     if (opened === null || !opened.linked || !touched || opened.path !== editor.path) return null;
     if (editor.readOnly || editor.encrypted) return null;
     const title = titleFor(editor.draft);
-    if (title === opened.title || title === acted) return null;
+    if (title === opened.title || title === acted?.title) return null;
     return proposeTitle({
       path: opened.path,
       draft: editor.draft,
@@ -131,13 +131,32 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
     if (proposal === null || proposal.kind !== "rename" || opened === null) return;
     if (inTitle) return;
     if (editor.status !== "clean" && editor.status !== "saved") return;
-    setActed(draftTitle);
+    const folder = opened.path.includes("/") ? opened.path.slice(0, opened.path.lastIndexOf("/") + 1) : "";
+    setActed({ title: draftTitle!, label: proposal.label, path: `${folder}${proposal.name}` });
     awaitingTitle.current.delete(opened.path);
     rename(opened.path, proposal.name);
   }, [awaitingTitle, draftTitle, editor.status, inTitle, opened, proposal, rename]);
 
   const titleEdit: TitleEdit | null = useMemo(() => {
-    if (proposal === null || opened === null) return null;
+    if (opened === null) return null;
+    /*
+      The rename is in flight: the row is drawn at the new name, and the editor
+      is still on the old path until the bucket says yes. Keep the tab on the
+      name it is becoming — without this the proposal goes quiet the moment
+      the rename is asked for, and the tab reads the old name for a frame
+      before the strip follows. A refused rename sends `renamed` back the
+      other way, and the tab goes back with it.
+    */
+    if (
+      proposal === null &&
+      acted !== null &&
+      renamed?.from === opened.path &&
+      renamed.to === acted.path &&
+      editor.path === opened.path
+    ) {
+      return { path: opened.path, label: acted.label, note: null };
+    }
+    if (proposal === null) return null;
     if (proposal.kind === "rename") return { path: opened.path, label: proposal.label, note: null };
     if (proposal.kind === "same") return null;
     return {
@@ -145,7 +164,7 @@ export function useLinkedTitle(deps: LinkedTitleDeps) {
       label: null,
       note: { tone: proposal.kind, message: proposal.message },
     };
-  }, [opened, proposal]);
+  }, [acted, editor.path, opened, proposal, renamed]);
 
   /*
     "Rename" on the row of the open, linked note goes to the title rather than

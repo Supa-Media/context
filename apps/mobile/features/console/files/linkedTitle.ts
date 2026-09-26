@@ -1,7 +1,7 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
-import { baseName, describeNameProblem, withoutSortPrefix } from "./paths";
-import { collision } from "./fileBrowser/copy";
+import { baseName, describeNameProblem, displayName, withoutSortPrefix } from "./paths";
 import type { Listings } from "./fileBrowser/types";
+import { namesIn } from "./tree";
 import { isUntitled, titleFor } from "./untitled";
 
 /**
@@ -66,9 +66,9 @@ export type TitleProposal =
 /**
  * What the title a person has typed would do to a linked note's file name.
  *
- * The same checks the Rename dialog makes (`describeNameProblem`, `collision`),
- * asked here so the answer can be drawn under the title while they type rather
- * than discovered after they have left it.
+ * The checks the Rename dialog makes (`describeNameProblem`, and a taken name,
+ * here compared without case), asked here so the answer can be drawn under the
+ * title while they type rather than discovered after they have left it.
  */
 export function proposeTitle(input: {
   path: string;
@@ -90,8 +90,14 @@ export function proposeTitle(input: {
   const invalid = describeNameProblem(name);
   if (invalid !== null) return { kind: "problem", message: `${invalid} The file keeps its name.` };
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-  const taken = collision(listings, folder, name);
-  if (taken !== null) return { kind: "problem", message: `${taken} Pick another title, or the file keeps its name.` };
+  const taken = takenBy(listings, folder, name, baseName(path));
+  if (taken !== null) {
+    const where = folder === "" ? "The root" : displayName(baseName(folder));
+    return {
+      kind: "problem",
+      message: `${where} already has ${displayName(taken)}. Pick another title, or the file keeps the name it has.`,
+    };
+  }
   if (sharesWarning !== null) {
     return {
       kind: "held",
@@ -101,6 +107,20 @@ export function proposeTitle(input: {
   // Contained, like every other name the tree and the tab draw: a title is
   // typed text, and a bidi override in it must not reach the chrome raw.
   return { kind: "rename", name, label: isolateForDisplay(title) };
+}
+
+/**
+ * The sibling that already has `name`, compared without case — `Roadmap.md`
+ * beside `roadmap.md` is the same file on a Mac or Windows checkout of the
+ * bucket, and two rows nobody can tell apart in the tree. The note's own name
+ * does not count, so changing only the case of a title renames it.
+ */
+function takenBy(listings: Listings, folder: string, name: string, own: string): string | null {
+  const wanted = name.toLowerCase();
+  for (const sibling of namesIn(listings, folder)) {
+    if (sibling !== own && sibling.toLowerCase() === wanted) return sibling;
+  }
+  return null;
 }
 
 /**

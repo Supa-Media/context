@@ -212,6 +212,32 @@ describe("a note whose title is its name", () => {
     expect(browser.toasts[0]?.message).toBe("Renamed to Q4 plan.");
   });
 
+  test("while the rename is in flight the tab keeps the new name, and a refusal gives the old one back", async () => {
+    let release: ((ok: boolean) => void) | null = null;
+    actions[fn("moveEntry")] = (args: never) =>
+      new Promise((resolve, reject) => {
+        const { to } = args as { to: string };
+        release = (ok) => (ok ? resolve({ path: to }) : reject(new Error("refused")));
+      });
+    unmount = mount();
+    await settle();
+    await open(ROADMAP);
+    await caret(true);
+    await type("# Q4 plan\n\nBody.\n");
+    await caret(false);
+    // Asked for, not landed: the editor is still on the old path, and the
+    // chrome must not flash "Roadmap" in between.
+    expect(browser.editor.path).toBe(ROADMAP);
+    expect(browser.titleEdit?.label).toBe("Q4 plan");
+
+    await act(async () => {
+      release!(false);
+    });
+    await settle();
+    expect(browser.editor.path).toBe(ROADMAP);
+    expect(browser.titleEdit?.label ?? null).toBeNull();
+  });
+
   test("a body edit alone never renames it", async () => {
     unmount = mount();
     await settle();
@@ -329,6 +355,34 @@ describe("the rule itself", () => {
     expect(
       proposeTitle({ path: `${FOLDER}/Plan.excalidraw.md`, draft: "# Map\n", listings, sharesWarning: null }),
     ).toEqual({ kind: "rename", name: "Map.excalidraw.md", label: "Map" });
+  });
+
+  test("a taken name is found without case, and said in the tree's own words", () => {
+    const row = (name: string) => ({
+      kind: "file" as const,
+      path: `${FOLDER}/${name}`,
+      name,
+      visibility: "private" as const,
+      inherited: "private" as const,
+      exception: false,
+      readOnly: false,
+    });
+    const listings = {
+      [FOLDER]: {
+        path: FOLDER,
+        folderDefault: "private" as const,
+        truncated: false,
+        manifestUsable: true,
+        entries: [row("Roadmap.md"), row("Taken.md")],
+      },
+    };
+    const answer = proposeTitle({ path: ROADMAP, draft: "# taken\n", listings, sharesWarning: null });
+    expect(answer.kind).toBe("problem");
+    const message = (answer as { message: string }).message.replace(/[\u2068\u2069]/g, "");
+    expect(message).not.toMatch(/\.md|1-projects/);
+    expect(message).toMatch(/already has Taken\. Pick another title/);
+    // Changing only the case of its own title is a rename, not a clash.
+    expect(proposeTitle({ path: ROADMAP, draft: "# roadmap\n", listings, sharesWarning: null }).kind).toBe("rename");
   });
 
   test("a slash or a leading dot is refused rather than repaired", () => {
