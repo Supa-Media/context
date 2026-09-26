@@ -14,45 +14,20 @@ import type { FileBrowser } from "../features/console/files/browser";
 import { emptyEditor } from "../features/console/files/editor";
 
 /**
- * THE FILE TREE'S HEADER IS QUIET UNTIL SOMEBODY COMES NEAR IT.
+ * THE FILE TREE'S HEADER IS THE SAME HEADER WHETHER OR NOT A POINTER IS NEAR.
  *
- * The column's job is to be a legible list of names. Above that list sat four
- * lit icon buttons and an empty bordered input — six boxes of chrome, at rest,
- * over a list of about twenty rows. Nothing in the header is pressed often
- * enough to earn a resting pixel, and together they were the loudest thing in
- * the quietest region.
+ * It used to draw on approach: entering the column faded `Notes` out, gave an
+ * invisible filter field under it a box, and faded in new-folder and sort. The
+ * owner asked for it to stay the same (2026-09-26) and chose the design this
+ * file holds: `Notes`, then Filter, New and View, drawn once, with New and
+ * View as menus and the filter a field that a press on the magnifier reveals.
  *
- * So the header draws on approach: the buttons fade in when the pointer enters
- * the column, and the filter gains its border and its fill at the same moment.
- * At rest what is drawn in the field's own box is the eyebrow `Notes` — the
- * column's name, which is what a panel's header is for, rather than the
- * filter's placeholder, which names a control nobody is using yet.
- *
- * **This behaviour shipped with no test at all**, which is the reason this file
- * exists rather than a second reason for it: `features/app/frame.ts` and this
- * repository's testing rule both say a guard nobody has checked is not a guard,
- * and "it fades" is precisely the kind of claim that goes on passing a green
- * suite while somebody deletes the condition.
- *
- * ## What is asserted here, and what is asserted in a browser
- *
- * jsdom lays nothing out, so none of this is a layout assertion. What it can
- * resolve is react-native-web's injected stylesheet, and the *resting* state
- * lives entirely there: `opacity: 0` on the tools, a transparent border and no
- * fill on the field.
- *
- * **The approach itself cannot be driven here, and that was measured rather
- * than assumed.** `View`'s `onPointerEnter` is a real pointer event, and jsdom
- * defines no `PointerEvent` constructor at all — a dispatched `MouseEvent`
- * named `pointerenter` reaches nothing, and a test built on one would report
- * the feature broken while Chromium drew it correctly. So the lit half is
- * `e2e/webkit/explorerChrome.spec.ts`, measured in a real engine; what is here
- * is the state a screenshot of the console shows, plus the two structural
- * rules that make fading the right technique at all.
- *
- * That split is the same one `readingMeasure.spec.ts` makes and for a
- * neighbouring reason: this repository's unit suite cannot see layout, and its
- * browser suite is where the facts that need an engine go.
+ * jsdom lays nothing out and has no `PointerEvent`, so what is asserted here is
+ * structure and behaviour on press. That the header does not change when the
+ * pointer enters the column is measured in a real engine in
+ * `e2e/webkit/explorerChrome.spec.ts`; the structural half is here — nothing in
+ * the header is drawn at opacity 0 waiting for a pointer, and the column has
+ * no pointer-enter handler left to drive one.
  */
 
 const METRICS =
@@ -73,13 +48,14 @@ const noop = () => {};
 /**
  * The least `FileBrowser` the header reads.
  *
- * `canEdit` decides whether the four buttons are offered at all, so it is
- * `true` here — a column with nothing to fade would make every case below pass
- * by finding nothing, which is the shape of vacuity this file is guarding
- * against in the first place.
+ * `canEdit` decides whether New is offered at all, so it is `true` unless a
+ * case says otherwise — a header with nothing in it would make the cases below
+ * pass by finding nothing.
  */
-function browser(): FileBrowser {
+function browser(calls: string[] = []): FileBrowser {
   return {
+    createUntitled: (folder: string, kind: string) => calls.push(`createUntitled ${folder}|${kind}`),
+    collapseAll: () => calls.push("collapseAll"),
     canEdit: true,
     loading: false,
     busy: false,
@@ -134,7 +110,7 @@ function browser(): FileBrowser {
   } as unknown as FileBrowser;
 }
 
-function mount(): HTMLElement {
+function mount(calls: string[] = [], canEdit = true): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -147,7 +123,10 @@ function mount(): HTMLElement {
       createElement(
         SafeAreaProvider,
         { initialMetrics: METRICS },
-        createElement(Explorer, { files: browser(), contextLabel: "@somebody" }),
+        createElement(Explorer, {
+          files: { ...browser(calls), canEdit },
+          contextLabel: "@somebody",
+        }),
       ),
     );
   });
@@ -159,124 +138,98 @@ function styleOf(node: Element, property: string): string {
   return window.getComputedStyle(node).getPropertyValue(property);
 }
 
-/**
- * Is this colour nothing?
- *
- * react-native-web normalises `"transparent"` to `rgba(0,0,0,0.00)` and jsdom
- * hands that back with its own spacing depending on how it round-trips, so the
- * three spellings are one fact and matching on a literal is a test that fails
- * on a version bump rather than on a regression.
- */
-function invisible(colour: string): boolean {
-  return /^(transparent|rgba\(\s*0,\s*0,\s*0,\s*0(\.0+)?\s*\))$/.test(colour.trim());
+const byId = (id: string) => document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+
+function press(node: Element | null): void {
+  if (node === null) throw new Error("nothing to press");
+  act(() => {
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+    }
+  });
 }
 
-const filterOf = (container: HTMLElement) =>
-  container.querySelector<HTMLElement>('[data-testid="explorer-filter"]')!;
-
-/**
- * The group that fades, and the group that does not.
- *
- * The toolbar's last child is the pair the canvas draws **at rest** — new note
- * and collapse-all — and the one before it is the pair that arrives with the
- * pointer. It used to be all four in one faded group, and `lastElementChild`
- * meant the faded one; naming both here is what keeps a future reshuffle from
- * turning this file into a test that reads the resting group's opacity and
- * reports the fade working.
- */
-const approachToolsOf = (container: HTMLElement) => {
-  const row = filterOf(container).parentElement!;
-  return row.children[row.children.length - 2]!;
-};
-
-const restingToolsOf = (container: HTMLElement) =>
-  filterOf(container).parentElement!.lastElementChild!;
+function pressLabelled(label: string): void {
+  press(
+    [...document.body.querySelectorAll("*")].find(
+      (node) => node.textContent?.trim() === label && node.children.length === 0,
+    ) ?? null,
+  );
+}
 
 /* -------------------------------------------------------------------------- */
 
-describe("the tree's header at rest", () => {
-  test("the pair that fades is invisible and the filter has no box", () => {
+describe("the tree's header", () => {
+  test("is the column's name and three buttons, and nothing waits for a pointer", () => {
     const container = mount();
+    const header = byId("explorer-header")!;
 
-    expect(styleOf(approachToolsOf(container), "opacity")).toBe("0");
-    // `transparent`, not absent: a border that arrives would move the header
-    // 2pt under the hand reaching for it.
-    expect(styleOf(filterOf(container), "border-top-width")).toBe("1px");
-    expect(invisible(styleOf(filterOf(container), "border-top-color"))).toBe(true);
+    expect(header.textContent).toContain("Notes");
+    for (const id of ["explorer-filter-toggle", "explorer-new", "explorer-view"]) {
+      expect(header.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
+    }
+    // No field until somebody asks for one: the label is not a disguised input.
+    expect(byId("explorer-filter")).toBeNull();
+    // The reversal guard for the approach fade. Every node in the header is
+    // drawn at rest; a group parked at opacity 0 for a pointer to light is
+    // exactly what the owner asked to be rid of.
+    for (const node of [header, ...header.querySelectorAll("*")]) {
+      expect(styleOf(node, "opacity")).not.toBe("0");
+    }
+    // And the two controls that only ever arrived on approach are gone from
+    // the header rather than faded: they are menu rows now.
+    expect(container.querySelector('[data-testid="explorer-new-folder"]')).toBeNull();
+    expect(container.querySelector('[data-testid="explorer-sort"]')).toBeNull();
   });
 
-  test("the column says its own name", () => {
-    // The design's tree opens on `Notes`, which is what the column is. The
-    // filter's placeholder answers a different question and is not drawn until
-    // somebody is reaching for the field.
-    const container = mount();
-    expect(container.textContent).toContain("Notes");
-    expect(filterOf(container).getAttribute("placeholder")).toBe("");
-  });
-
-  test("but the field is a real field, and the buttons are still in the tree", () => {
-    /*
-      The reason this is opacity rather than a mount: chrome that leaves the
-      tree is chrome a keyboard cannot tab to, and a toolbar that grows its
-      buttons back under the pointer is a layout jumping under the hand. The
-      label is drawn over the field rather than in place of it for the same
-      reason, and takes no pointer events so it cannot eat the press that
-      focuses what is underneath it.
-    */
-    const container = mount();
-
-    const filter = filterOf(container);
-    expect(filter.tagName.toLowerCase()).toBe("input");
-    // Unconditional, and the whole of how this field is named: the visible
-    // word is the column's, not the control's.
-    expect(filter.getAttribute("aria-label")).toBe("Filter notes and folders");
-
-    expect(approachToolsOf(container).querySelectorAll('[role="button"]').length).toBeGreaterThan(0);
-  });
-
-  test("and the two the canvas draws at rest are drawn at rest", () => {
-    /*
-      The reversal guard for the split. All four buttons used to fade
-      together, which left the header as a word and nothing else — a caption,
-      not the top of a panel. If somebody folds these back into the faded
-      group, this is the assertion that says so.
-
-      By `testID` rather than by counting: which two are resting is the claim,
-      and a count would pass on any two.
-    */
-    const container = mount();
-    const resting = restingToolsOf(container);
-
-    expect(styleOf(resting, "opacity")).not.toBe("0");
-    expect(resting.querySelector('[data-testid="explorer-new-note"]')).not.toBeNull();
-    expect(resting.querySelector('[data-testid="explorer-collapse"]')).not.toBeNull();
-    // And the other two are in the group that fades, not merely absent here.
-    expect(approachToolsOf(container).querySelector('[data-testid="explorer-sort"]')).not.toBeNull();
+  test("a reader gets Filter and View, and no New", () => {
+    mount([], false);
+    expect(byId("explorer-new")).toBeNull();
+    expect(byId("explorer-filter-toggle")).not.toBeNull();
+    expect(byId("explorer-view")).not.toBeNull();
   });
 });
 
-describe("a field somebody is using is not chrome", () => {
-  test("focus gives it its box, and blur takes it back", () => {
-    /*
-      Tabbing to the filter must not land the caret in something that looks
-      like a heading. `focusin`, not `focus`: React attaches at the root and
-      listens for the bubbling pair, so a non-bubbling `focus` dispatched at
-      the node reaches no handler — which is a way to write this test green
-      against a component with no `onFocus` at all.
-    */
+describe("the filter is asked for, not approached", () => {
+  test("the magnifier swaps the label for a field, and pressing it again puts it back", () => {
     const container = mount();
-    const filter = filterOf(container);
 
-    act(() => {
-      filter.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-    });
-    expect(invisible(styleOf(filter, "border-top-color"))).toBe(false);
-    // And the label gets out of the way of what is being typed into.
-    expect(filter.getAttribute("placeholder")).toBe("Filter");
+    press(byId("explorer-filter-toggle"));
+    const field = byId("explorer-filter")!;
+    expect(field.tagName.toLowerCase()).toBe("input");
+    expect(field.getAttribute("placeholder")).toBe("Filter");
+    expect(field.getAttribute("aria-label")).toBe("Filter notes and folders");
+    expect(byId("explorer-header")!.textContent).not.toContain("Notes");
+    // Lit while it filters, so a shortened tree says why.
+    expect(byId("explorer-filter-toggle")!.getAttribute("aria-label")).toBe("Clear the filter");
 
-    act(() => {
-      filter.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-    });
-    expect(invisible(styleOf(filter, "border-top-color"))).toBe(true);
+    press(byId("explorer-filter-toggle"));
+    expect(byId("explorer-filter")).toBeNull();
+    expect(container.textContent).toContain("Notes");
+  });
+});
+
+describe("New and View are menus", () => {
+  test("New offers a note, a folder and a drawing, and a note is made where it says", () => {
+    const calls: string[] = [];
+    mount(calls);
+
+    press(byId("explorer-new"));
+    for (const label of ["New note", "New folder", "New drawing"]) {
+      expect(document.body.textContent).toContain(label);
+    }
+    pressLabelled("New note");
+    expect(calls).toEqual(["createUntitled |note"]);
+  });
+
+  test("View holds sort order and collapse-all", () => {
+    const calls: string[] = [];
+    mount(calls);
+
+    press(byId("explorer-view"));
+    expect(document.body.textContent).toContain("Sort A to Z");
+    expect(document.body.textContent).toContain("Sort Z to A");
+    pressLabelled("Collapse all folders");
+    expect(calls).toEqual(["collapseAll"]);
   });
 });
