@@ -58,3 +58,32 @@ reason rather than writing it. Its choices therefore never live anywhere but
 the note. `listBlock.test.ts` ("changing a list from its caption") fails if a
 choice is kept in the popover instead, or if a half-written condition reaches
 the note.
+
+## A project is anything with a status
+
+`rows: projects` turns a list's rows into projects, and there is no project
+type behind it. A note directly in the listed folder is a project when its
+frontmatter has a `status`; a folder is one when its front note does, the
+first of `overview.md`, `index.md` and `README.md` that exists. A folder
+project's name is its front note's `title`, then its first heading, then the
+folder name, and its `updated` is the newest save anywhere inside it.
+
+Sub-projects are found the same way one level down, and nowhere deeper, so a
+list is at most two levels. A team with many projects needs one level of
+breakdown to stay legible; an unbounded tree turns a list back into the file
+tree it was meant to summarise. A filter keeps a parent when it or any child
+matches and carries only the matching children, so "owner is me" shows my
+work under its projects, while progress still counts every sub-project: a
+filter that hid finished work must not make a project look less finished.
+
+`group` groups either kind of list by one property, lifecycle words first
+(`active`, `planned`, `paused`, `done`…), other values a to z, and the rows
+with no value last as "No status" — the nudge to mark something, without
+colour. `as: board` is reserved in the grammar for the kanban view and
+needs a `group`.
+
+A "simplification" to a project type, a projects database, or a tag would
+cost the thing this rests on: a project stays a note or folder any other tool
+can read and move. `apps/mcp/test/listProjects.test.mjs` fails if a folder
+with no front note becomes a project, if plumbing bumps a project's
+`updated`, or if progress counts only the shown sub-projects.

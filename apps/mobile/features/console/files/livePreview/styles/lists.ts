@@ -113,6 +113,134 @@ export const listStyles = `/*
   opacity: 0.75;
 }
 /*
+  PROJECTS AND GROUPS.
+
+  A group is a quiet heading over its rows with a count, not a band of colour:
+  status has no colour anywhere, so "No status" can stand out by being last
+  rather than by being red. Sub-projects hang off a hairline guide one level
+  in, and a project's progress is the one fill in the list, in link ink.
+*/
+.cm-lp-list-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 18px 0 6px;
+  color: var(--lp-content);
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.cm-lp-list-group:first-child {
+  padding-top: 4px;
+}
+.cm-lp-list-group-count {
+  color: var(--lp-muted);
+  opacity: 0.75;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.cm-lp-list-group + .cm-lp-list-row {
+  border-top-color: var(--lp-line-strong);
+}
+.cm-lp-list-row {
+  position: relative;
+}
+.cm-lp-list-twisty {
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 22px;
+  margin: 0 -8px 0 -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lp-muted);
+  font: inherit;
+  font-size: 0.7em;
+  cursor: pointer;
+}
+.cm-lp-list-twisty:hover {
+  background: var(--lp-code-bg);
+  color: var(--lp-content);
+}
+.cm-lp-list-twisty:focus-visible {
+  outline: 2px solid var(--lp-link);
+  outline-offset: 1px;
+}
+.cm-lp-list-twisty:disabled {
+  visibility: hidden;
+}
+.cm-lp-list-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.cm-lp-list-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-lp-list-progress {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  color: var(--lp-muted);
+  opacity: 0.75;
+  font-size: 0.78em;
+  font-variant-numeric: tabular-nums;
+}
+.cm-lp-list-progress-bar {
+  display: inline-block;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--lp-line-strong);
+  overflow: hidden;
+}
+.cm-lp-list-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--lp-link);
+}
+.cm-lp-list-sub {
+  padding-left: 26px;
+  font-size: 0.94em;
+}
+.cm-lp-list-sub::before,
+.cm-lp-list-sub::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  background: var(--lp-line-strong);
+}
+.cm-lp-list-sub::before {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.cm-lp-list-sub-last::before {
+  bottom: 50%;
+}
+.cm-lp-list-sub::after {
+  top: 50%;
+  width: 12px;
+  height: 1px;
+}
+.cm-lp-list-own {
+  flex: none;
+  color: var(--lp-muted);
+  opacity: 0.75;
+  font-size: 0.8em;
+}
+.cm-lp-list-sub .cm-lp-list-name {
+  color: var(--lp-muted);
+}
+.cm-lp-list-sub:hover .cm-lp-list-name {
+  color: var(--lp-link);
+}
+/*
   The caption's popover: the block's filters as fields. It opens in the flow,
   between the caption and the rows, so it can never be clipped by the end of a
   short note and the rows it changes stay in view below it. The same surface
@@ -314,6 +442,8 @@ export const listStyles = `/*
 */
 @media (max-width: 879.98px) {
   .cm-lp-list-row { padding: 12px 0; }
+  .cm-lp-list-sub { padding-left: 26px; }
+  .cm-lp-list-progress-bar { display: none; }
   .cm-lp-list-panel { max-width: none; }
   .cm-lp-list-panel-condition { flex-wrap: wrap; }
   .cm-lp-list-panel-condition > .cm-lp-list-panel-field:first-child { flex: 1 0 100%; }

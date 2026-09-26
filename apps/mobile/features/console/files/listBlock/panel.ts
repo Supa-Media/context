@@ -47,7 +47,10 @@ interface DraftCondition {
 
 interface Draft {
   from: string;
+  rows: ListConfig["rows"];
   subfolders: boolean;
+  group: string | null;
+  as: ListConfig["as"];
   where: DraftCondition[];
   sortKey: string;
   order: "asc" | "desc";
@@ -67,7 +70,10 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, te
 function toDraft(config: ListConfig): Draft {
   return {
     from: config.from,
+    rows: config.rows,
     subfolders: config.subfolders,
+    group: config.group,
+    as: config.as,
     where: config.where.map((c) => ({ property: c.property, op: c.op, value: c.value ?? "" })),
     sortKey: config.sort.key,
     order: config.sort.order,
@@ -92,7 +98,11 @@ export function draftConfig(draft: Draft): ListConfig {
     sort: { key: draft.sortKey, order: draft.order },
     show: [...draft.show],
     limit: draft.limit,
-    subfolders: draft.subfolders,
+    subfolders: draft.rows === "projects" ? false : draft.subfolders,
+    rows: draft.rows,
+    group: draft.group,
+    // A board is columns of a group, so no group is a list.
+    as: draft.group === null ? "list" : draft.as,
   };
 }
 
@@ -202,7 +212,13 @@ export class ListPanel {
   private paint(): void {
     const focused = (document.activeElement as HTMLElement | null)?.dataset?.field ?? null;
     const names = propertyNames(this.host.notes());
-    this.body.replaceChildren(this.fromSection(), this.whereSection(names), this.orderSection(names), this.showSection(names));
+    this.body.replaceChildren(
+      this.fromSection(),
+      this.whereSection(names),
+      this.groupSection(names),
+      this.orderSection(names),
+      this.showSection(names),
+    );
     if (focused !== null) this.field(focused)?.focus();
   }
 
@@ -290,7 +306,47 @@ export class ListPanel {
       this.commit(false);
     });
     toggle.append(box, document.createTextNode("Include subfolders"));
-    section.append(row, toggle);
+    const kinds = el("div", "cm-lp-list-panel-row");
+    kinds.append(
+      this.select(
+        "rows",
+        "List",
+        [
+          { value: "notes" as const, label: "Notes" },
+          { value: "projects" as const, label: "Projects" },
+        ],
+        this.draft.rows,
+        (rows) => {
+          this.draft.rows = rows;
+          this.commit(true);
+        },
+      ),
+    );
+    section.append(row, kinds);
+    // A project folder is always looked inside, so the box only means something for notes.
+    if (this.draft.rows !== "projects") section.append(toggle);
+    return section;
+  }
+
+  private groupSection(names: readonly string[]): HTMLElement {
+    const section = this.section("Group");
+    const keys = this.draft.rows === "projects" ? ["status", "owner", ...names] : [...names];
+    if (this.draft.group !== null) keys.push(this.draft.group);
+    const unique = [...new Set(keys)];
+    const row = el("div", "cm-lp-list-panel-row");
+    row.append(
+      this.select(
+        "group",
+        "Group by",
+        [{ value: "", label: "No grouping" }, ...unique.map((key) => ({ value: key, label: columnLabel(key) }))],
+        this.draft.group ?? "",
+        (key) => {
+          this.draft.group = key === "" ? null : key;
+          this.commit(true);
+        },
+      ),
+    );
+    section.append(row);
     return section;
   }
 

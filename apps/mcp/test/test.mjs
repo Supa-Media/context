@@ -25,6 +25,7 @@ import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
 import { runListChecks } from "./lists.test.mjs";
+import { runProjectListChecks } from "./listProjects.test.mjs";
 import { runLinkToolChecks } from "./linkTools.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
@@ -134,6 +135,7 @@ await suite("runAgentChecks", () => runAgentChecks(check));
 await suite("runPrivacyGroupChecks", () => runPrivacyGroupChecks(check));
 await suite("runFormChecks", () => runFormChecks(check));
 await suite("runListChecks", () => runListChecks(check));
+await suite("runProjectListChecks", () => runProjectListChecks(check));
 await suite("runLinkToolChecks", () => runLinkToolChecks(check));
 
 // A path is not a place to write privacy rules. Its own bucket, because the

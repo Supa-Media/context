@@ -143,6 +143,9 @@ describe("the console contains a name it did not choose", () => {
       show: [],
       limit: 50,
       subfolders: false,
+      rows: "notes",
+      group: null,
+      as: "list",
     };
     const condition = (value: string): ListConfig => ({
       ...base,

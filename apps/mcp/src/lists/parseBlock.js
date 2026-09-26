@@ -8,6 +8,8 @@ import {
   MAX_LIMIT,
   MAX_COLUMNS,
   PROPERTY_NAME,
+  ROW_KINDS,
+  LAYOUTS,
 } from "./grammar.js";
 
 /**
@@ -87,9 +89,31 @@ export function parseListBody(text) {
   if (limit.error) return { error: limit.error };
   const subfolders = raw.get("subfolders") ?? "no";
   if (subfolders !== "yes" && subfolders !== "no") return { error: '"subfolders" takes yes or no' };
+  const rows = raw.get("rows") || "notes";
+  if (!ROW_KINDS.has(rows)) return { error: '"rows" takes notes or projects' };
+  if (rows === "projects" && subfolders === "yes") {
+    return { error: '"subfolders" does not apply to projects: a project folder is always looked inside' };
+  }
+  const group = raw.get("group") || null;
+  if (group !== null && (!PROPERTY_NAME.test(group) || group === "title")) {
+    return { error: `"group" needs a property to group by, like status or owner` };
+  }
+  const layout = raw.get("as") || "list";
+  if (!LAYOUTS.has(layout)) return { error: '"as" takes list or board' };
+  if (layout === "board" && group === null) return { error: 'a board needs "group": the property its columns are, like status' };
 
   return {
-    config: { from, where, sort: sort.sort, show: show.show, limit: limit.limit, subfolders: subfolders === "yes" },
+    config: {
+      from,
+      where,
+      sort: sort.sort,
+      show: show.show,
+      limit: limit.limit,
+      subfolders: subfolders === "yes",
+      rows,
+      group,
+      as: layout,
+    },
   };
 }
 

@@ -1,6 +1,8 @@
 /** Live, viewer-filtered evaluation of Folder list blocks on public pages. */
 
 import {
+  listLoadsSubfolders,
+  noteHeading,
   noteProperties,
   renderEvaluatedListBlocks,
   selectListRows,
@@ -19,6 +21,14 @@ type ListConfig = {
   show: string[];
   limit: number;
   subfolders: boolean;
+  rows?: "notes" | "projects";
+  group?: string | null;
+  as?: "list" | "board";
+};
+type SelectedRow = {
+  path: string;
+  href?: string | null;
+  children?: SelectedRow[];
 };
 type ReadNote = {
   path: string;
@@ -46,7 +56,7 @@ function couldMatch(
   if (!path.startsWith(prefix)) return false;
   const rest = path.slice(prefix.length);
   if (rest.split("/").some((segment) => segment.startsWith("."))) return false;
-  return config.subfolders || !rest.includes("/");
+  return listLoadsSubfolders(config) || !rest.includes("/");
 }
 
 function canonicalEntries(
@@ -165,17 +175,22 @@ export async function renderPublicWebsiteLists(
           path: entry.objectKey,
           updatedAt: note.updatedAt ?? null,
           properties: noteProperties(note.text),
+          heading: noteHeading(note.text),
         });
       }
       const selection = selectListRows(config, notes, {
         selfPath: args.selfPath,
       });
+      const withHref = (row: SelectedRow): SelectedRow => ({
+        ...row,
+        href: byPath.get(row.path)?.href ?? null,
+        ...(Array.isArray(row.children)
+          ? { children: row.children.map(withHref) }
+          : {}),
+      });
       return {
         ...selection,
-        rows: selection.rows.map((row: { path: string }) => ({
-          ...row,
-          href: byPath.get(row.path)?.href ?? null,
-        })),
+        rows: selection.rows.map(withHref),
       };
     },
   );

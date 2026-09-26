@@ -2,6 +2,7 @@
 
 import {
   MAX_EVALUATED_LIST_BLOCKS,
+  noteHeading,
   noteProperties,
   parseListBlocks,
   selectListRows,
@@ -95,6 +96,7 @@ export async function toolEvaluateLists(
         path: key,
         updatedAt: note.updatedAt,
         properties: noteProperties(note.text),
+        heading: noteHeading(note.text),
       });
     }
     const selection = selectListRows(block.config, notes, { selfPath: path });

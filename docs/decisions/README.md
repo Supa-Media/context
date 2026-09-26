@@ -172,6 +172,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Selection only ever narrows
 - A block that does not parse draws its error
 - The filter lives in the block
+- A project is anything with a status
 
 ## [Bucket-backed websites](./websites.md)
 

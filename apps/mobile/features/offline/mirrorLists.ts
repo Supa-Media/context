@@ -1,4 +1,4 @@
-import { noteProperties } from "../../../mcp/src/lists.js";
+import { noteHeading, noteProperties } from "../../../mcp/src/lists.js";
 import { currentEpoch } from "./epoch";
 import type { CacheScope } from "./keys";
 import { isNotePath, mirroredBodyAt, parseIndex } from "./mirror";
@@ -98,6 +98,7 @@ export async function mirroredListNotes(
         path: entry.path,
         ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
         properties: noteProperties(body) as Record<string, PropertyValue>,
+        heading: noteHeading(body) as string | null,
       };
       memo.notes.set(entry.path, { etag: entry.etag, note });
       notes.push(note);

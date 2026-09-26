@@ -54,3 +54,33 @@ function scalar(raw) {
   if ((quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote)) return value.slice(1, -1);
   return value;
 }
+
+/**
+ * A note's first `# ` heading, after any frontmatter, or null. Only the first
+ * 200 lines are read: a heading further down is not the note's name.
+ * Used as a project's name when its frontmatter has no `title`.
+ */
+export function noteHeading(text) {
+  if (typeof text !== "string") return null;
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/, 200);
+  let i = 0;
+  if (/^---\s*$/.test(lines[0] ?? "")) {
+    i = lines.findIndex((line, at) => at > 0 && /^---\s*$/.test(line));
+    if (i === -1) return null;
+    i += 1;
+  }
+  let fence = null;
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    if (marker) {
+      if (fence === null) fence = marker[1][0];
+      else if (marker[1][0] === fence) fence = null;
+      continue;
+    }
+    if (fence !== null) continue;
+    const heading = /^\s{0,3}#\s+(.*?)\s*#*\s*$/.exec(line);
+    if (heading && heading[1].trim()) return heading[1].trim();
+  }
+  return null;
+}
