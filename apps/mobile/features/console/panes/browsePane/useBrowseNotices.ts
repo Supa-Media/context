@@ -9,6 +9,7 @@ import {
 import type { ConsoleData, selectedContext } from "../../types";
 import { contextIntro, useContextIntro } from "../../contextIntro";
 import { contextSetupFor, setupPromptVisible } from "../../setup";
+import { useOrganizerHasNotice, type NoticePlace } from "../../../organizer/Notices";
 
 /** The folder card after "Start fresh": being written, then written, then gone. */
 export type LayingOut = "writing" | "done" | null;
@@ -242,7 +243,11 @@ export function useBrowseNotices({
     [files.contextMoves, dismissedMoves],
   );
 
+  // Auto-organize's lines: the one-time notice, and the phone's way into the review list.
+  const organizerNotice = useOrganizerHasNotice(organizerPlace(files, compact));
+
   const hasNotice =
+    organizerNotice ||
     introVisible ||
     setupPromptVisible(setup) ||
     noBucket ||
@@ -264,6 +269,11 @@ export function useBrowseNotices({
     moveNotices,
     hasNotice,
   };
+}
+
+/** Where the band is, for auto-organize: the phone's entry line is the workspace page's. */
+export function organizerPlace(files: FileBrowser, compact: boolean): NoticePlace {
+  return { compact, atRoot: files.selectedPath === null || files.selectedPath === "" };
 }
 
 /** What `useBrowseNotices` hands back. */

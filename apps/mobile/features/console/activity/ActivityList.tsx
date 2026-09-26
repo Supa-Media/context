@@ -55,8 +55,14 @@ export function ActivityList({
   now,
   onOpen,
   empty,
+  undoFor,
 }: {
   entries: readonly ActivityEntry[];
+  /**
+   * The way back for a row somebody can take back — auto-organize's own
+   * changes. Absent, or `undefined` for a row, draws the row as it always was.
+   */
+  undoFor?: (entry: ActivityEntry) => (() => void) | undefined;
   /** When this reader last caught up, or `null` for never. */
   seenAt: number | null;
   /**
@@ -113,9 +119,11 @@ export function ActivityList({
         const { title, meta } = rowText(entry);
         const target = targetOf(entry);
         const when = relativeWhen(entry.at, now);
+        const undo = undoFor?.(entry);
         return (
+          // A wrapper so Undo can be the row's sibling: a button may not hold a button.
+          <View key={`entry-${entry.at}-${index}`} style={styles.rowWrap}>
           <PressRow
-            key={`entry-${entry.at}-${index}`}
             accessibilityLabel={
               target === null ? title : `${title}. Open ${target}`
             }
@@ -135,7 +143,11 @@ export function ActivityList({
               <Text variant="tree" numberOfLines={2} style={styles.title}>
                 {title}
               </Text>
-              <Text variant="treeMeta" numberOfLines={1} style={styles.meta}>
+              <Text
+                variant="treeMeta"
+                numberOfLines={1}
+                style={[styles.meta, undo === undefined ? null : styles.metaBesideUndo]}
+              >
                 {meta}
               </Text>
             </View>
@@ -143,6 +155,21 @@ export function ActivityList({
               {when}
             </Text>
           </PressRow>
+          {undo === undefined ? null : (
+            <PressRow
+              accessibilityLabel={`Undo: ${title}`}
+              onPress={undo}
+              radius={radii.sm}
+              style={styles.undo}
+              hoverStyle={styles.rowHover}
+              testID={`activity-undo-${index}`}
+            >
+              <Text variant="treeMeta" style={styles.undoText}>
+                Undo
+              </Text>
+            </PressRow>
+          )}
+          </View>
         );
       })}
     </View>
@@ -165,6 +192,16 @@ const sheet = (colors: Colors) =>
     body: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     title: { color: colors.text2 },
     meta: { color: colors.chromeMuted },
+    rowWrap: { position: "relative" },
+    metaBesideUndo: { paddingRight: 44 },
+    undo: {
+      position: "absolute",
+      right: space.x2,
+      bottom: space.x2 - 2,
+      paddingHorizontal: space.x1,
+      paddingVertical: 2,
+    },
+    undoText: { color: colors.accentText },
     /*
       `flexShrink: 0` because it is four characters that must not wrap: at 240pt
       the column gave "4 min" two lines and the row grew to fit them. Seen in a

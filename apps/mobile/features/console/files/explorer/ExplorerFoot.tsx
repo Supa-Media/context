@@ -9,6 +9,9 @@ import { AgentStack } from "../../agents/AgentList";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
+import { useOrganizerView } from "../../../organizer/OrganizerContext";
+import { SuggestionsLine } from "../../../organizer/Review";
+import { footCount } from "../../../organizer/rules";
 
 /**
  * The foot of the column: the agents line when there are any, and the one
@@ -38,6 +41,14 @@ export function ExplorerFoot({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  /*
+    Auto-organize's line: "11 suggestions", the activity line's twin, opening
+    the review list the way that one opens what changed. Only one of the
+    three popovers is open at a time.
+  */
+  const organizer = useOrganizerView();
+  const suggestions = footCount(organizer?.status ?? null);
+  const closeReview = organizer?.closeReview;
   return (
     <>
       {/*
@@ -91,6 +102,7 @@ export function ExplorerFoot({
           accessibilityLabel={`${agentsLabel}. Show which`}
           onPress={() => {
             setActivityOpen(null);
+            closeReview?.();
             setAgentsOpen((open) => (open === null ? Date.now() : null));
           }}
           ariaExpanded={agentsOpen !== null}
@@ -112,12 +124,26 @@ export function ExplorerFoot({
         </PressRow>
       ) : null}
 
+      {organizer !== undefined && suggestions !== null ? (
+        <SuggestionsLine
+          count={suggestions}
+          open={organizer.reviewOpen}
+          onToggle={() => {
+            setActivityOpen(null);
+            setAgentsOpen(null);
+            if (organizer.reviewOpen) organizer.closeReview();
+            else organizer.openReview();
+          }}
+        />
+      ) : null}
+
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow
           accessibilityLabel={`${activityLabel}. Show what changed`}
           onPress={() => {
             const opening = activityOpen === null;
             setAgentsOpen(null);
+            closeReview?.();
             setActivityOpen(opening ? Date.now() : null);
             // Re-read on the way in. The entries arrived when this console
             // did, and everything that has happened since — including this
