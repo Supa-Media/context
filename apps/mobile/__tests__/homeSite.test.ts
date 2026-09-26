@@ -41,7 +41,7 @@ import {
  * checkout charges. They hold the pages, which ship in the app.
  */
 
-const SHELL = ["HomeShell.tsx", "HomePage.tsx"]
+const SHELL = ["HomeShell.tsx", "HomePage.tsx", "useVisitorConsoleData.ts"]
   .map((file) => readFileSync(join(__dirname, "../features/home", file), "utf8"))
   .join("\n");
 
@@ -49,7 +49,8 @@ const SHELL = ["HomeShell.tsx", "HomePage.tsx"]
 const PROSE: readonly string[] = [
   ...Object.values(BUILT_IN_PAGES),
   PRIVATE_PAGE.markdown,
-  ...[...SHELL.matchAll(/(?:\blabel|\bplaceholder|\btext)[=:] ?"([^"]{6,})"/g)].map((match) => match[1]!),
+  ...[...SHELL.matchAll(/(?:\blabel|\bplaceholder|\btext|\bdetail)[=:] ?"([^"]{6,})"/g)].map((match) => match[1]!),
+  ...[...SHELL.matchAll(/\bsay\("([^"]{6,})"/g)].map((match) => match[1]!),
   ...[...SHELL.matchAll(/>\s*([A-Z][^<>{}]{11,}?)\s*</gs)].map((match) => match[1]!.replace(/\s+/g, " ")),
 ].flatMap((text) => text.split(/\n+/)).filter((line) => line.trim() !== "");
 
@@ -74,7 +75,8 @@ describe("the built-in pages are website pages", () => {
   });
 
   test("the shell's own shell strings were found, so the rules below read them", () => {
-    expect(PROSE).toContain("Search @context");
+    expect(PROSE).toContain("Not signed in");
+    expect(PROSE).toContain("This note is only in this tab, so it has no link yet.");
   });
 });
 

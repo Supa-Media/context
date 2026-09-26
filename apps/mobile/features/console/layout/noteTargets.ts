@@ -39,7 +39,9 @@ export function noteTargetsFor({ browsing, data }: { browsing: boolean; data: Co
    * states for the row menu.
    */
   const shareTarget =
-    browsing && data.files.canShare && selectedEntry !== null && !selectedEntry.readOnly
+    browsing &&
+    (data.files.canShare || data.visitor !== undefined) &&
+    selectedEntry !== null && !selectedEntry.readOnly
       ? selectedEntry.path
       : null;
 

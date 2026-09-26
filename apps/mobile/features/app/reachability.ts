@@ -203,8 +203,8 @@ const EVERY_DENSITY = DENSITIES;
 const POINTER = ["medium", "wide"] as const;
 const PHONE = ["compact"] as const;
 
-/** The console layout, which owns every navigation the switcher and the strip make. */
-const CONSOLE_LAYOUT = "app/(app)/console/_layout.tsx";
+/** The console route's frame, which is the body `console/_layout.tsx` renders. */
+const CONSOLE_LAYOUT = "features/console/ConsoleFrame.tsx";
 /**
  * The layout's pieces, which it keeps under `features/console/layout/` because
  * every file under `app/` is a route. The phone's strip and the context pill

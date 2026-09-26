@@ -339,9 +339,31 @@ export interface ConsoleStat {
   label: string;
 }
 
+/**
+ * What a visitor to the homepage can do instead of what an account can.
+ *
+ * The homepage is the console's own frame over the website's notes, with
+ * `demo` set because nothing reaches a server. A visitor still writes — in
+ * their tab only — so this is not the landing page's inert demo: the `+`
+ * stays, the account button offers these two instead of Sign out, and Share
+ * copies the page's public address rather than opening a dialog that needs a
+ * workspace. See `ConsoleFrame`.
+ */
+export interface VisitorActions {
+  /** For somebody not signed in. */
+  signIn?: () => void;
+  createAccount?: () => void;
+  /** For somebody signed in who came to the homepage: back to their console. */
+  openApp?: () => void;
+  /** Share, for somebody with no workspace: copy the page's public link. */
+  share: (path: string) => void;
+}
+
 export interface ConsoleData {
   /** True for the read-only demo on the landing page. */
   demo: boolean;
+  /** Set on the homepage, whose reader is not signed in. See `VisitorActions`. */
+  visitor?: VisitorActions;
   /**
    * How much of each context is on this device, by workspace id — the offline
    * mirror's own account of itself (`features/offline/mirrorStatus.ts`). Absent
