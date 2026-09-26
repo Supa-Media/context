@@ -28,6 +28,7 @@
  */
 
 import { IMAGE_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
+import { MAX_REMOTE_IMAGE_BYTES, fetchRemoteImage, sniffImageType } from "../../../../packages/shared/src/remoteImage.cjs";
 import { parseLinks } from "../links.js";
 import { imageRefFor } from "../tools/readImage.js";
 
@@ -35,7 +36,7 @@ import { imageRefFor } from "../tools/readImage.js";
 export const MAX_IMAGES_PER_WRITE = 10;
 
 /** The most one image may be: the app's paste ceiling and `read_image`'s inline one. */
-export const MAX_UPLOADED_IMAGE_BYTES = 5_000_000;
+export const MAX_UPLOADED_IMAGE_BYTES = MAX_REMOTE_IMAGE_BYTES;
 
 /**
  * The most one write may carry across all its images. A Worker holds the
@@ -47,46 +48,6 @@ export const MAX_UPLOADED_BYTES_PER_WRITE = 15_000_000;
 
 /** Base64 of the ceiling, with room for padding and stray whitespace. */
 const MAX_BASE64_CHARS = Math.ceil(MAX_UPLOADED_IMAGE_BYTES / 3) * 4 + 1024;
-
-/** How many redirects a `url` may take before it is refused. */
-const MAX_REDIRECTS = 3;
-
-/** How long one fetch may take, so a slow host cannot hold a write open. */
-const FETCH_TIMEOUT_MS = 15_000;
-
-/**
- * What the bytes are, from their first few, or null.
- *
- * Only the types the store may be written as and `read_image` will serve. SVG
- * is not here and cannot be: it has no magic number, it is text, and it is a
- * script container — the reason both the store and the reader refuse it.
- */
-export function sniffImageType(bytes) {
-  const at = (i) => bytes[i];
-  const ascii = (from, length) => String.fromCharCode(...bytes.subarray(from, from + length));
-  if (bytes.length >= 8 && at(0) === 0x89 && ascii(1, 3) === "PNG" && at(4) === 0x0d && at(5) === 0x0a) {
-    return { extension: "png", contentType: "image/png" };
-  }
-  if (bytes.length >= 3 && at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) {
-    return { extension: "jpg", contentType: "image/jpeg" };
-  }
-  if (bytes.length >= 6 && (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a")) {
-    return { extension: "gif", contentType: "image/gif" };
-  }
-  if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
-    return { extension: "webp", contentType: "image/webp" };
-  }
-  if (bytes.length >= 12 && ascii(4, 4) === "ftyp") {
-    const brand = ascii(8, 4);
-    if (["heic", "heix", "heim", "heis", "hevc", "hevx"].includes(brand)) {
-      return { extension: "heic", contentType: "image/heic" };
-    }
-    if (["mif1", "msf1"].includes(brand)) {
-      return { extension: "heif", contentType: "image/heif" };
-    }
-  }
-  return null;
-}
 
 async function contentHash(bytes) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -114,91 +75,10 @@ function decodeBase64(value) {
   }
 }
 
-/**
- * The one shape of URL this will fetch: https, the default port, no userinfo.
- *
- * Plain http is refused because the bytes would cross the internet unsigned on
- * their way into somebody's bucket; userinfo because a credential in a URL is
- * one this gateway would then have handled; a port because the reachable
- * surface should be the ordinary web and nothing an operator runs beside it.
- * Every redirect hop is put through this again.
- */
-function fetchableUrl(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
-  const host = url.hostname.toLowerCase();
-  // An address rather than a name is refused too: what this is for is an image
-  // on the web, which has a name, and a literal is how a caller aims at a host.
-  if (/^\d+(\.\d+){3}$/.test(host) || host.startsWith("[")) return null;
-  if (!host.includes(".") || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) {
-    return null;
-  }
-  return url;
-}
-
-async function readCapped(response) {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_UPLOADED_IMAGE_BYTES) return { tooLarge: true };
-  if (!response.body) {
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    return buffer.byteLength > MAX_UPLOADED_IMAGE_BYTES ? { tooLarge: true } : { bytes: buffer };
-  }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_UPLOADED_IMAGE_BYTES) {
-      await reader.cancel().catch(() => {});
-      return { tooLarge: true };
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return { bytes };
-}
-
 async function fetchImage(value, label) {
-  let url = fetchableUrl(value);
-  if (!url) {
-    return { error: `${label}: url must be an https address on the default port, with no username or password` };
-  }
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    let response;
-    try {
-      response = await fetch(url.toString(), {
-        method: "GET",
-        redirect: "manual",
-        headers: { accept: "image/png,image/jpeg,image/gif,image/webp,image/heic,image/heif" },
-        signal: typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined,
-      });
-    } catch {
-      return { error: `${label}: could not fetch ${url.hostname}` };
-    }
-    if (response.status >= 300 && response.status < 400) {
-      const next = response.headers.get("location");
-      url = next ? fetchableUrl(new URL(next, url).toString()) : null;
-      if (!url) return { error: `${label}: the url redirected somewhere that is not a plain https address` };
-      continue;
-    }
-    if (!response.ok) return { error: `${label}: fetching the url answered ${response.status}` };
-    const read = await readCapped(response);
-    if (read.tooLarge) return { error: `${label}: image is larger than ${MAX_UPLOADED_IMAGE_BYTES} bytes` };
-    return { bytes: read.bytes };
-  }
-  return { error: `${label}: the url redirected more than ${MAX_REDIRECTS} times` };
+  const fetched = await fetchRemoteImage(value, (...request) => fetch(...request));
+  if (fetched.error) return { error: `${label}: ${fetched.error}` };
+  return { bytes: fetched.bytes };
 }
 
 /** Alt text for the alias slot: one line, no characters that would end the link. */

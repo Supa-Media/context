@@ -45,7 +45,7 @@ export function noteWriteToolDefinitions() {
         "\n\nTHIS TOOL ALSO UPLOADS IMAGES. Pass images: [{ name, data | url, alt? }] and embed each one in the content by its name, e.g. ![[chart.png]] or ![a chart](chart.png). " +
         "data is the image's base64 (a data: URI works too); url is an https address the gateway fetches once. Either way the bytes are stored inside this workspace, the embed is rewritten to point at that copy, and the image follows the note's visibility. " +
         "PNG, JPEG, GIF, WebP and HEIC, up to 5 MB each and 10 per call; SVG is refused. An image the content does not embed is added at the end. " +
-        "Remote image links written straight into a note are not displayed, because a remote image reports every read to whoever hosts it — attach it here instead.",
+        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead.",
       inputSchema: {
         type: "object",
         properties: {

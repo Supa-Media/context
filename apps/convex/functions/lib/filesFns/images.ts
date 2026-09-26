@@ -9,6 +9,7 @@
 
 import { WORKSPACE_ICON_CONTENT_TYPES, WORKSPACE_ICON_MAX_BYTES } from "@context/shared";
 import { ConvexError } from "convex/values";
+import { fetchRemoteImage } from "@context/shared/src/remoteImage.cjs";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -69,6 +70,64 @@ export async function storeNoteImageHandler(
     },
   });
   return { leaf };
+}
+
+/**
+ * The image proxy: a remote image a note names, fetched by us so the reader's
+ * own browser never contacts its host.
+ *
+ * A remote image drawn straight into the page is a tracking pixel — its host
+ * sees every read, with the reader's address, device and time. Through here the
+ * host sees a request from our servers, carrying no cookie, no referrer and
+ * nothing about who asked. See
+ * `docs/decisions/app-and-console/remote-images.md`.
+ *
+ * **The same reference gate as `readNoteImage`, and it is what stops this being
+ * an open proxy.** The caller names a note, the note is read through the `read`
+ * operation (so `canSee` answers once, where it already does), and the URL has
+ * to appear in it. Anything else is `FILE_NOT_FOUND`, identical to a note that
+ * does not exist. Only past that gate does a fetch failure say what it was,
+ * because by then the caller has proved they can already see the URL.
+ *
+ * **Nothing is cached here.** An image kept by the control plane would be note
+ * content held outside the customer's bucket, which non-negotiable #1 rules
+ * out; the client keeps what it drew for the session. Keeping an image for good
+ * means storing it in the workspace, which is what uploading does.
+ */
+export async function readRemoteImageHandler(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    notePath: string;
+    url: string;
+  },
+): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+  const actorUserId = await callerId(ctx);
+  const { scope, grantedNames } = await ctx.runQuery(
+    internal.functions.files.authorizeFileAccess,
+    { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+  );
+  const note = (await ctx.runAction(internal.functions.files.runFileOperation, {
+    workspaceId: args.workspaceId,
+    scope,
+    grantedNames,
+    operation: { kind: "read", path: args.notePath },
+  })) as Extract<OperationResult, { kind: "file" }>;
+  if (args.url === "" || !note.text.includes(args.url)) {
+    throw new ConvexError({
+      code: "FILE_NOT_FOUND",
+      message: "No note you can see references that image.",
+    });
+  }
+  const fetched = await fetchRemoteImage(args.url, (input: string, init: RequestInit) => fetch(input, init));
+  if ("error" in fetched) {
+    throw new ConvexError({ code: "REMOTE_IMAGE_UNAVAILABLE", message: `That image could not be loaded: ${fetched.error}.` });
+  }
+  const bytes = fetched.bytes as Uint8Array;
+  return {
+    bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    contentType: fetched.contentType as string,
+  };
 }
 
 /**
