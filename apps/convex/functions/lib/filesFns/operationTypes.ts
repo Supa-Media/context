@@ -102,7 +102,13 @@ export type FileOperation =
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
   | { kind: "setFolderGroup"; path: string; group: string }
-  | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
+  | {
+      kind: "setFolderVisibility";
+      path: string;
+      visibility: "private" | "team";
+      /** Leave a rule the manifest already has for this folder untouched. */
+      onlyIfUnset?: boolean;
+    }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "pluginInventory" }

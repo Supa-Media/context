@@ -12,6 +12,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
 import { callerId } from "../filesFns/access";
 import { workspaceNotFound } from "../workspaceAuth";
+import { PUBLICATION_CLEARANCE, ensureWebsitePublicationRule } from "./publication";
 import { ensureWebsiteStarter } from "./state";
 
 const MAX_WEBSITE_ROUTES = 500;
@@ -460,13 +461,21 @@ export async function refreshRouteStatusesHandler(
     grantedNames: access.grantedNames,
   });
   if (generation !== null) {
-    if (snapshot.statuses.some((status) => status.status === "problem")) {
+    // The caller's own view says what they can see; what the site publishes
+    // is decided at the publication clearance. An owner reads every note, so
+    // committing their snapshot would put private notes on the internet.
+    const published = await scanWebsiteRoutes(
+      ctx,
+      args.workspaceId,
+      PUBLICATION_CLEARANCE,
+    );
+    if (published.statuses.some((status) => status.status === "problem")) {
       await ctx.runMutation(
         internal.functions.websites.commitRouteReconciliation,
         {
           workspaceId: args.workspaceId,
           generation,
-          routes: snapshot.indexed,
+          routes: published.indexed,
           problemsOnlyIfUnpublished: true,
         },
       );
@@ -475,7 +484,7 @@ export async function refreshRouteStatusesHandler(
         ctx,
         args.workspaceId,
         generation,
-        snapshot.indexed,
+        published.indexed,
         false,
       );
     }
@@ -522,10 +531,40 @@ export async function reconcileWorkspaceHandler(
     );
     if (generation === null) return false;
   }
-  const snapshot = await scanWebsiteRoutes(ctx, args.workspaceId, {
-    scope: "private",
-    grantedNames: [],
-  });
+  const repairPublication = await ctx.runQuery(
+    internal.functions.websites.websitePublicationRepairNeeded,
+    { workspaceId: args.workspaceId },
+  );
+  if (repairPublication) {
+    // A missing or unreadable `privacy.md` leaves the repair for a later
+    // pass; the scan below then publishes only what the manifest allows,
+    // which without a manifest is nothing.
+    const repaired = await ensureWebsitePublicationRule(ctx, {
+      workspaceId: args.workspaceId,
+    }).then(
+      () => true,
+      () => false,
+    );
+    if (repaired) {
+      await ctx.runMutation(
+        internal.functions.websites.markWebsitePublicationEnsured,
+        { workspaceId: args.workspaceId },
+      );
+      // A manifest write is a website change and advances the fence.
+      generation = await ctx.runMutation(
+        internal.functions.websites.beginRouteReconciliation,
+        { workspaceId: args.workspaceId, enabledOnly: true },
+      );
+      if (generation === null) return false;
+    }
+  }
+  // The committed index is what anonymous visitors are served from, so it is
+  // built at the clearance a link resolves at, never at the owner's.
+  const snapshot = await scanWebsiteRoutes(
+    ctx,
+    args.workspaceId,
+    PUBLICATION_CLEARANCE,
+  );
   // A half-written frontmatter block, a temporary empty document, or a route
   // clash is not a release. Keep serving the previous complete derivative;
   // a later save owns a newer generation and schedules another attempt.

@@ -136,6 +136,29 @@ export async function setFolderVisibility(
   store: FileStore,
   options: { path: string; visibility: Visibility; clearance: Clearance },
 ): Promise<VisibilityResult> {
+  return (await writeFolderRule(store, { ...options, onlyIfUnset: false })).result;
+}
+
+/**
+ * Give a folder a default only when `privacy.md` has no rule for it yet.
+ *
+ * For a product step that needs a folder at a tier without overruling a choice
+ * the owner already wrote down: turning a website on marks `website/` as
+ * `team`, and a `website/` rule the owner set to `private` stays private. The
+ * check and the write are one compare-and-swap, so a rule written between them
+ * is never replaced.
+ */
+export async function ensureFolderVisibility(
+  store: FileStore,
+  options: { path: string; visibility: Visibility; clearance: Clearance },
+): Promise<{ result: VisibilityResult; changed: boolean }> {
+  return await writeFolderRule(store, { ...options, onlyIfUnset: true });
+}
+
+async function writeFolderRule(
+  store: FileStore,
+  options: { path: string; visibility: Visibility; clearance: Clearance; onlyIfUnset: boolean },
+): Promise<{ result: VisibilityResult; changed: boolean }> {
   // Visibility writes rewrite `privacy.md`, the file that decides what every
   // non-owner may see — so only the owner's scope may reach them. The public
   // actions already require `owner`; this refusal is the layer that survives
@@ -153,12 +176,19 @@ export async function setFolderVisibility(
     throw new FileOpError("PATH_INVALID", UNWRITABLE_PATH_MESSAGE);
   }
 
+  let kept: Visibility | null = null;
   await mutateManifest(store, (current) => {
+    kept = null;
     if (
       options.clearance.scope !== "private" &&
       !folderVisibleAtScope(folder, options.clearance, current.rules, current.overrides)
     ) {
       throw notFound();
+    }
+    const existing = current.rules.find((rule) => rule.prefix === folder);
+    if (options.onlyIfUnset && existing !== undefined) {
+      kept = existing.vis;
+      return current;
     }
     const rules = current.rules.filter((rule) => rule.prefix !== folder);
     rules.push({ prefix: folder, vis: options.visibility });
@@ -168,10 +198,9 @@ export async function setFolderVisibility(
     return { rules, overrides: current.overrides };
   });
 
+  const visibility: Visibility = kept ?? options.visibility;
   return {
-    path: folder,
-    visibility: options.visibility,
-    inherited: options.visibility,
-    exception: false,
+    result: { path: folder, visibility, inherited: visibility, exception: false },
+    changed: kept === null,
   };
 }

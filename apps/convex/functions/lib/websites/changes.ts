@@ -2,6 +2,7 @@
 
 import { DEFAULT_WEBSITE_ROOT } from "@context/shared";
 import { isEncryptedNote } from "../noteEncryption";
+import { PRIVACY_KEY, foldPath } from "../privacy";
 import type {
   FileOperation,
   OperationResult,
@@ -28,6 +29,20 @@ export function operationTouchesWebsite(
   }
   switch (operation.kind) {
     case "write":
+      // `privacy.md` decides what a website may publish, so an edit to it is
+      // an edit to every page.
+      return (
+        isWebsitePath(operation.path) ||
+        foldPath(operation.path.replace(/^\/+/, "")) === PRIVACY_KEY
+      );
+    case "setVisibility":
+    case "setNoteGroup":
+    case "setFolderVisibility":
+    case "setFolderGroup":
+      return isWebsitePath(operation.path);
+    case "resetPrivacy":
+    case "ensurePrivacy":
+      return true;
     case "removeEncryption":
     case "delete":
     case "pluginDelete":
@@ -106,6 +121,7 @@ export function operationMayRestrictWebsite(
 ): boolean {
   if (!operationTouchesWebsite(operation, result)) return false;
   if (operation.kind === "write" || operation.kind === "removeEncryption") {
+    if (!isWebsitePath(operation.path)) return true; // `privacy.md` itself
     return textExplicitlyRestricts(operation.path, operation.text);
   }
   if (operation.kind === "importVault") {

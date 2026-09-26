@@ -2,6 +2,60 @@
 
 _Decided 2026-09-25. See `docs/decisions/README.md` for the index._
 
+## `privacy.md` decides what a website publishes
+
+_Decided by the owner, 2026-09-26._
+
+A website is the owner's folder link over `website/`, and it resolves the way
+every folder link does: each page, menu entry and list row is read at `team`
+scope with no granted names (`lib/websites/publication.ts`). A note the
+manifest holds back — private by exception, private by folder, or pointed at a
+group — is absent from the site, whatever its frontmatter says. Page
+frontmatter can only narrow: `audience: members` asks for a signed-in member,
+`draft: true` withdraws the page. It can never publish something the manifest
+does not.
+
+The alternative was to let frontmatter decide, with `audience: public` as the
+default. That was what shipped first, and it put private notes on the
+internet: filing a note under `website/` is an ordinary move, not a publish
+gesture (the folder is deliberately ordinary, per
+[folder lists](./folder-lists.md)); the console, search and every AI client
+went on calling the note private, because for them it was; and it
+contradicted the sentence every client is handed — visibility is enforced by
+the manifest, *never by frontmatter*. One source of truth for who can read a
+note is the product.
+
+This is non-negotiable #5's single exception, not a new one. Turning the site
+on is the owner minting a revocable locator for one folder, and it narrows:
+it publishes what `website/` already publishes to the workspace and never
+more. Turning it on writes `website: team` to `privacy.md` only when the
+manifest has no rule for the folder — an owner who already wrote
+`website: private` keeps a site that serves nothing, and a later change to the
+rule is theirs. Sites enabled before this rule existed get the same
+absent-only write once, from the next rebuild. The rule also makes `website/`
+readable by the workspace's own members in the app, which is no wider than
+the site: every page it publishes, they could already open on the web.
+
+Consequences that follow and are intended:
+
+- **The index is built at the publication clearance**, never at the owner's,
+  and never depends on who triggered the rebuild. An owner's "Check again"
+  still shows the owner their own view, and commits a separate publication
+  scan.
+- **The members gate is a membership check, and that is sufficient.** Every
+  member reads at `team` or wider, so a page visible at `team` with no names is
+  visible to every member. A group-pointed note is therefore not served even
+  to the group: a website is not a way to reach a subset of members.
+- **A manifest change is a website change that may narrow.** Visibility,
+  group and privacy-reset operations under `website/`, and any write to
+  `privacy.md`, mark the index stale and unsafe, so the menu is withheld until
+  the rebuild lands.
+- **The release fallback is not used while a restriction is pending.** An
+  unreadable source cannot say the page is still meant to be published.
+
+`websitePrivacy.test.ts` pins it on both serving paths — the fresh index and
+the bucket probe — and reverting either path's read clearance fails it.
+
 ## An edit is a candidate; the last complete release is the fallback
 
 The editor autosaves a Markdown note while it is being typed. A save can catch

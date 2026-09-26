@@ -25,6 +25,7 @@ import {
 } from "./links";
 import { renderPublicWebsiteLists } from "./lists";
 import { probeWebsitePage } from "./probe";
+import { PUBLICATION_CLEARANCE } from "./publication";
 
 type SiteShell = {
   siteName: string;
@@ -56,6 +57,12 @@ export type WebsiteResolutionPlan =
       title: string;
       description: string | null;
       viewerAudience: WebsiteRouteAudience;
+      /**
+       * False while an unpublished change may have narrowed a route. The
+       * last release is then not served in place of an unreadable source:
+       * nothing can say the page is still meant to be published.
+       */
+      releaseFallback: boolean;
       releaseId?: string;
       releasePageId?: string;
     } & SiteShell);
@@ -165,6 +172,8 @@ export async function websiteResolutionPlanHandler(
     return probe({ siteName: workspace.displayName, navigation: [] }, false);
   }
   const fresh = state.routeGeneration === state.routeReconciledGeneration;
+  const restrictionPending =
+    !fresh && state.routeUnsafeGeneration !== undefined;
 
   const indexed = await ctx.db
     .query("websiteRouteIndex")
@@ -192,8 +201,7 @@ export async function websiteResolutionPlanHandler(
     }));
   const shell: SiteShell = {
     siteName: workspace.displayName,
-    navigation:
-      !fresh && state.routeUnsafeGeneration !== undefined ? [] : navigation,
+    navigation: restrictionPending ? [] : navigation,
   };
   const lookupKey = websiteRouteLookupKey(routePath);
   const claimants = indexed.filter((row) => row.lookupKey === lookupKey);
@@ -232,6 +240,7 @@ export async function websiteResolutionPlanHandler(
     title: route.title,
     description: route.description,
     viewerAudience: member ? "members" : "public",
+    releaseFallback: !restrictionPending,
     ...(route.releaseId === undefined ? {} : { releaseId: route.releaseId }),
     ...(route.releasePageId === undefined
       ? {}
@@ -291,12 +300,13 @@ export async function resolveWebsitePageHandler(
     navigation: [],
   });
 
+  // Read at the publication clearance: a page `privacy.md` no longer
+  // publishes is not found here, which is the restriction branch below.
   let result;
   try {
     result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: plan.workspaceId,
-      scope: "private",
-      grantedNames: [],
+      ...PUBLICATION_CLEARANCE,
       operation: { kind: "read", path: plan.objectKey, forward: "never" },
     });
   } catch (error) {
@@ -410,7 +420,11 @@ async function resolveReleasedPage(
   plan: Extract<WebsiteResolutionPlan, { kind: "read" }>,
   handle: string,
 ): Promise<ResolvedWebsitePage | null> {
-  if (plan.releaseId === undefined || plan.releasePageId === undefined) {
+  if (
+    !plan.releaseFallback ||
+    plan.releaseId === undefined ||
+    plan.releasePageId === undefined
+  ) {
     return null;
   }
   const released = await ctx.runAction(

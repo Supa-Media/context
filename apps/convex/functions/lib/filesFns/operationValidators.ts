@@ -401,6 +401,7 @@ export const operationValidator = v.union(
     kind: v.literal("setFolderVisibility"),
     path: v.string(),
     visibility: visibilityValidator,
+    onlyIfUnset: v.optional(v.boolean()),
   }),
   v.object({
     /**
