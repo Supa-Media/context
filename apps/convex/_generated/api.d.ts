@@ -16,6 +16,7 @@ import type * as functions_account from "../functions/account.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
 import type * as functions_organizer from "../functions/organizer.js";
+import type * as functions_jev from "../functions/jev.js";
 import type * as functions_billingStripe from "../functions/billingStripe.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
 import type * as functions_cardAssets from "../functions/cardAssets.js";
@@ -109,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
   "functions/organizer": typeof functions_organizer;
+  "functions/jev": typeof functions_jev;
   "functions/billingStripe": typeof functions_billingStripe;
   "functions/managedProvisioning": typeof functions_managedProvisioning;
   "functions/authorizations": typeof functions_authorizations;

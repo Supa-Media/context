@@ -14,6 +14,7 @@
  */
 
 import { FRONT_NOTES } from "../lists/grammar.js";
+import { isPlumbing } from "../privacy/engine.js";
 
 const ROOT_PATTERNS = {
   inbox: /^(?:\d+-)?inbox$/i,
@@ -28,10 +29,6 @@ export const MAX_SWEEP_PROJECTS = 60;
 export const MAX_SWEEP_INBOX = 40;
 /** Jev's choice question takes 64 options; one of them is "leave it". */
 export const MAX_DESTINATIONS = 63;
-
-function isPlumbing(path) {
-  return path.split("/").some((segment) => segment.startsWith("."));
-}
 
 /** The first top-level folder of each kind this context has, or null. */
 export function organizerRoots(paths) {

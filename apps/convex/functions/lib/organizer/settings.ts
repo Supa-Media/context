@@ -20,6 +20,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { internal } from "../../../_generated/api";
 import { planFor, statusOf } from "../billing/plan";
 import { planIsPaying } from "../premium";
+import { featureIsOn } from "../jev/meter";
 
 export type OrganizerKind = "done" | "archive" | "file";
 
@@ -42,7 +43,13 @@ export async function organizerRow(
     .unique();
 }
 
-export async function workspaceIsPaying(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+/**
+ * Premium, and auto-organize not switched off for everybody through Jev
+ * smarts' kill switch. While the switch is off the feature does not exist:
+ * no notice, no sweep, nothing written to anybody's bucket.
+ */
+export async function organizerAvailable(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  if (!(await featureIsOn(ctx, "organizer"))) return false;
   return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
 }
 
@@ -99,6 +106,7 @@ export async function startOrganizerOnUpgrade(
   isPaying: boolean,
 ): Promise<void> {
   if (wasPaying || !isPaying) return;
+  if (!(await featureIsOn(ctx, "organizer"))) return;
   const now = Date.now();
   const row = await organizerRow(ctx, workspaceId);
   if (row?.off === true) return;

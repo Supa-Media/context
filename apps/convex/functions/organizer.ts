@@ -36,14 +36,14 @@ import {
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 import { requireUserId } from "./lib/billing/plan";
-import { decideClientFor, eachLimited } from "./lib/organizer/decideClient";
+import { eachLimited, withJev } from "./lib/jev/client";
 import {
   NOTICE_GRACE_MS,
   type OrganizerKind,
   organizerRow,
   patchOrganizerRow,
   sweepIsDue,
-  workspaceIsPaying,
+  organizerAvailable,
 } from "./lib/organizer/settings";
 import type { OrganizerSuggestion, OrganizerUndo, SweepWork } from "./lib/organizer/sweepOps";
 import { doneSuggestion, fileSuggestion } from "../../mcp/src/organizer/suggest.js";
@@ -105,7 +105,7 @@ export const status = query({
     if (userId === null) return null;
     const membership = await getMembership(ctx, args.workspaceId, userId);
     if (membership === null) return null;
-    const available = await workspaceIsPaying(ctx, args.workspaceId);
+    const available = await organizerAvailable(ctx, args.workspaceId);
     const isOwner = membership.role === "owner";
     // A member who is not the owner learns only that it exists on this plan.
     const row = isOwner ? await organizerRow(ctx, args.workspaceId) : null;
@@ -150,7 +150,7 @@ export const setEnabled = mutation({
         noticeAt: row?.noticeAt ?? now,
         startsAt: row?.startsAt ?? now,
       });
-      if (await workspaceIsPaying(ctx, args.workspaceId)) {
+      if (await organizerAvailable(ctx, args.workspaceId)) {
         await ctx.scheduler.runAfter(0, internal.functions.organizer.runSweep, { workspaceId: args.workspaceId });
       }
     } else {
@@ -214,7 +214,7 @@ export const sweepNow = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await requireOwner(ctx, args.workspaceId);
-    if (!(await workspaceIsPaying(ctx, args.workspaceId))) return null;
+    if (!(await organizerAvailable(ctx, args.workspaceId))) return null;
     const row = await organizerRow(ctx, args.workspaceId);
     if (row?.off === true) return null;
     if (!row || row.startsAt === undefined || row.startsAt > Date.now()) {
@@ -275,7 +275,7 @@ export const isOwnerOnPlan = internalQuery({
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const membership = await getMembership(ctx, args.workspaceId, args.userId);
-    return membership?.role === "owner" && (await workspaceIsPaying(ctx, args.workspaceId));
+    return membership?.role === "owner" && (await organizerAvailable(ctx, args.workspaceId));
   },
 });
 
@@ -404,7 +404,7 @@ export const sweepRow = internalQuery({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .filter((q) => q.eq(q.field("role"), "owner"))
       .first();
-    return { row, ownerUserId: owner?.userId ?? null, paying: await workspaceIsPaying(ctx, args.workspaceId) };
+    return { row, ownerUserId: owner?.userId ?? null, paying: await organizerAvailable(ctx, args.workspaceId) };
   },
 });
 
@@ -421,7 +421,7 @@ export const beginSweep = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const row = await organizerRow(ctx, args.workspaceId);
-    const paying = await workspaceIsPaying(ctx, args.workspaceId);
+    const paying = await organizerAvailable(ctx, args.workspaceId);
     if (!row || !sweepIsDue(row, paying, now, { ignoreInterval: args.force === true })) return null;
     const owner = await ctx.db
       .query("workspaceMembers")
@@ -481,10 +481,13 @@ export const runSweep = internalAction({
       await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });
 
       const found: OrganizerSuggestion[] = [...work.ready];
-      const client = await decideClientFor(workspaceId);
-      if (client) {
+      // Every question goes through Jev smarts: switched off, over the day's
+      // cap or not Premium means no session, and the sweep records only the
+      // suggestions that needed no question.
+      await withJev(ctx, { feature: "organizer", workspaceId }, async (jev) => {
+        if (!jev) return;
         await eachLimited(work.items, DECIDE_CONCURRENCY, async (item) => {
-          const answers = await client.decide(item.request);
+          const answers = await jev.decide(item.request);
           read += 1;
           if (answers) {
             const suggestion =
@@ -497,7 +500,7 @@ export const runSweep = internalAction({
             await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total });
           }
         });
-      }
+      });
 
       const recorded = (await organizerOp(ctx, workspaceId, claim.ownerUserId, {
         action: "record",
@@ -519,11 +522,10 @@ export const runSweep = internalAction({
         found: counts,
         pending,
       });
-    } catch (error) {
+    } catch {
       // Numbers only: the error may quote a path.
       console.error(JSON.stringify({ event: "organizer_sweep_failed", workspaceId, read, total }));
       await ctx.runMutation(internal.functions.organizer.sweepProgress, { workspaceId, read, total, finished: "failed" });
-      if (!(error instanceof ConvexError)) return null;
     }
     return null;
   },
@@ -543,7 +545,7 @@ export const scheduleDueSweeps = internalMutation({
     for (const row of rows) {
       if (started >= SWEEPS_PER_TICK) break;
       if (row.startsAt === undefined) continue;
-      if (!sweepIsDue(row, await workspaceIsPaying(ctx, row.workspaceId), now, { ignoreInterval: false })) continue;
+      if (!sweepIsDue(row, await organizerAvailable(ctx, row.workspaceId), now, { ignoreInterval: false })) continue;
       await ctx.scheduler.runAfter(started * SWEEP_STAGGER_MS, internal.functions.organizer.runSweep, {
         workspaceId: row.workspaceId,
       });

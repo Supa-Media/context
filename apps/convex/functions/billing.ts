@@ -46,12 +46,7 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { startOrganizerOnUpgrade } from "./lib/organizer/settings";
-import {
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
@@ -626,7 +621,6 @@ export const applyStripeEvent = internalMutation({
       lastEventAt: args.createdSeconds,
       updatedAt: Date.now(),
     });
-    // Auto-organize is on with Premium; the first sweep starts on the upgrade.
     await startOrganizerOnUpgrade(ctx, plan.workspaceId, planIsPaying(plan.status), planIsPaying(status));
 
     await recordAudit(ctx, {

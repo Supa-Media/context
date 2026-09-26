@@ -59,6 +59,7 @@ import { requireAdmin, viewerIsAdmin as viewerIsAdminHelper, type AdminActor } f
 import { toConvexError } from "./lib/adminFns/errors";
 import { COUNT_CEILING, usageReportHandler, type CountedTotal, type MetricSeries, countedTotalValidator } from "./lib/adminFns/usage";
 import { ROSTER_LIMIT, censusReportHandler, populationValidator } from "./lib/adminFns/census";
+import { jevUsageReportHandler, setJevSwitchHandler } from "./lib/jev/admin";
 import {
   applySecretHandler,
   deleteSecretHandler,
@@ -122,6 +123,77 @@ export const usageReport = query({
       throw toConvexError(error);
     }
     return await usageReportHandler(ctx, args);
+  },
+});
+
+// -- Jev smarts -----------------------------------------------------------
+
+const jevDayValidator = v.object({
+  day: v.string(),
+  calls: v.number(),
+  failed: v.number(),
+  refused: v.number(),
+  tokens: v.number(),
+  costUsd: v.number(),
+});
+
+/**
+ * Jev usage and estimated cost per feature, with each kill switch's state.
+ * Counts only: no question, answer, path or workspace name. See
+ * `lib/jev/README.md`.
+ */
+export const jevUsageReport = query({
+  args: { days: v.optional(v.number()) },
+  returns: v.object({
+    usdPerMtok: v.number(),
+    allOff: v.boolean(),
+    features: v.array(
+      v.object({
+        feature: v.string(),
+        label: v.string(),
+        on: v.boolean(),
+        disabledByEnv: v.boolean(),
+        dailyCallsPerWorkspace: v.number(),
+        workspaces: v.number(),
+        calls: v.number(),
+        failed: v.number(),
+        refused: v.number(),
+        questions: v.number(),
+        tokens: v.number(),
+        costUsd: v.number(),
+        days: v.array(jevDayValidator),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    try {
+      await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    return await jevUsageReportHandler(ctx, args);
+  },
+});
+
+/**
+ * The kill switch: one feature, or `"*"` for every Jev feature at once.
+ * `off: null` removes the switch, returning the feature to its registry
+ * default. Takes effect on the next request; a run in progress finishes the
+ * request it is on and is refused the rest only when it next opens a session.
+ */
+export const setJevSwitch = mutation({
+  args: { feature: v.string(), off: v.union(v.boolean(), v.null()), reason: v.optional(v.string()) },
+  returns: v.object({ feature: v.string(), off: v.union(v.boolean(), v.null()) }),
+  handler: async (ctx, args) => {
+    let actor;
+    try {
+      actor = await requireAdmin(ctx);
+    } catch (error) {
+      throw toConvexError(error);
+    }
+    const result = await setJevSwitchHandler(ctx, args);
+    console.log(JSON.stringify({ event: "jev_switch", feature: result.feature, off: result.off, by: actor.userId }));
+    return result;
   },
 });
 
