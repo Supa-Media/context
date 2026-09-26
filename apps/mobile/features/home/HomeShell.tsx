@@ -3,25 +3,19 @@ import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from "reac
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { AppFrame } from "../app/AppFrame";
-import { ScreenScroll } from "../app/Screen";
 import { densityFor } from "../app/frame";
-import { landingCtaHref, landingCtaLabel } from "../auth/redirect";
 import { WorkspaceMark } from "../console/WorkspaceMark";
 import { Explorer } from "../console/files/Explorer";
 import { TabStrip } from "../console/files/TabStrip";
-import { displayPath } from "../console/files/paths";
+import { baseName, displayName, displayPath } from "../console/files/paths";
 import { emptyTabs, tabsReducer } from "../console/files/tabs";
-import { useStaticFileBrowser } from "../console/files/useDemoFileBrowser";
 import type { PaletteItem } from "../console/files/palette";
-import { Button } from "../design/components/Button";
 import { TextLink } from "../design/components/TextLink";
 import { Palette } from "../design/components/Palette";
 import { StatusBar } from "../design/components/StatusBar";
 import { Text } from "../design/components/Text";
-import { leading, pointerType as t } from "../design/tokens";
+import { pointerType as t } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
-import { noteTitle, parseNote } from "../share/markdown";
-import { NoteBody } from "../share/NoteBody";
 import {
   BUILT_IN_SITE,
   HOME_WORKSPACE_LABEL,
@@ -32,28 +26,32 @@ import {
   pageParam,
   routeFromParam,
 } from "./homeSite";
+import { HomeEditor, HomePage } from "./HomePage";
 import { useHomeSite } from "./useHomeSite";
+import { useLocalFileBrowser } from "./useLocalFileBrowser";
 
 /**
- * The homepage, as the app itself: the real frame, tree, tabs, ⌘K and status
- * bar, on a read-only `@context` workspace whose notes are the website.
+ * The homepage, as the app itself: the real frame, tree, tabs, ⌘K, editor and
+ * status bar, on an `@context` workspace whose notes are the website.
  *
- * The pages are `@context-lc`'s `website/` folder, and the tree is that
- * folder, so the front page is edited like any note. The router puts the site
+ * The notes are `@context-lc`'s `website/` folder, and the tree is that folder
+ * exactly, so the front page is edited like any note. The router puts the site
  * in the page's HTML, so the first paint is the site and nothing is swapped in
  * after it (`useHomeSite`); when the site is off or unreachable the built-in
  * copy (`builtInPages.ts`) is drawn for the whole visit instead. The open page
  * is `?page=` in the address, so a link to `/?page=pricing` opens Pricing and
  * back works.
  *
- * Nothing here can write. The browser is the static one the demo console uses,
- * whose `canEdit` is false, so no editing control is ever drawn; the one hint
- * that this is not a workspace you can type in is the status bar's first
- * segment, and the line under the title if somebody tries.
+ * A visitor can write in it the way they would in their own workspace: open a
+ * note and press Edit, make notes and folders, rename, move and delete them.
+ * All of it happens in this tab only (`useLocalFileBrowser`), and a reload is
+ * the site again. A note they made has no address, so opening one leaves the
+ * address where it was.
  */
 /** The built-in tree: the same every visit, so it is built once. */
 const BUILT_IN = homeTree(BUILT_IN_SITE);
 const NOTHING = liveHomeTree([]);
+const NOTHING_OPEN = "# Nothing open\n\nPick a note from the list, or make a new one.\n";
 
 export function HomeShell() {
   const styles = useThemedStyles(makeStyles);
@@ -65,58 +63,77 @@ export function HomeShell() {
   const source = useHomeSite();
   const site = source.kind === "live" ? source.snapshot.pages : null;
 
-  // The tree changes when the list of pages does, not when one's words do: a
-  // new tree resets what is expanded, as switching workspace does.
-  const shape = site?.map((page) => `${page.routePath}\u0001${page.title}`).join("\u0002") ?? null;
   const home = useMemo(
     () => (source.kind === "builtIn" ? BUILT_IN : site === null ? NOTHING : liveHomeTree(site)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [source.kind, shape],
+    [source.kind, site],
   );
-  const markdown =
-    source.kind === "waiting"
-      ? ""
-      : (site?.find((page) => page.routePath === routePath)?.markdown ??
-        home.pages.get(home.paths.get(routePath) ?? "")?.markdown ??
-        MISSING_PAGE_MARKDOWN);
-  const browser = useStaticFileBrowser(home.tree, "home");
 
   const [tabs, dispatch] = useReducer(tabsReducer, emptyTabs);
-  const activePath = home.paths.get(routePath) ?? null;
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const local = useLocalFileBrowser(home, "home", routePath, {
+    onMoved: (moves) => {
+      for (const [from, to] of moves) dispatch({ type: "renamed", from, to });
+      setEditingPath((current) => moves.find(([from]) => from === current)?.[1] ?? current);
+    },
+    onRemoved: (paths) => {
+      for (const path of paths) dispatch({ type: "removed", path });
+    },
+    onCreated: setEditingPath,
+  });
+  const browser = local.files;
+  const activePath = browser.selectedPath !== null && local.notes[browser.selectedPath] !== undefined
+    ? browser.selectedPath
+    : null;
   useEffect(() => {
     if (activePath !== null) dispatch({ type: "opened", path: activePath, mode: "pinned" });
   }, [activePath]);
+  const editing = activePath !== null && editingPath === activePath;
+
+  const markdown =
+    source.kind === "waiting"
+      ? ""
+      : activePath !== null
+        ? local.notes[activePath]!
+        : browser.selectedPath === null && local.touched && local.pathOf(routePath) === undefined
+          ? NOTHING_OPEN
+          : MISSING_PAGE_MARKDOWN;
 
   // A push, not `setParams`: that replaces the entry, and Back then left the
   // site instead of going to the page before.
   const [notesOpen, setNotesOpen] = useState(false);
+  const { routeOf, pathOf } = local;
   const openRoute = useCallback(
     (next: string) => {
       setNotesOpen(false);
+      const path = pathOf(next);
+      if (path !== undefined) browser.select(path);
+      if (next === routePath) return;
       const page = pageParam(next);
       router.push(page === undefined ? "/" : { pathname: "/", params: { page } });
     },
-    [router],
+    [browser, pathOf, routePath, router],
   );
   const openPath = useCallback(
     (path: string) => {
-      const page = home.pages.get(path);
-      if (page !== undefined) openRoute(page.routePath);
+      const route = routeOf(path);
+      if (route !== undefined) return openRoute(route);
+      // A note the visitor made has no page, so the address stays put.
+      setNotesOpen(false);
+      browser.select(path);
     },
-    [home, openRoute],
+    [browser, openRoute, routeOf],
   );
 
   const files = useMemo(
     () => ({
       ...browser,
-      selectedPath: activePath,
       select: (path: string) => {
-        if (home.pages.has(path)) openPath(path);
+        if (local.notes[path] !== undefined) openPath(path);
         else browser.toggleFolder(path);
         return true;
       },
     }),
-    [browser, activePath, home, openPath],
+    [browser, local.notes, openPath],
   );
 
   const followLink = useCallback(
@@ -133,30 +150,19 @@ export function HomeShell() {
   useSearchShortcut(() => setPaletteOpen(true));
   const paletteItems = useMemo<PaletteItem[]>(
     () =>
-      [...home.pages].map(([path, page]) => ({
+      Object.keys(local.notes).map((path) => ({
         id: path,
-        label: page.title,
+        label: home.pages.get(path)?.title ?? displayName(baseName(path)),
         detail: path.includes("/") ? displayPath(path.slice(0, path.lastIndexOf("/"))) : undefined,
         kind: "note" as const,
       })),
-    [home],
+    [home, local.notes],
   );
 
   const explorer = <Explorer files={files} contextLabel={HOME_WORKSPACE_LABEL} />;
-  const cta = landingCtaLabel(auth);
-  const trailing = (
+  const trailing = auth.isAuthenticated ? null : (
     <View style={styles.actions}>
-      {auth.isAuthenticated || compact ? null : (
-        <TextLink label="Sign in" onPress={() => router.push("/login")} testID="home-sign-in" />
-      )}
-      <Button
-        variant="accent"
-        style={styles.cta}
-        label={compact ? (auth.isAuthenticated ? "Open" : "Start") : cta}
-        accessibilityLabel={cta}
-        onPress={() => router.push(landingCtaHref(auth) as never)}
-        testID="home-cta"
-      />
+      <TextLink label="Sign in" onPress={() => router.push("/login")} testID="home-sign-in" />
     </View>
   );
   const switcher = (
@@ -167,6 +173,7 @@ export function HomeShell() {
       </Text>
     </View>
   );
+  const noteCount = Object.keys(local.notes).length;
 
   return (
     <View style={styles.ground}>
@@ -198,8 +205,8 @@ export function HomeShell() {
         status={
           <StatusBar
             segments={[
-              { id: "mode", text: "Read only", tone: "quiet" },
-              { id: "notes", text: `${home.pages.size} notes`, tone: "quiet" },
+              { id: "mode", text: local.touched ? "Edited in this browser" : "Editable here", tone: "quiet" },
+              { id: "notes", text: `${noteCount} ${noteCount === 1 ? "note" : "notes"}`, tone: "quiet" },
               {
                 id: "storage",
                 text: source.kind === "live" ? "Live from website/" : "Plain Markdown",
@@ -215,10 +222,24 @@ export function HomeShell() {
           <View style={styles.notes} testID="home-notes-page">
             {explorer}
           </View>
+        ) : editing ? (
+          <HomeEditor
+            key={activePath}
+            files={browser}
+            compact={compact}
+            onDone={() => setEditingPath(null)}
+            onOpenNote={openPath}
+          />
         ) : (
-          // Keyed by page, so a new page opens at its top rather than at the
+          // Keyed by note, so a new one opens at its top rather than at the
           // last one's scroll position.
-          <Page key={routePath} markdown={markdown} compact={compact} onLink={followLink} />
+          <HomePage
+            key={activePath ?? routePath}
+            markdown={markdown}
+            compact={compact}
+            onLink={followLink}
+            onEdit={activePath === null ? undefined : () => setEditingPath(activePath)}
+          />
         )}
       </AppFrame>
       {paletteOpen ? (
@@ -263,47 +284,6 @@ function NotesPill({ open, onToggle }: { open: boolean; onToggle: () => void }) 
   );
 }
 
-/** The open note: its title where the editor draws one, and the body beneath. */
-function Page({
-  markdown,
-  compact,
-  onLink,
-}: {
-  markdown: string | null;
-  compact: boolean;
-  onLink: (href: string) => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const [typed, setTyped] = useState(false);
-  const { title, blocks } = useMemo(() => {
-    if (markdown === null) return { title: null, blocks: [] };
-    const parsed = parseNote(markdown).blocks;
-    const own = noteTitle(parsed);
-    return own === null ? { title: null, blocks: parsed } : { title: own, blocks: parsed.slice(1) };
-  }, [markdown]);
-  useEffect(() => setTyped(false), [markdown]);
-  const onType = useCallback(() => setTyped(true), []);
-  useTypingHint(onType);
-
-  return (
-    <ScreenScroll style={styles.page} contentContainerStyle={[styles.pageContent, compact && styles.pageContentCompact]} testID="home-page">
-      <View style={styles.column}>
-        {title === null ? null : (
-          <Text variant="body" role="heading" aria-level={1} style={styles.title}>
-            {title}
-          </Text>
-        )}
-        {typed ? (
-          <Text variant="body" style={styles.hint} testID="home-read-only">
-            This workspace is read only. Make your own to start writing.
-          </Text>
-        ) : null}
-        <NoteBody blocks={blocks} onSiteLink={onLink} />
-      </View>
-    </ScreenScroll>
-  );
-}
-
 /** ⌘K / Ctrl+K, on the web, as in the app. */
 function useSearchShortcut(open: () => void) {
   useEffect(() => {
@@ -319,30 +299,10 @@ function useSearchShortcut(open: () => void) {
   }, [open]);
 }
 
-/**
- * A printable key pressed outside any field: somebody tried to type into the
- * note. Answered with one quiet line rather than silence, which reads as broken.
- */
-function useTypingHint(onType: () => void) {
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof window === "undefined") return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
-      const target = event.target as HTMLElement | null;
-      if (target !== null && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
-      onType();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onType]);
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     ground: { flex: 1, backgroundColor: colors.pageSurface },
     actions: { flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 8 },
-    // The accent button at the top bar's scale rather than the hero's.
-    cta: { paddingVertical: 7, paddingHorizontal: 16 },
     switcher: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 6 },
     pill: {
       flexDirection: "row",
@@ -358,17 +318,4 @@ const makeStyles = (colors: Colors) =>
     notes: { flex: 1, paddingTop: 72, backgroundColor: colors.pageSurface },
     caret: { color: colors.muted, fontSize: t.meta },
     switcherLabel: { color: colors.text, fontSize: t.ui, fontWeight: "500" },
-    page: { flex: 1, backgroundColor: colors.pageSurface },
-    pageContent: { paddingHorizontal: 24, paddingTop: 48, paddingBottom: 96 },
-    // Below the phone's floating top row, which the page scrolls behind.
-    pageContentCompact: { paddingTop: 80 },
-    column: { width: "100%", maxWidth: 680, alignSelf: "center", gap: 16 },
-    title: {
-      fontSize: t.title,
-      lineHeight: leading(t.title, 1.2),
-      fontWeight: "600",
-      color: colors.text,
-      letterSpacing: -0.4,
-    },
-    hint: { fontSize: t.ui, color: colors.muted },
   });

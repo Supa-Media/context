@@ -3,8 +3,6 @@ import {
   CONSOLE_ROUTE,
   LOGIN_ROUTE,
   authorizeHref,
-  landingCtaHref,
-  landingCtaLabel,
   loginHref,
   resolveAuthRoute,
   resolveProtectedRoute,
@@ -160,18 +158,6 @@ describe("safeNextRoute", () => {
     expect(safeNextRoute(undefined)).toBe(CONSOLE_ROUTE);
     expect(safeNextRoute(null)).toBe(CONSOLE_ROUTE);
     expect(safeNextRoute(123 as unknown as string)).toBe(CONSOLE_ROUTE);
-  });
-});
-
-describe("landing call to action", () => {
-  test("invites a visitor to create a context", () => {
-    expect(landingCtaHref(signedOut)).toBe(LOGIN_ROUTE);
-    expect(landingCtaLabel(signedOut)).toBe("Create your workspace");
-  });
-
-  test("offers a signed-in visitor their console instead", () => {
-    expect(landingCtaHref(signedIn)).toBe(CONSOLE_ROUTE);
-    expect(landingCtaLabel(signedIn)).toBe("Open your console");
   });
 });
 

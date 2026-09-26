@@ -18,6 +18,8 @@ import { BUILT_IN_PAGES } from "./builtInPages";
 export const HOME_WORKSPACE_LABEL = "@context";
 
 export interface HomePage {
+  /** The file under `website/` (`Legal/privacy.md`); the live site's only. */
+  path?: string;
   routePath: string;
   title: string;
   /** Markdown with no frontmatter. */
@@ -95,12 +97,11 @@ export interface HomeTree {
 }
 
 /**
- * The tree for the live site: `website/`'s own folders, each page where its
- * file is, in menu order. A route path is the file's path under `website/`
- * (`/Legal/privacy` is `website/Legal/privacy.md`), so its segments are the
- * folders. Numbered so the tree keeps the menu's order (the number is a sort
- * prefix, which the tree never draws); a folder takes the place of its first
- * page. Nothing is added: no private note, no Legal of the shell's own.
+ * The tree for the live site: `website/`'s own folders, each note where its
+ * file is, in the order the site gives (`nav:` first, then by path). Numbered
+ * so the tree keeps that order (the number is a sort prefix, which the tree
+ * never draws); a folder takes the place of its first note. Nothing is added:
+ * no private note, no Legal of the shell's own.
  */
 export function liveHomeTree(site: readonly HomePage[]): HomeTree {
   const pages = new Map<string, HomePage>();
@@ -112,7 +113,8 @@ export function liveHomeTree(site: readonly HomePage[]): HomeTree {
     return `${at}${String(entries[parent]!.length + 1).padStart(2, "0")}-${name}`;
   };
   for (const page of site) {
-    const segments = page.routePath === "/" ? [] : page.routePath.slice(1).split("/");
+    const file = page.path ?? `${page.routePath === "/" ? "index" : page.routePath.slice(1)}.md`;
+    const segments = file.split("/");
     let parent = "";
     let route = "";
     for (const segment of segments.slice(0, -1)) {
