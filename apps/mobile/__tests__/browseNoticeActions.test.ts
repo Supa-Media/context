@@ -230,7 +230,12 @@ describe("Dismiss, on a move into another context", () => {
     );
     // The line is there to begin with — otherwise the press below proves
     // nothing about a notice that was never drawn.
-    expect(container.textContent).toContain("Moved 1 note to @supa.");
+    expect(container.textContent).toContain("Moved 1 note to @supa");
+    // A finished move is a receipt: the corner card's, never the band's.
+    expect(
+      container.querySelector('[data-testid="announcement-card"] [data-testid="browse-context-move-mv1"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-testid="browse-notices"] [data-testid="browse-context-move-mv1"]')).toBeNull();
 
     press(container, "browse-context-move-dismiss-mv1");
 
@@ -266,6 +271,9 @@ describe("Dismiss, on a move into another context", () => {
       good. So this line comes back, and the word has to say so. A "Dismiss"
       that undismisses itself overnight is the complaint this came from.
     */
+    // A failed move blocks work until it is finished, so it stays in the band.
+    expect(container.querySelector('[data-testid="browse-notices"] [data-testid="browse-context-move-mv2"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="announcement-card"]')).toBeNull();
     const button = container.querySelector('[data-testid="browse-context-move-dismiss-mv2"]');
     expect(button?.textContent).toBe("Not now");
     // And the control that finishes it is still the point of the notice.
@@ -282,7 +290,7 @@ describe("Dismiss, on a move into another context", () => {
     // `contextMoves` is a subscription and does not turn around inside the
     // press. Without the pane's own set the line would sit there for a beat
     // after being dismissed, which is a button that reads as broken.
-    expect(container.textContent).not.toContain("Moved 1 note to @supa.");
+    expect(container.textContent).not.toContain("Moved 1 note to @supa");
     unmount();
   });
 });

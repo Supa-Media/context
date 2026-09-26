@@ -3,26 +3,24 @@ import { Button } from "../../../design/components/Button";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../../files/browser";
-import {
-  STORAGE_MIGRATION_OFFER,
-  StorageMigrationActions,
-} from "../../storage/StorageMigration";
-import type { ConsoleData, selectedContext } from "../../types";
+import type { selectedContext } from "../../types";
 import { setupPromptVisible } from "../../setup";
 import { SetupPrompt } from "../../setup/SetupPrompt";
 import type { BrowsePaneProps } from "./props";
 import { makeStyles } from "./styles";
 import { organizerPlace, type BrowseNoticeState } from "./useBrowseNotices";
 import { OrganizerNotices } from "../../../organizer/Notices";
-import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
  * region on a pointer, inside the document on a phone — is `BrowsePane`'s.
+ *
+ * Only what blocks work or orients a first visit is drawn here. What is merely
+ * new (auto-organize's notice, the storage offer, finished moves, the pointer
+ * width's intro sentence) is `AnnouncementCard`'s, in the corner.
  */
 export function BrowseNotices({
-  data,
   files,
   current,
   compact,
@@ -30,16 +28,15 @@ export function BrowseNotices({
   onNavigate,
   onConnectAgent,
   setup,
-  introVisible,
+  introInBand,
+  welcome,
   intro,
   introAnswer,
   noBucket,
   manifestBroken,
   moveNotices,
   setDismissedMoves,
-  storageMigration,
 }: {
-  data: ConsoleData;
   files: FileBrowser;
   current: ReturnType<typeof selectedContext>;
   compact: boolean;
@@ -47,29 +44,19 @@ export function BrowseNotices({
   onNavigate?: BrowsePaneProps["onNavigate"];
   onConnectAgent?: BrowsePaneProps["onConnectAgent"];
   setup: BrowseNoticeState["setup"];
-  introVisible: boolean;
+  introInBand: boolean;
+  welcome: BrowseNoticeState["welcome"];
   intro: BrowseNoticeState["intro"];
   introAnswer: BrowseNoticeState["introAnswer"];
   noBucket: boolean;
   manifestBroken: boolean;
   moveNotices: BrowseNoticeState["moveNotices"];
   setDismissedMoves: BrowseNoticeState["setDismissedMoves"];
-  storageMigration: BrowseNoticeState["storageMigration"];
 }) {
   const styles = useThemedStyles(makeStyles);
-  // The intro, drawn as B2-02's welcome where it can be — see `sharedWelcome`.
-  const welcome = introVisible
-    ? sharedWelcome({
-        intro,
-        current,
-        contexts: data.contexts,
-        demo: data.demo === true,
-        compact,
-      })
-    : null;
   return (
-    <View style={[styles.notices, compact && styles.noticesCompact]}>
-      {/* Auto-organize's one-time notice, and the phone's "N suggestions to look over". */}
+    <View style={[styles.notices, compact && styles.noticesCompact]} testID="browse-notices">
+      {/* The phone's "N suggestions to look over", on the workspace's own page. */}
       <OrganizerNotices {...organizerPlace(files, compact)} />
       {/*
         First in the band, and above the privacy warning it is the answer to.
@@ -108,33 +95,20 @@ export function BrowseNotices({
           onConnectAgent={onConnectAgent}
           workspaceId={current?.id}
         />
-      ) : introVisible ? (
+      ) : introInBand ? (
         <View style={styles.notice} testID="browse-context-intro">
           {/*
-            The sentence without the chip. The chip is in the top bar, on
-            every route of this context — repeating it two inches below
-            reads as two different claims rather than one. What earns its
-            height here is the sentence: a private folder in this tree is
-            not dimmed, it is *absent*, so somebody reading a short list
-            otherwise cannot tell a small context from a filtered one.
+            The sentence without the chip, and without a control: the band
+            draws it only where it cannot be answered. A phone has no chip to
+            keep saying it (see `useBrowseNotices`), and the demo's line is the
+            landing page's call to action. Everywhere else it is the corner
+            card's, with Got it.
+
+            A private folder in this tree is not dimmed, it is *absent*, so
+            somebody reading a short list otherwise cannot tell a small context
+            from a filtered one. That is what earns this line its height.
           */}
           <Text variant="hint">{intro!.text}</Text>
-          {data.demo === true || compact ? null : (
-            <Button
-              /*
-                "Got it", not "Dismiss". Every other control in this band puts
-                aside a thing that needs somebody — a failed move, a warning, an
-                offer to run something. This one is read, and the word should
-                say that the reader is finished with it rather than that a
-                problem has been deferred. The fact itself does not go anywhere:
-                it is on the chip above, on every route of this context.
-              */
-              label="Got it"
-              onPress={introAnswer.dismiss}
-              style={styles.dismiss}
-              testID="browse-context-intro-dismiss"
-            />
-          )}
         </View>
       ) : null}
 
@@ -283,26 +257,6 @@ export function BrowseNotices({
             onPress={() => files.dismissNotice()}
             style={styles.dismiss}
             testID="browse-dismiss-notice"
-          />
-        </View>
-      ) : null}
-
-      {/*
-        Last, and the only line here that is an *offer* rather than a report.
-
-        No wash: the warn colours in this band mean "something is wrong and it
-        is yours to fix", and nothing is wrong. It is the hint treatment the
-        tier line uses, with two buttons — one to run it, one to stop being
-        asked — and the dialog behind the first is the same one both entry
-        points raise.
-      */}
-      {storageMigration.visible && files.updateStorageLayout !== undefined ? (
-        <View style={styles.notice} testID="browse-storage-migration">
-          <Text variant="hint">{STORAGE_MIGRATION_OFFER}</Text>
-          <StorageMigrationActions
-            run={files.updateStorageLayout}
-            onDismiss={storageMigration.dismiss}
-            style={styles.noticeActions}
           />
         </View>
       ) : null}

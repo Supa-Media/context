@@ -150,8 +150,14 @@ export const KIND_LABELS: Record<OrganizerKind, string> = {
   file: "File inbox notes",
 };
 
+/**
+ * The one-time notice for people already on Premium, drawn by the corner card:
+ * an eyebrow saying what kind of news it is, the news, and what it means.
+ */
 export const existingCopy = {
-  body: "Premium now includes auto-organize. From tomorrow, Context reads your notes and suggests what to file and mark done. Nothing moves without you.",
+  eyebrow: "New in Premium",
+  title: "Auto-organize starts tomorrow",
+  body: "Context will read your notes and suggest what to file and mark done. Nothing moves without you.",
   off: "Turn off",
   ok: "Got it",
 };

@@ -5,6 +5,7 @@ import { useThemedStyles, type Colors } from "../theme";
 import { useReducedMotion } from "../useReducedMotion";
 import { Button } from "./Button";
 import { Text } from "./Text";
+import { NO_TOASTS, useReportToastEdge } from "./toastEdge";
 import { useFrame } from "../../app/appFrame/context";
 
 /**
@@ -83,12 +84,25 @@ export function ToastHost({
   const frame = useFrame();
   const lift = frame.framed && frame.density === "compact" ? frame.contentInsets.bottom : 0;
   const bottom = bottomInset + lift + space.x4;
+  /*
+    Where the top of the stack is, for the corner card that shares this edge
+    (see `toastEdge.tsx`). Measured rather than estimated: a toast's message
+    wraps, and a card placed from a guess is a card drawn over the Undo.
+  */
+  const report = useReportToastEdge();
+  const [height, setHeight] = useState(0);
+  const showing = toasts.length > 0;
+  useEffect(() => {
+    report?.(showing ? { showing, top: height > 0 ? bottom + height : null } : NO_TOASTS);
+  }, [report, showing, height, bottom]);
+  useEffect(() => () => report?.(NO_TOASTS), [report]);
   return (
     <View
       // `box-none`: the host spans the width, so it must not swallow clicks
       // aimed at the editor underneath. Only the toasts themselves are targets.
       pointerEvents="box-none"
       style={[styles.host, { bottom }]}
+      onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
       testID="toast-host"
     >
       {toasts.map((toast) => (
