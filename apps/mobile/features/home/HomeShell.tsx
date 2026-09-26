@@ -42,8 +42,9 @@ import { useLocalFileBrowser } from "./useLocalFileBrowser";
  * is `?page=` in the address, so a link to `/?page=pricing` opens Pricing and
  * back works.
  *
- * A visitor can write in it the way they would in their own workspace: open a
- * note and press Edit, make notes and folders, rename, move and delete them.
+ * A visitor can write in it the way they would in their own workspace: every
+ * note opens in the editor, and notes and folders can be made, renamed, moved
+ * and deleted.
  * All of it happens in this tab only (`useLocalFileBrowser`), and a reload is
  * the site again. A note they made has no address, so opening one leaves the
  * address where it was.
@@ -51,7 +52,6 @@ import { useLocalFileBrowser } from "./useLocalFileBrowser";
 /** The built-in tree: the same every visit, so it is built once. */
 const BUILT_IN = homeTree(BUILT_IN_SITE);
 const NOTHING = liveHomeTree([]);
-const NOTHING_OPEN = "# Nothing open\n\nPick a note from the list, or make a new one.\n";
 
 export function HomeShell() {
   const styles = useThemedStyles(makeStyles);
@@ -69,16 +69,13 @@ export function HomeShell() {
   );
 
   const [tabs, dispatch] = useReducer(tabsReducer, emptyTabs);
-  const [editingPath, setEditingPath] = useState<string | null>(null);
   const local = useLocalFileBrowser(home, "home", routePath, {
     onMoved: (moves) => {
       for (const [from, to] of moves) dispatch({ type: "renamed", from, to });
-      setEditingPath((current) => moves.find(([from]) => from === current)?.[1] ?? current);
     },
     onRemoved: (paths) => {
       for (const path of paths) dispatch({ type: "removed", path });
     },
-    onCreated: setEditingPath,
   });
   const browser = local.files;
   const activePath = browser.selectedPath !== null && local.notes[browser.selectedPath] !== undefined
@@ -87,16 +84,14 @@ export function HomeShell() {
   useEffect(() => {
     if (activePath !== null) dispatch({ type: "opened", path: activePath, mode: "pinned" });
   }, [activePath]);
-  const editing = activePath !== null && editingPath === activePath;
 
-  const markdown =
-    source.kind === "waiting"
+  // With no note open: nothing while the site is on its way or after the
+  // visitor deleted what was open, and the shell's own page for an address
+  // the site does not have.
+  const emptyMarkdown =
+    source.kind === "waiting" || (local.touched && local.pathOf(routePath) === undefined)
       ? ""
-      : activePath !== null
-        ? local.notes[activePath]!
-        : browser.selectedPath === null && local.touched && local.pathOf(routePath) === undefined
-          ? NOTHING_OPEN
-          : MISSING_PAGE_MARKDOWN;
+      : MISSING_PAGE_MARKDOWN;
 
   // A push, not `setParams`: that replaces the entry, and Back then left the
   // site instead of going to the page before.
@@ -205,7 +200,6 @@ export function HomeShell() {
         status={
           <StatusBar
             segments={[
-              { id: "mode", text: local.touched ? "Edited in this browser" : "Editable here", tone: "quiet" },
               { id: "notes", text: `${noteCount} ${noteCount === 1 ? "note" : "notes"}`, tone: "quiet" },
               {
                 id: "storage",
@@ -222,24 +216,12 @@ export function HomeShell() {
           <View style={styles.notes} testID="home-notes-page">
             {explorer}
           </View>
-        ) : editing ? (
-          <HomeEditor
-            key={activePath}
-            files={browser}
-            compact={compact}
-            onDone={() => setEditingPath(null)}
-            onOpenNote={openPath}
-          />
-        ) : (
+        ) : activePath !== null ? (
           // Keyed by note, so a new one opens at its top rather than at the
           // last one's scroll position.
-          <HomePage
-            key={activePath ?? routePath}
-            markdown={markdown}
-            compact={compact}
-            onLink={followLink}
-            onEdit={activePath === null ? undefined : () => setEditingPath(activePath)}
-          />
+          <HomeEditor key={activePath} files={browser} compact={compact} onOpenNote={openPath} />
+        ) : (
+          <HomePage key={routePath} markdown={emptyMarkdown} compact={compact} onLink={followLink} />
         )}
       </AppFrame>
       {paletteOpen ? (

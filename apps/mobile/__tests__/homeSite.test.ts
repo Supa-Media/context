@@ -73,7 +73,7 @@ describe("the built-in pages are website pages", () => {
   });
 
   test("the shell's own shell strings were found, so the rules below read them", () => {
-    expect(PROSE).toContain("Your changes stay in this browser. Reload to see the site again.");
+    expect(PROSE).toContain("Search @context");
   });
 });
 

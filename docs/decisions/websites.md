@@ -259,13 +259,19 @@ default `context-lc`) and is null for every other, which would otherwise make
 any site's pages outside its menu enumerable. The router asks Convex's
 `/site/home` while it fetches the HTML and puts the answer in the page as an
 inert JSON block (`infra/router/src/homeSite.ts`), so **the first paint is the
-live site and nothing replaces it**. `/site/home` lists and reads the folder
-at `PUBLICATION_CLEARANCE` (`lib/websites/snapshot.ts`), so a note
-`privacy.md` holds back is absent from the listing itself, and drafts,
-members-only and encrypted notes are dropped as they are on the site.
+live site and nothing replaces it**. `/site/home` takes the folder's files
+from the site's own route index and reads them at `PUBLICATION_CLEARANCE`
+(`lib/websites/snapshot.ts`), so a note `privacy.md` holds back is absent, and
+drafts, members-only and encrypted notes are dropped as they are on the site.
+It must not list the bucket per visit: the first version did, answered slower
+than the page waits, and every visitor got the built-in copy. The router also
+caches an answer that arrives after it stopped waiting, so one slow answer
+costs one visit, not all of them.
 
-A visitor can edit it the way they would their own workspace: press Edit on a
-note, make notes and folders, rename, move, copy and delete. **None of it
+A visitor can edit it the way they would their own workspace: every note
+opens in the editor, and notes and folders can be made, renamed, moved, copied
+and deleted. No button turns editing on and no line explains it (the owner:
+"editing the page should just work"). **None of it
 leaves the tab** (`apps/mobile/features/home/useLocalFileBrowser.ts`): there is
 no bucket behind that tree, a reload is the site again, and sharing,
 visibility and downloads stay off because each is a claim about a real

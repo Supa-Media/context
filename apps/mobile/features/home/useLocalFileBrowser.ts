@@ -45,8 +45,6 @@ export interface LocalHomeEvents {
   onMoved?: (moves: ReadonlyArray<readonly [from: string, to: string]>) => void;
   /** These notes are gone. */
   onRemoved?: (paths: readonly string[]) => void;
-  /** A note the visitor just made: open it to write in. */
-  onCreated?: (path: string) => void;
 }
 
 export interface LocalHome {
@@ -183,7 +181,6 @@ export function useLocalFileBrowser(
       change(made.tree);
       reveal(made.path);
       open(made.path, made.tree);
-      eventsRef.current.onCreated?.(made.path);
     },
     [change, open, reveal],
   );

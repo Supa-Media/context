@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
 import {
   HOME_SITE_ELEMENT_ID,
+  fetchHomeSnapshot,
   injectHomeSnapshot,
   parseHomeSnapshot,
   type HomeSnapshot,
@@ -97,6 +98,36 @@ describe("the homepage's HTML", () => {
     const response = await get("/");
     expect(await response.text()).toBe(HTML);
     expect(response.headers.get("ETag")).toBe('"abc"');
+  });
+});
+
+describe("a site that answers late", () => {
+  it("is not waited for, and is cached for the next visit when it arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      const stored = new Map<string, Response>();
+      vi.stubGlobal("caches", {
+        default: {
+          match: async (request: Request) => stored.get(request.url)?.clone(),
+          put: async (request: Request, response: Response) => void stored.set(request.url, response),
+        },
+      });
+      let answer!: (response: Response) => void;
+      fetchSpy.mockImplementation(() => new Promise<Response>((resolve) => (answer = resolve)));
+      const pending: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) } as unknown as ExecutionContext;
+
+      const first = fetchHomeSnapshot(ENV.CONVEX_ORIGIN, "context-lc", ctx);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await first).toBeNull();
+
+      answer(Response.json(SITE));
+      await Promise.all(pending);
+      expect(await fetchHomeSnapshot(ENV.CONVEX_ORIGIN, "context-lc", ctx)).toEqual(SITE);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
