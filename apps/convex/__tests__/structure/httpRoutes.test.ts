@@ -100,6 +100,8 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "shareShortLinkPreview",
   "shareShortLinkCard",
   "domainResolve",
+  "sitePreview",
+  "siteCard",
 ]);
 
 /**
@@ -366,6 +368,16 @@ describe("the gateway's HTTP routes", () => {
       // unknown, unverified, suspended, removed, unpaid — is one null shape,
       // so it is a directory of live sites and nothing else.
       "domainResolve",
+      // **The seventh and eighth**, a pair like the fourth and fifth: a
+      // website page's tags and its picture. Their argument is a handle and a
+      // route path, guessable, and they answer only for a live public page of
+      // a site its owner turned on, resolved exactly as for an anonymous
+      // visitor (`lib/websites/preview.ts`). What they disclose is what that
+      // address already shows anyone who opens it: the title, the site's name
+      // and one line of the page. Every other case is one null shape, or one
+      // 404 for the picture. See the test below for the fields.
+      "sitePreview",
+      "siteCard",
     ]);
 
     const source = httpModule().source;
@@ -443,6 +455,29 @@ describe("the gateway's HTTP routes", () => {
    * improvement — a count of what is inside — is the one that must never be
    * made from anything but the visible names themselves.
    */
+  /**
+   * A website page's route is four fields wide, on every return: the page's
+   * title, one line of description, the site's name, and a card version that
+   * is a digest of the two names. Nothing else a page resolution carries
+   * (the Markdown, the navigation, the audience, the workspace) may leave.
+   */
+  test("the website page route returns four fields and no more", () => {
+    const source = routedSource();
+    for (const keys of unauthenticatedRouteResponses(source, "sitePreview")) {
+      expect(keys, "every sitePreview response returns exactly these fields").toEqual([
+        "cardVersion",
+        "description",
+        "siteName",
+        "title",
+      ]);
+    }
+    const body = routeImplementation(source, "sitePreview");
+    expect(body, "sitePreview must name its fields, never spread them").not.toMatch(/\.\.\./);
+    for (const forbidden of ["markdown", "navigation", "workspaceId", "audience"]) {
+      expect(body, `sitePreview must not return ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
   test("the readable team link's route returns three fields and no more", () => {
     const source = httpModule().source;
     const start = source.indexOf("export const shareNotePreview");

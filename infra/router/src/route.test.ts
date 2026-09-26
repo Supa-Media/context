@@ -300,10 +300,15 @@ describe("route: a short link's card is an image, not a page", () => {
   });
 
   it("the short link itself still routes to a preview, not to its card", () => {
+    // A website page is asked about first, as the app resolves the address;
+    // the short link is the fallback at the same address.
     expect(at("https://context.lc/@seyi/intake", SLACKBOT_UA)).toEqual({
-      kind: "short-link-preview",
+      kind: "site-preview",
       handle: "seyi",
-      slug: "intake",
+      routePath: "/intake",
+      legacySlug: "intake",
+      origin: "https://context.lc",
+      prefix: "/@seyi",
     });
   });
 });

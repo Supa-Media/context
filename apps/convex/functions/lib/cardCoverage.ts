@@ -202,3 +202,19 @@ export function isRenderableTitle(title: string): boolean {
   );
   return isRenderable(title, cached);
 }
+
+import { siteSerifFont } from "./cardFont/instrumentSerif";
+
+let serifCovered: Set<number> | null = null;
+
+/**
+ * Can a website page's card be drawn without tofu? Its title is set in the
+ * serif and its site's name in the sans, so each is checked against its own
+ * face. `title` is the card's title, already cut to what the card draws.
+ */
+export function isRenderableSiteCard(facts: { title: string; siteName: string }): boolean {
+  serifCovered ??= fontCoverage(
+    siteSerifFont().buffer.slice(0, siteSerifFont().byteLength) as ArrayBuffer,
+  );
+  return isRenderable(facts.title, serifCovered) && isRenderableTitle(facts.siteName);
+}

@@ -55,6 +55,8 @@ import { internalAction } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { cardElement, CARD_HEIGHT, CARD_WIDTH } from "./lib/cardArt";
 import { cardFont } from "./lib/cardFont/instrumentSans";
+import { siteSerifFont } from "./lib/cardFont/instrumentSerif";
+import { siteCardElement, SITE_CARD_HEIGHT, SITE_CARD_WIDTH } from "./lib/siteCardArt";
 
 /**
  * Render a title into a 1200×630 PNG.
@@ -164,6 +166,41 @@ export const renderCard = internalAction({
       png.byteOffset,
       png.byteOffset + png.byteLength,
     ) as ArrayBuffer;
+  },
+});
+
+/**
+ * Render a website page's link card into a 1200x630 PNG.
+ *
+ * INTERNAL, like `renderCard`, and for the same reason: the only caller
+ * resolves the page itself (`publicRoutes/siteCards.ts`) and passes what that
+ * page publishes, so nobody can hand this text to draw.
+ */
+export const renderSiteCard = internalAction({
+  args: { title: v.string(), siteName: v.string() },
+  returns: v.bytes(),
+  handler: async (ctx, args): Promise<ArrayBuffer> => {
+    const satori = (await import("satori")).default;
+    const { initWasm, Resvg } = await import("@resvg/resvg-wasm");
+    const storageId = await ctx.runQuery(internal.functions.cardAssets.wasmAsset, {});
+    if (storageId === null) {
+      throw new Error(
+        "the card renderer's wasm is not installed — run internal.functions.cardRender.installWasm",
+      );
+    }
+    await ensureWasm(ctx, initWasm, storageId);
+    const svg = await satori(siteCardElement(args) as never, {
+      width: SITE_CARD_WIDTH,
+      height: SITE_CARD_HEIGHT,
+      fonts: [
+        { name: "Instrument Serif", data: siteSerifFont() as unknown as ArrayBuffer, weight: 400, style: "normal" },
+        { name: "Instrument Sans", data: cardFont() as unknown as ArrayBuffer, weight: 600, style: "normal" },
+      ],
+      // No network on a glyph miss; see `renderCard`.
+      loadAdditionalAsset: async () => "",
+    });
+    const png = new Resvg(svg, { fitTo: { mode: "width", value: SITE_CARD_WIDTH } }).render().asPng();
+    return png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
   },
 });
 
