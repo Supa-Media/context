@@ -117,6 +117,13 @@ export interface MirrorSyncDeps {
    * before the notes themselves have arrived.
    */
   onListed?: (workspaceId: string) => void;
+  /**
+   * New bodies of a context's notes were committed by this run. Said once,
+   * after the run's last commit, and only when it fetched something — a list
+   * that reads frontmatter re-reads on it, since `onListed` came before the
+   * bodies it would need.
+   */
+  onFetched?: (workspaceId: string) => void;
   /** Tests only. */
   batchSize?: number;
   concurrency?: number;
@@ -627,6 +634,7 @@ async function fetchContext(
     return true;
   });
   if (!reconciled || !deps.mine()) return aborted();
+  if (run.fetched > 0) deps.onFetched?.(workspaceId);
   return run;
 }
 

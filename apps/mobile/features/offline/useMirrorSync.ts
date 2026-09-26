@@ -10,7 +10,7 @@ import {
   statusFromIndex,
 } from "./mirrorStatus";
 import { openMirrorStore } from "./mirrorStore";
-import { onMirrorRefreshRequest, publishMirrorListed } from "./mirrorEvents";
+import { onMirrorRefreshRequest, publishMirrorListed, publishMirrorNotesChanged } from "./mirrorEvents";
 import {
   refreshMetadata,
   syncAll,
@@ -155,6 +155,9 @@ export function useMirrorSync(options: {
           ).results,
         onListed: (workspaceId) => {
           if (mine()) publishMirrorListed(workspaceId);
+        },
+        onFetched: (workspaceId) => {
+          if (mine()) publishMirrorNotesChanged(workspaceId);
         },
         onProgress: (workspaceId, progress) => {
           if (!mine()) return;
