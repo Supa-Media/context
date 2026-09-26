@@ -1,5 +1,5 @@
 import { STAGING_DATA_WARNING } from "../../../app/StagingNotice";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
 import type { CheckoutOutcome } from "@context/shared";
@@ -41,6 +41,7 @@ import {
   type PremiumView,
 } from "./premium";
 import { usePremium } from "./usePremium";
+import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
 import { useArming } from "../../useArming";
 import { FreeTierNudge } from "./FreeTierNudge";
 import type { SettingsSectionKey } from "../sections";
@@ -151,7 +152,16 @@ function PremiumLive({
   onOpenStorage?: () => void;
 }) {
   const view = usePremium({ workspaceId: workspaceId as Id<"workspaces"> });
-  return <PremiumBody view={view} section={section} returned={returned} onOpenStorage={onOpenStorage} />;
+  const autoOrganize = usePremiumOrganizerSlots(returned);
+  return (
+    <PremiumBody
+      view={view}
+      section={section}
+      returned={returned}
+      onOpenStorage={onOpenStorage}
+      autoOrganize={autoOrganize}
+    />
+  );
 }
 
 /**
@@ -168,8 +178,15 @@ export function PremiumBody({
   /** Test seam: the settling copy's later wording, without waiting for it. */
   slowAfter = CHECKOUT_SETTLING_SLOW_MS,
   onOpenStorage,
+  autoOrganize,
 }: {
   view: PremiumView;
+  /**
+   * Auto-organize's places on this screen: the first-run card above the plan,
+   * the disclosure inside "What Premium includes", and the owner's switches
+   * after it. Absent everywhere but a live console — see `PremiumParts`.
+   */
+  autoOrganize?: { top?: ReactNode; included?: ReactNode; afterIncludes?: ReactNode };
   /** Opens Settings › Storage — the free tier's "bring your own" way out. */
   onOpenStorage?: () => void;
   section?: string;
@@ -291,6 +308,8 @@ export function PremiumBody({
           </View>
         </Notice>
       )}
+
+      {autoOrganize?.top ?? null}
 
       {status === null ? (
         <Card>
@@ -442,8 +461,11 @@ export function PremiumBody({
               testID="premium-entitlement"
             />
           )}
+          {autoOrganize?.included ?? null}
         </Card>
       )}
+
+      {autoOrganize?.afterIncludes ?? null}
 
       {failure === null ? (
         <></>

@@ -218,19 +218,19 @@ async function apply(
     const changed = setNoteProperty(note.text, "status", suggestion.to ?? "done") as { text?: string; error?: string };
     if (typeof changed.text !== "string") throw new FileOpError("PATH_INVALID", changed.error ?? "Couldn't set the status.");
     const written = await writeFile(store, { path: note.path, text: changed.text, expectedEtag: note.etag, clearance, now });
-    await recordActivity(store, { action: "file.write", paths: [written.path], details: { organizer: "done", reason: suggestion.reason }, actor });
+    await recordActivity(store, { action: "file.write", paths: [written.path], details: { organizer: "done", summary: suggestion.reason }, actor });
     return { kind: "status", path: note.path, value: suggestion.status ?? "" };
   }
   if (suggestion.kind === "archive") {
     const moved = await archivePath(store, { path: suggestion.path, clearance, now });
-    await recordActivity(store, { action: "file.archive", paths: [moved.from, moved.to], details: { count: moved.paths.length, organizer: "archive", reason: suggestion.reason }, actor });
+    await recordActivity(store, { action: "file.archive", paths: [moved.from, moved.to], details: { count: moved.paths.length, organizer: "archive", summary: suggestion.reason }, actor });
     return { kind: "move", from: moved.to, to: moved.from };
   }
   const target = suggestion.target;
   if (!target) throw new FileOpError("PATH_INVALID", "This suggestion has nowhere to file to.");
   const leaf = suggestion.path.split("/").pop() ?? suggestion.path;
   const moved = await movePath(store, { from: suggestion.path, to: `${target.path}/${leaf}`, clearance, now });
-  await recordActivity(store, { action: "file.move", paths: [moved.from, moved.to], details: { count: moved.paths.length, organizer: "file", reason: `Filed in ${target.title}` }, actor });
+  await recordActivity(store, { action: "file.move", paths: [moved.from, moved.to], details: { count: moved.paths.length, organizer: "file", summary: `Filed in ${target.title}` }, actor });
   return { kind: "move", from: moved.to, to: moved.from };
 }
 

@@ -12,7 +12,8 @@ import { setupPromptVisible } from "../../setup";
 import { SetupPrompt } from "../../setup/SetupPrompt";
 import type { BrowsePaneProps } from "./props";
 import { makeStyles } from "./styles";
-import type { BrowseNoticeState } from "./useBrowseNotices";
+import { organizerPlace, type BrowseNoticeState } from "./useBrowseNotices";
+import { OrganizerNotices } from "../../../organizer/Notices";
 import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
 
@@ -68,6 +69,8 @@ export function BrowseNotices({
     : null;
   return (
     <View style={[styles.notices, compact && styles.noticesCompact]}>
+      {/* Auto-organize's one-time notice, and the phone's "N suggestions to look over". */}
+      <OrganizerNotices {...organizerPlace(files, compact)} />
       {/*
         First in the band, and above the privacy warning it is the answer to.
 
