@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "@jest/globals";
 import { parseWebsitePage } from "@context/shared";
@@ -20,9 +20,18 @@ import {
   PRIVATE_PAGE,
   homeLink,
   homeTree,
+  liveHomeTree,
   pageParam,
   routeFromParam,
 } from "../features/home/homeSite";
+import {
+  HOME_SITE_ELEMENT_ID,
+  homeSourceReducer,
+  initialHomeSource,
+  injectedHomeSnapshot,
+  isStale,
+  type HomeSnapshot,
+} from "../features/home/homeSnapshot";
 
 /**
  * The homepage is a workspace of notes, and these are the rules that used to
@@ -59,16 +68,6 @@ describe("the built-in pages are website pages", () => {
     const navs = Object.values(BUILT_IN_PAGES).map((source) => parseWebsitePage(source).nav);
     expect(navs).toEqual(navs.map((_, index) => index));
     expect(BUILT_IN_SITE[0]?.routePath).toBe("/");
-  });
-
-  test("nothing is fetched to replace them, so the first paint is the page that stays", () => {
-    // The owner's call: a live site swapped in after the built-in copy made the
-    // homepage flicker, and its tree disagreed with what the site held.
-    const dir = join(__dirname, "../features/home");
-    const fetching = readdirSync(dir)
-      .filter((name) => /\.tsx?$/.test(name))
-      .filter((name) => /useWebsiteAddress|useQuery|useAction|\bfetch\(/.test(readFileSync(join(dir, name), "utf8")));
-    expect(fetching).toEqual([]);
   });
 
   test("the shell's own shell strings were found, so the rules below read them", () => {
@@ -212,5 +211,84 @@ describe("links inside a page", () => {
     expect(routeFromParam("pricing")).toBe("/pricing");
     expect(routeFromParam(["/pricing/", "x"])).toBe("/pricing");
     expect(routeFromParam("/")).toBe("/");
+  });
+});
+
+describe("the live site is website/, as its folders", () => {
+  const site = [
+    { routePath: "/", title: "Welcome", markdown: "# Welcome" },
+    { routePath: "/how-it-works", title: "How it works", markdown: "# How" },
+    { routePath: "/Legal/privacy", title: "Privacy", markdown: "# Privacy" },
+    { routePath: "/pricing", title: "Pricing", markdown: "# Pricing" },
+    { routePath: "/Legal/terms", title: "Terms", markdown: "# Terms" },
+  ];
+
+  test("each page sits in its folder, in menu order, a folder where its first page was", () => {
+    const { tree, paths } = liveHomeTree(site);
+    expect(tree.listings[""]!.entries.map((entry) => [entry.path, entry.kind])).toEqual([
+      ["01-Welcome.md", "file"],
+      ["02-How it works.md", "file"],
+      ["03-Legal", "folder"],
+      ["04-Pricing.md", "file"],
+    ]);
+    expect(tree.listings["03-Legal"]!.entries.map((entry) => entry.path)).toEqual([
+      "03-Legal/01-Privacy.md",
+      "03-Legal/02-Terms.md",
+    ]);
+    expect(paths.get("/Legal/terms")).toBe("03-Legal/02-Terms.md");
+    expect(tree.defaultSelection).toBe("01-Welcome.md");
+    expect(tree.defaultExpanded).toEqual(["03-Legal"]);
+  });
+
+  test("nothing is added that the folder does not hold", () => {
+    const { pages } = liveHomeTree(site);
+    expect([...pages.values()].map((page) => page.routePath).sort()).toEqual(
+      site.map((page) => page.routePath).sort(),
+    );
+    expect([...pages.values()]).not.toContain(PRIVATE_PAGE);
+  });
+});
+
+describe("a visit decides once between the site and the copy", () => {
+  const snapshot: HomeSnapshot = {
+    siteName: "Context",
+    revision: "1:1",
+    pages: [{ routePath: "/", title: "Welcome", markdown: "# Welcome" }],
+  };
+  const element = (text: string | null) => ({
+    getElementById: (id: string) => (id === HOME_SITE_ELEMENT_ID && text !== null ? ({ textContent: text } as HTMLElement) : null),
+  });
+
+  test("the element the app reads is the one the router writes", () => {
+    const router = readFileSync(join(__dirname, "../../../infra/router/src/homeSite.ts"), "utf8");
+    expect(router).toContain(`export const HOME_SITE_ELEMENT_ID = "${HOME_SITE_ELEMENT_ID}";`);
+  });
+
+  test("the site in the HTML is the first paint", () => {
+    const injected = injectedHomeSnapshot(element(JSON.stringify(snapshot)));
+    expect(initialHomeSource(injected, true)).toEqual({ kind: "live", snapshot });
+  });
+
+  test("a missing or broken block waits for the site rather than drawing the copy", () => {
+    for (const text of [null, "{", JSON.stringify({ ...snapshot, pages: [] })]) {
+      expect(initialHomeSource(injectedHomeSnapshot(element(text)), true)).toEqual({ kind: "waiting" });
+    }
+  });
+
+  test("the copy is never replaced by the site: that swap was the flicker", () => {
+    const copy = homeSourceReducer({ kind: "waiting" }, { type: "gaveUp" });
+    expect(copy).toEqual({ kind: "builtIn" });
+    expect(homeSourceReducer(copy, { type: "answered", snapshot })).toBe(copy);
+    expect(homeSourceReducer({ kind: "waiting" }, { type: "answered", snapshot: null })).toEqual({ kind: "builtIn" });
+  });
+
+  test("the site is replaced only by a newer site, and only when its revision moved", () => {
+    const live = initialHomeSource(snapshot, true);
+    expect(isStale(live, "1:1")).toBe(false);
+    expect(isStale(live, undefined)).toBe(false);
+    expect(isStale(live, null)).toBe(false);
+    expect(isStale(live, "2:2")).toBe(true);
+    expect(homeSourceReducer(live, { type: "answered", snapshot: null })).toBe(live);
+    expect(homeSourceReducer(live, { type: "gaveUp" })).toBe(live);
   });
 });
