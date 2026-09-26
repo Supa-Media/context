@@ -56,8 +56,13 @@ async function deleteReleaseObjects(
 }
 
 /**
- * Commit a publication snapshot: all of it when it is clean, only its
- * narrowing half when any page has a problem.
+ * Commit a publication snapshot.
+ *
+ * `publish` is someone pressing Publish (or the site's first scan): a clean
+ * snapshot becomes the new release. Every other scan, and a publish that met
+ * a broken page, applies only the narrowing half: pages deleted, drafted,
+ * made members-only, encrypted or held back leave the site now, and nothing
+ * new reaches it until the next Publish.
  */
 export async function commitPublicationSnapshot(
   ctx: ActionCtx,
@@ -65,8 +70,10 @@ export async function commitPublicationSnapshot(
   generation: number,
   snapshot: { statuses: WebsiteRouteStatus[]; indexed: IndexedRoute[]; restricted: string[] },
   enabledOnly: boolean,
+  publish: boolean,
 ): Promise<boolean> {
-  if (!snapshot.statuses.some((status) => status.status === "problem")) {
+  const clean = !snapshot.statuses.some((status) => status.status === "problem");
+  if (clean && publish) {
     return await finishWebsiteRelease(
       ctx,
       workspaceId,
@@ -76,20 +83,22 @@ export async function commitPublicationSnapshot(
       enabledOnly,
     );
   }
-  // A half-written frontmatter block, a temporary empty document, or a route
-  // clash is not a release. Keep serving the previous complete derivative;
-  // a later save owns a newer generation and schedules another attempt.
-  const first = await ctx.runMutation(
-    internal.functions.websites.commitRouteReconciliation,
-    {
-      workspaceId,
-      generation,
-      routes: snapshot.indexed,
-      problemsOnlyIfUnpublished: true,
-      ...(enabledOnly ? { enabledOnly: true } : {}),
-    },
-  );
-  if (first.committed) return false;
+  if (publish) {
+    // A half-written frontmatter block, a temporary empty document, or a
+    // route clash is not a release. A site that has never had one records
+    // its rows without page bytes, so a clash still fails closed.
+    const first = await ctx.runMutation(
+      internal.functions.websites.commitRouteReconciliation,
+      {
+        workspaceId,
+        generation,
+        routes: snapshot.indexed,
+        problemsOnlyIfUnpublished: true,
+        ...(enabledOnly ? { enabledOnly: true } : {}),
+      },
+    );
+    if (first.committed) return false;
+  }
   const narrowed = await ctx.runMutation(
     internal.functions.websites.narrowRouteIndex,
     {

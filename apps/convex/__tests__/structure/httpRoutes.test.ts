@@ -102,7 +102,7 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
   "domainResolve",
   "sitePreview",
   "siteCard",
-  "siteHome",
+  "siteHome", "siteHomeRevision",
 ]);
 
 /**
@@ -380,8 +380,9 @@ describe("the gateway's HTTP routes", () => {
       "sitePreview",
       "siteCard",
       // **The ninth**: the homepage's site, only what its menu shows an
-      // anonymous visitor. Its fields are pinned in `siteHome.test.ts`.
-      "siteHome",
+      // anonymous visitor, and (the tenth) its revision alone. Its fields are
+      // pinned in `siteHome.test.ts`.
+      "siteHome", "siteHomeRevision",
     ]);
 
     const source = httpModule().source;

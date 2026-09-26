@@ -146,6 +146,7 @@ export {
 export {
   buildWebsiteRouteStatuses,
   parseWebsitePage,
+  websitePageTitle,
   type ParsedWebsitePage,
   type WebsitePageSource,
 } from "./websiteMetadata";
@@ -159,6 +160,7 @@ export type {
   ResolvedWebsitePage,
   WebsiteEnableResult,
   WebsiteNavigationItem,
+  WebsitePublishResult,
   WebsiteRouteAudience,
   WebsiteRouteProblem,
   WebsiteRouteProblemCode,

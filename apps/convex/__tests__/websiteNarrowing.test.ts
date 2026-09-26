@@ -6,6 +6,10 @@
  * kept its menu entry, and a page's release copy outlived the plaintext it
  * copied. Each case below makes one page narrower while another page stays
  * broken, then checks the narrowing landed anyway and the widening did not.
+ *
+ * Since edits wait for Publish (2026-09-26), the scan every save queues is
+ * the narrowing half alone, and widening is Publish's: the restriction cases
+ * land on that scan, without anyone pressing anything.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -23,9 +27,18 @@ const ENCRYPTED = "---\ncontext_encryption: v1\n---\n\n```context-encrypted\nAAA
 const resolve = (f: Fixture, routePath: string) =>
   f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath });
 
+/** The scan every save queues: it applies restrictions and publishes nothing. */
 async function rebuild(f: Fixture): Promise<void> {
   await f.t.action(internal.functions.websites.reconcileWorkspace, {
     workspaceId: f.workspaceId,
+  });
+}
+
+/** Someone pressing Publish again. */
+async function publishAgain(f: Fixture): Promise<void> {
+  await f.t.action(internal.functions.websites.reconcileWorkspace, {
+    workspaceId: f.workspaceId,
+    publish: true,
   });
 }
 
@@ -48,8 +61,8 @@ describe("a restriction lands even while another page is broken", () => {
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/journal.md", `---\ntitle: Journal\n---\n\n${SECRET}\n`);
     await publish(f);
-    // A second clean rebuild, so both the current and the grace release hold it.
-    await rebuild(f);
+    // A second Publish, so both the current and the grace release hold it.
+    await publishAgain(f);
     expect(releaseBytes(f)).toContain(SECRET);
 
     f.backend.seed("website/draft.md", BROKEN);
@@ -65,7 +78,7 @@ describe("a restriction lands even while another page is broken", () => {
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/journal.md", `---\ntitle: Journal\n---\n\n${SECRET}\n`);
     await publish(f);
-    await rebuild(f);
+    await publishAgain(f);
 
     f.backend.seed("website/journal.md", ENCRYPTED);
     await rebuild(f);
@@ -99,7 +112,7 @@ describe("a restriction lands even while another page is broken", () => {
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/old.md", `---\ntitle: Old\n---\n\n${SECRET}\n`);
     await publish(f);
-    await rebuild(f);
+    await publishAgain(f);
 
     f.backend.seed("website/draft.md", BROKEN);
     f.backend.objects.delete("website/old.md");
@@ -114,7 +127,7 @@ describe("a restriction lands even while another page is broken", () => {
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/about.md", `---\ntitle: About\nnav: 2\n---\n\n${SECRET}\n`);
     await publish(f);
-    await rebuild(f);
+    await publishAgain(f);
 
     f.backend.seed("website/draft.md", BROKEN);
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
@@ -129,7 +142,7 @@ describe("a restriction lands even while another page is broken", () => {
   });
 });
 
-describe("widening still waits for a clean rebuild", () => {
+describe("widening waits for a Publish", () => {
   test("a new page is not added to the menu while another page is broken", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
@@ -142,6 +155,8 @@ describe("widening still waits for a clean rebuild", () => {
 
     f.backend.objects.delete("website/draft.md");
     await rebuild(f);
+    expect(await menu(f)).toEqual(["/"]);
+    await publishAgain(f);
     expect(await menu(f)).toEqual(["/", "/new"]);
   });
 
@@ -152,7 +167,7 @@ describe("widening still waits for a clean rebuild", () => {
     await publish(f);
 
     f.backend.seed("website/new.md", "---\ntitle: New\nnav: 2\n---\n\nNew\n");
-    await rebuild(f);
+    await publishAgain(f);
     expect(await menu(f)).toEqual(["/", "/new"]);
   });
 
@@ -160,7 +175,7 @@ describe("widening still waits for a clean rebuild", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     await publish(f);
-    await rebuild(f);
+    await publishAgain(f);
     const before = await f.t.run((ctx) =>
       ctx.db
         .query("websiteStates")

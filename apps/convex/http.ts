@@ -759,6 +759,13 @@ http.route({ path: "/site/card", method: "POST", handler: siteCard });
 export const siteHome = httpAction(siteHomeRoute.siteHomeHandler);
 http.route({ path: "/site/home", method: "POST", handler: siteHome });
 
+/**
+ * The homepage site's revision alone: one database read, asked on every visit
+ * so the router can serve the copy it keeps until the next Publish.
+ */
+export const siteHomeRevision = httpAction(siteHomeRoute.siteHomeRevisionHandler);
+http.route({ path: "/site/home/revision", method: "POST", handler: siteHomeRevision });
+
 /* -------------------------------------------------------------------------- */
 /* POST /domain/resolve — which workspace a customer domain serves             */
 /* -------------------------------------------------------------------------- */
