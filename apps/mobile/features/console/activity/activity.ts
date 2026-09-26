@@ -22,6 +22,7 @@ import {
   nameOf,
 } from "@context/shared/src/activity.cjs";
 import { displayName, displayPath } from "../files/paths";
+import { isOrganizerEntry } from "../../organizer/rules";
 
 export { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 /*
@@ -147,6 +148,15 @@ export function rowText(entry: ActivityEntry): { title: string; meta: string } {
   */
   const called = (path: string) => displayName(nameOf(path));
   const title = (() => {
+    /*
+      Auto-organize's one kind of revision is a status set to done, so its row
+      says that — and names the project, whose front note speaks for its
+      folder. `status` is accepted too, should the file ever carry it.
+    */
+    if (isOrganizerEntry(entry) && !many && (entry.kind === "revised" || entry.kind === "status")) {
+      const front = /^(overview|index|README)\.md$/i.test(nameOf(first)) ? folderOf(first) : first;
+      return `${who} marked ${called(front)} done`;
+    }
     switch (entry.kind) {
       case "added":
         return many ? `${who} added ${entry.n} notes to ${here}` : `${who} added ${called(first)}`;
