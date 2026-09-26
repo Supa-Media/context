@@ -1,10 +1,11 @@
 /**
  * A folder's children grouped by status — the List view of a folder page,
- * drawn the way a grouped list block draws (spec A1): a heading per group
- * with its count, rows on hairlines, the status and owner at the right, the
- * last save at the far right. Everything with no status is one "No status"
- * group at the end, each row with `Set status` for somebody who may write,
- * so the layout itself is the nudge.
+ * drawn the way a grouped list block draws (spec A1): a heading per status
+ * group (Not started, In progress, Done, then Needs a group) with its count,
+ * and under it a status's own heading only where the group holds more than
+ * one; rows on hairlines, the status and owner at the right, the last save
+ * at the far right. Everything with no status leads Not started, each row
+ * with `Set status` for somebody who may write, so the layout is the nudge.
  *
  * A folder row opens the folder's page; a note row opens the note. On a
  * phone the owner column goes and moves under the name, as the list block
@@ -20,39 +21,67 @@ import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
 import { NEW_FRONT_NOTE, type FolderGroup, type FolderItem } from "./model";
 import { PropertyValue } from "./PropertyValue";
+import type { StatusBand } from "./statuses";
+import { StatusPill, toneColor } from "./StatusPill";
 import { isStale, textOf, type ItemActions } from "./items";
 
 export function FolderGroups({
-  groups,
+  bands,
   compact,
   now,
   actions,
 }: {
-  groups: readonly FolderGroup[];
+  bands: readonly StatusBand[];
   compact: boolean;
   now: number;
   actions: ItemActions;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   return (
     <View testID="folder-groups">
-      {groups.map((group, index) => (
-        <View key={group.value.toLowerCase()} style={index > 0 && styles.groupGap} testID="folder-group">
-          <View style={styles.groupHead}>
-            <Text variant="rowTitle">{group.label}</Text>
-            <Text variant="tree" style={styles.count}>
-              {String(group.items.length)}
-            </Text>
-          </View>
-          <View style={compact ? styles.card : styles.rows}>
-            {group.items.map((item, at) => (
-              <Fragment key={item.path}>
-                {compact && at > 0 ? <View style={styles.cardRule} /> : null}
-                <GroupRow item={item} compact={compact} now={now} actions={actions} />
-              </Fragment>
+      {bands.map((band, index) => {
+        const tone = band.group ?? "unplaced";
+        const count = band.columns.reduce((sum, column) => sum + column.items.length, 0);
+        return (
+          <View key={band.group ?? "unplaced"} style={index > 0 && styles.groupGap} testID="folder-group">
+            <View style={styles.groupHead}>
+              <Text variant="rowTitle" style={{ color: toneColor(colors, tone) }}>
+                {band.label}
+              </Text>
+              <Text variant="tree" style={styles.count}>
+                {String(count)}
+              </Text>
+            </View>
+            {band.columns.map((column) => (
+              <View key={column.value.toLowerCase()} style={band.columns.length > 1 && styles.status} testID="folder-status">
+                {band.columns.length > 1 ? (
+                  <View style={styles.statusHead}>
+                    <StatusPill value={column.value} tone={tone} />
+                    <Text variant="meta" style={styles.count}>
+                      {String(column.items.length)}
+                    </Text>
+                  </View>
+                ) : null}
+                <Rows group={column} compact={compact} now={now} actions={actions} />
+              </View>
             ))}
           </View>
-        </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function Rows({ group, compact, now, actions }: { group: FolderGroup; compact: boolean; now: number; actions: ItemActions }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={compact ? styles.card : styles.rows}>
+      {group.items.map((item, at) => (
+        <Fragment key={item.path}>
+          {compact && at > 0 ? <View style={styles.cardRule} /> : null}
+          <GroupRow item={item} compact={compact} now={now} actions={actions} />
+        </Fragment>
       ))}
     </View>
   );
@@ -71,6 +100,8 @@ function GroupRow({ item, compact, now, actions }: { item: FolderItem; compact: 
       property="status"
       value={item.status}
       choices={actions.choices("status")}
+      sections={actions.statusMenu}
+      onEditList={actions.onEditStatuses}
       savesTo={item.creates ? NEW_FRONT_NOTE : null}
       onChoose={edit === null ? null : (value) => edit(item, "status", value)}
       variant="tree"
@@ -149,6 +180,8 @@ const makeStyles = (colors: Colors) =>
       paddingTop: space.x2,
     },
     count: { color: colors.chromeMuted },
+    status: { marginTop: space.x3 },
+    statusHead: { flexDirection: "row", alignItems: "center", gap: space.x2, paddingBottom: space.x2 },
     rows: { borderTopWidth: 1, borderTopColor: colors.line },
     row: {
       flexDirection: "row",

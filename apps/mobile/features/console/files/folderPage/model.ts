@@ -9,8 +9,9 @@
  *   (`overview.md`, `index.md`, `README.md`), the same constant
  *   `apps/mcp/src/lists/projects.js` reads. Its frontmatter is the folder's
  *   properties. With none, a write creates `overview.md`.
- * - Group order is `compareGroups`: lifecycle words first, then a to z, and
- *   the unset group last.
+ * - Status groups are the folder's status list (`statuses.ts`): Not started
+ *   (No status first), In progress, Done. Any other property groups in
+ *   `compareGroups` order, the unset group last.
  *
  * It differs from `rows: projects` in one deliberate way. A list block shows
  * what already *is* a project; a folder page is where something becomes one.
@@ -22,13 +23,14 @@
 
 import { isDrawingPath } from "@context/drawings";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
-import { CLOSED_STATUSES, FRONT_NOTES } from "../../../../../mcp/src/lists/grammar.js";
-import { compareGroups } from "../../../../../mcp/src/lists.js";
+import { FRONT_NOTES } from "../../../../../mcp/src/lists/grammar.js";
+import { compareGroups, isDoneStatus } from "../../../../../mcp/src/lists.js";
 import type { ListNote, PropertyValue } from "../listBlock/model";
 import { groupLabel } from "../listBlock/words";
 import { valueChoices } from "../listBlock/valueMenu";
 import { baseName, displayName, folderLabel, isMarkdown } from "../paths";
 import type { FileEntry } from "../types";
+import { compareStatus, folderStatuses, GROUPS, type StatusList } from "./statuses";
 
 export type FolderPageView = "files" | "list" | "board";
 
@@ -143,7 +145,7 @@ export function summarizeFolder(folder: string, notes: readonly ListNote[]): Fol
   };
 }
 
-/** Sub-items of a folder: notes and folders directly in it with a status. */
+/** Sub-items of a folder: notes and folders directly in it with a status, closed by the folder's Done. */
 function progressOf(folder: string, notes: readonly ListNote[]): FolderItem["progress"] {
   const prefix = inside(folder);
   const statuses: string[] = [];
@@ -159,7 +161,8 @@ function progressOf(folder: string, notes: readonly ListNote[]): FolderItem["pro
   for (const sub of subfolders) statuses.push(statusOf(frontNoteOf(sub, notes)?.properties ?? {}));
   const set = statuses.filter((status) => status !== "");
   if (set.length === 0) return null;
-  return { done: set.filter((status) => CLOSED_STATUSES.has(status.toLowerCase())).length, total: set.length };
+  const { list } = folderStatuses(folder, notes);
+  return { done: set.filter((status) => isDoneStatus(status, list)).length, total: set.length };
 }
 
 /**
@@ -216,11 +219,12 @@ export function folderItems(
 }
 
 /**
- * Items grouped by one property, in `compareGroups` order with the unset group
- * last, newest first within a group. Values differing only by case share a
- * group, named as the first item spelled it.
+ * Items grouped by one property, newest first within a group: for `status`
+ * in the order of `list` (No status first), for anything else in
+ * `compareGroups` order with the unset group last. Values differing only by
+ * case share a group, named as the first item spelled it.
  */
-export function groupFolderItems(items: readonly FolderItem[], key = "status"): FolderGroup[] {
+export function groupFolderItems(items: readonly FolderItem[], key = "status", list?: StatusList): FolderGroup[] {
   const groups = new Map<string, { value: string; items: FolderItem[] }>();
   for (const item of items) {
     const value = key === "status" ? item.status : statusOf(item.properties, key);
@@ -229,8 +233,9 @@ export function groupFolderItems(items: readonly FolderItem[], key = "status"): 
     group.items.push(item);
     groups.set(folded, group);
   }
+  const compare = key === "status" && list !== undefined ? compareStatus(list) : compareGroups;
   return [...groups.values()]
-    .sort((a, b) => compareGroups(a.value, b.value))
+    .sort((a, b) => compare(a.value, b.value))
     .map((group) => ({
       value: group.value,
       label: groupLabel(key, group.value),
@@ -244,23 +249,19 @@ export function defaultFolderView(items: readonly FolderItem[]): FolderPageView 
 }
 
 /**
- * Always offered for a status, beside the words in use: the first status is a
- * press rather than typing, and so is moving on — a folder where everything is
- * `active` still offers `done`, as a menu choice and as a Board column.
- */
-const STARTER_STATUSES = ["active", "planned", "paused", "done"];
-
-/**
  * What a value menu offers for `key`: the values the items already use, in
- * group order — for a status, merged with a few ordinary words at their
- * place; for an owner, followed by the workspace's people not already there.
+ * group order — for a status, the folder's status list instead, group by
+ * group (the menu draws the groups: `statusMenu`); for an owner, followed by
+ * the workspace's people not already there.
  */
-export function propertyChoices(items: readonly Pick<FolderItem, "path" | "properties">[], key: string, people: readonly string[]): string[] {
+export function propertyChoices(
+  items: readonly Pick<FolderItem, "path" | "properties">[],
+  key: string,
+  people: readonly string[],
+  list?: StatusList,
+): string[] {
+  if (key === "status" && list !== undefined) return GROUPS.flatMap((group) => [...list[group]]);
   const used = valueChoices(items as readonly ListNote[], key);
-  if (key === "status") {
-    const seen = new Set(used.map((value) => value.toLowerCase()));
-    return [...used, ...STARTER_STATUSES.filter((word) => !seen.has(word))].sort(compareGroups);
-  }
   if (key !== "owner") return used;
   const seen = new Set(used.map((value) => value.toLowerCase()));
   const more = people
@@ -268,28 +269,6 @@ export function propertyChoices(items: readonly Pick<FolderItem, "path" | "prope
     .filter((person) => person !== "" && !seen.has(person.toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
   return [...used, ...new Set(more)];
-}
-
-/**
- * The columns a Board draws: every group with something in it, and every
- * status a menu offers with nothing in it yet — so there is somewhere to drop
- * a card before anything is there — in group order. "No status" stays last,
- * and for somebody who can move cards it is there even when empty, since
- * dropping on it is how a status is cleared by hand.
- */
-export function boardGroups(groups: readonly FolderGroup[], offered: readonly string[], canMove: boolean): FolderGroup[] {
-  const columns = groups.filter((group) => group.value !== "");
-  const seen = new Set(columns.map((group) => group.value.toLowerCase()));
-  for (const value of offered) {
-    if (value === "" || seen.has(value.toLowerCase())) continue;
-    seen.add(value.toLowerCase());
-    columns.push({ value, label: groupLabel("status", value), items: [] });
-  }
-  columns.sort((a, b) => compareGroups(a.value, b.value));
-  const unset = groups.find((group) => group.value === "");
-  if (unset !== undefined) columns.push(unset);
-  else if (canMove) columns.push({ value: "", label: groupLabel("status", ""), items: [] });
-  return columns;
 }
 
 /**

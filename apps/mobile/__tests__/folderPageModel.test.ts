@@ -10,11 +10,12 @@ import {
   defaultFolderView,
   folderItems,
   groupFolderItems,
-  boardGroups,
   dropValue,
   propertyChoices,
   summarizeFolder,
 } from "../features/console/files/folderPage/model";
+import { defaultStatusList } from "../../mcp/src/lists.js";
+import { statusBands, type StatusList } from "../features/console/files/folderPage/statuses";
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry } from "../features/console/files/types";
 
@@ -125,19 +126,21 @@ describe("groups", () => {
     ],
   ).items;
 
-  test("are lifecycle words in order, then others a to z, then everything unset in one No status", () => {
-    const groups = groupFolderItems(items, "status");
+  const list = defaultStatusList() as StatusList;
+
+  test("run No status, Not started, In progress, Done, then words in no group", () => {
+    const groups = groupFolderItems(items, "status", list);
     expect(groups.map((group) => strip(group.label))).toEqual([
-      "Active",
+      "No status",
       "Planned",
+      "Active",
       "Paused",
       "Done",
       "Waiting on legal",
-      "No status",
     ]);
     // A folder with nothing in it and a note with no frontmatter both sit in
     // No status: nothing is held back in a bucket of its own.
-    expect(groups.at(-1)!.items.map((item) => item.path)).toEqual(["p/g.md", "p/e"]);
+    expect(groups[0].items.map((item) => item.path)).toEqual(["p/g.md", "p/e"]);
   });
 
   test("newest first within a group", () => {
@@ -146,7 +149,7 @@ describe("groups", () => {
       [folder("p/old"), folder("p/new")],
       [note("p/old/overview.md", { status: "active" }, { updatedAt: 1 }), note("p/new/overview.md", { status: "active" }, { updatedAt: 9 })],
     ).items;
-    expect(groupFolderItems(within, "status")[0].items.map((item) => item.path)).toEqual(["p/new", "p/old"]);
+    expect(groupFolderItems(within, "status", defaultStatusList() as StatusList)[0].items.map((item) => item.path)).toEqual(["p/new", "p/old"]);
   });
 });
 
@@ -160,18 +163,12 @@ describe("the view a folder opens in", () => {
 });
 
 describe("what a value menu offers", () => {
-  test("the values already in use with the ordinary words, lifecycle order first", () => {
-    const items = folderItems(
-      "p",
-      [folder("p/a"), folder("p/b"), folder("p/c")],
-      [note("p/a/overview.md", { status: "paused" }), note("p/b/overview.md", { status: "Review" }), note("p/c/overview.md", { status: "Active" })],
-    ).items;
-    // Everything "active" still offers "done": moving a card on is one press, never typing.
-    expect(propertyChoices(items, "status", [])).toEqual(["Active", "planned", "Review", "paused", "done"]);
-  });
-
-  test("a few ordinary words when nothing is in use yet, so the first status is one press", () => {
-    expect(propertyChoices([], "status", [])).toEqual(["active", "planned", "paused", "done"]);
+  test("a status is chosen from the folder's status list, not from whatever words are in use", () => {
+    const items = folderItems("p", [folder("p/a")], [note("p/a/overview.md", { status: "paused" })]).items;
+    // Everything "paused" still offers "finished": moving a card on is one press, never typing.
+    expect(propertyChoices(items, "status", [], defaultStatusList() as StatusList)).toEqual(["in progress", "finished"]);
+    const list = { "not-started": ["exploration"], "in-progress": ["doing"], done: ["won", "lost"] };
+    expect(propertyChoices([], "status", [], list)).toEqual(["exploration", "doing", "won", "lost"]);
   });
 
   test("an owner is chosen from the owners in use, then the workspace's people", () => {
@@ -202,23 +199,23 @@ describe("a board's columns and what a drop writes", () => {
     [folder("p/a"), folder("p/b"), folder("p/c")],
     [note("p/a/overview.md", { status: "Active" }), note("p/b/overview.md", { status: "done" })],
   ).items;
-  const groups = groupFolderItems(items);
+  const list = defaultStatusList() as StatusList;
+  const groups = groupFolderItems(items, "status", list);
+  const shape = (bands: ReturnType<typeof statusBands>) =>
+    bands.map((band) => [band.label, band.columns.map((column) => [column.value, column.items.length])]);
 
-  test("a column for every word a menu offers, empty or not, in group order", () => {
-    const columns = boardGroups(groups, ["Active", "planned", "paused", "done"], false);
-    expect(columns.map((column) => [column.label, column.items.length])).toEqual([
-      ["Active", 1],
-      ["Planned", 0],
-      ["Paused", 0],
-      ["Done", 1],
-      ["No status", 1],
+  test("a column for every status in the list, empty or not, under its group", () => {
+    expect(shape(statusBands(groups, list, false))).toEqual([
+      ["Not started", [["", 1]]],
+      ["In progress", [["in progress", 0], ["Active", 1]]],
+      ["Done", [["finished", 0], ["done", 1]]],
     ]);
   });
 
   test("No status is a column to drop on for a writer even when nothing is in it, and not for a reader", () => {
-    const tracked = groupFolderItems(items.filter((item) => item.status !== ""));
-    expect(boardGroups(tracked, ["active", "done"], true).map((column) => column.value)).toEqual(["Active", "done", ""]);
-    expect(boardGroups(tracked, ["active", "done"], false).map((column) => column.value)).toEqual(["Active", "done"]);
+    const tracked = groupFolderItems(items.filter((item) => item.status !== ""), "status", list);
+    expect(shape(statusBands(tracked, list, true))[0]).toEqual(["Not started", [["", 0]]]);
+    expect(shape(statusBands(tracked, list, false)).map(([label]) => label)).toEqual(["In progress", "Done"]);
   });
 
   test("a drop writes the column's value, clears on No status, and does nothing where the card already is", () => {

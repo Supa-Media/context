@@ -28,6 +28,7 @@ import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
 import { NEW_FRONT_NOTE, type FolderPageView, type FolderSummary } from "./model";
+import type { StatusMenuSection } from "./statuses";
 import { PropertyValue } from "./PropertyValue";
 
 const VIEWS: ReadonlyArray<{ view: FolderPageView; label: string }> = [
@@ -137,12 +138,15 @@ export function PropertyLine({
   compact,
   now,
   choices,
+  statusMenu,
   onChoose,
 }: {
   summary: FolderSummary;
   compact: boolean;
   now: number;
   choices: (key: string) => readonly string[];
+  /** The groups this folder's own status is chosen from: its parent's status list. */
+  statusMenu?: readonly StatusMenuSection[];
   /** Null for somebody who may not write. */
   onChoose: ((key: string, value: string | null) => void) | null;
 }) {
@@ -163,6 +167,7 @@ export function PropertyLine({
       property={key}
       value={value}
       choices={choices(key)}
+      {...(key === "status" && statusMenu !== undefined ? { sections: statusMenu } : {})}
       savesTo={savesTo}
       onChoose={onChoose === null ? null : (next) => onChoose(key, next)}
       variant={variant}

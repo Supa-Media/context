@@ -129,3 +129,45 @@ export async function runStatusChecks(check) {
     check("progress counts a default Done word as finished", rows[0]?.progress?.done === 1 && rows[0].progress.total === 2);
   }
 }
+
+/* ------------------------------ what an agent is told ------------------------------ */
+
+const MANIFEST =
+  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
+  "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  1-projects/secret/overview.md: private\n```\n\n" +
+  "<!-- END BRAIN PRIVACY RULES -->\n";
+
+function memoryStore(files) {
+  return {
+    get: async (key) => (key in files ? { text: async () => files[key] } : null),
+  };
+}
+
+export async function runStatusAdviceChecks(check) {
+  const { parsePrivacyManifest } = await import("../src/privacy/engine.js");
+  const { readStatusList, statusAdvice } = await import("../src/tools/notes/statusList.js");
+  const { rules, overrides } = parsePrivacyManifest(MANIFEST);
+  const store = memoryStore({
+    "1-projects/overview.md": "---\nstatuses-not-started: [exploration]\nstatuses-done: [won, lost]\n---\n",
+    "1-projects/secret/overview.md": "---\nstatuses-done: [hush]\n---\n",
+  });
+  {
+    const { list, from } = await readStatusList(store, "team", rules, overrides, "1-projects/web");
+    check("an agent reads the list a folder inherits", from === "1-projects" && list.done.join() === "won,lost");
+  }
+  {
+    const team = await readStatusList(store, "team", rules, overrides, "1-projects/secret");
+    const owner = await readStatusList(store, "private", rules, overrides, "1-projects/secret");
+    check("a front note the caller cannot see is passed over, as if it were not there", team.from === "1-projects" && owner.from === "1-projects/secret");
+  }
+  {
+    const advice = await statusAdvice(store, "team", rules, overrides, "1-projects/web.md", "---\nstatus: someday\n---\n");
+    check("a status outside the folder's list is named after the write, with the list", /"someday" is not one of the statuses for 1-projects\//.test(advice ?? "") && /Done: won, lost/.test(advice ?? "") && /no group yet/.test(advice ?? ""));
+    const known = await statusAdvice(store, "team", rules, overrides, "1-projects/web.md", "---\nstatus: active\n---\n");
+    check("an ordinary word says which group it reads as", /reads as In progress/.test(known ?? ""));
+    check("a declared status says nothing", (await statusAdvice(store, "team", rules, overrides, "1-projects/web.md", "---\nstatus: Won\n---\n")) === null);
+    check("no status says nothing", (await statusAdvice(store, "team", rules, overrides, "1-projects/web.md", "# Hi\n")) === null);
+    const folder = await statusAdvice(store, "team", rules, overrides, "1-projects/web/overview.md", "---\nstatus: won\n---\n");
+    check("a front note's status is read against its parent's list", folder === null);
+  }
+}

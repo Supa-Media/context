@@ -1,8 +1,10 @@
 /**
  * The Board view of a folder page: one column per status, cards in them
- * (spec A2). The same groups the List view draws, laid out sideways, with a
- * column for every status the menu offers even while nothing is in it, and
- * "No status" last (`boardGroups` in `model.ts`).
+ * (spec A2), the columns under their status group — Not started, In
+ * progress, Done, and Needs a group for words nobody placed — so the order
+ * is the same whatever the folder's words are. Every status in the folder's
+ * list is a column even while nothing is in it, and "No status" leads Not
+ * started (`statusBands` in `statuses.ts`).
  *
  * A card is `chipFill` on a `line` hairline, not `surface2` — in the dark
  * palette `surface2` is the page, and the card would vanish. Moving a card
@@ -21,8 +23,11 @@ import { Text } from "../../../design/components/Text";
 import { radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { shortWhen } from "../listBlock/words";
+import { useColors } from "../../../design/theme";
 import { dropValue, NEW_FRONT_NOTE, type FolderGroup, type FolderItem } from "./model";
 import { PropertyValue } from "./PropertyValue";
+import type { StatusBand } from "./statuses";
+import { StatusPill, toneColor } from "./StatusPill";
 import { useCardDrag, useColumnDrop } from "./boardDrag";
 import { textOf, type ItemActions } from "./items";
 
@@ -31,56 +36,74 @@ export const BOARD_COLUMN = 240;
 const BOARD_COLUMN_MIN = 200;
 
 export function FolderBoard({
-  groups,
+  bands,
   compact,
   now,
   actions,
 }: {
-  groups: readonly FolderGroup[];
+  bands: readonly StatusBand[];
   compact: boolean;
   now: number;
   actions: ItemActions;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [dragging, setDragging] = useState<string | null>(null);
   const edit = actions.onChoose;
+  const all = bands.flatMap((band) => band.columns.flatMap((column) => column.items));
   const drop = (path: string, column: string) => {
     setDragging(null);
-    const item = groups.flatMap((group) => group.items).find((each) => each.path === path);
+    const item = all.find((each) => each.path === path);
     if (item === undefined || edit === null) return;
     const value = dropValue(item, column);
     if (value !== undefined) edit(item, "status", value);
   };
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.columns} testID="folder-board">
-      {groups.map((group) => (
-        <Column
-          key={group.value.toLowerCase()}
-          group={group}
-          compact={compact}
-          canMove={edit !== null}
-          dragging={dragging}
-          onDrop={(path) => drop(path, group.value)}
-        >
-          {group.items.map((item) => (
-            <Card
-              key={item.path}
-              item={item}
-              now={now}
-              actions={actions}
-              compact={compact}
-              lifted={dragging === item.path}
-              onLift={(lifted) => setDragging(lifted ? item.path : null)}
-            />
-          ))}
-        </Column>
-      ))}
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bands} testID="folder-board">
+      {bands.map((band) => {
+        const tone = band.group ?? "unplaced";
+        return (
+          <View key={band.group ?? "unplaced"} style={styles.band} testID="folder-board-band" aria-label={band.label}>
+            <View style={[styles.bandHead, { borderBottomColor: toneColor(colors, tone) }]}>
+              <Text variant="railHead" style={[styles.bandLabel, { color: toneColor(colors, tone) }]}>
+                {band.label}
+              </Text>
+            </View>
+            <View style={styles.columns}>
+              {band.columns.map((group) => (
+                <Column
+                  key={group.value.toLowerCase()}
+                  group={group}
+                  tone={tone}
+                  compact={compact}
+                  canMove={edit !== null}
+                  dragging={dragging}
+                  onDrop={(path) => drop(path, group.value)}
+                >
+                  {group.items.map((item) => (
+                    <Card
+                      key={item.path}
+                      item={item}
+                      now={now}
+                      actions={actions}
+                      compact={compact}
+                      lifted={dragging === item.path}
+                      onLift={(lifted) => setDragging(lifted ? item.path : null)}
+                    />
+                  ))}
+                </Column>
+              ))}
+            </View>
+          </View>
+        );
+      })}
     </ScrollView>
   );
 }
 
 function Column({
   group,
+  tone,
   compact,
   canMove,
   dragging,
@@ -88,6 +111,7 @@ function Column({
   children,
 }: {
   group: FolderGroup;
+  tone: StatusBand["group"] | "unplaced";
   compact: boolean;
   canMove: boolean;
   dragging: string | null;
@@ -106,7 +130,7 @@ function Column({
       aria-label={`${group.label}, ${group.items.length}`}
     >
       <View style={styles.head}>
-        <Text variant="rowTitle">{group.label}</Text>
+        <StatusPill value={group.value} tone={tone ?? "unplaced"} />
         <Text variant="tree" style={styles.count}>
           {String(group.items.length)}
         </Text>
@@ -115,7 +139,7 @@ function Column({
         {children}
         {empty ? (
           <Text variant="meta" style={styles.empty} testID="folder-board-empty">
-            {canMove && dragging !== null ? "Drop here" : "Nothing here"}
+            {canMove && dragging !== null ? (group.value === "" ? "Drop here to clear" : "Drop here") : "Nothing here"}
           </Text>
         ) : null}
       </View>
@@ -167,6 +191,8 @@ function Card({
               property="status"
               value={item.status}
               choices={actions.choices("status")}
+              sections={actions.statusMenu}
+              onEditList={actions.onEditStatuses}
               savesTo={item.creates ? NEW_FRONT_NOTE : null}
               onChoose={(value) => edit(item, "status", value)}
               variant="meta"
@@ -182,10 +208,14 @@ function Card({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    columns: { flexGrow: 1, gap: space.x4, paddingBottom: space.x2 },
+    bands: { flexGrow: 1, gap: space.x6, paddingBottom: space.x2 },
+    band: { flexGrow: 1, flexShrink: 1, gap: space.x2 },
+    bandHead: { borderBottomWidth: 2, paddingBottom: space.x1 },
+    bandLabel: { textTransform: "uppercase", letterSpacing: 0.6 },
+    columns: { flexDirection: "row", flexGrow: 1, gap: space.x4 },
     column: { flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: BOARD_COLUMN_MIN, maxWidth: BOARD_COLUMN + 40 },
     columnTouch: { flexGrow: 0, flexBasis: "auto", width: 264, minWidth: 264, maxWidth: 264 },
-    head: { flexDirection: "row", alignItems: "baseline", gap: space.x2, height: 32, paddingTop: space.x2 },
+    head: { flexDirection: "row", alignItems: "center", gap: space.x2, height: 32, paddingTop: space.x1 },
     count: { color: colors.chromeMuted },
     // A column is a drop target down its whole height, not only where its cards end.
     cards: { gap: space.x2, marginTop: space.x1, minHeight: 64, padding: 2, borderRadius: radii.card, borderWidth: 1, borderColor: "transparent" },

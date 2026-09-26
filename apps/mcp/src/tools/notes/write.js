@@ -38,6 +38,7 @@ import { recordChange } from "../../activity/record.js";
 import { shareWrittenNote } from "../links.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
 import { prepareNoteImages, storeNoteImages } from "../../notes/uploadedImages.js";
+import { statusAdvice } from "./statusList.js";
 
 /** The `share` values that mint a link; anything else publishes nothing. */
 const SHARE_REQUESTS = new Set(["members", "anyone", "collect"]);
@@ -441,6 +442,8 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     ...forms.occupied.map((detail) => `form not collecting yet: ${detail}`),
   ];
   const shareLines = await shareWrittenNote(store, path, args);
+  // Said after the write, never instead of it: a status outside its folder's list is advice.
+  const statusLine = isDrawingPath(path) ? null : await statusAdvice(store, scope, rules, overrides, path, body).catch(() => null);
   return toolText(
     `written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}` +
       (publishedForLink
@@ -450,7 +453,8 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
         ? `\n${attached.images.map((image) => `image stored: ${image.name} → ${image.leaf}`).join("\n")}`
         : "") +
       (formLines.length ? `\n${formLines.join("\n")}` : "") +
-      (shareLines.length ? `\n${shareLines.join("\n")}` : "")
+      (shareLines.length ? `\n${shareLines.join("\n")}` : "") +
+      (statusLine === null ? "" : `\n${statusLine}`)
   );
 }
 

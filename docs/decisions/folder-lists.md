@@ -76,10 +76,11 @@ matches and carries only the matching children, so "owner is me" shows my
 work under its projects, while progress still counts every sub-project: a
 filter that hid finished work must not make a project look less finished.
 
-`group` groups either kind of list by one property, lifecycle words first
-(`active`, `planned`, `paused`, `done`…), other values a to z, and the rows
-with no value last as "No status" — the nudge to mark something, without
-colour. `as: board` draws the same grouped rows as columns of cards and
+`group` groups either kind of list by one property. Grouped by `status`, the
+groups are the listed folder's status groups — No status, Not started, In
+progress, Done, then words in no group (see "Status groups" below). Grouped by
+anything else, lifecycle words come first, other values a to z, and the rows
+with no value last. `as: board` draws the same grouped rows as columns of cards and
 needs a `group`. Its columns include every value the listed notes use, so
 there is somewhere to drop a card before anything is in it. Dropping a card
 is the value menu's write made by hand, and never the only way: each card
@@ -133,8 +134,8 @@ too; a member, who could set nothing there, is not offered it.
 It differs from `rows: projects` on purpose. A list block shows what already
 *is* a project; a folder page is where something becomes one. So every folder
 and every note in the folder is an item, and everything unset sits in one
-"No status" group with `Set status`, rather than being left out or held back in
-a bucket of its own. A note's status is written into the note; a folder's into
+"No status" group, first in Not started, with `Set status`, rather than being
+left out or held back in a bucket of its own. A note's status is written into the note; a folder's into
 its front note by the same `overview.md` > `index.md` > `README.md` order; and
 a folder with none gets a new `overview.md` holding only that frontmatter —
 the menu says "Saves to overview.md" before anything is pressed. The
@@ -145,12 +146,12 @@ ordinary one — `files.writeNote` with no version, which the server refuses if 
 note appeared meanwhile, and that refusal is read and retried like any conflict,
 so nothing is ever replaced.
 
-The Board has a column for every status the menu offers — the words in use
-and, always, `active`, `planned`, `paused` and `done` — so a folder where
-everything is `active` can still move something to `done` without typing a
-word. For somebody who can write, "No status" is a column even when empty,
-because dropping a card there is how a status is cleared by hand; a member
-sees only the columns with something in them. On web a card is dragged to
+The Board has a column for every status in the folder's status list, drawn
+under its group, and a column for each other word in use where its group puts
+it — so a folder where everything is `in progress` can still move something to
+`finished` without typing a word. For somebody who can write, "No status" leads
+Not started even when empty, because dropping a card there is how a status is
+cleared by hand; a member sees it only with something in it. On web a card is dragged to
 another column (HTML drag and drop, the gesture the list block's board uses),
 and the drop is the menu's choice made by hand: it goes through the same
 `choose`, shows at once, and comes back with the reason if refused. The drag
@@ -198,3 +199,62 @@ copy agrees, never kept to paper over a stale copy. If the read-back fails the
 write stands and the next sync brings the note (`offline/folderListSource.ts`).
 `folderListWriteBack.test.ts` fails if a chosen status or a folder's first
 `overview.md` is gone after a reload, or if the sync stops saying it fetched.
+
+## Status groups
+
+Decided by the owner on 2026-09-26, after a board showed "Active" and "In
+Progress" as two columns, three empty columns nobody asked for, and
+"Exploration" sorted after Done. Before this there was no list of statuses:
+every word typed became a column, four starter words were always added, and
+two hidden English word lists decided the order and what counted as finished.
+
+**Every status belongs to one of three fixed groups: Not started, In progress,
+Done.** The groups are the product's opinion and never change; they decide the
+order a board and a list are drawn in, what a project's "3 of 5" counts as
+finished, and what `where: status is done` (or `is in progress`, `is not
+started`, `is open`) matches in a list block. The words inside the groups
+belong to a folder.
+
+- **The list is three frontmatter lists in the folder's front note**:
+  `statuses-not-started`, `statuses-in-progress`, `statuses-done`. Three flat
+  keys, not one nested map, because the frontmatter reader is deliberately not
+  YAML (`lists/properties.js`) and a list only one surface could read would be
+  a second format. A note still says only `status: in review`; its group is
+  looked up, never written into it, so a moved note takes on its new folder's
+  meaning.
+- **Inherited** from the nearest folder above that declares one, up to but not
+  including the workspace root, whose front note is the workspace's front page.
+  With none anywhere, the defaults are No status, In progress, Finished.
+- **"No status" is the empty value**, always first in Not started, never a
+  word: clearing stays a one-line delete.
+- **Every group keeps a status.** An empty In progress or Done reads as its
+  default, and the editor refuses to save one.
+- **A status is added to a group, never typed loose onto a note.** The status
+  menu offers the folder's statuses under their group names and "Edit
+  statuses…", not "New value…".
+- **Words nobody declared are never guessed into a group silently.** Ordinary
+  lifecycle words (`active`, `shipped`: `KNOWN_WORDS`) are drawn in their
+  group, and an owner or editor is offered "Merge into In progress" or "Keep as
+  a status". Anything else is drawn in **Needs a group** after Done, and asked
+  once. Merging rewrites notes, so it names the count first.
+- **An edit goes where the list lives**: the front note that declared it, or
+  this folder's own front note while it only has the defaults. A subfolder
+  never quietly forks its parent's list.
+- **Renaming or deleting a status rewrites the notes that use it**, after a
+  confirm naming how many, so notes never disagree with the board. A delete
+  moves them to the next status in the same group, or to No status. The notes
+  are every note under the list's folder that the list describes, read fresh
+  from the device at that moment.
+- **Agents are told.** `scope_info` with a path lists that folder's statuses;
+  `write_note` saves a status outside the list and says so afterwards, with the
+  list. It never refuses: the file is the person's. Both read the front notes
+  through the caller's own clearance, passing over one it cannot see exactly
+  as the app's device copy does, so nothing about a held-back note leaks.
+
+A "simplification" back to free words costs the board its order and its
+meaning: `apps/mcp/test/listStatuses.test.mjs` fails if a group loses its
+default, if inheritance stops at the folder, if `status is done` stops reading
+the group, or if an agent is told a list from a front note it cannot see;
+`folderPageStatuses.test.ts` pins the bands, Needs a group, and which notes a
+rename rewrites; `folderPageView.test.ts` pins the grouped menu and the board's
+bands.
