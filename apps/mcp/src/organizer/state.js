@@ -20,12 +20,14 @@ export const ORGANIZER_KINDS = Object.freeze(["done", "archive", "file"]);
 export const DISMISS_MEMORY_MS = 90 * 24 * 60 * 60 * 1000;
 const MAX_PENDING = 200;
 const MAX_DISMISSED = 500;
+/** Statuses changed without asking, remembered so Activity's Undo can put them back. */
+const MAX_REVERTS = 200;
 const STATE_BYTE_CAP = 256_000;
 /** Accepts in a row, with no dismissal of that kind, before offering autopilot. */
 export const OFFER_AFTER_ACCEPTS = 3;
 
 export function emptyOrganizerState() {
-  return { version: 1, sweptAt: null, pending: [], dismissed: {}, streaks: { done: 0, archive: 0, file: 0 } };
+  return { version: 1, sweptAt: null, pending: [], dismissed: {}, streaks: { done: 0, archive: 0, file: 0 }, reverts: {} };
 }
 
 function isKind(value) {
@@ -54,12 +56,17 @@ export function parseOrganizerState(text) {
     const value = raw.streaks?.[kind];
     if (Number.isInteger(value) && value >= 0) streaks[kind] = value;
   }
+  const reverts = {};
+  if (raw.reverts && typeof raw.reverts === "object") {
+    for (const [path, value] of Object.entries(raw.reverts)) if (typeof value === "string") reverts[path] = value;
+  }
   return {
     version: 1,
     sweptAt: typeof raw.sweptAt === "number" ? raw.sweptAt : null,
     pending: pending.slice(0, MAX_PENDING),
     dismissed,
     streaks,
+    reverts,
   };
 }
 
@@ -125,4 +132,17 @@ export function resolveSuggestion(state, id, decision, now) {
 /** Switching auto-organize off clears what was waiting, and nothing else. */
 export function clearPending(state) {
   return { ...state, pending: [] };
+}
+
+/**
+ * Remember (or, with `value` undefined, forget) the status a note had before
+ * the organizer marked it done by itself. Activity names the change but not
+ * what it replaced, and Undo there has to put back exactly that.
+ */
+export function rememberRevert(state, path, value) {
+  const reverts = { ...(state.reverts ?? {}) };
+  delete reverts[path];
+  if (value !== undefined) reverts[path] = value;
+  const kept = Object.entries(reverts).slice(-MAX_REVERTS);
+  return { ...state, reverts: Object.fromEntries(kept) };
 }

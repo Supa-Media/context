@@ -71,6 +71,7 @@ export const operationResultValidator = v.union(
     ),
   }),
   v.object({ kind: v.literal("websiteReleaseDeleted"), objects: v.number() }),
+  v.object({ kind: v.literal("organizerResult"), output: v.string() }),
   listingValidator,
   fileValidator,
   manifestValidator,
@@ -467,4 +468,23 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("readStorageLayout") }),
   /** `activity.md`, filtered to what this caller may see. See `activity.ts`. */
   v.object({ kind: v.literal("readActivity") }),
+  /**
+   * Auto-organize's trips through the barrier. See `lib/organizer/sweepOps.ts`.
+   * JSON in and out: the suggestions are the engine's shape, and the engine
+   * checks them when it reads them back.
+   */
+  v.object({
+    kind: v.literal("organizer"),
+    action: v.union(
+      v.literal("gather"),
+      v.literal("record"),
+      v.literal("read"),
+      v.literal("resolve"),
+      v.literal("clear"),
+      v.literal("autopilot"),
+      v.literal("undo"),
+    ),
+    input: v.string(),
+    autopilot: v.optional(v.boolean()),
+  }),
 );

@@ -149,7 +149,13 @@ export type FileOperation =
     }
   | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
-  | { kind: "readStorageLayout" };
+  | { kind: "readStorageLayout" }
+  | {
+      kind: "organizer";
+      action: "gather" | "record" | "read" | "resolve" | "clear" | "autopilot" | "undo";
+      input: string;
+      autopilot?: boolean;
+    };
 
 /**
  * What a file operation hands back to the console.
@@ -329,4 +335,5 @@ export type OperationResult =
       partial: boolean;
     }
   | { kind: "imageWritten"; key: string; etag: string }
-  | { kind: "image"; bytes: ArrayBuffer };
+  | { kind: "image"; bytes: ArrayBuffer }
+  | { kind: "organizerResult"; output: string };

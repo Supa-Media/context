@@ -15,6 +15,7 @@ import { oauthTables } from "./functions/lib/schema/oauth";
 import { platformTables } from "./functions/lib/schema/platform";
 import { billingTables } from "./functions/lib/schema/billing";
 import { domainTables } from "./functions/lib/schema/domains";
+import { organizerTables } from "./functions/lib/schema/organizer";
 
 /**
  * Control-plane schema for Context.
@@ -61,6 +62,7 @@ const schema = defineSchema({
   ...platformTables,
   ...billingTables,
   ...domainTables,
+  ...organizerTables,
 });
 
 export default schema;

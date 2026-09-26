@@ -36,6 +36,7 @@ import {
 import {
   ORGANIZER_STATE_KEY,
   emptyOrganizerState,
+  rememberRevert,
   mergeSweep,
   parseOrganizerState,
   readOrganizerState,
@@ -181,6 +182,9 @@ export async function runOrganizerChecks(check) {
   }
   check("the third accept in a row earns the offer, and only the third", offers.join() === "false,false,true");
   check("a dismiss resets the streak", resolveSuggestion(streak, "done-4", "dismiss", NOW).state.streaks.done === 0);
+  const remembered = rememberRevert(merged, "p1.md", "fix-in-review");
+  check("a status changed without asking is remembered for Undo", parseOrganizerState(JSON.stringify(remembered)).reverts["p1.md"] === "fix-in-review");
+  check("…and forgotten once put back", rememberRevert(remembered, "p1.md", undefined).reverts["p1.md"] === undefined);
   check("resolving an unknown id changes nothing", resolveSuggestion(merged, "nope", "accept", NOW).suggestion === null);
 
   const store = memoryStore();

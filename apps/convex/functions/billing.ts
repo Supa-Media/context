@@ -45,6 +45,7 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
+import { startOrganizerOnUpgrade } from "./lib/organizer/settings";
 import {
   internalMutation,
   internalQuery,
@@ -137,6 +138,7 @@ export const activateTestPremium = mutation({
     }
     if (plan.status === "active") return { active: true };
     await ctx.db.patch(plan._id, { status: "active", updatedAt: now });
+    await startOrganizerOnUpgrade(ctx, args.workspaceId, false, true);
 
     if (selected.managedStorage) {
       const binding = await ctx.db
@@ -624,6 +626,8 @@ export const applyStripeEvent = internalMutation({
       lastEventAt: args.createdSeconds,
       updatedAt: Date.now(),
     });
+    // Auto-organize is on with Premium; the first sweep starts on the upgrade.
+    await startOrganizerOnUpgrade(ctx, plan.workspaceId, planIsPaying(plan.status), planIsPaying(status));
 
     await recordAudit(ctx, {
       workspaceId: plan.workspaceId,
