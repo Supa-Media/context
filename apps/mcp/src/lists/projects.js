@@ -1,6 +1,7 @@
-import { CLOSED_STATUSES, FRONT_NOTES } from "./grammar.js";
+import { FRONT_NOTES } from "./grammar.js";
 import { groupOf, orderByGroup } from "./group.js";
-import { compareRows, holds } from "./select.js";
+import { compareRows, groupComparer, holds } from "./select.js";
+import { isDoneStatus, resolveStatusList } from "./statuses.js";
 
 /**
  * `rows: projects`: a list whose rows are projects rather than notes.
@@ -42,14 +43,18 @@ export function selectProjectRows(config, notes, { selfPath } = {}) {
     byPath.set(rest, note);
   }
 
+  const { list } = resolveStatusList(config.from || "", notes);
   const topLevel = projectsIn("", byPath);
-  const matches = (project) => config.where.every((condition) => holds(condition, project.note.properties || {}));
+  const matches = (project, within = list) =>
+    config.where.every((condition) => holds(condition, project.note.properties || {}, within));
   const kept = [];
   for (const project of topLevel) {
     const children = project.kind === "folder" ? projectsIn(`${project.folder}/`, byPath) : [];
-    const shown = children.filter(matches);
+    // A project folder's own list, when it declares one, is what its sub-projects mean.
+    const inner = project.kind === "folder" ? resolveStatusList(`${base}${project.folder}`, notes).list : list;
+    const shown = children.filter((child) => matches(child, inner));
     if (!matches(project) && shown.length === 0) continue;
-    const closed = children.filter((child) => isClosed(child.note)).length;
+    const closed = children.filter((child) => isClosed(child.note, inner)).length;
     kept.push({ project, children: sortProjects(shown, config), progress: children.length ? { done: closed, total: children.length } : null });
   }
 
@@ -57,7 +62,7 @@ export function selectProjectRows(config, notes, { selfPath } = {}) {
   const rank = new Map(sorted.map((project, index) => [project, index]));
   kept.sort((a, b) => rank.get(a.project) - rank.get(b.project));
   const withGroups = kept.map((entry) => ({ ...entry, group: groupOf(entry.project.note.properties, config.group) }));
-  const ordered = config.group ? orderByGroup(withGroups) : withGroups;
+  const ordered = config.group ? orderByGroup(withGroups, groupComparer(config.group, list)) : withGroups;
   const rows = ordered.slice(0, config.limit).map((entry) => ({
     ...rowOf(entry.project, config, base),
     ...(config.group ? { group: entry.group } : {}),
@@ -112,10 +117,10 @@ function hasStatus(note) {
   return typeof value === "string" && value.trim() !== "";
 }
 
-function isClosed(note) {
+function isClosed(note, list) {
   const status = note.properties?.status;
   const value = Array.isArray(status) ? status[0] : status;
-  return typeof value === "string" && CLOSED_STATUSES.has(value.trim().toLowerCase());
+  return typeof value === "string" && value.trim() !== "" && isDoneStatus(value, list);
 }
 
 /** A project as the note `compareRows` sorts: its title, and the folder's newest save. */
