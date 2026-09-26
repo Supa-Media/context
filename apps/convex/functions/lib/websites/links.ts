@@ -4,6 +4,7 @@ import {
   indexByName,
   parseLinks,
   resolveLink,
+  websiteRouteLookupKey,
   type Link,
 } from "@context/shared";
 
@@ -66,6 +67,29 @@ function normalizedRoutePath(raw: string): string | null {
   return withoutTrailing.normalize("NFC");
 }
 
+/**
+ * `/Public%20Worship` names the page `/Public Worship`. Decoded before it is
+ * checked, because the checks are about the path a person meant; an encoded
+ * `/` or `\\` is refused outright rather than decoded into a different path.
+ */
+function decodedRoutePath(raw: string): string | null {
+  if (/%(?:2f|5c)/i.test(raw)) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A route as a Markdown link target: each segment percent-encoded, so a page
+ * called `Public Worship` is `/Public%20Worship` — a raw space ends a link
+ * target, which is how every link to such a page came out as plain text.
+ */
+export function websiteHrefFor(routePath: string): string {
+  return routePath.split("/").map(encodeURIComponent).join("/");
+}
+
 function directRoute(
   link: Link,
   handle: string,
@@ -77,7 +101,8 @@ function directRoute(
   const anchor = safeAnchor(target);
   if (anchor === null) return null;
   if (file.startsWith("/") && !file.startsWith("//")) {
-    const routePath = normalizedRoutePath(file);
+    const decoded = decodedRoutePath(file);
+    const routePath = decoded === null ? null : normalizedRoutePath(decoded);
     return routePath === null ? null : { routePath, anchor };
   }
 
@@ -101,7 +126,8 @@ function directRoute(
   } else {
     return null;
   }
-  const normalized = normalizedRoutePath(routePath);
+  const decoded = decodedRoutePath(routePath);
+  const normalized = decoded === null ? null : normalizedRoutePath(decoded);
   return normalized === null ? null : { routePath: normalized, anchor };
 }
 
@@ -112,7 +138,7 @@ function catalogMaps(catalog: readonly WebsiteLinkCatalogEntry[]) {
   // unlisted share. Insert routes first and never replace them with a share.
   for (const entry of catalog) {
     if (entry.kind !== "route") continue;
-    routesByHref.set(entry.href, entry);
+    routesByHref.set(websiteRouteLookupKey(entry.href), entry);
     byObject.set(entry.objectKey, entry);
   }
   for (const entry of catalog) {
@@ -133,7 +159,7 @@ function destinationResolver(options: WebsiteLinkOptions) {
   return (link: Link): Destination | null => {
     const direct = directRoute(link, options.handle, ownedHosts);
     if (direct !== null) {
-      const entry = routesByHref.get(direct.routePath);
+      const entry = routesByHref.get(websiteRouteLookupKey(direct.routePath));
       return entry === undefined ? null : { ...entry, anchor: direct.anchor };
     }
 
@@ -205,7 +231,7 @@ export function rewriteWebsiteLinks(
     ) {
       continue;
     }
-    const href = `${destination.href}${destination.anchor}`;
+    const href = `${websiteHrefFor(destination.href)}${destination.anchor}`;
     if (link.kind === "wiki") {
       const replacement = wikiReplacement(markdown, link, href);
       if (replacement !== null) replacements.push(replacement);
