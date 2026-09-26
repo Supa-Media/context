@@ -145,6 +145,7 @@ export function settingsPreview(
     case "workspace":
     case "premium":
     case "website":
+    case "emoji":
     case "model":
     case "meetings":
       return null;

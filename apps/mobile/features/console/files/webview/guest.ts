@@ -39,6 +39,7 @@ import {
 import type { NoteLinkRef } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
 import type { ImageHostRef } from "../imageBlock";
+import { EMOJI_IMAGE_TARGET, type EmojiHostRef } from "../emoji/host";
 import { pluginSuggestSource, type PluginSuggestRef } from "../pluginSuggest";
 import {
   PROTOCOL_VERSION,
@@ -397,6 +398,19 @@ export function mountGuest(
   };
 
   /**
+   * A workspace's own emoji, over the image bridge: `emoji:<name>` is a target
+   * the host's image loader answers from the workspace's emoji. No list comes
+   * across, so the native `:` menu offers standard emoji only, and a note
+   * still draws every workspace emoji it names.
+   */
+  const emoji: EmojiHostRef = {
+    current: {
+      custom: () => null,
+      load: (name) => images.current?.load(`${EMOJI_IMAGE_TARGET}${name}`) ?? Promise.resolve(null),
+    },
+  };
+
+  /**
    * Send one filled-in form to the host and wait for its answer.
    *
    * The promise is deliberately one that **can stay pending**: there is no
@@ -490,6 +504,7 @@ export function mountGuest(
       links,
       forms,
       images,
+      emoji,
       /*
         Always installed, never conditional. The source is the thing that reads
         `suggests` at call time; installing it only when a plugin happened to be

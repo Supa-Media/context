@@ -7,6 +7,7 @@ import { densityFor } from "../../../features/app/frame";
 import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
 import { Avatar } from "../../../features/console/AccountBlock";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { CustomEmojiProvider } from "../../../features/console/emoji/CustomEmojiProvider";
 import { ConsoleNavProvider } from "../../../features/console/ConsoleNavContext";
 import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
 import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
@@ -314,6 +315,15 @@ export default function ConsoleLayout() {
     <ConsoleDataProvider value={data}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
+      {/*
+        The open workspace's own emoji, at console scope because the editor's
+        `:` menu and Settings › Emoji both reach it, and the Add emoji dialog it
+        draws can be asked for from either. See `CustomEmojiProvider`.
+      */}
+      <CustomEmojiProvider
+        workspaceId={data.demo ? null : data.files.contextId}
+        canEdit={data.files.canEdit}
+      >
       {data.pluginRuntime?.host}
       {/*
         Beside the host and at console scope for the same reason: a plugin can
@@ -496,6 +506,7 @@ export default function ConsoleLayout() {
         */}
         {meetingSheet}
       </AppFrame>
+      </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
     </ConsoleDataProvider>

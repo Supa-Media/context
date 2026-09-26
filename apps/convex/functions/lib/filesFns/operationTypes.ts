@@ -116,6 +116,11 @@ export type FileOperation =
     }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
+  | { kind: "emojiList" }
+  | { kind: "emojiRead"; name: string }
+  | { kind: "emojiStore"; name: string; bytes: ArrayBuffer; replace: boolean }
+  | { kind: "emojiRemove"; name: string }
+  | { kind: "emojiRename"; from: string; to: string }
   | { kind: "pluginInventory" }
   | { kind: "pluginManagedList" }
   | { kind: "contextPlugins" }
@@ -347,4 +352,8 @@ export type OperationResult =
     }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer }
+  | { kind: "emojiList"; emoji: Array<{ name: string; leaf: string }> }
+  | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
+  | { kind: "emojiStored"; name: string; leaf: string }
+  | { kind: "emojiRemoved" }
   | { kind: "organizerResult"; output: string };

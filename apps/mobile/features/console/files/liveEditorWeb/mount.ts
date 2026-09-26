@@ -21,6 +21,7 @@ import type { NoteLinkContext } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
 import { listHost, type ListHostRef } from "../listBlock/model";
 import type { ImageHostRef } from "../imageBlock";
+import type { EmojiHostRef } from "../emoji/host";
 import type { EditorControls, EditorHandlers, LiveEditorProps, MenuOpen, MenuPoint } from "./contract";
 import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
@@ -39,6 +40,7 @@ export function mountEditor({
   links,
   forms,
   images,
+  emoji,
   lists,
   onImageProblem,
   suggesters,
@@ -61,6 +63,7 @@ export function mountEditor({
   links: { current: NoteLinkContext };
   forms: FormHostRef;
   images: ImageHostRef;
+  emoji: EmojiHostRef;
   lists: ListHostRef;
   onImageProblem: LiveEditorProps["onImageProblem"];
   suggesters: { current: PluginSuggestRef };
@@ -151,6 +154,7 @@ export function mountEditor({
           same reason `pluginSuggest` is installed unconditionally below.
         */
         images,
+        emoji,
         ...(onImageProblem === undefined ? {} : { reportImage: onImageProblem }),
         /*
           A plugin's in-editor suggestions.

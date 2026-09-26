@@ -114,6 +114,18 @@ export {
   type WorkspaceIcon,
 } from "./workspaceIcon";
 
+/** A workspace's own emoji: names, leaves and `:name:` shortcodes. */
+export {
+  CUSTOM_EMOJI_EXTENSIONS,
+  CUSTOM_EMOJI_LEAF_PREFIX,
+  CUSTOM_EMOJI_MAX_BYTES,
+  CUSTOM_EMOJI_NAME,
+  customEmojiLeaf,
+  customEmojiNameFrom,
+  findShortcodes,
+  parseCustomEmojiLeaf,
+} from "./customEmoji";
+
 /**
  * The path-only contract for bucket-backed website routes. Page metadata and
  * source-reference parsing remain separate so an open product decision cannot

@@ -286,6 +286,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Settings is seven rows, and a row has to earn its place
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
+- [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - A status wears a chip; a band is for what you have not been told
 - A workspace can wear a face, and the letter is what it falls back to
 - The allowed-sender list stays beside the address it gates

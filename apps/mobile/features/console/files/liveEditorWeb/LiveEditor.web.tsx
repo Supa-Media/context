@@ -56,6 +56,8 @@ import { webUrl } from "../webUrl";
 import type { FormHostRef, FormResponseRetract, FormResponseUpdate, FormVote } from "../formBlock";
 import { listHost, type ListHostRef } from "../listBlock/model";
 import type { ImageHostRef } from "../imageBlock";
+import { emojiRefresh, type EmojiHostRef } from "../emoji/host";
+import { useCustomEmoji } from "../../emoji/context";
 import { useColors } from "../../../design/theme";
 import type { LiveEditorProps, MenuOpen } from "./contract";
 import { ensureStyles } from "./stylesheet";
@@ -181,6 +183,13 @@ export function LiveEditor({
     whichever note was open then.
   */
   const images = useRef<ImageHostRef>({ current: null }).current;
+  /*
+    This workspace's own emoji, from the console's provider rather than a prop:
+    the same ref arrangement as `images`, read at call time.
+  */
+  const customEmoji = useCustomEmoji();
+  const emoji = useRef<EmojiHostRef>({ current: null }).current;
+  emoji.current = customEmoji;
   /*
     Folder lists, on the same ref arrangement: a list widget is kept across
     every transaction that does not change its fence, so it reads the source,
@@ -309,6 +318,7 @@ export function LiveEditor({
       links,
       forms,
       images,
+      emoji,
       lists,
       onImageProblem,
       suggesters,
@@ -336,6 +346,13 @@ export function LiveEditor({
       titleTone === null || titleMessage === null ? null : { tone: titleTone, message: titleMessage },
     );
   }, [titleTone, titleMessage]);
+
+  // The workspace's emoji changed — one added, renamed or removed, or the list
+  // arrived — so names drawn as text are asked about again.
+  const emojiGeneration = customEmoji?.generation ?? 0;
+  useEffect(() => {
+    view.current?.dispatch({ effects: emojiRefresh.of(null) });
+  }, [emojiGeneration]);
 
   // A different note was opened, and the room bound here is the one being
   // left — see `followNote`.

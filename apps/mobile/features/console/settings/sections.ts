@@ -373,6 +373,19 @@ export const SETTINGS_SECTIONS = [
   },
   {
     /*
+      A workspace's own emoji: the pictures `:name:` draws as in its notes.
+      A context row because the emoji belong to the workspace, like its icon.
+    */
+    key: "emoji",
+    keywords: "emoji emojis custom slackmojis slack reaction sticker gif parrot smiley icon picture shortcode",
+    scope: "context",
+    label: "Emoji",
+    group: null,
+    icon: "sparkle",
+    personalOnly: false,
+  },
+  {
+    /*
       Between Search and Advanced, and inside "Your notes" rather than a group
       of its own.
 
