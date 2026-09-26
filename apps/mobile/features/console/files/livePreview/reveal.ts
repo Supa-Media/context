@@ -50,6 +50,44 @@ export function isHiddenPlumbing(node: SyntaxNode): boolean {
   return parent !== null && (parent.name === "Link" || parent.name === "Image");
 }
 
+type Doc = { sliceString: (from: number, to: number) => string };
+
+/**
+ * `[at]` in a sentence: brackets around words, which lezer parses as a `Link`.
+ *
+ * It is a *shortcut reference* — a link only when the note also defines
+ * `[at]: https://…` — so drawing it as one (brackets hidden, words underlined)
+ * showed a link that went nowhere, and disagreed with the published page,
+ * which prints `[at]`. "seyi [at] supa [dot] media" is what somebody writes to
+ * keep an address away from scrapers, and it has to read that way here too.
+ *
+ * A `[label](target)` has a URL child and a `[label][ref]` a LinkLabel, so
+ * neither is this. The inner `[…]` of a `[[wiki link]]` is, as far as the
+ * grammar knows, and is exempt: that pass draws those itself.
+ */
+export function isBracketedText(node: SyntaxNode, doc?: Doc): boolean {
+  if (node.name !== "Link") return false;
+  if (node.getChild("URL") !== null || node.getChild("LinkLabel") !== null) return false;
+  if (doc === undefined) return false;
+  const text = doc.sliceString(node.from, node.to);
+  const wiki =
+    text.startsWith("[[") ||
+    (doc.sliceString(node.from - 1, node.from) === "[" &&
+      doc.sliceString(node.to, node.to + 1) === "]");
+  if (wiki) return false;
+  return !hasReferenceDefinition(doc, text.slice(1, -1));
+}
+
+/** Whether `[label]: …` is defined anywhere in the note (case-insensitive). */
+function hasReferenceDefinition(doc: Doc, label: string): boolean {
+  if (label.trim() === "") return false;
+  const whole = "length" in doc && typeof doc.length === "number"
+    ? doc.sliceString(0, doc.length)
+    : "";
+  const escaped = label.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^ {0,3}\\[${escaped}\\]:`, "im").test(whole);
+}
+
 /**
  * Nodes whose whole extent is the "reveal unit" for the marks inside them.
  *
@@ -207,6 +245,9 @@ export function hiddenMarkRanges(
       if (insideWiki(node.from, node.to)) return;
       const isMark = HIDDEN_MARKS.has(node.name);
       if (!isMark && !isHiddenPlumbing(node.node)) return;
+      // `[at]` keeps its brackets: see `isBracketedText`.
+      const parent = node.node.parent;
+      if (isMark && parent !== null && isBracketedText(parent, doc)) return;
       // A zero-width mark is nothing to hide, and an empty replace decoration
       // at the same position as another is a CodeMirror range-set error rather
       // than a no-op.

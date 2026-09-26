@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import type { ResolvedWebsitePage, WebsiteNavigationItem } from "@context/shared";
+import { SHARE_ROUTE, type ResolvedWebsitePage, type WebsiteNavigationItem } from "@context/shared";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { leading, siteType } from "../../design/tokens";
@@ -55,7 +55,7 @@ export function WebsitePage({
   return (
     <SiteFrame name={name} navigation={navigation} current={current} navigate={navigate} madeWith={PLATFORM_ORIGIN}>
       {view.kind === "page" ? (
-        <Page title={view.title} markdown={view.markdown} home={view.routePath === "/"} />
+        <Page title={view.title} markdown={view.markdown} home={view.routePath === "/"} navigate={navigate} />
       ) : view.kind === "authentication_required" ? (
         <Notice title="Members only" line="Sign in to read this page.">
           <Button
@@ -74,7 +74,35 @@ export function WebsitePage({
   );
 }
 
-function Page({ title, markdown, home }: { title: string; markdown: string; home: boolean }) {
+/**
+ * A link the server pointed at this site: another page, or an unlisted share
+ * (`/s/…`, a platform path on every site host). A page is opened in place,
+ * like the menu; a share is a different app, so it is a real navigation.
+ */
+function followSiteLink(href: string, navigate: (routePath: string) => void): void {
+  const path = href.split("#")[0]!;
+  if (path === SHARE_ROUTE || path.startsWith(`${SHARE_ROUTE}/`)) {
+    if (typeof window !== "undefined") window.location.assign(path);
+    return;
+  }
+  try {
+    navigate(decodeURIComponent(path));
+  } catch {
+    // A malformed escape names no page; the link does nothing rather than guess.
+  }
+}
+
+function Page({
+  title,
+  markdown,
+  home,
+  navigate,
+}: {
+  title: string;
+  markdown: string;
+  home: boolean;
+  navigate: (routePath: string) => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const size = useSiteSize();
   const { heading, blocks } = useMemo(() => {
@@ -94,7 +122,11 @@ function Page({ title, markdown, home }: { title: string; markdown: string; home
           {heading}
         </Text>
       )}
-      <NoteBody blocks={blocks} look={size === "desktop" ? "siteWide" : "site"} />
+      <NoteBody
+        blocks={blocks}
+        look={size === "desktop" ? "siteWide" : "site"}
+        onSiteLink={(href) => followSiteLink(href, navigate)}
+      />
     </View>
   );
 }

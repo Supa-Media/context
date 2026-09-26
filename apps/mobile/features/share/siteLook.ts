@@ -64,7 +64,9 @@ export const makeSiteStyles = (colors: Colors) => {
   return StyleSheet.create({
     body: { gap: 24 },
     paragraph: { ...run, color: colors.text },
-    marker: { ...run, color: colors.muted, minWidth: 22 },
+    // A hanging indent about one character wide: the bullet belongs to its line.
+    marker: { ...run, color: colors.muted, minWidth: 14 },
+    item: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
     itemText: { ...run, flexGrow: 1, flexShrink: 1, color: colors.text },
     list: { gap: 10, paddingLeft: 0 },
     quote: { borderLeftWidth: 2, borderLeftColor: colors.muted, paddingLeft: 18, paddingVertical: 2 },
