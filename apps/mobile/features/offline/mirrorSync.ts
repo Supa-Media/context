@@ -111,18 +111,9 @@ export interface MirrorSyncDeps {
   mine: () => boolean;
   now: () => number;
   onProgress?: (workspaceId: string, progress: MirrorProgress) => void;
-  /**
-   * A context's metadata — every path and folder, no bodies — has just been
-   * committed to its index. The console redraws its tree from this, long
-   * before the notes themselves have arrived.
-   */
+  /** Every path and folder, no bodies, is in the index: the tree redraws before notes arrive. */
   onListed?: (workspaceId: string) => void;
-  /**
-   * New bodies of a context's notes were committed by this run. Said once,
-   * after the run's last commit, and only when it fetched something — a list
-   * that reads frontmatter re-reads on it, since `onListed` came before the
-   * bodies it would need.
-   */
+  /** This run committed new note bodies, which `onListed` came before. */
   onFetched?: (workspaceId: string) => void;
   /** Tests only. */
   batchSize?: number;
