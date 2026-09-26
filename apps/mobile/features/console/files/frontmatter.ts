@@ -9,8 +9,11 @@
  *
  * Three things about it are deliberate.
  *
- * **It never writes.** There is no `setProperty`, no serializer, no "tidy the
- * YAML" pass, and that is the whole safety argument. Plain files stay canonical
+ * **It never writes.** There is no serializer and no "tidy the YAML" pass
+ * here, and that is the whole safety argument. (The Properties panel changes
+ * one line at a time through `setNoteProperty` in `apps/mcp/src/lists/`,
+ * which refuses any change that would not read back as written — see
+ * `noteEditor/propertyEdit.ts`.) Plain files stay canonical
  * (see `CLAUDE.md`), the buffer in the editor is the file, and a display-only
  * reader cannot corrupt a document it half-understands. The parser below is a
  * long way short of YAML — no anchors, no block scalars, no flow maps — and a

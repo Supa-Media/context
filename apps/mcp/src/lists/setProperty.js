@@ -86,12 +86,22 @@ function lastKeyLine(lines, close, key) {
 /**
  * A value as the reader will read it back: bare when it is plainly text,
  * otherwise in whichever quote it does not contain.
+ *
+ * `true`, `false` and a plain number are written bare too. Somebody typing
+ * `false` into a `draft` property means false, and a website page's `draft`
+ * and `nav` are only accepted bare — `draft: "false"` is a page with a
+ * problem. Words YAML 1.1 would quietly turn into a boolean or a null (`yes`,
+ * `off`, `~`), a capitalised `True`, and a number with a leading zero or a
+ * sign are still quoted, because there the person almost certainly meant the
+ * text.
  */
 function quoted(value) {
+  const scalar = /^(true|false|(0|[1-9]\d*)(\.\d+)?)$/.test(value);
   const plain =
-    /^[^\s\-?:,[\]{}#&*!|>'"%@`]/.test(value) &&
-    !/:\s|:$/.test(value) &&
-    !/^(true|false|yes|no|null|on|off|~|[-+]?[\d.]+)$/i.test(value);
+    scalar ||
+    (/^[^\s\-?:,[\]{}#&*!|>'"%@`]/.test(value) &&
+      !/:\s|:$/.test(value) &&
+      !/^(true|false|yes|no|null|on|off|~|[-+]?[\d.]+)$/i.test(value));
   if (plain) return value;
   if (!value.includes('"')) return `"${value}"`;
   if (!value.includes("'")) return `'${value}'`;

@@ -51,6 +51,11 @@ export function runSetPropertyChecks(check) {
   check("a colon is quoted so it reads back", roundTrips("Q4: launch"));
   check("a leading quote is quoted", roundTrips("'maybe'"));
   check("a word YAML would read as a boolean is quoted", set(note, "owner", "yes").text.includes('owner: "yes"'));
+  // A website page accepts `draft` and `nav` only bare; quoting them made the
+  // page a problem. See `parseWebsitePage` in packages/shared.
+  check("true and false are written bare", set(note, "draft", "false").text.includes("draft: false\n") && roundTrips("true"));
+  check("a plain number is written bare", set(note, "nav", "3").text.includes("nav: 3\n") && roundTrips("12.5"));
+  check("a leading zero, a sign or a capital keeps its quotes", set(note, "nav", "007").text.includes('nav: "007"') && set(note, "nav", "-1").text.includes('nav: "-1"') && set(note, "draft", "True").text.includes('draft: "True"'));
   check("a hash that would read as a comment is refused", /comment/.test(set(note, "owner", "room #4").error ?? ""));
   check("a hash inside a word is kept", roundTrips("C#"));
   check("the value is trimmed", noteProperties(set(note, "owner", "  Ada ").text).owner === "Ada");

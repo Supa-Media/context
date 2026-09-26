@@ -298,11 +298,10 @@ describe("what is shown instead", () => {
    *    go to it.
    *
    * **The editor still holds the whole file at this density, and that is the
-   * point of the pair.** The panel is a reader — "there is nothing here that
-   * writes", and `frontmatter.ts` argues at length why this codebase must not
-   * grow a YAML writer — so the editor is the one thing in the product that
-   * can change a note's metadata, and handing it the body here would take that
-   * away on the only surface that has it.
+   * point of the pair.** The panel edits one line at a time, and only the
+   * lines it can draw faithfully (`notePropertiesEdit.test.ts`); a list or a
+   * nested map is still the editor's, and handing it the body here would take
+   * those away on the only surface that has them.
    */
   test("a desktop folds it the same way, and the editor still holds the file", () => {
     const app = mountEditor(1440);

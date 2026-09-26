@@ -282,6 +282,10 @@ Moved to [An icon reaches for a path only when a rectangle cannot hold one weigh
 
 Moved to [The read toggle's glyph is the act, so the accent fill is gone](./app-and-console/note-editing-surface.md#the-read-toggles-glyph-is-the-act-so-the-accent-fill-is-gone).
 
+### Properties are edited in the panel, one line at a time
+
+Moved to [Properties are edited in the panel, one line at a time](./app-and-console/note-editing-surface.md#properties-are-edited-in-the-panel-one-line-at-a-time).
+
 ### The staff console is shaped for ten customers, and its figures count rows
 
 Moved to [The staff console is shaped for ten customers, and its figures count rows](./app-and-console/staff-console-and-panels.md#the-staff-console-is-shaped-for-ten-customers-and-its-figures-count-rows).
