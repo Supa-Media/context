@@ -66,3 +66,16 @@ describe("a published page's emoji", () => {
     expect(resolved).not.toHaveProperty("emoji");
   });
 });
+
+describe("the edge copy", () => {
+  test("keeps a page's emoji, so a kept copy draws them too", async () => {
+    const f = await site();
+    const answer = await f.t.fetch("/site/page", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: "atlas", routePath: "/" }),
+    });
+    const body = (await answer.json()) as { address: { emoji?: Record<string, string> } };
+    expect(Object.keys(body.address.emoji ?? {})).toEqual(["parrot"]);
+  });
+});
