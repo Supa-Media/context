@@ -15,6 +15,12 @@ import { route, type RouteDecision, type Upstream } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
+import {
+  DEFAULT_HOME_SITE_HANDLE,
+  fetchHomeSnapshot,
+  homeDocumentResponse,
+  isHomeDocument,
+} from "./homeSite";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
 // a crawler is guaranteed to fetch should not depend on an upstream that might
@@ -26,6 +32,8 @@ export interface Env {
   EXPO_ORIGIN?: string;
   /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
   CONVEX_ORIGIN?: string;
+  /** Whose `website/` folder the homepage draws; `context-lc` when unset. */
+  HOME_SITE_HANDLE?: string;
 }
 
 /**
@@ -74,7 +82,17 @@ export default {
     if (!isPlatformHost(url.hostname)) {
       return await siteResponse(request, url, env, ctx, respond);
     }
-    return await respond(route(url, request.headers.get("User-Agent")), request, env, ctx);
+    const decision = route(url, request.headers.get("User-Agent"));
+    // The homepage carries its site in its HTML (`homeSite.ts`), asked for
+    // while the HTML is, so waiting for one costs no more than the other.
+    if (decision.kind === "proxy" && decision.upstream === "expo" && isHomeDocument(request, url)) {
+      const handle = /^[a-z0-9-]{1,64}$/.test(env.HOME_SITE_HANDLE ?? "")
+        ? env.HOME_SITE_HANDLE!
+        : DEFAULT_HOME_SITE_HANDLE;
+      const snapshot = fetchHomeSnapshot(readOrigin(env.CONVEX_ORIGIN), handle, ctx);
+      return await homeDocumentResponse(await respond(decision, request, env, ctx), snapshot);
+    }
+    return await respond(decision, request, env, ctx);
   },
 };
 

@@ -95,9 +95,62 @@ export interface HomeTree {
 }
 
 /**
- * The tree for a list of site pages: numbered in menu order so the tree keeps
- * it (the number is a sort prefix, which the tree never draws), then the
- * private note, then Legal.
+ * The tree for the live site: `website/`'s own folders, each page where its
+ * file is, in menu order. A route path is the file's path under `website/`
+ * (`/Legal/privacy` is `website/Legal/privacy.md`), so its segments are the
+ * folders. Numbered so the tree keeps the menu's order (the number is a sort
+ * prefix, which the tree never draws); a folder takes the place of its first
+ * page. Nothing is added: no private note, no Legal of the shell's own.
+ */
+export function liveHomeTree(site: readonly HomePage[]): HomeTree {
+  const pages = new Map<string, HomePage>();
+  const paths = new Map<string, string>();
+  const entries: Record<string, FileEntry[]> = { "": [] };
+  const folders = new Map<string, string>();
+  const numbered = (parent: string, name: string) => {
+    const at = parent === "" ? "" : `${parent}/`;
+    return `${at}${String(entries[parent]!.length + 1).padStart(2, "0")}-${name}`;
+  };
+  for (const page of site) {
+    const segments = page.routePath === "/" ? [] : page.routePath.slice(1).split("/");
+    let parent = "";
+    let route = "";
+    for (const segment of segments.slice(0, -1)) {
+      route = `${route}/${segment}`;
+      let folder = folders.get(route);
+      if (folder === undefined) {
+        folder = numbered(parent, segment.replace(/\\/g, "-") || "Untitled");
+        folders.set(route, folder);
+        entries[parent]!.push({ ...entry(folder), kind: "folder" });
+        entries[folder] = [];
+      }
+      parent = folder;
+    }
+    const path = numbered(parent, fileName(page.title));
+    pages.set(path, page);
+    paths.set(page.routePath, path);
+    entries[parent]!.push(entry(path));
+  }
+  const notes: Record<string, string> = {};
+  for (const [path, page] of pages) notes[path] = page.markdown;
+  const listings: Record<string, FolderListing> = {};
+  for (const [path, list] of Object.entries(entries)) listings[path] = listing(path, list);
+  return {
+    pages,
+    paths,
+    tree: {
+      listings,
+      notes,
+      defaultSelection: paths.get("/") ?? [...pages.keys()][0] ?? "",
+      defaultExpanded: [...folders.values()],
+      readOnlyReason: "This workspace is read only. Make your own to start writing.",
+    },
+  };
+}
+
+/**
+ * The tree for the built-in pages: numbered in menu order so the tree keeps
+ * it, then the private note, then Legal.
  */
 export function homeTree(site: readonly HomePage[]): HomeTree {
   const pages = new Map<string, HomePage>();
