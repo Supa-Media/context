@@ -171,6 +171,21 @@ export function retitled(from: string, to: string, text: string): string | null 
   while (index < lines.length && lines[index]!.trim() === "") index += 1;
   const line = lines[index]!;
   const marker = /^(\s*#\s+)/.exec(line)![1]!;
-  lines[index] = `${marker}${replacement}`;
+  // A CRLF note keeps its line ending: `split("\n")` leaves the `\r` on it.
+  lines[index] = `${marker}${replacement}${line.endsWith("\r") ? "\r" : ""}`;
   return lines.join("\n");
+}
+
+/**
+ * Whether an edit made on this device changed the note's title.
+ *
+ * The native editor reports focus and nothing finer, so it cannot say the
+ * caret is in the title the way the web editor does. What it can say is what
+ * its own typing did: this is asked of each local change, and only a change
+ * that moved the title counts as "in the title". Focus alone must not — a
+ * collaborator's new title arriving while this person types in the body would
+ * otherwise read as theirs, and this device would rename the file for it.
+ */
+export function editChangesTitle(before: string, after: string): boolean {
+  return titleFor(before) !== titleFor(after);
 }

@@ -8,6 +8,7 @@ import { LockedNoteView } from "../../encryption/LockedNoteView";
 import { LiveEditor } from "../LiveEditor";
 import { Properties } from "./Properties";
 import { changeProperty } from "./propertyEdit";
+import { editChangesTitle } from "../linkedTitle";
 import type { NoteView } from "./view";
 
 /**
@@ -82,6 +83,18 @@ export function noteDocument(view: NoteView) {
     onTitleCaret,
     titleNote,
   } = view;
+  /*
+    The native editor says focus and nothing finer, so there "in the title"
+    starts with a local edit that changed the title and ends when the keyboard
+    goes away — the rename runs then. Focus alone does not count: a
+    collaborator's title arriving while this person types in the body is
+    theirs to rename (`editChangesTitle`). The web editor reports the caret
+    itself.
+  */
+  const localTitleEdit = (text: string) => {
+    if (Platform.OS === "web") return;
+    if (editChangesTitle(presence?.collaboration?.text ?? state.draft, text)) onTitleCaret?.(true);
+  };
   return (
     <View
       style={compact ? undefined : styles.document}
@@ -295,15 +308,19 @@ export function noteDocument(view: NoteView) {
             `noteAccessory.test.ts` presses B and asserts the YAML block is
             still in front of what arrives.
           */
-          onChange={bodyOnly ? (next) => collaborativeChange(frontmatter + next) : collaborativeChange}
+          onChange={(next) => {
+            const text = bodyOnly ? frontmatter + next : next;
+            localTitleEdit(text);
+            collaborativeChange(text);
+          }}
           onVersionedChange={
             collaborativeVersionedChange === undefined
               ? undefined
-              : (next, base) =>
-                  collaborativeVersionedChange(
-                    bodyOnly ? frontmatter + next : next,
-                    base,
-                  )
+              : (next, base) => {
+                  const text = bodyOnly ? frontmatter + next : next;
+                  localTitleEdit(text);
+                  collaborativeVersionedChange(text, base);
+                }
           }
           documentRevision={presence?.collaboration?.revision}
           onSave={onSave}
@@ -326,11 +343,6 @@ export function noteDocument(view: NoteView) {
               return;
             }
             setFocused(true);
-            // The native editor says focus and nothing finer, so there the
-            // whole of a focused editor counts as "in the title": a title
-            // renames its file when the keyboard goes away, not at every
-            // pause in typing it. The web editor reports the caret itself.
-            if (Platform.OS !== "web") onTitleCaret?.(true);
           }}
           onBlur={() => {
             setFocused(false);

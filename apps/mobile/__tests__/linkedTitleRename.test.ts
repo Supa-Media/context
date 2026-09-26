@@ -7,7 +7,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing, OpenNote } from "../features/console/files/types";
-import { isLinkedTitle, proposeTitle, retitled } from "../features/console/files/linkedTitle";
+import { editChangesTitle, isLinkedTitle, proposeTitle, retitled } from "../features/console/files/linkedTitle";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -399,6 +399,20 @@ describe("the rule itself", () => {
     expect(retitled(`${FOLDER}/01-intro.md`, `${FOLDER}/01-start.md`, "# intro\n")).toBe("# start\n");
     expect(retitled(DAILY, `${FOLDER}/x.md`, "# Friday\n")).toBeNull();
     expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "no heading\n")).toBeNull();
+  });
+
+  test("a title that follows a rename keeps a CRLF note's line ending", () => {
+    expect(retitled(ROADMAP, `${FOLDER}/Plan.md`, "# Roadmap\r\nx\r\n")).toBe("# Plan\r\nx\r\n");
+  });
+
+  test("on native, only a local edit that moved the title counts as being in it", () => {
+    // Typing the title: the rename waits for the keyboard to go away.
+    expect(editChangesTitle("# Roadmap\nbody\n", "# Roadmap 2\nbody\n")).toBe(true);
+    // Typing in the body, even of a note a collaborator just retitled: the
+    // text before this keystroke already carries their title, so it is not
+    // this person's, and this device does not rename for it.
+    expect(editChangesTitle("# Their title\nbody\n", "# Their title\nbody!\n")).toBe(false);
+    expect(editChangesTitle("---\na: 1\n---\n# Roadmap\n", "---\na: 2\n---\n# Roadmap\n")).toBe(false);
   });
 
   test("a live share holds the name, and says how to change it anyway", () => {
