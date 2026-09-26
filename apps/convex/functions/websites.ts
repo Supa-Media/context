@@ -11,6 +11,7 @@ import {
 import {
   beginRouteReconciliationHandler,
   commitRouteReconciliationHandler,
+  narrowRouteIndexHandler,
   invalidateRouteIndexHandler,
   recordRouteChangeHandler,
   reconcileWorkspaceHandler,
@@ -225,12 +226,31 @@ export const commitRouteReconciliation = internalMutation({
     releaseId: v.optional(v.string()),
     enabledOnly: v.optional(v.boolean()),
     problemsOnlyIfUnpublished: v.optional(v.boolean()),
+    restricted: v.optional(v.array(v.string())),
   },
   returns: v.object({
     committed: v.boolean(),
     cleanupReleaseId: v.union(v.string(), v.null()),
+    retiredReleaseId: v.union(v.string(), v.null()),
+    retiredPageIds: v.array(v.string()),
   }),
   handler: commitRouteReconciliationHandler,
+});
+
+export const narrowRouteIndex = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    generation: v.number(),
+    routes: v.array(indexedStatusValidator),
+    restricted: v.array(v.string()),
+    enabledOnly: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    releaseId: v.union(v.string(), v.null()),
+    pageIds: v.array(v.string()),
+    previousReleaseId: v.union(v.string(), v.null()),
+  }),
+  handler: narrowRouteIndexHandler,
 });
 
 export const invalidateRouteIndex = internalMutation({
