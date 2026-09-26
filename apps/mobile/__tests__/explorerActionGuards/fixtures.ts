@@ -431,7 +431,10 @@ export function browser(
  * than vanish" — a detection claim about an array nothing read, which in this
  * file's own terms is an unasserted outcome proving nothing.
  */
-export function mount(canEdit: boolean): { container: HTMLElement; calls: Calls } {
+export function mount(
+  canEdit: boolean,
+  over: Partial<FileBrowser> = {},
+): { container: HTMLElement; calls: Calls } {
   const calls: Calls = { entries: [], props: [] };
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -446,7 +449,7 @@ export function mount(canEdit: boolean): { container: HTMLElement; calls: Calls 
         SafeAreaProvider,
         { initialMetrics: METRICS },
         createElement(Explorer, {
-          files: browser(canEdit, calls),
+          files: { ...browser(canEdit, calls), ...over },
           contextLabel: "@somebody",
           onOpenPinned: (path: string) => calls.props.push({ name: "onOpenPinned", args: [path] }),
           onOverlayChange: (open: boolean) =>

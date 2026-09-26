@@ -241,6 +241,29 @@ export function isFolderPlaceholder(path: string): boolean {
 }
 
 /**
+ * Is this the workspace's privacy manifest, `privacy.md` at the root?
+ *
+ * **The console does not list it either**, for the reason it does not list a
+ * folder's placeholder: it is a real file that is not a note anybody wrote. It
+ * is generated from the visibility settings, read-only here, and everything it
+ * says is already drawn on the rows it governs, so a row for it told a person
+ * nothing they could act on. It stays in the bucket, stays readable by agents
+ * and Obsidian, and the tree still draws it while it is the open note.
+ *
+ * Root only and folded the way the gateway folds it (`foldPath`), because that
+ * is the one key the gateway treats as the manifest. A `privacy.md` in a folder
+ * is somebody's note.
+ */
+export function isPrivacyManifest(path: string): boolean {
+  return path.normalize("NFC").toLowerCase() === "privacy.md";
+}
+
+/** A real file the console does not list: a folder placeholder or the manifest. */
+export function isUnlistedFile(path: string): boolean {
+  return isFolderPlaceholder(path) || isPrivacyManifest(path);
+}
+
+/**
  * A new note is a `.md` file whether or not the person typed the extension.
  *
  * Not cosmetic: `privacy.md`'s exact-note rules only address `.md` paths, so a

@@ -42,6 +42,14 @@ describe("plain-text links", () => {
     ]);
   });
 
+  test("a capitalised domain in a written link is still that site", () => {
+    // Domains are case-insensitive, and a name written the way the company
+    // writes it (`Togather.app`) is how people type it into a link.
+    expect(links("[Togather](Togather.app/Join) and [Notes](Notes.MD)")).toEqual([
+      ["Togather", "https://togather.app/Join"],
+    ]);
+  });
+
   test("text that only looks like a scheme is not linked", () => {
     expect(links("javascript:alert(1) and https://")).toEqual([]);
   });

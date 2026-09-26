@@ -206,7 +206,11 @@ describe("what may be dragged, and what may be dropped on", () => {
     // `Explorer`'s own handler, which stops the drag from starting at all.
     // The contrast is the first test in this file, where all four writable
     // rows read `"true"`.
-    const editor = mount(true);
+    //
+    // The tree only draws privacy.md while it is the open note (it is unlisted
+    // otherwise; see `isPrivacyManifest`), so this opens it: that is the one
+    // state in which the row exists to be dragged.
+    const editor = mount(true, { selectedPath: "privacy.md" });
     expect(rowNode(editor.container, "privacy.md").getAttribute("draggable")).toBe("false");
   });
 

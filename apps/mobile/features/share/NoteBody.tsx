@@ -30,6 +30,12 @@ export type NoteLook = "note" | "site" | "siteWide";
 
 const Look = createContext<NoteLook>("note");
 
+/**
+ * Where a link to a page on the same site goes — see `sitePathHref`. Only the
+ * website page supplies one; without it such a link is drawn as its words.
+ */
+const SiteLink = createContext<((href: string) => void) | null>(null);
+
 function useBodyStyles() {
   const note = useThemedStyles(makeStyles);
   const site = useThemedStyles(makeSiteStyles);
@@ -55,14 +61,18 @@ export function NoteBody({
   blocks,
   renderCode,
   look = "note",
+  onSiteLink,
 }: {
   blocks: readonly Block[];
   renderCode?: (block: { text: string; language?: string }) => ReactNode | null;
   look?: NoteLook;
+  onSiteLink?: (href: string) => void;
 }) {
   return (
     <Look.Provider value={look}>
-      <Blocks blocks={blocks} renderCode={renderCode} />
+      <SiteLink.Provider value={onSiteLink ?? null}>
+        <Blocks blocks={blocks} renderCode={renderCode} />
+      </SiteLink.Provider>
     </Look.Provider>
   );
 }
@@ -204,6 +214,7 @@ function BlockView({
  */
 function Runs({ runs }: { runs: readonly Inline[] }) {
   const styles = useBodyStyles();
+  const siteLink = useContext(SiteLink);
   return (
     <>
       {runs.map((run, index) => {
@@ -232,7 +243,11 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
                 {run.text}
               </RNText>
             );
-          case "link":
+          case "link": {
+            const onPage = run.href.startsWith("/");
+            if (onPage && siteLink === null) {
+              return <RNText key={index}>{run.text}</RNText>;
+            }
             return (
               <RNText
                 key={index}
@@ -242,12 +257,14 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
                 // `safeHref`, and the platform still gets the final say about
                 // whether it can open it.
                 onPress={() => {
-                  void Linking.openURL(run.href).catch(() => {});
+                  if (onPage) siteLink?.(run.href);
+                  else void Linking.openURL(run.href).catch(() => {});
                 }}
               >
                 {run.text}
               </RNText>
             );
+          }
           default:
             return (
               <RNText key={index}>
