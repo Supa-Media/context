@@ -174,6 +174,7 @@ export function EditableProperty({ row, onSet, onError }: {
  * already has is refused rather than written, so adding can never overwrite a
  * value somebody can't see.
  */
+// eslint-disable-next-line @supa-media/keyboard-aware-forms -- two inline fields at the top of the note, inside its own scroller, not a form
 export function AddProperty({ onSet, onError }: {
   onSet: SetProperty;
   onError: (message: string | null) => void;
