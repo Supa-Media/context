@@ -6,6 +6,7 @@ import { Text } from "../../design/components/Text";
 import { leading, siteType } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { parseNote, noteTitle } from "../../share/markdown";
+import { emojiPictures } from "../../share/emojiPictures";
 import { NoteBody } from "../../share/NoteBody";
 import { UNDERLINE } from "../../share/siteLook";
 import { PLATFORM_ORIGIN } from "../host";
@@ -55,7 +56,13 @@ export function WebsitePage({
   return (
     <SiteFrame name={name} navigation={navigation} current={current} navigate={navigate} madeWith={PLATFORM_ORIGIN}>
       {view.kind === "page" ? (
-        <Page title={view.title} markdown={view.markdown} home={view.routePath === "/"} navigate={navigate} />
+        <Page
+          title={view.title}
+          markdown={view.markdown}
+          emoji={view.emoji}
+          home={view.routePath === "/"}
+          navigate={navigate}
+        />
       ) : view.kind === "authentication_required" ? (
         <Notice title="Members only" line="Sign in to read this page.">
           <Button
@@ -95,11 +102,14 @@ function followSiteLink(href: string, navigate: (routePath: string) => void): vo
 function Page({
   title,
   markdown,
+  emoji,
   home,
   navigate,
 }: {
   title: string;
   markdown: string;
+  /** Checked again here: whatever the answer carried, only inline pictures are drawn. */
+  emoji: unknown;
   home: boolean;
   navigate: (routePath: string) => void;
 }) {
@@ -115,6 +125,7 @@ function Page({
     if (own !== null) return { heading: own, blocks: parsed.slice(1) };
     return { heading: home ? null : title, blocks: parsed };
   }, [markdown, title, home]);
+  const pictures = useMemo(() => emojiPictures(emoji), [emoji]);
   return (
     <View testID="site-page" style={[styles.stack, size === "desktop" && styles.stackDesktop]}>
       {heading === null ? null : (
@@ -126,6 +137,7 @@ function Page({
         blocks={blocks}
         look={size === "desktop" ? "siteWide" : "site"}
         onSiteLink={(href) => followSiteLink(href, navigate)}
+        emoji={pictures}
       />
     </View>
   );

@@ -47,6 +47,24 @@ export interface HomeSnapshot {
   siteName: string;
   revision: string | null;
   pages: HomeSnapshotPage[];
+  /** The workspace emoji the pages use, `name → data: URL`; the site loads no images. */
+  emoji: Record<string, string>;
+}
+
+const MAX_EMOJI = 48;
+const EMOJI_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+// A picture Convex carried whole: one of the four types, base64, within its cap.
+const EMOJI_PICTURE = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const MAX_EMOJI_URL = 180_000;
+
+/** Each entry re-checked; one that fails is dropped, and its page shows the name. */
+function parseEmoji(value: unknown): Record<string, string> {
+  const emoji: Record<string, string> = {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return emoji;
+  for (const [name, url] of Object.entries(value).slice(0, MAX_EMOJI)) {
+    if (EMOJI_NAME.test(name) && isText(url, MAX_EMOJI_URL) && EMOJI_PICTURE.test(url)) emoji[name] = url;
+  }
+  return emoji;
 }
 
 /** A navigation to `/` itself, which is the only document that carries the site. */
@@ -76,7 +94,7 @@ export function parseHomeSnapshot(value: unknown): HomeSnapshot | null {
     if (!isText(page.title, 200) || !isText(page.markdown)) return null;
     pages.push({ path: page.path, routePath: page.routePath, title: page.title, markdown: page.markdown });
   }
-  return { siteName: body.siteName, revision: body.revision, pages };
+  return { siteName: body.siteName, revision: body.revision, pages, emoji: parseEmoji(body.emoji) };
 }
 
 /**

@@ -47,7 +47,8 @@ workspace emoji and offers standard ones, but its `:` menu does not list the
 workspace's own or offer Add, because the list would need a new bridge
 message; Settings › Emoji works there. GIFs animate regardless of reduced
 motion. Agents write `:name:` like anyone, but have no tool to add an emoji.
-There is no "frequently used" ranking.
+There is no "frequently used" ranking. A published website draws the emoji
+its pages use; see [websites](../websites.md#a-pages-emoji-travel-with-the-page).
 
 **What a simplification of this costs.** A list file beside the pictures is a
 second record that can disagree with the first. Letting `read` take a leaf

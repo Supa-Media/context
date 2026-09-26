@@ -95,7 +95,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/webview/protocol.ts": "729ff83208b26c327528f3e6ead89b265879356df66e7eb61ee954c0ed27c974",
   "apps/mobile/features/console/files/webview/styles.ts": "8d38d5a56756a35bf16649cdf3c103357a40c12c972b535a8bf05d6243155428",
   "apps/mobile/features/voice/dictation.ts": "57cf14dc00e534eb3a93022294f7f3d5f1b256ad82724be4d23e8b40adc42b64",
-  "packages/shared/src/customEmoji.ts": "ae620ae4cf877b5a78e355fa9728787f032573d5aea8d0f19a43fdf8912e793a",
+  "packages/shared/src/customEmoji.ts": "e9824babb3deaa0ccad4ef48c3dea83d70f982778e2a43bb614ae61e060edce6",
   "packages/shared/src/displayText.cjs": "e17e34ce77bea235296d3f8806505f19391e1bb1019212f47fc2772797b65d50",
   "packages/shared/src/links.ts": "0c9cdadea3905d11d1f6d5ad12e142c6e481ead8dbaacd488be5aa0815a978c1"
 };

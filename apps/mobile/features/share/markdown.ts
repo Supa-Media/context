@@ -35,6 +35,8 @@
  * have: an unstyled line is readable, and a half-parsed one is not.
  */
 
+import { standardEmojiNamed } from "../console/files/emoji/standardEmoji";
+
 export type Inline =
   | { kind: "text"; text: string }
   | { kind: "strong"; text: string }
@@ -51,7 +53,13 @@ export type Inline =
    */
   | { kind: "button"; text: string; href: string }
   /** `<kbd>⌘K</kbd>` on its own: a key, drawn in a box. Never markup. */
-  | { kind: "kbd"; text: string };
+  | { kind: "kbd"; text: string }
+  /**
+   * `:name:` naming no standard emoji: perhaps a workspace's own, drawn as its
+   * picture where the page carries one, and as `text` (the shortcode) where
+   * not. A standard shortcode never arrives as this; it is its character.
+   */
+  | { kind: "emoji"; name: string; text: string };
 
 export type Block =
   | { kind: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; content: Inline[] }
@@ -125,6 +133,8 @@ export function safeHref(raw: string): string | null {
  * that, and gets it wrong in exactly the case somebody documenting Markdown
  * will hit.
  */
+const SHORTCODE_AT = /^:([a-z0-9+-][a-z0-9_+-]{0,63}):(?![\w:])/;
+
 export function parseInline(source: string): Inline[] {
   const out: Inline[] = [];
   let plain = "";
@@ -197,6 +207,23 @@ export function parseInline(source: string): Inline[] {
       out.push({ kind: "kbd", text: kbd[1].trim() });
       i += kbd[0].length;
       continue;
+    }
+
+    // `:name:` where a word starts, as the editor draws it: a standard name is
+    // its character, and any other stays a run of its own for the renderer.
+    if (i === 0 || !/[\w:]/.test(source[i - 1])) {
+      const shortcode = SHORTCODE_AT.exec(rest);
+      if (shortcode) {
+        const standard = standardEmojiNamed(shortcode[1]);
+        if (standard !== undefined) {
+          plain += standard.char;
+        } else {
+          flush();
+          out.push({ kind: "emoji", name: shortcode[1], text: shortcode[0] });
+        }
+        i += shortcode[0].length;
+        continue;
+      }
     }
 
     const strong = /^\*\*([^\n]+?)\*\*/.exec(rest);

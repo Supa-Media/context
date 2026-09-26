@@ -18,7 +18,7 @@ export async function siteHomeHandler(ctx: ActionCtx, request: Request): Promise
   const body = await readJsonBody(request);
   const handle = body === null ? null : stringField(body, "handle");
   const snapshot = handle === null ? null : await websiteSnapshot(ctx, { handle });
-  if (snapshot === null) return json({ siteName: null, revision: null, pages: null });
+  if (snapshot === null) return json({ siteName: null, revision: null, pages: null, emoji: null });
   // Named rather than spread, for the reason `http.ts` states over every
   // unauthenticated route: a spread is a shape nobody reviewed.
   const listed = snapshot.pages.map((page) => ({
@@ -27,7 +27,7 @@ export async function siteHomeHandler(ctx: ActionCtx, request: Request): Promise
     title: page.title,
     markdown: page.markdown,
   }));
-  return json({ siteName: snapshot.siteName, revision: snapshot.revision, pages: listed });
+  return json({ siteName: snapshot.siteName, revision: snapshot.revision, pages: listed, emoji: snapshot.emoji });
 }
 
 /**
