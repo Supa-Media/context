@@ -310,11 +310,18 @@ describe("Settings → Storage is the permanent home", () => {
 });
 
 describe("the console offers it as a notice, not as a modal", () => {
-  test("it is a line in the band, and nothing is asked until it is pressed", async () => {
+  test("it is an announcement in the corner card, and nothing is asked until it is pressed", async () => {
     const calls: string[] = [];
     const host = await browse(console_(calls));
 
-    expect(host.querySelector('[data-testid="browse-storage-migration"]')).not.toBeNull();
+    // In the card, over the note; never in the band above it, which is for
+    // what blocks work, and nothing is wrong here.
+    expect(
+      host.querySelector('[data-testid="announcement-card"] [data-testid="browse-storage-migration"]'),
+    ).not.toBeNull();
+    expect(host.querySelector('[data-testid="browse-notices"] [data-testid="browse-storage-migration"]')).toBeNull();
+    // And the owner reads no em dash in UI copy.
+    expect(host.querySelector('[data-testid="announcement-card"]')?.textContent ?? "").not.toContain("—");
     // The whole of "not a modal that fires on load".
     expect(host.textContent ?? "").not.toContain(NOTE_SAFETY);
 

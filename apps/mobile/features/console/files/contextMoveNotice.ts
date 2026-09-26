@@ -86,10 +86,7 @@ export function describeContextMove(move: ContextMoveProgress): ContextMoveNotic
       id: move.id,
       tone: "warn",
       text:
-        `Moved ${countOf(move.objects)} to ${move.destination}. ` +
-        `${move.skipped.length === 1 ? "One note" : `${move.skipped.length} notes`} stayed here ` +
-        "because they are encrypted to this context and could not be read anywhere else: " +
-        `${move.skipped.map((entry) => entry.path).join(", ")}.`,
+        `Moved ${countOf(move.objects)} to ${move.destination}. ${stayedBehind(move)}`,
       resumable: false,
       dismissible: true,
     };
@@ -100,6 +97,38 @@ export function describeContextMove(move: ContextMoveProgress): ContextMoveNotic
     text: `Moved ${countOf(move.objects)} to ${move.destination}.`,
     resumable: false,
     dismissible: true,
+  };
+}
+
+/** The sentence naming what an encrypted note kept here, for the band and the card alike. */
+function stayedBehind(move: ContextMoveProgress): string {
+  return (
+    `${move.skipped.length === 1 ? "One note" : `${move.skipped.length} notes`} stayed here ` +
+    "because they are encrypted to this context and could not be read anywhere else: " +
+    `${move.skipped.map((entry) => entry.path).join(", ")}.`
+  );
+}
+
+/**
+ * Whether a move is a receipt: finished, and so news rather than a problem.
+ *
+ * A receipt leaves the band for the corner card (`announcements.ts`). A move
+ * still running stays in the band because it cannot be answered, and a failed
+ * one because "Finish the move" is the control that matters and it belongs
+ * with the other things that block work.
+ */
+export function isContextMoveReceipt(move: ContextMoveProgress): boolean {
+  return move.status === "complete";
+}
+
+/** A receipt as the corner card draws it: what moved as the title, where it is now as the body. */
+export function contextMoveReceipt(move: ContextMoveProgress): { title: string; body: string } {
+  return {
+    title: `Moved ${countOf(move.objects)} to ${move.destination}`,
+    body:
+      move.skipped.length > 0
+        ? stayedBehind(move)
+        : `${move.from} is now ${move.destination}/${move.to}.`,
   };
 }
 

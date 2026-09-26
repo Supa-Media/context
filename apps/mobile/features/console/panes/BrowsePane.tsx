@@ -12,6 +12,8 @@ import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext } from "../types";
 import { classifyCommsPath } from "../communications/paths";
+import { StorageMigrationConfirm } from "../storage/StorageMigration";
+import { AnnouncementCard } from "./browsePane/AnnouncementCard";
 import { BrowseDocument } from "./browsePane/BrowseDocument";
 import { BrowseNoteHead } from "./browsePane/BrowseNoteHead";
 import { BrowseNotices } from "./browsePane/BrowseNotices";
@@ -205,13 +207,15 @@ export function BrowsePane({
     manifestBroken,
     setup,
     layingOut,
-    storageMigration,
     intro,
     introAnswer,
-    introVisible,
+    introInBand,
+    welcome,
     setDismissedMoves,
     moveNotices,
     hasNotice,
+    announcements,
+    migrationConfirm,
   } = useBrowseNotices({ data, files, current, compact });
 
   /**
@@ -225,7 +229,6 @@ export function BrowsePane({
    */
   const notices = !hasNotice ? null : (
     <BrowseNotices
-      data={data}
       files={files}
       current={current}
       compact={compact}
@@ -233,14 +236,14 @@ export function BrowsePane({
       onNavigate={onNavigate}
       onConnectAgent={onConnectAgent}
       setup={setup}
-      introVisible={introVisible}
+      introInBand={introInBand}
+      welcome={welcome}
       intro={intro}
       introAnswer={introAnswer}
       noBucket={noBucket}
       manifestBroken={manifestBroken}
       moveNotices={moveNotices}
       setDismissedMoves={setDismissedMoves}
-      storageMigration={storageMigration}
     />
   );
 
@@ -448,6 +451,16 @@ export function BrowsePane({
         dialog={folderDialog}
         onClose={() => setFolderDialog(null)}
       />
+
+      {/*
+        What is new, in the corner and over the note, so it never moves a line
+        of the page. Last in the region so it draws above the document. See
+        `AnnouncementCard`, and `useBrowseNotices` for what counts.
+      */}
+      <AnnouncementCard items={announcements} compact={compact} />
+      {migrationConfirm !== null ? (
+        <StorageMigrationConfirm onCancel={migrationConfirm.cancel} onConfirm={migrationConfirm.confirm} />
+      ) : null}
     </View>
   );
 }

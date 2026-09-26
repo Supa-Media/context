@@ -5,6 +5,8 @@ import { useThemedStyles, type Colors } from "../theme";
 import { useReducedMotion } from "../useReducedMotion";
 import { Button } from "./Button";
 import { Text } from "./Text";
+import { NO_TOASTS, useReportToastEdge } from "./toastEdge";
+import { useFrame } from "../../app/appFrame/context";
 
 /**
  * Transient notices, and the place a completed action goes to be undone.
@@ -61,28 +63,46 @@ export function ToastHost({
   toasts: readonly ToastSpec[];
   onDismiss: (id: string) => void;
   /**
-   * Chrome the toasts must clear, measured from the bottom of whatever this is
-   * mounted inside. Passed in rather than read from the layout tokens here,
-   * because which regions exist at a given width is `features/app/frame.ts`'s
-   * decision, and a component that guessed would be wrong in exactly the
-   * layouts nobody resizes into.
-   *
-   * **The safe area is not added here.** It is the frame's, the same rule
-   * `BottomBar` follows and for the same reason: `AppFrame` pads the toolbar's
-   * bottom edge by `max(inset, floatingInset)`, so a host mounted in the editor
-   * region is already above both. Adding the inset a second time would float
-   * the toasts a home indicator's height clear of the chrome they are meant to
-   * sit on.
+   * Any further chrome the toasts must clear, measured from the bottom of
+   * whatever this is mounted inside, on top of what the frame reports below.
    */
   bottomInset?: number;
 }): JSX.Element {
   const styles = useThemedStyles(makeStyles);
+  /*
+    A phone's floating toolbar, read from the frame rather than guessed from
+    the layout tokens: which regions exist at a width is `frame.ts`'s call.
+
+    This used to be left to the caller on the argument that the editor region
+    "already ends where the toolbar begins". It stopped being true when the
+    region went full bleed behind the floating chrome, and a phone's toasts
+    were drawn behind the toolbar pill with their Undo out of reach. The
+    frame's `contentInsets.bottom` is exactly that band, safe area included,
+    so nothing is added twice. At a pointer width the region really does end
+    above the status strip, and the lift is zero.
+  */
+  const frame = useFrame();
+  const lift = frame.framed && frame.density === "compact" ? frame.contentInsets.bottom : 0;
+  const bottom = bottomInset + lift + space.x4;
+  /*
+    Where the top of the stack is, for the corner card that shares this edge
+    (see `toastEdge.tsx`). Measured rather than estimated: a toast's message
+    wraps, and a card placed from a guess is a card drawn over the Undo.
+  */
+  const report = useReportToastEdge();
+  const [height, setHeight] = useState(0);
+  const showing = toasts.length > 0;
+  useEffect(() => {
+    report?.(showing ? { showing, top: height > 0 ? bottom + height : null } : NO_TOASTS);
+  }, [report, showing, height, bottom]);
+  useEffect(() => () => report?.(NO_TOASTS), [report]);
   return (
     <View
       // `box-none`: the host spans the width, so it must not swallow clicks
       // aimed at the editor underneath. Only the toasts themselves are targets.
       pointerEvents="box-none"
-      style={[styles.host, { bottom: bottomInset + space.x4 }]}
+      style={[styles.host, { bottom }]}
+      onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
       testID="toast-host"
     >
       {toasts.map((toast) => (

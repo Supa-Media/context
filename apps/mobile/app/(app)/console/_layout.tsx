@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import { ToastHost } from "../../../features/design/components/Toast";
+import { ToastEdgeProvider } from "../../../features/design/components/toastEdge";
 import { AppFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
 import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
@@ -325,6 +326,12 @@ export default function ConsoleLayout() {
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {/*
+        The editor's bottom edge, shared by the toasts below and Browse's
+        announcement card, which are mounted in different places and so cannot
+        lay each other out. See `toastEdge.tsx`.
+      */}
+      <ToastEdgeProvider>
+      {/*
         The open workspace's own emoji, at console scope because the editor's
         `:` menu and Settings › Emoji both reach it, and the Add emoji dialog it
         draws can be asked for from either. See `CustomEmojiProvider`.
@@ -496,9 +503,10 @@ export default function ConsoleLayout() {
           toolbar and the keyboard — and a toast that lives inside the pane
           would be absent on the one layout where the tree is a drawer over it.
 
-          `bottomInset` is left at its default: this renders inside `AppFrame`'s
-          editor region, which already ends where the toolbar begins, and the
-          toolbar already owns the safe area. See `ToastHost`.
+          `bottomInset` is left at its default: the host reads the phone's
+          toolbar band from the frame itself, safe area included. See
+          `ToastHost`. Browse's announcement card stacks above it through
+          `ToastEdgeProvider`, above.
         */}
         <ToastHost {...consoleToasts(data.files, organizer)} />
 
@@ -531,6 +539,7 @@ export default function ConsoleLayout() {
         {meetingSheet}
       </AppFrame>
       </CustomEmojiProvider>
+      </ToastEdgeProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
       </OrganizerProvider>

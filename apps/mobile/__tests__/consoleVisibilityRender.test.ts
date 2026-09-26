@@ -270,7 +270,7 @@ describe("Browse says so in words, because Browse is where the absence is invisi
     // The conflation `functions/files.ts` exists to prevent, said out loud:
     // being trusted to write is a separate thing from seeing what somebody
     // marked private.
-    expect(await browseRoot(EDITOR_OF)).toContain("you can edit this context");
+    expect(await browseRoot(EDITOR_OF)).toContain("You can edit this context");
   });
 
   test("your own context carries no notice at all", async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { Text } from "../../design/components/Text";
@@ -23,10 +23,11 @@ import { openStore } from "../../offline/store";
  *  - **Settings → Storage**, permanently. It is a legitimate owner action and
  *    a findable one — the place somebody already goes to read what bucket this
  *    context is on. `StorageMigrationCard`.
- *  - **An inline notice in the console**, dismissible, drawn by `BrowsePane`
- *    in the same band the bucket and privacy notices use. Not a modal on load:
- *    an unprompted dialog on app open is its own bad UX, while a line of text
- *    with two buttons explains itself and can be ignored.
+ *  - **An announcement in the console**, dismissible, drawn by `BrowsePane`'s
+ *    corner card (`AnnouncementCard`) rather than the band of problems above
+ *    the note: nothing is wrong. Not a modal on load: an unprompted dialog on
+ *    app open is its own bad UX, while a card with two buttons explains itself
+ *    and can be ignored.
  *
  * Both raise the same `Confirm`, with the same words, and both call the same
  * `files.updateStorageLayout` — which is `undefined` for anybody who is not
@@ -51,7 +52,7 @@ export const STORAGE_MIGRATION_BODY =
 
 /** What the notice says, which is the offer rather than the consequences. */
 export const STORAGE_MIGRATION_OFFER =
-  "Context can reorganize its own hidden system files under .context/. It is a one-time background update that leaves every note, folder, privacy.md and index.md exactly where it is — and it is always here in Settings → Storage, whether you run it now or never.";
+  "Context can reorganize its own hidden system files under .context/. It is a one-time background update that leaves every note, folder, privacy.md and index.md exactly where it is. It is always here in Settings → Storage, whether you run it now or never.";
 
 /**
  * Whether the *notice* is worth drawing, which is not the same question as
@@ -426,53 +427,6 @@ export function dismissStorageMigrationOffer(workspaceId: string): void {
   void openStore()
     .set(storageMigrationDismissedKey(workspaceId), "1")
     .catch(() => {});
-}
-
-/**
- * The notice's own two controls, for the band `BrowsePane` draws them in.
- *
- * The words and the wash belong to that band — this is a row of buttons and
- * the dialog behind them, so the two entry points cannot drift in what they
- * do while looking alike.
- */
-export function StorageMigrationActions({
-  run,
-  onDismiss,
-  style,
-}: {
-  run: () => void;
-  onDismiss: () => void;
-  style?: View["props"]["style"];
-}) {
-  const [confirming, setConfirming] = useState(false);
-  return (
-    <View style={style}>
-      <Button
-        label={STORAGE_MIGRATION_TITLE}
-        onPress={() => setConfirming(true)}
-        testID="browse-storage-migration-run"
-      />
-      {/*
-        "Not now", not "Dismiss". The other notices in that band report a state
-        somebody has to fix; this one is an offer, and the word that turns it
-        down should say that it can be taken up later — which it can, from
-        Settings → Storage, as the sentence above the buttons says.
-      */}
-      <Button label="Not now" onPress={onDismiss} testID="browse-storage-migration-dismiss" />
-      {confirming ? (
-        <StorageMigrationConfirm
-          onCancel={() => setConfirming(false)}
-          onConfirm={() => {
-            setConfirming(false);
-            // Running it answers the offer: the notice goes with the press
-            // rather than sitting there restating something now under way.
-            onDismiss();
-            run();
-          }}
-        />
-      ) : null}
-    </View>
-  );
 }
 
 const makeStyles = () =>

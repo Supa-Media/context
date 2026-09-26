@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FileBrowser } from "../../files/browser";
-import { contextMoveNotices } from "../../files/contextMoveNotice";
+import { contextMoveNotices, isContextMoveReceipt } from "../../files/contextMoveNotice";
 import {
   storageMigrationWorthOffering,
   useStorageLayoutObservation,
@@ -9,7 +9,18 @@ import {
 import type { ConsoleData, selectedContext } from "../../types";
 import { contextIntro, useContextIntro } from "../../contextIntro";
 import { contextSetupFor, setupPromptVisible } from "../../setup";
-import { useOrganizerHasNotice, type NoticePlace } from "../../../organizer/Notices";
+import {
+  useOrganizerAnnouncement,
+  useOrganizerHasNotice,
+  type NoticePlace,
+} from "../../../organizer/Notices";
+import { sharedWelcome } from "../../sharedWelcome";
+import {
+  introAnnouncement,
+  moveAnnouncement,
+  storageMigrationAnnouncement,
+  type Announcement,
+} from "./announcements";
 
 /** The folder card after "Start fresh": being written, then written, then gone. */
 export type LayingOut = "writing" | "done" | null;
@@ -18,9 +29,17 @@ export type LayingOut = "writing" | "done" | null;
 export const LAYOUT_LANDED_MS = 2500;
 
 /**
- * What the band above the note has to say, and whether it has anything: the
- * missing bucket, the broken manifest, the setup offer, the intro sentence,
- * moves into other contexts and the storage-layout offer.
+ * What this pane has to tell somebody, in two halves.
+ *
+ * The **band** above the note keeps what blocks work or orients a first visit:
+ * the missing bucket, the broken manifest, the setup offer, the shared welcome,
+ * a phone's intro line and entry line, moves still running or failed, and the
+ * server's refusals. `hasNotice` counts only these, because only these are
+ * drawn in the band.
+ *
+ * `announcements` is what is merely new, for the corner card: auto-organize's
+ * one-time notice, the storage-layout offer, finished moves, and the intro
+ * sentence at a pointer width, where the tier chip already says it.
  */
 export function useBrowseNotices({
   data,
@@ -133,8 +152,8 @@ export function useBrowseNotices({
    * The one-time storage-layout update, offered where it can be ignored.
    *
    * It used to be a gear in the file tree's toolbar — permanent chrome for an
-   * operation somebody runs once or never — and it is a line in this band
-   * instead, with its permanent home in Settings → Storage. Both surfaces are
+   * operation somebody runs once or never — and it is an announcement in the
+   * corner card instead, with its permanent home in Settings → Storage. Both surfaces are
    * gated on the same absent-or-present `updateStorageLayout`, which is
    * owner-only; nothing here decides who may run it.
    *
@@ -144,7 +163,7 @@ export function useBrowseNotices({
    *
    * `storageMigrationWorthOffering` is the half that belongs to the notice
    * and not to the control — see its own comment. An owner with no bucket
-   * connected is being told so by the warn notice below, and offering to
+   * connected is being told so by the band's warn notice, and offering to
    * reorganize the hidden files of a bucket that does not exist under it is
    * noise at the worst possible moment.
    */
@@ -220,6 +239,19 @@ export function useBrowseNotices({
   */
   const introVisible =
     intro !== null && (data.demo === true || compact || introAnswer.visible);
+  // B2-02's welcome, where it applies (see `sharedWelcome`). It orients a
+  // first visit and stays in the band.
+  const welcome = introVisible
+    ? sharedWelcome({ intro, current, contexts: data.contexts, demo: data.demo === true, compact })
+    : null;
+  /*
+    The plain sentence moves to the corner card only where it can be answered
+    and the chip keeps saying it: a pointer width, not the demo (whose line is
+    the landing page's call to action and has no control), and not when it is
+    drawn as the welcome card.
+  */
+  const introInCard = introVisible && welcome === null && data.demo !== true && !compact;
+  const introInBand = introVisible && !introInCard;
 
   /*
     MOVES INTO ANOTHER CONTEXT, WHICH FINISH AFTER THE PRESS THAT STARTED THEM.
@@ -238,36 +270,90 @@ export function useBrowseNotices({
     covers the round trip.
   */
   const [dismissedMoves, setDismissedMoves] = useState<ReadonlySet<string>>(new Set());
+  // Running and failed moves stay in the band; a finished one is a receipt for the card.
   const moveNotices = useMemo(
-    () => contextMoveNotices(files.contextMoves, dismissedMoves),
+    () =>
+      contextMoveNotices(
+        files.contextMoves.filter((move) => !isContextMoveReceipt(move)),
+        dismissedMoves,
+      ),
+    [files.contextMoves, dismissedMoves],
+  );
+  const receipts = useMemo(
+    () =>
+      files.contextMoves.filter((move) => isContextMoveReceipt(move) && !dismissedMoves.has(move.id)),
     [files.contextMoves, dismissedMoves],
   );
 
-  // Auto-organize's lines: the one-time notice, and the phone's way into the review list.
+  // The phone's way into the review list stays in the band; the one-time notice is an announcement.
   const organizerNotice = useOrganizerHasNotice(organizerPlace(files, compact));
+  const organizerAnnouncement = useOrganizerAnnouncement();
 
+  /*
+    The storage offer's confirmation. Running it from the card raises the same
+    dialog Settings → Storage raises, and running it answers the offer.
+  */
+  const [confirmingMigration, setConfirmingMigration] = useState(false);
+  const runStorageMigration = files.updateStorageLayout;
+
+  const announcements: Announcement[] = [];
+  if (organizerAnnouncement !== null) announcements.push(organizerAnnouncement);
+  if (introInCard) announcements.push(introAnnouncement(intro!.text, introAnswer.dismiss));
+  for (const move of receipts) {
+    announcements.push(
+      moveAnnouncement(move, () => {
+        /*
+          Both halves, and neither is the other's fallback: the local set hides
+          it inside the press, and the row is told so it stays hidden on the
+          next launch. `browseNoticeActions.test.ts` pins both.
+        */
+        setDismissedMoves((current) => new Set([...current, move.id]));
+        files.dismissContextMove(move.id);
+      }),
+    );
+  }
+  if (storageMigration.visible && runStorageMigration !== undefined) {
+    announcements.push(
+      storageMigrationAnnouncement(() => setConfirmingMigration(true), storageMigration.dismiss),
+    );
+  }
+  const migrationConfirm =
+    confirmingMigration && runStorageMigration !== undefined
+      ? {
+          cancel: () => setConfirmingMigration(false),
+          confirm: () => {
+            setConfirmingMigration(false);
+            // Running it answers the offer: the card goes with the press.
+            storageMigration.dismiss();
+            runStorageMigration();
+          },
+        }
+      : null;
+
+  // Only what the band draws. An announcement never opens the band.
   const hasNotice =
     organizerNotice ||
-    introVisible ||
+    introInBand ||
     setupPromptVisible(setup) ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
-    moveNotices.length > 0 ||
-    storageMigration.visible;
+    moveNotices.length > 0;
 
   return {
     noBucket,
     manifestBroken,
     setup,
     layingOut,
-    storageMigration,
     intro,
     introAnswer,
-    introVisible,
+    introInBand,
+    welcome,
     setDismissedMoves,
     moveNotices,
     hasNotice,
+    announcements,
+    migrationConfirm,
   };
 }
 

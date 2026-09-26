@@ -235,7 +235,7 @@ describe("what the band says is one paragraph, never a stack", () => {
       canEdit: true,
       readOnlyReason: "You have read-only access to this context.",
     });
-    expect(intro?.text).toContain("you can edit this context");
+    expect(intro?.text).toContain("You can edit this context");
     expect(intro?.text).not.toContain("read-only access");
   });
 
@@ -391,6 +391,47 @@ describe("the band is read once; the fact stays on the chip", () => {
       files: { ...data.files, canEdit: true },
     } as ConsoleData);
     expect(band(host)).toBeNull();
+  });
+});
+
+/*
+  WHERE THE SENTENCE IS DRAWN: THE CORNER CARD, EXCEPT ON A PHONE.
+
+  The band above the note is for what blocks work. At a pointer width the
+  plain sentence is news the chip keeps saying, so it is an announcement in the
+  corner card and never opens the band; on a phone there is no chip, so it stays
+  inline and cannot be answered. The owner-without-write case is used because a
+  member's pointer-width intro is the shared welcome, which stays in the band.
+*/
+describe("the pointer width's sentence is an announcement; the phone's stays inline", () => {
+  const readOnlyOwner = () => {
+    const data = demoData(OWNED);
+    return { ...data, files: { ...data.files, canEdit: false } } as ConsoleData;
+  };
+  const inBand = (host: HTMLElement) =>
+    host.querySelector('[data-testid="browse-notices"] [data-testid="browse-context-intro"]');
+  const inCard = (host: HTMLElement) =>
+    host.querySelector('[data-testid="announcement-card"] [data-testid="browse-context-intro"]');
+
+  test("at a pointer width it is in the card, the band is not drawn, and Got it answers it", async () => {
+    setWidth(POINTER_WIDTH);
+    const host = await browse(readOnlyOwner());
+    expect(inCard(host)).not.toBeNull();
+    expect(inBand(host)).toBeNull();
+    expect(host.querySelector('[data-testid="browse-notices"]')).toBeNull();
+
+    press(host, '[data-testid="browse-context-intro-dismiss"]');
+    expect(band(host)).toBeNull();
+    expect(Object.keys(window.localStorage)).toHaveLength(1);
+  });
+
+  test("on a phone it is in the band, with no card and nothing to press", async () => {
+    setWidth(PHONE_WIDTH);
+    const host = await browse(readOnlyOwner());
+    expect(inBand(host)).not.toBeNull();
+    expect(inCard(host)).toBeNull();
+    expect(host.querySelector('[data-testid="announcement-card"]')).toBeNull();
+    expect(host.querySelector('[data-testid="browse-context-intro-dismiss"]')).toBeNull();
   });
 });
 

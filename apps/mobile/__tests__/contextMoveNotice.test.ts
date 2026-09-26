@@ -22,7 +22,9 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   contextMoveNotices,
+  contextMoveReceipt,
   describeContextMove,
+  isContextMoveReceipt,
 } from "../features/console/files/contextMoveNotice";
 import type { ContextMoveProgress } from "../features/console/files/browser";
 
@@ -136,5 +138,37 @@ describe("when it stops", () => {
     expect(notice.text).toContain("0 notes moved");
     expect(notice.text).toContain("could not be completed");
     expect(notice.resumable).toBe(true);
+  });
+});
+
+/**
+ * A finished move is news rather than a problem, so it leaves the band for the
+ * corner card (`announcements.ts`) and needs a title and a body there. Failed
+ * and running moves stay in the band, where their controls are.
+ */
+describe("the receipt, in the corner card", () => {
+  test("only a finished move is a receipt", () => {
+    expect(isContextMoveReceipt(move({ status: "complete", objects: 1 }))).toBe(true);
+    expect(isContextMoveReceipt(move({ status: "moving" }))).toBe(false);
+    expect(isContextMoveReceipt(move({ status: "failed" }))).toBe(false);
+  });
+
+  test("a clean move names what moved and where it is now", () => {
+    const receipt = contextMoveReceipt(move({ status: "complete", objects: 312 }));
+    expect(receipt.title).toBe("Moved 312 notes to @work");
+    expect(receipt.body).toBe("1-projects/acme is now @work/work/acme.");
+  });
+
+  test("a move that left notes behind says which, in the body", () => {
+    const receipt = contextMoveReceipt(
+      move({
+        status: "complete",
+        objects: 1,
+        skipped: [{ path: "1-projects/acme/secret.md", reason: "encrypted" }],
+      }),
+    );
+    expect(receipt.title).toBe("Moved 1 note to @work");
+    expect(receipt.body).toContain("One note stayed here");
+    expect(receipt.body).toContain("1-projects/acme/secret.md");
   });
 });

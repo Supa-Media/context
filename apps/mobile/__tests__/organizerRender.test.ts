@@ -28,7 +28,8 @@ import { PremiumBody } from "../features/console/settings/panels/PremiumPanel";
 import { demoPremiumView } from "../features/console/settings/panels/premium";
 import { ToastHost } from "../features/design/components/Toast";
 import { ORGANIZER_ACTOR } from "../features/organizer/copy";
-import { OrganizerNotices } from "../features/organizer/Notices";
+import { OrganizerNotices, organizerAnnouncement } from "../features/organizer/Notices";
+import { AnnouncementCard } from "../features/console/panes/browsePane/AnnouncementCard";
 import { OrganizerProvider } from "../features/organizer/OrganizerContext";
 import { usePremiumSlotsFor } from "../features/organizer/PremiumParts";
 import type { OrganizerStatus, OrganizerSuggestion } from "../features/organizer/types";
@@ -233,15 +234,32 @@ describe("Settings › Premium", () => {
   });
 });
 
-describe("the notices band", () => {
-  test("the one-time notice: Turn off and Got it both answer it", () => {
+describe("the corner card and the notices band", () => {
+  test("the one-time notice is an announcement: Turn off and Got it both answer it", () => {
     const calls = fresh();
     const view = organizer({ status: { ...STATUS, noticeNeeded: true } }, calls);
-    const container = mount(createElement(OrganizerNotices, { compact: false, atRoot: false }), view);
-    expect(byId(container, "organizer-existing-notice")?.textContent).toContain("Premium now includes auto-organize.");
+    const item = organizerAnnouncement(view);
+    const container = mount(createElement(AnnouncementCard, { items: item === null ? [] : [item], compact: false }), view);
+    const card = byId(container, "organizer-existing-notice");
+    expect(card?.textContent).toContain("New in Premium");
+    expect(card?.textContent).toContain("Auto-organize starts tomorrow");
+    expect(card?.textContent).toContain("Nothing moves without you.");
     press(byId(container, "organizer-notice-off"));
     press(byId(container, "organizer-notice-ok"));
     expect(calls.acknowledged).toEqual([true, false]);
+  });
+
+  test("the band no longer draws it, at either density", () => {
+    const view = organizer({ status: { ...STATUS, noticeNeeded: true, pending: 0 } });
+    for (const compact of [false, true]) {
+      const band = mount(createElement(OrganizerNotices, { compact, atRoot: true }), view);
+      expect(byId(band, "organizer-existing-notice")).toBeNull();
+    }
+  });
+
+  test("nobody who has answered it, or has no view, is shown it", () => {
+    expect(organizerAnnouncement(undefined)).toBeNull();
+    expect(organizerAnnouncement(organizer({ status: { ...STATUS, noticeNeeded: false } }))).toBeNull();
   });
 
   test("the phone's entry is on the workspace page only", () => {
