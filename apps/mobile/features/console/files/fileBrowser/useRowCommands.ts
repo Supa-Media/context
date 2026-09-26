@@ -13,15 +13,23 @@
    it. What it reports here is refs, state setters and `dispatch` that now
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { toFileError } from "../browser";
 import { type ReadResult, collectNotes, downloadNotice, pathsUnder } from "../download";
 import { buildZip, downloadName } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
-import { baseName, describeNameProblem, ensureMarkdown, isMarkdown, joinPath, parentPath } from "../paths";
+import {
+  baseName,
+  describeNameProblem,
+  displayName,
+  ensureMarkdown,
+  isMarkdown,
+  joinPath,
+  parentPath,
+} from "../paths";
 import { namesIn } from "../tree";
-import { isUntitled, nameFromTitle } from "../untitled";
+import { retitled } from "../linkedTitle";
 import { collision, folderLabel } from "./copy";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { CreateAndMoveValues } from "./useCreateAndMove";
@@ -44,12 +52,13 @@ type RowCommandsDeps =
     | "restoreTrashEntry"
     | "trashEntry"
     | "workspaceId"
+    | "writeNote"
   >
   & Pick<
     BrowserStateValues,
     | "clipboard"
     | "dispatch"
-    | "editor"
+    | "editorRef"
     | "noteRenamed"
     | "selectedPath"
     | "selectedPathRef"
@@ -63,7 +72,6 @@ type RowCommandsDeps =
   & Pick<QueuedOpsValues, "viaQueue">
   & Pick<
     CreateAndMoveValues,
-    | "awaitingTitle"
     | "drawListingMove"
     | "drawMove"
     | "moveResult"
@@ -73,10 +81,11 @@ type RowCommandsDeps =
 
 export function useRowCommands(deps: RowCommandsDeps) {
   const {
-    archiveEntry, awaitingTitle, clipboard, copyEntry, dispatch, drawListingMove, drawMove,
-    duplicateEntry, editor, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
+    archiveEntry, clipboard, copyEntry, dispatch, editorRef, drawListingMove, drawMove,
+    duplicateEntry, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
     queueRemovalOf, readNote, readNotesAction, restoreTrashEntry, run, select, selectedPath,
     selectedPathRef, setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
+    writeNote,
   } = deps;
 
   /**
@@ -102,6 +111,37 @@ export function useRowCommands(deps: RowCommandsDeps) {
     [noteRenamed],
   );
 
+  /**
+   * A note's title following a rename that did not start in it — the tree,
+   * the dialog, an undo — so a title that was its name stays its name. See
+   * `retitled`. After the move, and against the version just read, so it is an
+   * ordinary conditional write; it is best-effort because the rename has
+   * already happened, and a note whose heading could not follow is a note
+   * whose two names differ, which is how every note was before.
+   *
+   * Not under a draft: a write beneath unsaved typing would be a conflict
+   * with the person typing it. The open note is otherwise fair game, and the
+   * undo of a title rename is the case that needs it — the editor re-reads
+   * the note at its old name straight after, and finds its old title there.
+   */
+  const followTitle = useCallback(
+    async (from: string, to: string) => {
+      if (!isMarkdown(to)) return;
+      const shown = editorRef.current;
+      if (shown.path === from && shown.status !== "clean" && shown.status !== "saved") return;
+      try {
+        const note = await readNote({ workspaceId: workspaceId!, path: to });
+        if (note.readOnly || note.encrypted === true) return;
+        const text = retitled(from, to, note.text);
+        if (text === null) return;
+        await writeNote({ workspaceId: workspaceId!, path: to, text, expectedEtag: note.etag });
+      } catch {
+        // See above: the rename stands either way.
+      }
+    },
+    [editorRef, readNote, workspaceId, writeNote],
+  );
+
   const rename = useCallback(
     (path: string, rawName: string) => {
       const folder = parentPath(path);
@@ -110,7 +150,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
       if (problem !== null) return setNotice(problem);
       const to = joinPath(folder, name);
       const was = baseName(path);
-      if (viaQueue(path)) return queueMoveOf(path, to, `Renamed to ${name}.`);
+      if (viaQueue(path)) return queueMoveOf(path, to, `Renamed to ${displayName(name)}.`);
       const result = moveResult(path, to);
       /*
         A rename of the OPEN note follows the editor rather than closing it,
@@ -132,9 +172,10 @@ export function useRowCommands(deps: RowCommandsDeps) {
       );
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
+        await followTitle(path, to);
         return {
           ...result,
-          message: `Renamed to ${name}.`,
+          message: `Renamed to ${displayName(name)}.`,
           undo: () => {
             // Verdict first — see `moveResult`.
             const backResult = moveResult(to, path);
@@ -142,7 +183,8 @@ export function useRowCommands(deps: RowCommandsDeps) {
             const undoUndo = followed(to, path, open ? drawListingMove(to, path) : drawMove(to, path));
             void run(async () => {
               await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
-              return { ...backResult, message: `Renamed back to ${was}.` };
+              await followTitle(to, path);
+              return { ...backResult, message: `Renamed back to ${displayName(was)}.` };
             }, undoUndo).then((ok) => {
               // The editor follows the file, in both directions. Without this
               // an undone rename left the open tab pointing at a path the
@@ -165,6 +207,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
     [
       drawListingMove,
       drawMove,
+      followTitle,
       followed,
       listings,
       moveEntry,
@@ -178,60 +221,8 @@ export function useRowCommands(deps: RowCommandsDeps) {
     ],
   );
 
-  /**
-   * AN UNTITLED NOTE TAKES THE TITLE YOU TYPE INTO IT.
-   *
-   * The other half of not asking for a name up front. `createUntitled` makes
-   * `untitled-2026-09-19.md` seeded with that same word as its heading; the
-   * person types over the heading, and this renames the file to match.
-   *
-   * ## Why it runs on a settled editor and nowhere else
-   *
-   * `clean` and `saved` are the two states where nothing is in flight: the draft
-   * is in the bucket, the etag the editor holds is the one the bucket answered
-   * with, and the autosave timer is spent. (`saved` is `clean` wearing a chip
-   * that decays — see `EditorStatus` — so excluding it would mean the rename
-   * waited on a *UI* timer, which is how it went missing the first time this was
-   * written.) Renaming at any other moment races the write: `performSave`
-   * captures the path when it is called, and a `moveEntry` that lands in between
-   * would leave a conditional write aimed at a name the bucket no longer has.
-   * There is machinery for exactly that — `serverPathOf`, which sends the queued
-   * write to the old name ahead of the rename — and the right use of it is as a
-   * safety net for the offline case rather than as the normal path for every new
-   * note in the product.
-   *
-   * A note created **offline** is `queued`, so it is not titled until its drain
-   * lands and the editor settles. That is the honest order: the bucket does not
-   * have the note yet, so there is nothing there to rename.
-   *
-   * It is a rename and not a second create, so it goes through `rename` — the
-   * collision check, the toast with its undo, and the `select(to)` that keeps
-   * the open editor pointing at the file are all that function's, once.
-   *
-   * ## What stops it running twice
-   *
-   * The path leaves `awaitingTitle` **before** the rename is asked for, so a
-   * re-render during the move cannot start a second one, and a person who
-   * rewrites the heading afterwards keeps the filename they were given. A
-   * rename that is refused therefore costs the note its automatic title and
-   * nothing else: the notice says why, and Rename is on the row menu.
-   */
-  useEffect(() => {
-    const path = editor.path;
-    if (path === null) return;
-    if (editor.status !== "clean" && editor.status !== "saved") return;
-    if (!awaitingTitle.current.has(path)) return;
-    // Belt and braces with the set above: a name that is not one of ours is
-    // never renamed, whatever the set says.
-    if (!isUntitled(path)) {
-      awaitingTitle.current.delete(path);
-      return;
-    }
-    const name = nameFromTitle(path, editor.draft);
-    if (name === null) return;
-    awaitingTitle.current.delete(path);
-    rename(path, name);
-  }, [editor.draft, editor.path, editor.status, rename]);
+  // An untitled note taking the title typed into it, and every linked note
+  // after it, is `useLinkedTitle.ts`.
 
   const duplicate = useCallback(
     (path: string) => {

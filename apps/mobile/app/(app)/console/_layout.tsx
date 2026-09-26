@@ -368,6 +368,7 @@ export default function ConsoleLayout() {
               onCloseOthers={tabs.closeOthers}
               onCloseToRight={tabs.closeToRight}
               onReopen={tabs.reopen}
+              relabel={data.files.titleEdit}
             />
           ) : undefined
         }

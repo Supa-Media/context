@@ -77,6 +77,14 @@ export interface NoteEditorProps {
   /** Where a folder list block reads its notes. Absent: lists stay as source. */
   folderLists?: FolderListSource;
   /**
+   * The title renaming the file — see `fileBrowser/useLinkedTitle.ts`. Where
+   * the caret is reported to, the line drawn under the title, and a request
+   * to put the caret in it (Rename on the open note's row).
+   */
+  onTitleCaret?: (inTitle: boolean) => void;
+  titleNote?: { tone: "problem" | "held"; message: string } | null;
+  titleFocus?: { path: string; id: number } | null;
+  /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
    * `visibility:` is filing metadata about a note, which is exactly what the

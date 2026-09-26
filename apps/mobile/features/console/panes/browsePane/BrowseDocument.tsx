@@ -343,6 +343,9 @@ export function BrowseDocument({
         pathBar={pathBar}
         onChange={files.setDraft}
         onSave={files.save}
+        onTitleCaret={files.setTitleCaret}
+        titleNote={files.titleEdit?.path === files.editor.path ? files.titleEdit.note : null}
+        titleFocus={files.titleFocus}
         onDiscard={files.discard}
         onUseTheirs={files.useTheirs}
         onKeepMine={files.keepMine}

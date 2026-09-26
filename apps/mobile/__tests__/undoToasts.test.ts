@@ -176,7 +176,7 @@ describe("an operation with an inverse offers it", () => {
     await act(async () => browser.rename(NOTE, "renamed.md"));
     await settle();
 
-    expect(browser.toasts[0]!.message).toBe("Renamed to renamed.md.");
+    expect(browser.toasts[0]!.message).toBe("Renamed to renamed.");
     expect(moves()).toEqual([{ from: NOTE, to: "1-projects/renamed.md" }]);
 
     await act(async () => browser.toasts[0]!.undo!());
@@ -245,7 +245,7 @@ describe("an operation with an inverse offers it", () => {
 
     expect(browser.toasts).toHaveLength(1);
     expect(browser.toasts[0]!.id).not.toBe(first);
-    expect(browser.toasts[0]!.message).toBe("Renamed to renamed.md.");
+    expect(browser.toasts[0]!.message).toBe("Renamed to renamed.");
   });
 
   test("dismissing takes it away", async () => {

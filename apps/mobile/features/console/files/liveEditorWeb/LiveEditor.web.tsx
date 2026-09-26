@@ -60,6 +60,7 @@ import { useColors } from "../../../design/theme";
 import type { LiveEditorProps } from "./contract";
 import { ensureStyles } from "./stylesheet";
 import { mountEditor } from "./mount";
+import { showTitleNote } from "./titleLine";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 
@@ -72,6 +73,8 @@ export function LiveEditor({
   controls,
   onFocus,
   onBlur,
+  onTitleCaret,
+  titleNote,
   accessibilityLabel,
   onOpenNote,
   notePath,
@@ -270,8 +273,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onDictate, onAsk });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onDictate, onAsk };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -319,6 +322,19 @@ export function LiveEditor({
     // down and losing the selection and undo history with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The line under the title, into the editor — see `titleLine.ts`. A state
+  // effect, like the roster below, so it redraws without touching the
+  // document or the caret.
+  const titleTone = titleNote?.tone ?? null;
+  const titleMessage = titleNote?.message ?? null;
+  useEffect(() => {
+    if (view.current === null) return;
+    showTitleNote(
+      view.current,
+      titleTone === null || titleMessage === null ? null : { tone: titleTone, message: titleMessage },
+    );
+  }, [titleTone, titleMessage]);
 
   // A different note was opened, and the room bound here is the one being
   // left — see `followNote`.
