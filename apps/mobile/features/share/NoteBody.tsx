@@ -14,6 +14,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import { Linking, Text as RNText, StyleSheet, View } from "react-native";
+import { Button } from "../design/components/Button";
 import { Text } from "../design/components/Text";
 import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
@@ -103,6 +104,7 @@ function BlockView({
 }) {
   const styles = useBodyStyles();
   const look = useContext(Look);
+  const siteLink = useContext(SiteLink);
   if (block.kind === "code" && renderCode !== undefined) {
     const replaced = renderCode(block);
     if (replaced !== null && replaced !== undefined) return <>{replaced}</>;
@@ -121,6 +123,7 @@ function BlockView({
       );
 
     case "paragraph":
+      if (isButtonRow(block.content, siteLink !== null)) return <ButtonRow runs={block.content} />;
       return (
         <Text variant="body" style={styles.paragraph}>
           <Runs runs={block.content} />
@@ -243,6 +246,13 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
                 {run.text}
               </RNText>
             );
+          case "kbd":
+            return (
+              <RNText key={index} style={styles.kbd}>
+                {run.text}
+              </RNText>
+            );
+          case "button":
           case "link": {
             const onPage = run.href.startsWith("/");
             if (onPage && siteLink === null) {
@@ -274,6 +284,53 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
         }
       })}
     </>
+  );
+}
+
+/**
+ * A paragraph that is only `[<kbd>…</kbd>](…)` buttons, and the spaces between
+ * them, is drawn as a row of the app's own buttons: the first one accent, the
+ * rest quiet. A button inside a sentence stays a link, because a box in the
+ * middle of a line of text is harder to read than the words.
+ *
+ * A button to a path on this site, where there is no site to move within (a
+ * shared note), is never drawn as a button that does nothing: the row falls
+ * back to the paragraph, which draws it as its words, like any such link.
+ */
+export function isButtonRow(runs: readonly Inline[], onSite: boolean): boolean {
+  let buttons = 0;
+  for (const run of runs) {
+    if (run.kind === "button") {
+      if (!onSite && run.href.startsWith("/")) return false;
+      buttons += 1;
+    }
+    else if (run.kind !== "text" || run.text.trim() !== "") return false;
+  }
+  return buttons > 0;
+}
+
+function ButtonRow({ runs }: { runs: readonly Inline[] }) {
+  const styles = useBodyStyles();
+  const siteLink = useContext(SiteLink);
+  const buttons = runs.filter((run): run is Extract<Inline, { kind: "button" }> => run.kind === "button");
+  return (
+    <View style={styles.buttons}>
+      {buttons.map((run, index) => {
+        const onPage = run.href.startsWith("/");
+        return (
+          <Button
+            key={index}
+            label={run.text}
+            variant={index === 0 ? "accent" : "white"}
+            onPress={() => {
+              if (onPage) siteLink?.(run.href);
+              else void Linking.openURL(run.href).catch(() => {});
+            }}
+            testID="note-button"
+          />
+        );
+      })}
+    </View>
   );
 }
 
@@ -360,4 +417,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text,
   },
   link: { color: colors.codeKey, textDecorationLine: "underline" },
+  kbd: {
+    fontFamily: fonts.mono,
+    fontSize: t.meta,
+    color: colors.text,
+    backgroundColor: colors.well,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.xs,
+    paddingHorizontal: 5,
+  },
+  buttons: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginVertical: 6 },
 });
