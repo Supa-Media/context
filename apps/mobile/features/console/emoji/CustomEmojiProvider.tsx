@@ -62,9 +62,14 @@ export function CustomEmojiProvider({
 
   const id = workspaceId as Id<"workspaces"> | null;
 
+  // Read through a ref so the listing depends on the workspace alone: an
+  // action whose identity changes between renders must not re-list forever.
+  const listRef = useRef(list);
+  listRef.current = list;
+
   const refresh = useCallback((): Promise<readonly string[] | null> => {
     if (id === null) return Promise.resolve(null);
-    const pending = list({ workspaceId: id })
+    const pending = listRef.current({ workspaceId: id })
       .then((emoji) => emoji.map((entry) => entry.name))
       .catch(() => null);
     listing.current = pending;
@@ -74,7 +79,7 @@ export function CustomEmojiProvider({
       setGeneration((value) => value + 1);
     });
     return pending;
-  }, [id, list]);
+  }, [id]);
 
   useEffect(() => {
     setNames(null);
