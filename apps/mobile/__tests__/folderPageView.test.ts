@@ -189,6 +189,26 @@ describe("a folder whose children have statuses", () => {
     expect(writes).toEqual([["1-projects/loose.md", "status", "paused", undefined]]);
   });
 
+  test("a choice shows at once, and a refused one is taken back with the reason", async () => {
+    let settle: (answer: string | null) => void = () => {};
+    const refusing: FolderPageHost = {
+      ...host([]),
+      source: {
+        load: async () => ({ notes: NOTES, complete: true }),
+        setProperty: () => new Promise<string | null>((resolve) => (settle = resolve)),
+      },
+    };
+    await mount(entry("folder", "1-projects"), PROJECTS, refusing);
+    const loose = () => all("folder-item").find((row) => strip(row.textContent).includes("loose"))!;
+    await press(loose().querySelector<HTMLElement>('[data-testid="folder-item-status"]')!);
+    await press(one("menu-item-choice:1"));
+    // Moved to Paused before the write answers.
+    expect(all("folder-group").map((group) => strip(group.firstElementChild?.textContent))).toEqual(["Active1", "Paused2", "No status1"]);
+    await act(async () => settle("That note is changing right now. Try again in a moment."));
+    expect(all("folder-group").map((group) => strip(group.firstElementChild?.textContent))).toEqual(["Active1", "Paused1", "No status2"]);
+    expect(strip(one("folder-problem").textContent)).toBe("That note is changing right now. Try again in a moment.");
+  });
+
   test("a member reads the same groups with no control on them", async () => {
     const view = await mount(entry("folder", "1-projects"), PROJECTS, host(null));
     expect(all("folder-group")).toHaveLength(3);
@@ -296,6 +316,12 @@ describe("a folder of folders nobody has tracked yet", () => {
     await press(one("folder-nudge-show"));
     expect(all("folder-group").map((group) => strip(group.firstElementChild?.textContent))).toEqual(["No status2"]);
     expect(all("folder-item-status").map((node) => strip(node.textContent))).toEqual(["Set status", "Set status"]);
+    expect(all("folder-nudge")).toHaveLength(0);
+  });
+
+  test("is not offered to a member, who could set nothing in the list it opens", async () => {
+    await mount(entry("folder", "1-projects"), LIST, { ...host(null), source: { load: async () => ({ notes: UNTRACKED, complete: true }) } });
+    expect(all("folder-row")).toHaveLength(2);
     expect(all("folder-nudge")).toHaveLength(0);
   });
 

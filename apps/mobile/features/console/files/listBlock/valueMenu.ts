@@ -15,6 +15,7 @@
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { compareGroups } from "../../../../../mcp/src/lists.js";
 import type { ListNote } from "./model";
+import { isWritableProperty } from "./writable";
 
 export interface ValueMenuHost {
   /** Apply a choice; `null` clears. Resolves to a sentence when it did not land. */
@@ -47,9 +48,12 @@ export function valueChoices(notes: readonly ListNote[], key: string): string[] 
   return [...seen.values()].sort(compareGroups).slice(0, MAX_CHOICES);
 }
 
-/** Whether a drawn value can be changed from the list: one plain value, or none. */
+/**
+ * Whether a drawn value can be changed from the list: one plain value, or
+ * none, of a key a list may write (never `visibility`; see `writable.ts`).
+ */
 export function isEditableValue(key: string, value: unknown): boolean {
-  return key !== "updated" && key !== "title" && !Array.isArray(value);
+  return key !== "updated" && key !== "title" && isWritableProperty(key) && !Array.isArray(value);
 }
 
 export class ValueMenu {

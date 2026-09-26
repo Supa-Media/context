@@ -14,10 +14,16 @@
  * conflict like any other, so the note that appeared is read and changed
  * rather than replaced. A folder page uses it to give a folder its first
  * property (`folderPage/`); a list only ever edits notes it has listed.
+ *
+ * `visibility` is refused before anything is read, whoever asks (see
+ * `writable.ts`). This is the one road every list and folder page write
+ * takes, so the refusal lives here and not only in the surfaces, which happen
+ * to offer safe keys today.
  */
 
 import { setNoteProperty } from "../../../../../mcp/src/lists.js";
 import { toFileError } from "../browser/errors";
+import { isWritableProperty } from "./writable";
 
 export interface NoteReadWrite {
   read(path: string): Promise<{ text: string; etag: string; encrypted?: boolean; readOnly?: boolean }>;
@@ -34,6 +40,7 @@ export async function writeNoteProperty(
   value: string | null,
   options: { create?: boolean } = {},
 ): Promise<string | null> {
+  if (!isWritableProperty(key)) return "Who can see a note is set with Share, not as a property.";
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let note: { text: string; etag: string | undefined; encrypted?: boolean; readOnly?: boolean };
     try {

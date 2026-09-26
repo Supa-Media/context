@@ -82,6 +82,15 @@ describe("changing a value from a list", () => {
     view.destroy();
   });
 
+  test("visibility is shown and never offered as a value to change", async () => {
+    // Who can read a note is privacy.md's answer, set with Share; see `listBlock/writable.ts`.
+    const view = mount(doc("from: p", "show: visibility, owner"));
+    await flush();
+    expect(edits(view).map((b) => b.textContent)).toEqual(["Seyi", "Seyi's Codex", "Set"]);
+    expect(view.dom.querySelectorAll('.cm-lp-list-edit[title="Change visibility"]')).toHaveLength(0);
+    view.destroy();
+  });
+
   test("the menu offers the words the list already uses, the current one checked", async () => {
     const view = mount(doc("from: p", "show: status"));
     await flush();
@@ -207,6 +216,19 @@ describe("the read, the change and the write", () => {
   test("a value the frontmatter cannot hold is refused with the reason", async () => {
     const { store, written } = io({ "x.md": note });
     expect(await writeNoteProperty(store, "x.md", "status", "a\nb")).toMatch(/one line/);
+    expect(written).toEqual([]);
+  });
+
+  test("visibility is refused before the note is read, in any case and even as a create", async () => {
+    let reads = 0;
+    const { store, written } = io({ "x.md": note });
+    const counted: NoteReadWrite = { read: (path) => (reads++, store.read(path)), write: store.write };
+    for (const key of ["visibility", "Visibility", " VISIBILITY "]) {
+      expect(await writeNoteProperty(counted, "x.md", key, "team")).toMatch(/set with Share/);
+      expect(await writeNoteProperty(counted, "x.md", key, null)).toMatch(/set with Share/);
+      expect(await writeNoteProperty(counted, "p/a/overview.md", key, "private", { create: true })).toMatch(/set with Share/);
+    }
+    expect(reads).toBe(0);
     expect(written).toEqual([]);
   });
 

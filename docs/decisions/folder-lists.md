@@ -107,9 +107,16 @@ It is a menu on the list and not a projects database because the note stays
 the record: the next person, the next agent, and the website all read the
 same line. A member is not offered the menu at all (the server refuses the
 write too), and a list-valued property is never offered as one choice.
+`visibility` is never written this way either, from a list or a folder page:
+who can read a note is `privacy.md`'s answer, set with Share, and a
+`visibility:` line would be a description that disagrees with it. The refusal
+is in `writeNoteProperty` itself, the one road these writes take, before the
+note is even read, and a list draws the value as plain text
+(`listBlock/writable.ts`, the same rule the Properties panel keeps).
 `apps/mcp/test/listSetProperty.test.mjs` fails if the change touches any other
 byte or writes a value that reads back differently; `useFolderListsEdit.test.ts`
-fails if a member is offered the edit.
+fails if a member is offered the edit; `listEdit.test.ts` fails if
+`visibility`, in any case, is offered or written.
 
 ## A folder page shows its children by status
 
@@ -120,7 +127,8 @@ Board draws the same groups as columns. A folder opens in List once anything
 in it has a status, and in Files otherwise; what each viewer picks is
 remembered per folder in that browser's storage, never shared and never
 required. When two or more subfolders exist and nothing has a status yet, one
-quiet line offers the list, and closing it is per viewer too.
+quiet line offers an owner or editor the list, and closing it is per viewer
+too; a member, who could set nothing there, is not offered it.
 
 It differs from `rows: projects` on purpose. A list block shows what already
 *is* a project; a folder page is where something becomes one. So every folder

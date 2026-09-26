@@ -138,7 +138,10 @@ export function FolderPage({
   const offersStatus = summary !== null && loaded.canEdit && folder.includes("/") && view === "files";
   const edit = loaded.canEdit ? loaded.choose : null;
   // Spec A7: subfolders that could be tracked, none tracked yet, and nobody has picked a view here.
+  // Only to somebody who could then set a status: a member would be offered
+  // a list of "No status" rows with nothing on them to press.
   const nudge =
+    loaded.canEdit &&
     view === "files" &&
     picked === null &&
     notes !== null &&
