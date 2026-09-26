@@ -64,6 +64,7 @@ import {
 } from "../onboarding/verify";
 import { useManagedOffer, type ManagedOffer } from "../onboarding/useManagedOffer";
 import {
+  afterWorkspaceImage,
   afterWorkspaceLayout,
   afterWorkspaceStorage,
   canCreateWorkspace,
@@ -138,7 +139,11 @@ export interface CreateWorkspaceController {
   applyStructure: () => Promise<void>;
   skipStructure: () => void;
 
-  // ── Step 4: the people ────────────────────────────────────────────────────
+  // ── Step 4: the image ─────────────────────────────────────────────────────
+  /** Chosen or skipped, the flow moves on; the picker saves as it is pressed. */
+  continuePastImage: () => void;
+
+  // ── Step 5: the people ────────────────────────────────────────────────────
   inviteDraft: string;
   setInviteDraft: (value: string) => void;
   draftRole: AssignableRole;
@@ -390,7 +395,11 @@ export function useCreateWorkspace(): CreateWorkspaceController {
     }
   }, [applyStructureMutation, applying, created, folderErrors, folders, template]);
 
-  /* ── Step 4: the people ─────────────────────────────────────────────────── */
+  /* ── Step 4: the image ─────────────────────────────────────────────────── */
+
+  const continuePastImage = useCallback(() => setStep(afterWorkspaceImage()), []);
+
+  /* ── Step 5: the people ─────────────────────────────────────────────────── */
 
   const inviteMutation = useMutation(api.functions.invitations.inviteMember);
   const [inviteDraft, setInviteDraftRaw] = useState("");
@@ -502,6 +511,8 @@ export function useCreateWorkspace(): CreateWorkspaceController {
     canApply: canApplyStructure(template, folders, folderErrors) && !applying,
     applyStructure,
     skipStructure,
+
+    continuePastImage,
 
     inviteDraft,
     setInviteDraft,

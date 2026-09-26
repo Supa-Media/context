@@ -34,7 +34,7 @@ import type { AssignableRole } from "../console/members/members";
 /** Where the flow lives. Beside the flow, so a caller imports one thing. */
 export const NEW_WORKSPACE_ROUTE = "/workspace/new";
 
-export type WorkspaceStepKey = "name" | "storage" | "layout" | "people" | "done";
+export type WorkspaceStepKey = "name" | "storage" | "layout" | "image" | "people" | "done";
 
 /**
  * What happened on the storage step.
@@ -67,24 +67,46 @@ export interface WorkspaceFlowShape {
  * sorted out yet is exactly the workspace whose members most need to know it
  * exists. So the invitation step survives a failed probe; what it must not do
  * is imply the context is ready, which is `peopleCaveat`'s job.
+ *
+ * **The image step survives too, narrowed.** An emoji is a field on the
+ * control-plane row and needs no bucket; a photo is an object *in* the bucket
+ * (`setWorkspaceIconPhoto`), so it is offered only on a connected run — see
+ * `imageStepOffersPhoto`.
  */
 export function workspaceStepsFor(shape: WorkspaceFlowShape): WorkspaceStepKey[] {
   if (shape.storage === "connected") {
-    return ["name", "storage", "layout", "people", "done"];
+    return ["name", "storage", "layout", "image", "people", "done"];
   }
-  return ["name", "storage", "people", "done"];
+  return ["name", "storage", "image", "people", "done"];
 }
 
 /** Where the storage step hands off to. */
 export function afterWorkspaceStorage(
   outcome: WorkspaceStorageOutcome,
 ): WorkspaceStepKey {
-  return outcome === "connected" ? "layout" : "people";
+  return outcome === "connected" ? "layout" : "image";
 }
 
-/** Where the layout step hands off to. Always the people step; see `workspaceStepsFor`. */
+/** Where the layout step hands off to. Always the image step; see `workspaceStepsFor`. */
 export function afterWorkspaceLayout(): WorkspaceStepKey {
+  return "image";
+}
+
+/** Where the image step hands off to, chosen or skipped. */
+export function afterWorkspaceImage(): WorkspaceStepKey {
   return "people";
+}
+
+/**
+ * Whether the image step may offer a photo.
+ *
+ * A photo is written into the workspace's own bucket, content-addressed, and
+ * `setWorkspaceIconPhoto` refuses without a verified binding. Offering the
+ * button on a run with no bucket would be offering an error; the emoji grid is
+ * the whole answer there, and a photo can be chosen later from settings.
+ */
+export function imageStepOffersPhoto(shape: WorkspaceFlowShape): boolean {
+  return shape.storage === "connected";
 }
 
 /**
@@ -110,6 +132,7 @@ export const WORKSPACE_STEP_LABELS: Record<WorkspaceStepKey, string> = {
   name: "Its name",
   storage: "Its bucket",
   layout: "Its kind",
+  image: "Its image",
   people: "Its people",
   done: "Ready",
 };
@@ -122,6 +145,8 @@ export function workspaceStepTitle(key: WorkspaceStepKey): string {
       return "Connect its bucket";
     case "layout":
       return "What kind of workspace is it?";
+    case "image":
+      return "Give it an image";
     case "people":
       return "Invite the people it is for";
     case "done":
