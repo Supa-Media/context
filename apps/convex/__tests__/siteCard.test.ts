@@ -78,7 +78,7 @@ describe("what a page's preview says", () => {
 
   test("control and format characters are cleaned and long text is cut at a word", () => {
     const preview = websitePreviewFromPage(
-      page({ title: `Wri‮ting`, description: `${"word ".repeat(80)}end` }),
+      page({ title: `Wri\u202Eting`, description: `${"word ".repeat(80)}end` }),
     );
     expect(preview?.title).toBe("Wri ting");
     expect(preview!.description!.length).toBeLessThanOrEqual(200);
