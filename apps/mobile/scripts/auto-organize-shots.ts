@@ -173,26 +173,6 @@ jest.mock("../features/console/files/explorer/ExplorerFootLists", () => {
   };
 });
 
-/*
-  Harness correction, carried from the designer's harness (finding A): on a
-  phone the floating toolbar is drawn over the editor region, so a host at the
-  default inset sits under the pill. Lifted by the pill and the home indicator.
-*/
-jest.mock("../features/design/components/Toast", () => {
-  const actual = jest.requireActual("../features/design/components/Toast") as Record<string, unknown> & {
-    ToastHost: (p: object) => ReactElement;
-  };
-  const { createElement: h } = require("react") as typeof import("react");
-  return {
-    ...actual,
-    ToastHost: (mockProps: object) => {
-      const { layout: mockLayout } = require("../features/design/tokens/layout") as typeof import("../features/design/tokens/layout");
-      const mockPhone = (globalThis as { innerWidth?: number }).innerWidth! < 880;
-      return h(actual.ToastHost, { ...mockProps, bottomInset: mockPhone ? mockLayout.bottomBarHeight + 34 : 0 } as never);
-    },
-  };
-});
-
 const { StyleSheet } = require("react-native") as { StyleSheet: { getSheet(): { textContent: string } } };
 const ConsoleLayout = (require("../app/(app)/console/_layout") as { default: () => unknown }).default;
 const { ThemeProvider } = require("../features/design/theme") as {
