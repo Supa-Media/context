@@ -236,6 +236,17 @@ describe("a stranger cannot reach another workspace's files", () => {
           leaf: "paste-abcd1234.png",
         }),
       /*
+        The image proxy. Membership is checked before the note is read or
+        anything is fetched, so a stranger cannot aim our servers at a URL
+        through somebody else's workspace.
+      */
+      (workspaceId) =>
+        as.action(api.functions.files.readRemoteImage, {
+          workspaceId,
+          notePath: "1-projects/a.md",
+          url: "https://img.example/a.png",
+        }),
+      /*
         Setting somebody else's workspace's icon photo. Owner-level — stricter
         than the paste above, because it writes bytes *and* changes what every
         member of that workspace sees — so a stranger meets the membership
