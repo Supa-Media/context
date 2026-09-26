@@ -7,6 +7,7 @@ import { ActivityPage } from "../../activity/ActivityPage";
 import { LockedNoteView } from "../../encryption/LockedNoteView";
 import { LiveEditor } from "../LiveEditor";
 import { Properties } from "./Properties";
+import { changeProperty } from "./propertyEdit";
 import type { NoteView } from "./view";
 
 /**
@@ -106,14 +107,10 @@ export function noteDocument(view: NoteView) {
 
           The other half is in `livePreview.ts`: the block is *hidden* in the
           editor until the caret is in it, the way every other mark in live
-          preview behaves. That is what keeps this a reader rather than
-          making it the only route — `frontmatter.ts` argues at length why
-          this codebase must not grow a YAML writer, so the editor is the one
-          thing that can change a note's metadata and a pointer layout keeps
-          it.
-
-          So the pair is: this row says *what is filed*, and the document
-          still holds it for anyone who goes there.
+          preview behaves. That left nobody a way to change a property who
+          did not already know the YAML was there, and a phone no way at all,
+          so the panel edits too — one line at a time, through the editor's
+          own `onChange` (see `Properties` and `propertyEdit.ts`).
 
           **What it draws differs by density, because what is beside it
           does.** A phone's breadcrumb carries no visibility chip, so the
@@ -136,6 +133,27 @@ export function noteDocument(view: NoteView) {
             */
             gutter={compact ? layout.readingMargin : noteGutterFor(docWidth)}
             compact={compact}
+            /*
+              Through the same `onChange` a keystroke takes, so a property
+              change saves, merges into a collaborator's typing and shows in the
+              editor exactly as if it had been typed into the YAML.
+            */
+            onSet={
+              editable && !drawing && !activityList
+                ? (key, value, adding) => {
+                    const shared = presence?.collaboration;
+                    const current = shared?.text ?? state.draft;
+                    const changed = changeProperty(current, key, value, adding);
+                    if ("error" in changed) return changed.error;
+                    if (changed.text === current) return null;
+                    // Against the snapshot this text was read from, so an edit
+                    // that arrived since this render is merged, never undone.
+                    if (shared !== undefined) shared.onVersionedChange(changed.text, shared.revision);
+                    else collaborativeChange(changed.text);
+                    return null;
+                  }
+                : undefined
+            }
           />
         ) : null}
         {activityList ? (
@@ -254,12 +272,10 @@ export function noteDocument(view: NoteView) {
 
             **A phone gets the body; a pointer layout gets the file.** That
             asymmetry is deliberate and it is about *editing*, not about
-            room. `Properties` above is a reader — "there is nothing here
-            that writes", and `frontmatter.ts` argues at length why this
-            codebase must not grow a YAML writer — so the editor is the only
-            thing in the product that can change a note's metadata. Handing
-            it the body at a pointer density would take that away on the one
-            surface that had it.
+            room. `Properties` above changes a value one line at a time, but
+            only the lines it can draw faithfully — a nested map or a list is
+            still the editor's — so handing the editor the body at a pointer
+            density would take those away on the one surface that had them.
             
             What the pointer layout does instead is hide the block until the
             caret is in it (`livePreview.ts`, `frontmatterHidden`), which is

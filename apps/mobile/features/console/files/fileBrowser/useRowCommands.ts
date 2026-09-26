@@ -19,7 +19,7 @@ import { type ReadResult, collectNotes, downloadNotice, pathsUnder } from "../do
 import { buildZip, downloadName } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
-import { baseName, describeNameProblem, ensureMarkdown, joinPath, parentPath } from "../paths";
+import { baseName, describeNameProblem, ensureMarkdown, isMarkdown, joinPath, parentPath } from "../paths";
 import { namesIn } from "../tree";
 import { isUntitled, nameFromTitle } from "../untitled";
 import { collision, folderLabel } from "./copy";
@@ -50,6 +50,7 @@ type RowCommandsDeps =
     | "clipboard"
     | "dispatch"
     | "editor"
+    | "noteRenamed"
     | "selectedPath"
     | "selectedPathRef"
     | "setClipboard"
@@ -73,10 +74,33 @@ type RowCommandsDeps =
 export function useRowCommands(deps: RowCommandsDeps) {
   const {
     archiveEntry, awaitingTitle, clipboard, copyEntry, dispatch, drawListingMove, drawMove,
-    duplicateEntry, editor, listings, moveEntry, moveResult, notePathsAction, queueMoveOf,
+    duplicateEntry, editor, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
     queueRemovalOf, readNote, readNotesAction, restoreTrashEntry, run, select, selectedPath,
     selectedPathRef, setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
   } = deps;
+
+  /**
+   * A note's row drawn at its new name, and its tab told the same thing.
+   *
+   * The tab strip closes a tab whose note the loaded listing no longer holds,
+   * and the listing moves on the press — so without this, renaming the open
+   * note closed its tab, the last-tab rule closed the editor, and the page
+   * went blank under the person renaming it. `noteRenamed` is what the strip
+   * follows instead (`FileBrowser.renamed`); the revert says it again the other
+   * way, so a refused rename puts the tab back where the row goes back.
+   * A folder is left to the strip's own rule, as a move always has been.
+   */
+  const followed = useCallback(
+    (from: string, to: string, revertDraw: () => void): (() => void) => {
+      if (!isMarkdown(from)) return revertDraw;
+      noteRenamed(from, to);
+      return () => {
+        revertDraw();
+        noteRenamed(to, from);
+      };
+    },
+    [noteRenamed],
+  );
 
   const rename = useCallback(
     (path: string, rawName: string) => {
@@ -101,7 +125,11 @@ export function useRowCommands(deps: RowCommandsDeps) {
         is nothing sensible to keep it pointed at.
       */
       const renamedInPlace = selectedPath === path;
-      const undoDraw = renamedInPlace ? drawListingMove(path, to) : drawMove(path, to);
+      const undoDraw = followed(
+        path,
+        to,
+        renamedInPlace ? drawListingMove(path, to) : drawMove(path, to),
+      );
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         return {
@@ -111,7 +139,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
             // Verdict first — see `moveResult`.
             const backResult = moveResult(to, path);
             const open = selectedPathRef.current === to;
-            const undoUndo = open ? drawListingMove(to, path) : drawMove(to, path);
+            const undoUndo = followed(to, path, open ? drawListingMove(to, path) : drawMove(to, path));
             void run(async () => {
               await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
               return { ...backResult, message: `Renamed back to ${was}.` };
@@ -137,6 +165,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
     [
       drawListingMove,
       drawMove,
+      followed,
       listings,
       moveEntry,
       moveResult,

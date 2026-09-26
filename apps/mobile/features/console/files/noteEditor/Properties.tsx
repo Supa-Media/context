@@ -6,8 +6,10 @@ import { Text } from "../../../design/components/Text";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles } from "../../../design/theme";
 import { describe as describeVisibility } from "../Breadcrumb";
-import { properties, type Property } from "../frontmatter";
+import type { Property } from "../frontmatter";
 import type { Visibility } from "../types";
+import { propertyRows, type PropertyRow } from "./propertyEdit";
+import { AddProperty, EditableProperty, type SetProperty } from "./PropertyFields";
 import { makeStyles } from "./styles";
 
 /**
@@ -21,15 +23,21 @@ import { makeStyles } from "./styles";
  *
  * The same shape Obsidian uses, and for the same reason.
  *
- * ## It is a reader, not a form
+ * ## It edits in place, one line at a time
  *
- * The values are `Text`, not inputs, and there is nothing here that writes.
- * Editing frontmatter means editing the note, which is what the editor below is
- * for and where the buffer is still the file byte for byte. A property editor
- * would need a YAML *writer*, and `frontmatter.ts` argues at length why this
- * codebase should not have one: a reader that misunderstands a line shows it
- * oddly, and a writer that misunderstands the same line rewrites somebody's
- * note into something they did not type.
+ * It was a reader, and the argument was sound: a writer that misunderstands a
+ * line rewrites somebody's note into something they did not type. But with
+ * the frontmatter hidden in the editor until the caret finds it, and not in a
+ * phone's buffer at all, "edit the file instead" meant properties could not be
+ * edited by anyone who did not already know where the YAML was.
+ *
+ * So values change here, through `setNoteProperty` — the write a folder list
+ * already uses for a status — which changes that key's one line, leaves every
+ * other byte alone, and refuses when what it wrote would not read back as the
+ * value given. `propertyEdit.ts` decides which rows it may touch: a nested
+ * map's child or a list is still shown and still read-only, because the panel
+ * cannot draw it faithfully enough to edit. The change goes through the
+ * editor's own `onChange`, so it saves, merges and undoes like typing.
  *
  * Collapsed is the resting state on purpose. The whole complaint this answers
  * is that metadata was taking the reader's first screen, and a row that starts
@@ -40,8 +48,14 @@ export function Properties({
   visibility,
   gutter,
   compact,
+  onSet,
 }: {
   frontmatter: string;
+  /**
+   * Changes one property of the note, or `undefined` where it cannot be
+   * changed — a reader without edit access, or an activity list.
+   */
+  onSet?: SetProperty;
   /** See `NoteEditor`'s prop of the same name. */
   visibility?: {
     visibility: Visibility;
@@ -64,7 +78,8 @@ export function Properties({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
-  const rows = withVisibility(properties(frontmatter), visibility);
+  const [problem, setProblem] = useState<string | null>(null);
+  const rows = withVisibility(propertyRows(frontmatter), visibility);
 
   return (
     <View style={[styles.properties, { paddingLeft: gutter, paddingRight: gutter }]}>
@@ -101,62 +116,47 @@ export function Properties({
           of *metadata about* the note rather than as the first paragraph of it.
         */
         <View style={styles.propertyCard} testID="note-properties-open">
-          {rows.map((row, index) => (
-            <View key={`${row.key}-${index}`} style={styles.property}>
-              {/*
-                Obsidian draws a different mark per property *type* — a
-                calendar for a date, lines for text. Frontmatter here has no
-                types, so one neutral mark stands for "this row is a labelled
-                value" and it is `aria-hidden` because the key beside it is
-                already the name.
-              */}
-              <View style={styles.propertyMark}>
-                <Icon name="filter" size={15} color={colors.muted} />
+          {rows.map((row, index) =>
+            onSet !== undefined && isEditable(row) ? (
+              <EditableProperty key={`${row.key}-${index}`} row={row} onSet={onSet} onError={setProblem} />
+            ) : (
+              <View key={`${row.key}-${index}`} style={styles.property}>
+                {/*
+                  Obsidian draws a different mark per property *type* — a
+                  calendar for a date, lines for text. Frontmatter here has no
+                  types, so one neutral mark stands for "this row is a labelled
+                  value" and it is `aria-hidden` because the key beside it is
+                  already the name.
+                */}
+                <View style={styles.propertyMark}>
+                  <Icon name="filter" size={15} color={colors.muted} />
+                </View>
+                <Text variant="rowSub" style={styles.propertyKey} numberOfLines={1}>
+                  {row.key}
+                </Text>
+                <Text variant="rowSub" style={styles.propertyValue}>
+                  {row.value}
+                </Text>
               </View>
-              <Text variant="rowSub" style={styles.propertyKey} numberOfLines={1}>
-                {row.key}
-              </Text>
-              <Text variant="rowSub" style={styles.propertyValue}>
-                {row.value}
-              </Text>
-            </View>
-          ))}
+            ),
+          )}
 
-          {/*
-            Obsidian's last row, and ours is deliberately inert.
-
-            Adding a property means *writing* frontmatter, and `frontmatter.ts`
-            argues at length why this codebase has a reader and no writer: a
-            reader that misunderstands a line shows it oddly, and a writer that
-            misunderstands the same line rewrites somebody's note into something
-            they did not type. Until there is a writer with a byte-for-byte
-            round-trip test behind it, this states where the capability will be
-            rather than pretending to have it — and it says so out loud to a
-            screen reader, because a control that is present and silently
-            refuses is the defect this codebase keeps recording.
-
-            It is drawn rather than dropped because the row is also the honest
-            answer to "where do I edit these?" on a phone: the frontmatter is
-            not in the editor's buffer at this density (see the `LiveEditor`
-            call above), so somebody looking for it needs to be told, not left
-            to conclude it is gone.
-          */}
-          <View style={[styles.property, styles.propertyAdd]} aria-disabled testID="note-properties-add">
-            <View style={styles.propertyMark}>
-              <Icon name="plus" size={15} color={colors.muted} />
-            </View>
-            <Text
-              variant="rowSub"
-              style={styles.propertyAddLabel}
-              accessibilityLabel="Add a property. Not available yet — edit this note's frontmatter from a desktop browser or in Obsidian."
-            >
-              Add property — from a desktop, for now
+          {/* Obsidian's last row. Absent, not inert, for somebody who can only read. */}
+          {onSet === undefined ? null : <AddProperty onSet={onSet} onError={setProblem} />}
+          {problem === null ? null : (
+            <Text variant="meta" style={styles.propertyError} role="alert" testID="note-properties-problem">
+              {problem}
             </Text>
-          </View>
+          )}
         </View>
       ) : null}
     </View>
   );
+}
+
+/** The stated visibility row is never one; see `withVisibility`. */
+function isEditable(row: Property): row is PropertyRow {
+  return (row as PropertyRow).editable === true;
 }
 
 /**
@@ -175,15 +175,15 @@ export function Properties({
  * and "the row quietly stopped being added" is the kind of regression that is
  * invisible on screen until it matters.
  */
-export function withVisibility(
-  rows: Property[],
+export function withVisibility<Row extends Property>(
+  rows: Row[],
   visibility?: {
     visibility: Visibility;
     inherited: Visibility;
     exception: boolean;
     readOnly: boolean;
   },
-): Property[] {
+): (Row | Property)[] {
   if (visibility === undefined) return rows;
   // The phone's wording, from `Breadcrumb`, so the two surfaces cannot come to
   // describe the same three cases differently — a note that merely follows a

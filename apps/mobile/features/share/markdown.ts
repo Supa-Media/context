@@ -155,7 +155,7 @@ export function parseInline(source: string): Inline[] {
       flush();
       // Editors often store an autolinked domain without its scheme
       // (`[supa.media](supa.media)`); that is the site, not a relative path.
-      const href = safeHref(link.target) ?? bareSiteHref(link.target);
+      const href = safeHref(link.target) ?? bareSiteHref(link.target) ?? sitePathHref(link.target);
       // A rejected scheme becomes the label as plain text — never a link, and
       // never silently dropped, because the words were part of the sentence.
       out.push(
@@ -254,8 +254,27 @@ function matchAutolink(rest: string): { text: string; href: string } | null {
 }
 
 /** A link target that is exactly a bare domain or `www.` address, as https. */
-function bareSiteHref(target: string): string | null {
+/**
+ * `/Public%20Worship`: a page on the site being read, which is what the
+ * server rewrites a link to a published page into. Kept as a link here, and
+ * only the website page follows it — `NoteBody` draws it as words anywhere
+ * that has no site to move within, so a shared note is unchanged. `//host`
+ * and a backslash are another host to a browser, not a path on this one.
+ */
+function sitePathHref(target: string): string | null {
   const trimmed = target.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\u0000-\u001f\u007f\s]/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function bareSiteHref(target: string): string | null {
+  // The host is case-insensitive, so it is matched lowercased (`Togather.app`);
+  // the path after it is not, and is kept exactly as written.
+  const raw = target.trim();
+  const slash = raw.indexOf("/");
+  const trimmed = slash === -1 ? raw.toLowerCase() : raw.slice(0, slash).toLowerCase() + raw.slice(slash);
   const auto = matchAutolink(trimmed);
   return auto !== null && auto.text === trimmed ? auto.href : null;
 }

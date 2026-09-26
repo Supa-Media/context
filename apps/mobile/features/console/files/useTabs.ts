@@ -106,6 +106,21 @@ export function useTabs(
   }, [openPath, status]);
 
   /**
+   * A renamed note keeps its tab, under its new name.
+   *
+   * Declared before the pruning below, and that order is the fix: the listing
+   * moves to the new name in the same commit this arrives in, and pruning
+   * first would drop the tab — and with it, as the only tab, the editor — for
+   * a note that has only changed what it is called. After the reducer has
+   * moved the tab, the prune's `removed` for the old path finds nothing.
+   */
+  const renamed = files.renamed ?? null;
+  useEffect(() => {
+    if (renamed === null) return;
+    dispatch({ type: "renamed", from: renamed.from, to: renamed.to });
+  }, [renamed]);
+
+  /**
    * A note that stopped existing cannot stay open.
    *
    * Renames and deletes both arrive as "the listings changed", so this compares
@@ -246,7 +261,19 @@ export function useTabs(
    */
   const active = state.activePath;
   useEffect(() => {
-    if (active !== null && active !== files.editor.path) files.select(active);
+    if (active === null || active === files.editor.path) return;
+    /*
+      Not while the editor is on its way there. A tab renamed on the press
+      names a path the bucket does not have until the move lands, and the
+      editor stays on the old one until then (`useRowCommands.rename`);
+      selecting it now reads a note that is not there yet — "That file does
+      not exist" over the page somebody was renaming. The rename's own
+      `select` follows it once it lands, which is also why a selection
+      already moving to the tab is left alone.
+    */
+    if (active === files.selectedPath) return;
+    if (renamed !== null && renamed.to === active && renamed.from === files.editor.path) return;
+    files.select(active);
     // `files.select` is stable enough to leave out; re-running on every browser
     // identity change would fight the selection it just made.
     // eslint-disable-next-line react-hooks/exhaustive-deps

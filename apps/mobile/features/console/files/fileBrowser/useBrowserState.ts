@@ -14,6 +14,7 @@ import type { ToastSpec } from "../../../design/components/Toast";
 import type { Clipboard } from "../clipboard";
 import { editorReducer, emptyEditor } from "../editor";
 import { type AutosaveController, createAutosaveController } from "../autosave";
+import type { NoteRename } from "../browser/supportingTypes";
 import type { Listings } from "./types";
 
 export function useBrowserState() {
@@ -66,6 +67,15 @@ export function useBrowserState() {
    * somebody navigated to it.
    */
   const [navigations, setNavigations] = useState(0);
+  /**
+   * The last note this console renamed, for the tab strip to follow. See
+   * `renamed` on `FileBrowser`. `id` makes a rename back to an earlier name a
+   * new value, so an undo is an event and not an echo.
+   */
+  const [renamed, setRenamed] = useState<NoteRename | null>(null);
+  const noteRenamed = useCallback((from: string, to: string) => {
+    setRenamed((last) => ({ id: (last?.id ?? 0) + 1, from, to }));
+  }, []);
   /*
     The selection whose contents are still on their way. See `opening` in
     `browser.ts` for what reads it and why the pane cannot infer it from
@@ -213,7 +223,8 @@ export function useBrowserState() {
 
   return {
     bucketListings, setListings, listedAtRef, drawLocally, indexedPaths, setIndexedPaths, expanded,
-    setExpanded, selectedPath, setSelectedPath, navigations, setNavigations, opening, setOpening,
+    setExpanded, selectedPath, setSelectedPath, navigations, setNavigations, renamed, noteRenamed,
+    opening, setOpening,
     settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, toasts, setToasts,
     busy, setBusy, loading, setLoading, editorRef, collaborationPaths, selectedPathRef,
     nextToastId, dismissToast, say, saveRuns, saveTimers, operationRun, openRun, autosaveNowRef,

@@ -43,7 +43,7 @@
  * ever is not, the fix is to rank fewer items, not to remember them.
  */
 
-import { baseName, parentPath } from "./paths";
+import { baseName, isPrivacyManifest, parentPath } from "./paths";
 import type { FileEntry, FolderListing } from "./types";
 
 export interface PaletteItem {
@@ -365,6 +365,8 @@ export function itemsFromListings(
   for (const folder of knownFolderPaths(listings)) {
     for (const entry of entriesOf(listings, folder)) {
       if (items.has(entry.path)) continue;
+      // Generated, read-only, and not a note; the tree does not list it either.
+      if (entry.kind === "file" && isPrivacyManifest(entry.path)) continue;
       items.set(
         entry.path,
         entry.kind === "folder"
@@ -408,6 +410,7 @@ export function itemsFromPaths(
     added.push(item);
   };
   for (const path of paths) {
+    if (isPrivacyManifest(path)) continue;
     const folder = parentPath(path);
     add({ id: path, label: baseName(path), detail: folder === "" ? "/" : folder, kind: "note" });
     for (let at = folder; at !== ""; at = parentPath(at)) {

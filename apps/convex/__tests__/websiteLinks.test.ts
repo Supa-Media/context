@@ -122,4 +122,59 @@ describe("website link publication", () => {
       ),
     ).toBe("[[about]]");
   });
+
+  /*
+    A page whose file name has a space in it is the ordinary case — `Public
+    Worship.md` is served at `/Public Worship` — and every way of linking to it
+    came out as plain text on seyi.co's home page: the rewritten target carried
+    a raw space, which ends a Markdown link target, and a target the author
+    wrote with `%20` was refused as unsafe before it was ever looked up.
+  */
+  describe("a page whose name has a space in it", () => {
+    const spaced: WebsiteLinkCatalogEntry[] = [
+      ...catalog,
+      {
+        kind: "route",
+        objectKey: "website/Public Worship.md",
+        href: "/Public Worship",
+        audience: "public",
+        sourceEtag: "pw-etag",
+      },
+    ];
+    const withSpaced = { ...options, catalog: spaced };
+
+    test("every way of naming it becomes one encoded, followable link", () => {
+      const markdown = [
+        "[[Public Worship]]",
+        "[[Public Worship|PW]]",
+        "[Public Worship](Public%20Worship.md)",
+        "[Public Worship](<Public Worship.md>)",
+        "[Public Worship](/Public%20Worship)",
+        "[Public Worship](https://notes.atlas.test/Public%20Worship#top)",
+      ].join("\n");
+      expect(rewriteWebsiteLinks(markdown, withSpaced, new Set())).toBe(
+        [
+          "[Public Worship](/Public%20Worship)",
+          "[PW](/Public%20Worship)",
+          "[Public Worship](/Public%20Worship)",
+          "[Public Worship](</Public%20Worship>)",
+          "[Public Worship](/Public%20Worship)",
+          "[Public Worship](/Public%20Worship#top)",
+        ].join("\n"),
+      );
+    });
+
+    test("a route written in another case finds the page", () => {
+      // Routes are case-insensitive on the way in (`websiteRouteLookupKey`),
+      // so the link that works in a browser bar works in a note.
+      expect(rewriteWebsiteLinks("[About](/About)", withSpaced, new Set())).toBe(
+        "[About](/about)",
+      );
+    });
+
+    test("an encoded slash or backslash is not a way to invent a path", () => {
+      const markdown = "[x](/Public%2FWorship) [y](/about%5C..)";
+      expect(rewriteWebsiteLinks(markdown, withSpaced, new Set())).toBe(markdown);
+    });
+  });
 });
