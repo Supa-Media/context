@@ -157,7 +157,10 @@ export function FolderPage({
     );
   }
 
-  const view: FolderPageView = picked ?? (notes === null ? "files" : defaultFolderView(items));
+  // Until the notes can say which view fits, and which group each item is in, a List or Board waits.
+  const view: FolderPageView = picked ?? (!loaded.settled ? "files" : defaultFolderView(items));
+  // A List or Board somebody picked holds its place, empty, rather than drawing everything as No status first.
+  const waiting = view !== "files" && !loaded.settled;
   const choose = (view: FolderPageView) => {
     setPicked(view);
     rememberView(host.workspaceId, folder, view);
@@ -257,6 +260,8 @@ export function FolderPage({
       <View style={styles.contents}>
         {view === "files" ? (
           files
+        ) : waiting ? (
+          <View style={styles.waiting} accessibilityLabel="Loading" testID="folder-waiting" />
         ) : items.length === 0 ? (
           <Text variant="meta" style={styles.aside}>
             Nothing here to track yet. A note or folder added here can be given a status.
@@ -268,7 +273,7 @@ export function FolderPage({
         ) : (
           <FolderGroups bands={listBands(groups, list)} compact={compact} now={now} actions={actions} />
         )}
-        {view !== "files" && !loaded.complete && notes !== null ? (
+        {view !== "files" && !waiting && !loaded.complete && notes !== null ? (
           <Text variant="treeMeta" style={styles.aside}>
             This device is still fetching some notes, so a status may be missing.
           </Text>
@@ -303,6 +308,8 @@ const makeStyles = (colors: Colors) =>
     nudge: { marginTop: space.x3 },
     // Wider than the column it sits in, and centred on it, so it overflows both sides alike.
     wide: { alignSelf: "center" },
+    // About a short column of cards, so the page does not collapse and grow back.
+    waiting: { minHeight: 240 },
     aside: { paddingVertical: space.x2, color: colors.muted },
     problem: { marginTop: space.x2, color: colors.critText },
     saving: { marginTop: space.x2, color: colors.muted },

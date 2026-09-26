@@ -35,6 +35,14 @@ export interface FolderNotes {
   readonly notes: readonly ListNote[] | null;
   /** False while this device may still be missing some notes. */
   readonly complete: boolean;
+  /**
+   * True once the notes are enough to draw the folder's statuses: the device
+   * has all of them, or at least one of this folder's own, or it has been
+   * `SETTLE_AFTER` since the page opened. Until then a List or Board would
+   * put every item under No status and then move them all (reported on the
+   * Projects board), so the page draws neither.
+   */
+  readonly settled: boolean;
   readonly canEdit: boolean;
   /** Why the last choice did not land, or null. */
   readonly problem: string | null;
@@ -46,6 +54,9 @@ export interface FolderNotes {
   /** Every note under `folder`, subfolders included, for a change that rewrites many. */
   loadAll(folder: string): Promise<readonly ListNote[] | null>;
 }
+
+/** How long a page waits for a folder's notes before it draws what it has. */
+export const SETTLE_AFTER = 1500;
 
 type Value = string | readonly string[] | null;
 export type PropertyChanges = readonly (readonly [string, Value])[];
@@ -91,6 +102,13 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
   const alive = useRef(true);
+  const [waited, setWaited] = useState(false);
+
+  useEffect(() => {
+    setWaited(false);
+    const timer = setTimeout(() => setWaited(true), SETTLE_AFTER);
+    return () => clearTimeout(timer);
+  }, [source, folder]);
 
   useEffect(() => {
     alive.current = true;
@@ -182,9 +200,16 @@ export function useFolderNotes(host: FolderPageHost | undefined, folder: string)
     () => (loaded === null ? null : overlay(loaded.notes, chosen, Date.now())),
     [loaded, chosen],
   );
+  const settled = useMemo(() => {
+    if (loaded === null) return false;
+    if (loaded.complete || waited) return true;
+    const under = folder === "" ? "" : `${folder}/`;
+    return loaded.notes.some((note) => note.path.startsWith(under));
+  }, [loaded, waited, folder]);
   return {
     notes,
     complete: loaded?.complete ?? false,
+    settled,
     canEdit: setProperty !== undefined,
     problem,
     saving: pending > 0,
