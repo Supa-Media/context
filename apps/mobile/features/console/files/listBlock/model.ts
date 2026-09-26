@@ -30,6 +30,7 @@ import {
 } from "../../../../../mcp/src/lists.js";
 import { revealSelection } from "../livePreview/engagement";
 import { selectionTouches } from "../livePreview/reveal";
+import type { OwnerSearch } from "../owners";
 
 export { LIST_FENCE_LANG };
 
@@ -70,6 +71,8 @@ export interface ListNote {
   readonly properties: Readonly<Record<string, PropertyValue>>;
   /** The note's first heading, which names a project with no `title`. */
   readonly heading?: string | null;
+  /** The note's first paragraph, which a folder page draws under its title. */
+  readonly lede?: string | null;
 }
 
 export interface ListRow {
@@ -124,8 +127,26 @@ export interface FolderListSource {
    * Change one frontmatter property of one listed note; `null` clears it.
    * Resolves to `null` once written, or to a sentence saying why not. Absent
    * where the reader may not write, and a list then offers no edits.
+   *
+   * `create` is for a folder page setting a folder's first property: the note
+   * may not exist yet, and is then written new (see `writeNoteProperty`).
    */
-  setProperty?(path: string, key: string, value: string | null): Promise<string | null>;
+  setProperty?(path: string, key: string, value: string | null, options?: { create?: boolean }): Promise<string | null>;
+  /**
+   * Several properties of one note in one write, the same road as
+   * `setProperty`. A folder's status list is three keys (`folderPage/statuses.ts`).
+   */
+  setProperties?(
+    path: string,
+    changes: readonly (readonly [string, string | readonly string[] | null])[],
+    options?: { create?: boolean },
+  ): Promise<string | null>;
+  /**
+   * Who may own a note: the workspace's people and connected agents matching
+   * `query`, asked of the server (`owners.searchOwners`). Absent where nobody
+   * may write, and where there is no server to ask.
+   */
+  searchOwners?: OwnerSearch;
 }
 
 /** What the notes for one list came back as. */
@@ -153,6 +174,8 @@ export interface ListHostContext {
   subscribe?(listener: () => void): () => void;
   /** See `FolderListSource.setProperty`. */
   setProperty?(path: string, key: string, value: string | null): Promise<string | null>;
+  /** See `FolderListSource.searchOwners`. */
+  searchOwners?: OwnerSearch;
   /** The note holding the block, which is never listed. */
   readonly selfPath: string | null;
 }

@@ -135,7 +135,8 @@ export async function runProjectListChecks(check) {
       note("p/d.md", 4, { status: "done" }),
     ];
     const { rows } = selectListRows(parse("from: p", "group: status").config, notes);
-    check("a list of notes groups too, unknown words a to z after lifecycle words, unset last", rows.map((row) => row.group).join("|") === "done|alpha|zeta|");
+    // Status has its own groups (statuses.js): No status is Not started, so first; words in no group follow Done.
+    check("a list of notes grouped by status: no status, then done, then unplaced words a to z", rows.map((row) => row.group).join("|") === "|done|alpha|zeta");
   }
   {
     const { rows, truncated, total } = selectListRows(cfg("group: owner", "limit: 2"), NOTES);

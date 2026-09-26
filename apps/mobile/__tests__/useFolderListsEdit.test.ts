@@ -13,10 +13,16 @@ import { describe, expect, jest, test } from "@jest/globals";
 
 const mockCalls: Array<[string, Record<string, unknown>]> = [];
 jest.mock("convex/react", () => ({
+  // An owner picker searches through the client; nothing here opens one.
+  useConvex: () => ({ query: async () => undefined }),
   useAction: (reference: unknown) => {
     const name = String((reference as { name?: string })?.name ?? reference);
     return async (args: Record<string, unknown>) => {
       mockCalls.push([name, args]);
+      if (name.includes("readNote") && String(args.path).includes("new")) {
+        const { ConvexError } = jest.requireActual<typeof import("convex/values")>("convex/values");
+        throw new ConvexError({ code: "FILE_NOT_FOUND", message: "gone" });
+      }
       if (name.includes("readNote")) return { path: args.path, text: "---\nstatus: planned\n---\n", etag: "e1" };
       return { path: args.path };
     };
@@ -62,6 +68,16 @@ describe("changing a note from a folder list", () => {
     expect(mockCalls).toEqual([
       ["readNote", { workspaceId: "ws_one", path: "p/web.md" }],
       ["writeNote", { workspaceId: "ws_one", path: "p/web.md", text: "---\nstatus: active\n---\n", expectedEtag: "e1" }],
+    ]);
+  });
+
+  test("a folder page's first property creates the note, with no version to replace", async () => {
+    mockCalls.length = 0;
+    const problem = await sourceFor("owner")!.setProperty!("p/new/overview.md", "status", "active", { create: true });
+    expect(problem).toBeNull();
+    expect(mockCalls).toEqual([
+      ["readNote", { workspaceId: "ws_one", path: "p/new/overview.md" }],
+      ["writeNote", { workspaceId: "ws_one", path: "p/new/overview.md", text: "---\nstatus: active\n---\n" }],
     ]);
   });
 });

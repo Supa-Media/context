@@ -62,15 +62,10 @@ export const LAYOUTS = new Set(["list", "board"]);
 export const FRONT_NOTES = ["overview.md", "index.md", "README.md"];
 
 /**
- * Values that close a project, for a parent's "3 of 5" count. Lower-cased.
- * Anything else, including no status at all, is still open.
- */
-export const CLOSED_STATUSES = new Set("done complete completed shipped cancelled canceled archived".split(" "));
-
-/**
- * The order groups are drawn in when their values are lifecycle words, so a
- * list grouped by status reads active work first and finished work last.
- * Values not listed here follow in alphabetical order; an unset value is last.
+ * The order groups are drawn in when their values are lifecycle words, for a
+ * list grouped by anything but `status` (which has its own groups: see
+ * `statuses.js`). Values not listed here follow in alphabetical order; an
+ * unset value is last.
  */
 export const GROUP_ORDER = [
   "active", "in progress", "doing", "next", "planned", "todo", "backlog",

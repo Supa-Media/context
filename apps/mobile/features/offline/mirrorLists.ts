@@ -1,4 +1,5 @@
 import { noteHeading, noteProperties } from "../../../mcp/src/lists.js";
+import { noteLede } from "../console/files/folderPage/lede";
 import { currentEpoch } from "./epoch";
 import type { CacheScope } from "./keys";
 import { isNotePath, mirroredBodyAt, parseIndex } from "./mirror";
@@ -15,8 +16,8 @@ import type { ListNote, ListSource, PropertyValue } from "../console/files/listB
  * `mirrorSearch.ts` states, so a `team` session never reads a body filed at
  * `private` — and parses the frontmatter of the notes under one folder.
  *
- * Only properties are kept, in memory, keyed by etag so a note is re-read only
- * when it changes. Encrypted notes are left out: their frontmatter is inside
+ * Only properties, the first heading and the first paragraph are kept, in
+ * memory, keyed by etag so a note is re-read only when it changes. Encrypted notes are left out: their frontmatter is inside
  * the envelope. `forgetMirrorLists` drops it all beside every mirror clear.
  */
 
@@ -99,6 +100,8 @@ export async function mirroredListNotes(
         ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
         properties: noteProperties(body) as Record<string, PropertyValue>,
         heading: noteHeading(body) as string | null,
+        // What a folder page draws under a project's title; see `folderPage/lede.ts`.
+        lede: noteLede(body),
       };
       memo.notes.set(entry.path, { etag: entry.etag, note });
       notes.push(note);

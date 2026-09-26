@@ -267,8 +267,9 @@ export default function ConsoleLayout() {
   /*
     One set of handlers, two triggers.
 
-    The title bar's chip opens this menu and so does the chevron at the end of
-    `ContextFootRow`, and they have to open the *same* list: every row in it is
+    The account button at the foot of the tree opens this menu and so does the
+    avatar the status bar carries while the tree is folded away, and they have
+    to open the *same* list: every row in it is
     conditional on something — the claim offer, "New workspace", Leave on a
     context you do not own — and a second element built at the other call site is
     how one of those conditions quietly goes missing from one of them. See
@@ -277,7 +278,6 @@ export default function ConsoleLayout() {
   const switcherProps = {
     data,
     label: insideContext ? contextLabel : "Your context",
-    tone: insideContext ? (current?.status ?? "warn") : "neutral",
     onOpenContext: (slug: string) => {
       const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
       if (!sameRoute(next, route)) router.replace(hrefFor(next));
@@ -326,30 +326,18 @@ export default function ConsoleLayout() {
       <PluginSettingsPane runtime={data.pluginRuntime} />
       <AppFrame
         /*
-          The switcher is the rail now.
+          The account button, when the file tree is not on screen.
 
-          It was a static chip naming the open context, beside a 216pt column.
-          `regionsFor` answers `rail: "hidden"` at every pointer density (see
-          `features/app/frame.ts`), so the column is gone and everything it
-          offered is under the name you already look at to know whose notes are
-          open. `SwitcherMenu` carries `railGroup`'s list unchanged, with the
-          same two offers behind the same conditions.
-
-          Each callback keeps the navigation the rail entry had, including
-          which of `push` and `replace` it used and why — a claim, a new
-          workspace and Meetings all leave the console, so Back has to be the
-          way home.
+          Its home is the foot of the tree (`consoleExplorer`'s `workspaces`
+          slot). `AppFrame` draws this one at the leading end of the status
+          bar only while the tree is folded away or the route has none, so
+          folding the tree never takes the workspaces, Settings and the only
+          pointer sign-out with it. Each callback keeps the navigation the
+          rail entry had, including which of `push` and `replace` it used — a
+          claim, a new workspace and Meetings all leave the console, so Back
+          has to be the way home.
         */
-        switcher={<SwitcherMenu {...switcherProps} />}
-        /*
-          No `switcherLabel`.
-
-          It was the accessible name of the control that pulled the rail in as
-          a sheet on a phone, and it had to be a string because a *pressable*
-          cannot derive its name from its own content on native. There is no
-          such control now: at compact the panels are gone and the chip is a
-          label again, which reads its own text. The prop went with the reader.
-        */
+        account={<SwitcherMenu {...switcherProps} trigger="avatar" />}
         /*
           The open notes, in the title bar — see `AppFrame`'s `tabs` prop.
 
@@ -368,6 +356,7 @@ export default function ConsoleLayout() {
               onCloseOthers={tabs.closeOthers}
               onCloseToRight={tabs.closeToRight}
               onReopen={tabs.reopen}
+              relabel={data.files.titleEdit}
             />
           ) : undefined
         }
@@ -392,8 +381,8 @@ export default function ConsoleLayout() {
           data, agentEngine, agentPlace, asked, meetingsAt, newChatAt, router,
         })}
         explorer={consoleExplorer({
-          browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay, current,
-          places, router, contextHrefFrom, switcherProps,
+          browsing, data, contextLabel, treePick, setTreePick, tabs, setTreeOverlay,
+          switcherProps,
         })}
         status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={consoleBottomBar({

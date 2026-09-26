@@ -1,6 +1,7 @@
 /** Rewriting the links that point at a moved note. */
 
 import { canSee } from "../../privacy/engine.js";
+import { recordChange } from "../../activity/record.js";
 import { generatedCollaborationBase } from "../../notes/sealing.js";
 import { getWithLegacyFallback } from "../../storageLayout.js";
 import { indexByName, rewriteLinks } from "../../links.js";
@@ -37,6 +38,9 @@ import { replaceText as replaceCollaborationText } from "@context/collaboration"
  * as it was; resolving it against the new shape would miss exactly the note
  * that just moved.
  */
+/** An audit row naming thousands of paths is a row nobody reads; it says so instead. */
+const RECORDED_PATH_CAP = 200;
+
 export async function rewriteReferences(store, scope, rules, overrides, renames, { write = true } = {}) {
   if (renames.size === 0) return { notes: 0, links: 0, capped: false };
 
@@ -60,6 +64,7 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
 
   let notes = 0;
   let links = 0;
+  const written = [];
   for (const key of keys) {
     const fromPath = wasAt.get(key) ?? key;
     const object = await getWithLegacyFallback(store, key);
@@ -107,6 +112,36 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
     } else {
       await store.put(key, rewritten.text);
     }
+    written.push(key);
+  }
+
+  /*
+    THE NOTES THIS REWROTE ARE NOT THE NOTES THE MOVE NAMED.
+
+    Every caller records the move afterwards with the moved note's own two
+    paths. The bodies changed here belong to other notes, and until this row
+    existed nothing said so: the audit trail — the thing CLAUDE.md promises
+    accounts for what happened in somebody's own bucket — described a move and
+    was silent about the writes beside it.
+
+    The half with a fixed row behind it is `announceWebsiteChange`, which fires
+    only when one of the RECORDED paths is under `website/`. Move a note that
+    is not published, rewrite the link to it inside a page that is, and the
+    control plane was never told its route index had stopped describing the
+    bytes. That is the invariant #941 was written to hold, reached by a door it
+    did not know about.
+
+    A separate row rather than more paths on the caller's: this is a different
+    action by the same operation, and `rewrite_references` is deliberately not
+    in the activity file's `SUBSTANCE` map, so it lands in the audit trail and
+    announces the change without making the feed somebody reads any chattier.
+  */
+  if (written.length > 0) {
+    await recordChange(store, "rewrite_references", scope, written.slice(0, RECORDED_PATH_CAP), {
+      notes,
+      links,
+      truncated: written.length > RECORDED_PATH_CAP,
+    });
   }
   return { notes, links, capped: false };
 }

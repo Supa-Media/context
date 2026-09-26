@@ -1,5 +1,6 @@
 import { selectProjectRows } from "./projects.js";
 import { groupOf, orderByGroup } from "./group.js";
+import { compareStatuses, resolveStatusList, statusGroupOf, statusGroupsNamed } from "./statuses.js";
 
 /**
  * Which notes a list shows, in what order, with which columns.
@@ -13,6 +14,7 @@ import { groupOf, orderByGroup } from "./group.js";
 export function selectListRows(config, notes, { selfPath } = {}) {
   if (config.rows === "projects") return selectProjectRows(config, notes, { selfPath });
   const folder = config.from ? `${config.from}/` : "";
+  const { list } = resolveStatusList(config.from || "", notes);
   const matched = (notes || []).filter((note) => {
     const path = String(note.path || "");
     if (!path.endsWith(".md") || path === selfPath) return false;
@@ -20,13 +22,13 @@ export function selectListRows(config, notes, { selfPath } = {}) {
     const rest = path.slice(folder.length);
     if (rest.split("/").some((segment) => segment.startsWith("."))) return false;
     if (!config.subfolders && rest.includes("/")) return false;
-    return config.where.every((condition) => holds(condition, note.properties || {}));
+    return config.where.every((condition) => holds(condition, note.properties || {}, list));
   });
 
   const sorted = matched
     .map((note) => ({ note, title: titleOf(note), group: groupOf(note.properties, config.group) }))
     .sort((a, b) => compareRows(a, b, config.sort));
-  const ordered = config.group ? orderByGroup(sorted) : sorted;
+  const ordered = config.group ? orderByGroup(sorted, groupComparer(config.group, list)) : sorted;
   const rows = ordered.slice(0, config.limit).map(({ note, title, group }) => ({
     path: note.path,
     title,
@@ -59,14 +61,35 @@ function strings(value) {
     .filter((item) => item !== "");
 }
 
-export function holds({ property, op, value }, properties) {
+/**
+ * The order groups are drawn in: a status list's for `status` (Not started,
+ * In progress, Done — see `statuses.js`), lifecycle words then a to z for any
+ * other property.
+ */
+export function groupComparer(key, list) {
+  return key === "status" ? (a, b) => compareStatuses(a, b, list) : undefined;
+}
+
+/**
+ * Whether one condition holds for a note. For `status`, `is` and `is not`
+ * also read a group's name — `status is done`, `status is in progress`,
+ * `status is open` — as every status in that group of the folder's `list`,
+ * so a filter survives someone adding a status to the group.
+ */
+export function holds({ property, op, value }, properties, list) {
   const have = strings(properties[property]);
   const want = value === undefined ? "" : value.trim().toLowerCase();
+  const groups = property === "status" && (op === "is" || op === "is not") ? statusGroupsNamed(want) : null;
+  const inGroup = () => {
+    const group = statusGroupOf(have[0] ?? "", list);
+    // "No status" is Not started for a board, but a filter on a group means a status in it.
+    return have.length > 0 && group !== null && groups.includes(group);
+  };
   switch (op) {
     case "is":
-      return have.includes(want);
+      return have.includes(want) || (groups !== null && inGroup());
     case "is not":
-      return !have.includes(want);
+      return !have.includes(want) && !(groups !== null && inGroup());
     case "contains":
       return have.some((item) => item.includes(want));
     case "is set":

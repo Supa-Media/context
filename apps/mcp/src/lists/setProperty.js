@@ -23,13 +23,28 @@ import { noteProperties } from "./properties.js";
  * check at the end holds that, so a surprise in somebody's frontmatter comes
  * back as an error, never as a quietly different note.
  *
+ * A value may also be a list of words, written inline as `key: [a, b]` — the
+ * form a folder's status list takes (`statuses.js`). An item that the reader
+ * would split or unquote (a comma, a bracket, a quote) is refused.
+ *
  * `setNoteProperty(text, key, value)` → `{ text }` or `{ error }`.
  */
 export function setNoteProperty(text, key, value) {
   if (typeof text !== "string") return { error: "there is no note to change" };
   if (typeof key !== "string" || !PROPERTY_NAME.test(key)) return { error: `"${key}" is not a property name` };
   let written = null;
-  if (value !== null) {
+  if (Array.isArray(value)) {
+    const items = [];
+    for (const item of value) {
+      if (typeof item !== "string" || item.trim() === "") return { error: "a list holds words" };
+      const trimmed = item.trim();
+      if (/[,[\]"'\p{Cc}]/u.test(trimmed) || /\s#|^#/.test(trimmed)) {
+        return { error: `"${trimmed}" cannot hold a comma, a bracket, a quote or " #"` };
+      }
+      items.push(trimmed);
+    }
+    written = `[${items.join(", ")}]`;
+  } else if (value !== null) {
     if (typeof value !== "string") return { error: "a property takes text" };
     const trimmed = value.trim();
     if (trimmed === "") return { error: "a property needs a value; clear it instead" };
@@ -67,7 +82,12 @@ export function setNoteProperty(text, key, value) {
 
   const result = bom + next.join(eol);
   const back = noteProperties(result)[key];
-  if (value === null ? back !== undefined : back !== value.trim()) {
+  const same = Array.isArray(value)
+    ? Array.isArray(back) && back.length === value.length && back.every((item, i) => item === value[i].trim())
+    : value === null
+      ? back === undefined
+      : back === value.trim();
+  if (!same) {
     return { error: "this note's frontmatter could not be changed safely" };
   }
   return { text: result };

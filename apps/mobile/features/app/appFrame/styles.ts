@@ -453,6 +453,9 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
   /** The room the status node spreads into. `minWidth: 0` so a long path clips. */
   statusFill: { flex: 1, minWidth: 0 },
 
+  /** The account button's fallback home, ahead of the panel toggle. */
+  statusAccount: { marginRight: space.x2, flexShrink: 0 },
+
   statusDivider: {
     width: 1,
     height: 12,

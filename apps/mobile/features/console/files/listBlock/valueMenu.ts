@@ -9,12 +9,19 @@
  * so a team's words ("planned", "blocked", "Seyi's Codex") are one press away
  * and a new word is still one line of typing.
  *
+ * An owner is the exception: it is picked, never typed. Given `owners`, the
+ * menu is a search field over the workspace's people and connected agents
+ * (`owners.ts`), asked of the server as it is typed, and there is no field
+ * for a new word.
+ *
  * Plain DOM, owned by the list drawing, for the reason `panel.ts` gives.
  */
 
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { compareGroups } from "../../../../../mcp/src/lists.js";
 import type { ListNote } from "./model";
+import { ownerRows, type OwnerResults, type OwnerSearch } from "../owners";
+import { isWritableProperty } from "./writable";
 
 export interface ValueMenuHost {
   /** Apply a choice; `null` clears. Resolves to a sentence when it did not land. */
@@ -23,6 +30,8 @@ export interface ValueMenuHost {
 }
 
 const MAX_CHOICES = 12;
+/** How long an owner search waits for typing to pause. */
+const OWNER_DELAY_MS = 150;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -47,9 +56,12 @@ export function valueChoices(notes: readonly ListNote[], key: string): string[] 
   return [...seen.values()].sort(compareGroups).slice(0, MAX_CHOICES);
 }
 
-/** Whether a drawn value can be changed from the list: one plain value, or none. */
+/**
+ * Whether a drawn value can be changed from the list: one plain value, or
+ * none, of a key a list may write (never `visibility`; see `writable.ts`).
+ */
 export function isEditableValue(key: string, value: unknown): boolean {
-  return key !== "updated" && key !== "title" && !Array.isArray(value);
+  return key !== "updated" && key !== "title" && isWritableProperty(key) && !Array.isArray(value);
 }
 
 export class ValueMenu {
@@ -63,9 +75,14 @@ export class ValueMenu {
     current: string | null,
     choices: readonly string[],
     private readonly host: ValueMenuHost,
+    owners?: { readonly search: OwnerSearch; readonly prefer: readonly string[] },
   ) {
     this.dom.setAttribute("role", "menu");
     this.dom.setAttribute("aria-label", `Change ${key}`);
+    if (owners !== undefined) {
+      this.ownerPicker(current ?? "", owners.search, current === null ? owners.prefer : [current, ...owners.prefer]);
+      return;
+    }
     const list = el("div", "cm-lp-list-menu-items");
     const all = current !== null && !choices.some((c) => c.toLowerCase() === current.toLowerCase()) ? [current, ...choices] : [...choices];
     for (const choice of all) {
@@ -90,11 +107,67 @@ export class ValueMenu {
     this.dom.addEventListener("keydown", (event) => this.keydown(event));
   }
 
-  /** The first item, or the field when there are none. */
+  /** The search field of an owner picker; else the first item, or the field when there are none. */
   focus(): void {
-    (this.dom.querySelector<HTMLElement>(".cm-lp-list-menu-item") ?? this.dom.querySelector<HTMLElement>("input"))?.focus({
-      preventScroll: true,
+    (
+      this.dom.querySelector<HTMLElement>(".cm-lp-list-menu-search") ??
+      this.dom.querySelector<HTMLElement>(".cm-lp-list-menu-item") ??
+      this.dom.querySelector<HTMLElement>("input")
+    )?.focus({ preventScroll: true });
+  }
+
+  /** People and agents, searched as typed; nowhere to type a new owner. */
+  private ownerPicker(current: string, search: OwnerSearch, prefer: readonly string[]): void {
+    const input = el("input", "cm-lp-list-menu-search");
+    input.type = "text";
+    input.placeholder = "Search people and agents";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", "Search people and agents");
+    const list = el("div", "cm-lp-list-menu-items");
+    let results: OwnerResults | null = null;
+    let ticket = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const draw = () => {
+      list.replaceChildren();
+      for (const row of ownerRows(input.value, current, results)) {
+        if (row.kind === "heading") {
+          list.append(el("div", "cm-lp-list-menu-head", row.label));
+          continue;
+        }
+        const label = row.detail === undefined ? row.label : `${row.label} · ${row.detail}`;
+        const text = row.value === null ? label : isolateForDisplay(label);
+        const extra = row.value === null ? "cm-lp-list-menu-clear" : "cm-lp-list-menu-owner";
+        list.append(this.item(text, row.checked, () => (row.checked ? this.host.close(true) : this.pick(row.value)), extra));
+      }
+      if (results === null) list.append(el("div", "cm-lp-list-menu-head", "Searching…"));
+    };
+    const ask = () => {
+      const mine = ++ticket;
+      search(input.value, prefer)
+        .then((found) => {
+          if (mine !== ticket) return;
+          results = found;
+          draw();
+        })
+        .catch(() => {
+          if (mine === ticket) this.problem.textContent = "Couldn’t search just now. Try again in a moment.";
+        });
+    };
+    input.addEventListener("input", () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(ask, OWNER_DELAY_MS);
+      draw();
     });
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      list.querySelector<HTMLElement>(".cm-lp-list-menu-owner")?.click();
+    });
+    this.dom.append(input, list, this.problem);
+    this.dom.addEventListener("keydown", (event) => this.keydown(event));
+    draw();
+    ask();
   }
 
   private item(label: string, on: boolean, act: () => void, extra = ""): HTMLButtonElement {
@@ -131,7 +204,7 @@ export class ValueMenu {
       return;
     }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const stops = [...this.dom.querySelectorAll<HTMLElement>(".cm-lp-list-menu-item, .cm-lp-list-menu-new")];
+    const stops = [...this.dom.querySelectorAll<HTMLElement>(".cm-lp-list-menu-search, .cm-lp-list-menu-item, .cm-lp-list-menu-new")];
     const at = stops.indexOf(document.activeElement as HTMLElement);
     const next = stops[(at + (event.key === "ArrowDown" ? 1 : stops.length - 1)) % stops.length];
     event.preventDefault();

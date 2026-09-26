@@ -11,6 +11,7 @@ import {
 import {
   beginRouteReconciliationHandler,
   commitRouteReconciliationHandler,
+  narrowRouteIndexHandler,
   invalidateRouteIndexHandler,
   recordRouteChangeHandler,
   reconcileWorkspaceHandler,
@@ -27,9 +28,13 @@ import {
   siteRevisionHandler,
   websiteResolutionPlanHandler,
 } from "./lib/websites/resolver";
+import { homeSiteWorkspaceHandler, websiteSnapshot } from "./lib/websites/snapshot";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
+import { siteIconHandler, siteIconPlanHandler } from "./lib/websites/siteIcon";
 import {
+  markWebsitePublicationEnsuredHandler,
   markWebsiteStarterEnsuredHandler,
+  websitePublicationRepairNeededHandler,
   websiteStarterRepairNeededHandler,
 } from "./lib/websites/state";
 
@@ -123,6 +128,7 @@ const resolutionPlanValidator = v.union(
     title: v.string(),
     description: v.union(v.string(), v.null()),
     viewerAudience: v.union(v.literal("public"), v.literal("members")),
+    releaseFallback: v.boolean(),
     releaseId: v.optional(v.string()),
     releasePageId: v.optional(v.string()),
   }),
@@ -150,6 +156,55 @@ export const siteRevision = query({
   args: { handle: v.string() },
   returns: v.union(v.string(), v.null()),
   handler: siteRevisionHandler,
+});
+
+/**
+ * The homepage's `website/` folder, every note it publishes, or `null` for
+ * any other handle or a site that is off. See `lib/websites/snapshot.ts`.
+ */
+export const siteSnapshot = action({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      siteName: v.string(),
+      revision: v.union(v.string(), v.null()),
+      pages: v.array(
+        v.object({ path: v.string(), routePath: v.string(), title: v.string(), markdown: v.string() }),
+      ),
+    }),
+  ),
+  handler: async (ctx, args) => await websiteSnapshot(ctx, { handle: args.handle }),
+});
+
+export const homeSiteWorkspace = internalQuery({
+  args: { handle: v.string() },
+  returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces"), siteName: v.string() })),
+  handler: homeSiteWorkspaceHandler,
+});
+
+/**
+ * The workspace icon a published site draws as its favicon, or `null`. Takes a
+ * handle and nothing that could name an object; see `lib/websites/siteIcon.ts`.
+ */
+export const siteIcon = action({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+    v.object({ kind: v.literal("photo"), bytes: v.bytes(), contentType: v.string() }),
+  ),
+  handler: siteIconHandler,
+});
+
+export const siteIconPlan = internalQuery({
+  args: { handle: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+    v.object({ kind: v.literal("photo"), workspaceId: v.id("workspaces"), leaf: v.string() }),
+  ),
+  handler: siteIconPlanHandler,
 });
 
 export const resolveAddress = action({
@@ -222,12 +277,31 @@ export const commitRouteReconciliation = internalMutation({
     releaseId: v.optional(v.string()),
     enabledOnly: v.optional(v.boolean()),
     problemsOnlyIfUnpublished: v.optional(v.boolean()),
+    restricted: v.optional(v.array(v.string())),
   },
   returns: v.object({
     committed: v.boolean(),
     cleanupReleaseId: v.union(v.string(), v.null()),
+    retiredReleaseId: v.union(v.string(), v.null()),
+    retiredPageIds: v.array(v.string()),
   }),
   handler: commitRouteReconciliationHandler,
+});
+
+export const narrowRouteIndex = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    generation: v.number(),
+    routes: v.array(indexedStatusValidator),
+    restricted: v.array(v.string()),
+    enabledOnly: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    releaseId: v.union(v.string(), v.null()),
+    pageIds: v.array(v.string()),
+    previousReleaseId: v.union(v.string(), v.null()),
+  }),
+  handler: narrowRouteIndexHandler,
 });
 
 export const invalidateRouteIndex = internalMutation({
@@ -258,6 +332,18 @@ export const markWebsiteStarterEnsured = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: markWebsiteStarterEnsuredHandler,
+});
+
+export const websitePublicationRepairNeeded = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: websitePublicationRepairNeededHandler,
+});
+
+export const markWebsitePublicationEnsured = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: markWebsitePublicationEnsuredHandler,
 });
 
 export const reconcileWorkspace = internalAction({

@@ -124,6 +124,8 @@ import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
+import * as siteCards from "./functions/lib/publicRoutes/siteCards";
+import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 
 const http = httpRouter();
 
@@ -735,6 +737,27 @@ http.route({
   method: "POST",
   handler: shareShortLinkCard,
 });
+
+/* -------------------------------------------------------------------------- */
+/* POST /site/preview, /site/card — a website page's unfurl and its picture    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A published page unfurls as itself. Both take a handle and a route path and
+ * resolve the page as an anonymous visitor: they answer only for a live public
+ * page of a site its owner turned on, which is what that address already shows
+ * to anyone who opens it. See `lib/websites/preview.ts` and the "unfurls as
+ * itself" section of `docs/decisions/websites.md`.
+ */
+export const sitePreview = httpAction(siteCards.sitePreviewHandler);
+http.route({ path: "/site/preview", method: "POST", handler: sitePreview });
+
+export const siteCard = httpAction(siteCards.siteCardHandler);
+http.route({ path: "/site/card", method: "POST", handler: siteCard });
+
+/** The homepage's whole site, for the router to put in its HTML. `siteHome.ts`. */
+export const siteHome = httpAction(siteHomeRoute.siteHomeHandler);
+http.route({ path: "/site/home", method: "POST", handler: siteHome });
 
 /* -------------------------------------------------------------------------- */
 /* POST /domain/resolve — which workspace a customer domain serves             */

@@ -155,6 +155,7 @@ import {
 } from "./lib/filesFns/visibility";
 import {
   readNoteImageHandler,
+  readRemoteImageHandler,
   setWorkspaceIconPhotoHandler,
   storeNoteImageHandler,
   workspaceIconPhotoHandler,
@@ -457,6 +458,17 @@ export const readNoteImage = action({
   },
   returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
   handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => await readNoteImageHandler(ctx, args),
+});
+
+/** See `readRemoteImageHandler` in `lib/filesFns/images.ts`. */
+export const readRemoteImage = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notePath: v.string(),
+    url: v.string(),
+  },
+  returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => await readRemoteImageHandler(ctx, args),
 });
 
 /* -------------------------------------------------------------------------- */

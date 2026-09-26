@@ -163,6 +163,25 @@ describe("images through the file browser", () => {
     expect(reads[0]!.args).toMatchObject({ notePath: NOTE, leaf: KEY });
   });
 
+  test("a remote image goes through the proxy, never through the bucket read", async () => {
+    const REMOTE = "https://img.example/logo.png";
+    actions[name("readRemoteImage")] = async () => ({ bytes: BYTES.buffer, contentType: "image/png" });
+    unmount = mount();
+    await settle();
+    await act(async () => browser.select(NOTE));
+    await settle();
+
+    expect(await browser.loadImage(REMOTE)).toBe("data:image/png;base64,iVBORw0KGgo=");
+    const proxied = calls.filter((call) => call.name === name("readRemoteImage"));
+    expect(proxied.length).toBe(1);
+    // The note vouches for the URL, exactly as it does for a stored image.
+    expect(proxied[0]!.args).toMatchObject({ notePath: NOTE, url: REMOTE });
+    expect(calls.filter((call) => call.name === name("readNoteImage")).length).toBe(0);
+    // And a second draw is the session's copy, not a second fetch the host sees.
+    await browser.loadImage(REMOTE);
+    expect(calls.filter((call) => call.name === name("readRemoteImage")).length).toBe(1);
+  });
+
   test("a store answers with the key, and puts the bytes straight in the cache", async () => {
     unmount = mount();
     await settle();

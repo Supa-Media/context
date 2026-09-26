@@ -104,10 +104,21 @@ export function useListings(deps: ListingsDeps) {
       */
       const fetched: Listings = {};
       const started = Date.now();
-      const commit = (folder: string, page: FolderListing | null, live = false) => {
+      const commit = (folder: string, page: FolderListing | null, live = false, refused = false) => {
         fetched[folder] = page ?? undefined;
-        if (live) listedAtRef.current.set(folder, started);
         setListings((current) => {
+          // A page asked for before this console drew a change into the folder
+          // (a rename, a move, an undo) describes the folder without it, and
+          // landing it would undo the drawing — and close the renamed note's
+          // tab with it. The refresh that follows the change started later and
+          // carries the answer. A refusal is the exception: it clears the
+          // folder however old it is, because what it withholds must not stay
+          // drawn. Asked inside the updater, because `drawLocally` stamps the
+          // folder inside its own, and updaters run in the order they were
+          // queued: outside, a draw queued a moment earlier may not have
+          // stamped anything yet.
+          if (!refused && (listedAtRef.current.get(folder) ?? 0) > started) return current;
+          if (live) listedAtRef.current.set(folder, started);
           const next = { ...current };
           if (page === null) delete next[folder];
           else next[folder] = page;
@@ -148,7 +159,7 @@ export function useListings(deps: ListingsDeps) {
             // from the device's tree before anybody asked — goes with it, for
             // the same reason.
             if (isServerRefusal(error)) {
-              commit(folder, null, true);
+              commit(folder, null, true, true);
               throw error;
             }
             const cached = await offline.cachedListing(folder);

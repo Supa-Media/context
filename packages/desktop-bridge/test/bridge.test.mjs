@@ -120,6 +120,10 @@ function bridgeLike(overrides = {}) {
       status: async () => ({ available: false, name: null }),
       ask: async () => ({ ok: true, answer: "", provider: "claude-code", steps: [] }),
     },
+    // Version 8. The OS spell checker, for the note's right-click menu.
+    spelling: {
+      check: async () => ({ misspelled: false, suggestions: [] }),
+    },
     ...overrides,
   };
 }
@@ -479,8 +483,16 @@ export function runBridgeChecks(check) {
     refusalFor(Object.freeze({ ...bridgeLike(), agent: undefined, version: 6 })) === null,
   );
   check(
+    "A VERSION-8 SHELL WITHOUT `spelling` IS REFUSED — it promised it",
+    refusalFor(Object.freeze({ ...bridgeLike(), spelling: undefined, version: 8 })) === "surface-incomplete",
+  );
+  check(
+    "...but a VERSION-7 shell with no `spelling` is fine, and the menu shows the browser hint",
+    refusalFor(Object.freeze({ ...bridgeLike(), spelling: undefined, version: 7 })) === null,
+  );
+  check(
     "...and this bundle's own version is accepted by its own table",
-    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 7,
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 8,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

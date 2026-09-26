@@ -157,7 +157,7 @@ export function credentialUrlOk(value) {
   return LOOPBACK_HOSTS.has(url.hostname.replace(/^\[|\]$/g, ""));
 }
 
-export async function discover(endpoint, { fetchImpl = fetch } = {}) {
+export async function discover(endpoint, { fetchImpl = fetch, signal } = {}) {
   const url = new URL(endpoint);
   const resourcePath = url.pathname.replace(/\/+$/, "");
   const candidates = [
@@ -168,7 +168,7 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
   let issuer = url.origin;
   let resource = null;
   for (const candidate of candidates) {
-    const response = await fetchImpl(candidate).catch(() => null);
+    const response = await fetchImpl(candidate, { signal }).catch(() => null);
     if (!response?.ok) continue;
     const body = await response.json().catch(() => null);
     if (!body) continue;
@@ -188,7 +188,7 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
   }
 
   const metadataUrl = new URL("/.well-known/oauth-authorization-server", issuer).href;
-  const response = await fetchImpl(metadataUrl);
+  const response = await fetchImpl(metadataUrl, { signal });
   if (!response.ok) {
     throw new Error(`the server at ${issuer} published no OAuth metadata (${response.status})`);
   }
@@ -437,11 +437,12 @@ export function authorizeUrl(discovery, { clientId, redirectUri, challenge, stat
   return url.href;
 }
 
-async function postToken(discovery, params, fetchImpl) {
+async function postToken(discovery, params, fetchImpl, signal) {
   const response = await fetchImpl(discovery.tokenEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params).toString(),
+    signal,
   });
   const body = await response.json().catch(() => null);
   if (!response.ok || !body?.access_token) {
@@ -459,7 +460,7 @@ async function postToken(discovery, params, fetchImpl) {
   };
 }
 
-export function exchangeCode(discovery, { clientId, code, verifier, redirectUri }, { fetchImpl = fetch } = {}) {
+export function exchangeCode(discovery, { clientId, code, verifier, redirectUri }, { fetchImpl = fetch, signal } = {}) {
   return postToken(
     discovery,
     {
@@ -470,11 +471,12 @@ export function exchangeCode(discovery, { clientId, code, verifier, redirectUri 
       redirect_uri: redirectUri,
       ...(discovery.resource ? { resource: discovery.resource } : {}),
     },
-    fetchImpl
+    fetchImpl,
+    signal
   );
 }
 
-export function refreshTokens(discovery, { clientId, refreshToken }, { fetchImpl = fetch } = {}) {
+export function refreshTokens(discovery, { clientId, refreshToken }, { fetchImpl = fetch, signal } = {}) {
   return postToken(
     discovery,
     {
@@ -483,7 +485,8 @@ export function refreshTokens(discovery, { clientId, refreshToken }, { fetchImpl
       client_id: clientId,
       ...(discovery.resource ? { resource: discovery.resource } : {}),
     },
-    fetchImpl
+    fetchImpl,
+    signal
   );
 }
 

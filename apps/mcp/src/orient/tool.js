@@ -3,6 +3,7 @@
  * front of it and the others it can reach.
  */
 
+import { describeStatusList, governingFolderOf, readStatusList } from "../tools/notes/statusList.js";
 import { accessSentence, currentReach } from "./access.js";
 import { canSee, effectiveVisibility, visibilityOf } from "../privacy/engine.js";
 import {
@@ -223,6 +224,13 @@ export async function toolScopeInfo(store, scope, rules, overrides, pathArg, lis
   if (pathArg !== undefined) {
     const path = normalizePath(pathArg);
     if (!path) return toolError("invalid path");
+    // The statuses a note here may carry, in their groups: read through this connection's own clearance.
+    const folder = path.endsWith(".md") ? governingFolderOf(path) : path.replace(/\/+$/, "");
+    const { list, from } = await readStatusList(store, scope, rules, overrides, folder);
+    text +=
+      `\n\n## Statuses here\n${describeStatusList(list)}\n` +
+      (from === null ? "source: the defaults (no folder above declares a list)" : `source: ${from}/ front note`) +
+      "\nA note's `status:` should be one of these words; `where: status is done` in a list matches the whole Done group.";
     const folderDefault = visibilityOf(path, rules);
     if (scope === "private") {
       const exists = Boolean(await getWithLegacyFallback(store, path));

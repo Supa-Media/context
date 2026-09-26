@@ -3,6 +3,7 @@ import {
   Pressable,
   StyleSheet,
   View,
+  type GestureResponderEvent,
   type PressableProps,
   type StyleProp,
   type ViewStyle,
@@ -355,7 +356,7 @@ export function PressRow({
   disabled,
 }: {
   children: ReactNode;
-  onPress?: () => void;
+  onPress?: (event: GestureResponderEvent) => void;
   selected?: boolean;
   accessibilityLabel: string;
   role?: "button" | "tab" | "link";

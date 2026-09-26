@@ -9,14 +9,26 @@ import { makeStyles as makePaneStyles } from "./styles";
  * The card as a page: where a note would be, under the workspace's name, in
  * the same column `Empty` uses beside the sidebar.
  */
-export function LayingOutPage({ contextLabel, done }: { contextLabel: string; done: boolean }) {
+export function LayingOutPage({
+  contextLabel,
+  done,
+  standard = true,
+  shared = false,
+}: {
+  contextLabel: string;
+  done: boolean;
+  /** The standard five are being written; `false` for a kind that names its own. */
+  standard?: boolean;
+  /** A shared workspace, whose folders start open to its members. */
+  shared?: boolean;
+}) {
   const pane = useThemedStyles(makePaneStyles);
   return (
     <View style={pane.empty}>
       <Text variant="paneTitle" role="heading" aria-level={2}>
         {contextLabel}
       </Text>
-      <LayingOutFolders done={done} />
+      <LayingOutFolders done={done} standard={standard} shared={shared} />
     </View>
   );
 }
@@ -42,17 +54,33 @@ export function LayingOutPage({ contextLabel, done }: { contextLabel: string; do
  * the folders and the privacy file in one run and reports back once, so there
  * is no per-folder progress to show. Ticking them one by one would be a
  * progress bar about nothing.
+ *
+ * **Chips only for the standard five.** A shared workspace can be laid out as a
+ * business, an agency or a project (`features/workspace/presets.ts`), and the
+ * console is not told which folders that choice named — so it draws the line
+ * alone rather than five PARA chips the bucket is not getting. The tree beside
+ * it shows the real folders the moment they land.
  */
-export function LayingOutFolders({ done }: { done: boolean }) {
+export function LayingOutFolders({
+  done,
+  standard = true,
+  shared = false,
+}: {
+  done: boolean;
+  standard?: boolean;
+  shared?: boolean;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const rows = [...paraFolderLines().map(({ folder }) => folder), "privacy.md"];
+  const rows = standard ? [...paraFolderLines().map(({ folder }) => folder), "privacy.md"] : [];
   return (
     <View style={styles.card} testID="browse-laying-out">
       <Text style={styles.headline} role="status">
         <Text style={styles.title}>{done ? "Your folders are ready" : "Setting up your folders"}</Text>
         {done
-          ? " — each one private until you share it."
+          ? shared
+            ? " — open to everyone in the workspace."
+            : " — each one private until you share it."
           : " — this takes a few seconds."}
       </Text>
       <View style={styles.chips}>

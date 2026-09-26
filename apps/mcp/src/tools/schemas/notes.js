@@ -41,7 +41,11 @@ export function noteWriteToolDefinitions() {
         "```form\nid: intake\nresponses: 1-projects/intake-responses.md\nlayout: table\nsubmit: member\nedit_own: true\nvotes: off\nfields:\n  - { name: who, type: line, max: 120, required: true }\n  - { name: brief, type: text, max: 2000 }\n```\n" +
         "id is a short lowercase name; responses is a note of its OWN, never this one; layout is table or sections; submit is the lowest role that may answer (member, editor or owner — use member for anything a link should collect); votes is named or off. Field types are line, text, select, number, date and checkbox; line and text need max, select needs options: [A, B]. Who may READ the answers is the responses note's own visibility, so say where it lands before you make it. " +
         "Add notify: owner — or notify: @handle — to EMAIL somebody every answer, which is what to reach for when they say they want to know when one comes in. It names a PERSON, never an address: the mail goes to a member of this context at the address on their account, an email address there is refused, and the mail carries the answers, so only somebody who could already open the answers note is told. " +
-        "Then pass share to hand out a link to it — see that argument.",
+        "Then pass share to hand out a link to it — see that argument. " +
+        "\n\nTHIS TOOL ALSO UPLOADS IMAGES. Pass images: [{ name, data | url, alt? }] and embed each one in the content by its name, e.g. ![[chart.png]] or ![a chart](chart.png). " +
+        "data is the image's base64 (a data: URI works too); url is an https address the gateway fetches once. Either way the bytes are stored inside this workspace, the embed is rewritten to point at that copy, and the image follows the note's visibility. " +
+        "PNG, JPEG, GIF, WebP and HEIC, up to 5 MB each and 10 per call; SVG is refused. An image the content does not embed is added at the end. " +
+        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead.",
       inputSchema: {
         type: "object",
         properties: {
@@ -65,6 +69,23 @@ export function noteWriteToolDefinitions() {
               "would want to know (\"recorded the folder rename and the paths it broke\"), never " +
               "what the tool call already says (\"updated a note\"). Omit it for a change nobody " +
               "else needs to hear about.",
+          },
+          images: {
+            type: "array",
+            maxItems: 10,
+            description:
+              "Images to store in this workspace and embed in the note. Each name is the placeholder the content embeds (![[chart.png]]); it is replaced by the stored image.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", description: "The file name the content embeds this image as, e.g. chart.png" },
+                data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this or url." },
+                url: { type: "string", description: "An https URL to fetch the image from once. Pass this or data." },
+                alt: { type: "string", description: "Alt text, used when the image is appended rather than embedded by name" },
+              },
+              required: ["name"],
+              additionalProperties: false,
+            },
           },
           share: {
             type: "string",

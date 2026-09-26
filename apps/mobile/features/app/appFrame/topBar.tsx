@@ -7,7 +7,7 @@ import { FrameIconButton, SearchTrigger } from "./controls";
 import type { FrameStyles } from "./styles";
 
 /**
- * The frame's top bar: the switcher or the phone's account mark, the tabs, the
+ * The frame's top bar: the phone's account mark, the tabs, the
  * sync pill and the trailing group.
  *
  * A function that returns the element rather than a component, so the tree
@@ -23,7 +23,7 @@ export function frameTopBar({
   lightsLeadPx,
   density,
   accountSlot,
-  switcher,
+  lead,
   tabs,
   syncSlot,
   topTrailing,
@@ -40,7 +40,7 @@ export function frameTopBar({
   lightsLeadPx: number;
   density: Density;
   accountSlot?: ReactNode;
-  switcher: ReactNode;
+  lead?: ReactNode;
   tabs?: ReactNode;
   syncSlot?: ReactNode;
   topTrailing?: ReactNode;
@@ -70,8 +70,8 @@ export function frameTopBar({
 
           Every slot below sets `no-drag` on itself — see `topLead`. What
           stays draggable is the bar's own background: the gaps between
-          slots, the run between the chip and the tabs, and the air above
-          the tabs, which hang from the foot.
+          slots, the run before the tabs, and the air above the tabs, which
+          hang from the foot.
         */
         holdsLights && { paddingLeft: lightsLeadPx },
         holdsLights && styles.topBarDrag,
@@ -92,8 +92,10 @@ export function frameTopBar({
         left is not a bar with two buttons and a gap: it is a row of slots,
         and the middle one is a list.
 
-        At medium and wide the switcher is unchanged and still the leading
-        element of a real bar with a surface and a hairline.
+        At medium and wide the console leads with nothing any more: the
+        workspace switcher chip moved to the account button at the foot of
+        the file tree (see `AppFrame`'s `account`), so its tabs start here.
+        `lead` is for a surface that still names itself, like the homepage.
       */}
       {topBarLeadFor(density) === "account" ? (
         <>
@@ -106,8 +108,8 @@ export function frameTopBar({
             <View style={styles.accountLead}>{accountSlot}</View>
           )}
         </>
-      ) : (
-        <View style={styles.topLead}>{switcher}</View>
+      ) : lead == null ? null : (
+        <View style={styles.topLead}>{lead}</View>
       )}
 
       {/*

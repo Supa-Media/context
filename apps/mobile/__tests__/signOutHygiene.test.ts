@@ -357,7 +357,7 @@ function mountConsole(width = 1440) {
       make by accident.
     */
     signOut: async () => {
-      await press(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]'));
+      await press(document.body.querySelector<HTMLElement>('[data-testid="account-switcher"]'));
       await press(document.body.querySelector<HTMLElement>('[data-testid="switcher-sign-out"]'));
     },
     unmount: () => {

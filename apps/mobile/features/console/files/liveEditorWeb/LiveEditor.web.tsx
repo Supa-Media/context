@@ -57,9 +57,10 @@ import type { FormHostRef, FormResponseRetract, FormResponseUpdate, FormVote } f
 import { listHost, type ListHostRef } from "../listBlock/model";
 import type { ImageHostRef } from "../imageBlock";
 import { useColors } from "../../../design/theme";
-import type { LiveEditorProps } from "./contract";
+import type { LiveEditorProps, MenuOpen } from "./contract";
 import { ensureStyles } from "./stylesheet";
 import { mountEditor } from "./mount";
+import { showTitleNote } from "./titleLine";
 import { bindSharedDocument, followNote } from "./sharedBinding";
 import { runEditorMenuAction } from "./contextMenu";
 
@@ -72,6 +73,8 @@ export function LiveEditor({
   controls,
   onFocus,
   onBlur,
+  onTitleCaret,
+  titleNote,
   accessibilityLabel,
   onOpenNote,
   notePath,
@@ -191,6 +194,7 @@ export function LiveEditor({
           load: (folder, subfolders) => folderLists.load(folder, subfolders),
           ...(folderLists.subscribe === undefined ? {} : { subscribe: folderLists.subscribe }),
           ...(folderLists.setProperty === undefined ? {} : { setProperty: folderLists.setProperty }),
+          ...(folderLists.searchOwners === undefined ? {} : { searchOwners: folderLists.searchOwners }),
           open: (path, background) => onOpenNote(path, background ? "background" : "foreground"),
           selfPath: notePath ?? null,
         };
@@ -270,8 +274,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onDictate, onAsk });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onDictate, onAsk };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onTitleCaret, onDictate, onAsk };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -282,7 +286,7 @@ export function LiveEditor({
    * picker at the **same** point, so the picker outlives the menu and has to
    * remember an anchor the menu has already forgotten.
    */
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [menuAt, setMenuAt] = useState<MenuOpen | null>(null);
   const [tableAt, setTableAt] = useState<{ x: number; y: number } | null>(null);
 
   // What the editor is known to hold. Compared against the incoming `value` to
@@ -319,6 +323,19 @@ export function LiveEditor({
     // down and losing the selection and undo history with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The line under the title, into the editor — see `titleLine.ts`. A state
+  // effect, like the roster below, so it redraws without touching the
+  // document or the caret.
+  const titleTone = titleNote?.tone ?? null;
+  const titleMessage = titleNote?.message ?? null;
+  useEffect(() => {
+    if (view.current === null) return;
+    showTitleNote(
+      view.current,
+      titleTone === null || titleMessage === null ? null : { tone: titleTone, message: titleMessage },
+    );
+  }, [titleTone, titleMessage]);
 
   // A different note was opened, and the room bound here is the one being
   // left — see `followNote`.
@@ -512,6 +529,8 @@ export function LiveEditor({
             canDictate: onDictate !== undefined,
             canAsk: onAsk !== undefined,
             canList: view.current.state.facet(listHost)?.current != null,
+            spelling: menuAt.spelling ?? null,
+            spellingHint: menuAt.spellingHint === true,
           })}
           anchor={menuAt}
           title="Format"

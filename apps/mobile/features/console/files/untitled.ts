@@ -1,4 +1,4 @@
-import { baseName, isMarkdown } from "./paths";
+import { baseName } from "./paths";
 import { namesIn } from "./tree";
 import type { FolderListing } from "./types";
 
@@ -136,45 +136,3 @@ export function titleFor(text: string): string | null {
   return title === "" ? null : title;
 }
 
-/**
- * The name an untitled note should take from its own heading, or `null` to
- * leave it alone.
- *
- * `null` covers every case where renaming would be wrong or would fail, and the
- * caller treats all of them the same way — it does nothing and asks again after
- * the next save:
- *
- *  - no heading yet, or an empty one;
- *  - a heading that is still the placeholder, which is what a note reads as for
- *    the whole first second of its life;
- *  - a heading a bucket cannot store as a name. **This refuses rather than
- *    sanitizes.** A silent transformation of somebody's title into a filename
- *    that is nearly it is worse than leaving the note untitled: they can see
- *    `untitled-2026-09-19` and rename it themselves, and they cannot see that
- *    the slash they typed became a folder.
- *
- * The extension is carried over from the path rather than appended, so a
- * drawing titled from its heading stays `<name>.excalidraw.md` and does not
- * quietly become a note.
- */
-export function nameFromTitle(path: string, text: string): string | null {
-  const title = titleFor(text);
-  if (title === null) return null;
-  const name = baseName(path);
-  const stem = name.replace(/(\.excalidraw)?\.md$/i, "");
-  if (title === stem) return null;
-  const extension = name.slice(stem.length);
-  /*
-    The same refusals `describeNameProblem` makes, asked here rather than there
-    because this has to answer *whether* to rename and that one answers *why a
-    person's typing will not do*. A heading is not typing into a name field, so
-    there is nobody to show the sentence to.
-  */
-  if (title.includes("/") || title.startsWith(".")) return null;
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f\\]/.test(title)) return null;
-  const candidate = `${title}${extension}`;
-  if (candidate.length > 200) return null;
-  if (!isMarkdown(candidate)) return null;
-  return candidate;
-}

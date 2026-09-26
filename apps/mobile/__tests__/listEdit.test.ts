@@ -17,6 +17,7 @@ import { listHost, type ListHostContext, type ListNote } from "../features/conso
 import { valueChoices } from "../features/console/files/listBlock/valueMenu";
 import { writeNoteProperty, type NoteReadWrite } from "../features/console/files/listBlock/writeProperty";
 import { livePreview, markdownLanguage } from "../features/console/files/livePreview";
+import type { OwnerSearch } from "../features/console/files/owners";
 
 const NOTES: ListNote[] = [
   { path: "p/web.md", updatedAt: 3, properties: { status: "active", owner: "Seyi" } },
@@ -34,9 +35,13 @@ beforeAll(() => {
 
 type Call = [path: string, key: string, value: string | null];
 
-function mount(text: string, options: { writes?: Call[]; answer?: string | null; canWrite?: boolean } = {}): EditorView {
-  const { writes = [], answer = null, canWrite = true } = options;
+function mount(
+  text: string,
+  options: { writes?: Call[]; answer?: string | null; canWrite?: boolean; searchOwners?: OwnerSearch } = {},
+): EditorView {
+  const { writes = [], answer = null, canWrite = true, searchOwners } = options;
   const host: ListHostContext = {
+    ...(searchOwners === undefined ? {} : { searchOwners }),
     load: async () => ({ notes: NOTES, complete: true }),
     open: () => undefined,
     selfPath: "p/README.md",
@@ -82,6 +87,15 @@ describe("changing a value from a list", () => {
     view.destroy();
   });
 
+  test("visibility is shown and never offered as a value to change", async () => {
+    // Who can read a note is privacy.md's answer, set with Share; see `listBlock/writable.ts`.
+    const view = mount(doc("from: p", "show: visibility, owner"));
+    await flush();
+    expect(edits(view).map((b) => b.textContent)).toEqual(["Seyi", "Seyi's Codex", "Set"]);
+    expect(view.dom.querySelectorAll('.cm-lp-list-edit[title="Change visibility"]')).toHaveLength(0);
+    view.destroy();
+  });
+
   test("the menu offers the words the list already uses, the current one checked", async () => {
     const view = mount(doc("from: p", "show: status"));
     await flush();
@@ -96,8 +110,9 @@ describe("changing a value from a list", () => {
     const writes: Call[] = [];
     const view = mount(doc("from: p", "group: status", "show: status"), { writes });
     await flush();
-    expect([...view.dom.querySelectorAll(".cm-lp-list-group")].map((g) => g.firstChild?.textContent)).toEqual(["Active", "Planned", "Done"]);
-    edits(view)[0].click();
+    // Status groups run Not started, In progress, Done (apps/mcp/src/lists/statuses.js).
+    expect([...view.dom.querySelectorAll(".cm-lp-list-group")].map((g) => g.firstChild?.textContent)).toEqual(["Planned", "Active", "Done"]);
+    edits(view)[1].click();
     [...view.dom.querySelectorAll<HTMLElement>(".cm-lp-list-menu-item")][2].click(); // done
     await flush();
     await flush();
@@ -107,13 +122,13 @@ describe("changing a value from a list", () => {
     view.destroy();
   });
 
-  test("a new word is typed, and clearing is a choice of its own", async () => {
+  test("a new word is typed for a status, and clearing is a choice of its own", async () => {
     const writes: Call[] = [];
-    const view = mount(doc("from: p", "show: owner"), { writes });
+    const view = mount(doc("from: p", "show: status"), { writes });
     await flush();
     edits(view)[2].click();
     const field = view.dom.querySelector<HTMLInputElement>(".cm-lp-list-menu-new")!;
-    field.value = "  any agent ";
+    field.value = "  blocked ";
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await flush();
     await flush();
@@ -121,7 +136,47 @@ describe("changing a value from a list", () => {
     view.dom.querySelector<HTMLElement>(".cm-lp-list-menu-clear")!.click();
     await flush();
     expect(writes).toEqual([
-      ["p/old.md", "owner", "  any agent "],
+      ["p/old.md", "status", "  blocked "],
+      ["p/web.md", "status", null],
+    ]);
+    view.destroy();
+  });
+
+  test("an owner is picked from people and agents the server finds, never typed", async () => {
+    const writes: Call[] = [];
+    const asked: string[] = [];
+    const searchOwners: OwnerSearch = async (query) => {
+      asked.push(query);
+      const people = ["Sayo", "Seyi Olujide"].filter((name) => name.toLowerCase().includes(query.toLowerCase()));
+      return { people: people.map((value) => ({ value, isMe: false })), agents: ["Claude"], truncated: false };
+    };
+    const view = mount(doc("from: p", "show: owner"), { writes, searchOwners });
+    await flush();
+    edits(view)[2].click();
+    await flush();
+    expect(view.dom.querySelector(".cm-lp-list-menu-new")).toBeNull();
+    expect(items(view).map((text) => text?.replace(/[\u2066-\u2069]/g, ""))).toEqual([
+      "Sayo",
+      "Seyi Olujide",
+      "Claude",
+      "Any agent · Whichever picks it up",
+    ]);
+    const field = view.dom.querySelector<HTMLInputElement>(".cm-lp-list-menu-search")!;
+    field.value = "sey";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(asked).toEqual(["", "sey"]);
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+    await flush();
+    edits(view)[0].click();
+    await flush();
+    // "Seyi" was typed by hand once: kept, checked and marked; "No owner" clears it.
+    expect(items(view)[0]?.replace(/[\u2066-\u2069]/g, "")).toBe("✓Seyi · Not a member");
+    view.dom.querySelector<HTMLElement>(".cm-lp-list-menu-clear")!.click();
+    await flush();
+    expect(writes).toEqual([
+      ["p/old.md", "owner", "Seyi Olujide"],
       ["p/web.md", "owner", null],
     ]);
     view.destroy();
@@ -131,6 +186,7 @@ describe("changing a value from a list", () => {
     const view = mount(doc("from: p", "show: owner"), { answer: "That note is changing right now. Try again in a moment." });
     await flush();
     edits(view)[0].click();
+    await flush();
     [...view.dom.querySelectorAll<HTMLElement>(".cm-lp-list-menu-item")][1].click();
     await flush();
     expect(menu(view)?.querySelector(".cm-lp-list-menu-problem")?.textContent).toBe(
@@ -164,7 +220,7 @@ describe("changing a value from a list", () => {
 
 describe("the read, the change and the write", () => {
   function io(notes: Record<string, { text: string; etag: string; encrypted?: boolean; readOnly?: boolean }>, fail: string[] = []) {
-    const written: Array<[string, string, string]> = [];
+    const written: Array<[string, string, string | undefined]> = [];
     const store: NoteReadWrite = {
       read: async (path) => {
         const note = notes[path];
@@ -210,6 +266,19 @@ describe("the read, the change and the write", () => {
     expect(written).toEqual([]);
   });
 
+  test("visibility is refused before the note is read, in any case and even as a create", async () => {
+    let reads = 0;
+    const { store, written } = io({ "x.md": note });
+    const counted: NoteReadWrite = { read: (path) => (reads++, store.read(path)), write: store.write };
+    for (const key of ["visibility", "Visibility", " VISIBILITY "]) {
+      expect(await writeNoteProperty(counted, "x.md", key, "team")).toMatch(/set with Share/);
+      expect(await writeNoteProperty(counted, "x.md", key, null)).toMatch(/set with Share/);
+      expect(await writeNoteProperty(counted, "p/a/overview.md", key, "private", { create: true })).toMatch(/set with Share/);
+    }
+    expect(reads).toBe(0);
+    expect(written).toEqual([]);
+  });
+
   test("nothing is written when nothing would change", async () => {
     const { store, written } = io({ "x.md": note });
     expect(await writeNoteProperty(store, "x.md", "status", "planned")).toBeNull();
@@ -219,5 +288,59 @@ describe("the read, the change and the write", () => {
   test("a note that cannot be read is said so", async () => {
     const { store } = io({});
     expect(await writeNoteProperty(store, "x.md", "status", "active")).toMatch(/could not be opened/);
+  });
+
+  /*
+    A folder page setting the first status of a folder with no front note.
+    The note is created by the ordinary create — `writeNote` with no version,
+    which the server refuses if a note appeared there meanwhile — and holds the
+    frontmatter and nothing else.
+  */
+  describe("creating the note, when asked to", () => {
+    function missing(fail: string[] = []) {
+      const written: Array<[string, string, string | undefined]> = [];
+      let exists: { text: string; etag: string } | null = null;
+      const store: NoteReadWrite = {
+        read: async () => {
+          if (exists === null) throw new ConvexError({ code: "FILE_NOT_FOUND", message: "gone" });
+          return exists;
+        },
+        write: async (path, text, etag) => {
+          const code = fail.shift();
+          if (code !== undefined) {
+            // Somebody else created it between the read and the write.
+            exists = { text: "---\nowner: Sayo\n---\n", etag: "theirs" };
+            throw new ConvexError({ code, message: code });
+          }
+          written.push([path, text, etag]);
+          return { path };
+        },
+      };
+      return { store, written };
+    }
+
+    test("a missing note is written new, with no version, holding only the property", async () => {
+      const { store, written } = missing();
+      expect(await writeNoteProperty(store, "p/do this/overview.md", "status", "active", { create: true })).toBeNull();
+      expect(written).toEqual([["p/do this/overview.md", "---\nstatus: active\n---\n", undefined]]);
+    });
+
+    test("without being asked, a missing note is still refused", async () => {
+      const { store, written } = missing();
+      expect(await writeNoteProperty(store, "p/x.md", "status", "active")).toMatch(/could not be opened/);
+      expect(written).toEqual([]);
+    });
+
+    test("a note that appeared meanwhile is read and changed, never replaced", async () => {
+      const { store, written } = missing(["CONFLICT"]);
+      expect(await writeNoteProperty(store, "p/a/overview.md", "status", "active", { create: true })).toBeNull();
+      expect(written).toEqual([["p/a/overview.md", "---\nowner: Sayo\nstatus: active\n---\n", "theirs"]]);
+    });
+
+    test("clearing a property of a note that does not exist writes nothing", async () => {
+      const { store, written } = missing();
+      expect(await writeNoteProperty(store, "p/a/overview.md", "status", null, { create: true })).toBeNull();
+      expect(written).toEqual([]);
+    });
   });
 });

@@ -328,7 +328,7 @@ export function installMediaRecorder(): void {
 
 /* ------------------------ the share picker, as a fake ---------------------- */
 
-export function installGetUserMedia(withPicker = false): void {
+export function installGetUserMedia(withPicker = false, pickerSharesAudio = true): void {
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
     value: {
@@ -346,6 +346,13 @@ export function installGetUserMedia(withPicker = false): void {
       */
       ...(withPicker
         ? {
+            /*
+              How the probe tells a Chromium picker, which can share audio, from
+              Firefox's and Safari's, which cannot. See `capabilities.ts`.
+            */
+            getSupportedConstraints: () => ({
+              suppressLocalAudioPlayback: pickerSharesAudio,
+            }),
             getDisplayMedia: async () => {
               webState.prompts.push("picker");
               if (webState.pickerAnswer === "cancelled") throw new Error("Permission denied");

@@ -99,9 +99,21 @@ describe("the connect steps", () => {
 
   test("ChatGPT's free plan is pointed at Claude rather than a dead end", () => {
     const calls: string[] = [];
-    const guide = draw("guide-chatgpt-devmode", { onSwitchAgent: () => calls.push("switch") });
+    const guide = draw("guide-chatgpt-create", { onSwitchAgent: () => calls.push("switch") });
     expect(guide.text()).toContain("Set up Claude instead");
     guide.done();
+  });
+
+  test("ChatGPT's guide starts at Create app, with no developer mode anywhere", () => {
+    const first = draw("guide-chatgpt-create");
+    expect(first.text()).toContain("Create app");
+    expect(first.byId("agent-setup-open-link")).not.toBeNull();
+    first.done();
+    for (const key of ["guide-chatgpt-create", "guide-chatgpt-stick", "guide-chatgpt-bring", "guide-chatgpt-denied"] as const) {
+      const guide = draw(key);
+      expect(guide.text().toLowerCase()).not.toContain("developer mode");
+      guide.done();
+    }
   });
 });
 

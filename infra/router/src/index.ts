@@ -14,6 +14,8 @@ import { previewForNote,
 import { route, type RouteDecision, type Upstream } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
+import { siteCardResponse, sitePreviewResponse } from "./siteCards";
+import { isHomeDocument, withHomeSite } from "./homeSite";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
 // a crawler is guaranteed to fetch should not depend on an upstream that might
@@ -25,6 +27,7 @@ export interface Env {
   EXPO_ORIGIN?: string;
   /** Convex HTTP-actions origin, i.e. `https://<deployment>.convex.site`. */
   CONVEX_ORIGIN?: string;
+  HOME_SITE_HANDLE?: string; // whose website/ is the homepage (`homeSite.ts`)
 }
 
 /**
@@ -73,7 +76,11 @@ export default {
     if (!isPlatformHost(url.hostname)) {
       return await siteResponse(request, url, env, ctx, respond);
     }
-    return await respond(route(url, request.headers.get("User-Agent")), request, env, ctx);
+    const decision = route(url, request.headers.get("User-Agent"));
+    if (decision.kind === "proxy" && decision.upstream === "expo" && isHomeDocument(request, url)) {
+      return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx);
+    }
+    return await respond(decision, request, env, ctx);
   },
 };
 
@@ -183,6 +190,28 @@ async function respond(
           },
         });
       }
+
+      case "site-preview":
+        return await sitePreviewResponse(
+          decision,
+          readOrigin(env.CONVEX_ORIGIN),
+          ctx,
+          (slug) =>
+            respond(
+              {
+                kind: "short-link-preview",
+                handle: decision.handle,
+                slug,
+                ...(decision.routePath === "/" ? { routePath: "/" } : {}),
+              },
+              request,
+              env,
+              ctx,
+            ),
+        );
+
+      case "site-card":
+        return await siteCardResponse(decision, readOrigin(env.CONVEX_ORIGIN), ctx);
 
       case "og-card":
         return new Response(ogCard, {

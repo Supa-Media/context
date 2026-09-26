@@ -355,7 +355,7 @@ describe("the console contains a name it did not choose", () => {
     area that must NOT contain, and therefore the one thing a renderer must not
     call.
 
-    The allowance below is the four functions that trim on the way to their own
+    The allowance below is the files that trim on the way to their own
     contained exit. Anything else calling it is a new display site that skipped
     the rule, and this test is how it is found on the day it is written rather
     than in the next sweep.
@@ -368,6 +368,9 @@ describe("the console contains a name it did not choose", () => {
       "features/console/files/crumbs.ts",
       "features/console/files/frontmatter.ts",
       "features/console/files/tabs.ts",
+      // Compares a title with a file's name to decide whether they are one
+      // thing; the label it hands out is contained at its exit.
+      "features/console/files/linkedTitle.ts",
     ]);
     const found = sourceFilesMatching("withoutSortPrefix(").filter((file) => !allowed.has(file));
     expect(found).toEqual([]);

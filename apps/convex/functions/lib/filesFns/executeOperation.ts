@@ -43,6 +43,7 @@ import {
   writeFile,
   writeImage,
 } from "../fileOps";
+import { ensureFolderVisibility } from "../fileOps/visibility";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -60,6 +61,7 @@ import { resolveContextPlugins, setPluginEnabled } from "../../../../mcp/src/plu
 import { type FileOperation, IDLE_PROJECTION, type OperationResult } from "./operationTypes";
 import {
   deleteWebsiteRelease,
+  deleteWebsiteReleasePages,
   readWebsiteRelease,
   writeWebsiteRelease,
 } from "../fileOps/websiteReleases";
@@ -497,7 +499,14 @@ export async function executeOperation(
       case "deleteWebsiteRelease": {
         return {
           kind: "websiteReleaseDeleted",
-          objects: await deleteWebsiteRelease(store, operation.releaseId),
+          objects:
+            operation.pageIds === undefined
+              ? await deleteWebsiteRelease(store, operation.releaseId)
+              : await deleteWebsiteReleasePages(
+                  store,
+                  operation.releaseId,
+                  operation.pageIds,
+                ),
         };
       }
       case "clearVault": {
@@ -835,14 +844,25 @@ export async function executeOperation(
         return { kind: "visibility", ...result };
       }
       case "setFolderVisibility": {
-        const result = await setFolderVisibility(store, {
-          path: operation.path,
-          visibility: operation.visibility,
-          clearance,
-        });
-        await noteActivity("visibility.folder", [operation.path], {
-          to: operation.visibility,
-        });
+        const { result, changed } = operation.onlyIfUnset === true
+          ? await ensureFolderVisibility(store, {
+              path: operation.path,
+              visibility: operation.visibility,
+              clearance,
+            })
+          : {
+              result: await setFolderVisibility(store, {
+                path: operation.path,
+                visibility: operation.visibility,
+                clearance,
+              }),
+              changed: true,
+            };
+        if (changed) {
+          await noteActivity("visibility.folder", [operation.path], {
+            to: operation.visibility,
+          });
+        }
         return { kind: "visibility", ...result };
       }
       case "writeImage": {

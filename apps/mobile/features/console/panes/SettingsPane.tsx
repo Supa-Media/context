@@ -39,6 +39,7 @@ import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
 import { StorageMigrationCard } from "../storage/StorageMigration";
+import type { SetupAgent } from "../../agentSetup/guides";
 
 /**
  * A context's settings: its bucket, its credentials, and its ingestion rules.
@@ -76,6 +77,7 @@ export function SettingsPane({
   onSelect,
   section,
   returned = null,
+  onConnectAgent,
 }: {
   data: ConsoleData;
   onClose: () => void;
@@ -100,6 +102,7 @@ export function SettingsPane({
   section?: SettingsSectionKey;
   /** What a return from Stripe said, from the route. Only Premium reads it. */
   returned?: CheckoutOutcome | null;
+  onConnectAgent?: (agent: SetupAgent) => void;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -452,7 +455,7 @@ export function SettingsPane({
         are a live member of, and each app can be cut off on its own without
         touching the others.
       </SubHead>
-      <ConnectedAppsCard data={data} />
+      <ConnectedAppsCard data={data} onConnectAgent={onConnectAgent} />
 
       <SourcesPanel data={data} />
       </>
@@ -461,7 +464,6 @@ export function SettingsPane({
       {show("model") ? <ModelPanel data={data} sectioned={section !== undefined} /> : null}
 
       {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
-
 
       {show("plugins") ? (
       <>
@@ -488,8 +490,6 @@ export function SettingsPane({
       />
       </>
       ) : null}
-
-
     </View>
   );
 }

@@ -149,6 +149,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
+- [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
 
 ## [Markdown forms](./forms.md)
 
@@ -176,12 +177,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The filter lives in the block
 - A project is anything with a status
 - A list changes one line of a note, the same way any save does
+- A folder page shows its children by status
+- A list write is what this device holds afterwards
+- Status groups
+- An owner is picked, never typed
 
 ## [Bucket-backed websites](./websites.md)
 
+- `privacy.md` decides what a website publishes
 - An edit is a candidate; the last complete release is the fallback
 - A fallback never reverses an explicit restriction
+- The index may lag on widening, never on narrowing
 - Release bytes stay in the customer's bucket, with one generation of grace
+- The workspace icon is the site's favicon
+- A page unfurls as itself
+- The homepage is `@context-lc`'s website, in its HTML
 
 ## [Search and the derived index](./search.md)
 
@@ -243,12 +253,14 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Connecting an AI is a guide that checks itself
 - An action row is primary first, and the way out sits beside it
 - Two name fields for a shared workspace, one for a personal one
-- The layout presets are company-shaped, and PARA is not the default
+- The layout presets are business-shaped, and PARA is not the default
+- A new workspace is asked for its image
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail is one list, with the personal workspace pinned to the top
 - The rail folds into the switcher, and the column it occupied goes to the note
 - The workspaces come back as a row at the foot of the tree, not as a column
+- One account button at the bottom left replaces the chip and the row
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
@@ -273,6 +285,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - "Move to…" is one dialog, and the other context is a destination rather than a mode
 - Settings is seven rows, and a row has to earn its place
 - A pasted image is a width in the note and a file in the bucket, and nothing else
+- [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
 - A status wears a chip; a band is for what you have not been told
 - A workspace can wear a face, and the letter is what it falls back to
 - The allowed-sender list stays beside the address it gates

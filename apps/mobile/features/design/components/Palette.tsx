@@ -17,13 +17,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rank, type Match, type PaletteItem } from "../../console/files/palette";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
-import { isApplePlatform } from "../applePlatform";
-import { resolve } from "../keymap";
 import { fonts, layout, pointerType as t, radii, space, touchType } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
+import { usePaletteKeys } from "./usePaletteKeys";
 
 /**
  * One filterable, keyboard-driven list, behind every surface that needs one.
@@ -304,29 +303,6 @@ export function askItem(query: string, offered: boolean): PaletteItem | null {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  platform                                  */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Whether `mod` means ⌘.
- *
- * Only consulted for chords that carry a modifier, and the overlay scope has
- * none — but `resolve` takes the flag, and handing it a guess that is wrong on
- * half the machines is how a modifier rule stops being exact.
- *
- * **`isApplePlatform` decides it, here as everywhere else.** This was a private
- * regex over `navigator.platform || navigator.userAgent`, and `applePlatform`'s
- * own header names it as one of the three answers it was written to replace —
- * accurately, and it had never been replaced. The platform branch it opened
- * with is not lost: the native half of that module *is* the `Platform.OS`
- * check, so a bare import gets it on native and the browser answer on web,
- * which is the whole arrangement of that pair.
- */
-function onApplePlatform(): boolean {
-  return isApplePlatform();
-}
-
-/* -------------------------------------------------------------------------- */
 /*                                    rows                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -492,10 +468,8 @@ export function Palette({
 
   /**
    * One list for the arrows and for Enter, so a keyboard walks into the search
-   * results rather than stopping at the last loaded note.
-   */
-  /**
-   * One list for the arrows and for Enter, with the handoff as its last row.
+   * results rather than stopping at the last loaded note, with the handoff as
+   * its last row.
    *
    * The row is appended here rather than rendered after the list so that
    * `selected`, the wrap-around in `move`, and the scroll arithmetic all see
@@ -593,57 +567,7 @@ export function Palette({
 
   /* ------------------------------- keyboard ------------------------------ */
 
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof document === "undefined") return;
-    const apple = onApplePlatform();
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      const command = resolve(
-        {
-          key: event.key,
-          metaKey: event.metaKey,
-          ctrlKey: event.ctrlKey,
-          shiftKey: event.shiftKey,
-          altKey: event.altKey,
-          // True by construction: the palette's filter has focus. Said out
-          // loud rather than hard-coded `false`, because the whole reason the
-          // overlay scope exists is that it ignores this flag — and a `false`
-          // here would make that look like it was never tested.
-          inTextField: true,
-        },
-        "overlay",
-        apple,
-      );
-      if (command === null) return;
-
-      switch (command) {
-        case "treeUp":
-          move(-1);
-          break;
-        case "treeDown":
-          move(1);
-          break;
-        case "treeOpen":
-          choose();
-          break;
-        case "dismiss":
-          onDismiss();
-          break;
-        default:
-          // Unreachable: the overlay scope resolves to nothing else. Left in
-          // so that adding an overlay binding fails visibly here rather than
-          // silently swallowing the keystroke below.
-          return;
-      }
-
-      // The arrows would otherwise walk the caret through the query, and Enter
-      // would submit whatever form a host page happens to have wrapped us in.
-      event.preventDefault();
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [move, choose, onDismiss]);
+  usePaletteKeys({ move, choose, onDismiss });
 
   /* -------------------------------- pieces ------------------------------- */
 
