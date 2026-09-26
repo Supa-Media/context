@@ -11,8 +11,8 @@
  * always picks one of the options it is given.
  */
 
-import { CLOSED_STATUSES } from "../lists/grammar.js";
 import { noteHeading, noteProperties } from "../lists/properties.js";
+import { defaultStatusList, isDoneStatus } from "../lists/statuses.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Of a note's body, what Jev reads. Its window is 32K tokens; this is ~4K. */
@@ -52,19 +52,25 @@ export function spokenSpan(days) {
   return `${days} days`;
 }
 
-export function isClosedStatus(status) {
-  return CLOSED_STATUSES.has(String(status ?? "").trim().toLowerCase());
+/** Closed means in the Done group of the projects folder's own status list. */
+export function isClosedStatus(status, list = defaultStatusList()) {
+  return typeof status === "string" && status.trim() !== "" && isDoneStatus(status, list);
 }
 
-/** Facts about one project, all computed, none guessed. */
-export function projectFacts(project, text, now) {
+/**
+ * Facts about one project, all computed, none guessed. `list` is the status
+ * list of the folder the project sits in (`resolveStatusList`); `doneWord` is
+ * what "mark done" writes: that list's first Done word.
+ */
+export function projectFacts(project, text, now, list = defaultStatusList()) {
   const properties = noteProperties(text);
   const status = typeof properties.status === "string" ? properties.status.trim() : null;
   const boxes = checkboxCounts(text);
   const quiet = quietDays(project.updatedAt, now);
   return {
     status,
-    closed: isClosedStatus(status),
+    closed: isClosedStatus(status, list),
+    doneWord: list.done?.[0] ?? "done",
     title: noteHeading(text) || project.title,
     boxes,
     quiet,

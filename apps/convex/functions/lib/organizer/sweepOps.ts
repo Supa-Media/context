@@ -42,6 +42,8 @@ import {
   writeOrganizerState,
 } from "../../../../mcp/src/organizer/state.js";
 import { setNoteProperty } from "../../../../mcp/src/lists/setProperty.js";
+import { noteProperties } from "../../../../mcp/src/lists/properties.js";
+import { resolveStatusList } from "../../../../mcp/src/lists/statuses.js";
 
 /** The name on what the organizer does by itself, in `activity.md`. */
 export const ORGANIZER_ACTOR: ActivityActor = { name: "Context organizer", client: null };
@@ -60,6 +62,8 @@ export interface OrganizerSuggestion {
   title: string;
   reason: string;
   status?: string;
+  /** Kind "done": the folder's Done word that accepting writes. */
+  to?: string;
   target?: { path: string; title: string };
   etag?: string | null;
 }
@@ -125,9 +129,18 @@ export async function gatherOrganizerWork(
   const entries = await listEverything(store, clearance);
   const plan = planSweep(entries, now);
   const texts = await readTexts(store, clearance, [
+    ...plan.statusNotes,
     ...plan.projects.map((project) => project.frontPath),
     ...plan.inbox.map((note) => note.path),
   ]);
+  // What "done" is called in the projects folder: its own list, or the defaults.
+  const statusList = resolveStatusList(
+    (plan.roots as { projects?: string | null }).projects ?? "",
+    plan.statusNotes.flatMap((path) => {
+      const read = texts.get(path);
+      return read ? [{ path, properties: noteProperties(read.text) }] : [];
+    }),
+  ).list;
 
   const items: WorkItem[] = [];
   const ready: OrganizerSuggestion[] = [];
@@ -135,7 +148,7 @@ export async function gatherOrganizerWork(
     const read = texts.get(project.frontPath);
     if (!read) continue;
     const withEtag = { ...project, etag: read.etag };
-    const facts = projectFacts(withEtag, read.text, now);
+    const facts = projectFacts(withEtag, read.text, now, statusList);
     if (!facts.status || facts.optedOut) continue;
     if (facts.closed) {
       const archive = archiveSuggestion(withEtag, facts);
@@ -202,7 +215,7 @@ async function apply(
   if (suggestion.kind === "done") {
     const note = await readFile(store, { path: suggestion.path, clearance });
     if (note.encrypted || note.readOnly) throw new FileOpError("CONFLICT", "This note can't be changed here.");
-    const changed = setNoteProperty(note.text, "status", "done") as { text?: string; error?: string };
+    const changed = setNoteProperty(note.text, "status", suggestion.to ?? "done") as { text?: string; error?: string };
     if (typeof changed.text !== "string") throw new FileOpError("PATH_INVALID", changed.error ?? "Couldn't set the status.");
     const written = await writeFile(store, { path: note.path, text: changed.text, expectedEtag: note.etag, clearance, now });
     await recordActivity(store, { action: "file.write", paths: [written.path], details: { organizer: "done", reason: suggestion.reason }, actor });

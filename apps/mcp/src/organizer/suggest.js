@@ -56,6 +56,7 @@ export function doneSuggestion(project, facts, answers) {
     title: facts.title,
     reason: doneReason(facts, answers),
     status: facts.status,
+    to: facts.doneWord ?? "done",
     etag: project.etag ?? null,
   };
 }

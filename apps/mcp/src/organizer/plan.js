@@ -124,9 +124,16 @@ export function planSweep(entries, now) {
   inbox.sort(newestFirst);
   destinations.sort((a, b) => ["projects", "areas", "resources"].indexOf(a.group) - ["projects", "areas", "resources"].indexOf(b.group) || a.path.localeCompare(b.path));
 
+  // The projects folder's own front note may declare its status words; the
+  // caller reads it to know what "done" is called here.
+  const statusNotes = roots.projects
+    ? FRONT_NOTES.map((name) => `${roots.projects}/${name}`).filter((path) => notes.some((entry) => entry.path === path))
+    : [];
+
   return {
     roots,
     now,
+    statusNotes,
     projects: projects.slice(0, MAX_SWEEP_PROJECTS),
     inbox: inbox.slice(0, MAX_SWEEP_INBOX),
     destinations: destinations.slice(0, MAX_DESTINATIONS),

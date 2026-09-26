@@ -148,6 +148,11 @@ export async function runOrganizerChecks(check) {
   check("a note that says organize: off is left alone", doneSuggestion(incident, optedOut, doneAnswers()) === null);
   check("a project with no status is not a project", doneSuggestion(incident, projectFacts(incident, "# no status", NOW), doneAnswers()) === null);
 
+  const shipList = { "not-started": [], "in-progress": ["building"], done: ["shipped", "dropped"] };
+  const custom = projectFacts(incident, "---\nstatus: building\n---\n", NOW, shipList);
+  check("mark done writes the folder's own Done word", doneSuggestion(incident, custom, doneAnswers())?.to === "shipped");
+  check("with no list declared it writes the default Done word", doneSuggestion(incident, facts, doneAnswers())?.to === "finished");
+  check("a folder's own Done word closes a project", projectFacts(incident, "---\nstatus: dropped\n---\n", NOW, shipList).closed === true);
   const closedOld = projectFacts({ ...domains, updatedAt: NOW - 21 * DAY }, "---\nstatus: done\n---\n", NOW);
   const archive = archiveSuggestion({ ...domains, updatedAt: NOW - 21 * DAY }, closedOld);
   check("a done project quiet for three weeks is suggested for the archive", archive?.kind === "archive" && archive.path === "1-projects/custom-domains" && archive.reason === "Done, and quiet for 3 weeks");
