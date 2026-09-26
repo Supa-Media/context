@@ -261,7 +261,8 @@ function Page({
     return own === null ? { title: null, blocks: parsed } : { title: own, blocks: parsed.slice(1) };
   }, [markdown]);
   useEffect(() => setTyped(false), [markdown]);
-  useTypingHint(() => setTyped(true));
+  const onType = useCallback(() => setTyped(true), []);
+  useTypingHint(onType);
 
   return (
     <ScreenScroll style={styles.page} contentContainerStyle={[styles.pageContent, compact && styles.pageContentCompact]} testID="home-page">
