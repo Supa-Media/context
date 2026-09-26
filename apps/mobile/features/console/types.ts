@@ -22,6 +22,7 @@ import type { GroupsView } from "./groups/groups";
 import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
+import type { OrganizerView } from "../organizer/useOrganizer";
 import type { ConnectFormValues } from "./storage/connect";
 
 /**
@@ -381,6 +382,11 @@ export interface ConsoleData {
    * the demo console and until the first answer lands.
    */
   agents?: AgentActivityView;
+  /**
+   * Auto-organize for the selected workspace (`features/organizer`). Absent on
+   * the demo console; every surface treats absence as drawing nothing.
+   */
+  organizer?: OrganizerView;
   /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.

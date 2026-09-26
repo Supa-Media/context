@@ -72,6 +72,6 @@ goes through it, and it can collect usage and cost and be switched off.
   become a bill.
 
 A feature ships with `onByDefault: false` until its screens are live.
-Auto-organize is off in the registry until its app screens merge. While a
+Auto-organize shipped off in the registry until its app screens merged, then on. While a
 feature is off it does not exist: `organizerAvailable` reads the switch, so
 there is no notice, no sweep and no write.

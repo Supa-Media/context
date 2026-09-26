@@ -27,6 +27,7 @@ import { createRoot } from "react-dom/client";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FolderView } from "../features/console/files/FolderView";
 import type { FolderPageHost } from "../features/console/files/folderPage/FolderPage";
+import { SETTLE_AFTER } from "../features/console/files/folderPage/useFolderPage";
 import { forgetViews } from "../features/console/files/folderPage/viewMemory";
 import type { ListNote } from "../features/console/files/listBlock/model";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
@@ -565,5 +566,66 @@ describe("a word nobody placed", () => {
     expect(writes).toEqual([]);
     await press(one("statuses-confirm-go"));
     expect(writes).toEqual([["1-projects/web/overview.md", "status", "in progress", undefined]]);
+  });
+});
+
+/**
+ * Dev2: "when opening projects it starts out as not-started and then snaps
+ * into its proper space". The device's first answer can come before it has
+ * the folder's notes (incomplete, none of them yet), and a Board drawn from it
+ * put every card under No status with its file name, then moved them all. A
+ * List or Board now holds an empty place until the notes can say where each
+ * item goes, or until `SETTLE_AFTER` has passed.
+ */
+describe("opening a board before the device has the folder's notes", () => {
+  function arriving(): { page: FolderPageHost; arrive: () => Promise<void> } {
+    let current: { notes: ListNote[]; complete: boolean } = { notes: [], complete: false };
+    const listeners: (() => void)[] = [];
+    const page: FolderPageHost = {
+      ...host([]),
+      source: {
+        ...host([]).source,
+        load: async () => current,
+        subscribe: (listener: () => void) => {
+          listeners.push(listener);
+          return () => {};
+        },
+      },
+    };
+    return {
+      page,
+      arrive: async () => {
+        current = { notes: NOTES, complete: true };
+        await act(async () => listeners.forEach((listener) => listener()));
+        await act(async () => {});
+      },
+    };
+  }
+
+  test("holds an empty place, then draws every card where it belongs, once", async () => {
+    const { page, arrive } = arriving();
+    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    await press(one("folder-view-board"));
+    expect(all("folder-waiting")).toHaveLength(1);
+    expect(all("folder-card")).toHaveLength(0);
+    await arrive();
+    expect(all("folder-waiting")).toHaveLength(0);
+    expect(all("folder-board-column").map((column) => column.getAttribute("aria-label"))).toEqual([
+      "No status, 2",
+      "In progress, 0",
+      "Active, 1",
+      "Paused, 1",
+      "Finished, 0",
+    ]);
+  });
+
+  test("draws what it has once it has waited long enough", async () => {
+    const { page } = arriving();
+    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    await press(one("folder-view-board"));
+    expect(all("folder-waiting")).toHaveLength(1);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, SETTLE_AFTER + 50)));
+    expect(all("folder-waiting")).toHaveLength(0);
+    expect(all("folder-card").length).toBeGreaterThan(0);
   });
 });
