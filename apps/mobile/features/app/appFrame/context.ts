@@ -15,6 +15,14 @@ import {
 /*                                   context                                  */
 /* -------------------------------------------------------------------------- */
 
+/** `‹ ›` over the console's own history, for the title row. See `topBar`. */
+export interface FrameHistory {
+  canBack: boolean;
+  canForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
+}
+
 export interface FrameApi {
   density: Density;
   regions: Regions;

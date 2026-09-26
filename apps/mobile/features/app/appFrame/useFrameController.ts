@@ -27,7 +27,7 @@ import {
   type FrameState,
 } from "../frame";
 import { setBottomChromeHeight } from "../bottomChrome";
-import { useShellBandAbovePx, useShellLightsLeadPx } from "../ShellTitleBandView";
+import { useShellBandAbovePx, useShellLightsLeadPx, useWindowFillsScreen } from "../ShellTitleBandView";
 import { setTopChromeHoldsLights } from "../topChrome";
 import { NO_CONTENT_INSETS, type FrameApi } from "./context";
 
@@ -77,8 +77,17 @@ export function useFrameController({
     the honest answer to "is this frame holding them", and what the handshake
     publishes.
   */
-  const lightsLeadPx = useShellLightsLeadPx(lightsInBarFor(density));
-  const holdsLights = lightsLeadPx > 0;
+  const claimedLeadPx = useShellLightsLeadPx(lightsInBarFor(density));
+  const holdsLights = claimedLeadPx > 0;
+  /*
+    The room, as against the claim. macOS takes the buttons away in full
+    screen, and the 84pt they needed goes with them — the owner's words were
+    "reverting when the traffic lights are gone". The bar still *holds* them
+    (the root band must not come back and add a 45pt strip nothing sits in);
+    it only stops leaving room for three buttons that are not there.
+  */
+  const fullScreen = useWindowFillsScreen();
+  const lightsLeadPx = fullScreen ? 0 : claimedLeadPx;
 
   /*
     What the desktop shell's title band still takes out of the window above

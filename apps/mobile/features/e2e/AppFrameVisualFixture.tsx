@@ -206,6 +206,9 @@ export function AppFrameVisualFixture({
       }}
     >
       <AppFrame
+        // `‹ ›` in the title row over the tree, as the console passes them:
+        // somewhere to go back to, nowhere forward yet.
+        history={{ canBack: true, canForward: false, onBack: () => {}, onForward: () => {} }}
         // The account button's fallback, while the tree is folded away.
         account={
           <SwitcherMenu
