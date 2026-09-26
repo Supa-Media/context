@@ -43,6 +43,7 @@ import {
   writeFile,
   writeImage,
 } from "../fileOps";
+import { ensureFolderVisibility } from "../fileOps/visibility";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -832,14 +833,25 @@ export async function executeOperation(
         return { kind: "visibility", ...result };
       }
       case "setFolderVisibility": {
-        const result = await setFolderVisibility(store, {
-          path: operation.path,
-          visibility: operation.visibility,
-          clearance,
-        });
-        await noteActivity("visibility.folder", [operation.path], {
-          to: operation.visibility,
-        });
+        const { result, changed } = operation.onlyIfUnset === true
+          ? await ensureFolderVisibility(store, {
+              path: operation.path,
+              visibility: operation.visibility,
+              clearance,
+            })
+          : {
+              result: await setFolderVisibility(store, {
+                path: operation.path,
+                visibility: operation.visibility,
+                clearance,
+              }),
+              changed: true,
+            };
+        if (changed) {
+          await noteActivity("visibility.folder", [operation.path], {
+            to: operation.visibility,
+          });
+        }
         return { kind: "visibility", ...result };
       }
       case "writeImage": {

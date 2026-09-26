@@ -187,6 +187,13 @@ export const workspaceTables = {
      * later intentional homepage deletion is left alone.
      */
     starterEnsuredAt: v.optional(v.number()),
+    /**
+     * Set once `privacy.md` has been given its `website` folder rule (or
+     * found to have one already). Enabled rows from before the website read
+     * `privacy.md` get one absent-only repair; a rule the owner later changes
+     * is theirs and is never rewritten.
+     */
+    publicationRuleEnsuredAt: v.optional(v.number()),
     /** Monotonic fence: an older bucket scan may never replace a newer one. */
     routeGeneration: v.optional(v.number()),
     routeReconciledGeneration: v.optional(v.number()),

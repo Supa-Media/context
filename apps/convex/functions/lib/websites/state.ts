@@ -26,6 +26,7 @@ import type {
 } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { callerId } from "../filesFns/access";
+import { ensureWebsitePublicationRule } from "./publication";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 
 const STARTER_PATH = `${DEFAULT_WEBSITE_ROOT}/index.md`;
@@ -124,6 +125,7 @@ export async function recordWebsiteEnabledHandler(
       enabledAt: now,
       enabledBy: args.actorUserId,
       starterEnsuredAt: now,
+      publicationRuleEnsuredAt: now,
       updatedAt: now,
     });
   } else {
@@ -132,6 +134,7 @@ export async function recordWebsiteEnabledHandler(
       enabledAt: now,
       enabledBy: args.actorUserId,
       starterEnsuredAt: now,
+      publicationRuleEnsuredAt: now,
       updatedAt: now,
     });
   }
@@ -299,7 +302,42 @@ export async function markWebsiteStarterEnsuredHandler(
   return true;
 }
 
-/** Public action: safe starter first, lifecycle state second. */
+/** Whether this enabled site predates its `privacy.md` folder rule. */
+export async function websitePublicationRepairNeededHandler(
+  ctx: QueryCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<boolean> {
+  const state = await stateRow(ctx, args.workspaceId);
+  return (
+    state?.state === "enabled" && state.publicationRuleEnsuredAt === undefined
+  );
+}
+
+/** Mark the one publication-rule repair complete while the site is enabled. */
+export async function markWebsitePublicationEnsuredHandler(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces"> },
+): Promise<boolean> {
+  const state = await stateRow(ctx, args.workspaceId);
+  if (
+    state?.state !== "enabled" ||
+    state.publicationRuleEnsuredAt !== undefined
+  ) {
+    return false;
+  }
+  const now = Date.now();
+  await ctx.db.patch(state._id, {
+    publicationRuleEnsuredAt: now,
+    updatedAt: now,
+  });
+  return true;
+}
+
+/**
+ * Public action: safe starter, then the `privacy.md` rule that publishes the
+ * folder, then lifecycle state — so a site is never recorded as enabled over a
+ * folder the manifest has not been told about.
+ */
 export async function enableWebsiteHandler(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces"> },
@@ -326,6 +364,11 @@ export async function enableWebsiteHandler(
     actorUserId,
     scope: access.scope,
     grantedNames: access.grantedNames,
+    actorName: access.actorName,
+  });
+  await ensureWebsitePublicationRule(ctx, {
+    workspaceId: args.workspaceId,
+    actorUserId,
     actorName: access.actorName,
   });
   const enabled = await ctx.runMutation(

@@ -22,6 +22,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { isEncryptedNote } from "../noteEncryption";
+import { PUBLICATION_CLEARANCE } from "./publication";
 
 /** The files that could hold `routePath`: `about.md` or `about/index.md`. */
 export function websiteCandidateKeys(routePath: string): string[] {
@@ -49,8 +50,9 @@ export async function probeWebsitePage(
   const read = await ctx
     .runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
-      scope: "private",
-      grantedNames: [],
+      // What `privacy.md` does not publish is absent here, exactly as it is
+      // absent from the index; see `publication.ts`.
+      ...PUBLICATION_CLEARANCE,
       operation: { kind: "readMany", paths: keys },
     })
     .catch(() => null);

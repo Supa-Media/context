@@ -80,7 +80,7 @@ describe("the words", () => {
 
   test("turning on names the file it may add and what stays private", () => {
     expect(websiteWarning(off(), "context.lc/@acme")).toBe(
-      "Pages in the website folder go live at context.lc/@acme. Nothing outside it is published. If there's no homepage, website/index.md is created.",
+      "Pages in the website folder go live at context.lc/@acme, except notes you keep private. Nothing outside it is published. If there's no homepage, website/index.md is created.",
     );
   });
 

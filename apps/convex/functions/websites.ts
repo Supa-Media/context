@@ -29,7 +29,9 @@ import {
 } from "./lib/websites/resolver";
 import { websiteLinkCatalogHandler } from "./lib/websites/linkCatalog";
 import {
+  markWebsitePublicationEnsuredHandler,
   markWebsiteStarterEnsuredHandler,
+  websitePublicationRepairNeededHandler,
   websiteStarterRepairNeededHandler,
 } from "./lib/websites/state";
 
@@ -123,6 +125,7 @@ const resolutionPlanValidator = v.union(
     title: v.string(),
     description: v.union(v.string(), v.null()),
     viewerAudience: v.union(v.literal("public"), v.literal("members")),
+    releaseFallback: v.boolean(),
     releaseId: v.optional(v.string()),
     releasePageId: v.optional(v.string()),
   }),
@@ -258,6 +261,18 @@ export const markWebsiteStarterEnsured = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: markWebsiteStarterEnsuredHandler,
+});
+
+export const websitePublicationRepairNeeded = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: websitePublicationRepairNeededHandler,
+});
+
+export const markWebsitePublicationEnsured = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: markWebsitePublicationEnsuredHandler,
 });
 
 export const reconcileWorkspace = internalAction({
