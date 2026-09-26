@@ -41,7 +41,7 @@ export function setNoteProperty(text, key, value) {
     if (written === null) return { error: "a value cannot hold both kinds of quote" };
   }
 
-  const bom = text.startsWith("﻿") ? "﻿" : "";
+  const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
   const source = text.slice(bom.length);
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.split(/\r?\n/);

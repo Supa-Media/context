@@ -34,9 +34,9 @@ export function runSetPropertyChecks(check) {
   check("an empty note gets one", set("", "status", "active").text === "---\nstatus: active\n---\n");
   check("an empty frontmatter gains the line", set("---\n---\nx", "owner", "Ada").text === "---\nowner: Ada\n---\nx");
   {
-    const crlf = "﻿---\r\nstatus: planned\r\n---\r\nbody\r\n";
+    const crlf = "\uFEFF---\r\nstatus: planned\r\n---\r\nbody\r\n";
     const { text } = set(crlf, "status", "active");
-    check("line endings and a byte-order mark are kept", text === "﻿---\r\nstatus: active\r\n---\r\nbody\r\n");
+    check("line endings and a byte-order mark are kept", text === "\uFEFF---\r\nstatus: active\r\n---\r\nbody\r\n");
   }
   {
     const listed = "---\nowner:\n  - Seyi\n  - Ada\ntags: [a]\n---\n";
