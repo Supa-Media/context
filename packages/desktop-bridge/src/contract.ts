@@ -58,7 +58,7 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 7;
+export const BRIDGE_VERSION = 8;
 
 /**
  * The oldest bridge this bundle will still talk to.
@@ -657,6 +657,34 @@ export interface DesktopBridge {
     /** One question. Resolves with an answer or with a sentence, never a throw. */
     ask(request: LocalAgentAsk): Promise<LocalAgentReply>;
   };
+
+  /**
+   * The operating system's spell checker, for the note's own right-click
+   * menu. **Version 8.**
+   *
+   * The note editor replaces the browser's context menu with its own, and
+   * spelling suggestions live in the browser's menu and nowhere else a page
+   * can reach — the web has no API for "is this word underlined" or "what
+   * would you suggest". The shell does: Electron's `webFrame` asks the same
+   * checker that drew the red underline. So the menu asks here, and a browser
+   * falls back to Shift-right-click.
+   *
+   * Answered in the preload, over no channel: the word goes to the checker in
+   * the renderer that already holds the page, and nothing reaches the main
+   * process. Optional for `MIN_BRIDGE_VERSION`'s reason, like `agent` above.
+   */
+  spelling?: {
+    check(word: string): Promise<SpellingCheck>;
+  };
+}
+
+/**
+ * What the checker said about one word. `suggestions` is empty for a word it
+ * accepts, and may be empty for one it flags but cannot place.
+ */
+export interface SpellingCheck {
+  misspelled: boolean;
+  suggestions: string[];
 }
 
 /**

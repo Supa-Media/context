@@ -82,7 +82,7 @@ export function installed(options = {}) {
   const exposed = installDesktopBridge(renderer.host, renderer.ipc, {
     origin: options.origin ?? PINNED,
     isTopFrame: options.isTopFrame ?? true,
-  });
+  }, options.speller);
   return { ...renderer, exposed, bridge: renderer.world.desktop };
 }
 

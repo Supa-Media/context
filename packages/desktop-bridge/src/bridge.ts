@@ -179,6 +179,8 @@ const REQUIRED_MEMBERS: Readonly<Record<number, readonly string[]>> = Object.fre
     row 1 carries.
   */
   7: VERSION_1_MEMBERS,
+  /** Version 8 adds `spelling`, a sub-object again. */
+  8: VERSION_1_MEMBERS,
 });
 
 /** The sub-objects, and the methods each must carry, per version. */
@@ -258,6 +260,16 @@ const REQUIRED_SUB_MEMBERS: Readonly<
     ...VERSION_3_SUB_MEMBERS,
     imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
     agent: Object.freeze(["status", "ask"]),
+  }),
+  /*
+    Version 8 adds `spelling`. Rows 1-7 are untouched: a v7 shell has no
+    checker to ask, and the note menu falls back to the browser's hint.
+  */
+  8: Object.freeze({
+    ...VERSION_3_SUB_MEMBERS,
+    imessage: Object.freeze(["status", "setEnabled", "requestFullDiskAccess", "onChange"]),
+    agent: Object.freeze(["status", "ask"]),
+    spelling: Object.freeze(["check"]),
   }),
 });
 

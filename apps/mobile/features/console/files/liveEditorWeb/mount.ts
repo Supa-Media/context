@@ -21,7 +21,7 @@ import type { NoteLinkContext } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
 import { listHost, type ListHostRef } from "../listBlock/model";
 import type { ImageHostRef } from "../imageBlock";
-import type { EditorControls, EditorHandlers, LiveEditorProps, MenuPoint } from "./contract";
+import type { EditorControls, EditorHandlers, LiveEditorProps, MenuOpen, MenuPoint } from "./contract";
 import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
 
@@ -67,7 +67,7 @@ export function mountEditor({
   onPreviewLinks: LiveEditorProps["onPreviewLinks"];
   previews: { current: PluginPreviewRef };
   collab: { current: Compartment };
-  setMenuAt: (at: MenuPoint | null) => void;
+  setMenuAt: (at: MenuOpen | null) => void;
   setTableAt: (at: MenuPoint | null) => void;
 }): (() => void) | undefined {
   if (host.current === null) return;
